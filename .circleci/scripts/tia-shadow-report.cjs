@@ -123,8 +123,11 @@ function guardedSelection(r, selected) {
   if (!mustRun) return none("must-run-unknown");
   if (mustRun.some((m) => !r.allSpecs.has(m))) return none("must-run-missing");
   const union = new Set([...selected, ...mustRun]);
+  // The status follows the guarded selection, with measureRaw's rules: must-run specs can lift an
+  // empty raw selection, or make the union cover every spec.
+  const status = union.size === 0 ? "empty-selection" : union.size === r.totalSpecs ? "all-selected" : "measured";
   const guarded = {
-    status: r.status,
+    status,
     selectedSpecs: union.size,
     selectionRatio: r.totalSpecs ? union.size / r.totalSpecs : null,
     misses: r.failingSpecs.filter((s) => !union.has(s)),

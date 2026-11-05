@@ -198,7 +198,7 @@ function git(repo, args) {
 // The whole PR diff against merge-base(origin/main, HEAD), or a FORCE_FULL result on any doubt.
 function evaluate(repo, branch) {
   const ctx = { branch: branch || "", base: null, head: null };
-  const full = (reason) => ({ ...ctx, decision: FORCE_FULL, reason, forcing: [], changed: [] });
+  const full = (reason) => ({ ...ctx, decision: FORCE_FULL, reason, forcing: [], changed: [], neutral: [], mustRun: [] });
   const first = (e) => e.message.split("\n")[0];
   if (!branch) return full("unknown branch (CIRCLE_BRANCH empty)");
   if (branch === "main") return full("push to main");
@@ -255,7 +255,7 @@ function main(argv, env) {
   try {
     result = evaluate(repo, env.CIRCLE_BRANCH);
   } catch (e) {
-    result = { branch: env.CIRCLE_BRANCH || "", base: null, head: null, decision: FORCE_FULL, reason: `unexpected error: ${e.message}`, forcing: [], changed: [] };
+    result = { branch: env.CIRCLE_BRANCH || "", base: null, head: null, decision: FORCE_FULL, reason: `unexpected error: ${e.message}`, forcing: [], changed: [], neutral: [], mustRun: [] };
   }
   const text = report(result);
   console.log(text);

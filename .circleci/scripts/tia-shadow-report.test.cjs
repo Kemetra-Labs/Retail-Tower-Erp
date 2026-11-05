@@ -228,3 +228,15 @@ test("FORCE_FULL ignores must-run (every spec runs anyway)", () => {
   const { json } = run({ guard: full({ mustRun: ["test/gone.spec.ts"] }) });
   assert.deepEqual(json.guarded, { status: "force-full", selectedSpecs: 3, selectionRatio: 1, misses: [] });
 });
+
+test("the guarded status follows the union: an empty raw selection lifted by must-run is measured", () => {
+  const { json } = run({ selected: "", guard: eligible({ mustRun: ["test/c.spec.ts"] }) });
+  assert.equal(json.status, "empty-selection", "the raw status is unchanged");
+  assert.deepEqual(json.guarded, { status: "measured", selectedSpecs: 1, selectionRatio: 1 / 3, misses: [], mustRun: ["test/c.spec.ts"] });
+});
+
+test("the guarded status is all-selected when must-run completes the suite", () => {
+  const { json } = run({ selected: "test/a.spec.ts\ntest/b.spec.ts\n", guard: eligible({ mustRun: ["test/c.spec.ts"] }) });
+  assert.equal(json.guarded.status, "all-selected");
+  assert.equal(json.guarded.selectedSpecs, 3);
+});
