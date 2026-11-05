@@ -101,7 +101,7 @@ function readGuard(outDir, sha) {
   if (g.decision === "TIA_ELIGIBLE" && !(head && sha)) {
     return unknown("stale-head", `TIA_ELIGIBLE not pinned to this commit (guard head ${head || "none"}, CIRCLE_SHA1 ${sha || "unset"})`, head);
   }
-  // RT-920: specs the guard requires for neutral changes (changelog fragments). Anything that is
+  // RT-920: specs the guard requires for neutral changes (a changelog fragment adds one). Anything that is
   // not a list of strings becomes null, and the guarded block then fails closed (see below).
   // A guard.json without the field (written before RT-920) has no must-run specs.
   const mustRun =
@@ -132,7 +132,7 @@ function guardedSelection(r, selected) {
     selectionRatio: r.totalSpecs ? union.size / r.totalSpecs : null,
     misses: r.failingSpecs.filter((s) => !union.has(s)),
   };
-  // Only a PR with neutral changes carries the field, so every earlier report keeps its shape.
+  // Only a non-empty must-run list adds the field, so every earlier report keeps its shape.
   if (mustRun.length) guarded.mustRun = [...mustRun];
   return guarded;
 }
