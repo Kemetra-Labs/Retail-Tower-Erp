@@ -14,7 +14,7 @@ of mappings — never edit it from here, never re-derive its model.
 
 Bootstrap read order for every session:
 
-1. `git fetch origin && git pull --ff-only origin main` — always start from latest `origin/main`.
+1. `git fetch origin`; branch a new task from current `origin/main`, but on an existing task branch or worktree stay on it and compare with `origin/main` (root CLAUDE.md §7).
 2. [.specify/memory/constitution.md](.specify/memory/constitution.md) — 7 Core Principles; supreme source of truth for all design constraints.
 3. [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) — repo engineering gates (constitution deference, branch hygiene, forbidden paths, no-local-bench validation, git discipline, stop conditions); subordinate to the RT operating instructions in the root CLAUDE.md for anything about work source, authority, or scope.
 4. GitHub PRs / reviews — current authoritative state for in-flight work.

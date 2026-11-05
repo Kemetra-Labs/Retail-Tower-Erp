@@ -11,7 +11,7 @@ Multi-tenant SaaS rebuild for Data Pulse. The legacy `Data-Pulse` repo is refere
 
 Bootstrap read order for every agent session:
 
-1. `git fetch origin && git pull --ff-only origin main` — always start from latest `origin/main`.
+1. `git fetch origin`; branch a new task from current `origin/main`, but on an existing task branch or worktree stay on it and compare with `origin/main` (root CLAUDE.md §7).
 2. [.specify/memory/constitution.md](.specify/memory/constitution.md) — 14 Core Principles; source of truth for all design constraints.
 3. [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) — repo engineering gates only (branch hygiene, forbidden paths, git discipline, reporting format); subordinate to the RT operating instructions in the root CLAUDE.md for anything about work source, authority, or scope.
 4. GitHub PRs / CI checks / CodeRabbit reviews — current authoritative state for in-flight work.

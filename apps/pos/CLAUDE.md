@@ -30,7 +30,7 @@ the POS surface of the platform, packaged as an Electron application targeting W
 
 ## Active feature
 
-Current work comes from Jira RT. Visual authority: [`docs/DESIGN.md`](docs/DESIGN.md). Feature history lives in `specs/` and git log.
+Current work comes from Jira RT. Visual authority follows the authoritative-documents table above: the UX/UI Constitution and its VNext Rebaseline rank above [`docs/DESIGN.md`](docs/DESIGN.md), the shipped-token record. Feature history lives in `specs/` and git log.
 
 ## Spec Kit workflow
 
