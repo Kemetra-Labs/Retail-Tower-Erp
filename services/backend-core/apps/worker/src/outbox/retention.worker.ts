@@ -1,9 +1,8 @@
 /**
  * OutboxRetentionWorker -- T590 Layer B.
  *
- * Thin BullMQ glue for the outbox retention sweep queue. Mirrors
- * `AuditRetentionWorker` exactly, substituting the queue name and
- * processor.
+ * Thin BullMQ glue for the outbox retention sweep queue (shared
+ * `RepeatableWorker` base, RT-1210).
  *
  * Queue name (`"outbox-retention"`) is the transport channel. The only
  * job name carried by this queue is `"outbox-retention-sweep"`, validated
@@ -18,19 +17,12 @@
  * value (`purgedCount`, `batchCount`, `durationMs`) carries everything
  * an operator needs without touching row data.
  */
-import {
-  Inject,
-  Injectable,
-  type OnModuleDestroy,
-} from "@nestjs/common";
-import {
-  DEFAULT_WORKER_OPTIONS,
-} from "@data-pulse-2/shared/queues/queue-config";
+import { Inject, Injectable } from "@nestjs/common";
 import { OutboxRetentionProcessor } from "./retention.processor";
+import { RepeatableWorker } from "../common/repeatable-worker";
 import {
   type JobLike,
   type WorkerFactory,
-  type WorkerLike,
   WORKER_FACTORY,
 } from "../email/email.worker";
 import { QUEUE_NAMES } from "@data-pulse-2/shared";
@@ -42,47 +34,29 @@ export { WORKER_FACTORY } from "../email/email.worker";
 export type OutboxRetentionJobHandler = (job: JobLike) => Promise<void>;
 
 @Injectable()
-export class OutboxRetentionWorker implements OnModuleDestroy {
-  private worker: WorkerLike | null = null;
-
+export class OutboxRetentionWorker extends RepeatableWorker {
   constructor(
     private readonly processor: OutboxRetentionProcessor,
     @Inject(WORKER_FACTORY)
-    private readonly workerFactory: WorkerFactory,
-  ) {}
+    workerFactory: WorkerFactory,
+  ) {
+    super(OUTBOX_RETENTION_QUEUE_NAME, workerFactory);
+  }
 
-  start(): void {
-    if (this.worker !== null) return;
-    this.worker = this.workerFactory.create(
-      OUTBOX_RETENTION_QUEUE_NAME,
-      async (job: JobLike) => {
-        await this.processor.process(job.name, job.data);
-      },
-      DEFAULT_WORKER_OPTIONS,
-    );
-    this.worker.on("error", (err) => {
-      // PII-safe structured error line: ONLY error class + message text
-      // (which is operator-authored) reach stderr. No payload, no row
-      // contents. Mirrors drainer.processor.ts logError shape.
-      const line = JSON.stringify({
-        level: "error",
-        component: "outbox-retention.worker",
-        message: err.message,
-        name: err.name,
-      });
-      process.stderr.write(line + "\n");
+  protected async handleJob(job: JobLike): Promise<void> {
+    await this.processor.process(job.name, job.data);
+  }
+
+  protected onWorkerError(err: Error): void {
+    // PII-safe structured error line: ONLY error class + message text
+    // (which is operator-authored) reach stderr. No payload, no row
+    // contents. Mirrors drainer.processor.ts logError shape.
+    const line = JSON.stringify({
+      level: "error",
+      component: "outbox-retention.worker",
+      message: err.message,
+      name: err.name,
     });
-  }
-
-  async close(): Promise<void> {
-    const w = this.worker;
-    this.worker = null;
-    if (w !== null) {
-      await w.close();
-    }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.close();
+    process.stderr.write(line + "\n");
   }
 }

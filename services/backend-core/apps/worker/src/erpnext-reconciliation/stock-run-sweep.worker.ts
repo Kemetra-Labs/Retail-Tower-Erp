@@ -1,32 +1,26 @@
 /**
  * RT-179 — BullMQ glue for the scheduled stock reconciliation run sweep.
  *
- * Mirrors `AuditRetentionWorker`: consumes the
- * `erpnext-stock-reconciliation-sweep` queue, whose only job is the repeatable
- * sweep registered by `StockRunSweepScheduler`, and hands each job to
- * `StockRunSweepProcessor`. Started by `bootstrap()` in main.ts; closed by
- * Nest's `onModuleDestroy` on shutdown.
+ * Consumes the `erpnext-stock-reconciliation-sweep` queue, whose only job is
+ * the repeatable sweep registered by `StockRunSweepScheduler`, and hands each
+ * job to `StockRunSweepProcessor` (shared `RepeatableWorker` base, RT-1210).
  *
  * Worker-level errors go through the shared pino logger (`createLogger`, with
  * the repo redaction paths) carrying the error CLASS only. A BullMQ / Redis
  * error message can embed a connection string or credential, so it is never
  * logged (§VII / §XIV, the outbox drainer's rule).
  */
-import { Inject, Injectable, Optional, type OnModuleDestroy } from "@nestjs/common";
-import { createLogger, QUEUE_NAMES, type Logger } from "@data-pulse-2/shared";
-import { DEFAULT_WORKER_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
+import { Inject, Injectable, Optional } from "@nestjs/common";
+import { QUEUE_NAMES } from "@data-pulse-2/shared";
 
 import {
-  type JobLike,
-  type WorkerFactory,
-  type WorkerLike,
-  WORKER_FACTORY,
-} from "../email/email.worker";
-import {
-  errorClassName,
-  scheduledAtFromJobId,
-  StockRunSweepProcessor,
-} from "./stock-run-sweep.processor";
+  defaultWorkerLogger,
+  logWorkerErrorClass,
+  RepeatableWorker,
+  type WorkerErrorLogger,
+} from "../common/repeatable-worker";
+import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email/email.worker";
+import { scheduledAtFromJobId, StockRunSweepProcessor } from "./stock-run-sweep.processor";
 
 export const STOCK_RUN_SWEEP_QUEUE_NAME = QUEUE_NAMES.erpnextStockReconciliationSweep;
 
@@ -35,55 +29,33 @@ const COMPONENT = "erpnext-reconciliation.stock-run-sweep.worker";
 /** DI token for an injected logger (tests); production uses the shared pino logger. */
 export const STOCK_RUN_SWEEP_WORKER_LOGGER = "STOCK_RUN_SWEEP_WORKER_LOGGER";
 
-export type StockRunSweepWorkerLogger = Pick<Logger, "error">;
-
-function defaultLogger(): StockRunSweepWorkerLogger {
-  return createLogger({ service: "backend-worker", bindings: { component: COMPONENT } });
-}
+export type StockRunSweepWorkerLogger = WorkerErrorLogger;
 
 @Injectable()
-export class StockRunSweepWorker implements OnModuleDestroy {
-  private worker: WorkerLike | null = null;
+export class StockRunSweepWorker extends RepeatableWorker {
   private readonly logger: StockRunSweepWorkerLogger;
 
   constructor(
     private readonly processor: StockRunSweepProcessor,
     @Inject(WORKER_FACTORY)
-    private readonly workerFactory: WorkerFactory,
+    workerFactory: WorkerFactory,
     @Optional()
     @Inject(STOCK_RUN_SWEEP_WORKER_LOGGER)
     logger?: StockRunSweepWorkerLogger,
   ) {
-    this.logger = logger ?? defaultLogger();
+    super(STOCK_RUN_SWEEP_QUEUE_NAME, workerFactory);
+    this.logger = logger ?? defaultWorkerLogger(COMPONENT);
   }
 
-  start(): void {
-    if (this.worker !== null) return;
-    this.worker = this.workerFactory.create(
-      STOCK_RUN_SWEEP_QUEUE_NAME,
-      async (job: JobLike) => {
-        await this.processor.processJob({
-          name: job.name,
-          data: job.data,
-          scheduledAt: scheduledAtFromJobId(job.id),
-        });
-      },
-      DEFAULT_WORKER_OPTIONS,
-    );
-    this.worker.on("error", (err) => {
-      this.logger.error({ component: COMPONENT, errorName: errorClassName(err) }, "worker_error");
+  protected async handleJob(job: JobLike): Promise<void> {
+    await this.processor.processJob({
+      name: job.name,
+      data: job.data,
+      scheduledAt: scheduledAtFromJobId(job.id),
     });
   }
 
-  async close(): Promise<void> {
-    const w = this.worker;
-    this.worker = null;
-    if (w !== null) {
-      await w.close();
-    }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.close();
+  protected onWorkerError(err: Error): void {
+    logWorkerErrorClass(this.logger, COMPONENT, err);
   }
 }

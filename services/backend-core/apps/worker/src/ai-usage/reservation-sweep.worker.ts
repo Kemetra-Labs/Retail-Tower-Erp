@@ -1,28 +1,25 @@
 /**
  * RT-664 — BullMQ glue for the AI usage reservation sweep (T17).
  *
- * Mirrors `StockRunSweepWorker`: consumes the `ai-usage-reservation-sweep`
- * queue, whose only job is the repeatable sweep registered by
- * `ReservationSweepScheduler`, and hands each job to `ReservationSweepProcessor`.
- * Started by `bootstrap()` in main.ts; closed by Nest's `onModuleDestroy` on
- * shutdown.
+ * Consumes the `ai-usage-reservation-sweep` queue, whose only job is the
+ * repeatable sweep registered by `ReservationSweepScheduler`, and hands each
+ * job to `ReservationSweepProcessor` (shared `RepeatableWorker` base, RT-1210).
  *
  * Worker-level errors go through the shared pino logger (`createLogger`, with
  * the repo redaction paths) carrying the error CLASS only. A BullMQ / Redis
  * error message can embed a connection string or credential, so it is never
  * logged (§VII / §XIV).
  */
-import { Inject, Injectable, Optional, type OnModuleDestroy } from "@nestjs/common";
-import { createLogger, QUEUE_NAMES, type Logger } from "@data-pulse-2/shared";
-import { DEFAULT_WORKER_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
+import { Inject, Injectable, Optional } from "@nestjs/common";
+import { QUEUE_NAMES } from "@data-pulse-2/shared";
 
 import {
-  type JobLike,
-  type WorkerFactory,
-  type WorkerLike,
-  WORKER_FACTORY,
-} from "../email/email.worker";
-import { errorClassName } from "../erpnext-reconciliation/stock-run-sweep.processor";
+  defaultWorkerLogger,
+  logWorkerErrorClass,
+  RepeatableWorker,
+  type WorkerErrorLogger,
+} from "../common/repeatable-worker";
+import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email/email.worker";
 import { ReservationSweepProcessor } from "./reservation-sweep.processor";
 
 export const RESERVATION_SWEEP_QUEUE_NAME = QUEUE_NAMES.aiUsageReservationSweep;
@@ -32,51 +29,29 @@ const COMPONENT = "ai-usage.reservation-sweep.worker";
 /** DI token for an injected logger (tests); production uses the shared pino logger. */
 export const RESERVATION_SWEEP_WORKER_LOGGER = "RESERVATION_SWEEP_WORKER_LOGGER";
 
-export type ReservationSweepWorkerLogger = Pick<Logger, "error">;
-
-function defaultLogger(): ReservationSweepWorkerLogger {
-  return createLogger({ service: "backend-worker", bindings: { component: COMPONENT } });
-}
+export type ReservationSweepWorkerLogger = WorkerErrorLogger;
 
 @Injectable()
-export class ReservationSweepWorker implements OnModuleDestroy {
-  private worker: WorkerLike | null = null;
+export class ReservationSweepWorker extends RepeatableWorker {
   private readonly logger: ReservationSweepWorkerLogger;
 
   constructor(
     private readonly processor: ReservationSweepProcessor,
     @Inject(WORKER_FACTORY)
-    private readonly workerFactory: WorkerFactory,
+    workerFactory: WorkerFactory,
     @Optional()
     @Inject(RESERVATION_SWEEP_WORKER_LOGGER)
     logger?: ReservationSweepWorkerLogger,
   ) {
-    this.logger = logger ?? defaultLogger();
+    super(RESERVATION_SWEEP_QUEUE_NAME, workerFactory);
+    this.logger = logger ?? defaultWorkerLogger(COMPONENT);
   }
 
-  start(): void {
-    if (this.worker !== null) return;
-    this.worker = this.workerFactory.create(
-      RESERVATION_SWEEP_QUEUE_NAME,
-      async (job: JobLike) => {
-        await this.processor.process(job.name, job.data);
-      },
-      DEFAULT_WORKER_OPTIONS,
-    );
-    this.worker.on("error", (err) => {
-      this.logger.error({ component: COMPONENT, errorName: errorClassName(err) }, "worker_error");
-    });
+  protected async handleJob(job: JobLike): Promise<void> {
+    await this.processor.process(job.name, job.data);
   }
 
-  async close(): Promise<void> {
-    const w = this.worker;
-    this.worker = null;
-    if (w !== null) {
-      await w.close();
-    }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.close();
+  protected onWorkerError(err: Error): void {
+    logWorkerErrorClass(this.logger, COMPONENT, err);
   }
 }
