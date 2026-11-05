@@ -1,0 +1,15 @@
+{
+  "path": ["src"],
+  "format": ["typescript", "tsx"],
+  "crossFormats": [["typescript", "tsx"]],
+  "ignore": [
+    "src/generated/**",
+    "src/i18n/messages/**",
+    "**/*.d.ts",
+    "design_handoff_retail_tower_console/**"
+  ],
+  "minTokens": 50,
+  "reporters": ["json"],
+  "silent": true,
+  "gitignore": true
+}
