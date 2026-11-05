@@ -14,12 +14,12 @@
  * Why this controller is NOT guarded by `TenantContextGuard`
  * ---------------------------------------------------------
  * Tenant ID for `:id`-routes comes from the URL **path**, NOT from
- * `request.context.tenantId`. The TenantContextGuard / ALS pipeline
+ * `request.context.tenantId`. The TenantContextGuard pipeline
  * (PRs #19/#20) is for store-scoped and active-tenant-scoped
  * operations; tenant-admin work on a specific tenant ID is
  * fundamentally different — the path IS the context. The service
  * therefore calls `runWithTenantContext` directly with the path
- * tenant id, NOT `runRequestScopedTenantContext`.
+ * tenant id, NOT the request's resolved context.
  *
  * Authorization
  * -------------

@@ -48,7 +48,6 @@ import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
-import { ContextInterceptor } from "../../src/context/context.interceptor";
 import { ContextModule } from "../../src/context/context.module";
 import { StoresModule } from "../../src/stores/stores.module";
 import { TenantsModule } from "../../src/tenants/tenants.module";
@@ -170,7 +169,6 @@ beforeAll(async () => {
     app.useGlobalInterceptors(
       new RequestIdInterceptor(),
       new LoggingInterceptor(logger),
-      new ContextInterceptor(),
     );
     app.useGlobalFilters(new GlobalExceptionFilter());
     app.useGlobalPipes(new ZodValidationPipe());

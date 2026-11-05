@@ -1,21 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
 import { expectNoAxeViolations } from '../../../test-utils/axe-config';
 import { Banner } from '../Banner';
 import { Notice } from '../Notice';
-import { Toast } from '../Toast';
 
 /**
- * RT-241 (VNext W1-A) — the three message primitives (freeze 15 §4):
+ * RT-241 (VNext W1-A) — the message primitives (freeze 15 §4):
  *
  * - `Banner`: persistent operational state in the frame's status area. Never
  *   auto-dismisses; danger interrupts (alert), the rest is polite (status).
  * - `Notice`: inline validation / empty state / outcome inside its region.
- * - `Toast`: neutral acknowledgements only — it has no tone, so a failure can
- *   never be told through it (failure is loud, never a toast).
  *
  * Every tone carries text plus an icon, never colour alone (P8).
  */
@@ -84,40 +81,5 @@ describe('Notice — announce', () => {
     const notice = screen.getByTestId('n');
     expect(notice).not.toHaveAttribute('role');
     expect(notice.querySelector('[data-icon="warning"]')).not.toBeNull();
-  });
-});
-
-describe('Toast (neutral acknowledgements only)', () => {
-  it('is a polite status with no tone', () => {
-    render(<Toast message="أُضيف: بنادول" onDismiss={vi.fn()} />);
-    const toast = screen.getByRole('status');
-    expect(toast).toHaveTextContent('أُضيف: بنادول');
-    expect(toast).not.toHaveAttribute('data-tone');
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('dismisses itself after its duration', () => {
-    vi.useFakeTimers();
-    try {
-      const onDismiss = vi.fn();
-      render(<Toast message="تم" onDismiss={onDismiss} durationMs={3000} />);
-      act(() => {
-        vi.advanceTimersByTime(2999);
-      });
-      expect(onDismiss).not.toHaveBeenCalled();
-      act(() => {
-        vi.advanceTimersByTime(1);
-      });
-      expect(onDismiss).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('has an Arabic close control', async () => {
-    const onDismiss = vi.fn();
-    render(<Toast message="تم" onDismiss={onDismiss} />);
-    await userEvent.click(screen.getByRole('button', { name: 'إغلاق الإشعار' }));
-    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

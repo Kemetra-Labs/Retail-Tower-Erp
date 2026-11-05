@@ -35,7 +35,6 @@ import request from "supertest";
 
 import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
 import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
-import { ContextInterceptor } from "../../src/context/context.interceptor";
 import { ContextModule } from "../../src/context/context.module";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import {
@@ -209,7 +208,6 @@ beforeAll(async () => {
     app.useGlobalInterceptors(
       new RequestIdInterceptor(),
       new LoggingInterceptor(logger),
-      new ContextInterceptor(),
     );
     app.useGlobalFilters(new GlobalExceptionFilter());
     app.useGlobalPipes(new ZodValidationPipe());

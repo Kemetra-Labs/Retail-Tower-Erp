@@ -22,9 +22,8 @@ export type PolicyValue =
 /** The never-set System default (DR-2): a Backend-Core constant, not a revision. */
 export const SYSTEM_DEFAULT: PolicyValue = Object.freeze({ mode: "none" });
 
-/** The DR-4 maximum horizon (coordinator decision 1), in days and in elapsed hours. */
+/** The DR-4 maximum horizon (coordinator decision 1), in days. */
 export const PERMANENT_HORIZON_DAYS = 90;
-export const PERMANENT_HORIZON_HOURS = PERMANENT_HORIZON_DAYS * 24;
 
 /** V1 accepts only EGP for a published limit (K-5, coordinator decision 5). */
 export const SUPPORTED_POLICY_CURRENCIES: ReadonlySet<string> = new Set(["EGP"]);

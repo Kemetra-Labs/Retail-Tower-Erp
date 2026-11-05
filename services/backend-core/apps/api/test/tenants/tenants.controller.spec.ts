@@ -45,7 +45,6 @@ import {
   EMAIL_JOB_ENQUEUER,
   NoOpEmailJobEnqueuer,
 } from "../../src/auth/email-job.enqueuer";
-import { ContextInterceptor } from "../../src/context/context.interceptor";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import {
   LoggingInterceptor,
@@ -181,7 +180,6 @@ beforeAll(async () => {
     app.useGlobalInterceptors(
       new RequestIdInterceptor(),
       new LoggingInterceptor(logger),
-      new ContextInterceptor(),
     );
     app.useGlobalFilters(new GlobalExceptionFilter());
     app.useGlobalPipes(new ZodValidationPipe());

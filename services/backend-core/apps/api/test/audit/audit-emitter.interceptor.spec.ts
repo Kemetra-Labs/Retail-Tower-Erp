@@ -3,8 +3,7 @@
  *
  * Pure unit-level: no Redis, no Docker, no Testcontainers, no BullMQ Queue.
  * The interceptor is instantiated directly with a Jest-spy enqueuer and a
- * real `Reflector` instance — the same pattern used in
- * `test/context/context.interceptor.spec.ts`.
+ * real `Reflector` instance.
  *
  * KNOWN INTENTIONAL GAP: The real `ContextController` is NOT decorated with
  * `@Auditable` in this slice. That wiring is deferred to T232/T233 when

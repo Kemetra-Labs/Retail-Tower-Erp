@@ -1,5 +1,5 @@
 /*
- * RT-241 — Banner, Notice, Toast. Global tokens only (the drawer notice can sit
+ * RT-241 — Banner, Notice. Global tokens only (the drawer notice can sit
  * in Checkout's completion as well as the frame), status colours by role:
  * success proven · warning degraded · danger blocking/UNKNOWN · info pending.
  * Borders, not shadows, so every state survives forced colors.
@@ -68,45 +68,14 @@
   align-self: center;
 }
 
-.v5-toast {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding-block: var(--space-1);
-  padding-inline: var(--space-3) var(--space-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-elevated);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-}
-
-.v5-toast__close {
-  display: inline-grid;
-  place-items: center;
-  min-block-size: 44px;
-  min-inline-size: 44px;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.v5-toast__close:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
 /*
- * Signal settle-in (150ms): a notice, a banner or a toast arrives with a small
+ * Signal settle-in (150ms): a notice or a banner arrives with a small
  * drop and a fade. Risk suppresses expression: a danger-toned message, and any
  * message inside a recovery surface (an UNKNOWN payment, a stuck sale), stays
  * static. The recovery rule comes last so it wins the specificity tie.
  */
 .v5-notice:not([data-tone='danger']),
-.v5-banner:not([data-tone='danger']),
-.v5-toast {
+.v5-banner:not([data-tone='danger']) {
   animation: v5-settle var(--motion-notice-in, var(--duration-2))
     var(--motion-ease, var(--ease-out));
 }
@@ -126,8 +95,7 @@
 /* Same selectors as the rule above, so the reduced-motion path wins the tie. */
 @media (prefers-reduced-motion: reduce) {
   .v5-notice:not([data-tone='danger']),
-  .v5-banner:not([data-tone='danger']),
-  .v5-toast {
+  .v5-banner:not([data-tone='danger']) {
     animation: none;
     transform: none;
   }
@@ -135,8 +103,7 @@
 
 @media (forced-colors: active) {
   .v5-banner,
-  .v5-notice,
-  .v5-toast {
+  .v5-notice {
     border-color: CanvasText;
   }
 
