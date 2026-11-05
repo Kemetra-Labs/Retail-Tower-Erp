@@ -1,6 +1,6 @@
 /**
  * replay-payload-hash.contract.spec.ts — RT-1206 (`pos-sales/sales.yaml`
- * 1.18.0-draft). Pins the contract text of the provenance-replay rule: a
+ * 1.19.0-draft). Pins the contract text of the provenance-replay rule: a
  * replay whose sale facts differ from the captured sale is 409
  * `idempotency_key_conflict` (the existing `Conflict` response, widened), and
  * the response set of `captureSale` is unchanged (no new status or code).
@@ -26,7 +26,7 @@ const capture = (doc.paths["/api/pos/v1/sales"] as Record<string, Op>)["post"] a
 describe("RT-1206 — captureSale provenance replay with a different payload (contract)", () => {
   it("the note cites the owner confirmation and states the rule and the compat path", () => {
     const info = flat(doc.info.description);
-    expect(info).toContain("RT-1206 (1.18.0-draft; [GATED] owner confirmation Jira RT-1206 comment 15587");
+    expect(info).toContain("RT-1206 (1.19.0-draft; [GATED] owner confirmation Jira RT-1206 comment 15587");
     expect(info).toContain("is now 409 `idempotency_key_conflict` (the existing `Conflict` code, widened)");
     expect(info).toContain("the stored `payload_hash` bytes are unchanged");
     expect(info).toContain("dead-letter `payload_divergence`");

@@ -104,6 +104,13 @@ export const CaptureSaleLineSchema = z
   .strict();
 
 /**
+ * RT-1051 (owner decision, Jira RT-1051 comment 15572, 2026-11-05): the most lines one
+ * captured sale carries; mirrored as `CaptureSaleRequest.lines.maxItems` in sales.yaml.
+ * The POS caps a cart at 30 lines (RT-1052), so this is a server-side safety bound.
+ */
+export const MAX_CAPTURE_LINES = 500;
+
+/**
  * RT-225 ([GATED] approval: Jira RT-225, owner, 2026-10-05): the widest
  * allowed gap between `admissionCheckAt` and `occurredAt`.
  */
@@ -242,7 +249,7 @@ const CaptureSaleRequestObject = z
     posTotal: decimalAmount,
     occurredAt: z.string().datetime(),
     sourceClockAt: z.string().datetime().optional(),
-    lines: z.array(CaptureSaleLineSchema).min(1),
+    lines: boundedArray(MAX_CAPTURE_LINES, z.array(CaptureSaleLineSchema).min(1)),
     // RT-224 (Option B): the cashier's users.id on the device-bearer path. A
     // CLAIM: SaleCaptureAuthGuard verifies it against a covering cashier
     // admission before the handler runs, and the handler records the

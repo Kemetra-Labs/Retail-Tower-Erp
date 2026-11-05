@@ -16,6 +16,10 @@ import {
   BIN_VIEW_WINDOW_MAX_ITEMS,
   SnapshotReportBodySchema,
 } from "../../src/catalog/erpnext-bin-view/dto/snapshot-report.dto";
+import {
+  CaptureSaleRequestWithTendersSchema,
+  MAX_CAPTURE_LINES,
+} from "../../src/catalog/sales/dto/capture-sale-request.dto";
 import { CreditSaleReversalRequestSchema } from "../../src/catalog/sales/dto/credit-sale-reversal-request.dto";
 import {
   MAX_REFUND_TENDERS,
@@ -76,6 +80,7 @@ const CASES: BoundCase[] = [
   { name: "RecordReturnRequest.refundTenders", schema: RecordReturnRequestSchema, field: "refundTenders", max: MAX_REFUND_TENDERS, base: {}, item: cashTender },
   { name: "CreditSaleReversalRequest.lines", schema: CreditSaleReversalRequestSchema, field: "lines", max: MAX_RETURN_LINES, base: { kind: "return" }, item: returnLine },
   { name: "CreditSaleReversalRequest.refundTenders", schema: CreditSaleReversalRequestSchema, field: "refundTenders", max: MAX_REFUND_TENDERS, base: { kind: "return" }, item: cashTender },
+  { name: "CaptureSaleRequest.lines", schema: CaptureSaleRequestWithTendersSchema, field: "lines", max: MAX_CAPTURE_LINES, base: {}, item: () => ({}) },
   { name: "MembershipUpdate.store_ids", schema: MembershipUpdateSchema, field: "store_ids", max: MAX_STORE_IDS, base: { store_access_kind: "specific" }, item: (i) => uuidAt(i + 1) },
   { name: "InvitationCreate.store_ids", schema: InvitationCreateSchema, field: "store_ids", max: MAX_STORE_IDS, base: { email: "a@example.com", role_code: "cashier", store_access_kind: "specific" }, item: (i) => uuidAt(i + 1) },
   { name: "PosAuditEventsSync.events", schema: PosAuditEventsSyncSchema, field: "events", max: MAX_AUDIT_EVENTS_PER_BATCH, base: { device_token_attestation: "x" }, item: () => ({}) },
@@ -126,6 +131,7 @@ describe("contract maxItems match the zod bounds", () => {
   it.each([
     [sales, "RecordReturnRequest", "lines", MAX_RETURN_LINES],
     [sales, "RecordReturnRequest", "refundTenders", MAX_REFUND_TENDERS],
+    [sales, "CaptureSaleRequest", "lines", MAX_CAPTURE_LINES],
     [sales, "CreditSaleReversalRequest", "lines", MAX_RETURN_LINES],
     [sales, "CreditSaleReversalRequest", "refundTenders", MAX_REFUND_TENDERS],
     [memberships, "MembershipUpdate", "store_ids", MAX_STORE_IDS],

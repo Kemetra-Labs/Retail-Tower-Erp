@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.18.0-draft"
+  version: "1.19.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -502,7 +502,14 @@ info:
     read are contract-only operations of `inventory/inventory.yaml`
     1.9.0-draft.
 
-    RT-1206 (1.18.0-draft; [GATED] owner confirmation Jira RT-1206 comment
+    RT-1051 (1.18.0-draft; [GATED] owner decision Jira RT-1051 comment 15572,
+    2026-11-05; zod GHSA-mrhx-c7xc-m3w5, RT-1050): `CaptureSaleRequest` `lines`
+    gains `maxItems: 500`. The POS caps a cart at 30 lines (RT-1052), so no
+    shipped client is near the limit. The server refuses a longer array with 400
+    `validation_error` before validating any element. Narrowing only; no other
+    wire change.
+
+    RT-1206 (1.19.0-draft; [GATED] owner confirmation Jira RT-1206 comment
     15587, 2026-11-05, of the RT-148 ruling of 2026-10-02, comment 10679):
     `captureSale` provenance replay semantics, no new status or error code. A
     replay under the same `(tenant, sourceSystem, externalId)` in the caller's
@@ -1991,6 +1998,7 @@ components:
         lines:
           type: array
           minItems: 1
+          maxItems: 500
           items:
             $ref: "#/components/schemas/CaptureSaleLine"
         tenders:
