@@ -89,7 +89,6 @@ const DAY = "2026-03-04";
 
 /** The token for this exact JSON text. */
 const tok = (text: string): string => Buffer.from(text, "utf8").toString("base64url");
-const j = (value: unknown): string => tok(JSON.stringify(value));
 const digest = (parts: unknown): string => createHash("sha256").update(JSON.stringify(parts), "utf8").digest("base64url").slice(0, 22);
 
 /** Every refusal shape a JSON cursor must keep refusing. */
