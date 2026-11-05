@@ -50,6 +50,8 @@ import type {
   RecentSaleSummary,
   SaleLinesView,
   SalesHistoryCoverage,
+  SalesTenderType,
+  PrintEventOutcome,
 } from './sales/types.js';
 import type {
   CartCreateRequest,
@@ -1470,6 +1472,50 @@ export type SalesListResponse =
     }
   | { kind: 'refused'; reason: SalesRefusalReason };
 
+// ── sales.listRecent (RT-1189, RT-249 N-S1) ─────────────────────────────────
+
+/**
+ * This terminal's sales on the current Africa/Cairo business day (main's
+ * clock), newest first, local only, at most 300. Tenant, branch, terminal and
+ * (for a cashier, OD-534-1) the selling operator always come from the session;
+ * the request can name none of them. The one optional field is the short form.
+ */
+export interface SalesListRecentRequest {
+  /**
+   * A short form to look for (doc 20 §4): one to nine digits. Main normalises
+   * Arabic-Indic digits and leading zeros; anything else is `invalid_input`.
+   */
+  short_number?: string;
+}
+
+/** One row of the recent list. No main-only id and no per-tender detail (§P15). */
+export interface RecentSaleRow {
+  sale_id: SaleId;
+  /** The exact number, as printed on the receipt. */
+  sale_number: SaleNumber;
+  /** The sequence without leading zeros, or null when the number does not parse. */
+  short_number: string | null;
+  /** UTC ISO instant; the renderer formats it in the store zone. */
+  finalized_at: string;
+  /** `subtotal_minor + total_tax_minor`. */
+  total_minor: number;
+  tender_types: SalesTenderType[];
+  selling_operator_display_name: string;
+  /** The outcome of the newest print event, or `none` when there is none. */
+  latest_print_outcome: PrintEventOutcome | 'none';
+}
+
+export type SalesListRecentResponse =
+  | {
+      kind: 'ok';
+      /** The Cairo business day the list covers, `YYYY-MM-DD`. */
+      business_day: string;
+      items: RecentSaleRow[];
+      /** True when more rows matched than the 300 returned. */
+      truncated: boolean;
+    }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
 // ── SalesBridgeAPI surface ──────────────────────────────────────────────────
 
 /**
@@ -1491,6 +1537,8 @@ export interface SalesBridgeAPI {
   unsubscribe(req: SalesUnsubscribeRequest): Promise<SalesUnsubscribeResponse>;
   /** RT-541: this device's sales over a range of store business days. */
   list(req: SalesListRequest): Promise<SalesListResponse>;
+  /** RT-1189: this terminal's sales on the current Cairo business day. */
+  listRecent(req: SalesListRecentRequest): Promise<SalesListRecentResponse>;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -20,6 +20,10 @@
  * RT-541 `sales.list` takes a range, so its vocabulary has `invalid_request`:
  * anything but a plain object refuses with it here, and the bridge validates
  * every field (`sales-list.ts`).
+ *
+ * RT-1189 `sales.listRecent` takes only an optional short form: anything but a
+ * plain object refuses with `invalid_input` here, and the bridge validates the
+ * keys and the digits (`sales-recent.ts`).
  */
 
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
@@ -37,6 +41,7 @@ import type {
   SalesUnsubscribeResponse,
   SalesListRequest,
   SalesListResponse,
+  SalesListRecentResponse,
 } from '../../shared/bridge-api.js';
 
 export interface SalesIpcDeps {
@@ -95,6 +100,13 @@ export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): voi
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesListResponse> => {
       if (!isPlainObject(request)) return { kind: 'refused', reason: 'invalid_request' };
       return salesBridge.list(request as unknown as SalesListRequest);
+    },
+  );
+  ipcMain.handle(
+    SALES_IPC_CHANNELS.LIST_RECENT,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesListRecentResponse> => {
+      if (!isPlainObject(request)) return { kind: 'refused', reason: 'invalid_input' };
+      return salesBridge.listRecent(request);
     },
   );
 }
