@@ -13,6 +13,17 @@
   overflow-wrap: anywhere;
 }
 
+/* Numbers, codes and dates do not break across lines above 1100px (RT-1236): when
+ * the columns do not fit, the metadata columns drop (below) and the item name takes
+ * what is left (it wraps, then clips, above), never a price, a code or a date. At
+ * 1100px and below the table keeps its earlier wrapping: with a store in scope the
+ * seven columns left leave the item name no room to give. */
+@media (min-width: 1101px) {
+  .catalog-nowrap {
+    white-space: nowrap;
+  }
+}
+
 .catalog-chips {
   display: inline-flex;
   flex-wrap: wrap;
@@ -39,9 +50,23 @@
 }
 
 /* Narrow widths drop the metadata first: tax category, tracking and updated-at
- * are always the last three columns (CatalogResults builds them last). */
-@media (max-width: 1100px) {
+ * are always the last three columns (CatalogResults builds them last). RT-1236: the
+ * three go at 1380px and below, not 1100px. Nine columns, with the unbreakable
+ * numbers, codes and dates, need about 860px beside the item name, and the sidebar
+ * leaves a 1280 viewport 954px and a 1366 viewport 1040px, so a later rule left the
+ * item name about 65px wide, or the table scrolling sideways. */
+@media (max-width: 1380px) {
   .catalog-table .data-table :is(th, td):nth-last-child(-n + 3) {
+    display: none;
+  }
+}
+
+/* RT-1236: with a store in scope the availability column joins the contextual ones
+ * (ten columns), so the same metadata-first order starts earlier for the first two
+ * of the three: tax category and tracking go at 1600px and below, with updated-at
+ * (the rule above) the last to go. */
+@media (max-width: 1600px) {
+  .catalog-table--store .data-table :is(th, td):nth-last-child(n + 2):nth-last-child(-n + 3) {
     display: none;
   }
 }
