@@ -25,6 +25,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { InvalidCursorError } from "../../common/cursor/opaque-cursor";
 import { codePointLength, hasNoNul, maxCodePoints, NO_NUL_MESSAGE, wellFormedText } from "../../common/text-validation";
 
 export const LIMIT_DEFAULT = 50;
@@ -103,7 +104,7 @@ export interface CatalogProductKeyset {
 // ---------------------------------------------------------------------------
 
 /** A cursor this operation did not issue for this tenant and filters → 400. */
-export class InvalidCatalogCursorError extends Error {
+export class InvalidCatalogCursorError extends InvalidCursorError {
   constructor() {
     super("cursor is not a valid continuation token for this query");
     this.name = "InvalidCatalogCursorError";
