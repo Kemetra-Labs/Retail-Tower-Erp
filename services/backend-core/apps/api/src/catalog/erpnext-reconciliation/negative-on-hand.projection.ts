@@ -20,6 +20,12 @@
  */
 import { z } from "zod";
 
+import {
+  InvalidCursorError as InvalidCursorBase,
+  decodeOpaque,
+  encodeOpaque,
+} from "../../common/cursor/opaque-cursor";
+
 /** RT-51 D4 — v1 constant: a snapshot older than this is `stale`. */
 export const STALE_AFTER_SECONDS = 86_400;
 
@@ -156,9 +162,9 @@ export function compareEntries(
 // taken from the cursor.
 
 /** Raised for a cursor this operation did not issue → 400 validation_error. */
-export class InvalidCursorError extends Error {
+export class InvalidCursorError extends InvalidCursorBase {
   constructor() {
-    super("cursor is not a valid continuation token for this operation");
+    super();
     this.name = "InvalidCursorError";
   }
 }
@@ -194,50 +200,37 @@ export interface ItemCursor {
   readonly ordinal: number;
 }
 
-function encode(payload: object): string {
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-}
-
-function decode(token: { readonly cursor: string }): unknown {
-  try {
-    return JSON.parse(Buffer.from(token.cursor, "base64url").toString("utf8"));
-  } catch {
-    throw new InvalidCursorError();
-  }
-}
-
 /** Case-insensitive uuid equality (uuids are compared lower-cased). */
 function sameId(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
 export function encodeStoreCursor(c: StoreListScope & { readonly storeId: string }): string {
-  return encode({ k: "s", t: c.tenantId, s: c.storeId });
+  return encodeOpaque({ k: "s", t: c.tenantId, s: c.storeId });
 }
 
 /** The last store id of the previous page, if the cursor was issued for this tenant. */
 export function decodeStoreCursor(c: StoreListScope & { readonly cursor: string }): string {
-  const parsed = StoreCursorSchema.safeParse(decode(c));
-  if (!parsed.success || !sameId(parsed.data.t, c.tenantId)) throw new InvalidCursorError();
-  return parsed.data.s.toLowerCase();
+  const parsed = decodeOpaque(c.cursor, StoreCursorSchema, () => new InvalidCursorError());
+  if (!sameId(parsed.t, c.tenantId)) throw new InvalidCursorError();
+  return parsed.s.toLowerCase();
 }
 
 export function encodeItemCursor(c: ItemListScope & { readonly entry: NegativeEntry }): string {
   const { entry } = c;
-  return encode({ k: "i", t: c.tenantId, st: c.storeId, q: entry.quantity, n: entry.name, o: entry.ordinal });
+  return encodeOpaque({ k: "i", t: c.tenantId, st: c.storeId, q: entry.quantity, n: entry.name, o: entry.ordinal });
 }
 
 /** The keyset position, if the cursor was issued for this tenant and store. */
 export function decodeItemCursor(c: ItemListScope & { readonly cursor: string }): ItemCursor {
-  const parsed = ItemCursorSchema.safeParse(decode(c));
-  if (!parsed.success) throw new InvalidCursorError();
-  const bound = sameId(parsed.data.t, c.tenantId) && sameId(parsed.data.st, c.storeId);
+  const parsed = decodeOpaque(c.cursor, ItemCursorSchema, () => new InvalidCursorError());
+  const bound = sameId(parsed.t, c.tenantId) && sameId(parsed.st, c.storeId);
   if (!bound) throw new InvalidCursorError();
   return {
     // The schema regex guarantees an exact-decimal string.
-    scaled: toScaledQuantity(parsed.data.q)!,
-    name: parsed.data.n,
-    ordinal: parsed.data.o,
+    scaled: toScaledQuantity(parsed.q)!,
+    name: parsed.n,
+    ordinal: parsed.o,
   };
 }
 
