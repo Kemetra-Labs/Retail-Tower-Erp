@@ -11,8 +11,6 @@
  *         really revokes it.
  *   AC6 — a rotate retry with the same key answers 409 without rotating, and
  *         no secret is in the `idempotency_keys` row or the Redis value.
- *   AC7 — a legacy (template-only) key row answers 409 on rotate, and nothing
- *         is rotated.
  *
  * Secret checks are booleans so a failure never prints a secret into CI logs.
  * Docker-gated.
@@ -29,7 +27,7 @@ import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 import request from "supertest";
 
-import { IdempotencyKeyStore, newId } from "@data-pulse-2/shared";
+import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 
 import { PG_POOL } from "../../../src/auth/auth.module";
 import { RolesGuard } from "../../../src/auth/roles.guard";
@@ -42,11 +40,9 @@ import type { ResolvedContext } from "../../../src/context/types";
 import {
   IDEMPOTENCY_KEY_STORE,
   IdempotencyInterceptor,
-  bodyFingerprint,
 } from "../../../src/idempotency/idempotency.interceptor";
 import { InProgressMarker } from "../../../src/idempotency/in-progress-marker";
 import { PgIdempotencyMirror } from "../../../src/idempotency/pg-mirror";
-import { composeStoreKey } from "../../../src/idempotency/store-key";
 
 import {
   applyAllUpAndCreateAppRole,
@@ -64,7 +60,6 @@ import {
 const TENANT_A = CONNECTOR_FIXTURE_IDS.tenantA;
 const ACTOR_A = "0a000000-0000-7000-8000-0000000000ac";
 const BASE = "/api/v1/connector/instances";
-const ROTATE_TEMPLATE = "/api/v1/connector/instances/:id/credentials/rotate";
 
 class FakeRedis {
   private readonly map = new Map<string, string>();
@@ -258,23 +253,6 @@ describe("RT-155 — rotate is keyed per instance and never replayed", () => {
     redis.clear();
     await http().post(`${BASE}/${a.id}/credentials/rotate`).set("Idempotency-Key", key).send({}).expect(409);
     expect(await isRevoked(first.body.credential_id as string)).toBe(false);
-  });
-
-  it("AC7: a legacy template-only row → 409, and the instance is not rotated", async () => {
-    if (skip()) return;
-    const a = await instanceWithCredential("erp-rt155-e.example");
-    const key = "rt155-rotate-key-0000000000000004";
-    const legacyKey = composeStoreKey({ method: "POST", routePath: ROTATE_TEMPLATE }, ACTOR_A, key);
-    await env!.admin.query(
-      `INSERT INTO idempotency_keys
-         (id, tenant_id, store_id, client_id, key, request_hash, response_status, response_body, expires_at)
-       VALUES ($1, $2, NULL, $3, $4, $5, 201, $6::jsonb, now() + interval '1 hour')`,
-      [newId(), TENANT_A, ACTOR_A, legacyKey, bodyFingerprint({}), JSON.stringify({ credential_id: "legacy" })],
-    );
-
-    const res = await http().post(`${BASE}/${a.id}/credentials/rotate`).set("Idempotency-Key", key).send({}).expect(409);
-    expect(res.body.error.code).toBe("idempotency_key_conflict");
-    expect(await isRevoked(a.credentialId)).toBe(false);
   });
 });
 

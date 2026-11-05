@@ -59,8 +59,6 @@ const REQUIRED_MESSAGE =
   "This endpoint requires an Idempotency-Key header. Generate a UUIDv7 and include it with every retry.";
 const MALFORMED_MESSAGE =
   "Idempotency-Key must be 16–128 printable ASCII characters with no whitespace.";
-const LEGACY_KEY_MESSAGE =
-  "The provided Idempotency-Key was already used on this route before per-resource keying. Generate a new key.";
 
 /** The GlobalExceptionFilter envelope every 4xx here is answered with. */
 function errorBody(code: string, message: string): object {
@@ -302,31 +300,23 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(auditEnqueuer.enqueue).not.toHaveBeenCalled();
   });
 
-  it("fresh claim on a param route binds the path param into the store key (RT-155) and probes the legacy key", async () => {
-    script.findOrCreate.push(async () => MISS, async () => MISS);
+  // RT-157: the RT-82 K2 legacy template-only key probe is gone, so a new-key
+  // miss on a param route makes exactly one store lookup (a second, unscripted
+  // lookup would throw) and goes straight to the claim and the handler.
+  it("fresh claim on a param route binds the path param into the store key (RT-155) with one lookup and no template-only probe", async () => {
+    script.findOrCreate.push(async () => MISS);
     script.claim.push("inserted");
     const res = await post(`/char/${RESOURCE}/act`);
     await settle();
     expect(res.status).toBe(201);
+    expect(controller.calls).toBe(1);
     const keys = store.findOrCreate.mock.calls.map((c) => c[3] as string);
-    expect(keys).toHaveLength(2);
+    expect(keys).toHaveLength(1);
     expect(keys[0]).toContain(RESOURCE);
-    expect(keys[1]).toBe(`POST:/char/:id/act:${USER}:${KEY}`);
+    expect(keys).not.toContain(`POST:/char/:id/act:${USER}:${KEY}`);
     expect(store.save.mock.calls[0]?.[3]).toBe(keys[0]);
     expect(marker.del).toHaveBeenCalledTimes(1);
-  });
-
-  it("legacy template-only key occupied on a param route: 409 legacy message + conflict metric, handler not run", async () => {
-    script.findOrCreate.push(async () => MISS, async () => ({ hit: "collision" }));
-    const res = await post(`/char/${RESOURCE}/act`);
-    expect(res.status).toBe(409);
-    expect(res.body).toEqual(errorBody("idempotency_key_conflict", LEGACY_KEY_MESSAGE));
-    expect(controller.calls).toBe(0);
-    expect(store.claim).not.toHaveBeenCalled();
-    expect(metricCalls()).toEqual({
-      replay: [], conflict: [[{ route: "POST:/char/:id/act" }]], inProgress: [], tokenMismatch: [],
-    });
-    expect(marker.del).toHaveBeenCalledTimes(2);
+    expect(metricCalls()).toEqual({ replay: [], conflict: [], inProgress: [], tokenMismatch: [] });
   });
 
   // -------------------------------------------------------------------------
@@ -543,7 +533,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     });
   });
 
-  it("store in_progress on a param route: 425 and NO legacy-key probe", async () => {
+  it("store in_progress on a param route: 425 after a single store lookup", async () => {
     script.findOrCreate.push(async () => ({ hit: "in_progress" }));
     const res = await post(`/char/${RESOURCE}/act`);
     expect(res.status).toBe(425);
@@ -555,7 +545,7 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     });
   });
 
-  it("replay on a param route: stored result and NO legacy-key probe", async () => {
+  it("replay on a param route: stored result after a single store lookup", async () => {
     script.findOrCreate.push(async () => hit({ status: 201, body: { ok: true, n: 9 } }));
     const res = await post(`/char/${RESOURCE}/act`);
     expect(res.status).toBe(201);

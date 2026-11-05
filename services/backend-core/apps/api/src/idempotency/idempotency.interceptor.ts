@@ -14,8 +14,6 @@
  *   6. Check IdempotencyKeyStore. Hit → return cached response (replay),
  *                                   or 409 when the route forbids replay (K3).
  *                                   Collision → 409 Conflict.
- *                                   Miss on a param route whose legacy
- *                                   template-only key is occupied → 409 (K2).
  *   7. Set in-progress marker.
  *   8. Invoke handler. On success → save to store; on any exit → clear marker.
  *
@@ -72,7 +70,7 @@ import {
   InProgressMarker,
 } from "./in-progress-marker";
 import { isNonReplayableMarker, nonReplayableMarker } from "./non-replayable";
-import { composeStoreKey, paramsSegment } from "./store-key";
+import { composeStoreKey } from "./store-key";
 import {
   recordIdempotencyConflict,
   recordIdempotencyInProgress,
@@ -149,29 +147,6 @@ function idempotencyConflict(message: string): ConflictException {
 
 const NON_REPLAYABLE_MESSAGE =
   "The provided Idempotency-Key already completed a request whose response is never replayed. Generate a new key.";
-const LEGACY_KEY_MESSAGE =
-  "The provided Idempotency-Key was already used on this route before per-resource keying. Generate a new key.";
-
-/**
- * RT-82 K2 — transitional legacy-key probe. REMOVE (with its call site and
- * tests) once one full replay TTL (72h) has elapsed in every environment
- * after RT-155 deployed; tracked as an RT-155 follow-up.
- *
- * Before RT-155 a param route stored under the template-only key. A row
- * there may belong to ANOTHER resource, and legacy rotate rows hold
- * plaintext secrets, so any non-miss is answered 409: never replayed,
- * never executed.
- */
-async function legacyKeyOccupied(
-  store: IdempotencyKeyStore,
-  tId: string,
-  cId: string,
-  legacyKey: string,
-  fp: Buffer,
-): Promise<boolean> {
-  const legacy = await store.findOrCreate(tId, null, cId, legacyKey, fp);
-  return legacy.hit !== false;
-}
 
 /**
  * In-flight marker tuple. Tenant is part of the namespace: the same user
@@ -202,7 +177,6 @@ interface ResolvedKey {
   clientId: string;
   tenantId: string;
   storeKey: string;
-  legacyKey: string | null;
   replayForbidden: boolean;
   tuple: string;
   fingerprint: Buffer;
@@ -302,11 +276,6 @@ export class IdempotencyInterceptor implements NestInterceptor {
       clientId: cId,
       tenantId: tId,
       storeKey,
-      // K2: the pre-RT-155 template-only key, probed on param routes only.
-      legacyKey:
-        paramsSegment(req.params) === ""
-          ? null
-          : composeStoreKey({ method, routePath }, cId, headerValue),
       replayForbidden: options.replay === "forbid",
       tuple: composeTuple(tId, storeKey),
       fingerprint: bodyFingerprint(req.body),
@@ -333,18 +302,6 @@ export class IdempotencyInterceptor implements NestInterceptor {
   private async handleCollision(key: ResolvedKey): Promise<never> {
     await this.marker.del(key.tuple);
     return this.rejectCollision(key.req, key.route, key.routePath);
-  }
-
-  /** K2: a param route whose legacy template-only key is occupied is refused 409. */
-  private async rejectIfLegacyKeyOccupied(key: ResolvedKey): Promise<void> {
-    if (
-      key.legacyKey !== null &&
-      (await legacyKeyOccupied(this.store, key.tenantId, key.clientId, key.legacyKey, key.fingerprint))
-    ) {
-      await this.marker.del(key.tuple);
-      recordIdempotencyConflict({ route: key.route });
-      throw idempotencyConflict(LEGACY_KEY_MESSAGE);
-    }
   }
 
   /**
@@ -426,7 +383,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
   /**
    * Dispatcher (RT-1223). Policy and key → in-progress marker → stored
-   * result → replay / collision / legacy refusal / fresh execution.
+   * result → replay / collision / fresh execution.
    */
   private async handle(
     execCtx: ExecutionContext,
@@ -450,7 +407,6 @@ export class IdempotencyInterceptor implements NestInterceptor {
       );
       if (stored.hit === true) return await this.handleReplay(execCtx, key, stored.entry);
       if (stored.hit === "collision") return await this.handleCollision(key);
-      if (stored.hit === false) await this.rejectIfLegacyKeyOccupied(key);
       // Deliberately NOT awaited: a rejection from runFresh (e.g. the claim
       // write) bypasses this catch and leaves the marker to its TTL. This is
       // the pre-RT-1223 behaviour, pinned by the characterization matrix.
