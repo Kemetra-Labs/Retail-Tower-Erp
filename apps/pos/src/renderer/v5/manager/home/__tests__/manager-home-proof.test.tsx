@@ -3,7 +3,6 @@
  * query parameters seed the two reads, and the real home renders the counts.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Root } from 'react-dom/client';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
@@ -50,7 +49,7 @@ describe('RT-1193 ManagerHomeProof', () => {
 
   it('mounts itself on the root main.tsx hands over', () => {
     const render = vi.fn();
-    mountManagerHomeProof({ render, unmount: vi.fn() } as unknown as Root);
+    mountManagerHomeProof({ render, unmount: vi.fn() });
     expect(render).toHaveBeenCalledTimes(1);
   });
 });
