@@ -2,7 +2,8 @@
  * snapshot-report.dto.ts — Zod body schema for `binViewReportSnapshot`.
  *
  * Mirrors the 019 contract `BinViewSnapshotReport` (strict wire projection,
- * stock-view.yaml 1.3.0-draft; the `window` rules were introduced in 1.2):
+ * stock-view.yaml 1.4.0-draft; the `window` rules were introduced in 1.2, the
+ * entry `tracking` evidence in 1.4):
  *   - `entries`: 0..`BIN_VIEW_WINDOW_MAX_ITEMS` (the request's
  *     `itemWindow.maxItems`, 500) BinEntry (empty is a valid, non-failing report);
  *   - each entry: `erpnextItemRef {doctype:"Item", name}`, exact-decimal `quantity`
@@ -10,7 +11,13 @@
  *   - `window` (v1.2, optional, strict): `{attemptRef, windowSeq, isFinal}` of a
  *     connector-paged read. Absent = a v1 report, treated as
  *     `{windowSeq 0, isFinal true}`;
- *   - `readAt`: connector-reported ISO timestamp (preserved; never a security clock).
+ *   - `readAt`: connector-reported ISO timestamp (preserved; never a security clock);
+ *   - each entry's `tracking` (v1.4, RT-919, optional, strict): the ERPNext Item
+ *     flags `hasBatchNo`/`hasSerialNo`/`hasExpiryDate` and, for a batch Item, up
+ *     to `BIN_VIEW_MAX_BATCHES_PER_ENTRY` (200) `batches`
+ *     `{batchRef {doctype:"Batch", name}, quantity, expiryDate (date|null), disabled}`,
+ *     a Batch at most once. Evidence only: it is recorded with the entry and
+ *     moves nothing. Absent = an older Connector, tracking UNKNOWN.
  *
  * v1.2 body rules enforced here (400 `validation_error`, deterministic, no record):
  *   - `window.windowSeq` ≥ the request's `itemWindow.maxWindows`
@@ -52,13 +59,69 @@ const ErpnextItemRefSchema = z
   })
   .strict();
 
+/**
+ * v1.4 `BinEntryTracking.batches` ceiling (`maxItems: 200`): more Batches for one
+ * Item in one warehouse is outside this contract version (400).
+ */
+export const BIN_VIEW_MAX_BATCHES_PER_ENTRY = 200;
+
+const QuantitySchema = z
+  .string()
+  .regex(QUANTITY_PATTERN, "quantity must be an exact-decimal string");
+
+/** v1.4 `ErpnextBatchRef` — an ERPNext Batch, doctype fixed to "Batch". */
+const ErpnextBatchRefSchema = z
+  .object({
+    doctype: z.literal("Batch"),
+    name: z.string().min(1).max(140),
+  })
+  .strict();
+
+/** v1.4 `BinEntryBatch` — one Batch of the entry's Item and its book quantity. */
+const BinEntryBatchSchema = z
+  .object({
+    batchRef: ErpnextBatchRefSchema,
+    quantity: QuantitySchema,
+    // Required but nullable: null = the Batch has no expiry date.
+    expiryDate: z.string().date().nullable(),
+    disabled: z.boolean(),
+  })
+  .strict();
+
+/** v1.4 `BinEntryTracking` — the Item's tracking flags and its Batches here. */
+const BinEntryTrackingSchema = z
+  .object({
+    hasBatchNo: z.boolean(),
+    hasSerialNo: z.boolean(),
+    hasExpiryDate: z.boolean(),
+    batches: boundedArray(
+      BIN_VIEW_MAX_BATCHES_PER_ENTRY,
+      z.array(BinEntryBatchSchema),
+    ).optional(),
+  })
+  .strict()
+  .superRefine((tracking, ctx) => {
+    // The contract: "one entry per Batch, a Batch at most once".
+    const seen = new Set<string>();
+    (tracking.batches ?? []).forEach((batch, i) => {
+      const name = batch.batchRef.name;
+      if (seen.has(name)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["batches", i, "batchRef", "name"],
+          message: "a Batch is reported at most once per entry",
+        });
+      }
+      seen.add(name);
+    });
+  });
+
 const BinEntrySchema = z
   .object({
     erpnextItemRef: ErpnextItemRefSchema,
-    quantity: z
-      .string()
-      .regex(QUANTITY_PATTERN, "quantity must be an exact-decimal string"),
+    quantity: QuantitySchema,
     stockUom: z.string().min(1).max(140),
+    tracking: BinEntryTrackingSchema.optional(),
   })
   .strict();
 

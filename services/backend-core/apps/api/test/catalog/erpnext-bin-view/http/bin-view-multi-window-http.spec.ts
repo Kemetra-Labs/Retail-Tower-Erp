@@ -304,6 +304,21 @@ describe("RT-175 binViewPullRequests — maxWindows advertised", () => {
 
 const DTO_CASES: DtoCase[] = [
   {
+    // RT-919: a malformed v1.4 `tracking` (an Item flag missing) fails the window.
+    label: "malformed entry tracking (missing hasExpiryDate)",
+    body: {
+      ...windowBody({ prefix: "V-TR", count: 1, seq: 0, isFinal: true }),
+      entries: [
+        {
+          erpnextItemRef: { doctype: "Item", name: "V-TR-0" },
+          quantity: "1.000000",
+          stockUom: "Nos",
+          tracking: { hasBatchNo: true, hasSerialNo: false },
+        },
+      ],
+    },
+  },
+  {
     label: "unknown key in window",
     body: {
       ...windowBody({ prefix: "V-UK", count: 1, seq: 0, isFinal: true }),

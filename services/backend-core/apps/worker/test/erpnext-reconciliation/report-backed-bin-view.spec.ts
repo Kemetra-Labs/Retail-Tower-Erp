@@ -120,7 +120,7 @@ afterAll(async () => {
 /** Seed a running run with a recorded bin_view_report; return its id. */
 async function runWithReport(
   e: PgTestEnv,
-  entries: Array<{ tenant_product_ref: string | null; quantity: string }>,
+  entries: Array<{ tenant_product_ref: string | null; quantity: string; tracking?: unknown }>,
 ): Promise<string> {
   const report = {
     requestRef: "00000000-0000-0000-0000-000000000000",
@@ -134,6 +134,7 @@ async function runWithReport(
       tenant_product_ref: e2.tenant_product_ref,
       quantity: e2.quantity,
       stockUom: "ea",
+      ...(e2.tracking === undefined ? {} : { tracking: e2.tracking }),
     })),
   };
   const r = await e.admin.query<{ id: string }>(
@@ -171,5 +172,35 @@ describe("019-T041 — ReportBackedBinView feeds the reconciliation processor", 
     await processor.process({ runId, tenantId: TENANT });
     const classes = await classesFor(e, runId);
     expect(classes["quantity_divergence"]).toBe(1);
+  });
+
+  it("RT-919: entries carrying the v1.4 tracking evidence classify exactly as without it", async () => {
+    if (skip) return;
+    const e = env!;
+    const tracking = {
+      hasBatchNo: true,
+      hasSerialNo: false,
+      hasExpiryDate: true,
+      batches: [
+        { batchRef: { doctype: "Batch", name: "B-1" }, quantity: "4.000000", expiryDate: "2027-03-31", disabled: false },
+      ],
+    };
+    const untracked = { hasBatchNo: false, hasSerialNo: false, hasExpiryDate: false };
+    const runId = await runWithReport(e, [
+      { tenant_product_ref: PROD_MATCH, quantity: "10.000000", tracking },
+      { tenant_product_ref: PROD_DIVERGE, quantity: "7.000000", tracking: untracked },
+      { tenant_product_ref: null, quantity: "2.000000", tracking },
+    ]);
+    const view = await new ReportBackedBinView(e.app).fetchBinReport({ tenantId: TENANT, storeId: STORE, runId });
+    expect(view.mapped.get(PROD_MATCH)).toBe("10.000000");
+    expect(view.mapped.get(PROD_DIVERGE)).toBe("7.000000");
+    // The unmapped projection keeps its three fields; the evidence does not leak into it.
+    expect(view.unmapped).toEqual([{ erpnextItemRef: "ERP-X", quantity: "2.000000", stockUom: "ea" }]);
+    const processor = new ReconciliationRunProcessor(e.app, new ReportBackedBinView(e.app));
+    await processor.process({ runId, tenantId: TENANT });
+    const classes = await classesFor(e, runId);
+    expect(classes["match"]).toBe(1);
+    expect(classes["quantity_divergence"]).toBe(1);
+    expect(classes["erpnext_only"]).toBe(1);
   });
 });
