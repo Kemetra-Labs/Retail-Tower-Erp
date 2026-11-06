@@ -80,15 +80,17 @@ interface Backend {
   bodies: Array<{ device_token_attestation: string; events: Array<{ event_id: string }> }>;
   headers: Array<Record<string, string>>;
   reject: Record<string, string>;
+  urls: string[];
 }
 
 function fakeBackend(): {
   backend: Backend;
   fetch: (u: RequestInfo | URL, i?: RequestInit) => Promise<Response>;
 } {
-  const backend: Backend = { online: true, bodies: [], headers: [], reject: {} };
-  const fetch = (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const backend: Backend = { online: true, bodies: [], headers: [], reject: {}, urls: [] };
+  const fetch = (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (!backend.online) return Promise.reject(new TypeError('fetch failed'));
+    backend.urls.push(typeof url === 'string' ? url : url instanceof URL ? url.href : url.url);
     const body = JSON.parse(init?.body as string) as Backend['bodies'][number];
     backend.bodies.push(body);
     backend.headers.push(init?.headers as Record<string, string>);
@@ -109,18 +111,24 @@ function fakeBackend(): {
   return { backend, fetch };
 }
 
-function start(db: SqlJsDatabase, fetch: ReturnType<typeof fakeBackend>['fetch']) {
+function start(
+  db: SqlJsDatabase,
+  fetch: ReturnType<typeof fakeBackend>['fetch'],
+  overrides: { terminalId?: string | null; baseUrl?: string | undefined } = {},
+) {
   const register = vi.fn();
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const terminalId = 'terminalId' in overrides ? overrides.terminalId : PAIRING.terminal_id;
+  const baseUrl = 'baseUrl' in overrides ? overrides.baseUrl : 'https://bc.test';
   startAuditSync(
     {
       db: makeSqlJsHandle(db),
       backendFetch: fetch,
       readDeviceToken: () => Promise.resolve('device-token'),
-      currentTerminalId: () => PAIRING.terminal_id,
+      currentTerminalId: () => terminalId ?? null,
       workerRegistry: { register },
       mainLogger: logger,
-      baseUrl: 'https://bc.test',
+      ...(baseUrl === undefined ? {} : { baseUrl }),
     },
     PAIRING,
   );
@@ -208,6 +216,64 @@ describe('RT-1231 startAuditSync', () => {
       'audit_sync:event_refused_final',
     );
     stop();
+  });
+
+  it('sends nothing and writes nothing while the terminal is unpaired', async () => {
+    const db = new SQL.Database();
+    db.run(MIGRATION_SQL);
+    seed(db, TAKEOVER, 'operator.session.takeover', '2026-11-06T10:00:01.000Z');
+    const { backend, fetch } = fakeBackend();
+    const { stop } = start(db, fetch, { terminalId: null });
+    await vi.advanceTimersByTimeAsync(AUDIT_SYNC_INTERVAL_MS * 3);
+    expect(backend.bodies).toHaveLength(0);
+    expect(syncState(db)).toEqual({});
+    stop();
+  });
+
+  it('logs the retry flushes, then parks an event refused retryably every time', async () => {
+    const db = new SQL.Database();
+    db.run(MIGRATION_SQL);
+    seed(db, APPROVAL, 'manager_approval.granted', '2026-11-06T10:00:02.000Z');
+    const { backend, fetch } = fakeBackend();
+    backend.reject[APPROVAL] = 'invalid_input';
+    const { logger, stop } = start(db, fetch);
+
+    // 5 attempts with backoff (15 s, then 5 / 10 / 20 / 40 s): well inside 10 minutes.
+    await vi.advanceTimersByTimeAsync(600_000);
+
+    expect(backend.bodies).toHaveLength(5);
+    expect(syncState(db)).toEqual({});
+    expect(logger.info).toHaveBeenCalledWith(
+      { synced: 0, localOnly: 0, final: 0, retryable: 1, parked: 0, outcome: 'retry' },
+      'audit_sync:flushed',
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        event_id: APPROVAL,
+        action_category: 'manager_approval.granted',
+        kind: 'parked',
+        attempts: 5,
+        category: 'invalid_input',
+      },
+      'audit_sync:event_parked',
+    );
+    stop();
+  });
+
+  it('defaults the base URL to the configured Backend-Core origin', async () => {
+    vi.stubEnv('VITE_API_BASE_URL', 'https://env.bc.test');
+    try {
+      const db = new SQL.Database();
+      db.run(MIGRATION_SQL);
+      seed(db, TAKEOVER, 'operator.session.takeover', '2026-11-06T10:00:01.000Z');
+      const { backend, fetch } = fakeBackend();
+      const { stop } = start(db, fetch, { baseUrl: undefined });
+      await vi.advanceTimersByTimeAsync(AUDIT_SYNC_INTERVAL_MS);
+      expect(backend.urls).toEqual(['https://env.bc.test/api/pos/v1/audit-events']);
+      stop();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('the worker stop ends the loop', async () => {
