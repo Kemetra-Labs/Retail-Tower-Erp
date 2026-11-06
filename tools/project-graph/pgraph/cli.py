@@ -200,6 +200,21 @@ def cmd_api_jest_report(args):
     return 0
 
 
+def cmd_circleci_gate(args):
+    """RT-1256: judge the CircleCI API Jest status for the PR head. Exit 0 ok, 1 fail, 3 pending."""
+    from . import circleci_gate as cg
+    statuses = _read_json(args.statuses)
+    paths_file = pathlib.Path(args.paths)
+    paths = paths_file.read_text(encoding="utf-8").splitlines() if paths_file.is_file() else None
+    if paths is None:
+        _emit({"verdict": cg.FAIL, "reasons": ["NO_PATHS"], "rejected": [], "status": None})
+        return 1
+    result = cg.judge(args.event, args.head, args.fork, args.circleci_changed, paths, statuses,
+                      args.deadline_passed)
+    _emit(result)
+    return {cg.OK: 0, cg.PENDING: 3}.get(result["verdict"], 1)
+
+
 def cmd_privileges(args):
     from .privileges import scan_repo
     problems = scan_repo(args.repo)
@@ -258,6 +273,16 @@ def main(argv=None):
     for opt in ("--selection", "--selected", "--total", "--results"):
         jr.add_argument(opt, required=True)
     jr.set_defaults(func=cmd_api_jest_report)
+
+    cg = sub.add_parser("circleci-gate")
+    cg.add_argument("--event", required=True)
+    cg.add_argument("--head", required=True)
+    cg.add_argument("--statuses", required=True, help="GitHub commit statuses of --head (JSON list)")
+    cg.add_argument("--paths", required=True, help="changed paths, merge-base..head, one per line")
+    cg.add_argument("--fork", action="store_true")
+    cg.add_argument("--circleci-changed", action="store_true")
+    cg.add_argument("--deadline-passed", action="store_true")
+    cg.set_defaults(func=cmd_circleci_gate)
 
     pv = sub.add_parser("privileges")
     pv.add_argument("--repo", default=".")
