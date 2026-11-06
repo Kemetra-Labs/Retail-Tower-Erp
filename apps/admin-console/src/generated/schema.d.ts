@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ e491bf141c5b1a61c0e0e6ce114a8018f3bc904f
+// Source: Kemetra-Labs/Retail-Tower-Erp @ ff7c40b6bc4996aae8569358fd5780087636702d
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
