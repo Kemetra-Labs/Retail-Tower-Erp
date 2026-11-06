@@ -203,7 +203,7 @@ describe("0081 - the RT-185 running-run index", () => {
   });
 
   it.each(QUERIES.map((q) => [q.name, q] as const))(
-    "%s: before the build cannot use the index; after it uses it, as the app role under RLS",
+    "%s: uses the index after the build (not before it), as the app role under RLS",
     async (_name, q) => {
       if (skip()) return;
       expect(plansBefore.get(q.name)).not.toContain(`"Index Name":"${INDEX}"`);

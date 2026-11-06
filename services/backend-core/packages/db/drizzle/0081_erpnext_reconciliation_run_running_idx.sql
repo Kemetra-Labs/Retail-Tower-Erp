@@ -24,7 +24,8 @@
 -- (explicitly or through the RLS policy): the RT-688 expiry pass (tenant_id
 -- prefix), the warehouse-map retirement's in-flight read (tenant from RLS plus
 -- store_id) and the negative-on-hand pending read (tenant from RLS plus
--- store_id = ANY). The migration spec checks the plans.
+-- store_id = ANY). The migration spec checks the plans of the first three
+-- (the sweep probe, the expiry read and the in-flight read).
 -- Additive only: idx_erpnext_reconciliation_run_tenant_time stays for the
 -- operator run history.
 --
