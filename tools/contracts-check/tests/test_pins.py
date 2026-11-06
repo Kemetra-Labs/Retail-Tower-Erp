@@ -276,10 +276,10 @@ CONNECTOR_APP = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext
 CONNECTOR = CONNECTOR_APP / "connector"
 # Every Connector module that calls Backend-Core over HTTP (RT-704 inventory), relative to CONNECTOR.
 CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py")
-# The one module allowed to import an HTTP library: `_RequestsTransport`, the HttpTransport the
-# transports above call through `self._transport`. It takes the path as an argument and has no
-# path of its own.
-CONNECTOR_HTTP_ADAPTERS = ("posting/poller.py",)
+# The one module allowed to import an HTTP library: `RequestsTransport`, the HttpTransport the
+# transports above call through `self._transport` (shared since RT-1218). It takes the path as an
+# argument and has no path of its own.
+CONNECTOR_HTTP_ADAPTERS = ("http_transport.py",)
 _HTTP_VERBS = ("get", "post", "put", "patch", "delete", "request")
 _HTTP_LIBRARIES = ("requests", "httpx", "urllib3", "aiohttp", "urllib.request", "http.client")
 _TEMPLATE_PARAM = re.compile(r"\{[^}]*\}")
