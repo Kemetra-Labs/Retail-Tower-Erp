@@ -148,6 +148,15 @@ guards, both required:
 2. **Capture:** a line with `tenantProductRef` whose product's Sell Unit is measured (at the line's sale time) and that
    carries no `measure` is refused (422, typed reason). Together with rule 5 below, this catalog cross-check is mandatory
    whatever Q-5 decides, because it is the only server-side guard for a terminal that held a stale catalogue offline.
+3. **Switch rollout (store level):** a terminal that is offline when a product becomes measured keeps its cached count
+   entry, and guard 1 cannot reach it. Its sale would only be refused at sync, after the customer has paid, which must
+   never happen to a completed sale. So switching a product to measured in a store is **refused while any active
+   paired terminal of that store lacks the `measured_sales` capability**: every terminal is upgraded first, or
+   unpaired. Capable terminals apply the switch fail-closed: a cached count entry for a product the new catalogue
+   marks measured is removed from sale before the new entry is usable, never sold as a count item.
+4. **Pending offline sales:** guard 2 judges each line against the catalogue in force at the line's **sale time**. A
+   count line sold before the switch, and synced later, is still accepted as a count line. With rule 3, no terminal can
+   sell a measured product as a count item after the switch, so guard 2 refuses only lines that bypassed the POS.
 
 Proposed `CaptureSaleLine` additions (names indicative; the contract PR decides spelling):
 
@@ -291,12 +300,12 @@ Precedent: RT-282 created gated items only after its gate was ratified. All are 
 
 | Proposed key | Product | Work Mode | Bounded scope | Depends on |
 |---|---|---|---|---|
-| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability and capability-filtered read-down (§5); store readiness report for established units and tracked products (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
+| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability, capability-filtered read-down and the store-level switch gate (§5 rule 3); store readiness report for established units and tracked products (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
 | G5-BC-2 | Backend-Core | Implementation | K3 capture: `measure`, measured invariant, shared `roundToMinor`, `sale_lines` freeze columns, the count-line guard (§5). Ships **disabled** behind a per-tenant `measured_sales` enablement | G5-BC-1 contract |
 | G5-BC-3 | Backend-Core | Implementation | K3 returns rule for measured lines (per Q-8). Prerequisite of the enablement gate | G5-BC-2 |
 | G5-BC-4 | Backend-Core | Implementation | K4 posting feed: `measure` on sale and return lines | G5-BC-2 |
 | G5-CNR-1 | Connector | Implementation | K5: UOM/precision/rounding preflight, measured builder and return builder rules, RT-378 check for measured lines | G5-BC-4 |
-| G5-POS-1 | POS | Implementation | Re-pin; declare the `measured_sales` capability; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
+| G5-POS-1 | POS | Implementation | Re-pin; declare the `measured_sales` capability; fail-closed cache transition for products switched to measured; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
 | G5-POS-2 | POS | Implementation | Embedded-weight barcode parsing with tenant layouts (Q-7) | G5-POS-1 |
 | G5-POS-3 | POS | Implementation | Scale integration (Q-6), incl. the native dependency | G5-POS-1; hardware decision |
 | G5-POS-4 | POS | Implementation | Measured-line returns (Q-8) | G5-BC-3, G5-POS-1 |
