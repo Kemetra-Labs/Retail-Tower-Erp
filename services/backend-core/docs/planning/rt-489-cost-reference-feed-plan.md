@@ -258,9 +258,14 @@ silent gaps (666–667).
     - Before reading **each window**, the Connector calls `costReferenceStartReadAttempt` again with the current
       `readerEpoch` to obtain a **window token** with a short time-to-live (TTL). Backend-Core refuses the token if
       that epoch's lease is no longer the active one; the Connector then abandons the attempt.
-    - The Connector measures each window read against the token TTL on its **local monotonic clock** (not wall
-      clock). A window that is not fully read within the TTL is discarded and never reported, so no read can happen
-      after its token has expired.
+    - The Connector sets a **conservative local deadline** for each window: it reads its local monotonic clock
+      **before sending** the token request (time `t0`), and the deadline is `t0 + TTL × (1 − drift allowance) −
+      fixed margin`. Starting the timer before the request means a token response that arrives late, even after
+      Backend-Core has already expired that token, leaves little or no reading time, never a fresh full TTL. The clock
+      must keep counting while the host is suspended (for example `CLOCK_BOOTTIME` on Linux, not
+      `CLOCK_MONOTONIC`), so a suspended process cannot wake up believing its token is still live. A window not
+      fully read by the deadline is discarded and never reported. If the deadline has already passed when the
+      token arrives, the Connector does not read at all. The drift allowance and margin are C-2 values.
     - Backend-Core grants a **new** epoch only when the previous attempt has reported its final window, or when
       its lease has expired **and** every window token it issued has passed its TTL. Every read under an old
       epoch has therefore finished before the first read under the next one, so a later epoch always means a later
@@ -303,7 +308,8 @@ silent gaps (666–667).
   `validation_error` and never recorded. Every observation can therefore be ordered.
 - **Serialization (C-2).** One active read attempt per Connector registration (the lease above), and items are
   read one after another within an attempt, so `(reader_epoch, read_seq)` order is read order. Lease duration, window-token
-  TTL (bounded by the slowest expected window read) and renewal timing are C-2 items.
+  TTL (bounded by the slowest expected window read), the drift allowance and fixed margin of the local deadline,
+  and renewal timing are C-2 items.
 
 ### 5.5 Tenant and store scoping
 
@@ -458,7 +464,8 @@ margin is shown.
   (property test over present and missing entries), a delayed `missing` entry does not hide a later unchanged
   re-read, a late report from an older attempt is accepted and ranks below newer reads (same final state for both arrival
   orders), a Connector clock stepped backwards or a site restore does not change the order, a report for an epoch
-  never issued is rejected, a second attempt is refused while a lease or any window token is live, a window read past its token TTL is discarded,
+  never issued is rejected, a second attempt is refused while a lease or any window token is live, a window read past its local deadline is discarded, a token response delayed past its TTL leads to no read
+  (deadline measured from before the request), a host suspend that outlasts the TTL leads to the window being discarded,
   a Connector restart starts a new attempt instead of resuming, a conflicting duplicate
   `(readerEpoch, readSeq)` excludes both entries and recomputes current state whether the conflict arrives before or
   after the first entry became current, an entry without `readSeq` or `readAt` is rejected, the first report being `missing` is stored without a snapshot,
