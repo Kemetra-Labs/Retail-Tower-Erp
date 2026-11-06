@@ -44,6 +44,7 @@ interface Registrar {
   shape: 'positional' | 'property';
 }
 
+/** Parses a TypeScript file from disk, with parent links set for the walk. */
 function parse(file: string): ts.SourceFile {
   return ts.createSourceFile(file, readFileSync(file, 'utf-8'), ts.ScriptTarget.Latest, true);
 }
@@ -65,6 +66,10 @@ function importsOf(sf: ts.SourceFile): Map<string, { file: string; exportName: s
   return out;
 }
 
+/**
+ * Whether `call` hands the guarded `ipcMain` to its callee, and how: as the first argument, or as
+ * an `ipcMain:` property of an object-literal first argument. `null` when it does not.
+ */
 function passesIpc(call: ts.CallExpression): Registrar['shape'] | null {
   const [first] = call.arguments;
   if (first === undefined) return null;
@@ -153,6 +158,11 @@ function inert(): unknown {
   return proxy;
 }
 
+/**
+ * Runs one registrar against a recording `ipcMain` (and inert fakes for its other dependencies,
+ * with `enabled: true` for a flag-gated registrar) and returns the channels it passed to
+ * `ipcMain.handle`, in order.
+ */
 async function channelsOf(registrar: Registrar): Promise<string[]> {
   const handled: string[] = [];
   const ipc = {
@@ -187,6 +197,7 @@ async function channelsOf(registrar: Registrar): Promise<string[]> {
   return handled;
 }
 
+/** Every `ipcMain.handle` channel `index.ts` registers at startup, in registration order. */
 async function startupChannels(): Promise<string[]> {
   const channels: string[] = [];
   const index = parse(INDEX_PATH);

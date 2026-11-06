@@ -197,6 +197,7 @@ interface Harness {
   backendFetch: ReturnType<typeof vi.fn>;
 }
 
+/** Composition-root dependencies as recording fakes, with a live session on terminal-1. */
 function makeHarness(): Harness {
   const getCurrent = vi.fn<() => unknown>(() => ({ tenant_id: 'tenant-1' }));
   const getCurrentTerminalId = vi.fn(() => 'terminal-1');
@@ -409,6 +410,7 @@ describe('registerCart', () => {
   });
 });
 
+/** Runs `registerCart`, clears the call log, then runs `registerPayments` on its core. */
 function setup(): { h: Harness; core: PaymentsCore } {
   const h = makeHarness();
   const core = registerCart(h.deps);
