@@ -1,0 +1,64 @@
+-- 0085_shift_closes_tenant_store_closed_idx.sql
+--
+-- Admin shift-close list keyset index, index 2 of 2 (Jira RT-429; reader:
+-- RT-383, GET /api/v1/shift-closes, ShiftClosesReadService.list). [GATED]
+-- migration, owner-approved on RT-429 (comment 15731, 2026-11-06: index set
+-- 0084 + 0085 ratified, PR and merge authorized). Applying it to the lab, a
+-- live database or any deploy is NOT authorized by that comment.
+--
+-- Serves the single-store page (the storeId filter, $3): WHERE tenant_id = $1
+-- AND store_id = $3 [AND (closed_at, shift_id) < cursor] ORDER BY closed_at
+-- DESC, shift_id DESC LIMIT n, under tenant RLS, for an unscoped user and for a
+-- store-scoped user filtering one of their stores (store_id = ANY($2) is then
+-- a filter on the one store's range). A page is the first LIMIT entries of that
+-- store's range, with no Sort and no read of the tenant's other stores.
+--
+-- Expected, owner-approved (RT-429 comment 15731): a user scoped to several
+-- stores (store_id = ANY($2), no single-store filter) may still sort; see
+-- 0084. The migration spec does not assert a plan for that case.
+--
+-- Additive only: idx_shift_closes_tenant_store (0036) is kept (owner decision,
+-- RT-429 comment 15731), although this index's (tenant_id, store_id) prefix
+-- covers it.
+--
+-- ---------------------------------------------------------------------------
+-- WHY THIS FILE IS ONE STATEMENT - DO NOT ADD ANYTHING TO IT
+-- ---------------------------------------------------------------------------
+-- The runner (src/cli/migrate.ts) sends each file as ONE simple-protocol query.
+-- PostgreSQL runs a multi-statement query as one implicit transaction block,
+-- and CREATE INDEX CONCURRENTLY refuses to run inside a transaction block. A
+-- file holding exactly one statement is not wrapped, so the build runs
+-- concurrently with no runner change (the deploy step needs nothing new). Adding
+-- any other statement here (BEGIN, SET, COMMENT ON, a second index) makes this
+-- migration fail. The migration spec checks this. Same rule and recovery as
+-- 0084.
+--
+-- Lock impact: SHARE UPDATE EXCLUSIVE on shift_closes for the build. Close
+-- inserts and every read continue throughout; only other DDL on the table and
+-- VACUUM wait. No lock_timeout is needed and none can be set without a second
+-- statement.
+--
+-- No timeout. The build waits for every transaction older than it, in any
+-- table of the database, so one session left idle in transaction holds it (and
+-- the deploy's migrate step) indefinitely. Before deploying, check
+-- pg_stat_activity for long-open transactions. Run ONE `migrate up` at a time
+-- while 0084-0085 are pending (see 0048 for the deadlock this avoids).
+--
+-- No IF NOT EXISTS, on purpose: a failed build leaves an INVALID index with
+-- this name and the runner records nothing; a re-run must fail loudly rather
+-- than skip it. An invalid leftover is not used by queries but still costs
+-- every close insert until it is dropped. To recover:
+--   1. SELECT indisvalid FROM pg_index
+--        WHERE indexrelid = 'idx_shift_closes_tenant_store_closed'::regclass;
+--   2. false (an invalid leftover): DROP INDEX CONCURRENTLY IF EXISTS
+--      idx_shift_closes_tenant_store_closed; then re-run `migrate up`.
+--   3. true (the build finished but the runner died before recording it):
+--      either drop it as in step 2 and re-run, or record it by hand:
+--        INSERT INTO _drizzle_migrations (id) VALUES ('0085_shift_closes_tenant_store_closed_idx');
+-- While 0085 is unrecorded, `migrate down` rolls back 0084, not 0085: drop a
+-- leftover index by hand first, as above.
+--
+-- No data changes. Reversible via 0085_shift_closes_tenant_store_closed_idx.down.sql.
+
+CREATE INDEX CONCURRENTLY idx_shift_closes_tenant_store_closed
+  ON shift_closes (tenant_id, store_id, closed_at DESC, shift_id DESC);

@@ -139,6 +139,16 @@ export const shiftCloses = pgTable(
     ),
     check("shift_closes_payload_hash_len", sql`octet_length(${t.payloadHash}) = 32`),
     index("idx_shift_closes_tenant_store").on(t.tenantId, t.storeId),
+    // RT-429 (0084, 0085, each built CONCURRENTLY): the admin shift-close list
+    // (RT-383), newest first in keyset order closed_at DESC, shift_id DESC -
+    // tenant-wide, and one store's closes.
+    index("idx_shift_closes_tenant_closed").on(t.tenantId, t.closedAt.desc(), t.shiftId.desc()),
+    index("idx_shift_closes_tenant_store_closed").on(
+      t.tenantId,
+      t.storeId,
+      t.closedAt.desc(),
+      t.shiftId.desc(),
+    ),
     // 0050 (RT-385), the CHECKs NOT VALID in SQL.
     check(
       "shift_closes_approval_required_valid",
