@@ -158,6 +158,9 @@ guards, both required:
    - **Phase 2, effective:** the measured Sell Unit takes effect in that store only when **every** active paired
      terminal has acknowledged phase 1 **and** has drained its sale outbox up to that acknowledgement (rule 4). A
      terminal that never acknowledges blocks the switch until it does or is unpaired; the operator sees which one.
+   - **Unpairing an unacknowledged terminal** counts only if the operator also confirms it is physically out of
+     service. An offline terminal does not learn that it was unpaired, so it could keep selling from its cache. Its
+     later sales could then not sync. The confirmation is audited.
    - Until phase 2, the product is sellable nowhere in that store, as count or measured. That gap is the price of never
      refusing a paid sale.
 4. **Pending offline sales and inventory:** guard 2 judges each line against the catalogue in force at the line's
