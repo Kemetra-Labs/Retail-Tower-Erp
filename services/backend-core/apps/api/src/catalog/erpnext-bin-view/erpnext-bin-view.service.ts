@@ -157,11 +157,33 @@ interface RunRow {
   started_at: string;
 }
 
+/** v1.4 `BinEntryBatch` — one ERPNext Batch of the entry's Item (evidence). */
+export interface BinEntryBatchInput {
+  readonly batchRef: { readonly doctype: "Batch"; readonly name: string };
+  readonly quantity: string;
+  readonly expiryDate: string | null;
+  readonly disabled: boolean;
+}
+
+/**
+ * v1.4 `BinEntryTracking` (RT-919) — the Item's ERPNext tracking flags and its
+ * Batches in the warehouse. Evidence only: recorded with the entry, never a
+ * Tracking Identity, a position or a posting.
+ */
+export interface BinEntryTrackingInput {
+  readonly hasBatchNo: boolean;
+  readonly hasSerialNo: boolean;
+  readonly hasExpiryDate: boolean;
+  readonly batches?: readonly BinEntryBatchInput[] | undefined;
+}
+
 /** One reported ERPNext-Bin entry (connector → DP2). */
 export interface BinEntryInput {
   readonly erpnextItemRef: { readonly doctype: "Item"; readonly name: string };
   readonly quantity: string;
   readonly stockUom: string;
+  /** v1.4, optional: absent = an older Connector, tracking UNKNOWN. */
+  readonly tracking?: BinEntryTrackingInput | undefined;
 }
 
 /** v1.2 — the report window of a connector-paged read. */
@@ -210,6 +232,12 @@ type StoredEntry = {
   readonly tenant_product_ref: string | null;
   readonly quantity: string;
   readonly stockUom: string;
+  /**
+   * v1.4 evidence (RT-919), stored as reported. The key is written ONLY when
+   * the entry carried it, so an entry without `tracking` is stored exactly as
+   * before. Readers that do not know it ignore it.
+   */
+  readonly tracking?: BinEntryTrackingInput;
 };
 
 interface StoredWindow {
@@ -315,13 +343,49 @@ function normalizeStored(raw: RawStoredBinViewReport): StoredBinViewReport {
   };
 }
 
-/** Order-insensitive identity of a window's entries (connector ref + qty + uom). */
+/**
+ * Order-insensitive identity of a window's entries (connector ref + qty + uom,
+ * plus the v1.4 `tracking` evidence when present). An entry without `tracking`
+ * keys exactly as before RT-919.
+ */
 function entriesKey(
-  entries: ReadonlyArray<{ erpnextItemRef: string; quantity: string; stockUom: string }>,
+  entries: ReadonlyArray<{
+    erpnextItemRef: string;
+    quantity: string;
+    stockUom: string;
+    tracking?: BinEntryTrackingInput | undefined;
+  }>,
 ): string[] {
   return entries
-    .map((e) => `${e.erpnextItemRef}|${e.quantity}|${e.stockUom}`)
+    .map((e) => {
+      const base = `${e.erpnextItemRef}|${e.quantity}|${e.stockUom}`;
+      return e.tracking === undefined ? base : `${base}|${trackingKey(e.tracking)}`;
+    })
     .sort(compareCodeUnits);
+}
+
+/**
+ * Field-ordered identity of one entry's `tracking` (RT-919). Built from the
+ * fields, never `JSON.stringify(tracking)`: the stored copy comes back from
+ * jsonb with its object keys reordered, and a genuine replay must still match.
+ * Batches are order-insensitive (one per Batch); absent `batches` and an empty
+ * list are distinct content.
+ */
+function trackingKey(tracking: BinEntryTrackingInput): string {
+  const batches =
+    tracking.batches === undefined
+      ? null
+      : tracking.batches
+          .map((b) =>
+            JSON.stringify([b.batchRef.name, b.quantity, b.expiryDate ?? null, b.disabled]),
+          )
+          .sort(compareCodeUnits);
+  return JSON.stringify([
+    tracking.hasBatchNo,
+    tracking.hasSerialNo,
+    tracking.hasExpiryDate,
+    batches,
+  ]);
 }
 
 @Injectable()
@@ -539,6 +603,7 @@ export class ErpnextBinViewService {
       tenant_product_ref: resolvedMap.get(e.erpnextItemRef) ?? null,
       quantity: e.quantity,
       stockUom: e.stockUom,
+      ...(e.tracking === undefined ? {} : { tracking: e.tracking }),
     }));
   }
 
@@ -591,6 +656,7 @@ interface IncomingEntry {
   readonly erpnextItemRef: string;
   readonly quantity: string;
   readonly stockUom: string;
+  readonly tracking?: BinEntryTrackingInput;
 }
 
 /** The report body as a window: a v1 body is `{null, 0, isFinal true}`. */
@@ -636,6 +702,7 @@ function incomingWindow(body: SnapshotReportBody): IncomingWindow {
       erpnextItemRef: e.erpnextItemRef.name,
       quantity: e.quantity,
       stockUom: e.stockUom,
+      ...(e.tracking === undefined ? {} : { tracking: e.tracking }),
     })),
   };
 }

@@ -59,7 +59,7 @@ async function seedTenant(): Promise<Fixture> {
 /** A stock run carrying a recorded Bin report of P. */
 async function seedRun(
   f: Fixture,
-  opts: { status: "running" | "completed"; quantity: string; readAt: string; stockUom?: string },
+  opts: { status: "running" | "completed"; quantity: string; readAt: string; stockUom?: string; tracking?: unknown },
 ): Promise<string> {
   const runId = uuid();
   const report = {
@@ -69,7 +69,13 @@ async function seedRun(
     recordedAt: opts.readAt,
     complete: true,
     entries: [
-      { erpnextItemRef: "ITEM-1", tenant_product_ref: f.productId, quantity: opts.quantity, stockUom: opts.stockUom ?? "Nos" },
+      {
+        erpnextItemRef: "ITEM-1",
+        tenant_product_ref: f.productId,
+        quantity: opts.quantity,
+        stockUom: opts.stockUom ?? "Nos",
+        ...(opts.tracking === undefined ? {} : { tracking: opts.tracking }),
+      },
     ],
   };
   await guard().admin.query(
@@ -127,7 +133,7 @@ interface ResultRow {
 /** Run a fresh reconciliation of the store against a Bin report; returns P's result row. */
 async function reconcile(
   f: Fixture,
-  bin: { quantity: string; readAt?: string; stockUom?: string },
+  bin: { quantity: string; readAt?: string; stockUom?: string; tracking?: unknown },
 ): Promise<ResultRow> {
   const e = guard();
   const runId = await seedRun(f, { status: "running", readAt: new Date().toISOString(), ...bin });
@@ -221,6 +227,22 @@ describe("RT-428 — pending-aware classes for an activated tenant", () => {
     const f = await activated();
     await seedEffect(f, "-2", "pending");
     expect((await reconcile(f, { quantity: "3", stockUom: "Box" })).mismatch_class).toBe("uom_mismatch");
+  });
+
+  it("RT-919: an entry carrying the v1.4 tracking evidence reads the same (pending terms, UOM)", async () => {
+    if (skip) return;
+    const f = await activated();
+    await seedEffect(f, "-2", "pending");
+    const tracking = {
+      hasBatchNo: true,
+      hasSerialNo: false,
+      hasExpiryDate: false,
+      batches: [{ batchRef: { doctype: "Batch", name: "B-1" }, quantity: "10", expiryDate: null, disabled: false }],
+    };
+    const r = await reconcile(f, { quantity: "10", tracking });
+    expect(r.mismatch_class).toBe("expected_pending_erp");
+    expect(r.detail).toMatchObject({ erpnext_bin: "10", pending_erp: "-2.0000" });
+    expect((await reconcile(f, { quantity: "3", stockUom: "Box", tracking })).mismatch_class).toBe("uom_mismatch");
   });
 
   it("is non-destructive: the 009 ledger and the integration rows are unchanged by a run", async () => {
