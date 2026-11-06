@@ -168,14 +168,10 @@ Per plan §3.4.6, the **effective dedup tuple at the HTTP layer** is:
   This preserves SC-X-001 (no schema change).
 - The store sees the composed string; the surrounding components
   (`tenantId`, `storeId`) continue to flow into the existing columns.
-- **Transitional legacy-key probe (RT-82 K2).** Keys of param routes changed
-  at RT-155, so a request stored before it sits under the template-only key.
-  On a new-key miss on a param route, the interceptor looks up that legacy
-  key; any hit (completed, different body or in flight) answers
-  `409 idempotency_key_conflict`, and the request is neither replayed nor
-  executed (the legacy row may belong to another resource, and legacy rotate
-  rows hold plaintext secrets). The probe is removed once one full replay TTL
-  (72h, §10) has elapsed in every environment after RT-155 deployed.
+- A new-key miss goes straight to the claim and the handler. The transitional
+  legacy-key probe (RT-82 K2), which looked up the pre-RT-155 template-only
+  key on param routes, was removed in RT-157 after RT-155 had run in every
+  environment for well over one replay TTL (72h, §10).
 
 ---
 
@@ -315,7 +311,7 @@ The interceptor returns `409 Conflict` when:
 3. The original record has not expired.
 
 It also returns `409 idempotency_key_conflict` when the matched record is
-non-replayable (§6.6), or when the legacy-key probe hits (§4.2).
+non-replayable (§6.6).
 
 ### 7.2 Response shape
 - **Status**: `409 Conflict`.
