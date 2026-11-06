@@ -255,7 +255,9 @@ export type CartSubscribeResponse =
 // it already holds; main resolves scope/ownership from the trusted session.
 // The top-level projection (lines, placeholders) carries no
 // tenant/branch/terminal/operator/session identity, no catalogue item_ref, no
-// attribution and no action ids. The `envelope` is the exception: for an
+// attribution and no action ids. Since RT-1178 each line also carries the two
+// cashier-awareness flags of its product, read from the local catalogue at
+// snapshot time (display only, I-17). The `envelope` is the exception: for an
 // unpaid handed-off cart it is the same envelope `cart.handoff` returned
 // (lines with item_ref and action ids, the handoff action, and session scope
 // ids), with manager attribution removed. See the §A4 record
@@ -275,6 +277,13 @@ export interface CartSnapshotLine {
   readonly note: string | null;
   /** Persisted optimistic-concurrency version; the next mutation must send it. */
   readonly version: number;
+  /**
+   * RT-1178: the line's product flags from the local catalogue, read at
+   * snapshot time whatever the product's `active` state. False when the
+   * product is not in the local catalogue. Display only (I-17).
+   */
+  readonly controlled_substance: boolean;
+  readonly prescription_required: boolean;
 }
 
 /** Opaque discount placeholder reference (no magnitude, no attribution). */

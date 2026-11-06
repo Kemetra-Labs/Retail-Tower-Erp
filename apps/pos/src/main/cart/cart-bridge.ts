@@ -72,6 +72,7 @@ import { freezeEnvelope } from '../../shared/cart/handoff-envelope.js';
 import type { PaymentIntentEnvelope } from '../../shared/cart/handoff-envelope.js';
 import type { CartPaymentStatus } from '../payments/repositories/payment-attempts.repository.js';
 import type { ReleaseCheckoutPayment } from '../payments/checkout-return-guard.js';
+import type { ProductAwarenessFlags } from '../catalogue/product-repo.js';
 import type {
   ApprovalSubject,
   ManagerApprovalService,
@@ -227,6 +228,12 @@ export interface CartBridgeHandlersDeps {
    * Production wiring + tests inject a real resolver.
    */
   resolveItemRef?: ItemRefResolver;
+  /**
+   * RT-1178 — the awareness flags of a line's product (`item_ref`) in the
+   * cart's tenant, for `snapshot`. Optional so unrelated fixtures construct
+   * unchanged; without it (or for an unknown product) a line reports no flags.
+   */
+  productFlags?: (tenant_id: string, item_ref: string) => ProductAwarenessFlags | null;
   /** Optional clock for testability. Defaults to `() => new Date()`. */
   clock?: () => Date;
   /**
@@ -1988,6 +1995,15 @@ export class CartBridgeHandlers {
    *    opaque discount placeholder refs, and the persisted envelope only for
    *    a handed-off cart.
    */
+  /** RT-1178 — a line's product flags for `snapshot`; none when unknown. */
+  private lineFlags(tenant_id: string, item_ref: string): ProductAwarenessFlags {
+    const flags = this.deps.productFlags?.(tenant_id, item_ref) ?? null;
+    return {
+      controlled_substance: flags?.controlled_substance ?? false,
+      prescription_required: flags?.prescription_required ?? false,
+    };
+  }
+
   snapshot(req: CartSnapshotRequest): Promise<CartSnapshotResponse> {
     const gate = requireOperatorSession({
       session: this.deps.getCurrentSession(),
@@ -2035,6 +2051,7 @@ export class CartBridgeHandlers {
           line_subtotal_minor: line.line_subtotal_minor,
           note: line.note,
           version: line.version,
+          ...this.lineFlags(cart.tenant_id, line.item_ref),
         })),
         discount_placeholders: store
           .getDiscountPlaceholdersForCart(cart.cart_id)

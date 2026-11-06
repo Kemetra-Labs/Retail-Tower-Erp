@@ -3,6 +3,7 @@ import type { ManagerApprovalService } from '../operator/manager-approval-servic
 
 import { CartBridgeHandlers, type ItemRefResolver } from './cart-bridge.js';
 import { bindCartStore } from './cart-store.js';
+import { createProductRepo } from '../catalogue/product-repo.js';
 import { resolveItemRef as fixtureResolver } from './resolve-item-ref.js';
 import type { DatabaseHandle } from '../db/client.js';
 import type { AuditEmitter } from '../audit/audit-emitter.js';
@@ -101,10 +102,14 @@ export function createCartBridgeHandlers(deps: CartHandlersDeps): CartBridgeHand
   //                         DEFAULT_ITEM_REF_RESOLVER (refuses generically).
   const resolveItemRef = useFixtureResolver ? fixtureResolver : deps.productionResolver;
 
+  const productRepo = createProductRepo(deps.dbHandle);
   const baseDeps = {
     getCurrentSession: deps.getCurrentSession,
     getTerminalId: deps.getTerminalId,
     cartStore: bindCartStore(deps.dbHandle),
+    // RT-1178 — `cart.snapshot` reads each line's flags from the local catalogue.
+    productFlags: (tenant_id: string, item_ref: string) =>
+      productRepo.awarenessFlags(tenant_id, item_ref),
     logger: deps.logger,
     auditEmitter: deps.auditEmitter,
     cartPaymentStatus: deps.cartPaymentStatus,

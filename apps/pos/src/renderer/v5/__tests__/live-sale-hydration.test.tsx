@@ -55,6 +55,8 @@ function snapshot(overrides: Partial<CartSnapshot> = {}): CartSnapshot {
         line_subtotal_minor: 1250,
         note: null,
         version: 4,
+        controlled_substance: false,
+        prescription_required: false,
       },
       {
         line_id: 'line-b',
@@ -64,6 +66,8 @@ function snapshot(overrides: Partial<CartSnapshot> = {}): CartSnapshot {
         line_subtotal_minor: 13500,
         note: 'بعد الأكل',
         version: 2,
+        controlled_substance: false,
+        prescription_required: false,
       },
     ],
     discount_placeholders: [],

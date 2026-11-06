@@ -74,6 +74,11 @@ interface SaleCartControllerOptions {
    * created after mount is fresh and never read back.
    */
   readonly hydrateActiveCart?: boolean;
+  /**
+   * RT-1178 — called with every snapshot this controller applies (hydration
+   * and resync), after the projection is rebuilt from it.
+   */
+  readonly onSnapshotApplied?: (snapshot: CartSnapshot) => void;
 }
 
 /** `ready` = projection usable; `loading` / `failed` = an existing cart is not yet known. */
@@ -220,6 +225,9 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
   const [hydrationAttempt, setHydrationAttempt] = useState(0);
   const [hydratedPaid, setHydratedPaid] = useState(false);
 
+  const onSnapshotAppliedRef = useRef(options.onSnapshotApplied);
+  onSnapshotAppliedRef.current = options.onSnapshotApplied;
+
   const applySnapshot = useCallback((snapshot: CartSnapshot): void => {
     setLines(linesFromSnapshot(snapshot));
     setDiscountPlaceholders(
@@ -228,6 +236,7 @@ export function useSaleCartController(options: SaleCartControllerOptions = {}): 
     setEnvelope(snapshot.envelope);
     setHydratedPaid(snapshot.paid);
     syncCartStore(snapshot);
+    onSnapshotAppliedRef.current?.(snapshot);
   }, []);
 
   useEffect(() => {

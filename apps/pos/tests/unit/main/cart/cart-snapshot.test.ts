@@ -52,6 +52,13 @@ const PRODUCTS: Record<string, { display_name: string; unit_price_minor: number 
   'p-vitc': { display_name: 'فيتامين سي', unit_price_minor: 2000 },
 };
 
+// RT-1178: the local catalogue's flags, for tenant-1 only (tenant-scoped like the read model).
+const FLAGS: Record<string, { controlled_substance: boolean; prescription_required: boolean }> = {
+  'p-amox': { controlled_substance: false, prescription_required: true },
+  'p-vitc': { controlled_substance: true, prescription_required: true },
+};
+const productFlagCalls: Array<[string, string]> = [];
+
 const resolver: ItemRefResolver = (item_ref) => {
   const p = PRODUCTS[item_ref];
   return Promise.resolve(p ? { kind: 'ok', ...p } : { kind: 'refused', reason: 'unknown_item' });
@@ -80,6 +87,10 @@ async function fixture(): Promise<Fixture> {
     getTerminalId: () => 'terminal-1',
     cartStore: bindCartStore(makeSqlJsHandle(db)),
     resolveItemRef: resolver,
+    productFlags: (tenant_id, item_ref) => {
+      productFlagCalls.push([tenant_id, item_ref]);
+      return tenant_id === 'tenant-1' ? (FLAGS[item_ref] ?? null) : null;
+    },
     clock: advancingClock(),
     // Contract since the §A4 review: snapshot needs the payments record.
     cartPaymentStatus: () => 'none',
@@ -186,6 +197,8 @@ describe('cart.snapshot — faithful, display-safe projection', () => {
             line_subtotal_minor: 1250,
             note: null,
             version: 1,
+            controlled_substance: false,
+            prescription_required: false,
           },
           {
             line_id: f.lineIds[1],
@@ -195,6 +208,8 @@ describe('cart.snapshot — faithful, display-safe projection', () => {
             line_subtotal_minor: 13500,
             note: 'بعد الأكل',
             version: 2,
+            controlled_substance: false,
+            prescription_required: true,
           },
           {
             line_id: f.lineIds[2],
@@ -204,6 +219,8 @@ describe('cart.snapshot — faithful, display-safe projection', () => {
             line_subtotal_minor: 2000,
             note: null,
             version: 1,
+            controlled_substance: true,
+            prescription_required: true,
           },
         ],
         discount_placeholders: [],
@@ -211,6 +228,39 @@ describe('cart.snapshot — faithful, display-safe projection', () => {
         envelope: null,
       },
     });
+  });
+
+  it("RT-1178: reads each line's flags for the cart's own tenant, and none for an unknown product", async () => {
+    const f = await fixture();
+    productFlagCalls.length = 0;
+    const res = await f.handlers.snapshot({ cart_id: f.cart_id });
+    if (res.kind !== 'ok') throw new Error('snapshot refused');
+    expect(productFlagCalls).toEqual([
+      ['tenant-1', 'p-para'],
+      ['tenant-1', 'p-amox'],
+      ['tenant-1', 'p-vitc'],
+    ]);
+    // p-para is not in the catalogue's flag rows: no flags, never a refusal.
+    expect(res.snapshot.lines[0]).toMatchObject({
+      controlled_substance: false,
+      prescription_required: false,
+    });
+  });
+
+  it('RT-1178: without a flags lookup wired, every line reports no flags', async () => {
+    const f = await fixture();
+    const bare = new CartBridgeHandlers({
+      getCurrentSession: () => mkSession(),
+      getTerminalId: () => 'terminal-1',
+      shareStateWith: f.handlers,
+      cartStore: bindCartStore(makeSqlJsHandle(f.db)),
+      cartPaymentStatus: () => 'none',
+    });
+    const res = await bare.snapshot({ cart_id: f.cart_id });
+    if (res.kind !== 'ok') throw new Error('snapshot refused');
+    for (const line of res.snapshot.lines) {
+      expect(line).toMatchObject({ controlled_substance: false, prescription_required: false });
+    }
   });
 
   it('excludes removed lines and returns an empty existing cart as the same cart', async () => {
@@ -248,10 +298,12 @@ describe('cart.snapshot — faithful, display-safe projection', () => {
     for (const line of res.snapshot.lines) {
       expect(Object.keys(line).sort()).toEqual(
         [
+          'controlled_substance',
           'display_name',
           'line_id',
           'line_subtotal_minor',
           'note',
+          'prescription_required',
           'quantity',
           'unit_price_minor',
           'version',

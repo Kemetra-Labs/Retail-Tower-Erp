@@ -122,7 +122,12 @@ function fakeMain() {
     cart_id: CART,
     state,
     paid: false,
-    lines: lines.map((l) => ({ ...l, line_subtotal_minor: lineTotal(l) })),
+    lines: lines.map((l) => ({
+      ...l,
+      line_subtotal_minor: lineTotal(l),
+      controlled_substance: false,
+      prescription_required: false,
+    })),
     discount_placeholders: [],
     envelope,
   });

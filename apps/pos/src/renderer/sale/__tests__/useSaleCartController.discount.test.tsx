@@ -158,6 +158,8 @@ describe('a re-read cart keeps what the Sale knows about its discounts', () => {
           line_subtotal_minor: 1500,
           note: null,
           version: 2,
+          controlled_substance: false,
+          prescription_required: false,
         },
       ],
       discount_placeholders: [{ placeholder_id: 'dp-1', line_id: 'line-1' }],
