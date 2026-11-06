@@ -254,10 +254,24 @@ silent gaps (666–667).
   - **Why this survives restores and clocks:** the epoch lives in Backend-Core, not in the ERPNext site or the
     Connector, so a site restore, Connector restart or clock correction cannot reuse or lower it. Nothing in the
     site needs to remember a counter.
-  - **Single reader (C-2):** the epoch is also a lease. Backend-Core grants a new attempt only when the
-    registration's previous attempt has reported its final window or its lease has expired, so attempts never
-    overlap in time. A later epoch therefore always means a later read. A report for an epoch that was never issued
-    to this registration is rejected with 409.
+  - **Single reader, fenced per window (C-2):** the epoch is also a lease, and reads are fenced window by window.
+    - Before reading **each window**, the Connector calls `costReferenceStartReadAttempt` again with the current
+      `readerEpoch` to obtain a **window token** with a short time-to-live (TTL). Backend-Core refuses the token if
+      that epoch's lease is no longer the active one; the Connector then abandons the attempt.
+    - The Connector measures each window read against the token TTL on its **local monotonic clock** (not wall
+      clock). A window that is not fully read within the TTL is discarded and never reported, so no read can happen
+      after its token has expired.
+    - Backend-Core grants a **new** epoch only when the previous attempt has reported its final window, or when
+      its lease has expired **and** every window token it issued has passed its TTL. Every read under an old
+      epoch has therefore finished before the first read under the next one, so a later epoch always means a later
+      read. Reports of those already-finished windows may still arrive late and are accepted (below).
+    - **Restart or restore:** attempt state (epoch, lease, tokens) lives only in Backend-Core and in Connector
+      memory, never in the ERPNext site. After any Connector restart, including after a site restore, the Connector
+      never resumes an attempt. It starts a new one, which Backend-Core grants once the old lease and tokens have
+      expired. An attempt that was in progress at the time of the restore is thereby abandoned, and its unreported
+      windows are dropped.
+    - A report for an epoch that was never issued to this registration, or for a window without a valid token, is
+      rejected with 409.
 - **One total order.** For each key, observations are ordered by the tuple **(`reader_epoch` descending,
   `read_seq` descending)**, the same rule for `present` and `missing` entries. The first non-excluded observation
   (see Ties) is the current state. It is a sort on a single tuple over the accepted observations, so it is transitive
@@ -288,8 +302,8 @@ silent gaps (666–667).
 - **Required fields.** An entry without `readSeq` or `readAt`, or a report without `readerEpoch`, is rejected with 400
   `validation_error` and never recorded. Every observation can therefore be ordered.
 - **Serialization (C-2).** One active read attempt per Connector registration (the lease above), and items are
-  read one after another within an attempt, so `(reader_epoch, read_seq)` order is read order. Lease duration and
-  expiry handling are C-2 items.
+  read one after another within an attempt, so `(reader_epoch, read_seq)` order is read order. Lease duration, window-token
+  TTL (bounded by the slowest expected window read) and renewal timing are C-2 items.
 
 ### 5.5 Tenant and store scoping
 
@@ -444,7 +458,8 @@ margin is shown.
   (property test over present and missing entries), a delayed `missing` entry does not hide a later unchanged
   re-read, a late report from an older attempt is accepted and ranks below newer reads (same final state for both arrival
   orders), a Connector clock stepped backwards or a site restore does not change the order, a report for an epoch
-  never issued is rejected, a second attempt is refused while a lease is active, a conflicting duplicate
+  never issued is rejected, a second attempt is refused while a lease or any window token is live, a window read past its token TTL is discarded,
+  a Connector restart starts a new attempt instead of resuming, a conflicting duplicate
   `(readerEpoch, readSeq)` excludes both entries and recomputes current state whether the conflict arrives before or
   after the first entry became current, an entry without `readSeq` or `readAt` is rejected, the first report being `missing` is stored without a snapshot,
   no snapshot or observation row is ever updated, dedupe on unchanged content,
