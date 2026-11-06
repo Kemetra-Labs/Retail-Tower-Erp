@@ -7,11 +7,12 @@
 schema: retail-tower/pos-compat@1
 fleet_baseline:
   source: owner-attested lab terminal inventory (the only terminal; no pilot or production terminals)
-  # 2026-10-29 stopgap (RT-713 comment 14440): the owner asked to move the freshness clock only. The
-  # terminal's build was NOT re-observed; the installed entry below is still the 2026-10-24
-  # attestation (comment 13734). Verify the real build or decide O-3 / RT-719 before relying on it.
-  captured_at: 2026-10-29T17:14:00Z
-  evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=14440
+  # 2026-11-06 stopgap (RT-713 comment 15724, RT-1257): the owner asked again to move the freshness clock
+  # only (earlier: 2026-10-29, comment 14440). The terminal's build was NOT re-observed; the installed
+  # entry below is still the 2026-10-24 attestation (comment 13734). Verify the real build or decide
+  # O-3 / RT-719 before relying on it.
+  captured_at: 2026-11-06T09:35:00Z
+  evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=15724
   installed:
     - kind: build
       build_id: 9dfd7d977267806a907d4c03a566382570cbd0c9
