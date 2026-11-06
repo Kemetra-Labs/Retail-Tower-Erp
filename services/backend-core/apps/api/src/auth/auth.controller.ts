@@ -117,8 +117,12 @@ const RATE_LIMIT_429: HttpException = new HttpException(
   HttpStatus.TOO_MANY_REQUESTS,
 );
 
-/** RT-1248 follow-up: the longest app close waits for in-flight password-reset work. */
-const RESET_DRAIN_TIMEOUT_MS = 10_000;
+/**
+ * RT-1248 follow-up: the longest app close waits for in-flight password-reset work.
+ * Well under Docker's default 10 s stop grace (the compose files set none), so the
+ * remaining shutdown hooks and the HTTP close still run before SIGKILL.
+ */
+const RESET_DRAIN_TIMEOUT_MS = 5_000;
 
 let logger: Logger | null = null;
 function log(): Logger {
