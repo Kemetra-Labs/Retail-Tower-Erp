@@ -165,6 +165,11 @@ guards, both required:
      later sales could then not sync. The confirmation is audited.
    - Until phase 2, the product is sellable nowhere in that store, as count or measured. That gap is the price of never
      refusing a paid sale.
+   - **Abort:** if the phase-2 re-check fails (guard 4 or 5, e.g. an open cart was completed as a count sale during
+     withdrawal), or the operator cancels, the switch is aborted. The product is republished to that store as the
+     **unchanged count product**, as an ordinary catalogue publish. Terminals restore it through the normal read-down,
+     and the abort is audited with its reason. Measured selling of that item then uses a new
+     product (guard 5). An abort never leaves the product withdrawn indefinitely.
 4. **Pending offline sales and inventory:** guard 2 judges each line against the catalogue in force at the line's
    **sale time**, so a count line sold before phase 1 is still accepted when it syncs. But its Inventory Effect could
    establish `unit` as the product's inventory unit after the readiness check passed, and later `kg` effects would be
