@@ -132,32 +132,44 @@ One snapshot = *ERPNext said item I, at scope S, had cost A per UOM U in currenc
 | `currency_code` | ISO 4217 | Currency of `amount` (normally the ERPNext Company currency) | 575 |
 | `uom` | text | The ERPNext UOM that `amount` is expressed in (normally the stock UOM) | 576 |
 | `as_of` | timestamptz | When the value was true **in ERPNext** (§5.3 gives the source per basis) | 579 |
-| `read_at` | timestamptz | When the Connector read it; kept as received; never a security clock (F-6) | §X |
-| `recorded_at` | timestamptz | Backend-Core server clock at ingest | §X |
+| `first_recorded_at` | timestamptz | Backend-Core server clock when this value was first recorded (each later read is an observation, below) | §X |
 | `provenance` | jsonb (closed shape) | `{ erpSiteId, erpVersion, compatibilityFingerprint, sourceDoctype, sourceDocRef?, valuationMethod?, priceListRef?, connectorVersion, requestRef, attemptRef }` | 578 |
-| `content_hash` | text | Hash of the business fields; used for dedupe (§5.4) | — |
-| `supersedes` | uuid, nullable | Backward reference, written once at insert: the snapshot this row replaced for the same key | §XII |
-| `ingest_seq` | bigint | Backend-Core monotonic sequence assigned at insert; the final tie-break in §5.4 | — |
+| `content_hash` | text | Hash of the business fields; a snapshot is unique per `(key, content_hash)`, so one value is stored once (§5.4) | — |
 
-The **key** is `(tenant_id, tenant_product_id, scope_kind, store_id | erp_company_ref, basis)`. Rows are
-**immutable**: no column of an existing row is ever updated (Backend-Core constitution §XII, as for price events
-in spec 041 §3.1, and enforced by the C-3 immutability trigger). Supersession is recorded only on the **new**
-row (`supersedes`). The **current** snapshot for a key is the row that wins the §5.4 precedence order and that no
-other row `supersedes`. Each read (each time a value is seen again, unchanged) goes to a separate append-only
-`cost_reference_observations` table (`snapshot_id`, `read_at`, `recorded_at`, `requestRef`), never to the
-snapshot row.
+The **key** is `(tenant_id, tenant_product_id, scope_kind, store_id | erp_company_ref, basis)`. A snapshot is a
+**distinct value** ERPNext reported for a key. Snapshots are **immutable**: no column of an existing row is ever
+updated (Backend-Core constitution §XII, as for price events in spec 041 §3.1, and enforced by the C-3
+immutability trigger).
 
-**Missing values are explicit.** A report entry may say `status: "missing"` with a reason (`no_valuation`,
-`no_purchase_history`, `no_standard_cost`, `uom_unmapped`, `item_disabled`). Backend-Core records that as a
-"missing" observation for the key, so "ERPNext has no cost" is visible and distinct from "never asked". It is
-never a zero (Connector Principle VI).
+**Every report entry is an observation.** Each entry received, present or missing, changed or unchanged, appends
+one row to `cost_reference_observations`. That table is also immutable and append-only:
+
+| Field | Type (draft) | Meaning |
+|---|---|---|
+| `id` | uuid | Observation identity |
+| key columns | as above | `tenant_id`, `tenant_product_id`, `scope_kind`, `store_id` / `erp_company_ref`, `basis`; carried on the observation itself, so it needs no snapshot |
+| `status` | enum `present` \| `missing` | What ERPNext said |
+| `snapshot_id` | uuid, nullable | Set when `status = present`: the snapshot holding that value (inserted first if the value is new). Null when `missing` |
+| `missing_reason` | enum, nullable | Set when `status = missing`: `no_valuation`, `no_purchase_history`, `no_standard_cost`, `uom_unmapped`, `item_disabled` |
+| `read_at` | timestamptz, required | When the Connector read ERPNext; kept as received; never a security clock (F-6) |
+| `recorded_at` | timestamptz | Backend-Core server clock at ingest |
+| `ingest_seq` | bigint | Backend-Core monotonic sequence assigned at insert |
+| `request_ref`, `attempt_ref` | text | Which request and attempt delivered it |
+
+The **current state** of a key is the observation that is first in the §5.4 total order. If that observation is
+`present`, its snapshot is the current Cost Reference. If it is `missing`, the key is currently missing, with its
+reason. A key with **no observation at all** was never requested or never reported, and is shown as such. It is
+distinct from "reported missing".
+
+**Missing values are explicit.** A report entry may say `status: "missing"` with a reason. It is recorded as a
+`missing` observation and is never a zero (Connector Principle VI).
 
 ### 4.2 Why a standing reference, and how it differs from 014 OQ-1
 
 014 OQ-1 forbids a standing **Bin** mirror (F-7). A Cost Reference has to be standing, because a Change Set
 preview may run long after the last feed, and 573 forbids fetching cost live. The draft keeps it narrow:
 
-- one current row per key, plus superseded history kept for audit and for "what cost did the preview use" (§6.4);
+- one current state per key, plus the snapshot and observation history kept for audit and for "what cost did the preview use" (§6.4);
 - no aggregation, valuation maths or stock movement in Backend-Core;
 - never used as a sellable or catalog attribute.
 
@@ -228,20 +240,25 @@ silent gaps (666–667).
 
 - **Transport:** each report window has a deterministic key, `costref-<requestRef>-<attemptRef>-w<windowSeq>`,
   which fits the 16–128 rule. A replay returns the recorded acknowledgement.
-- **Content:** Backend-Core inserts a new snapshot only when the incoming entry **wins the precedence order
-  below** and its `content_hash` differs from the current row. Re-reading an unchanged ERPNext value does not grow
-  history; it adds a row to `cost_reference_observations` (§4.1), whose latest `read_at` feeds `feed_lag` (§4.3).
-- **Precedence order** (all three compared in turn, earlier wins ties to later):
-  1. `as_of`, newer wins. A `missing` entry has no `as_of`, so it skips this step against a present entry and is
-     compared on step 2.
-  2. Connector `read_at`, later wins. Two readings with the same `as_of` but different costs are ordered by
-     when the Connector read them. A `missing` entry supersedes a present cost only if its `read_at` is later
-     than the present row's `read_at`.
-  3. Backend-Core `ingest_seq`, higher wins. It is used only when steps 1 and 2 are both equal (the same
-     Connector read reported twice with different content, which is itself a defect and is logged).
-- **No precedence → no supersession.** An entry that loses, or whose precedence cannot be established (for
-  example a missing `read_at`), is recorded as an observation only and never becomes current. A late or
-  out-of-order window therefore cannot restore an obsolete cost.
+- **Content:** every entry appends one observation (§4.1). A snapshot row is inserted only for a `(key,
+  content_hash)` not seen before. Re-reading an unchanged value adds an observation and no snapshot. The latest
+  observation `read_at` feeds `feed_lag` (§4.3).
+- **One total order.** For each key, observations are ordered by the tuple **(`read_at` descending,
+  `ingest_seq` descending)**, the same rule for `present` and `missing` entries. The first observation is the
+  current state. Because this is a sort on a single tuple, it is transitive and gives the same current state for
+  every arrival order. There are no pairwise exceptions.
+  - The most recent ERPNext read wins because it reflects ERPNext's state at that moment, including any
+    correction that moved `as_of` backwards. `as_of` is a property of the value: it drives freshness (§4.3), not
+    precedence.
+  - A delayed report has an earlier `read_at` than observations already recorded. That includes unchanged
+    re-reads, because every read is an observation. A late window therefore cannot restore an obsolete cost or
+    hide a newer present reading.
+  - `ingest_seq` only breaks exact `read_at` ties (the same read reported twice with different content). That
+    case is a defect and is logged.
+- **`read_at` is required.** An entry without it is rejected with 400 `validation_error` and never recorded.
+  Every observation can therefore be ordered.
+- **Clock assumption:** `read_at` comes from the Connector clock of one ERPNext site. Ordering across Connector
+  instances with skewed clocks is a C-2 item; until it is settled, one active reader per site is assumed.
 
 ### 5.5 Tenant and store scoping
 
@@ -279,8 +296,11 @@ estimateMargin(price: Resolution, cost: CostReference | none, sellUnit, now) -> 
    - `marginPct = marginAmount / netPrice × 100` (percentage units on price; `28.29` means 28.29 %). A ratio
      usually has no finite decimal, so it is computed at a fixed scale of 6 decimal places, rounded half-up, and
      displayed at 2 decimal places. It is never described as exact.
-   - Comparisons against a threshold (for RT-284 guardrails, or a "below margin floor" count in the preview) use
-     the exact amounts, not the rounded ratio: `marginAmount × 100 ≥ floorPct × netPrice`.
+   - Comparisons against a threshold (for RT-284 guardrails, or a "below floor" count in the preview) use exact
+     amounts, never the rounded ratio, and use the **denominator of the metric being tested**:
+     - margin on price: `marginAmount × 100 ≥ floorPct × netPrice`;
+     - markup on cost (if CR-7 selects it): `marginAmount × 100 ≥ floorPct × cost`, evaluated only when
+       `cost > 0`. With a zero cost, markup is `unavailable(zero_cost_markup)` and its threshold is not evaluated.
    - `netPrice = 0` → `unavailable(zero_net_price)`; it cannot occur for a v1 regular price (spec 041 Q-4) but is
      defined so the function is total.
    - Markup (`marginAmount / cost × 100`) is the alternative definition (CR-7). If markup is chosen, a present cost
@@ -357,8 +377,8 @@ on, P-E). No guardrail logic is planned here.
 ### 8.3 Audit
 
 Ingest emits a structured log per window, with counts by status. It never logs amounts. A failed or refused report
-is observable, with a typed error (Connector Principle V). Superseding is append-only, so "which cost did
-preview X use" is answerable from `snapshotId`.
+is observable, with a typed error (Connector Principle V). Snapshots and observations are append-only, so
+"which cost did preview X use" is answerable from `snapshotId`.
 
 ## 9. Contract-first order (per repository)
 
@@ -370,7 +390,7 @@ after ratification). `[GATED]` items need their own owner authorization.
 | C-1 | Backend-Core `packages/contracts/openapi/erpnext-connector/cost-reference.yaml` | `[GATED OpenAPI]` Cost Reference feed + report contract, with structural conformance spec | Ratified CR-1–CR-4, CR-8, CR-12 | §5.1 surface, §4.1 entry shape, closed error set |
 | C-2 | ERPNext-Connector `specs/0xx-cost-reference-reader/` + `contracts/backend-core/PIN` | Connector spec: basis readers on v16 (resolves every §5.3 "verify" row), Compatibility Profile capabilities, PIN to C-1 | C-1 | Verified field mapping, failure taxonomy |
 | C-3 | Backend-Core `packages/db/drizzle/` | `[GATED migration]` `cost_reference_snapshots` (+ observations), RLS, immutability trigger, key index | C-1 | §4.1 / §4.2 storage |
-| C-4 | Backend-Core `apps/api` | Feed + report ingest runtime (request scheduler, idempotent ingest, dedupe, supersede, freshness) | C-1, C-3 | Snapshots land |
+| C-4 | Backend-Core `apps/api` | Feed + report ingest runtime (request scheduler, idempotent ingest, dedupe, observation log and current-state order, freshness) | C-1, C-3 | Snapshots land |
 | C-5 | ERPNext-Connector runtime | Poller + reader + reporter (pattern of `bin_view/`) | C-2, C-4 deployed | Live feed |
 | C-6 | Backend-Core `packages/contracts/openapi/` | `[GATED OpenAPI]` Margin fields in the PR-04 preview/inquiry contract + cost-reference console read | C-1; RT-282 PR-04 | §6.2 shapes, capability gating |
 | C-7 | Backend-Core `apps/api` | Margin estimator (pure, property-tested) wired into Impact Preview / inquiry | C-6, C-4; RT-282 PR-08 (resolver), RT-484 runtime | §6 behaviour |
@@ -389,8 +409,10 @@ margin is shown.
 
 **Test strategy, written now so the contracts are testable:**
 
-- C-4: idempotent replay, key conflict, out-of-order `as_of` does not supersede, equal `as_of` ordered by
-  `read_at`, a `missing` entry read earlier does not hide a present cost, no snapshot row is ever updated, dedupe on unchanged content,
+- C-4: idempotent replay, key conflict, the current state is identical for every permutation of arrival order
+  (property test over present and missing entries), a delayed `missing` entry does not hide a later unchanged
+  re-read, an entry without `read_at` is rejected, the first report being `missing` is stored without a snapshot,
+  no snapshot or observation row is ever updated, dedupe on unchanged content,
   cross-tenant `requestRef` → 404, RLS matrix.
 - C-5: Connector unit tests per basis, including `missing` reasons, negative/zero valuation and UOM conversion.
 - C-7: property tests: margin uses only decimal arithmetic; a stale or expired cost never yields
@@ -407,7 +429,7 @@ margin is shown.
 | **CR-5** | How stale cost is displayed (582) | (a) withhold margin, show "cost stale since `asOf`"; (b) show a clearly labelled stale estimate with `asOf` |
 | **CR-6** | Margin on **tax-inclusive** Books before RT-294 / Gate 3 | (a) `unavailable(tax_basis_unresolved)` until G3; (b) an explicitly labelled "gross margin vs tax-inclusive price"; (c) wait for RT-294 before C-7 |
 | **CR-7** | Margin definition | (a) margin on net price; (b) markup on cost (a zero cost gives `unavailable(zero_cost_markup)`, §6.1); (c) both, labelled |
-| **CR-8** | Is a standing, history-keeping Cost Reference store acceptable under the 014 OQ-1 "no standing mirror" posture? How long is history retained? | (a) yes, current + superseded history, retention N; (b) current row only; (c) run-scoped only, as for Bin (would not meet 573 without live calls) |
+| **CR-8** | Is a standing, history-keeping Cost Reference store acceptable under the 014 OQ-1 "no standing mirror" posture? How long is history retained? | (a) yes, current state + snapshot/observation history, retention N; (b) current state only; (c) run-scoped only, as for Bin (would not meet 573 without live calls) |
 | **CR-9** | Who may see cost and margin? Capability name and risk tier | (a) owner/tenant_admin only; (b) also store_manager for their stores; POS in no option |
 | **CR-10** | Cost currency ≠ Book currency | (a) margin `unavailable`; (b) an approved FX reference converts at authoring time only (481–482), with its own provenance |
 | **CR-11** | Cost UOM ≠ `each` before RT-281 | (a) `unavailable(uom_unconvertible)`; (b) use the ERPNext UOM conversion factor reported by the Connector |
