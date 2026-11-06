@@ -1,0 +1,74 @@
+-- 0081_erpnext_reconciliation_run_running_idx.sql
+--
+-- Per-store running stock-run lookup index (Jira RT-185, follow-up of RT-179).
+-- [GATED] migration, owner-approved on RT-185 (comment 15728, 2026-11-06: PR
+-- and merge authorized; scope is this one partial index). Applying it to the
+-- lab, a live database or any deploy is NOT authorized by that comment.
+--
+-- Serves the scheduled stock-run sweep's "is a run already running for this
+-- store?" probe (apps/worker/src/erpnext-reconciliation/
+-- stock-run-sweep.repository.ts, sweepStore):
+--   WHERE tenant_id = $1 AND store_id = $2 AND kind = 'stock'
+--     AND status = 'running' ORDER BY started_at LIMIT 1
+-- Before this index the only index was idx_erpnext_reconciliation_run_tenant_time
+-- (tenant_id, started_at DESC) from 0020, so in the normal case (nothing
+-- running) the probe read and filtered the tenant's whole run history, once per
+-- mapped store, on every tick. A run is `running` only briefly (minutes; the
+-- RT-688 expiry fails it after 2 h), so this partial index holds a handful of
+-- rows and the probe becomes one short index range read, already in
+-- started_at order.
+--
+-- `kind` is not in the predicate: the 0020 CHECK pins it to 'stock', so every
+-- running row is a stock run and a query's `kind = 'stock'` is still implied.
+-- The same index also serves the other running-run reads that know the tenant
+-- (explicitly or through the RLS policy): the RT-688 expiry pass (tenant_id
+-- prefix), the warehouse-map retirement's in-flight read (tenant from RLS plus
+-- store_id) and the negative-on-hand pending read (tenant from RLS plus
+-- store_id = ANY). The migration spec checks the plans of the first three
+-- (the sweep probe, the expiry read and the in-flight read).
+-- Additive only: idx_erpnext_reconciliation_run_tenant_time stays for the
+-- operator run history.
+--
+-- ---------------------------------------------------------------------------
+-- WHY THIS FILE IS ONE STATEMENT - DO NOT ADD ANYTHING TO IT
+-- ---------------------------------------------------------------------------
+-- The runner (src/cli/migrate.ts) sends each file as ONE simple-protocol query.
+-- PostgreSQL runs a multi-statement query as one implicit transaction block,
+-- and CREATE INDEX CONCURRENTLY refuses to run inside a transaction block. A
+-- file holding exactly one statement is not wrapped, so the build runs
+-- concurrently with no runner change. Adding any other statement here (BEGIN,
+-- SET, COMMENT ON, a second index) makes this migration fail. The migration
+-- spec checks this. Same rule and recovery as 0048 (RT-538), 0057-0061
+-- (RT-565), 0064-0065 (RT-735) and 0074 (RT-808).
+--
+-- Lock impact: SHARE UPDATE EXCLUSIVE on erpnext_reconciliation_run for the
+-- build. Run creation, completion, expiry and every read continue throughout;
+-- only other DDL on the table and VACUUM wait. The table is small (one row per
+-- store per run), so the build is short. No lock_timeout is needed and none can
+-- be set without a second statement.
+--
+-- No timeout. The build waits for every transaction older than it, in any
+-- table of the database, so one session left idle in transaction holds it (and
+-- the deploy's migrate step) indefinitely. Before deploying, check
+-- pg_stat_activity for long-open transactions. Run ONE `migrate up` at a time
+-- while this migration is pending (see 0048 for the deadlock this avoids).
+--
+-- No IF NOT EXISTS, on purpose: a failed build leaves an INVALID index with
+-- this name and the runner records nothing; a re-run must fail loudly rather
+-- than skip it. To recover:
+--   1. SELECT indisvalid FROM pg_index
+--        WHERE indexrelid = 'idx_erpnext_reconciliation_run_tenant_store_running'::regclass;
+--   2. false (an invalid leftover): DROP INDEX CONCURRENTLY IF EXISTS
+--      idx_erpnext_reconciliation_run_tenant_store_running; then re-run
+--      `migrate up`.
+--   3. true (the build finished but the runner died before recording it):
+--      either drop it as in step 2 and re-run, or record it by hand:
+--        INSERT INTO _drizzle_migrations (id) VALUES ('0081_erpnext_reconciliation_run_running_idx');
+-- While 0081 is unrecorded, `migrate down` rolls back the migration before it,
+-- not 0081: drop a leftover index by hand first, as above.
+--
+-- No data changes. Reversible via 0081_erpnext_reconciliation_run_running_idx.down.sql.
+
+CREATE INDEX CONCURRENTLY idx_erpnext_reconciliation_run_tenant_store_running
+  ON erpnext_reconciliation_run (tenant_id, store_id, started_at)
+  WHERE status = 'running';
