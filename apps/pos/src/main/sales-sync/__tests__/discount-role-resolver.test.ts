@@ -40,6 +40,8 @@ import { createSaleSyncStateRepo } from '../sale-sync-state-repo.js';
 import { createSaleSyncStatusReader } from '../sale-sync-status-reader.js';
 import { createDiscountRoleResolver } from '../discount-role-resolver.js';
 import type { SaleDiscountRoles } from '../discount-role-resolutions.js';
+import type { CaptureSalePayload } from '../capture-payload.js';
+import { DEFAULT_CURRENCY_CODE, toWireBody } from '../create-sale-sync-client.js';
 
 beforeAll(async () => {
   await initSalesSyncSql();
@@ -410,6 +412,37 @@ describe('RT-906 AC2 — a later role change never changes the body', () => {
     ]);
     expect(nn(w.stateRepo.read('sale-held')).sync_status).toBe('synced');
   });
+});
+
+/** RT-1240: the exact bytes the client would POST for a recorded payload. */
+function wireBytes(payload: CaptureSalePayload | undefined): string {
+  return JSON.stringify(toWireBody(nn(payload), DEFAULT_CURRENCY_CODE));
+}
+
+describe('RT-1240 — a role-less discount line re-sent after a role change is byte-identical', () => {
+  it.each([
+    ['manager', 'admin'],
+    ['admin', 'manager'],
+  ] as const)(
+    'first send as %s, PIN record changed to %s, retry after 72h: same wire bytes',
+    async (first, later) => {
+      await heldWorld();
+      signIn(first);
+      const h = engineDeps([{ kind: 'transient' }, OK, OK], {
+        tendersSince: '2026-01-01T00:00:00.000Z',
+        receiptSince: '2026-01-01T00:00:00.000Z',
+      });
+      await tick(h.deps);
+      // The looked-up role changes between sends: the approver signs in again
+      // online with another role, and `refreshRole` rewrites the PIN record.
+      signIn(later);
+      await tick(h.deps, '2027-01-01T00:00:00.000Z');
+      const sent = sentOf(h.client);
+      expect(sent).toHaveLength(2);
+      expect(wireBytes(sent[1])).toBe(wireBytes(sent[0]));
+      expect(nn(nn(sent[1]).lines[0]).discount?.approverRole).toBe(first);
+    },
+  );
 });
 
 describe('RT-906 AC3 — anything short of the full chain stays held', () => {
