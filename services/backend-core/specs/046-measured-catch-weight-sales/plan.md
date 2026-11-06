@@ -148,15 +148,25 @@ guards, both required:
 2. **Capture:** a line with `tenantProductRef` whose product's Sell Unit is measured (at the line's sale time) and that
    carries no `measure` is refused (422, typed reason). Together with rule 5 below, this catalog cross-check is mandatory
    whatever Q-5 decides, because it is the only server-side guard for a terminal that held a stale catalogue offline.
-3. **Switch rollout (store level):** a terminal that is offline when a product becomes measured keeps its cached count
-   entry, and guard 1 cannot reach it. Its sale would only be refused at sync, after the customer has paid, which must
-   never happen to a completed sale. So switching a product to measured in a store is **refused while any active
-   paired terminal of that store lacks the `measured_sales` capability**: every terminal is upgraded first, or
-   unpaired. Capable terminals apply the switch fail-closed: a cached count entry for a product the new catalogue
-   marks measured is removed from sale before the new entry is usable, never sold as a count item.
-4. **Pending offline sales:** guard 2 judges each line against the catalogue in force at the line's **sale time**. A
-   count line sold before the switch, and synced later, is still accepted as a count line. With rule 3, no terminal can
-   sell a measured product as a count item after the switch, so guard 2 refuses only lines that bypassed the POS.
+3. **Switch rollout (store level, two phases):** a terminal that is offline when a product becomes measured keeps its
+   cached count entry, and neither guard 1 nor the capability can reach it. Its sale would only be refused at sync,
+   after the customer has paid, which must never happen to a completed sale. So the switch is not one write:
+   - **Precondition:** refused while any active paired terminal of that store lacks the `measured_sales` capability.
+     Every terminal is upgraded first, or unpaired.
+   - **Phase 1, withdraw:** the product is published to the store as `withdrawn_for_switch`. Each capable terminal
+     removes the count entry from sale (fail-closed) and **acknowledges** that catalogue position to Backend-Core.
+   - **Phase 2, effective:** the measured Sell Unit takes effect in that store only when **every** active paired
+     terminal has acknowledged phase 1 **and** has drained its sale outbox up to that acknowledgement (rule 4). A
+     terminal that never acknowledges blocks the switch until it does or is unpaired; the operator sees which one.
+   - Until phase 2, the product is sellable nowhere in that store, as count or measured. That gap is the price of never
+     refusing a paid sale.
+4. **Pending offline sales and inventory:** guard 2 judges each line against the catalogue in force at the line's
+   **sale time**, so a count line sold before phase 1 is still accepted when it syncs. But its Inventory Effect could
+   establish `unit` as the product's inventory unit after the readiness check passed, and later `kg` effects would be
+   skipped, or the reverse if a measured effect landed first (`sale-effects.ts` reads the established unit per sale).
+   So phase 2 also requires that all pre-switch sales of the product in that store are captured **and** their Inventory
+   Effects processed, and then re-runs the §4.1 readiness check. If a drained count sale established a non-measured
+   unit, the switch is refused (Q-14), never applied with mixed units.
 
 Proposed `CaptureSaleLine` additions (names indicative; the contract PR decides spelling):
 
@@ -183,11 +193,15 @@ New invariant for a line with `measure` (422 `sale_line_pricing_invalid` otherwi
    canonical UOM. Self-consistency alone would let a terminal send `l` for a `kg` product, which passes rule 3 but is
    then skipped by Inventory Effects as `unit_mismatch`. This check covers stale offline submissions, because it is
    evaluated against the catalog in force at the line's sale time. Ad-hoc lines (no `tenantProductRef`, FR-004) keep
-   the self-consistency rules 1–4 only. Q-5 now asks only what else capture checks and freezes.
+   the self-consistency rules 1–4 only.
+6. **Product-linked measured lines respect the Sell Unit precision (mandatory):** `measure.precision` must equal the
+   product's Sell Unit precision at sale time, and the quantity must fit it (§4.1). Rule 2 then checks the quantity
+   against `measure.precision`. Ad-hoc lines are bounded by the ratified Q-3 cap.
 
-Storage: no migration is needed for quantity or unit (B5). Freezing `measure.kind`/`source` on `sale_lines` needs an
-additive column set (Q-5 decides how much is frozen); that migration belongs to the BC implementation slice, gated by
-this plan's ratification.
+Storage: no migration is needed for quantity or unit (B5). `measure.kind`, `measure.precision` and `measure.uom` are
+frozen on `sale_lines` for **every** measured line, ad-hoc lines included, because the posting feed (K4) and returns
+need them and an ad-hoc line has no catalog record to recover them from. Q-5 decides only whether `source` is frozen
+too. That additive migration belongs to the BC implementation slice, gated by this plan's ratification.
 
 ## 6. Returns of measured lines (612–617, RT-14 / RT-87)
 
@@ -270,7 +284,7 @@ None of these is decided by this plan.
 | **Q-2** | Which canonical rate UOMs are allowed? | `kg` only; `kg`,`l`,`m`; open list | `kg` only for the pilot store's needs, list extensible |
 | **Q-3** | Quantity precision for measured lines | `p = 3`; per-UOM `p`; up to 6 | `p = 3` (fits Inventory Effects and common ERP precision) |
 | **Q-4** | Rounding mode of `round_m(unitPrice × quantity)` | half-up; half-even; truncate | Half-up (matches RT-740) — but must equal the ERP site's method (Q-9) |
-| **Q-5** | Beyond the mandatory measured-flag and UOM binding (§5 rules 2 and 5), does capture check more against the catalog (e.g. precision, display unit), and what is frozen on `sale_lines`? | A: no further checks, freeze `measure.kind`+`source`; B: also check precision against the Sell Unit, freeze `precision` too | B: precision is cheap to check and is needed to replay returns |
+| **Q-5** | Is the input `source` (scale / barcode / manual) frozen on `sale_lines` and sent in the feed? Kind, UOM and precision are always frozen, and the catalog checks of §5 rules 2, 5 and 6 are mandatory | A: freeze `source`; B: do not freeze it | A: it is the audit trail for manual-entry and barcode disputes (Q-6, Q-7) |
 | **Q-6** | Scale integration and manual weight entry | Scale in the pilot or barcode-only first; manual entry allowed / approval-gated / disabled | Barcode-weight first; scale as a separate slice once hardware is chosen; manual entry approval-gated |
 | **Q-7** | Supported embedded-barcode layouts | Weight-embedded only; plus price-embedded | Weight-embedded only, layouts configured per tenant |
 | **Q-8** | Returns of measured lines | R-A whole only; R-B pro-rata minor-unit; R-C remainder | R-A |
@@ -287,7 +301,7 @@ Each step is a separate PR; no consumer implementation starts before the contrac
 
 | # | Product | Contract change | Additive? |
 |---|---|---|---|
-| K1 | Backend-Core | Catalog: measured Sell Unit (`measure`, canonical `uom`, `precision`, display comparison unit) on the product master and as optional fields on read-down `SellableCatalogRow`; the `measured_sales` terminal capability and the rule that read-down omits measured products for terminals without it. Barcode-layout configuration resource if Q-7 needs tenant layouts | Yes (POS tolerates extra fields, P8) |
+| K1 | Backend-Core | Catalog: measured Sell Unit (`measure`, canonical `uom`, `precision`, display comparison unit) on the product master and as optional fields on read-down `SellableCatalogRow`; the `measured_sales` terminal capability and the rule that read-down omits measured products for terminals without it; the `withdrawn_for_switch` row state and a terminal acknowledgement of the catalogue position (§5 rule 3). Barcode-layout configuration resource if Q-7 needs tenant layouts | Yes (POS tolerates extra fields, P8) |
 | K2 | Backend-Core | Pricing (spec 041 amendment): `price_events.sell_unit` accepts a measured Sell Unit; the price is the rate per canonical UOM; authoring normalization from the display unit | Yes (OD-2 seam) |
 | K3 | Backend-Core | `pos-sales/sales.yaml`: optional `CaptureSaleLine.measure`; the measured invariant (§5); the measured-line return rule (§6); new typed refusal reasons | Yes for capture; return rule replaces one sentence for measured lines only |
 | K4 | Backend-Core | `erpnext-connector/posting-feed.yaml`: `SaleLine.measure` and `ReturnLine.measure` (kind, uom, precision) so the Connector can apply the measured rules | Yes |
@@ -300,12 +314,12 @@ Precedent: RT-282 created gated items only after its gate was ratified. All are 
 
 | Proposed key | Product | Work Mode | Bounded scope | Depends on |
 |---|---|---|---|---|
-| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability, capability-filtered read-down and the store-level switch gate (§5 rule 3); store readiness report for established units and tracked products (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
+| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability, capability-filtered read-down, the two-phase store switch with terminal acknowledgements and outbox/effects drain (§5 rules 3–4); store readiness report for established units and tracked products (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
 | G5-BC-2 | Backend-Core | Implementation | K3 capture: `measure`, measured invariant, shared `roundToMinor`, `sale_lines` freeze columns, the count-line guard (§5). Ships **disabled** behind a per-tenant `measured_sales` enablement | G5-BC-1 contract |
 | G5-BC-3 | Backend-Core | Implementation | K3 returns rule for measured lines (per Q-8). Prerequisite of the enablement gate | G5-BC-2 |
 | G5-BC-4 | Backend-Core | Implementation | K4 posting feed: `measure` on sale and return lines | G5-BC-2 |
 | G5-CNR-1 | Connector | Implementation | K5: UOM/precision/rounding preflight, measured builder and return builder rules, RT-378 check for measured lines | G5-BC-4 |
-| G5-POS-1 | POS | Implementation | Re-pin; declare the `measured_sales` capability; fail-closed cache transition for products switched to measured; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
+| G5-POS-1 | POS | Implementation | Re-pin; declare the `measured_sales` capability; fail-closed `withdrawn_for_switch` handling and its acknowledgement; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
 | G5-POS-2 | POS | Implementation | Embedded-weight barcode parsing with tenant layouts (Q-7) | G5-POS-1 |
 | G5-POS-3 | POS | Implementation | Scale integration (Q-6), incl. the native dependency | G5-POS-1; hardware decision |
 | G5-POS-4 | POS | Implementation | Measured-line returns (Q-8) | G5-BC-3, G5-POS-1 |
