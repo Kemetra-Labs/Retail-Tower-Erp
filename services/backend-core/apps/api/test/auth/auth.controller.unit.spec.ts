@@ -773,6 +773,86 @@ describe("POST /api/v1/auth/password-reset/request", () => {
 });
 
 // ---------------------------------------------------------------------------
+// RT-1248 — the reset work runs off the request path
+// ---------------------------------------------------------------------------
+
+describe("RT-1248: password-reset/request replies before any account work", () => {
+  const KNOWN = "known@example.com";
+  const UNKNOWN = "ghost@example.com";
+  const IP = "198.51.100.48";
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const settle = (): Promise<void> => app.get(AuthController).settlePasswordResetWork();
+
+  it("a known and an unknown email get the same 202 with no DB write or enqueue before the reply", async () => {
+    // Stands in for the real service: one lookup, then for a known account a
+    // token insert and an email enqueue. Every step waits for `release`, so
+    // anything recorded before the reply was done on the request path.
+    const ops: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    jest.spyOn(svc, "requestPasswordReset").mockImplementation(async ({ email }) => {
+      await gate;
+      ops.push(`select:${email}`);
+      if (email === KNOWN) ops.push(`insert:${email}`, `enqueue:${email}`);
+    });
+
+    try {
+      const known = await http().post("/api/v1/auth/password-reset/request").send({ email: KNOWN });
+      const opsAfterKnownReply = [...ops];
+      const unknown = await http().post("/api/v1/auth/password-reset/request").send({ email: UNKNOWN });
+      const opsAfterUnknownReply = [...ops];
+
+      for (const res of [known, unknown]) {
+        expect(res.status).toBe(202);
+        expect(res.body).toEqual({});
+        expect(res.headers["retry-after"]).toBeUndefined();
+      }
+      expect(opsAfterKnownReply).toEqual([]);
+      expect(opsAfterUnknownReply).toEqual([]);
+      // Both requests reached the service; the limiter work before the reply was the same.
+      expect(svc.requestPasswordReset).toHaveBeenCalledTimes(2);
+      expect(rl.calledBuckets).toEqual([
+        "pwreset_ip", "pwreset_pair", "pwreset_email",
+        "pwreset_ip", "pwreset_pair", "pwreset_email",
+      ]);
+    } finally {
+      // Always open the gate, so a failed assertion cannot leave the drain waiting.
+      release();
+    }
+    await settle();
+    expect(ops).toEqual([`select:${KNOWN}`, `insert:${KNOWN}`, `enqueue:${KNOWN}`, `select:${UNKNOWN}`]);
+  });
+
+  it("a failure after the reply is still a 202 and is logged without the email or IP", async () => {
+    mockLogLines.length = 0;
+    jest.spyOn(svc, "requestPasswordReset").mockRejectedValue(new Error(`insert failed for ${KNOWN}`));
+
+    const res = await http()
+      .post("/api/v1/auth/password-reset/request")
+      .set("X-Forwarded-For", IP)
+      .send({ email: KNOWN });
+    await settle();
+
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({});
+    const text = JSON.stringify(mockLogLines);
+    expect(text).toContain("password-reset request work failed after the 202");
+    expect(text).not.toContain(KNOWN);
+    expect(text).not.toContain(IP);
+  });
+
+  it("settlePasswordResetWork resolves at once when nothing is pending", async () => {
+    await expect(settle()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/auth/password-reset/confirm
 // ---------------------------------------------------------------------------
 
