@@ -32,6 +32,8 @@ import {
 import { checkTrustProxyConfig } from "../../src/common/trust-proxy";
 import { readConsoleRateLimitConfig } from "../../src/console-rate-limit/console-rate-limit.config";
 import { resolveForwardTarget } from "../../src/console-telemetry/console-telemetry.forwarder";
+import { resolvePosTelemetryTarget } from "../../src/pos-telemetry/pos-telemetry.forwarder";
+import { resolveRefKey } from "../../src/pos-telemetry/pos-telemetry.refs";
 import {
   readCashierAdmissionPolicy,
   readTakeoverLimiterTimeoutMs,
@@ -235,6 +237,8 @@ describe("RT-984 production compose passes every API env setting", () => {
         },
       ],
       ["CONSOLE_SENTRY_DSN", () => resolveForwardTarget(process.env)],
+      ["POS_SENTRY_DSN", () => resolvePosTelemetryTarget(process.env)],
+      ["POS_TELEMETRY_REF_KEY", () => resolveRefKey(process.env)],
     ];
 
     it.each(probes)("%s", (name, read) => {

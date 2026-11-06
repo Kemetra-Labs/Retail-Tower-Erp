@@ -25,6 +25,12 @@
  *
  * Errors carry a fixed message: `JSON.parse` messages quote the input, so
  * they are never passed on or logged.
+ *
+ * RT-1252 reuses this rebuild for the POS device tunnel through
+ * {@link ForwardStamp}: the POS stamps `service=pos`, adds the server-minted
+ * fleet refs (OBS-1 §1 "POS fleet refs") after the tag cut, and can require
+ * an inbound tag value (the capture terminal id, R1) before anything is
+ * forwarded. The default stamp is exactly the Console behaviour.
  */
 import { scrubSentryEvent, type SentryEventLike } from "@data-pulse-2/shared";
 
@@ -50,8 +56,43 @@ const ALLOWED_TAG_KEYS: ReadonlySet<string> = new Set([
   "request_id",
 ]);
 const MAX_TAG_VALUE_LENGTH = 200;
-/** The OBS-1 §1 `service` for every tunnelled event. */
+/** The OBS-1 §1 `service` for every Console-tunnelled event. */
 const CONSOLE_SERVICE = "admin-console";
+
+/** How the server stamps a rebuilt event (RT-1252). */
+export interface ForwardStamp {
+  /** The OBS-1 §1 `service` tag. */
+  readonly service: string;
+  /** Server-owned tags added after the allowlist cut; they win over any inbound value. */
+  readonly extraTags?: Readonly<Record<string, string>>;
+  /** The inbound event must carry this tag with exactly this value, or nothing is forwarded. */
+  readonly requiredTag?: { readonly key: string; readonly value: string };
+  /**
+   * Values replaced anywhere in the rebuilt event, case-insensitively (raw →
+   * replacement). The POS tunnel maps the device's raw tenant, store and
+   * device ids to their refs, so an id inside a message or a frame path never
+   * leaves. Keys must be plain tokens (UUIDs): they are matched literally.
+   */
+  readonly replacements?: Readonly<Record<string, string>>;
+}
+
+/** `value` with every RegExp metacharacter escaped, for a literal match. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Applies {@link ForwardStamp.replacements} to the serialized event (literal, linear). */
+function applyReplacements(json: string, replacements: ForwardStamp["replacements"]): string {
+  let out = json;
+  for (const [raw, replacement] of Object.entries(replacements ?? {})) {
+    if (raw.length === 0) continue;
+    out = out.replace(new RegExp(escapeRegExp(raw), "gi"), replacement);
+  }
+  return out;
+}
+
+/** The Console tunnel's stamp (RT-632/RT-683). */
+const CONSOLE_STAMP: ForwardStamp = { service: CONSOLE_SERVICE };
 /** OBS-1 §1 release SHA12: exactly 12 lowercase hex chars (no 40-char SHA). */
 const SHA12 = /^[0-9a-f]{12}$/;
 const NEWLINE = 0x0a;
@@ -188,8 +229,8 @@ function releaseAndVersion(release: unknown, version: unknown): { release?: stri
   return { ...(r === undefined ? {} : { release: r }), ...(v === undefined ? {} : { version: v }) };
 }
 
-/** Drops `server_name` and stamps the server-owned `service`, `release` and `version`. */
-function stampIdentity(scrubbed: SentryEventLike): JsonObject {
+/** Drops `server_name` and stamps the server-owned `service`, `release`, `version` and extra tags. */
+function stampIdentity(scrubbed: SentryEventLike, stamp: ForwardStamp): JsonObject {
   const { tags, release, server_name: _serverName, ...rest } = scrubbed;
   const { version, service: _service, ...otherTags } = allowedTags(tags);
   const stamped = releaseAndVersion(release, version);
@@ -198,10 +239,19 @@ function stampIdentity(scrubbed: SentryEventLike): JsonObject {
     ...(stamped.release === undefined ? {} : { release: stamped.release }),
     tags: {
       ...otherTags,
-      service: CONSOLE_SERVICE,
+      service: stamp.service,
       ...(stamped.version === undefined ? {} : { version: stamped.version }),
+      ...stamp.extraTags,
     },
   };
+}
+
+/** True when the stamp requires no tag, or the inbound event carries the required value exactly. */
+function hasRequiredTag(inbound: JsonObject, stamp: ForwardStamp): boolean {
+  const required = stamp.requiredTag;
+  if (required === undefined) return true;
+  const tags = inbound["tags"];
+  return isJsonObject(tags) && tags[required.key] === required.value;
 }
 
 function rebuildHeader(inbound: JsonObject, event: SentryEventLike): JsonObject {
@@ -215,21 +265,27 @@ function rebuildHeader(inbound: JsonObject, event: SentryEventLike): JsonObject 
 
 /**
  * Parses an inbound envelope and returns the one to forward, or `null` when
- * nothing survives (no error event, or the scrubber dropped it). `environment`
- * is the server's Sentry environment, stamped over the Console's. Throws
+ * nothing survives (no error event, the scrubber dropped it, or the stamp's
+ * required tag is missing or different). `environment` is the server's Sentry
+ * environment, stamped over the client's. Throws
  * {@link EnvelopeMalformedError} on a malformed envelope.
  */
-export function buildForwardEnvelope(body: Buffer, environment: string): Buffer | null {
+export function buildForwardEnvelope(
+  body: Buffer,
+  environment: string,
+  stamp: ForwardStamp = CONSOLE_STAMP,
+): Buffer | null {
   const { header, items } = parseEnvelope(body);
   const eventItem = items.find((item) => item.type === "event");
   if (eventItem === undefined) return null;
 
   const inbound = parseObject(eventItem.payload);
+  if (!hasRequiredTag(inbound, stamp)) return null;
   const scrubbed = scrubSentryEvent(inbound as SentryEventLike);
   if (scrubbed === null) return null;
 
-  const event = { ...stampIdentity(scrubbed), environment, sdk: rebuildSdk(inbound["sdk"]) };
-  const payload = Buffer.from(JSON.stringify(event), "utf8");
+  const event = { ...stampIdentity(scrubbed, stamp), environment, sdk: rebuildSdk(inbound["sdk"]) };
+  const payload = Buffer.from(applyReplacements(JSON.stringify(event), stamp.replacements), "utf8");
   return Buffer.concat([
     Buffer.from(`${JSON.stringify(rebuildHeader(header, scrubbed))}\n`, "utf8"),
     Buffer.from(`${JSON.stringify({ type: "event", length: payload.length })}\n`, "utf8"),
