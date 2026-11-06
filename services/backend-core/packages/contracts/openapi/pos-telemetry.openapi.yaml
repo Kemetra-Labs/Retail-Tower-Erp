@@ -48,10 +48,14 @@ info:
     and `terminal_ref`: each the first 16 hex characters of an HMAC-SHA256 of
     the device row's tenant id, store id and device id under the server key
     `POS_TELEMETRY_REF_KEY` (OBS-1 §1 "POS fleet refs"). A client-sent value
-    of any of these is discarded; raw tenant, store and device ids are never
-    forwarded. The device's own raw tenant, store and device ids are also
-    replaced by their refs wherever they appear in the rebuilt event (for
-    example inside an exception message or a frame path), case-insensitively.
+    of any of these is discarded, and the server never adds a raw tenant,
+    store or device id to the event. The reporting device's own raw tenant,
+    store and device ids are also replaced by their refs wherever they appear
+    in the rebuilt event (for example inside an exception message or a frame
+    path), case-insensitively. Any other identifier inside free text (another
+    device's id, a sale or request id) follows the OBS-1 §3 scrub like every
+    other surface: UUIDs are not masked there (golden vector N1), so they are
+    not masked here either.
 
 
     **Capture terminal (R1).** The terminal tags each event it captures with

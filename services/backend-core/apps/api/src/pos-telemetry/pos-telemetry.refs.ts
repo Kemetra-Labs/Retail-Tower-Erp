@@ -4,7 +4,9 @@
  * Sentry project `kemetra/pos` may carry `tenant_ref`, `store_ref` and
  * `terminal_ref`: each a truncated HMAC-SHA256 of the device row's id under
  * a Backend-Core secret key, so nothing in Sentry identifies a customer
- * without Backend-Core. The raw ids never leave. Each ref is domain-separated
+ * without Backend-Core. The server never sends the raw ids as tags, and the
+ * tunnel replaces the reporting device's own raw ids in the event with these
+ * refs (other free text follows OBS-1 §3). Each ref is domain-separated
  * by its kind, so a tenant and a store with the same id get different refs.
  *
  * The key (`POS_TELEMETRY_REF_KEY`) is rotated only on compromise: a new key

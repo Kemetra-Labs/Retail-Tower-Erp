@@ -940,7 +940,8 @@ tunnel `POST /api/pos/v1/telemetry/envelope` (the `device` bearer only; terminal
 never hold a DSN). Set `POS_SENTRY_DSN` (the `pos` Sentry project) and
 `POS_TELEMETRY_REF_KEY` (a secret of at least 32 characters) and recreate `api`.
 The tunnel stamps `service=pos` and the `tenant_ref`/`store_ref`/`terminal_ref`
-HMAC refs from the device row (OBS-1 §1 "POS fleet refs"; raw ids never leave),
+HMAC refs from the device row (OBS-1 §1 "POS fleet refs"), replaces the device's
+own raw ids anywhere in the event with those refs,
 drops an event captured under another device, and applies per-device and global
 rate limits. Terminals read `GET /api/pos/v1/telemetry/config` (`{ enabled,
 tunnel, environment }`, or 204 when inert). Rotating the DSN needs no terminal
