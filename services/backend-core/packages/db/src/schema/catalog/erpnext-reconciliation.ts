@@ -101,6 +101,11 @@ export const erpnextReconciliationRun = pgTable(
       t.tenantId,
       t.startedAt.desc(),
     ),
+    // RT-185 (migration 0081, built CONCURRENTLY): the per-store running-run
+    // probe of the scheduled stock-run sweep reads only the running rows.
+    index("idx_erpnext_reconciliation_run_tenant_store_running")
+      .on(t.tenantId, t.storeId, t.startedAt)
+      .where(sql`${t.status} = 'running'`),
   ],
 );
 
