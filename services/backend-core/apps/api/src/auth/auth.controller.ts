@@ -30,6 +30,7 @@ import {
   HttpCode,
   HttpException,
   HttpStatus,
+  type OnModuleDestroy,
   Post,
   Req,
   Res,
@@ -123,9 +124,12 @@ function log(): Logger {
 }
 
 @Controller("api/v1/auth")
-export class AuthController {
+export class AuthController implements OnModuleDestroy {
   /** RT-628: bound on each public-auth limiter call, read once at boot. */
   private readonly limiterTimeoutMs = readPublicAuthLimiterTimeoutMs();
+
+  /** RT-1248: reset-request work started after the 202, until it settles. */
+  private readonly pendingResetWork = new Set<Promise<void>>();
 
   constructor(
     private readonly authService: AuthService,
@@ -299,8 +303,47 @@ export class AuthController {
     // request is still 202 (contract, no account-existence signal) but nothing
     // is sent.
     if (!(await this.withinResetEmailBudget(body.email, ip))) return;
-    await this.authService.requestPasswordReset({ email: body.email });
-    // Body is empty — contract says 202 with no schema.
+    // RT-1248: the account lookup, token insert and email enqueue run off the
+    // request path, so the 202 leaves after the same work (the limiter checks
+    // above) for a known and an unknown email. Body is empty — contract says
+    // 202 with no schema.
+    this.startPasswordReset(body.email);
+  }
+
+  /**
+   * RT-1248: start the reset work without awaiting it. A failure is logged with
+   * a fixed message and the error class only (no email, IP or token) and never
+   * reaches the caller: the route answers 202 whether or not the account exists
+   * or the work fails.
+   */
+  private startPasswordReset(email: string): void {
+    const work = this.authService.requestPasswordReset({ email }).catch((err: unknown) => {
+      log().error(
+        { error: err instanceof Error ? err.name : typeof err },
+        "password-reset request work failed after the 202; nothing sent",
+      );
+    });
+    this.pendingResetWork.add(work);
+    void work.finally(() => this.pendingResetWork.delete(work));
+  }
+
+  /**
+   * RT-1248: resolves once every reset-request work item started so far has
+   * settled. Never rejects (each item already logs its own failure).
+   */
+  async settlePasswordResetWork(): Promise<void> {
+    while (this.pendingResetWork.size > 0) {
+      await Promise.all(this.pendingResetWork);
+    }
+  }
+
+  /**
+   * RT-1248: delays app close until in-flight reset work settles. Best effort
+   * only: Nest runs AuthModule's destroy hooks together, so the pool and email
+   * queue may close first and that work then fails (logged, nothing sent).
+   */
+  async onModuleDestroy(): Promise<void> {
+    await this.settlePasswordResetWork();
   }
 
   // ---------------------------------------------------------------------

@@ -63,6 +63,7 @@ import { Pool } from "pg";
 import request from "supertest";
 
 import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthController } from "../../src/auth/auth.controller";
 import {
   EMAIL_JOB_ENQUEUER,
   NoOpEmailJobEnqueuer,
@@ -223,6 +224,7 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  if (app) await settleResetWork();
   if (app) await app.close().catch(() => undefined);
   if (pool) await pool.end().catch(() => undefined);
   if (env) await stopPgEnv(env);
@@ -238,6 +240,20 @@ beforeEach(() => {
 function http() {
   if (!app) throw new Error("app not initialized");
   return request(app.getHttpServer());
+}
+
+/** RT-1248: the reset work runs after the 202; wait for it before asserting. */
+function settleResetWork(): Promise<void> {
+  if (!app) throw new Error("app not initialized");
+  return app.get(AuthController).settlePasswordResetWork();
+}
+
+/** POST /password-reset/request, then wait for the work it started after the 202. */
+async function requestReset(body: { email: string }, ip?: string): Promise<request.Response> {
+  const req = http().post("/api/v1/auth/password-reset/request");
+  const res = await (ip === undefined ? req : req.set("X-Forwarded-For", ip)).send(body);
+  await settleResetWork();
+  return res;
 }
 
 function maybeSkip(): boolean {
@@ -473,7 +489,7 @@ describe("RT-625 — (email, IP) lockout and reset two-tier (db integration)", (
   }
 
   function resetFrom(ip: string, email: string) {
-    return http().post("/api/v1/auth/password-reset/request").set("X-Forwarded-For", ip).send({ email });
+    return requestReset({ email }, ip);
   }
 
   async function seedUser(password: string): Promise<{ id: string; email: string }> {
@@ -704,9 +720,7 @@ describe("POST /api/v1/auth/refresh", () => {
 describe("POST /api/v1/auth/password-reset/request", () => {
   it("returns 202 and enqueues an email job for a known email", async () => {
     if (maybeSkip()) return;
-    const res = await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: ALICE_EMAIL });
+    const res = await requestReset({ email: ALICE_EMAIL });
     expect(res.status).toBe(202);
 
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(1);
@@ -728,28 +742,59 @@ describe("POST /api/v1/auth/password-reset/request", () => {
 
   it("returns 202 for an unknown email and does NOT enqueue", async () => {
     if (maybeSkip()) return;
-    const res = await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: "ghost@example.com" });
+    const res = await requestReset({ email: "ghost@example.com" });
     expect(res.status).toBe(202);
     expect(emailSpy.enqueuePasswordReset).not.toHaveBeenCalled();
+  });
+
+  it("RT-1248: the 202 for a known email does not wait for the email enqueue", async () => {
+    if (maybeSkip()) return;
+    // A fresh user: this describe counts Alice's reset tokens.
+    const user = { id: newId(), email: `rt1248-${newId()}@example.com` };
+    await pool!.query(`INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`, [
+      user.id,
+      user.email,
+      await hashPassword("rt1248-old-password-1"),
+    ]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    emailSpy.enqueuePasswordReset.mockImplementationOnce(() => gate);
+
+    // The enqueue cannot finish until `release`, so a reply here proves the
+    // handler did not await it.
+    try {
+      const res = await http().post("/api/v1/auth/password-reset/request").send({ email: user.email });
+      expect(res.status).toBe(202);
+      expect(res.body).toEqual({});
+    } finally {
+      // Always open the gate, so a failed assertion cannot leave the drain waiting.
+      release();
+    }
+    await settleResetWork();
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(1);
+    expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledWith(
+      expect.objectContaining({ email: user.email, userId: user.id, rawToken: expect.any(String) }),
+    );
+    const tokens = await pool!.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM auth_tokens WHERE user_id = $1 AND scope = 'password_reset'`,
+      [user.id],
+    );
+    expect(tokens.rows[0]!.count).toBe("1");
   });
 
   it("RT-626 / RT-625: at most 5 reset emails per address per hour from one IP; extras are a silent 202", async () => {
     if (maybeSkip()) return;
     for (let i = 0; i < 5; i++) {
-      const res = await http()
-        .post("/api/v1/auth/password-reset/request")
-        .send({ email: ALICE_EMAIL });
+      const res = await requestReset({ email: ALICE_EMAIL });
       expect(res.status).toBe(202);
     }
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(5);
 
     // Same address in another case and padded: the shared Email schema
     // normalizes it, so it is the same budget.
-    const over = await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: `  ${ALICE_EMAIL.toUpperCase()} ` });
+    const over = await requestReset({ email: `  ${ALICE_EMAIL.toUpperCase()} ` });
     expect(over.status).toBe(202);
     expect(over.body).toEqual({});
     expect(over.headers["retry-after"]).toBeUndefined();
@@ -758,9 +803,7 @@ describe("POST /api/v1/auth/password-reset/request", () => {
     // Rollover: once the hour has passed, the address gets an email again.
     const realNow = Date.now.bind(Date);
     jest.spyOn(Date, "now").mockImplementation(() => realNow() + 60 * 60 * 1000 + 1);
-    const next = await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: ALICE_EMAIL });
+    const next = await requestReset({ email: ALICE_EMAIL });
     expect(next.status).toBe(202);
     expect(emailSpy.enqueuePasswordReset).toHaveBeenCalledTimes(6);
   });
@@ -852,9 +895,7 @@ describe("POST /api/v1/auth/password-reset/confirm", () => {
     expect(b.status).toBe(200);
 
     // Ask for a reset; capture the rawToken via the spy.
-    await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: `pwreset-${userId}@example.com` });
+    await requestReset({ email: `pwreset-${userId}@example.com` });
     const lastCall = emailSpy.enqueuePasswordReset.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
     const rawToken = lastCall![0].rawToken;
@@ -940,7 +981,7 @@ describe("POST /api/v1/auth/password-reset/confirm", () => {
       `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)`,
       [userId, email, await hashPassword("race-old-password-1")],
     );
-    await http().post("/api/v1/auth/password-reset/request").send({ email });
+    await requestReset({ email });
     const lastCall = emailSpy.enqueuePasswordReset.mock.calls.at(-1);
     expect(lastCall![0].email).toBe(email);
     return { userId, email, rawToken: lastCall![0].rawToken };
@@ -1136,9 +1177,7 @@ describe("POST /api/v1/auth/email/verify/confirm", () => {
 
   it("rejects a token whose scope is password_reset (cross-scope replay)", async () => {
     if (maybeSkip()) return;
-    await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: ALICE_EMAIL });
+    await requestReset({ email: ALICE_EMAIL });
     const lastCall = emailSpy.enqueuePasswordReset.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
     const resetToken = lastCall![0].rawToken;
@@ -1159,9 +1198,7 @@ describe("Bearer token scope hardening", () => {
     if (maybeSkip()) return;
 
     // Request a password-reset token for alice; capture rawToken via the spy.
-    await http()
-      .post("/api/v1/auth/password-reset/request")
-      .send({ email: ALICE_EMAIL });
+    await requestReset({ email: ALICE_EMAIL });
     const lastCall = emailSpy.enqueuePasswordReset.mock.calls.at(-1);
     expect(lastCall).toBeDefined();
     const rawToken = lastCall![0].rawToken;
