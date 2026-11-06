@@ -1,0 +1,2282 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`RT-1221 characterization — count a count below on-hand appends a negative correction 1`] = `
+{
+  "body": {
+    "correctionMovement": {
+      "createdBy": "ACTOR_A",
+      "erpConfirmedAt": null,
+      "id": "<id2>",
+      "integrationState": "not_posted",
+      "inventoryStatus": "sellable",
+      "movementType": "count_correction",
+      "occurredAt": "<ts>",
+      "origin": "retail",
+      "positionInterpreted": false,
+      "quantity": "-15.5000",
+      "reason": "count variance",
+      "receivedAt": "<ts>",
+      "saleId": null,
+      "saleLineId": null,
+      "stockCountId": "<id1>",
+      "stockLocationId": "LOC(STORE_A_X:primary)",
+      "stockingUnit": "ea",
+      "storeId": "STORE_A_X",
+      "tenantProductRef": "PRODUCT_A_ACTIVE",
+      "terminalEventRef": null,
+      "trackingIdentityId": null,
+      "transferGroupId": null,
+    },
+    "countedQuantity": "4.5000",
+    "stockCountId": "<id1>",
+    "variance": "-15.5000",
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.count.record",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id3>",
+        "metadata": {
+          "hasCorrection": true,
+          "variance": "-15.5000",
+        },
+        "target_id": "<id1>",
+        "target_type": "stock_count",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [
+      {
+        "effect_id": "<id2>",
+        "erp_document_ref": null,
+        "posting_status_id": null,
+        "state": "not_posted",
+        "state_reason": null,
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": null,
+        "delivery_state": "pending",
+        "event_id": "<id4>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "movementIds": [
+            "<id2>",
+          ],
+          "movementType": "count_correction",
+          "stockCountId": "<id1>",
+          "tenantProductRef": "PRODUCT_A_ACTIVE",
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [
+      {
+        "counted_quantity": "4.5000",
+        "created_by": "ACTOR_A",
+        "derived_on_hand_at_count": "20.0000",
+        "has_counted_at": true,
+        "id": "<id1>",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+      },
+    ],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": "<id1>",
+        "event_type": "count",
+        "external_id": null,
+        "has_occurred_at": true,
+        "id": "<id2>",
+        "inventory_status": "sellable",
+        "movement_type": "count_correction",
+        "quantity": "-15.5000",
+        "reason": "count variance",
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": null,
+        "stock_count_id": "<id1>",
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": null,
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT COALESCE(SUM(quantity), 0)::numeric(19,4)::text AS quantity FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+        "4.5000",
+        "20.0000",
+        "ea",
+        "<ts>",
+        "ACTOR_A",
+      ],
+      "text": "INSERT INTO stock_counts (id, tenant_id, store_id, tenant_product_ref, counted_quantity, derived_on_hand_at_count, stocking_unit, counted_at, created_by) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6::numeric(19,4), $7, COALESCE($8::timestamptz, now()), $9)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id2>",
+        "TENANT_A",
+        "STORE_A_X",
+        "-15.5000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        "<id1>",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, stock_count_id, reason, occurred_at, created_by, event_type, event_ref_id, stock_location_id, inventory_status) VALUES ($1, $2, $3, 'count_correction', $4::numeric(19,4), $5, $6, $7, 'count variance', now(), $8, 'count', $7, $9, $10) RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "TENANT_A",
+        [
+          "<id2>",
+        ],
+        "not_posted",
+      ],
+      "text": "INSERT INTO inventory_effect_integration (effect_id, tenant_id, state) SELECT effect_id, $1, $3 FROM unnest($2::uuid[]) AS effect_id",
+    },
+    {
+      "params": [
+        "<id3>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.count.record",
+        "stock_count",
+        "<id1>",
+        "{"variance":"-15.5000","hasCorrection":true}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id4>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id2>"],"movementType":"count_correction","tenantProductRef":"PRODUCT_A_ACTIVE","stockCountId":"<id1>"}",
+        null,
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — count a count below on-hand appends a negative correction: on-hand A.X after negative count 1`] = `"4.5000"`;
+
+exports[`RT-1221 characterization — count a count with variance records the count and a linked count_correction 1`] = `
+{
+  "body": {
+    "correctionMovement": {
+      "createdBy": "ACTOR_A",
+      "erpConfirmedAt": null,
+      "id": "<id2>",
+      "integrationState": "not_posted",
+      "inventoryStatus": "sellable",
+      "movementType": "count_correction",
+      "occurredAt": "<ts>",
+      "origin": "retail",
+      "positionInterpreted": false,
+      "quantity": "66.0000",
+      "reason": "count variance",
+      "receivedAt": "<ts>",
+      "saleId": null,
+      "saleLineId": null,
+      "stockCountId": "<id1>",
+      "stockLocationId": "LOC(STORE_A_X:primary)",
+      "stockingUnit": "ea",
+      "storeId": "STORE_A_X",
+      "tenantProductRef": "PRODUCT_A_ACTIVE",
+      "terminalEventRef": null,
+      "trackingIdentityId": null,
+      "transferGroupId": null,
+    },
+    "countedQuantity": "20.0000",
+    "stockCountId": "<id1>",
+    "variance": "66.0000",
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.count.record",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id3>",
+        "metadata": {
+          "hasCorrection": true,
+          "variance": "66.0000",
+        },
+        "target_id": "<id1>",
+        "target_type": "stock_count",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [
+      {
+        "effect_id": "<id2>",
+        "erp_document_ref": null,
+        "posting_status_id": null,
+        "state": "not_posted",
+        "state_reason": null,
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": null,
+        "delivery_state": "pending",
+        "event_id": "<id4>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "movementIds": [
+            "<id2>",
+          ],
+          "movementType": "count_correction",
+          "stockCountId": "<id1>",
+          "tenantProductRef": "PRODUCT_A_ACTIVE",
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [
+      {
+        "counted_quantity": "20.0000",
+        "created_by": "ACTOR_A",
+        "derived_on_hand_at_count": "-46.0000",
+        "has_counted_at": true,
+        "id": "<id1>",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+      },
+    ],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": "<id1>",
+        "event_type": "count",
+        "external_id": null,
+        "has_occurred_at": true,
+        "id": "<id2>",
+        "inventory_status": "sellable",
+        "movement_type": "count_correction",
+        "quantity": "66.0000",
+        "reason": "count variance",
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": null,
+        "stock_count_id": "<id1>",
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": null,
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT COALESCE(SUM(quantity), 0)::numeric(19,4)::text AS quantity FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+        "20.0000",
+        "-46.0000",
+        "ea",
+        "<ts>",
+        "ACTOR_A",
+      ],
+      "text": "INSERT INTO stock_counts (id, tenant_id, store_id, tenant_product_ref, counted_quantity, derived_on_hand_at_count, stocking_unit, counted_at, created_by) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6::numeric(19,4), $7, COALESCE($8::timestamptz, now()), $9)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id2>",
+        "TENANT_A",
+        "STORE_A_X",
+        "66.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        "<id1>",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, stock_count_id, reason, occurred_at, created_by, event_type, event_ref_id, stock_location_id, inventory_status) VALUES ($1, $2, $3, 'count_correction', $4::numeric(19,4), $5, $6, $7, 'count variance', now(), $8, 'count', $7, $9, $10) RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "TENANT_A",
+        [
+          "<id2>",
+        ],
+        "not_posted",
+      ],
+      "text": "INSERT INTO inventory_effect_integration (effect_id, tenant_id, state) SELECT effect_id, $1, $3 FROM unnest($2::uuid[]) AS effect_id",
+    },
+    {
+      "params": [
+        "<id3>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.count.record",
+        "stock_count",
+        "<id1>",
+        "{"variance":"66.0000","hasCorrection":true}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id4>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id2>"],"movementType":"count_correction","tenantProductRef":"PRODUCT_A_ACTIVE","stockCountId":"<id1>"}",
+        null,
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — count a count with variance records the count and a linked count_correction: on-hand A.X after count 1`] = `"20.0000"`;
+
+exports[`RT-1221 characterization — count a zero-variance count records the count, no correction, no outbox 1`] = `
+{
+  "body": {
+    "correctionMovement": null,
+    "countedQuantity": "20.0000",
+    "stockCountId": "<id1>",
+    "variance": "0.0000",
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.count.record",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id2>",
+        "metadata": {
+          "hasCorrection": false,
+          "variance": "0.0000",
+        },
+        "target_id": "<id1>",
+        "target_type": "stock_count",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [
+      {
+        "counted_quantity": "20.0000",
+        "created_by": "ACTOR_A",
+        "derived_on_hand_at_count": "20.0000",
+        "has_counted_at": true,
+        "id": "<id1>",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+      },
+    ],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT COALESCE(SUM(quantity), 0)::numeric(19,4)::text AS quantity FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+        "20.0000",
+        "20.0000",
+        "ea",
+        null,
+        "ACTOR_A",
+      ],
+      "text": "INSERT INTO stock_counts (id, tenant_id, store_id, tenant_product_ref, counted_quantity, derived_on_hand_at_count, stocking_unit, counted_at, created_by) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6::numeric(19,4), $7, COALESCE($8::timestamptz, now()), $9)",
+    },
+    {
+      "params": [
+        "<id2>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.count.record",
+        "stock_count",
+        "<id1>",
+        "{"variance":"0.0000","hasCorrection":false}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — count rejects: blank stocking unit 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "stockingUnit is required",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — count rejects: cross-tenant store 1`] = `
+{
+  "error": {
+    "class": "NotFoundException",
+    "message": "Not Found",
+    "status": 404,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_B_X",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [],
+      "text": "ROLLBACK",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — count rejects: cross-unit 1`] = `
+{
+  "error": {
+    "class": "CrossUnitError",
+    "message": "stockingUnit 'kg' does not match the product's stocking unit 'ea'",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [],
+      "text": "ROLLBACK",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — count rejects: negative counted quantity 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "countedQuantity must be non-negative",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill a first restock appends an inbound with provenance, audit and outbox 1`] = `
+{
+  "body": {
+    "createdBy": "ACTOR_A",
+    "erpConfirmedAt": null,
+    "id": "<id1>",
+    "integrationState": null,
+    "inventoryStatus": "sellable",
+    "movementType": "inbound",
+    "occurredAt": "<ts>",
+    "origin": "retail",
+    "positionInterpreted": false,
+    "quantity": "2.0000",
+    "reason": "void restock",
+    "receivedAt": "<ts>",
+    "saleId": null,
+    "saleLineId": null,
+    "stockCountId": null,
+    "stockLocationId": "LOC(STORE_A_X:primary)",
+    "stockingUnit": "ea",
+    "storeId": "STORE_A_X",
+    "tenantProductRef": "PRODUCT_A_ACTIVE",
+    "terminalEventRef": "VOID_A_X",
+    "trackingIdentityId": null,
+    "transferGroupId": null,
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.movement.backfill",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id2>",
+        "metadata": {
+          "correlationId": "<id3>",
+          "externalId": "char-restock-1",
+          "sourceSystem": "pos-restock",
+          "terminalEventRef": "VOID_A_X",
+        },
+        "target_id": "<id1>",
+        "target_type": "stock_movement",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": "<id3>",
+        "delivery_state": "pending",
+        "event_id": "<id4>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "externalId": "char-restock-1",
+          "movementIds": [
+            "<id1>",
+          ],
+          "movementType": "inbound",
+          "sourceSystem": "pos-restock",
+          "tenantProductRef": "PRODUCT_A_ACTIVE",
+          "terminalEventRef": "VOID_A_X",
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": null,
+        "event_type": null,
+        "external_id": "char-restock-1",
+        "has_occurred_at": true,
+        "id": "<id1>",
+        "inventory_status": "sellable",
+        "movement_type": "inbound",
+        "quantity": "2.0000",
+        "reason": "void restock",
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": "pos-restock",
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": "VOID_A_X",
+        "transfer_group_id": null,
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inbound",
+        "2.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        "void restock",
+        "<ts>",
+        "pos-restock",
+        "char-restock-1",
+        null,
+        null,
+        "VOID_A_X",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, source_system, external_id, sale_id, sale_line_id, terminal_event_ref, created_by, stock_location_id, inventory_status) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6, $7, $8, COALESCE($9::timestamptz, now()), $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (tenant_id, source_system, external_id) WHERE source_system IS NOT NULL AND external_id IS NOT NULL DO NOTHING RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "<id2>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.movement.backfill",
+        "stock_movement",
+        "<id1>",
+        "{"sourceSystem":"pos-restock","externalId":"char-restock-1","terminalEventRef":"VOID_A_X","correlationId":"<id3>"}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id4>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id1>"],"movementType":"inbound","tenantProductRef":"PRODUCT_A_ACTIVE","sourceSystem":"pos-restock","externalId":"char-restock-1","terminalEventRef":"VOID_A_X"}",
+        "<id3>",
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill a non-UUID correlation id is audited but not forwarded to the outbox 1`] = `
+{
+  "body": {
+    "createdBy": "ACTOR_A",
+    "erpConfirmedAt": null,
+    "id": "<id1>",
+    "integrationState": null,
+    "inventoryStatus": "sellable",
+    "movementType": "inbound",
+    "occurredAt": "<ts>",
+    "origin": "retail",
+    "positionInterpreted": false,
+    "quantity": "2.0000",
+    "reason": null,
+    "receivedAt": "<ts>",
+    "saleId": null,
+    "saleLineId": null,
+    "stockCountId": null,
+    "stockLocationId": "LOC(STORE_A_X:primary)",
+    "stockingUnit": "ea",
+    "storeId": "STORE_A_X",
+    "tenantProductRef": "PRODUCT_A_ACTIVE",
+    "terminalEventRef": null,
+    "trackingIdentityId": null,
+    "transferGroupId": null,
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.movement.backfill",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id2>",
+        "metadata": {
+          "correlationId": "not-a-uuid",
+          "externalId": "char-restock-2",
+          "sourceSystem": "pos-restock",
+          "terminalEventRef": null,
+        },
+        "target_id": "<id1>",
+        "target_type": "stock_movement",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": null,
+        "delivery_state": "pending",
+        "event_id": "<id3>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "externalId": "char-restock-2",
+          "movementIds": [
+            "<id1>",
+          ],
+          "movementType": "inbound",
+          "sourceSystem": "pos-restock",
+          "tenantProductRef": "PRODUCT_A_ACTIVE",
+          "terminalEventRef": null,
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": null,
+        "event_type": null,
+        "external_id": "char-restock-2",
+        "has_occurred_at": true,
+        "id": "<id1>",
+        "inventory_status": "sellable",
+        "movement_type": "inbound",
+        "quantity": "2.0000",
+        "reason": null,
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": "pos-restock",
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": null,
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inbound",
+        "2.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        null,
+        null,
+        "pos-restock",
+        "char-restock-2",
+        null,
+        null,
+        null,
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, source_system, external_id, sale_id, sale_line_id, terminal_event_ref, created_by, stock_location_id, inventory_status) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6, $7, $8, COALESCE($9::timestamptz, now()), $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (tenant_id, source_system, external_id) WHERE source_system IS NOT NULL AND external_id IS NOT NULL DO NOTHING RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "<id2>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.movement.backfill",
+        "stock_movement",
+        "<id1>",
+        "{"sourceSystem":"pos-restock","externalId":"char-restock-2","terminalEventRef":null,"correlationId":"not-a-uuid"}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id3>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id1>"],"movementType":"inbound","tenantProductRef":"PRODUCT_A_ACTIVE","sourceSystem":"pos-restock","externalId":"char-restock-2","terminalEventRef":null}",
+        null,
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill a redelivered restock returns the existing movement with no new rows 1`] = `
+{
+  "body": {
+    "createdBy": "ACTOR_A",
+    "erpConfirmedAt": null,
+    "id": "<id2>",
+    "integrationState": null,
+    "inventoryStatus": "sellable",
+    "movementType": "inbound",
+    "occurredAt": "<ts>",
+    "origin": "retail",
+    "positionInterpreted": false,
+    "quantity": "2.0000",
+    "reason": "void restock",
+    "receivedAt": "<ts>",
+    "saleId": null,
+    "saleLineId": null,
+    "stockCountId": null,
+    "stockLocationId": "LOC(STORE_A_X:primary)",
+    "stockingUnit": "ea",
+    "storeId": "STORE_A_X",
+    "tenantProductRef": "PRODUCT_A_ACTIVE",
+    "terminalEventRef": "VOID_A_X",
+    "trackingIdentityId": null,
+    "transferGroupId": null,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inbound",
+        "2.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        "void restock",
+        "<ts>",
+        "pos-restock",
+        "char-restock-1",
+        null,
+        null,
+        "VOID_A_X",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, source_system, external_id, sale_id, sale_line_id, terminal_event_ref, created_by, stock_location_id, inventory_status) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6, $7, $8, COALESCE($9::timestamptz, now()), $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (tenant_id, source_system, external_id) WHERE source_system IS NOT NULL AND external_id IS NOT NULL DO NOTHING RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "TENANT_A",
+        "pos-restock",
+        "char-restock-1",
+      ],
+      "text": "SELECT m.id, m.store_id, m.movement_type, m.quantity, m.stocking_unit, m.tenant_product_ref, m.reason, m.occurred_at, m.received_at, m.sale_id, m.sale_line_id, m.terminal_event_ref, m.transfer_group_id, m.stock_count_id, m.created_by, m.origin, m.stock_location_id, m.inventory_status, m.tracking_identity_id, p.id AS primary_location_id FROM stock_movements m LEFT JOIN stock_locations p ON p.store_id = m.store_id AND p.kind = 'primary' WHERE m.tenant_id = $1 AND m.source_system = $2 AND m.external_id = $3",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill an ad-hoc (no product) restock skips the unit check 1`] = `
+{
+  "body": {
+    "createdBy": "ACTOR_A",
+    "erpConfirmedAt": null,
+    "id": "<id1>",
+    "integrationState": null,
+    "inventoryStatus": "sellable",
+    "movementType": "inbound",
+    "occurredAt": "<ts>",
+    "origin": "retail",
+    "positionInterpreted": false,
+    "quantity": "2.0000",
+    "reason": "void restock",
+    "receivedAt": "<ts>",
+    "saleId": null,
+    "saleLineId": null,
+    "stockCountId": null,
+    "stockLocationId": "LOC(STORE_A_X:primary)",
+    "stockingUnit": "box",
+    "storeId": "STORE_A_X",
+    "tenantProductRef": null,
+    "terminalEventRef": "VOID_A_X",
+    "trackingIdentityId": null,
+    "transferGroupId": null,
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.movement.backfill",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id2>",
+        "metadata": {
+          "correlationId": "<id3>",
+          "externalId": "char-restock-3",
+          "sourceSystem": "pos-restock",
+          "terminalEventRef": "VOID_A_X",
+        },
+        "target_id": "<id1>",
+        "target_type": "stock_movement",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": "<id3>",
+        "delivery_state": "pending",
+        "event_id": "<id4>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "externalId": "char-restock-3",
+          "movementIds": [
+            "<id1>",
+          ],
+          "movementType": "inbound",
+          "sourceSystem": "pos-restock",
+          "tenantProductRef": null,
+          "terminalEventRef": "VOID_A_X",
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": null,
+        "event_type": null,
+        "external_id": "char-restock-3",
+        "has_occurred_at": true,
+        "id": "<id1>",
+        "inventory_status": "sellable",
+        "movement_type": "inbound",
+        "quantity": "2.0000",
+        "reason": "void restock",
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": "pos-restock",
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "box",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": null,
+        "terminal_event_ref": "VOID_A_X",
+        "transfer_group_id": null,
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inbound",
+        "2.0000",
+        "box",
+        null,
+        "void restock",
+        "<ts>",
+        "pos-restock",
+        "char-restock-3",
+        null,
+        null,
+        "VOID_A_X",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, source_system, external_id, sale_id, sale_line_id, terminal_event_ref, created_by, stock_location_id, inventory_status) VALUES ($1, $2, $3, $4, $5::numeric(19,4), $6, $7, $8, COALESCE($9::timestamptz, now()), $10, $11, $12, $13, $14, $15, $16, $17) ON CONFLICT (tenant_id, source_system, external_id) WHERE source_system IS NOT NULL AND external_id IS NOT NULL DO NOTHING RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "<id2>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.movement.backfill",
+        "stock_movement",
+        "<id1>",
+        "{"sourceSystem":"pos-restock","externalId":"char-restock-3","terminalEventRef":"VOID_A_X","correlationId":"<id3>"}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id4>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id1>"],"movementType":"inbound","tenantProductRef":null,"sourceSystem":"pos-restock","externalId":"char-restock-3","terminalEventRef":"VOID_A_X"}",
+        "<id3>",
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill an ad-hoc (no product) restock skips the unit check: on-hand A.X after restocks 1`] = `"8.5000"`;
+
+exports[`RT-1221 characterization — restock backfill rejects: blank provenance 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "restock requires a non-empty sourceSystem and externalId",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill rejects: blank stocking unit 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "stockingUnit is required",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill rejects: cross-unit 1`] = `
+{
+  "error": {
+    "class": "CrossUnitError",
+    "message": "stockingUnit 'kg' does not match the product's stocking unit 'ea'",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [],
+      "text": "ROLLBACK",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill rejects: negative quantity 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "inbound (restock) quantity must be positive",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill rejects: outbound movement type 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "restock movementType must be inbound",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — restock backfill rejects: zero quantity 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "quantity must be a numeric(19,4) decimal string",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — transfer a transfer appends linked transfer_out/transfer_in legs, audit, outbox, not_posted 1`] = `
+{
+  "body": {
+    "inbound": {
+      "createdBy": "ACTOR_A",
+      "erpConfirmedAt": null,
+      "id": "<id3>",
+      "integrationState": "not_posted",
+      "inventoryStatus": "sellable",
+      "movementType": "transfer_in",
+      "occurredAt": "<ts>",
+      "origin": "retail",
+      "positionInterpreted": false,
+      "quantity": "3.0000",
+      "reason": "rebalance",
+      "receivedAt": "<ts>",
+      "saleId": null,
+      "saleLineId": null,
+      "stockCountId": null,
+      "stockLocationId": "LOC(STORE_A_Y:primary)",
+      "stockingUnit": "ea",
+      "storeId": "STORE_A_Y",
+      "tenantProductRef": "PRODUCT_A_ACTIVE",
+      "terminalEventRef": null,
+      "trackingIdentityId": null,
+      "transferGroupId": "<id2>",
+    },
+    "outbound": {
+      "createdBy": "ACTOR_A",
+      "erpConfirmedAt": null,
+      "id": "<id1>",
+      "integrationState": "not_posted",
+      "inventoryStatus": "sellable",
+      "movementType": "transfer_out",
+      "occurredAt": "<ts>",
+      "origin": "retail",
+      "positionInterpreted": false,
+      "quantity": "-3.0000",
+      "reason": "rebalance",
+      "receivedAt": "<ts>",
+      "saleId": null,
+      "saleLineId": null,
+      "stockCountId": null,
+      "stockLocationId": "LOC(STORE_A_X:primary)",
+      "stockingUnit": "ea",
+      "storeId": "STORE_A_X",
+      "tenantProductRef": "PRODUCT_A_ACTIVE",
+      "terminalEventRef": null,
+      "trackingIdentityId": null,
+      "transferGroupId": "<id2>",
+    },
+    "transferGroupId": "<id2>",
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.transfer.create",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id4>",
+        "metadata": {
+          "destinationStoreId": "STORE_A_Y",
+          "sourceStoreId": "STORE_A_X",
+        },
+        "target_id": "<id2>",
+        "target_type": "stock_transfer",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [
+      {
+        "effect_id": "<id1>",
+        "erp_document_ref": null,
+        "posting_status_id": null,
+        "state": "not_posted",
+        "state_reason": null,
+        "tenant_id": "TENANT_A",
+      },
+      {
+        "effect_id": "<id3>",
+        "erp_document_ref": null,
+        "posting_status_id": null,
+        "state": "not_posted",
+        "state_reason": null,
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": null,
+        "delivery_state": "pending",
+        "event_id": "<id5>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "destinationStoreId": "STORE_A_Y",
+          "movementIds": [
+            "<id1>",
+            "<id3>",
+          ],
+          "movementType": "transfer",
+          "sourceStoreId": "STORE_A_X",
+          "tenantProductRef": "PRODUCT_A_ACTIVE",
+          "transferGroupId": "<id2>",
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": "<id2>",
+        "event_type": "transfer",
+        "external_id": null,
+        "has_occurred_at": true,
+        "id": "<id3>",
+        "inventory_status": "sellable",
+        "movement_type": "transfer_in",
+        "quantity": "3.0000",
+        "reason": "rebalance",
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": null,
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_Y:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_Y",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": "<id2>",
+      },
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": "<id2>",
+        "event_type": "transfer",
+        "external_id": null,
+        "has_occurred_at": true,
+        "id": "<id1>",
+        "inventory_status": "sellable",
+        "movement_type": "transfer_out",
+        "quantity": "-3.0000",
+        "reason": "rebalance",
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": null,
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": "<id2>",
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+          "STORE_A_Y",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_Y",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "STORE_A_Y",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "-3.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        "rebalance",
+        "<id2>",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, transfer_group_id, created_by, event_type, event_ref_id, stock_location_id, inventory_status) VALUES ($1, $2, $3, 'transfer_out', $4::numeric(19,4), $5, $6, $7, now(), $8, $9, 'transfer', $8, $10, $11) RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "<id3>",
+        "TENANT_A",
+        "STORE_A_Y",
+        "3.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        "rebalance",
+        "<id2>",
+        "ACTOR_A",
+        "LOC(STORE_A_Y:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, transfer_group_id, created_by, event_type, event_ref_id, stock_location_id, inventory_status) VALUES ($1, $2, $3, 'transfer_in', $4::numeric(19,4), $5, $6, $7, now(), $8, $9, 'transfer', $8, $10, $11) RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "TENANT_A",
+        [
+          "<id1>",
+          "<id3>",
+        ],
+        "not_posted",
+      ],
+      "text": "INSERT INTO inventory_effect_integration (effect_id, tenant_id, state) SELECT effect_id, $1, $3 FROM unnest($2::uuid[]) AS effect_id",
+    },
+    {
+      "params": [
+        "<id4>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.transfer.create",
+        "stock_transfer",
+        "<id2>",
+        "{"sourceStoreId":"STORE_A_X","destinationStoreId":"STORE_A_Y"}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id5>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id1>","<id3>"],"movementType":"transfer","tenantProductRef":"PRODUCT_A_ACTIVE","transferGroupId":"<id2>","sourceStoreId":"STORE_A_X","destinationStoreId":"STORE_A_Y"}",
+        null,
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT COALESCE(SUM(quantity), 0)::numeric(19,4)::text AS quantity FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — transfer a transfer appends linked transfer_out/transfer_in legs, audit, outbox, not_posted: on-hand A.X after transfer 1`] = `"4.0000"`;
+
+exports[`RT-1221 characterization — transfer a transfer appends linked transfer_out/transfer_in legs, audit, outbox, not_posted: on-hand A.Y after transfer 1`] = `"0.0000"`;
+
+exports[`RT-1221 characterization — transfer a transfer that drives the source negative is still recorded (allow-and-flag) 1`] = `
+{
+  "body": {
+    "inbound": {
+      "createdBy": "ACTOR_A",
+      "erpConfirmedAt": null,
+      "id": "<id3>",
+      "integrationState": "not_posted",
+      "inventoryStatus": "sellable",
+      "movementType": "transfer_in",
+      "occurredAt": "<ts>",
+      "origin": "retail",
+      "positionInterpreted": false,
+      "quantity": "50.0000",
+      "reason": null,
+      "receivedAt": "<ts>",
+      "saleId": null,
+      "saleLineId": null,
+      "stockCountId": null,
+      "stockLocationId": "LOC(STORE_A_Y:primary)",
+      "stockingUnit": "ea",
+      "storeId": "STORE_A_Y",
+      "tenantProductRef": "PRODUCT_A_ACTIVE",
+      "terminalEventRef": null,
+      "trackingIdentityId": null,
+      "transferGroupId": "<id2>",
+    },
+    "outbound": {
+      "createdBy": "ACTOR_A",
+      "erpConfirmedAt": null,
+      "id": "<id1>",
+      "integrationState": "not_posted",
+      "inventoryStatus": "sellable",
+      "movementType": "transfer_out",
+      "occurredAt": "<ts>",
+      "origin": "retail",
+      "positionInterpreted": false,
+      "quantity": "-50.0000",
+      "reason": null,
+      "receivedAt": "<ts>",
+      "saleId": null,
+      "saleLineId": null,
+      "stockCountId": null,
+      "stockLocationId": "LOC(STORE_A_X:primary)",
+      "stockingUnit": "ea",
+      "storeId": "STORE_A_X",
+      "tenantProductRef": "PRODUCT_A_ACTIVE",
+      "terminalEventRef": null,
+      "trackingIdentityId": null,
+      "transferGroupId": "<id2>",
+    },
+    "transferGroupId": "<id2>",
+  },
+  "rows": {
+    "audit_events": [
+      {
+        "action": "inventory.transfer.create",
+        "actor_user_id": "ACTOR_A",
+        "id": "<id4>",
+        "metadata": {
+          "destinationStoreId": "STORE_A_Y",
+          "sourceStoreId": "STORE_A_X",
+        },
+        "target_id": "<id2>",
+        "target_type": "stock_transfer",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "inventory_effect_integration": [
+      {
+        "effect_id": "<id1>",
+        "erp_document_ref": null,
+        "posting_status_id": null,
+        "state": "not_posted",
+        "state_reason": null,
+        "tenant_id": "TENANT_A",
+      },
+      {
+        "effect_id": "<id3>",
+        "erp_document_ref": null,
+        "posting_status_id": null,
+        "state": "not_posted",
+        "state_reason": null,
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "outbox_events": [
+      {
+        "attempts": 0,
+        "correlation_id": null,
+        "delivery_state": "pending",
+        "event_id": "<id5>",
+        "event_type": "inventory.movement.created",
+        "payload": {
+          "destinationStoreId": "STORE_A_Y",
+          "movementIds": [
+            "<id1>",
+            "<id3>",
+          ],
+          "movementType": "transfer",
+          "sourceStoreId": "STORE_A_X",
+          "tenantProductRef": "PRODUCT_A_ACTIVE",
+          "transferGroupId": "<id2>",
+        },
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+      },
+    ],
+    "stock_counts": [],
+    "stock_movements": [
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": "<id2>",
+        "event_type": "transfer",
+        "external_id": null,
+        "has_occurred_at": true,
+        "id": "<id3>",
+        "inventory_status": "sellable",
+        "movement_type": "transfer_in",
+        "quantity": "50.0000",
+        "reason": null,
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": null,
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_Y:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_Y",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": "<id2>",
+      },
+      {
+        "created_by": "ACTOR_A",
+        "event_ref_id": "<id2>",
+        "event_type": "transfer",
+        "external_id": null,
+        "has_occurred_at": true,
+        "id": "<id1>",
+        "inventory_status": "sellable",
+        "movement_type": "transfer_out",
+        "quantity": "-50.0000",
+        "reason": null,
+        "sale_id": null,
+        "sale_line_id": null,
+        "source_system": null,
+        "stock_count_id": null,
+        "stock_location_id": "LOC(STORE_A_X:primary)",
+        "stocking_unit": "ea",
+        "store_id": "STORE_A_X",
+        "tenant_id": "TENANT_A",
+        "tenant_product_ref": "PRODUCT_A_ACTIVE",
+        "terminal_event_ref": null,
+        "transfer_group_id": "<id2>",
+      },
+    ],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+          "STORE_A_Y",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_Y",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "STORE_A_Y",
+      ],
+      "text": "SELECT id, is_active FROM stock_locations WHERE store_id = $1 AND kind = 'primary'",
+    },
+    {
+      "params": [
+        "<id1>",
+        "TENANT_A",
+        "STORE_A_X",
+        "-50.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        null,
+        "<id2>",
+        "ACTOR_A",
+        "LOC(STORE_A_X:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, transfer_group_id, created_by, event_type, event_ref_id, stock_location_id, inventory_status) VALUES ($1, $2, $3, 'transfer_out', $4::numeric(19,4), $5, $6, $7, now(), $8, $9, 'transfer', $8, $10, $11) RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "<id3>",
+        "TENANT_A",
+        "STORE_A_Y",
+        "50.0000",
+        "ea",
+        "PRODUCT_A_ACTIVE",
+        null,
+        "<id2>",
+        "ACTOR_A",
+        "LOC(STORE_A_Y:primary)",
+        "sellable",
+      ],
+      "text": "INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, transfer_group_id, created_by, event_type, event_ref_id, stock_location_id, inventory_status) VALUES ($1, $2, $3, 'transfer_in', $4::numeric(19,4), $5, $6, $7, now(), $8, $9, 'transfer', $8, $10, $11) RETURNING id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, received_at, sale_id, sale_line_id, terminal_event_ref, transfer_group_id, stock_count_id, created_by, origin, stock_location_id, inventory_status, tracking_identity_id",
+    },
+    {
+      "params": [
+        "TENANT_A",
+        [
+          "<id1>",
+          "<id3>",
+        ],
+        "not_posted",
+      ],
+      "text": "INSERT INTO inventory_effect_integration (effect_id, tenant_id, state) SELECT effect_id, $1, $3 FROM unnest($2::uuid[]) AS effect_id",
+    },
+    {
+      "params": [
+        "<id4>",
+        "ACTOR_A",
+        "TENANT_A",
+        "inventory.transfer.create",
+        "stock_transfer",
+        "<id2>",
+        "{"sourceStoreId":"STORE_A_X","destinationStoreId":"STORE_A_Y"}",
+      ],
+      "text": "INSERT INTO audit_events (id, actor_user_id, tenant_id, action, target_type, target_id, metadata) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)",
+    },
+    {
+      "params": [
+        "<id5>",
+        "TENANT_A",
+        "STORE_A_X",
+        "inventory.movement.created",
+        "{"movementIds":["<id1>","<id3>"],"movementType":"transfer","tenantProductRef":"PRODUCT_A_ACTIVE","transferGroupId":"<id2>","sourceStoreId":"STORE_A_X","destinationStoreId":"STORE_A_Y"}",
+        null,
+        null,
+      ],
+      "text": "INSERT INTO outbox_events (event_id, tenant_id, store_id, event_type, payload, delivery_state, attempts, correlation_id, occurred_at) VALUES ($1, $2, $3, $4, $5::jsonb, 'pending', 0, $6, COALESCE($7::timestamptz, now()))",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT COALESCE(SUM(quantity), 0)::numeric(19,4)::text AS quantity FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2",
+    },
+    {
+      "params": [],
+      "text": "COMMIT",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — transfer a transfer that drives the source negative is still recorded (allow-and-flag): on-hand A.X after negative transfer 1`] = `"-46.0000"`;
+
+exports[`RT-1221 characterization — transfer rejects: blank stocking unit 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "stockingUnit is required",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — transfer rejects: cross-tenant destination 1`] = `
+{
+  "error": {
+    "class": "NotFoundException",
+    "message": "Not Found",
+    "status": 404,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+          "STORE_B_X",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [],
+      "text": "ROLLBACK",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — transfer rejects: cross-unit at the source 1`] = `
+{
+  "error": {
+    "class": "CrossUnitError",
+    "message": "stockingUnit 'kg' does not match the product's stocking unit 'ea'",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [
+    {
+      "params": [],
+      "text": "BEGIN",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT set_config('app.current_tenant', $1, true)",
+    },
+    {
+      "params": [
+        "false",
+      ],
+      "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        [
+          "STORE_A_X",
+          "STORE_A_Y",
+        ],
+      ],
+      "text": "SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL",
+    },
+    {
+      "params": [
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT id FROM tenant_products WHERE id = $1",
+    },
+    {
+      "params": [
+        "STORE_A_X",
+        "PRODUCT_A_ACTIVE",
+      ],
+      "text": "SELECT stocking_unit FROM stock_movements WHERE store_id = $1 AND tenant_product_ref = $2 ORDER BY received_at ASC, id ASC LIMIT 1",
+    },
+    {
+      "params": [],
+      "text": "ROLLBACK",
+    },
+  ],
+}
+`;
+
+exports[`RT-1221 characterization — transfer rejects: negative quantity 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "transfer quantity must be strictly positive",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — transfer rejects: same source and destination 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "source and destination stores must differ",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
+
+exports[`RT-1221 characterization — transfer rejects: zero quantity 1`] = `
+{
+  "error": {
+    "class": "BadRequestException",
+    "message": "transfer quantity must be strictly positive",
+    "status": 400,
+  },
+  "rows": {
+    "audit_events": [],
+    "inventory_effect_integration": [],
+    "outbox_events": [],
+    "stock_counts": [],
+    "stock_movements": [],
+  },
+  "sql": [],
+}
+`;
