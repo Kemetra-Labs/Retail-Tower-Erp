@@ -77,6 +77,11 @@ export const saleLines = pgTable(
     check("sale_lines_line_seq_positive", sql`${t.lineSeq} IS NULL OR ${t.lineSeq} >= 1`),
     index("idx_sale_lines_sale").on(t.saleId),
     index("idx_sale_lines_tenant_store").on(t.tenantId, t.storeId),
+    // RT-459 (0082, built CONCURRENTLY): the Tracking Profile lock probe
+    // (EXISTS ... WHERE tenant_product_ref = $1; RLS supplies tenant_id).
+    index("idx_sale_lines_tenant_product")
+      .on(t.tenantId, t.tenantProductRef)
+      .where(sql`${t.tenantProductRef} IS NOT NULL`),
     // Composite FK → sales(id, tenant_id, store_id): a line can only attach to
     // a sale in the SAME tenant + store (cross-tenant linkage impossible).
     foreignKey({

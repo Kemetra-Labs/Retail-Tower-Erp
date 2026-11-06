@@ -1,0 +1,69 @@
+-- 0083_stock_movements_tenant_product_idx.sql
+--
+-- Tracking Profile lock probe, index 2 of 2 (Jira RT-459; follow-up to RT-448,
+-- decision 387). [GATED] migration, owner-authorized on RT-459 (comment 15729,
+-- 2026-11-06: PR and merge). Applying it to the lab, a live database or any
+-- deploy is NOT authorized by that comment.
+--
+-- Serves the "has history" probe that locks a product's tracking profile:
+--   EXISTS (SELECT 1 FROM stock_movements WHERE tenant_product_ref = $1)
+-- in tracking-profile.service.ts (hasHistory: profile GET and PUT) and in the
+-- 0045 trigger tenant_products_guard_tracking_profile. The probe names no
+-- tenant; RLS adds tenant_id = <app.current_tenant> (policy in 0014), so the
+-- planner sees an equality on both columns of this index. The existing indexes
+-- are store-first: (tenant_id, store_id, tenant_product_ref) (0014) and its
+-- five-column variant (0065). Without a skip scan they can only read every
+-- movement of the tenant and filter on the product, so a product with no
+-- history cost a full pass over the tenant's ledger. Partial on
+-- tenant_product_ref IS NOT NULL because ad-hoc movements (no product) are
+-- never probed; the probe's equality implies the predicate. Additive only: the
+-- 0014 index stays for the on-hand SUM and 0064-0065 for the history list.
+--
+-- tenant_id leads because RLS always supplies it for the app role. A role that
+-- bypasses RLS (a superuser maintenance UPDATE firing the trigger) has no tenant
+-- equality and gets no help from this index; that path was slow before too.
+--
+-- ---------------------------------------------------------------------------
+-- WHY THIS FILE IS ONE STATEMENT - DO NOT ADD ANYTHING TO IT
+-- ---------------------------------------------------------------------------
+-- The runner (src/cli/migrate.ts) sends each file as ONE simple-protocol query.
+-- PostgreSQL runs a multi-statement query as one implicit transaction block,
+-- and CREATE INDEX CONCURRENTLY refuses to run inside a transaction block. A
+-- file holding exactly one statement is not wrapped, so the build runs
+-- concurrently with no runner change (the deploy step needs nothing new). Adding
+-- any other statement here (BEGIN, SET, COMMENT ON, a second index) makes this
+-- migration fail. The migration spec checks this. Same rule and recovery as
+-- 0048 (RT-538), 0057-0061 (RT-565), 0064-0065 (RT-735) and 0074 (RT-808).
+--
+-- Lock impact: SHARE UPDATE EXCLUSIVE on stock_movements for the build.
+-- Movement writes (sales, receipts, counts, transfers), the on-hand SUM and
+-- every read continue throughout; only other DDL on the table and VACUUM wait.
+-- The ledger is the largest table; the build makes two passes over it, so it
+-- takes longer than a plain build but never blocks inventory traffic. No
+-- lock_timeout is needed and none can be set without a second statement.
+--
+-- No timeout. The build waits for every transaction older than it, in any
+-- table of the database, so one session left idle in transaction holds it (and
+-- the deploy's migrate step) indefinitely. Before deploying, check
+-- pg_stat_activity for long-open transactions. Run ONE `migrate up` at a time
+-- while 0082-0083 are pending (see 0048 for the deadlock this avoids).
+--
+-- No IF NOT EXISTS, on purpose: a failed build leaves an INVALID index with
+-- this name and the runner records nothing; a re-run must fail loudly rather
+-- than skip it. An invalid leftover is not used by queries but still costs
+-- every movement write until it is dropped. To recover:
+--   1. SELECT indisvalid FROM pg_index
+--        WHERE indexrelid = 'idx_stock_movements_tenant_product'::regclass;
+--   2. false (an invalid leftover): DROP INDEX CONCURRENTLY IF EXISTS
+--      idx_stock_movements_tenant_product; then re-run `migrate up`.
+--   3. true (the build finished but the runner died before recording it):
+--      either drop it as in step 2 and re-run, or record it by hand:
+--        INSERT INTO _drizzle_migrations (id) VALUES ('0083_stock_movements_tenant_product_idx');
+-- While 0083 is unrecorded, `migrate down` rolls back the migration before it,
+-- not 0083: drop a leftover index by hand first, as above.
+--
+-- No data changes. Reversible via 0083_stock_movements_tenant_product_idx.down.sql.
+
+CREATE INDEX CONCURRENTLY idx_stock_movements_tenant_product
+  ON stock_movements (tenant_id, tenant_product_ref)
+  WHERE tenant_product_ref IS NOT NULL;
