@@ -22,8 +22,10 @@
  *
  * LIST_SQL below is the RT-383 list query of
  * apps/api/src/shift-closes/shift-closes.service.ts (CLOSE_FROM, WHERE, ORDER
- * BY and LIMIT copied verbatim; only the select list is reduced, which does not
- * change the plan's shape). The params are bound in the service's slot order,
+ * BY and LIMIT copied verbatim). The select list is reduced but keeps columns
+ * of both joined tables, as CLOSE_COLUMNS does: otherwise the planner removes
+ * the LEFT JOIN to shift_close_approver_checks (unique on shift_id) and the
+ * plan is not the API's. The params are bound in the service's slot order,
  * as an unnamed statement, so each EXPLAIN is the custom plan the API gets.
  * The plans are printed (EXPLAIN ANALYZE, BUFFERS) as the RT-429 evidence.
  * Fresh install through the real runner is covered by the migrate CLI spec and
@@ -185,7 +187,9 @@ async function storesOf(tenantId: string): Promise<string[]> {
  */
 const LIST_SQL = `
   SELECT c.shift_id,
-         to_char(c.closed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS closed_at_key
+         to_char(c.closed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS closed_at_key,
+         v.status AS verdict_status, v.reason AS verdict_reason,
+         s.frozen_policy_source, s.frozen_policy_mode
     FROM shift_closes c
     JOIN shifts s
       ON s.shift_id = c.shift_id AND s.tenant_id = c.tenant_id AND s.store_id = c.store_id
@@ -364,7 +368,7 @@ describe("0084-0085 - the two RT-429 indexes", () => {
   });
 
   it.each(["tenant-wide", "single-store", "scoped single-store"])(
-    "before the build the %s list sorts and uses no RT-429 index",
+    "before the build the %s list sorts",
     (name) => {
       if (skip()) return;
       const before = plansBefore.get(name)!;
