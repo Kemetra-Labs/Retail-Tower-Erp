@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.19.0-draft"
+  version: "1.20.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -400,9 +400,10 @@ info:
     it is NOT stored and NOT returned: `SaleLine` is unchanged, and neither
     `readSale`, the sale history and detail (`sale-history.yaml`) nor the
     reprint echoes it. Only the net `lineAmount` is stored. Like the other
-    line fields, it is not compared on a provenance replay (same
-    `sourceSystem` + `externalId` under another key), which returns the
-    stored sale. The stored net `lineAmount` is the sale fact, and the discount
+    line fields, it is hashed into the payload, so a provenance replay (same
+    `sourceSystem` + `externalId` under another key) with a changed
+    `discount` is also 409 `idempotency_key_conflict` (RT-1206); the stored
+    line is never rewritten. The stored net `lineAmount` is the sale fact, and the discount
     amount is `unitPrice × quantity − lineAmount`. The till's
     `cart.discount.manager_authorized` audit event (`pos-audit-events`
     1.1.0-draft) records the kind and reason, but it cannot be joined to the
@@ -513,6 +514,24 @@ info:
     `tenders` gains `maxItems: 16`. Narrowing only; the server refuses a longer
     array with 400 `validation_error` before validating any element.
 
+    RT-1206 (1.20.0-draft; [GATED] owner confirmation Jira RT-1206 comment
+    15587, 2026-11-05, of the RT-148 ruling of 2026-10-02, comment 10679):
+    `captureSale` provenance replay semantics, no new status or error code. A
+    replay under the same `(tenant, sourceSystem, externalId)` in the caller's
+    store whose re-sent sale facts hash differently from the stored
+    `payload_hash` is now 409 `idempotency_key_conflict` (the existing
+    `Conflict` code, widened), no longer 200 with the stored sale. The compare
+    is byte-exact over the hashed body (the request minus `operatorUserId`,
+    `admissionCheckAt` and `receipt`): reordered arrays or a differently
+    written decimal are a different payload. An identical replay is still 200
+    with `Idempotent-Replayed: true`; the stored `payload_hash` bytes are
+    unchanged; the store scope is decided before the compare. Compat: the POS
+    already treats every capture 409 as a terminal payload divergence
+    (dead-letter `payload_divergence`, the sale kept on the till); a till that
+    re-sends a sale with a rebuilt, different body after the 72h replay window
+    now dead-letters it instead of receiving 200 (POS follow-up, linked from
+    RT-1206).
+
 servers:
   - url: https://api.example.com
 
@@ -548,6 +567,12 @@ paths:
         Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on
         `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same
         stable sale reference deterministically (FR-100), with no double-apply.
+        A provenance replay must carry the same sale facts (RT-1206): when the
+        re-sent body, without `operatorUserId`, `admissionCheckAt` and
+        `receipt`, hashes differently from the stored `payload_hash` (byte-exact,
+        so reordered arrays or a differently written decimal differ), the answer
+        is 409 `idempotency_key_conflict` and nothing is recorded. The store scope
+        is decided first, so a replay never reveals another store's sale.
 
         Tender (RT-10 D1, from RT-77): the optional `tenders` list records how
         the sale was paid. Each `amount` is NET of change (cash = tendered −
@@ -571,7 +596,7 @@ paths:
         so a body that breaks both answers `sale_tender_mismatch` (or, with
         `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture
         only: a replay of a sale captured before RT-105 is never re-checked, and
-        still returns 200 with the stored projection.
+        an identical one still returns 200 with the stored projection.
 
         Cashier attribution (RT-224): a sale may instead be sent with the
         `device` scheme (the paired terminal's device bearer) plus the
@@ -633,9 +658,9 @@ paths:
         (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking`
         is frozen on the line, included in the `payload_hash` and echoed by
         `SaleLine`; the same `Idempotency-Key` re-sent with different tracking
-        is the existing conflict (409 `idempotency_key_conflict`), and under
-        another key (a provenance replay) the stored sale is returned and its
-        stored tracking is never rewritten, like every other line field.
+        is the existing conflict (409 `idempotency_key_conflict`), and so is a
+        provenance replay under another key with different tracking (RT-1206).
+        Stored tracking is never rewritten, like every other line field.
         Capture NEVER rejects a real sale for
         tracking reasons: a refusal would only strand the fact in the till's
         dead-letter. The server accepts the sale and classifies each tracked
@@ -694,7 +719,9 @@ paths:
         "200":
           description: >
             Provenance replay — the same `(tenant, sourceSystem, externalId)`
-            was already captured, and no live replay entry exists for this
+            was already captured with the same sale facts (the re-sent body
+            hashes to the stored `payload_hash`, RT-1206; otherwise 409), and no
+            live replay entry exists for this
             `Idempotency-Key` (a different key, or the same key after its 72h
             replay window). Returns the identical `toBody` sale projection with
             the `Idempotent-Replayed: true` header (mirrors `posCaptureItem`).
@@ -3735,7 +3762,9 @@ components:
         FR-101 `conflict` category (which subsumes the idempotency-token-mismatch
         case). The single wire `error.code` is `idempotency_key_conflict` — the
         same `Idempotency-Key` reused with a different logical payload (FR-051 /
-        005 FR-021c). Deterministic, no side effects. ("idempotency-token-mismatch"
+        005 FR-021c), or, on `captureSale` (RT-1206), a provenance replay under
+        another key whose sale facts differ from the captured sale's. Deterministic,
+        no side effects. ("idempotency-token-mismatch"
         is the FR-101 category label only, never a second `error.code`.)
       content:
         application/json:

@@ -10,6 +10,8 @@ const m = vi.hoisted(() => ({
   createCurrentTerminalResolver: vi.fn(),
   createSaleSyncTokenReader: vi.fn(),
   createSendableDeviceTokenRead: vi.fn(),
+  startAuditSync: vi.fn(),
+  auditSyncDepsOf: vi.fn(),
   registerSalesSyncHandlers: vi.fn(),
   resetCashierClaimRefusedOnStart: vi.fn(),
   isCashierClaimRefusedResetRequested: vi.fn(),
@@ -68,6 +70,10 @@ vi.mock('../../sales-sync/schedule-sale-sync.js', () => ({
   SALE_SYNC_DRAIN_TIMEOUT_MS: 4_000,
   scheduleSaleSync: m.scheduleSaleSync,
 }));
+vi.mock('../audit-sync.js', () => ({
+  startAuditSync: m.startAuditSync,
+  auditSyncDepsOf: m.auditSyncDepsOf,
+}));
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
 vi.mock('../../sales-sync/discount-role-resolver.js', () => ({
   createDiscountRoleResolver: m.createDiscountRoleResolver,
@@ -121,6 +127,8 @@ function makeHarness(): Harness {
     engine: { hasDeviceCredential: 'hasDeviceCredentialFn' },
   });
   m.createSendableDeviceTokenRead.mockReturnValue('sendableRead');
+  m.auditSyncDepsOf.mockReturnValue({ marker: 'auditSyncDeps' });
+  m.startAuditSync.mockImplementation(() => events.push('auditSync'));
   m.createSaleSyncTokenReader.mockReturnValue('operatorTokenReader');
   m.createCurrentTerminalResolver.mockReturnValue('terminalResolver');
   m.createSaleSyncClient.mockReturnValue({ marker: 'client' });
@@ -184,6 +192,7 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
       'syncReader',
       'schedule',
       'register',
+      'auditSync',
     ]);
     expect(h.workersRegister).toHaveBeenCalledWith('sale-sync interval', expect.any(Function));
     const stop = h.workersRegister.mock.calls[0]?.[1] as () => void;
@@ -401,5 +410,12 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     expect(isStopped()).toBe(false);
     sched.latchStopped();
     expect(isStopped()).toBe(true);
+  });
+
+  it('RT-1231: starts the audit upload on the same lifecycle, from the sale-sync deps', () => {
+    const h = makeHarness();
+    startSaleSyncEngine(h.deps, TERMINAL);
+    expect(m.auditSyncDepsOf).toHaveBeenCalledWith(h.deps);
+    expect(m.startAuditSync).toHaveBeenCalledWith({ marker: 'auditSyncDeps' }, TERMINAL);
   });
 });

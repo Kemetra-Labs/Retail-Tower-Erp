@@ -1,26 +1,37 @@
 /**
- * T047 — Audit sync loop (outbox → Data-Pulse-2).
+ * T047 / RT-1231 — Audit sync (outbox → Backend-Core `POST /api/pos/v1/audit-events`).
  *
- * `AuditSync.flush()` reads unsynced audit events from the local store,
- * POSTs them to Data-Pulse-2 via `AuditSyncClient`, and marks events as
- * synced only when the backend confirms receipt:
+ * `AuditSync.flush()` reads one page of unsettled audit events from the local
+ * store and settles each one:
  *
- *   accepted[]   → mark synced immediately (backend persisted the row)
- *   duplicates[] → mark synced (backend already has the row; idempotent)
- *   rejected[]   → leave in outbox (stay retry-safe; backend refused)
- *   network_error → leave in outbox (will be retried on the next flush)
+ *   not a central category → marked local-only, never sent (RT-160 D-2;
+ *                            `central-audit-categories.ts`)
+ *   off-contract locally   → marked final, never sent: the server would refuse
+ *                            the WHOLE batch with 400 (`audit-event-wire.ts`)
+ *   accepted[]             → marked synced (the backend persisted the row)
+ *   duplicates[]           → marked synced (the backend already has the row)
+ *   rejected schema_violation → marked final, never retried: the contract
+ *                            documents it as non-retryable (RT-1230)
+ *   rejected otherwise, or unaccounted for → left in the outbox and retried,
+ *                            at most `maxEventAttempts` times in this process;
+ *                            then parked (skipped) until the next start
+ *   batch not delivered    → nothing written; the caller backs off
+ *                            (`schedule-audit-sync.ts`)
  *
- * Fail-safe on malformed responses: if the backend body is missing or
- * contains non-array `accepted`/`duplicates`, zero events are marked
- * synced — the entire batch stays in the outbox for the next attempt.
+ * "Settled without upload" (local-only or final) is a sync-state row with a
+ * NULL `synced_at`; the category tells the two apart. No schema change: the
+ * table (0004) already allows it. Malformed responses fail safe: nothing is
+ * marked synced and the batch is retried.
  *
- * Out of scope for this task: T048 (bridge wiring), T050 (pino/Sentry
- * redaction), scheduling / interval management.
+ * Offline never blocks on this: the local audit write path does not touch it,
+ * and every failure leaves events in the outbox for a later flush.
  */
 
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
+import { isCentralAuditCategory } from './central-audit-categories.js';
+import { isWireReady } from './audit-event-wire.js';
 
-// ─── Rejection categories (Endpoint 5 contract) ────────────────────────────
+// ─── Rejection categories (contract `RejectedEvent`) ───────────────────────
 
 export type AuditRejectionCategory = 'invalid_input' | 'tenant_mismatch' | 'schema_violation';
 
@@ -29,13 +40,12 @@ export interface AuditRejectedEvent {
   category: AuditRejectionCategory;
 }
 
-// ─── Backend response envelope (Endpoint 5) ────────────────────────────────
+/** The only rejection the contract documents as non-retryable (RT-1230). */
+const FINAL_REJECTION: AuditRejectionCategory = 'schema_violation';
 
-/**
- * The response body returned by `POST /api/pos/v1/audit-events`.
- * Mirrors `specs/004-operator-session/contracts/backend-endpoints.md`
- * Endpoint 5 verbatim. Typed locally (no OpenAPI regen per project rule).
- */
+// ─── Backend response envelope ─────────────────────────────────────────────
+
+/** The 200 body of `POST /api/pos/v1/audit-events` (`PosAuditEventsSyncResponse`). */
 export interface AuditSyncBatchResponse {
   accepted: string[];
   duplicates: string[];
@@ -44,46 +54,104 @@ export interface AuditSyncBatchResponse {
 
 // ─── DI interfaces ─────────────────────────────────────────────────────────
 
-/**
- * Data-access seam for the sync loop. Production code binds to
- * better-sqlite3; tests inject a fake.
- */
+export interface AuditEventKey {
+  tenant_id: string;
+  event_id: string;
+}
+
+/** Data-access seam. Production binds better-sqlite3 (`audit-sync-store.ts`). */
 export interface AuditSyncStore {
   /**
-   * Return up to `limit` events that have not yet been synced to the
-   * backend. Events appear in `audit_events` but NOT in
-   * `audit_events_sync_state`.
+   * Up to `limit` events with no sync-state row, oldest first, skipping
+   * `excludeEventIds` (the events parked in this process).
    */
-  listUnsynced(limit: number): AuditEvent[];
+  listUnsynced(limit: number, excludeEventIds?: readonly string[]): AuditEvent[];
+
+  /** Record that `(tenant_id, event_id)` reached the backend at `synced_at`. */
+  markSynced(tenant_id: string, event_id: string, synced_at: string): void;
 
   /**
-   * Record that `(tenant_id, event_id)` was successfully synced at
-   * `synced_at`. Inserts a row into `audit_events_sync_state`.
+   * Settle events WITHOUT uploading them (local-only or a final refusal): a
+   * sync-state row with a NULL `synced_at`, in one transaction.
    */
-  markSynced(tenant_id: string, event_id: string, synced_at: string): void;
+  markSettled(keys: readonly AuditEventKey[]): void;
 }
 
 /**
- * HTTP seam for the sync loop. Production code wraps the global `fetch`
- * with the device-token + Authorization headers. Tests inject a fake.
- *
- * `sendBatch` NEVER throws. It resolves to the parsed response envelope,
- * or `'network_error'` on any transport / timeout / parse failure.
+ * HTTP seam. `sendBatch` NEVER throws: it resolves to the parsed 200 body, or
+ * `'network_error'` when the batch was not delivered (no credential, transport
+ * fault, timeout, non-200 status, unreadable body).
  */
 export interface AuditSyncClient {
   sendBatch(events: AuditEvent[]): Promise<AuditSyncBatchResponse | 'network_error'>;
 }
 
-// ─── Options ───────────────────────────────────────────────────────────────
+/** Why an event was settled without upload or parked. Ids and closed codes only (P7). */
+export type AuditSettleReason =
+  | { kind: 'rejected_final'; category: AuditRejectionCategory }
+  | { kind: 'invalid_local' }
+  | { kind: 'parked'; attempts: number; category: AuditRejectionCategory | 'unaccounted' };
+
+export interface AuditSyncObserver {
+  /** One event refused for good, or parked: for the main log (diagnostics). */
+  onEventSettled?(
+    event: Pick<AuditEvent, 'event_id' | 'action_category'>,
+    reason: AuditSettleReason,
+  ): void;
+}
+
+// ─── Options and outcome ───────────────────────────────────────────────────
 
 export interface AuditSyncOptions {
   store: AuditSyncStore;
   client: AuditSyncClient;
-  /** Maximum events sent per flush call. Defaults to 100. */
+  /** Maximum events per page and per POST (contract `maxItems: 100`). Defaults to 100. */
   batchLimit?: number;
+  /** Sends of one event that may end in a retryable rejection before it is parked. */
+  maxEventAttempts?: number;
+  /** Local-only pages settled per flush before giving the event loop back. */
+  maxPagesPerFlush?: number;
+  /** Shutdown latch: once true, a send in flight writes nothing locally. */
+  isStopped?: () => boolean;
+  observer?: AuditSyncObserver;
+  now?: () => string;
+}
+
+/**
+ * What one flush did. `undelivered` and `retry` both ask the caller to back
+ * off; `progress` and `idle` reset it.
+ */
+export type AuditFlushOutcome =
+  | { kind: 'idle' }
+  | { kind: 'undelivered' }
+  | { kind: 'progress' | 'retry'; counts: AuditFlushCounts };
+
+export interface AuditFlushCounts {
+  synced: number;
+  localOnly: number;
+  final: number;
+  retryable: number;
+  parked: number;
+}
+
+export interface AuditSyncStatus {
+  /** Totals since start; for the diagnostics log line. */
+  readonly totals: AuditFlushCounts;
+  /** Event ids parked in this process (retried again after a restart). */
+  readonly parked: number;
 }
 
 const DEFAULT_BATCH_LIMIT = 100;
+const DEFAULT_MAX_EVENT_ATTEMPTS = 5;
+const DEFAULT_MAX_PAGES_PER_FLUSH = 10;
+
+function zeroCounts(): AuditFlushCounts {
+  return { synced: 0, localOnly: 0, final: 0, retryable: 0, parked: 0 };
+}
+
+function keyOf(event: AuditEvent): AuditEventKey {
+  return { tenant_id: event.tenant_id, event_id: event.event_id };
+}
 
 // ─── AuditSync ─────────────────────────────────────────────────────────────
 
@@ -91,64 +159,152 @@ export class AuditSync {
   private readonly store: AuditSyncStore;
   private readonly client: AuditSyncClient;
   private readonly batchLimit: number;
+  private readonly maxEventAttempts: number;
+  private readonly maxPagesPerFlush: number;
+  private readonly isStopped: () => boolean;
+  private readonly observer: AuditSyncObserver;
+  private readonly now: () => string;
+  /** event_id → sends that ended in a retryable rejection (this process). */
+  private readonly attempts = new Map<string, number>();
+  /** Events skipped until the next start. */
+  private readonly parked = new Set<string>();
+  private readonly totals = zeroCounts();
 
   constructor(options: AuditSyncOptions) {
     this.store = options.store;
     this.client = options.client;
     this.batchLimit = options.batchLimit ?? DEFAULT_BATCH_LIMIT;
+    this.maxEventAttempts = options.maxEventAttempts ?? DEFAULT_MAX_EVENT_ATTEMPTS;
+    this.maxPagesPerFlush = options.maxPagesPerFlush ?? DEFAULT_MAX_PAGES_PER_FLUSH;
+    this.isStopped = options.isStopped ?? (() => false);
+    this.observer = options.observer ?? {};
+    this.now = options.now ?? (() => new Date().toISOString());
+  }
+
+  status(): AuditSyncStatus {
+    return { totals: { ...this.totals }, parked: this.parked.size };
   }
 
   /**
-   * Flush one batch of unsynced events to the backend.
-   *
-   * Never throws — network errors and malformed responses are handled
-   * defensively (events remain in the outbox for the next attempt).
+   * Settle local-only pages, then send at most one batch of central events.
+   * Never throws for network faults or malformed answers.
    */
-  async flush(): Promise<void> {
-    const events = this.store.listUnsynced(this.batchLimit);
-    if (events.length === 0) return;
-
-    const result = await this.client.sendBatch(events);
-    if (result === 'network_error') return;
-
-    const syncedAt = new Date().toISOString();
-    const { toSyncIds } = interpretResponse(result, events);
-
-    for (const { tenant_id, event_id } of toSyncIds) {
-      this.store.markSynced(tenant_id, event_id, syncedAt);
+  async flush(): Promise<AuditFlushOutcome> {
+    const counts = zeroCounts();
+    for (let page = 0; page < this.maxPagesPerFlush; page += 1) {
+      if (this.isStopped()) break;
+      const events = this.store.listUnsynced(this.batchLimit, [...this.parked]);
+      if (events.length === 0) break;
+      const sendable = this.settleUnsendable(events, counts);
+      if (sendable.length > 0) return this.send(sendable, counts);
     }
+    return this.finish(counts);
+  }
+
+  /** Marks the local-only and locally invalid events of one page; returns the rest. */
+  private settleUnsendable(events: AuditEvent[], counts: AuditFlushCounts): AuditEvent[] {
+    const settle: AuditEventKey[] = [];
+    const sendable: AuditEvent[] = [];
+    for (const event of events) {
+      if (!isCentralAuditCategory(event.action_category)) {
+        settle.push(keyOf(event));
+        counts.localOnly += 1;
+      } else if (!isWireReady(event)) {
+        settle.push(keyOf(event));
+        counts.final += 1;
+        this.observer.onEventSettled?.(event, { kind: 'invalid_local' });
+      } else {
+        sendable.push(event);
+      }
+    }
+    if (settle.length > 0) this.store.markSettled(settle);
+    return sendable;
+  }
+
+  private async send(events: AuditEvent[], counts: AuditFlushCounts): Promise<AuditFlushOutcome> {
+    const result = await this.client.sendBatch(events);
+    if (this.isStopped()) return this.finish(counts);
+    if (result === 'network_error' || !isWellFormed(result)) {
+      this.add(counts);
+      return { kind: 'undelivered' };
+    }
+    this.apply(result, events, counts);
+    return this.finish(counts);
+  }
+
+  private apply(
+    result: AuditSyncBatchResponse,
+    events: AuditEvent[],
+    counts: AuditFlushCounts,
+  ): void {
+    const confirmed = new Set<string>([...result.accepted, ...result.duplicates]);
+    const rejections = new Map<string, AuditRejectionCategory>();
+    for (const r of Array.isArray(result.rejected) ? result.rejected : []) {
+      rejections.set(r.event_id, r.category);
+    }
+    const syncedAt = this.now();
+    const final: AuditEventKey[] = [];
+    for (const event of events) {
+      const rejection = rejections.get(event.event_id);
+      if (confirmed.has(event.event_id)) {
+        this.store.markSynced(event.tenant_id, event.event_id, syncedAt);
+        this.attempts.delete(event.event_id);
+        counts.synced += 1;
+      } else if (rejection === FINAL_REJECTION) {
+        final.push(keyOf(event));
+        this.attempts.delete(event.event_id);
+        counts.final += 1;
+        this.observer.onEventSettled?.(event, { kind: 'rejected_final', category: rejection });
+      } else {
+        this.retryLater(event, rejection ?? 'unaccounted', counts);
+      }
+    }
+    if (final.length > 0) this.store.markSettled(final);
+  }
+
+  /** A retryable outcome: counted, and parked once it reaches the bound. */
+  private retryLater(
+    event: AuditEvent,
+    category: AuditRejectionCategory | 'unaccounted',
+    counts: AuditFlushCounts,
+  ): void {
+    const attempts = (this.attempts.get(event.event_id) ?? 0) + 1;
+    if (attempts < this.maxEventAttempts) {
+      this.attempts.set(event.event_id, attempts);
+      counts.retryable += 1;
+      return;
+    }
+    this.attempts.delete(event.event_id);
+    this.parked.add(event.event_id);
+    counts.parked += 1;
+    this.observer.onEventSettled?.(event, { kind: 'parked', attempts, category });
+  }
+
+  private finish(counts: AuditFlushCounts): AuditFlushOutcome {
+    this.add(counts);
+    const touched =
+      counts.synced + counts.localOnly + counts.final + counts.retryable + counts.parked;
+    if (touched === 0) return { kind: 'idle' };
+    return { kind: counts.retryable > 0 ? 'retry' : 'progress', counts };
+  }
+
+  private add(counts: AuditFlushCounts): void {
+    this.totals.synced += counts.synced;
+    this.totals.localOnly += counts.localOnly;
+    this.totals.final += counts.final;
+    this.totals.retryable += counts.retryable;
+    this.totals.parked += counts.parked;
   }
 }
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
 
-/**
- * Interpret the backend response envelope defensively.
- *
- * Returns the set of (tenant_id, event_id) pairs to mark synced.
- * Fails safe: any non-array `accepted` or `duplicates` → empty result.
- *
- * Cross-tenant lookup: `accepted`/`duplicates` contain event_ids only;
- * the tenant_id is resolved from the local `events` array by matching
- * event_id. Events not found locally (e.g., backend echoed an unknown
- * id) are silently ignored.
- */
-function interpretResponse(
-  response: AuditSyncBatchResponse,
-  events: AuditEvent[],
-): { toSyncIds: Array<{ tenant_id: string; event_id: string }> } {
-  if (!Array.isArray(response.accepted) || !Array.isArray(response.duplicates)) {
-    return { toSyncIds: [] };
-  }
-
-  const confirmedIds = new Set<string>([...response.accepted, ...response.duplicates]);
-
-  const toSyncIds: Array<{ tenant_id: string; event_id: string }> = [];
-  for (const event of events) {
-    if (confirmedIds.has(event.event_id)) {
-      toSyncIds.push({ tenant_id: event.tenant_id, event_id: event.event_id });
-    }
-  }
-
-  return { toSyncIds };
+/** Fail safe: a 200 body without array `accepted` / `duplicates` marks nothing. */
+function isWellFormed(response: AuditSyncBatchResponse | null | undefined): boolean {
+  return (
+    typeof response === 'object' &&
+    response !== null &&
+    Array.isArray(response.accepted) &&
+    Array.isArray(response.duplicates)
+  );
 }

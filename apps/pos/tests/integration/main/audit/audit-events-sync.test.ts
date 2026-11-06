@@ -88,6 +88,15 @@ function bindTestSyncStore(db: SqlJsDatabase): AuditSyncStore {
         [tenant_id, event_id, synced_at],
       );
     },
+    markSettled(keys: ReadonlyArray<{ tenant_id: string; event_id: string }>): void {
+      for (const key of keys) {
+        db.run(
+          `INSERT OR IGNORE INTO audit_events_sync_state (tenant_id, event_id, synced_at)
+           VALUES (?, ?, NULL)`,
+          [key.tenant_id, key.event_id],
+        );
+      }
+    },
   };
 }
 
@@ -117,14 +126,14 @@ function seedEvent(db: SqlJsDatabase, event: AuditEvent): void {
 }
 
 const BASE_EVENT: AuditEvent = {
-  event_id: 'evt-sync-1',
-  tenant_id: 'tenant-1',
-  branch_id: 'branch-1',
-  originating_terminal_id: 'terminal-001',
+  event_id: '00000000-0000-4000-8000-0000000000a1',
+  tenant_id: '11111111-1111-4111-8111-111111111111',
+  branch_id: '33333333-3333-4333-8333-333333333333',
+  originating_terminal_id: '44444444-4444-4444-8444-444444444444',
   acting_operator_id: 'op-xyz',
-  session_id: 'sess-abc',
-  shift_id: 'shift-1',
-  action_category: 'shift.open',
+  session_id: '55555555-5555-4555-8555-555555555555',
+  shift_id: '66666666-6666-4666-8666-666666666666',
+  action_category: 'shift.forced_close',
   created_at: '2026-05-07T08:00:00.000Z',
   approving_supervisor_id: null,
   payload: { shift_id: 'shift-1' },
@@ -259,7 +268,7 @@ describe('T043 — network-failure path, retry, and dedup', () => {
     db.run(MIGRATION_SQL);
     const events: AuditEvent[] = ([1, 2, 3] as const).map((n) => ({
       ...BASE_EVENT,
-      event_id: `evt-sync-multi-${String(n)}`,
+      event_id: `00000000-0000-4000-8000-0000000001${String(n).padStart(2, '0')}`,
       created_at: `2026-05-07T08:0${String(n)}:00.000Z`,
     }));
     for (const ev of events) seedEvent(db, ev);
@@ -283,7 +292,7 @@ describe('T043 — network-failure path, retry, and dedup', () => {
     db.run(MIGRATION_SQL);
     const events: AuditEvent[] = ([1, 2] as const).map((n) => ({
       ...BASE_EVENT,
-      event_id: `evt-sync-partial-${String(n)}`,
+      event_id: `00000000-0000-4000-8000-0000000002${String(n).padStart(2, '0')}`,
       created_at: `2026-05-07T08:0${String(n)}:00.000Z`,
     }));
     for (const ev of events) seedEvent(db, ev);
@@ -292,9 +301,11 @@ describe('T043 — network-failure path, retry, and dedup', () => {
     const client: AuditSyncClient = {
       sendBatch(): Promise<AuditSyncBatchResponse> {
         return Promise.resolve({
-          accepted: ['evt-sync-partial-1'],
+          accepted: ['00000000-0000-4000-8000-000000000201'],
           duplicates: [],
-          rejected: [{ event_id: 'evt-sync-partial-2', category: 'invalid_input' }],
+          rejected: [
+            { event_id: '00000000-0000-4000-8000-000000000202', category: 'invalid_input' },
+          ],
         });
       },
     };
@@ -304,7 +315,7 @@ describe('T043 — network-failure path, retry, and dedup', () => {
 
     const remaining = store.listUnsynced(100);
     expect(remaining).toHaveLength(1);
-    expect(remaining[0]?.event_id).toBe('evt-sync-partial-2');
+    expect(remaining[0]?.event_id).toBe('00000000-0000-4000-8000-000000000202');
     db.close();
   });
 

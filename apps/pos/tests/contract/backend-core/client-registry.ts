@@ -20,6 +20,8 @@
  */
 import { createBackendClient } from '../../../src/main/operator/backend-client.js';
 import { createBrandingClient } from '../../../src/main/branding/branding-client.js';
+import { createAuditSyncClient } from '../../../src/main/audit/audit-sync-client.js';
+import type { AuditEvent } from '../../../src/shared/audit/event-shape.js';
 import { createCashierAdmissionClient } from '../../../src/main/operator/cashier-admission-client.js';
 import { createNetwork } from '../../../src/main/pairing/network.js';
 import { createReadDownClient } from '../../../src/main/catalogue/read-down/read-down-client.js';
@@ -191,6 +193,31 @@ async function eachSaleHistoryCredential(
 const brandingClient = (fetch: FetchLike): ReturnType<typeof createBrandingClient> =>
   createBrandingClient({ baseUrl: BASE_URL, fetch });
 const BRANDING_MODULE = 'src/main/branding/branding-client.ts';
+/**
+ * RT-1231: the audit upload. Device auth is the body `device_token_attestation`
+ * (fed the device sentinel); the optional operator-JWT header is never sent, so
+ * the suite observes `none`, which the contract's `- {}` accepts.
+ */
+const auditSyncClient = (fetch: FetchLike): ReturnType<typeof createAuditSyncClient> =>
+  createAuditSyncClient({
+    baseUrl: BASE_URL,
+    fetch,
+    readDeviceToken: () => Promise.resolve(SENTINEL.device),
+  });
+const AUDIT_SYNC_MODULE = 'src/main/audit/audit-sync-client.ts';
+const AUDIT_EVENT: AuditEvent = {
+  event_id: UUID,
+  tenant_id: UUID,
+  branch_id: UUID,
+  originating_terminal_id: UUID,
+  acting_operator_id: 'op-1',
+  session_id: null,
+  shift_id: null,
+  action_category: 'operator.session.takeover',
+  created_at: '2026-10-04T10:00:00.000Z',
+  approving_supervisor_id: null,
+  payload: {},
+};
 const readDownClient = (fetch: FetchLike): ReturnType<typeof createReadDownClient> =>
   createReadDownClient({
     baseUrl: BASE_URL,
@@ -260,6 +287,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
   // RT-475: the tenant branding read-down (device token, on the shared transport).
   { module: BRANDING_MODULE, fetchCallSites: 0, surface: brandingClient },
+  // RT-1231: the D-2 audit upload (device attestation in the body, on the shared transport).
+  { module: AUDIT_SYNC_MODULE, fetchCallSites: 0, surface: auditSyncClient },
   { module: SHIFT_SYNC_CLIENT, fetchCallSites: 1, surface: shiftSyncClient },
   { module: `${VOUCHER_DIR}/validate.ts`, fetchCallSites: 1 },
   { module: `${VOUCHER_DIR}/redeem.ts`, fetchCallSites: 1 },
@@ -297,7 +326,7 @@ export const SHARED_TRANSPORTS: ReadonlyArray<{
     module: 'src/main/http/transport.ts',
     fetchCallSites: 1,
     reason:
-      'RT-880 createBackendTransport sends the request a registered client builds: it joins the base URL and the client path, adds Authorization: Bearer <the client credential>, and arms the timeout; it originates no path of its own. Clients on it: sale history, tenant branding (RT-475).',
+      'RT-880 createBackendTransport sends the request a registered client builds: it joins the base URL and the client path, adds Authorization: Bearer <the client credential> (none for a body-authenticated route, RT-1231), and arms the timeout; it originates no path of its own. Clients on it: sale history, tenant branding (RT-475), audit upload (RT-1231).',
   },
 ];
 
@@ -502,6 +531,15 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
       ),
   },
   // RT-542: the store-wide sales history, detail and reprint authorization.
+  {
+    id: 'auditSyncClient.sendBatch',
+    module: AUDIT_SYNC_MODULE,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/audit-events',
+    wiring:
+      'bootstrap/audit-sync.ts: `readDeviceToken` = createSendableDeviceTokenReader into the body device_token_attestation; no Authorization header (the operator JWT is optional, RT-1231)',
+    invoke: (fetch) => auditSyncClient(fetch).sendBatch([AUDIT_EVENT]),
+  },
   {
     id: 'brandingClient.read',
     module: BRANDING_MODULE,

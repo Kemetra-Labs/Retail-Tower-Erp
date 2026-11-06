@@ -86,6 +86,15 @@ function bindTestSyncStore(db: SqlJsDatabase): AuditSyncStore {
         [tenant_id, event_id, synced_at],
       );
     },
+    markSettled(keys: ReadonlyArray<{ tenant_id: string; event_id: string }>): void {
+      for (const key of keys) {
+        db.run(
+          `INSERT OR IGNORE INTO audit_events_sync_state (tenant_id, event_id, synced_at)
+           VALUES (?, ?, NULL)`,
+          [key.tenant_id, key.event_id],
+        );
+      }
+    },
   };
 }
 
@@ -115,14 +124,14 @@ function seedEvent(db: SqlJsDatabase, event: AuditEvent): void {
 }
 
 const SAMPLE_EVENT: AuditEvent = {
-  event_id: 'evt-durability-1',
-  tenant_id: 'tenant-1',
-  branch_id: 'branch-1',
-  originating_terminal_id: 'terminal-001',
+  event_id: '00000000-0000-4000-8000-0000000000d1',
+  tenant_id: '11111111-1111-4111-8111-111111111111',
+  branch_id: '33333333-3333-4333-8333-333333333333',
+  originating_terminal_id: '44444444-4444-4444-8444-444444444444',
   acting_operator_id: 'op-xyz',
-  session_id: 'sess-abc',
-  shift_id: 'shift-1',
-  action_category: 'shift.open',
+  session_id: '55555555-5555-4555-8555-555555555555',
+  shift_id: '66666666-6666-4666-8666-666666666666',
+  action_category: 'shift.forced_close',
   created_at: '2026-05-07T08:00:00.000Z',
   approving_supervisor_id: null,
   payload: { shift_id: 'shift-1', opened_at: '2026-05-07T08:00:00.000Z' },
@@ -152,7 +161,7 @@ describe('T042 — crash/restart durability', () => {
 
     const unsynced = store.listUnsynced(100);
     expect(unsynced).toHaveLength(1);
-    expect(unsynced[0]?.event_id).toBe('evt-durability-1');
+    expect(unsynced[0]?.event_id).toBe('00000000-0000-4000-8000-0000000000d1');
 
     postRestartDb.close();
   });
@@ -178,7 +187,7 @@ describe('T042 — crash/restart durability', () => {
   it('multiple events written pre-crash all survive restart', () => {
     const events: AuditEvent[] = ([1, 2, 3] as const).map((n) => ({
       ...SAMPLE_EVENT,
-      event_id: `evt-durability-${String(n)}`,
+      event_id: `00000000-0000-4000-8000-0000000003${String(n).padStart(2, '0')}`,
       created_at: `2026-05-07T08:0${String(n)}:00.000Z`,
     }));
 
