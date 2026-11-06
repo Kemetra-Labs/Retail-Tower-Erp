@@ -12,6 +12,7 @@ const POSTGRES_INPUT_ERROR_CODES: ReadonlySet<unknown> = new Set([
   "22008", // datetime_field_overflow (RT-180)
   "22021", // character_not_in_repertoire: NUL / invalid byte sequence (RT-612)
   "22P02", // invalid_text_representation
+  "22P05", // untranslatable_character: NUL (\u0000) in a jsonb string value (RT-612)
   "23514", // check_violation
 ]);
 
