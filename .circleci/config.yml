@@ -118,10 +118,10 @@ parameters:
   api_tia_canary:
     type: boolean
     default: false
-  # RT-1256: the automatic API Jest gate (workflow api-jest-gate). true (default) runs job
-  # api-jest-gate on every pull request to main: the full API Jest suite with --coverage, whose
-  # `ci/circleci: api-jest-gate` status GitHub's bc/db-integration verifies instead of running API
-  # Jest itself (tools/project-graph/pgraph/circleci_gate.py). Rollback: ONE PR that sets this
+  # RT-1256: the automatic API Jest gate (workflow api-jest-gate). true (default) runs it on every
+  # pull request to main: the full API Jest suite split over shards with merged coverage (RT-1258),
+  # whose final `ci/circleci: api-jest-gate` status GitHub's bc/db-integration verifies instead of
+  # running API Jest itself (tools/project-graph/pgraph/circleci_gate.py). Rollback: ONE PR that sets this
   # default to false AND CUTOVER_ENABLED = False in circleci_gate.py. Its .circleci/ differs from the
   # base, so its own bc/db-integration runs API Jest on GitHub (no CircleCI needed, also during an
   # outage), and after it merges every PR does. Turning only this off leaves later PRs failing on
@@ -209,8 +209,11 @@ commands:
   # config compilation in non-PR pipelines); the workflow's `when` already limits the job to pull
   # requests on main. The GitHub verifier repeats the .circleci/ and scope checks from the trusted
   # base, so this guard only saves credits; a run it would stop can never pass the gate anyway.
+  # RT-1258: the scope decision is made ONCE, here in job api-jest-scope, and persisted as
+  # /tmp/gate/scope.txt (`in` or `out`); the shards and the fan-in read it, so they can never
+  # disagree (a fan-in that halted on its own later scope check could skip a real merge).
   api-gate-guard:
-    description: Exact head SHA, .circleci/ equal to origin/main, and skip when the PR is out of scope.
+    description: Exact head SHA, .circleci/ equal to origin/main, and the scope decision (/tmp/gate/scope.txt).
     steps:
       - run:
           name: "API gate guard: exact head SHA, .circleci/ equal to origin/main, scope"
@@ -240,11 +243,31 @@ commands:
             node .circleci/scripts/api-gate-scope.cjs /tmp/gate/changed.txt || rc=$?
             if [ "$rc" -eq 10 ]; then
               echo "Every changed path is outside Backend-Core and the policy paths: no API Jest run (the graph never selects bc/db-integration here)."
-              circleci-agent step halt
-            elif [ "$rc" -ne 0 ]; then
+              echo out > /tmp/gate/scope.txt
+            elif [ "$rc" -eq 0 ]; then
+              echo in > /tmp/gate/scope.txt
+            else
               echo "Scope check failed (rc=$rc); refusing to run."
               exit 1
             fi
+
+  # RT-1258: the shards and the fan-in read the one scope decision. `out` halts the job (the
+  # verifier's SCOPE_DRIFT rejects a halted success for any change the graph selects); a missing
+  # or unknown decision fails.
+  api-gate-scope-skip:
+    description: Halt when the persisted scope decision is `out`; fail when it is missing or unknown.
+    steps:
+      - attach_workspace:
+          at: /tmp/gate
+      - run:
+          name: "API gate: read the scope decision"
+          command: |
+            scope="$(cat /tmp/gate/scope.txt 2>/dev/null || true)"
+            case "$scope" in
+              in) echo "In scope: running." ;;
+              out) echo "Out of scope: nothing to run."; circleci-agent step halt ;;
+              *) echo "No valid scope decision ('$scope'); refusing to run."; exit 1 ;;
+            esac
 
   # RT-1036: Node from the root .nvmrc for a product directory, as backend-setup does for
   # Backend-Core; pnpm through corepack when the product's package.json names a packageManager
@@ -777,42 +800,106 @@ jobs:
       - store_test_results:
           path: /tmp/test-reports
 
-  # RT-1256: the automatic API Jest gate for pull requests to main (workflow api-jest-gate). The
-  # full API suite with --coverage, so the global thresholds in apps/api/jest.config.cjs fail the
-  # job exactly as they failed bc/db-integration; plain Jest, as bc/db-integration ran it. Its
-  # `ci/circleci: api-jest-gate` status is what GitHub's bc/db-integration verifies. A green status
-  # needs Jest's exit code 0 (failures and coverage), the JUnit conversion, AND api-gate-complete.cjs
-  # (every discovered spec has a result; nothing failed or crashed), so a short or empty run fails.
-  # No serial group: PRs run in parallel and never queue behind manual or analysis runs. Stores
-  # test results only (the builds are public: no coverage or other artifacts).
-  # Impacted-only selection is NOT used here: an impacted run cannot measure the global coverage
-  # the thresholds require, so it needs an owner decision on the coverage policy (RT-1256 report).
-  api-jest-gate:
+  # RT-1256 / RT-1258: the automatic API Jest gate for pull requests to main (workflow
+  # api-jest-gate), as three jobs. GitHub's bc/db-integration verifies ONLY the final
+  # `ci/circleci: api-jest-gate` status (tools/project-graph/pgraph/circleci_gate.py, unchanged).
+  #   api-jest-scope  the guard (exact SHA, .circleci/ equal to origin/main) and the one scope
+  #                   decision, persisted for the next two jobs.
+  #   api-jest-shard  CircleCI timing-based test splitting (`circleci tests split --split-by=timings`,
+  #                   timings from the JUnit `file` attribute of earlier runs) over the FULL spec list,
+  #                   parallelism 3 (a bound, not dynamic): each node runs its share with --coverage
+  #                   (json reporter) and per-node thresholds off, and persists its inventory, Jest
+  #                   JSON and coverage map. Nothing is selected out: the shards together run every spec
+  #                   once.
+  #   api-jest-gate   the fan-in (api-gate-merge.cjs): all nodes present on this commit, the same
+  #                   discovered list everywhere, assignments disjoint and covering it exactly, every
+  #                   node's run complete and green, and the MERGED coverage against
+  #                   jest.config.cjs coverageThreshold.global, judged as Jest judges it. It runs after
+  #                   failed shards too, so a failure turns the status red at once instead of leaving it
+  #                   absent until the verifier's deadline. The shards also run after a failed scope
+  #                   job: with no scope decision they fail, so the fan-in still reports red promptly.
+  #                   Each shard skips (before checkout) when the scope is `out`. Each node fetches its
+  #                   own timing data, so a rare race (new timings stored between node starts) can give
+  #                   overlapping or missing assignments; the fan-in then fails ("assigned twice" /
+  #                   "assigned to no node") and a rerun fixes it. A failed shard persists nothing: read
+  #                   the shard job for the test failure itself.
+  # Impacted-only (TIA) selection is NOT used for this gate: a selective run cannot measure the
+  # global coverage floors, so it needs an owner decision on the coverage policy (RT-1258 report).
+  # No serial group. Stores test results only (the builds are public: no coverage artifacts; the
+  # workspace stays inside the pipeline).
+  api-jest-scope:
     machine:
       image: ubuntu-2404:2026.05.1
-    resource_class: large
+    resource_class: medium
     steps:
       - checkout
       - api-gate-guard
+      - persist_to_workspace:
+          root: /tmp/gate
+          paths:
+            - scope.txt
+
+  api-jest-shard:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    parallelism: 3
+    steps:
+      - api-gate-scope-skip
+      - checkout
       - backend-setup
       - run:
-          name: API Jest, full suite with coverage (RT-1256 gate)
+          name: API Jest shard, timing-split share of the full suite with coverage (RT-1258)
           working_directory: ~/project/services/backend-core/apps/api
           no_output_timeout: 10m
           environment:
             NODE_OPTIONS: --max-old-space-size=4096
           command: |
-            mkdir -p /tmp/gate /tmp/test-reports
-            node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > /tmp/gate/discovered.txt \
-              || : > /tmp/gate/discovered.txt
-            echo "$(wc -l < /tmp/gate/discovered.txt) specs discovered"
+            n="${CIRCLE_NODE_INDEX:?}"
+            d="/tmp/gate/nodes/$n"
+            mkdir -p "$d" /tmp/test-reports
+            git -C ~/project rev-parse HEAD > "$d/sha"
+            echo "${CIRCLE_NODE_TOTAL:?}" > "$d/total"
+            node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > "$d/discovered.txt" \
+              || : > "$d/discovered.txt"
+            circleci tests split --split-by=timings --timings-type=filename < "$d/discovered.txt" > "$d/assigned.txt"
+            echo "node $n of $CIRCLE_NODE_TOTAL: $(wc -l < "$d/assigned.txt") of $(wc -l < "$d/discovered.txt") specs"
             rc=0
-            timeout -k 2m 25m node_modules/.bin/jest --coverage --forceExit --json --outputFile=/tmp/gate/api-jest.json || rc=$?
-            node ~/project/.circleci/scripts/jest-json-to-junit.cjs /tmp/gate/api-jest.json /tmp/test-reports/api-jest-gate.xml "$PWD" || rc=1
-            node ~/project/.circleci/scripts/api-gate-complete.cjs /tmp/gate/api-jest.json /tmp/gate/discovered.txt "$PWD" || rc=1
+            if [ -s "$d/assigned.txt" ]; then
+              mapfile -t atoms < "$d/assigned.txt"
+              timeout -k 2m 25m node_modules/.bin/jest --runTestsByPath "${atoms[@]}" --coverage \
+                --coverageReporters=json --coverageDirectory="$d/cov" --coverageThreshold='{}' \
+                --forceExit --json --outputFile="$d/api-jest.json" || rc=$?
+              cp "$d/cov/coverage-final.json" "$d/coverage-final.json" || rc=1
+              node ~/project/.circleci/scripts/jest-json-to-junit.cjs "$d/api-jest.json" "/tmp/test-reports/api-jest-shard-$n.xml" "$PWD" || rc=1
+            fi
+            rm -rf "$d/cov"
             exit $rc
+      - persist_to_workspace:
+          root: /tmp/gate
+          paths:
+            - nodes
       - store_test_results:
           path: /tmp/test-reports
+
+  api-jest-gate:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: medium
+    steps:
+      - api-gate-scope-skip
+      - checkout
+      - run:
+          name: "API gate: complete inventory, all shards green, merged coverage vs jest.config.cjs floors"
+          environment:
+            PIPELINE_REVISION: "<< pipeline.git.revision >>"
+          command: |
+            head="$(git rev-parse HEAD)"
+            if ! [[ "$head" =~ ^[0-9a-f]{40}$ ]] || [ "$head" != "$PIPELINE_REVISION" ] || [ "${CIRCLE_SHA1:-}" != "$head" ]; then
+              echo "Not one exact commit ('$head', '$PIPELINE_REVISION', '${CIRCLE_SHA1:-}'); refusing."
+              exit 1
+            fi
+            node .circleci/scripts/api-gate-merge.cjs /tmp/gate services/backend-core/apps/api/jest.config.cjs "$head"
 
   # RT-981: the db and worker suites for a pushed feature branch, as bc/db-package
   # (WORKER_INCLUDE_DB_TESTS=1 adds the Testcontainers outbox suites). One step, so both suites
@@ -1191,7 +1278,13 @@ workflows:
       and (pipeline.event.action == "opened" or pipeline.event.action == "synchronize" or pipeline.event.action == "reopened")
       and pipeline.event.github.pull_request.base.ref == "main"
     jobs:
-      - api-jest-gate
+      - api-jest-scope
+      - api-jest-shard:
+          requires:
+            - api-jest-scope: [success, failed]
+      - api-jest-gate:
+          requires:
+            - api-jest-shard: [success, failed]
 
   # RT-981: manual, owner-triggered, feature branches only, never together with the TIA
   # parameters. serial-group keeps remote runs of this project one at a time.

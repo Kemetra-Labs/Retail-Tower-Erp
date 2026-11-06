@@ -1,0 +1,24 @@
+{
+  "total": {
+    "statements": {
+      "total": 140,
+      "covered": 93,
+      "pct": 66.42
+    },
+    "branches": {
+      "total": 68,
+      "covered": 36,
+      "pct": 52.94
+    },
+    "functions": {
+      "total": 31,
+      "covered": 20,
+      "pct": 64.51
+    },
+    "lines": {
+      "total": 131,
+      "covered": 89,
+      "pct": 67.93
+    }
+  }
+}
