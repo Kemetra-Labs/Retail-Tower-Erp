@@ -37,6 +37,7 @@ export async function withinTelemetryBudget(
   res: Response,
   checks: readonly BudgetCheck[],
 ): Promise<boolean> {
+  // sequential: budgets are checked in order and the first refusal stops the rest from being spent.
   for (const [bucketName, identifier, bucket] of checks) {
     let decision: RateLimitDecision;
     try {

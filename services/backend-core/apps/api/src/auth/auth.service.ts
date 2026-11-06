@@ -512,6 +512,7 @@ export class AuthService {
     }
 
     const revoked = await this.sessions.revokeOthersForUser(user.id, input.sessionId);
+    // sequential: ends support sessions one revoked session at a time, so pool load stays bounded and the first failure stops the rest.
     for (const authSessionId of revoked) {
       await this.endSupportSessions({ authSessionId }, input.requestId);
     }

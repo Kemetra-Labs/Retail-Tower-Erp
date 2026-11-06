@@ -193,6 +193,7 @@ export class DeviceHealthService {
     const matches: DeviceHealthReadRow[] = [];
     let cursor = after;
     let scanned = 0;
+    // sequential: cursor pagination; each batch starts after the previous batch's last row.
     while (matches.length < wanted && scanned < maxScanned) {
       const size = Math.min(batchSize, maxScanned - scanned);
       const rows = await this.fetchBatch(scan, cursor, size);

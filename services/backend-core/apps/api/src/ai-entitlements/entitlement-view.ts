@@ -112,6 +112,7 @@ export class EntitlementViewBuilder {
   async full(client: PoolClient, tenantId: string, snap: TenantEntitlementSnapshot, systemEnabled: boolean): Promise<FullViewBody> {
     const scope: MeterScopeInput = { client, tenantId, stores: await this.liveStores(client, tenantId) };
     const features: FeatureEntitlementBody[] = [];
+    // sequential: every feature body reads on the request's one PoolClient (pg runs one query at a time per client).
     for (const featureId of snap.knownFeatures) {
       features.push(await this.featureBody(snap, featureId, { scope, systemEnabled }));
     }
@@ -169,6 +170,7 @@ export class EntitlementViewBuilder {
     const { client, tenantId, stores } = scope;
     const out: RequestMeterBody[] = [];
     for (const m of meters) {
+      // sequential: each meter counter reads on the request's one PoolClient (pg runs one query at a time per client).
       for (const storeRef of m.scope === "store" ? stores : [null]) {
         const c = await this.usage.counter(client, { tenantId, storeId: storeRef, meter: m.meter, window: m.window });
         out.push({

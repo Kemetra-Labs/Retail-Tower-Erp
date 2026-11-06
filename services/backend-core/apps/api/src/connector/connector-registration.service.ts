@@ -178,6 +178,7 @@ export class ConnectorRegistrationService {
           `SELECT ${INSTANCE_COLS} FROM connector_registration ORDER BY created_at`,
         );
         const out: ConnectorInstanceBody[] = [];
+        // sequential: the active credential of each instance is read on one PoolClient (pg runs its queries one at a time).
         for (const row of res.rows) {
           const active = await this.activeCredential(client, row.id);
           out.push(toConnectorInstance(asRow(row), active));

@@ -283,6 +283,7 @@ export class ReceivableService {
 
   private async assertIntentPayers(client: PoolClient, input: OpenIntentInput): Promise<void> {
     // Throw so a bad reference rolls the reservation back with the transaction.
+    // sequential: the first payer out of scope throws and rolls back the transaction.
     for (const payer of input.payers) {
       if (!(await this.payerInScope(client, payer.payerRef, input.storeId))) {
         throw new SettlementReferenceConflictError();
@@ -292,6 +293,7 @@ export class ReceivableService {
 
   private async insertIntentRows(client: PoolClient, input: OpenIntentInput): Promise<DbRow[]> {
     const rows: DbRow[] = [];
+    // sequential: receivables are inserted in payer order on one PoolClient (pg runs its queries one at a time).
     for (const payer of input.payers) {
       const inserted = await client.query<DbRow>(
         `INSERT INTO receivable

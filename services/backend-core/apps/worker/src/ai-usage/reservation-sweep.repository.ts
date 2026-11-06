@@ -79,6 +79,7 @@ export class PgReservationSweepRepository implements ReservationSweepRepository 
     // its reservation's advisory lock and then the counter row lock, as the
     // api's commit / release does. Taking a second reservation's lock while
     // still holding a counter row lock could deadlock against an api settle.
+    // sequential: one release transaction at a time (lock order, see above).
     for (const reservationId of expired) {
       const r = await this.inTenant(tenantId, (client) =>
         settleAiReservation(client, { tenantId, reservationId, outcome: "reservation_expired", entryId: newId() }),

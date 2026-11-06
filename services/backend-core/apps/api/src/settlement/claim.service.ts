@@ -105,6 +105,7 @@ async function applyRemittanceToReceivables(
   lines: readonly ClaimedLine[],
 ): Promise<void> {
   if (outcome === "settled" || outcome === "flagged") {
+    // sequential: money writes on the caller's one PoolClient (pg runs its queries one at a time).
     for (const line of lines) {
       await client.query(
         `UPDATE receivable SET outstanding_balance = 0, state = $2,
@@ -117,6 +118,7 @@ async function applyRemittanceToReceivables(
   }
   // partial — FIFO apportion the remitted amount across the claimed lines.
   let remaining = toScaledInt(remittedAmount);
+  // sequential: FIFO apportionment: each line takes what the previous lines left, written on one PoolClient (pg runs its queries one at a time).
   for (const line of lines) {
     if (remaining <= 0n) break;
     const balance = toScaledInt(line.outstanding_balance);
@@ -184,6 +186,7 @@ export class ClaimService {
            VALUES ($1, $2, $3, $4, 'submitted', 0)`,
           [claimId, input.tenantId, storeId, input.payerRef],
         );
+        // sequential: claim join rows are inserted on one PoolClient (pg runs its queries one at a time).
         for (const ref of refs) {
           await client.query(
             `INSERT INTO claim_receivables

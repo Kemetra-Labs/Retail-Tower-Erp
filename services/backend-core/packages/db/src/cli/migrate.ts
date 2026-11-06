@@ -107,6 +107,7 @@ async function runUp(client: Client, dir: string): Promise<void> {
     return;
   }
 
+  // sequential: migrations must apply in order.
   for (const m of pending) {
     console.log(`up: applying ${m.id}`);
     const sql = readFileSync(m.upPath, "utf8");

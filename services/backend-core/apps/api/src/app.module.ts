@@ -98,6 +98,7 @@ export async function findWorkspaceRoot(
 ): Promise<string | null> {
   let current = resolve(startDir);
   // Hard ceiling on traversal depth to avoid infinite loops on broken FS.
+  // sequential: walks up one directory at a time and returns at the first match.
   for (let i = 0; i < 32; i += 1) {
     try {
       const sentinel = resolve(current, "pnpm-workspace.yaml");

@@ -156,6 +156,7 @@ export class ProductReconciliationRunProcessor {
   ): Promise<void> {
     const erpnextItems = new Map(view.items.map((i) => [i.erpnextItemRef, i]));
     const matchedErpnextRefs = new Set<string>();
+    // sequential: result rows are inserted on the run's one PoolClient (pg runs its queries one at a time).
     for (const m of confirmed) {
       const item = erpnextItems.get(m.erpnext_item_ref);
       if (!item) {
@@ -193,6 +194,7 @@ export class ProductReconciliationRunProcessor {
 
     // unmapped_erpnext_item: an item in the view that NO confirmed mapping
     // resolves to. Only ever derived from a PRESENT view (never fabricated).
+    // sequential: result rows are inserted on the run's one PoolClient (pg runs its queries one at a time).
     for (const [ref, item] of erpnextItems) {
       if (matchedErpnextRefs.has(ref)) continue;
       await this.insert(client, input.runId, input.tenantId, {
@@ -212,6 +214,7 @@ export class ProductReconciliationRunProcessor {
     unmapped: readonly UnmappedProductRow[],
     counts: Record<string, number>,
   ): Promise<void> {
+    // sequential: result rows are inserted on the run's one PoolClient (pg runs its queries one at a time).
     for (const u of unmapped) {
       const cls: ProductMismatchClass = u.has_inert_mapping
         ? "suggestion_unconfirmed"

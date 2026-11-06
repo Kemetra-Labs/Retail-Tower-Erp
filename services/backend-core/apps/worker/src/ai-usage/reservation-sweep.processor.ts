@@ -117,6 +117,7 @@ export class ReservationSweepProcessor {
   }
 
   private async sweepTenants(tally: Tally): Promise<void> {
+    // sequential: one tenant at a time keeps the sweep's DB load bounded and isolates a tenant's failure.
     for (const tenantId of await this.repo.listTenantIds()) {
       tally.tenants += 1;
       await this.sweepTenantSafely(tenantId, tally);
@@ -139,6 +140,7 @@ export class ReservationSweepProcessor {
   private async sweepTenantSafely(tenantId: string, tally: Tally): Promise<void> {
     try {
       let listed: number;
+      // sequential: drain loop; runs until a batch comes back short.
       do {
         const batch = await this.repo.releaseExpiredBatch(tenantId, { lookbackSeconds: this.lookbackSeconds, limit: this.batchSize });
         listed = batch.listed;

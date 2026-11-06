@@ -580,6 +580,7 @@ export class ConsoleCatalogWriteService {
 
   /** One tenant transaction, rerun while it began in the changed row's `updated_at` millisecond. */
   private async write<T>(input: CatalogWriteInput, work: (client: PoolClient) => Promise<T>): Promise<T> {
+    // sequential: retry loop with backoff; each attempt must finish before the next starts.
     for (let attempt = 1; ; attempt += 1) {
       try {
         return await runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, work);

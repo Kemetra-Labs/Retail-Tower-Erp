@@ -112,6 +112,7 @@ export class SaleRedriveProcessor {
     SaleRedriveJobSchema.parse(data ?? {});
 
     const tally = new RedriveTally();
+    // sequential: one tenant at a time keeps the redrive's DB load bounded and isolates a tenant's failure.
     for (const tenantId of await this.repo.listTenantIds()) {
       tally.tenants += 1;
       try {
@@ -133,6 +134,7 @@ export class SaleRedriveProcessor {
   /** (a) process this tenant's stranded sales, then (b/c) re-emit its missing intents. */
   private async sweepTenant(tenantId: string, tally: RedriveTally): Promise<void> {
     const stranded = await this.repo.findUnprocessedSales(tenantId, this.window, SALE_REDRIVE_BATCH_LIMIT);
+    // sequential: one sale at a time keeps pool load bounded and isolates a sale's failure.
     for (const sale of stranded) {
       try {
         const r = await this.saleProcessing.process({ ...sale, tenantId, correlationId: null });
