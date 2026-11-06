@@ -47,6 +47,14 @@
  *   • RT-858 (doc 28 OZ-1 = Z-A): a discounted sale whose total is 0 sends one
  *     `cash` tender of 0, so Backend-Core records a zero-total sale, not a
  *     tender-unknown one. It applies where tenders are sent (the RT-79 cutoff).
+ *   • RT-1240 (RT-1206: a replay whose raw body hash differs is a 409): the body
+ *     must be byte-identical on every re-send. Its send-time inputs are the
+ *     append-only Sale row (0021), the append-only 0058 role rows, and the two
+ *     rollout cutoffs read at boot (`tendersSince`, `receiptSince`); there is no
+ *     clock, random or other lookup here. Line order is `lines_json` order and
+ *     tender order is first-seen order of the frozen summary. The cutoffs are
+ *     stable only while ops keep the FUTURE-cutoff rule (`bootstrap/sale-sync.ts`):
+ *     no per-sale record of them exists. Pinned in `capture-body-stability.test.ts`.
  */
 
 import type { SaleRow } from '../sales/repositories/sales.repository.js';
