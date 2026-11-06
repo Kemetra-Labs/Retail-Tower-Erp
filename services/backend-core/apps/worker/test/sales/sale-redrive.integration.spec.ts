@@ -17,6 +17,9 @@
  * intent that never had an event is not invented, re-emission stops after
  * SALE_REDRIVE_MAX_DEAD_LETTERS dead letters, overlapping or repeated runs
  * are no-ops, and each tenant only ever sees its own rows.
+ * RT-1250 (a'): a sale repaired through the Console is selected by its repair
+ * time (the needs-repair row's `resolved_at`) as well, so a repair made after
+ * the max age still gets it processed, without changing the max age.
  *
  * Docker policy mirrors the other worker DB specs: HARD failure unless
  * MIGRATION_TEST_ALLOW_SKIP=1.
@@ -257,6 +260,96 @@ describe("RT-457 (a) — a sale stranded before processing is re-driven", () => 
 
     expect(await saleState(saleId)).toEqual({ processed: false, syncStatus: "failed-needs-repair" });
     expect(await postingEvents(saleId)).toHaveLength(0);
+  });
+});
+
+/**
+ * A needs-repair dead-letter for `saleId`, quarantined when the sale was, and
+ * resolved `resolvedMinutesAgo` minutes ago (null = still open).
+ */
+async function seedNeedsRepairRow(saleId: string, resolvedMinutesAgo: number | null): Promise<void> {
+  await e().admin.query(
+    `INSERT INTO sale_sync_deadletters
+       (sale_id, tenant_id, store_id, classification, reason_code, source_system, external_id, resolved_at)
+     SELECT id, tenant_id, store_id, 'needs-repair', 'validation_failure', source_system, external_id,
+            CASE WHEN $2::int IS NULL THEN NULL ELSE now() - ($2::int * interval '1 minute') END
+       FROM sales WHERE id = $1`,
+    [saleId, resolvedMinutesAgo],
+  );
+}
+
+describe("RT-1250 (a') — a sale repaired through the Console is re-driven by repair time", () => {
+  const EIGHT_DAYS = 8 * 24 * 60;
+
+  it("processes a sale captured before the max age once its repair is past the minimum age", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: EIGHT_DAYS, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(saleId, 20);
+
+    await runSweep();
+
+    expect(await saleState(saleId)).toEqual({ processed: true, syncStatus: "synced" });
+    expect((await postingEvents(saleId)).map((row) => row.payload["kind"])).toEqual(["sale_post"]);
+  });
+
+  it("leaves a repair younger than the minimum age for the next tick", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: EIGHT_DAYS, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(saleId, 1);
+
+    await runSweep();
+
+    expect(await saleState(saleId)).toEqual({ processed: false, syncStatus: "failed-retryable" });
+  });
+
+  it("never re-drives a sale whose repair is itself older than the max age", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: EIGHT_DAYS + 120, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(saleId, EIGHT_DAYS);
+
+    await runSweep();
+
+    expect(await saleState(saleId)).toEqual({ processed: false, syncStatus: "failed-retryable" });
+  });
+
+  it("leaves an old sale that failed again after its repair (quarantined again) to the operator", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: EIGHT_DAYS, syncStatus: "failed-needs-repair" });
+    await seedNeedsRepairRow(saleId, 30);
+    await seedNeedsRepairRow(saleId, null);
+
+    await runSweep();
+
+    expect(await saleState(saleId)).toEqual({ processed: false, syncStatus: "failed-needs-repair" });
+  });
+
+  it("leaves an old retryable sale that was never repaired to the max age (history stays history)", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: EIGHT_DAYS, syncStatus: "failed-retryable" });
+
+    await runSweep();
+
+    expect(await saleState(saleId)).toEqual({ processed: false, syncStatus: "failed-retryable" });
+  });
+
+  it("selects a sale both captured and repaired inside the window once", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: 60, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(saleId, 20);
+
+    const found = await new PgSaleRedriveRepository(e().app).findUnprocessedSales(TENANT_A, WINDOW, BATCH);
+
+    expect(found.filter((s) => s.saleId === saleId)).toEqual([{ saleId, storeId: STORE_A }]);
+  });
+
+  it("does not see another tenant's repaired sale", async () => {
+    if (skip) return;
+    const saleB = await seedSale({ tenant: "B", ageMinutes: EIGHT_DAYS, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(saleB, 20);
+
+    const found = await new PgSaleRedriveRepository(e().app).findUnprocessedSales(TENANT_A, WINDOW, BATCH);
+
+    expect(found.map((s) => s.saleId)).not.toContain(saleB);
   });
 });
 

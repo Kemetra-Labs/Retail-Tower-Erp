@@ -9,12 +9,21 @@
  *
  * Only items inside the age window are touched: older than the minimum age
  * (the live pipeline always gets the first chance) and younger than the
- * maximum age (history is never posted to ERPNext by surprise).
+ * maximum age (history is never posted to ERPNext by surprise). For a repaired
+ * sale the clock is the repair (the dead-letter's `resolved_at`), not capture.
  *
  * What counts as stranded:
  *   - (a) a sale with `processed_at IS NULL` — its sale-processing job ran out
  *     of retries or was lost with Redis. A sale quarantined for operator
  *     repair (`failed-needs-repair`) is left to the operator.
+ *   - (a') RT-1250: a sale the operator REPAIRED through the Console. The
+ *     repair only resolves its needs-repair dead-letter and moves the sale to
+ *     `failed-retryable`; nothing enqueues a job. So the sweep also selects an
+ *     unprocessed `failed-retryable` sale whose needs-repair row was RESOLVED
+ *     inside the age window, whatever the sale's `created_at`: a repair made
+ *     more than `SALE_REDRIVE_MAX_AGE_MS` after capture is still processed,
+ *     while the max age keeps guarding automatic re-drive of history (a sale
+ *     nobody repaired is still selected by `created_at` only).
  *   - (b/c) a processed sale with no `sale_post` posting row, or a void /
  *     refund / return with no `reversal` row, whose `erpnext.posting.requested`
  *     event DEAD-LETTERED: the live path tried and gave up. An intent with an
@@ -97,12 +106,25 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
 
   async findUnprocessedSales(tenantId: string, window: SaleRedriveWindow, limit: number): Promise<StrandedSale[]> {
     return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
+      // UNION (not OR) so each branch keeps its own plan; it also dedups a
+      // sale that is in both (captured AND repaired inside the window).
       const r = await client.query<{ id: string; store_id: string }>(
-        `SELECT id, store_id FROM sales
-          WHERE tenant_id = $1 AND processed_at IS NULL
-            AND sync_status <> 'failed-needs-repair'
-            AND ${inWindow("created_at")}
-          ORDER BY created_at
+        `SELECT id, store_id FROM (
+           SELECT s.id, s.store_id, s.created_at FROM sales s
+            WHERE s.tenant_id = $1 AND s.processed_at IS NULL
+              AND s.sync_status <> 'failed-needs-repair'
+              AND ${inWindow("s.created_at")}
+           UNION
+           SELECT s.id, s.store_id, s.created_at FROM sale_sync_deadletters d
+             JOIN sales s ON s.id = d.sale_id AND s.tenant_id = d.tenant_id
+            WHERE d.tenant_id = $1
+              AND d.classification = 'needs-repair'
+              AND d.resolved_at IS NOT NULL
+              AND ${inWindow("d.resolved_at")}
+              AND s.processed_at IS NULL
+              AND s.sync_status = 'failed-retryable'
+         ) stranded
+          ORDER BY created_at, id
           LIMIT $4`,
         [tenantId, window.minAgeMs, window.maxAgeMs, limit],
       );
