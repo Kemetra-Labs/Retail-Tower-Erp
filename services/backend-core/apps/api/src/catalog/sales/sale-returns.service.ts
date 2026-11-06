@@ -381,6 +381,7 @@ async function insertLinesAndTenders(
   returnId: string,
   lines: ReadonlyArray<PricedLine>,
 ): Promise<void> {
+  // sequential: return lines are inserted on one PoolClient (pg runs its queries one at a time).
   for (const l of lines) {
     await client.query(
       `INSERT INTO sale_return_lines
@@ -391,6 +392,7 @@ async function insertLinesAndTenders(
         l.lineAmount, l.taxAmount, l.returnedAfter],
     );
   }
+  // sequential: tenders are inserted in ordinal order on one PoolClient (pg runs its queries one at a time).
   for (const [ordinal, t] of input.body.refundTenders.entries()) {
     await client.query(
       `INSERT INTO sale_return_tenders

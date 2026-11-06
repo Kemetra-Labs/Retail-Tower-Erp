@@ -181,6 +181,7 @@ export async function activateSaleEffects(
 
   const now = (await client.query<{ now: Date }>(`SELECT now() AS now`)).rows[0]!.now;
   const anchored: AnchoredStore[] = [];
+  // sequential: anchors are written on the activation one PoolClient (pg runs its queries one at a time).
   for (const store of stores) anchored.push(await writeAnchor(client, input, store, now));
   await client.query(
     `INSERT INTO tenant_inventory_settings

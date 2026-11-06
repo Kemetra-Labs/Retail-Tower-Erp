@@ -206,6 +206,7 @@ export class AuditRetentionProcessor {
     let batchCount = 0;
     let batchMarked: number;
 
+    // sequential: drain loop; runs until a batch comes back short.
     do {
       batchMarked = await this.repo.markBatch(cutoff, now, BATCH_SIZE);
       markedCount += batchMarked;

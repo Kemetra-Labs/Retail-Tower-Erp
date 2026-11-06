@@ -288,6 +288,7 @@ export class ErpnextPostingService {
         );
 
         const items: PostingWorkItem[] = [];
+        // sequential: work items are built on one PoolClient (pg runs its queries one at a time); the output keeps feed order.
         for (const row of rows.rows) {
           const item = await buildWorkItem(client, {
             id: row.id,

@@ -293,6 +293,7 @@ export async function seed(client: ClientBase, cfg: PilotConfig): Promise<Minted
   }
 
   // Default roles (idempotent on (tenant_id, code)).
+  // sequential: default roles are inserted on the bootstrap one PoolClient (pg runs its queries one at a time).
   for (const r of DEFAULT_TENANT_ROLES) {
     await client.query(
       `INSERT INTO roles (id, tenant_id, code, name, is_built_in)

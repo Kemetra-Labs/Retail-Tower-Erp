@@ -53,6 +53,7 @@ export async function moveHeldPositions(client: PoolClient, move: HeldIdentityMo
     [move.tenantProductRef, move.trackingIdentityId, move.moves.fromStatuses],
   );
   const eventIds: string[] = [];
+  // sequential: position events are recorded on one PoolClient (pg runs its queries one at a time).
   for (const p of positions.rows) {
     const event = await recordPositionEvent(client, {
       kind: 'status_move',

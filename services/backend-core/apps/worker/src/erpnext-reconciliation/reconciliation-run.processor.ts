@@ -170,12 +170,14 @@ export class ReconciliationRunProcessor {
 
         const counts: Record<string, number> = {};
         const seen = new Set<string>();
+        // sequential: result rows are inserted on the run's one PoolClient (pg runs its queries one at a time).
         for (const line of lines) {
           seen.add(line.sourceRefId);
           counts[line.mismatchClass] = (counts[line.mismatchClass] ?? 0) + 1;
           await this.insertResult(client, input.runId, input.tenantId, line);
         }
         // erpnext_only: in the Bin view but with no DP2 on-hand row at all.
+        // sequential: result rows are inserted on the run's one PoolClient (pg runs its queries one at a time).
         for (const [productRef, binQty] of binView) {
           if (seen.has(productRef)) continue;
           counts["erpnext_only"] = (counts["erpnext_only"] ?? 0) + 1;
@@ -297,6 +299,7 @@ export class ReconciliationRunProcessor {
     if (batch.unmapped.length > 0) {
       batch.counts["erpnext_only"] = (batch.counts["erpnext_only"] ?? 0) + batch.unmapped.length;
     }
+    // sequential: already batched inserts on the run's one PoolClient (pg runs its queries one at a time).
     for (let i = 0; i < batch.unmapped.length; i += UNMAPPED_INSERT_BATCH) {
       const rows = batch.unmapped.slice(i, i + UNMAPPED_INSERT_BATCH).map((u) => ({
         id: newId(),

@@ -106,6 +106,7 @@ export class ReplayPurgeProcessor {
 
     const startedAt = Date.now();
     const tally: Tally = { tenants: 0, purged: 0, batches: 0, failedTenants: 0 };
+    // sequential: one tenant at a time keeps the purge's DB load bounded and isolates a tenant's failure.
     for (const tenantId of await this.repo.listTenantIds()) {
       tally.tenants += 1;
       await this.purgeTenantSafely({ tenantId }, tally);
@@ -135,6 +136,7 @@ export class ReplayPurgeProcessor {
   /** Bounded batches until one comes back short (nothing more expired). */
   private async purgeTenant(target: TenantTarget, tally: Tally): Promise<void> {
     let purged: number;
+    // sequential: drain loop; runs until a batch comes back short.
     do {
       purged = await this.repo.purgeExpiredBatch(target.tenantId, this.batchSize);
       tally.purged += purged;

@@ -873,6 +873,7 @@ export class UnknownItemsService {
     // matches the input — no cross-item coupling (FR-070a). A handful of
     // dismisses per request is well within latency budget; a parallel fan-out
     // would add connection-pool pressure for no UX gain.
+    // sequential: one independent transaction per item, outcomes in input order (see below).
     for (const id of input.ids) {
       try {
         await this.dismissUnknownItem({

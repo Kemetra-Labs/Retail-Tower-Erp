@@ -127,9 +127,11 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
           WHERE src.tenant_id = $1 AND ${inWindow("src.processed_at")}`,
         params,
       );
+      // sequential: intents are emitted under the tenant's advisory lock on one PoolClient (pg runs its queries one at a time).
       for (const row of salePosts) await this.emitIntent(client, tenantId, row, "sale_post");
 
       let reversal = 0;
+      // sequential: intents are emitted under the tenant's advisory lock on one PoolClient (pg runs its queries one at a time).
       for (const table of REVERSAL_SOURCES) {
         const rows = await this.missing(
           client,

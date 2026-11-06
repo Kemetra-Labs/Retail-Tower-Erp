@@ -209,6 +209,7 @@ export class OutboxRetentionProcessor {
     let batchCount = 0;
     let batchPurged: number;
 
+    // sequential: drain loop; runs until a batch comes back short.
     do {
       batchPurged = await this.repo.purgeBatch(cutoffs, BATCH_SIZE);
       purgedCount += batchPurged;

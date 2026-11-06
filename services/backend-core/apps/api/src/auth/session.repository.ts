@@ -275,6 +275,7 @@ export class SessionRepository {
         and(eq(sessions.userId, userId), ne(sessions.id, keepSessionId), isNull(sessions.revokedAt)),
       )
       .returning({ id: sessions.id });
+    // sequential: cache invalidations after the revoke commits; the default cache is a no-op, so batching gains nothing.
     for (const row of rows) await this.cache.invalidate(row.id);
     return rows.map((row) => row.id);
   }

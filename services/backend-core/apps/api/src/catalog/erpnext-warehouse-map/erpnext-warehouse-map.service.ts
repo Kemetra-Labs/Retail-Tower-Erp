@@ -289,6 +289,7 @@ export class ErpnextWarehouseMapService {
         ORDER BY started_at, id`,
       [map.storeId],
     );
+    // sequential: fails each in-flight run on one PoolClient (pg runs its queries one at a time).
     for (const { id } of running.rows) {
       const failed = await failStockReconciliationRun(client, {
         runId: id,

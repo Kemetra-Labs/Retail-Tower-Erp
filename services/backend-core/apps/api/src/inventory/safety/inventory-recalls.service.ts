@@ -226,6 +226,7 @@ async function placeRecallHolds(
 ): Promise<{ holds: TrackingHoldBody[]; positionEventIds: string[] }> {
   const holds: TrackingHoldBody[] = [];
   const positionEventIds: string[] = [];
+  // sequential: each hold and its moves are written on one PoolClient (pg runs its queries one at a time).
   for (const identity of identities) {
     const hold = await insertHold(client, {
       tenantId: input.tenantId,

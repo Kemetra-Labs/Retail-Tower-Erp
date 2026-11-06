@@ -171,6 +171,7 @@ export class CashierAdmissionsService {
 
   private async expireStale(ctx: AdmitContext): Promise<void> {
     const expired = await this.ports.admissions.expireStale(ctx.client, ctx.scope, { userId: ctx.userId, at: ctx.at });
+    // sequential: expiry audit rows are written on the admission one PoolClient (pg runs its queries one at a time).
     for (const admission of expired) {
       // Attributed to the device that held the admission, not the requester.
       await this.record(ctx, ADMISSION_AUDIT_ACTIONS.expired, admission.id, {
