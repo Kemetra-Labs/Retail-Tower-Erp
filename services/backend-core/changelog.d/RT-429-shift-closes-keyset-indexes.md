@@ -9,6 +9,8 @@
   own (as 0064-0065), so the admin shift-close list (RT-383) reads a
   tenant-wide or single-store page, first or cursor, as the first index entries
   instead of sorting every in-scope close. A user scoped to several stores with
-  no store filter may still sort (owner-approved). No query or contract change;
+  no store filter may still sort, and so may a small store's page until its
+  history passes the planner's estimate crossover (both owner-approved, RT-429
+  comments 15731 and 15764). No query or contract change;
   `idx_shift_closes_tenant_store` (0036) is kept. Each down drops only its own
   index.

@@ -11,12 +11,20 @@
  *     so the runner never wraps the build in a transaction block;
  *   - each index is valid with the RT-429 column list and order;
  *   - before the build the list sorts; after it, as the app role under tenant
- *     RLS, the tenant-wide first page, a cursor page and a single-store page
- *     (unscoped, and a store-scoped user filtering one store) are served by an
+ *     RLS, the tenant-wide first page, a cursor page and a busy store's page
+ *     (unscoped, and a store-scoped user filtering that store) are served by an
  *     RT-429 index with no Sort node, and every page is identical to before;
  *   - the multi-store-scoped list (store_id = ANY($2), no store filter) is NOT
  *     asserted to avoid a Sort: owner-approved as expected (RT-429 comment
  *     15731). Only its pages are compared;
+ *   - a SMALL store's single-store page is NOT asserted either: LIST_SQL joins
+ *     shifts on (shift_id, tenant_id, store_id), so the store filter lands on
+ *     both sides and the planner estimates about (store's closes / stores in
+ *     the tenant) joined rows. Below LIMIT it sorts that one store's closes
+ *     (bounded, a few ms) instead of reading 0085 in order; 0085 takes over
+ *     once the store's history passes roughly 51 x (stores in the tenant)
+ *     closes (RT-429 comment 15763; owner-approved, comment 15764). The busy store is seeded above that
+ *     crossover; the small store's plan is printed only;
  *   - each down drops only its own index, keeps idx_shift_closes_tenant_store
  *     and every close row, and round-trips with up.
  *
@@ -112,7 +120,9 @@ async function applyBefore0084(pgEnv: PgTestEnv): Promise<void> {
  * only (session_replication_role = replica: the close guard needs an open shift
  * and the one-open-shift-per-device index would force a device per shift); the
  * rows satisfy every CHECK, and the closes' FK targets exist. closed_at is
- * truncated to the minute so ties exercise the shift_id tie-break.
+ * truncated to the minute so ties exercise the shift_id tie-break. Half of the
+ * shifts go to the first store (by code, the busy store); the rest are spread
+ * over the other stores.
  */
 async function seedTenant(tenantId: string, slug: string, stores: number, n: number): Promise<void> {
   const client = await pg().admin.connect();
@@ -141,9 +151,11 @@ async function seedTenant(tenantId: string, slug: string, stores: number, n: num
          FROM (SELECT gen_random_uuid() AS shift_id, g,
                       date_trunc('minute', now() - random() * interval '365 days') AS opened_at
                  FROM generate_series(1, $3) g) x
-         JOIN (SELECT id, store_id, row_number() OVER (ORDER BY store_id) - 1 AS k
-                 FROM devices WHERE tenant_id = $1) d
-           ON d.k = x.g % $4`,
+         JOIN (SELECT d.id, d.store_id, row_number() OVER (ORDER BY st.code) - 1 AS k
+                 FROM devices d JOIN stores st ON st.id = d.store_id
+                WHERE d.tenant_id = $1) d
+           ON d.k = CASE WHEN $4::int = 1 OR x.g % 2 = 0 THEN 0
+                         ELSE 1 + (x.g / 2) % ($4::int - 1) END`,
       [tenantId, USER, n, stores],
     );
     // Amounts as the 0050 spec's closes: expected 2755.00, counted 2750.00.
@@ -312,6 +324,7 @@ beforeAll(async () => {
   await env.admin.query("ANALYZE shift_closes");
   await env.admin.query("ANALYZE shifts");
 
+  // stores[0] is the busy store (half the closes); the others are small.
   const stores = await storesOf(TENANT);
   const scoped = stores.slice(0, 3);
   cases = [
@@ -320,11 +333,13 @@ beforeAll(async () => {
     {
       name: "scoped single-store",
       scope: scoped,
-      store: scoped[1]!,
+      store: scoped[0]!,
       served: [STORE_INDEX, TENANT_INDEX],
     },
     // Owner-approved (RT-429 comment 15731): may still sort; plan not asserted.
     { name: "multi-store-scoped", scope: scoped, store: null, served: [] },
+    // Below the estimate crossover (header): may sort; plan printed, not asserted.
+    { name: "small single-store", scope: null, store: stores[1]!, served: [] },
   ];
   for (const c of cases) {
     keysets.set(c.name, await keysetAfter(c));
@@ -390,7 +405,7 @@ describe("0084-0085 - the two RT-429 indexes", () => {
     },
   );
 
-  it.each(["tenant-wide", "single-store", "scoped single-store", "multi-store-scoped"])(
+  it.each(["tenant-wide", "single-store", "scoped single-store", "multi-store-scoped", "small single-store"])(
     "the %s list returns the same pages after the build as before",
     async (name) => {
       if (skip()) return;

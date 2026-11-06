@@ -17,6 +17,15 @@
 -- stores (store_id = ANY($2), no single-store filter) may still sort; see
 -- 0084. The migration spec does not assert a plan for that case.
 --
+-- Expected, owner-approved (RT-429 comments 15763, 15764): a SMALL store's
+-- page may also sort. The list joins shifts on (shift_id, tenant_id,
+-- store_id), so the store filter lands on both sides and the planner
+-- estimates about (store's closes / stores in the tenant) joined rows. Below
+-- LIMIT it sorts that one store's closes (bounded, a few ms) instead of reading
+-- this index in order. This index takes over once a store's history passes
+-- roughly 51 x (stores in the tenant) closes; the spec asserts no Sort for a
+-- store seeded above that crossover and only prints a small store's plan.
+--
 -- Additive only: idx_shift_closes_tenant_store (0036) is kept (owner decision,
 -- RT-429 comment 15731), although this index's (tenant_id, store_id) prefix
 -- covers it.
