@@ -7,7 +7,7 @@
 | **Scope** | Backend-Core (primary), POS and ERPNext-Connector. Cross-product planning authorized by the owner on 2026-11-06 (CLAUDE.md §8) |
 | **Baseline** | Monorepo `Kemetra-Labs/Retail-Tower-Erp` `origin/main` @ `19f8cca` (2026-11-06). The issue's `Kemetra/Backend-Core` @ `ddae78a7` is stale: the products moved into this monorepo at the RT-715 cutover |
 | **Decisions honoured** | Confluence RETAIL 23855106: 641–648 (Q, measured pricing), 612–617 (N, returns), 563–572 (J, rounding ownership), 590–601 (L, Fiscal), 649–664 and 675–687 (R/T, ERPNext boundary and verification), 475–479 (Sell Unit, exact money) |
-| **Status** | **DRAFT — not ratified.** Every owner decision is listed as an open question in §9 (Q-1 to Q-12). A recommendation is given where one is useful, but none is selected. Fractional quantities stay rejected on every surface until the owner ratifies this plan |
+| **Status** | **DRAFT — not ratified.** Every owner decision is listed as an open question in §9 (Q-1 to Q-14). A recommendation is given where one is useful, but none is selected. Fractional quantities stay rejected on every surface until the owner ratifies this plan |
 
 > Naming note: spec 045 (RT-272) uses "G5" for the *Return Policy* gate of Sales & Returns. This plan is **Pricing**
 > Gate 5 (RT-282 §2). They are different gates.
@@ -94,11 +94,20 @@ amounts (B6). Every module needs a coordinated change; no single one can fix it 
 ### 4.1 Quantity precision
 
 - Wire and storage already carry 6 fractional digits (B1, B5, B10, C2). The plan **does not** change that bound.
-- A measured Sell Unit declares a precision `p` ≤ 3 (gram / millilitre / millimetre resolution); a line with more
-  fractional digits than `p` is invalid. Recommended `p = 3` (Q-3) because:
-  - Inventory Effects accept at most 4 decimals (B9), so `p ≤ 4` keeps measured sales flowing into stock;
+- A measured Sell Unit declares a precision `p`; a line with more fractional digits than `p` is invalid. The cap on
+  `p` is the owner's choice (Q-3: 3, per-UOM, or up to the wire bound of 6). Recommended `p = 3` because:
+  - Inventory Effects accept at most 4 decimals (B9), so `p ≤ 4` keeps measured sales flowing into stock. If the owner
+    picks `p > 4`, Inventory Effects would **skip** those lines (`quantity_precision`, never rounded), so that choice
+    also needs an Inventory change in G5-BC-2: stock movement/position quantity scale raised to `p` (a migration), or an
+    explicit owner rule for rounding stock quantity, which today's "skipped, never rounded" policy forbids;
   - the ERPNext `qty` field precision must be ≥ `p` (§7.2), and a site default is commonly 3 — **needs verification on rt9**;
   - scales and EAN-13 weight barcodes commonly resolve to 1 g (5 digits = up to 99.999 kg).
+- Precision alone does not guarantee an Inventory Effect: a product whose established store unit (B9) is not the
+  measured UOM (e.g. stock moved so far in `unit` or `Kg`) would have every measured sale skipped as `unit_mismatch`.
+  Making a product measured therefore needs a **per-product, per-store readiness step** in G5-BC-1: report products
+  whose established unit differs from the canonical UOM, and block switching them to measured until the owner's
+  chosen remedy has run (Q-14: re-baseline the established unit with an audited stock adjustment, or refuse the switch
+  for products with stock history). The ERPNext `stock_uom` check (§7.1) does not cover this Backend-Core state.
 - Quantity is always an exact-decimal string in Backend-Core and the Connector; the POS holds it as an integer count of
   10^-p canonical units (with `p = 3` and `kg`, grams: `735` for 0.735 kg). Never a float.
 
@@ -109,7 +118,7 @@ amounts (B6). Every module needs a coordinated change; no single one can fix it 
 | Extended line amount `round_m(unitPrice × quantity)` of a measured line | **Pricing** — it is the commercial price of the line (590). Reading 566–567 (no silent re-rounding of an approved price) as compatible with this rule is part of ratification: the rate is never re-rounded, only its extension by a weight that did not exist at authoring time | Rounded **once per line** to the currency's ISO minor unit, with one tenant-wide mode (Q-4). Recommended: half-up, as RT-740 percent discount already does (B4) |
 | Tax on the line | **Fiscal** (569, 600; RT-294) | Unchanged. Fiscal derives from the rounded commercial line amount like any other line |
 | Cash-tender rounding of the sale total | **Payment / Tender** (570) | Unchanged |
-| Manual discount on a measured line | **Pricing** (RT-740 rule) | Gross = the rounded extended amount; the percent rule then applies unchanged |
+| Manual discount on a measured line | **Pricing** (RT-740 rule) | Gross = the rounded extended amount; the percent rule then applies unchanged. **Not postable as-is**, see §7.3: recommended refused at capture in the first slice (Q-13) |
 
 - The rounding is computed by **the POS at scan** and frozen on the cart line (602); Backend-Core **re-verifies** it
   exactly at capture (it does not recompute and replace). Fiscal and Payment rules are unaffected.
@@ -121,7 +130,18 @@ amounts (B6). Every module needs a coordinated change; no single one can fix it 
 ## 5. The RT-105 invariant change (capture)
 
 Additive and opt-in per line. A line **without** the new marker keeps today's rule bit for bit (count lines, ad-hoc
-lines, old POS builds).
+lines).
+
+**Old POS builds must not sell a measured product as a count item.** A terminal that ignores the new read-down fields
+(P8) would add one unit at the per-kg rate and send no `measure`, which the unchanged count rule would accept. Two
+guards, both required:
+
+1. **Distribution:** read-down includes a measured product only for a terminal that declares the
+   `measured_sales` capability (a device/build capability reported at pairing or on the read-down request; exact
+   mechanism in K1). Other terminals never receive it, so it is not scannable there, online or offline.
+2. **Capture:** a line with `tenantProductRef` whose product's Sell Unit is measured (at the line's sale time) and that
+   carries no `measure` is refused (422, typed reason). This is the one catalog cross-check that is mandatory whatever
+   Q-5 decides, because it is the only server-side guard for a terminal that held a stale catalogue offline.
 
 Proposed `CaptureSaleLine` additions (names indicative; the contract PR decides spelling):
 
@@ -132,7 +152,7 @@ measure:                 # optional; absent = count line (today's rule)
   properties:
     kind:      { enum: [measured] }            # catch_weight too if Q-1 says so
     uom:       { type: string }                # canonical rate UOM code, equals `unit`
-    precision: { type: integer, minimum: 0, maximum: 3 }
+    precision: { type: integer, minimum: 0, maximum: 3 }   # maximum = the Q-3 cap (3 recommended, ≤ 6)
     source:    { enum: [scale, barcode_weight, barcode_price, manual] }   # subset per Q-6/Q-7
 ```
 
@@ -195,8 +215,15 @@ written; this plan does not assume them.
 - **Recommended: tolerance stays zero** (683, 687). The plan makes exact representation possible instead of tolerating
   drift: quantity is sent at ≤ `p` digits that the site can store (§7.2), and the amount Backend-Core sends is the
   amount ERPNext will compute under the same rounding (§4.2, Q-9).
-- The builder's discounted-line and return-line rule (`rate × qty == amount`, C6) becomes, for measured lines,
-  `round_m(rate × qty) == amount`, using the same helper semantics; a mismatch still fails closed before submit.
+- For an **undiscounted** measured line the builder rule (`rate × qty == amount`, C6) becomes `round_m(rate × qty) ==
+  amount`, using the same helper semantics; a mismatch still fails closed before submit.
+- A **discounted** measured line has no postable form under today's builder, which posts a minor-unit *net rate*:
+  3.001 kg at 1.00/kg less 0.01 is 2.99, but `round_m(3.001 × 0.99) = 2.97` and `round_m(3.001 × 1.00) = 3.00`; no
+  two-decimal rate gives 2.99. Changing the equality alone would not fix it. Options (Q-13): **(a, recommended)**
+  refuse manual discounts on measured lines at capture (and in the POS) in the first slice, fail closed; (b) post the
+  gross rate with a separate discount representation that ERPNext keeps exactly — needs its own rt9 proof before
+  acceptance. Until Q-13 is decided and proven, an unrepresentable measured line is refused before capture, never
+  posted approximately.
 - Any non-zero tolerance (e.g. ±1 minor unit on `amount`) would make "posted ≠ sold" a success path and conflicts with
   617 and 683. It is listed as Q-10 only so the owner can reject it explicitly.
 - RT-380's "rounding gate N/A by contract" (C7) becomes applicable once G5-CNR-1 lands; its re-verification on rt9 is
@@ -233,6 +260,8 @@ None of these is decided by this plan.
 | **Q-10** | Representation tolerance for measured lines | Zero; ±1 minor unit on amount | Zero (683, 687) |
 | **Q-11** | Release horizon: is G5 a V1 Pilot need or Post-Pilot? RT-488 is `Post-Pilot`; spec 041 OD-1 lists measured pricing as "Later". | Post-Pilot; pilot | Post-Pilot unless a pilot store sells loose goods |
 | **Q-12** | Sell Unit ownership: does RT-281's Sell Unit model carry `measure`/`uom`/`precision`, or does Pricing own them? | Catalog (RT-281); Pricing | Catalog (OD-2 already sends Sell Units to RT-281) |
+| **Q-13** | Manual discounts on measured lines (§7.3) | (a) refused in the first slice; (b) separate exact discount representation, rt9-proven first | (a) |
+| **Q-14** | Products whose established inventory unit differs from the measured UOM (§4.1) | Re-baseline with an audited stock adjustment; refuse the switch for products with stock history | Refuse for the pilot; re-baseline as a later, audited tool |
 
 ## 10. Contract changes, in contract-first order
 
@@ -240,7 +269,7 @@ Each step is a separate PR; no consumer implementation starts before the contrac
 
 | # | Product | Contract change | Additive? |
 |---|---|---|---|
-| K1 | Backend-Core | Catalog: measured Sell Unit (`measure`, canonical `uom`, `precision`, display comparison unit) on the product master and as optional fields on read-down `SellableCatalogRow`. Barcode-layout configuration resource if Q-7 needs tenant layouts | Yes (POS tolerates extra fields, P8) |
+| K1 | Backend-Core | Catalog: measured Sell Unit (`measure`, canonical `uom`, `precision`, display comparison unit) on the product master and as optional fields on read-down `SellableCatalogRow`; the `measured_sales` terminal capability and the rule that read-down omits measured products for terminals without it. Barcode-layout configuration resource if Q-7 needs tenant layouts | Yes (POS tolerates extra fields, P8) |
 | K2 | Backend-Core | Pricing (spec 041 amendment): `price_events.sell_unit` accepts a measured Sell Unit; the price is the rate per canonical UOM; authoring normalization from the display unit | Yes (OD-2 seam) |
 | K3 | Backend-Core | `pos-sales/sales.yaml`: optional `CaptureSaleLine.measure`; the measured invariant (§5); the measured-line return rule (§6); new typed refusal reasons | Yes for capture; return rule replaces one sentence for measured lines only |
 | K4 | Backend-Core | `erpnext-connector/posting-feed.yaml`: `SaleLine.measure` and `ReturnLine.measure` (kind, uom, precision) so the Connector can apply the measured rules | Yes |
@@ -253,16 +282,21 @@ Precedent: RT-282 created gated items only after its gate was ratified. All are 
 
 | Proposed key | Product | Work Mode | Bounded scope | Depends on |
 |---|---|---|---|---|
-| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units | RT-281 Sell Unit model (Q-12) |
-| G5-BC-2 | Backend-Core | Implementation | K3 capture: `measure`, measured invariant, shared `roundToMinor`, `sale_lines` freeze columns | G5-BC-1 contract |
+| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability and capability-filtered read-down (§5); store readiness report for established units (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
+| G5-BC-2 | Backend-Core | Implementation | K3 capture: `measure`, measured invariant, shared `roundToMinor`, `sale_lines` freeze columns, the count-line guard (§5). Ships **disabled** behind a per-tenant `measured_sales` enablement | G5-BC-1 contract |
 | G5-BC-3 | Backend-Core | Implementation | K3 returns rule for measured lines (per Q-8) | G5-BC-2 |
 | G5-BC-4 | Backend-Core | Implementation | K4 posting feed: `measure` on sale and return lines | G5-BC-2 |
 | G5-CNR-1 | Connector | Implementation | K5: UOM/precision/rounding preflight, measured builder and return builder rules, RT-378 check for measured lines | G5-BC-4 |
-| G5-POS-1 | POS | Implementation | Re-pin; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
+| G5-POS-1 | POS | Implementation | Re-pin; declare the `measured_sales` capability; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
 | G5-POS-2 | POS | Implementation | Embedded-weight barcode parsing with tenant layouts (Q-7) | G5-POS-1 |
 | G5-POS-3 | POS | Implementation | Scale integration (Q-6), incl. the native dependency | G5-POS-1; hardware decision |
 | G5-POS-4 | POS | Implementation | Measured-line returns (Q-8) | G5-BC-3, G5-POS-1 |
 | G5-V1 | All | Verification | rt9 end to end: barcode-weight sale → capture → Inventory Effect → ERP Sales Invoice (exact qty/uom/rate/amount) → return → credit note; re-run the RT-380 rounding gate | all above |
+
+**Enablement gate.** Merging G5-BC-2 does not enable measured sales. A tenant's `measured_sales` enablement may be
+switched on only when G5-BC-4 (feed) and G5-CNR-1 (Connector) are deployed, the Connector compatibility preflight (§7.2)
+is green for that tenant's ERP site, the UOM rows are configured, and the store readiness step (§4.1) is clean. Mapping
+`kg` alone never enables capture. G5-V1 proves the gate on rt9.
 
 Admin-Console surfaces (authoring a measured price, barcode layouts) are not in RT-488's authorization; if needed they
 become a separate Admin-Console item after K1/K2.
