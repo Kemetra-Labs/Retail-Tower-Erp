@@ -738,3 +738,58 @@ describe("POST /api/pos/v1/audit-events (Wave 4.1a: shifts write path)", () => {
     expect(r.rows[0]!.count).toBe("0");
   });
 });
+
+// RT-1230 (RT-160 D-2): a privileged category over HTTP, against a real DB.
+describe("POST /api/pos/v1/audit-events (RT-1230 privileged categories)", () => {
+  const FORCE_FAIL = "0c111111-0000-4000-8000-000000001230";
+  const VOID_BAD = "0c111111-0000-4000-8000-000000001231";
+  const LOCKED = "0c111111-0000-4000-8000-000000001232";
+  const forceFailPayload = {
+    force_failed_at: CREATED_AT,
+    force_fail_attribution_operator_id: OPERATOR_CLERK_SUB,
+    original_cashier_operator_id: "user_clerk_cashier_rt1230",
+  };
+
+  it("accepts payment.force_failed, persists it under its own category with the payload as metadata", async () => {
+    if (maybeSkip()) return;
+    const res = await http()
+      .post("/api/pos/v1/audit-events")
+      .send({
+        device_token_attestation: DEVICE_ATTESTATION,
+        events: [{ ...makeShiftOpen(FORCE_FAIL), action_category: "payment.force_failed", payload: forceFailPayload }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ accepted: [FORCE_FAIL], duplicates: [], rejected: [] });
+    const r = await pool!.query<{ action: string; metadata: unknown; actor_user_id: string }>(
+      `SELECT action, metadata, actor_user_id FROM audit_events WHERE id = $1`,
+      [FORCE_FAIL],
+    );
+    expect(r.rows).toEqual([{ action: "payment.force_failed", metadata: forceFailPayload, actor_user_id: OPERATOR_USER_ID }]);
+  });
+
+  it("refuses an invalid sale.void.requested and an unsupported category per event (schema_violation), persisting neither", async () => {
+    if (maybeSkip()) return;
+    const res = await http()
+      .post("/api/pos/v1/audit-events")
+      .send({
+        device_token_attestation: DEVICE_ATTESTATION,
+        events: [
+          { ...makeShiftOpen(VOID_BAD), action_category: "sale.void.requested", payload: { void_id: "v-1" } },
+          { ...makeShiftOpen(LOCKED), action_category: "operator.session.locked", payload: {} },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      accepted: [],
+      duplicates: [],
+      rejected: [
+        { event_id: VOID_BAD, category: "schema_violation" },
+        { event_id: LOCKED, category: "schema_violation" },
+      ],
+    });
+    const r = await pool!.query(`SELECT id FROM audit_events WHERE id = ANY($1::uuid[])`, [[VOID_BAD, LOCKED]]);
+    expect(r.rows).toEqual([]);
+  });
+});

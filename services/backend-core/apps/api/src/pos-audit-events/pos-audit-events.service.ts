@@ -34,6 +34,7 @@ import { userIdsLinkedToSubject } from "../auth/identity-link-lookup";
 import { lockDeviceLifecycle } from "../devices/device-lifecycle-lock";
 import { DeviceRepository } from "../pos-operators/device.repository";
 import { isDiscountAuthorizedPayload } from "./discount-audit-payload";
+import { isPrivilegedPayloadValid } from "./privileged-audit-payloads";
 import {
   hasForbiddenField,
   POS_AUDIT_ACTION_CATEGORIES,
@@ -88,7 +89,8 @@ function isSchemaViolation(event: AuditEventItemInput): boolean {
   if (event.action_category === "cart.discount.manager_authorized") {
     return !isDiscountAuthorizedPayload(event.payload);
   }
-  return false;
+  // RT-1230 (RT-160 D-2): the privileged categories each have a closed key set.
+  return !isPrivilegedPayloadValid(event.action_category, event.payload);
 }
 
 @Injectable()
