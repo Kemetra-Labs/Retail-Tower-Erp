@@ -553,3 +553,114 @@ describe("syncBatch — RT-740 cart.discount.manager_authorized", () => {
     expect(runWithTenantContext).not.toHaveBeenCalled();
   });
 });
+
+// ===========================================================================
+// RT-1230 (RT-160 D-2) — the privileged, security and exception categories
+// ===========================================================================
+
+describe("syncBatch — RT-1230 privileged categories", () => {
+  const ID = "0195b200-0000-7000-8000-000000001230";
+  const AT = "2026-11-06T18:00:00.000Z";
+  // The payload each POS emitter builds today (see privileged-audit-payloads.ts).
+  const valid: Record<string, Record<string, unknown>> = {
+    "manager_approval.granted": { approval_id: ID, action_kind: "sale.void", subject_ref: ID, reason_code: "wrong_item" },
+    "manager_approval.refused": { action_kind: "sale.void", subject_ref: ID },
+    "payment.recovery_completed": { payment_attempt_id: ID, cart_id: ID, approval_id: ID },
+    "payment.recovery_cancelled": {
+      payment_attempt_id: ID, cart_id: ID, approval_id: ID,
+      cash_returned_confirmed: true, card_void_confirmed_on_terminal: true,
+    },
+    "cart.held_cancelled_by_manager": { cart_id: ID, approval_id: ID, kind: "draft", parked: true },
+    "cart.cancel.post_handoff": { cart_id: ID, handoff_action_id: ID },
+    "sale.receipt.manual_override": { sale_id: ID, print_event_id: ID },
+    "sale.void.requested": {
+      void_id: ID, sale_id: ID, amount_minor: 500, currency_code: "EGP", business_date: "2026-11-06",
+      approval_id: ID, policy_version: "rt114-2026-10-07", approved_at: AT, requester_user_id: ID,
+    },
+    "payment.force_failed": {
+      force_failed_at: AT, force_fail_attribution_operator_id: "user_clerk_manager",
+      original_cashier_operator_id: "user_clerk_test",
+    },
+    "tender.reversed": {
+      tender_line_id: ID, payment_attempt_id: ID, tender_type: "cash", reversed_at: AT,
+      attribution_operator_id: "user_clerk_test", manual_void_required: false,
+    },
+    "tender.reversal_pending": {
+      tender_line_id: ID, payment_attempt_id: ID, tender_type: "internal_voucher",
+      reversal_pending_since: AT, attribution_operator_id: "user_clerk_test",
+    },
+  };
+
+  it.each(Object.entries(valid))(
+    "PV1 %s: a valid payload is accepted and stored verbatim under its own category",
+    async (category, payload) => {
+      const insert = jest.fn().mockResolvedValue({ rows: [{ id: "aaaaaaaa-0000-4000-8000-000000000001" }] });
+      (runWithTenantContext as jest.Mock).mockImplementation(
+        async (_pool: unknown, _ctx: unknown, fn: (client: { query: jest.Mock }) => Promise<unknown>) =>
+          fn({ query: insert }),
+      );
+      insert.mockResolvedValueOnce({ rows: [{ user_id: "actor-user-id" }] });
+
+      const evt = makeEvent({ action_category: category, approving_supervisor_id: "user_clerk_manager", payload });
+      const result = await service.syncBatch(makeBody([evt]), "req-id");
+
+      expect(result).toEqual({ accepted: [evt.event_id], duplicates: [], rejected: [] });
+      const auditInsert = insert.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO audit_events"));
+      expect(auditInsert?.[1]?.[6]).toBe(category);
+      expect(JSON.parse(auditInsert?.[1]?.[10] as string)).toEqual(payload);
+      // Only shift.open writes a legacy row; no RT-1230 category has a side effect.
+      expect(insert.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO shifts"))).toBe(false);
+    },
+  );
+
+  it.each(Object.entries(valid))(
+    "PV2 %s: an invalid payload (unknown key) is refused as schema_violation, nothing persisted",
+    async (category, payload) => {
+      const evt = makeEvent({ action_category: category, payload: { ...payload, note: "free text" } });
+      const result = await service.syncBatch(makeBody([evt]), "req-id");
+
+      expect(result).toEqual({
+        accepted: [],
+        duplicates: [],
+        rejected: [{ event_id: evt.event_id, category: "schema_violation" }],
+      });
+      expect(runWithTenantContext).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["a routine lock (D-2: local only)", "operator.session.locked"],
+    ["a no-sale drawer action (not built yet)", "drawer.no_sale"],
+    ["a reprint (not in this revision)", "sale.receipt.reprinted"],
+  ])("PV3: %s is an unsupported category → schema_violation in the 200 body, nothing persisted", async (_n, category) => {
+    const evt = makeEvent({ action_category: category, payload: {} });
+    const result = await service.syncBatch(makeBody([evt]), "req-id");
+
+    expect(result).toEqual({
+      accepted: [],
+      duplicates: [],
+      rejected: [{ event_id: evt.event_id, category: "schema_violation" }],
+    });
+    expect(runWithTenantContext).not.toHaveBeenCalled();
+  });
+
+  it("PV4: one invalid privileged event does not block a valid one in the same batch", async () => {
+    (runWithTenantContext as jest.Mock).mockImplementation(
+      async (_pool: unknown, _ctx: unknown, fn: (client: { query: jest.Mock }) => Promise<unknown>) =>
+        fn({ query: jest.fn().mockResolvedValue({ rows: [{ id: "x" }] }) }),
+    );
+    const good = makeEvent({ action_category: "payment.force_failed", payload: valid["payment.force_failed"] ?? {} });
+    const bad = makeEvent({
+      event_id: "aaaaaaaa-0000-4000-8000-000000000002",
+      action_category: "sale.void.requested",
+      payload: { ...valid["sale.void.requested"], amount_minor: -5 },
+    });
+    const result = await service.syncBatch(makeBody([bad, good]), "req-id");
+
+    expect(result).toEqual({
+      accepted: [good.event_id],
+      duplicates: [],
+      rejected: [{ event_id: bad.event_id, category: "schema_violation" }],
+    });
+  });
+});

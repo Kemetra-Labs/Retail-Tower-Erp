@@ -28,6 +28,20 @@ export const POS_AUDIT_ACTION_CATEGORIES = [
   "cashier.pin.unlock",
   // RT-740 DEP-2 (RT-608): a manager-authorized manual line discount.
   "cart.discount.manager_authorized",
+  // RT-1230 (RT-160 D-2; Jira RT-1230 comments 15798 and 15800): the
+  // privileged, security and exception actions that reach central audit.
+  // Payload rules: `privileged-audit-payloads.ts`.
+  "manager_approval.granted",
+  "manager_approval.refused",
+  "payment.recovery_completed",
+  "payment.recovery_cancelled",
+  "cart.held_cancelled_by_manager",
+  "cart.cancel.post_handoff",
+  "sale.receipt.manual_override",
+  "sale.void.requested",
+  "payment.force_failed",
+  "tender.reversed",
+  "tender.reversal_pending",
 ] as const satisfies readonly string[];
 
 export type PosAuditActionCategory = (typeof POS_AUDIT_ACTION_CATEGORIES)[number];

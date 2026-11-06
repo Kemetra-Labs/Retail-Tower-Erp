@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Audit Events API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     POS-Pulse 004 Backend Wave 2 audit-event sync surface. One endpoint —
     `POST /api/pos/v1/audit-events` — accepts batches of locally-emitted
@@ -50,6 +50,27 @@ info:
     `DEFAULT_BATCH_LIMIT`). The server refuses a
     longer array with 400 `validation_error` before validating any element.
     Narrowing only; no other wire change.
+
+
+    RT-1230 (1.3.0-draft; [GATED] owner authorization Jira RT-1205 decision 1
+    and RT-1230 comments 15798 and 15800, 2026-11-06; RT-160 D-2): the
+    catalogue gains the privileged, security and exception actions that reach
+    central audit: manager approval (`manager_approval.granted`,
+    `manager_approval.refused`), manager recovery
+    (`payment.recovery_completed`, `payment.recovery_cancelled`,
+    `cart.held_cancelled_by_manager`, `cart.cancel.post_handoff`), the
+    money-affecting overrides (`sale.receipt.manual_override`,
+    `sale.void.requested`, `tender.reversed`, `tender.reversal_pending`) and
+    `payment.force_failed`. Additive: 11 new enum values and their payload
+    rules. Events of the 7 existing categories are unchanged. Each new payload
+    has a closed key set (see `payload`); a payload that breaks its rule is
+    rejected with category `schema_violation`. Routine `shift.open` /
+    `shift.close`, ordinary sale and payment facts and routine auto-lock /
+    same-cashier unlock stay POS-local (D-2); the catalogue keeps accepting
+    `shift.open` / `shift.close` unchanged. A `schema_violation` rejection, including
+    one for a category outside the catalogue, is documented as
+    non-retryable (see `RejectedEvent`); no new rejection value and no
+    request-level 4xx.
 servers:
   - url: https://api.example.com
 paths:
@@ -75,6 +96,15 @@ paths:
         version. Events whose `action_category` is not in the recognised
         set are rejected with category `schema_violation`. The catalogue
         is append-only; future categories land in a contract revision.
+
+
+        A `schema_violation` rejection is NON-RETRYABLE (RT-1230): it
+        depends only on the event's own content, so re-sending the same
+        event always gets the same answer. A sender MUST NOT retry it; it
+        records the refusal locally and stops sending that event. This is
+        how an event whose `action_category` is outside the catalogue is
+        refused: per event, in the 200 response, never with a request-level
+        4xx.
 
 
         The Clerk JWT (`Authorization: Bearer`) is accepted when present
@@ -258,6 +288,17 @@ components:
             - cashier.pin.reset
             - cashier.pin.unlock
             - cart.discount.manager_authorized
+            - manager_approval.granted
+            - manager_approval.refused
+            - payment.recovery_completed
+            - payment.recovery_cancelled
+            - cart.held_cancelled_by_manager
+            - cart.cancel.post_handoff
+            - sale.receipt.manual_override
+            - sale.void.requested
+            - payment.force_failed
+            - tender.reversed
+            - tender.reversal_pending
           description: >
             Discriminates the event type. The catalogue is append-only
             (FR-026); unknown values are rejected with category
@@ -306,6 +347,31 @@ components:
               cart.discount.manager_authorized: { cart_id, cart_line_id,
                                     placeholder_id, approval_id?, reason_code?,
                                     kind?, value?, amount_minor?, approver_role? }
+              manager_approval.granted:   { approval_id, action_kind, subject_ref,
+                                            reason_code }
+              manager_approval.refused:   { action_kind, subject_ref }
+              payment.recovery_completed: { payment_attempt_id, cart_id, approval_id }
+              payment.recovery_cancelled: { payment_attempt_id, cart_id, approval_id,
+                                            cash_returned_confirmed,
+                                            card_void_confirmed_on_terminal }
+              cart.held_cancelled_by_manager: { cart_id, approval_id, kind, parked }
+              cart.cancel.post_handoff:   { cart_id, handoff_action_id, approval_id? }
+              sale.receipt.manual_override: { sale_id, print_event_id }
+              sale.void.requested:        { void_id, sale_id, amount_minor,
+                                            currency_code, business_date,
+                                            approval_id, policy_version,
+                                            approved_at, requester_user_id }
+              payment.force_failed:       { force_failed_at,
+                                            force_fail_attribution_operator_id,
+                                            original_cashier_operator_id }
+              tender.reversed:            { tender_line_id, payment_attempt_id,
+                                            tender_type, reversed_at,
+                                            attribution_operator_id,
+                                            manual_void_required,
+                                            reversal_pending_since? }
+              tender.reversal_pending:    { tender_line_id, payment_attempt_id,
+                                            tender_type, reversal_pending_since,
+                                            attribution_operator_id }
 
 
             `cart.discount.manager_authorized` (RT-740 DEP-2): the key set
@@ -328,6 +394,29 @@ components:
             events written before they existed (RT-608) do not carry them.
             The requester is `acting_operator_id`, and the approver is
             `approving_supervisor_id`.
+
+
+            RT-1230 categories (RT-160 D-2): each key set is CLOSED, and
+            any other key, a missing required key or a malformed value is
+            rejected with `schema_violation`. Every id (`*_id`,
+            `subject_ref`) is 1–128 characters of `[A-Za-z0-9_:.-]`.
+            `action_kind` is a dotted machine code of lower-case segments
+            (`[a-z][a-z0-9_]*`, at most four, e.g.
+            `recovery.cancel_attempt`); `reason_code` is a machine code
+            matching `^[a-z][a-z0-9_]{0,39}$`, never the free-text note.
+            Times (`*_at`, `reversal_pending_since`) are ISO 8601
+            date-times. `amount_minor` is an integer of at least 0 in minor
+            units; `currency_code` is three upper-case letters;
+            `business_date` is a `YYYY-MM-DD` calendar date;
+            `policy_version` is 1–64 characters of `[A-Za-z0-9_:.-]`.
+            `cart.held_cancelled_by_manager` `kind` is `draft` or
+            `handed_off`; `tender_type` is `cash`,
+            `external_card_terminal` or `internal_voucher`; `parked`,
+            `cash_returned_confirmed`, `card_void_confirmed_on_terminal` and
+            `manual_void_required` are booleans. For a manager-approved
+            action the requester is `acting_operator_id` and the approver is
+            `approving_supervisor_id`; on `payment.force_failed` the manager
+            is `acting_operator_id` and the payload names both operators.
     # -------------------------------------------------------------------
     # Response
     # -------------------------------------------------------------------
@@ -386,8 +475,13 @@ components:
             `tenant_mismatch` — the event's `tenant_id` or `branch_id`
             does not match the device token's resolved scope.
             `schema_violation` — the event's `payload` contains a
-            forbidden field name (PR-1 / FR-027) or the `action_category`
-            is unrecognised.
+            forbidden field name (PR-1 / FR-027), breaks its category's
+            payload rule, or the `action_category` is unrecognised.
+
+
+            `schema_violation` is NON-RETRYABLE (RT-1230): the same event
+            always gets the same answer, so the sender records the refusal
+            locally and never re-sends that event.
     # -------------------------------------------------------------------
     # Generic error envelope (mirrors pos-operators.openapi.yaml)
     # -------------------------------------------------------------------
