@@ -105,9 +105,15 @@ amounts (B6). Every module needs a coordinated change; no single one can fix it 
 - Precision alone does not guarantee an Inventory Effect: a product whose established store unit (B9) is not the
   measured UOM (e.g. stock moved so far in `unit` or `Kg`) would have every measured sale skipped as `unit_mismatch`.
   Making a product measured therefore needs a **per-product, per-store readiness step** in G5-BC-1: report products
-  whose established unit differs from the canonical UOM, and block switching them to measured until the owner's
-  chosen remedy has run (Q-14: re-baseline the established unit with an audited stock adjustment, or refuse the switch
-  for products with stock history). The ERPNext `stock_uom` check (§7.1) does not cover this Backend-Core state.
+  whose established unit differs from the canonical UOM, and block switching them to measured (Q-14). The established
+  unit is read from the product's existing stock movements in that store, and the ledger is append-only
+  (`packages/db/src/helpers/inventory-effects/sale-effects.ts:149-203`), so an ordinary stock adjustment **cannot**
+  change it. Re-baselining would need its own inventory design (an explicit, audited established-unit record or unit
+  epoch per store and product that Inventory Effects read instead of the latest movement). Unless that design is
+  ratified and built, the switch is refused. The ERPNext `stock_uom` check (§7.1) does not cover this Backend-Core state.
+- The same readiness step also blocks **tracked products** (`tracking_mode` other than `none`): Inventory Effects skip
+  them as `tracked_product` (B9), so their measured sales would produce no Inventory Effect. Selling tracked
+  (batch/expiry) products by weight is out of this plan's scope until tracked selling produces Inventory Effects.
 - Quantity is always an exact-decimal string in Backend-Core and the Connector; the POS holds it as an integer count of
   10^-p canonical units (with `p = 3` and `kg`, grams: `735` for 0.735 kg). Never a float.
 
@@ -140,8 +146,8 @@ guards, both required:
    `measured_sales` capability (a device/build capability reported at pairing or on the read-down request; exact
    mechanism in K1). Other terminals never receive it, so it is not scannable there, online or offline.
 2. **Capture:** a line with `tenantProductRef` whose product's Sell Unit is measured (at the line's sale time) and that
-   carries no `measure` is refused (422, typed reason). This is the one catalog cross-check that is mandatory whatever
-   Q-5 decides, because it is the only server-side guard for a terminal that held a stale catalogue offline.
+   carries no `measure` is refused (422, typed reason). Together with rule 5 below, this catalog cross-check is mandatory
+   whatever Q-5 decides, because it is the only server-side guard for a terminal that held a stale catalogue offline.
 
 Proposed `CaptureSaleLine` additions (names indicative; the contract PR decides spelling):
 
@@ -163,9 +169,12 @@ New invariant for a line with `measure` (422 `sale_line_pricing_invalid` otherwi
 3. `unit == measure.uom` and is one of the canonical UOM codes.
 4. `lineAmount = round_m(unitPrice × quantity)` exactly, under the ratified mode; with `discount`,
    `lineAmount = round_m(unitPrice × quantity) − discount.amount` and the RT-740 rule applies to that gross.
-5. Whether capture also cross-checks the line against the catalog (product's Sell Unit is measured, same UOM) or only
-   validates the line self-consistently is Q-5. Ad-hoc lines have no product (FR-004), so a cross-check can only apply
-   to lines with `tenantProductRef`.
+5. **Product-linked measured lines are bound to the catalog UOM (mandatory):** a line with `tenantProductRef` and
+   `measure` is refused unless the product's Sell Unit at the line's sale time is measured and `measure.uom` equals its
+   canonical UOM. Self-consistency alone would let a terminal send `l` for a `kg` product, which passes rule 3 but is
+   then skipped by Inventory Effects as `unit_mismatch`. This check covers stale offline submissions, because it is
+   evaluated against the catalog in force at the line's sale time. Ad-hoc lines (no `tenantProductRef`, FR-004) keep
+   the self-consistency rules 1–4 only. Q-5 now asks only what else capture checks and freezes.
 
 Storage: no migration is needed for quantity or unit (B5). Freezing `measure.kind`/`source` on `sale_lines` needs an
 additive column set (Q-5 decides how much is frozen); that migration belongs to the BC implementation slice, gated by
@@ -252,7 +261,7 @@ None of these is decided by this plan.
 | **Q-2** | Which canonical rate UOMs are allowed? | `kg` only; `kg`,`l`,`m`; open list | `kg` only for the pilot store's needs, list extensible |
 | **Q-3** | Quantity precision for measured lines | `p = 3`; per-UOM `p`; up to 6 | `p = 3` (fits Inventory Effects and common ERP precision) |
 | **Q-4** | Rounding mode of `round_m(unitPrice × quantity)` | half-up; half-even; truncate | Half-up (matches RT-740) — but must equal the ERP site's method (Q-9) |
-| **Q-5** | Does capture cross-check a measured line against the catalog Sell Unit, and what is frozen on `sale_lines`? | A: self-consistency only, freeze `measure.kind`+`source`; B: catalog cross-check too | A at capture (POS already resolved the product); catalog consistency becomes a reconciliation finding |
+| **Q-5** | Beyond the mandatory measured-flag and UOM binding (§5 rules 2 and 5), does capture check more against the catalog (e.g. precision, display unit), and what is frozen on `sale_lines`? | A: no further checks, freeze `measure.kind`+`source`; B: also check precision against the Sell Unit, freeze `precision` too | B: precision is cheap to check and is needed to replay returns |
 | **Q-6** | Scale integration and manual weight entry | Scale in the pilot or barcode-only first; manual entry allowed / approval-gated / disabled | Barcode-weight first; scale as a separate slice once hardware is chosen; manual entry approval-gated |
 | **Q-7** | Supported embedded-barcode layouts | Weight-embedded only; plus price-embedded | Weight-embedded only, layouts configured per tenant |
 | **Q-8** | Returns of measured lines | R-A whole only; R-B pro-rata minor-unit; R-C remainder | R-A |
@@ -261,7 +270,7 @@ None of these is decided by this plan.
 | **Q-11** | Release horizon: is G5 a V1 Pilot need or Post-Pilot? RT-488 is `Post-Pilot`; spec 041 OD-1 lists measured pricing as "Later". | Post-Pilot; pilot | Post-Pilot unless a pilot store sells loose goods |
 | **Q-12** | Sell Unit ownership: does RT-281's Sell Unit model carry `measure`/`uom`/`precision`, or does Pricing own them? | Catalog (RT-281); Pricing | Catalog (OD-2 already sends Sell Units to RT-281) |
 | **Q-13** | Manual discounts on measured lines (§7.3) | (a) refused in the first slice; (b) separate exact discount representation, rt9-proven first | (a) |
-| **Q-14** | Products whose established inventory unit differs from the measured UOM (§4.1) | Re-baseline with an audited stock adjustment; refuse the switch for products with stock history | Refuse for the pilot; re-baseline as a later, audited tool |
+| **Q-14** | Products whose established inventory unit differs from the measured UOM (§4.1) | Refuse the switch; design an audited established-unit record (unit epoch) that Inventory Effects read, then re-baseline | Refuse. A unit-epoch design is a separate Inventory planning item if ever needed |
 
 ## 10. Contract changes, in contract-first order
 
@@ -282,9 +291,9 @@ Precedent: RT-282 created gated items only after its gate was ratified. All are 
 
 | Proposed key | Product | Work Mode | Bounded scope | Depends on |
 |---|---|---|---|---|
-| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability and capability-filtered read-down (§5); store readiness report for established units (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
+| G5-BC-1 | Backend-Core | Implementation | K1 + K2 contracts and catalog/pricing storage for measured Sell Units; `measured_sales` terminal capability and capability-filtered read-down (§5); store readiness report for established units and tracked products (§4.1, Q-14) | RT-281 Sell Unit model (Q-12) |
 | G5-BC-2 | Backend-Core | Implementation | K3 capture: `measure`, measured invariant, shared `roundToMinor`, `sale_lines` freeze columns, the count-line guard (§5). Ships **disabled** behind a per-tenant `measured_sales` enablement | G5-BC-1 contract |
-| G5-BC-3 | Backend-Core | Implementation | K3 returns rule for measured lines (per Q-8) | G5-BC-2 |
+| G5-BC-3 | Backend-Core | Implementation | K3 returns rule for measured lines (per Q-8). Prerequisite of the enablement gate | G5-BC-2 |
 | G5-BC-4 | Backend-Core | Implementation | K4 posting feed: `measure` on sale and return lines | G5-BC-2 |
 | G5-CNR-1 | Connector | Implementation | K5: UOM/precision/rounding preflight, measured builder and return builder rules, RT-378 check for measured lines | G5-BC-4 |
 | G5-POS-1 | POS | Implementation | Re-pin; declare the `measured_sales` capability; measured Sell Unit in local catalogue; cart quantity representation; line rounding; receipt; sale sync `measure`; settle the `unit` token | G5-BC-1, G5-BC-2 |
@@ -294,7 +303,10 @@ Precedent: RT-282 created gated items only after its gate was ratified. All are 
 | G5-V1 | All | Verification | rt9 end to end: barcode-weight sale → capture → Inventory Effect → ERP Sales Invoice (exact qty/uom/rate/amount) → return → credit note; re-run the RT-380 rounding gate | all above |
 
 **Enablement gate.** Merging G5-BC-2 does not enable measured sales. A tenant's `measured_sales` enablement may be
-switched on only when G5-BC-4 (feed) and G5-CNR-1 (Connector) are deployed, the Connector compatibility preflight (§7.2)
+switched on only when the owner has decided Q-8 and G5-BC-3 (measured-line returns) is deployed. Today's return
+service still accepts partial returns of fractional lines and prices them by `round4` (B6): 0.147 kg of a 0.735 kg
+line at 219.77 gives 43.9540 EGP, which EGP cannot represent. It also needs G5-BC-4 (feed) and G5-CNR-1 (Connector)
+deployed, the Connector compatibility preflight (§7.2)
 is green for that tenant's ERP site, the UOM rows are configured, and the store readiness step (§4.1) is clean. Mapping
 `kg` alone never enables capture. G5-V1 proves the gate on rt9.
 
