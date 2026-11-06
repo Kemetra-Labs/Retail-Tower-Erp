@@ -1,6 +1,6 @@
 /**
- * RT-155 — per-resource replay keys (RT-82 K1), the transitional legacy-key
- * probe (K2) and non-replayable secret responses (K3).
+ * RT-155 — per-resource replay keys (RT-82 K1) and non-replayable secret
+ * responses (K3). The transitional K2 legacy-key probe was removed in RT-157.
  *
  * Docker-free: FakeRedis plus an in-memory Postgres mirror with the real
  * claim / complete / find semantics, so both replay sources are exercised.
@@ -271,40 +271,21 @@ describe("RT-155 — interceptor over a FakeRedis + in-memory pg mirror", () => 
     }
   });
 
-  describe("K2 — legacy template-only key probe", () => {
-    const legacyKey = composeStoreKey({ method: "POST", routePath: ACT_TEMPLATE }, USER, KEY);
-
-    it("AC7: a completed legacy row (same body) → 409, neither replayed nor executed", async () => {
-      const conflictSpy = jest.spyOn(apiMetrics, "recordIdempotencyConflict");
-      await store.save(TENANT, null, USER, legacyKey, bodyFingerprint({ n: 1 }), { status: 202, body: { ref: "A", run: 9 } }, EXPIRES());
-      const res = await http().post(`${BASE}/things/B/act`).set("Idempotency-Key", KEY).send({ n: 1 }).expect(409);
-      expect(res.body.error.code).toBe("idempotency_key_conflict");
-      expect(res.headers["idempotent-replayed"]).toBeUndefined();
-      expect(CALLS.get("act:B")).toBeUndefined();
-      expect(conflictSpy).toHaveBeenCalledWith({ route: `POST:${ACT_TEMPLATE}` });
-    });
-
-    it("a legacy row with a different body → 409 as well", async () => {
-      await store.save(TENANT, null, USER, legacyKey, bodyFingerprint({ other: true }), { status: 202, body: {} }, EXPIRES());
-      const res = await http().post(`${BASE}/things/A/act`).set("Idempotency-Key", KEY).send({ n: 1 }).expect(409);
-      expect(res.body.error.code).toBe("idempotency_key_conflict");
-      expect(CALLS.get("act:A")).toBeUndefined();
-    });
-
-    it("a legacy in-flight claim → 409 (never executed alongside it)", async () => {
-      await mirror.claim({ tenantId: TENANT, storeId: null, clientId: USER, key: legacyKey, fingerprint: bodyFingerprint({ n: 1 }), expiresAt: EXPIRES() });
-      await http().post(`${BASE}/things/A/act`).set("Idempotency-Key", KEY).send({ n: 1 }).expect(409);
-      expect(CALLS.get("act:A")).toBeUndefined();
-    });
-
-    it("a legacy rotate row holding a secret is never replayed", async () => {
-      const legacyRotate = composeStoreKey({ method: "POST", routePath: ROTATE_TEMPLATE }, USER, KEY);
-      const legacySecret = `${SECRET_PREFIX}-legacy`;
-      await store.save(TENANT, null, USER, legacyRotate, bodyFingerprint({}), { status: 201, body: { secret: legacySecret } }, EXPIRES());
-      const res = await http().post(`${BASE}/instances/A/rotate`).set("Idempotency-Key", KEY).send({}).expect(409);
-      expect(JSON.stringify(res.body).includes(legacySecret)).toBe(false);
-      expect(CALLS.get("rotate:A")).toBeUndefined();
-    });
+  // RT-157: the RT-82 K2 legacy-key probe is removed. A row under the
+  // pre-RT-155 template-only key no longer refuses a param route: the request
+  // runs under its own per-resource key, and the template-only key is never
+  // looked up (the store spy sees only the per-resource key).
+  it("RT-157: a template-only row no longer blocks a param route; only the per-resource key is looked up", async () => {
+    const templateKey = composeStoreKey({ method: "POST", routePath: ACT_TEMPLATE }, USER, KEY);
+    await store.save(TENANT, null, USER, templateKey, bodyFingerprint({ n: 1 }), { status: 202, body: { ref: "A", run: 9 } }, EXPIRES());
+    const lookups = jest.spyOn(store, "findOrCreate");
+    const res = await http().post(`${BASE}/things/B/act`).set("Idempotency-Key", KEY).send({ n: 1 }).expect(202);
+    expect(res.headers["idempotent-replayed"]).toBeUndefined();
+    expect(res.body).toEqual({ ref: "B", run: 1 });
+    expect(CALLS.get("act:B")).toBe(1);
+    const keys = lookups.mock.calls.map((c) => c[3]);
+    expect(keys).not.toContain(templateKey);
+    expect(keys).toContain(composeStoreKey({ method: "POST", routePath: ACT_TEMPLATE, params: { ref: "B" } }, USER, KEY));
   });
 
   describe("K3 — replay: forbid", () => {
