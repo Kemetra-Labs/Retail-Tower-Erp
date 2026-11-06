@@ -20,7 +20,8 @@
  *
  * Live re-verification (RT-137): a valid `pos_operator` token is not enough
  * on its own. Like `PosOperatorEnvelopeSaleGuard` on the sale-write routes,
- * every request re-checks LIVE that the bound device is not revoked, the
+ * every request re-checks LIVE that the operator's user is not soft-deleted
+ * (RT-1255), the bound device is not revoked, the
  * operator's membership is active with an eligible role, and the token's
  * store is still in the membership's store access. Revoking any of them
  * takes effect on the next request instead of after the token's 8h expiry.
@@ -72,7 +73,7 @@ export class PosOperatorAuthGuard extends AuthGuard {
       throw new UnauthorizedException("Unauthorized");
     }
 
-    // RT-137: re-verify device / membership / role / store access LIVE.
+    // RT-137: re-verify user / device / membership / role / store access LIVE.
     const deviceId = await this.reverifier.recoverDeviceId(principal.tokenId);
     if (deviceId === null) throw new UnauthorizedException("Unauthorized");
 

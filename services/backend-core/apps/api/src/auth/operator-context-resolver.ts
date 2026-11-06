@@ -104,9 +104,9 @@ export interface OperatorReverifier {
    */
   recoverDeviceId(tokenId: string): Promise<string | null>;
   /**
-   * Re-evaluate membership-active + device-active + role-eligibility +
-   * store-access LIVE for an already-authenticated operator session. Mirrors
-   * `resolve` steps 3–5 but keyed by IDs.
+   * Re-evaluate user-not-deleted + membership-active + device-active +
+   * role-eligibility + store-access LIVE for an already-authenticated operator
+   * session. Mirrors `resolve` steps 2 (deleted user only) and 3–5, keyed by IDs.
    */
   reverify(
     userId: string,
@@ -256,7 +256,8 @@ export class PgOperatorContextResolver implements OperatorContextResolver {
 
   // -------------------------------------------------------------------------
   // 031 G-4 (Option B) — live re-verification for the envelope sale path.
-  // Reuses the steps-3–5 checks above, keyed by IDs instead of JWT/attestation.
+  // Reuses the step-2 deleted-user check and the steps-3–5 checks above, keyed
+  // by IDs instead of JWT/attestation.
   // -------------------------------------------------------------------------
 
   async recoverDeviceId(tokenId: string): Promise<string | null> {
@@ -276,6 +277,20 @@ export class PgOperatorContextResolver implements OperatorContextResolver {
     deviceId: string,
     storeId: string,
   ): Promise<{ kind: "ok" } | { kind: "refused"; reason: ResolveOperatorRefusalReason }> {
+    // User still live? Sign-in (`resolve` step 2) refuses a soft-deleted user
+    // with `user_disabled`; re-check it here too, so a user deleted mid-session
+    // stops the next request instead of after the token's 8h expiry (RT-1255).
+    // A missing row fails closed with the same reason. `users` is read on the
+    // lookup pool, like the identity-link join in `resolve`.
+    const user = await this.lookupPool.query<{ deleted_at: Date | null }>(
+      `SELECT deleted_at FROM users WHERE id = $1 LIMIT 1`,
+      [userId],
+    );
+    const userRow = user.rows[0];
+    if (!userRow || userRow.deleted_at !== null) {
+      return { kind: "refused", reason: "user_disabled" };
+    }
+
     // Device still active? Revoked devices and devices of a suspended,
     // pending or soft-deleted tenant are excluded (RT-213: the same
     // DeviceRepository rule every device route uses).
