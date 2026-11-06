@@ -227,7 +227,7 @@ commands:
             rc=0
             git diff --quiet refs/remotes/origin/main HEAD -- .circleci/ || rc=$?
             if [ "$rc" -ne 0 ]; then
-              echo ".circleci/ differs from origin/main (rc=$rc): the gate only trusts main's CircleCI config. Merge origin/main without changing .circleci/ (bc/db-integration fails with CIRCLECI_CONFIG_CHANGED otherwise)."
+              echo ".circleci/ differs from origin/main (rc=$rc): the gate only trusts main's CircleCI config, so it does not run. Expected on a PR that changes .circleci/ (bc/db-integration then runs API Jest on GitHub); on any other PR, merge origin/main."
               exit 1
             fi
             mkdir -p /tmp/gate
