@@ -69,29 +69,42 @@ test("complete: a short, empty, failed or crashed run is incomplete", () => {
   assert.match(complete.check({ ...okResult(d), numRuntimeErrorTestSuites: 1 }, d, API).join(";"), /numRuntimeErrorTestSuites=1/);
 });
 
-test("config.yml: the gate runs the full API suite with coverage, on PRs to main only, no serial group", () => {
+test("config.yml: scope once, split shards with coverage, fan-in merge; PRs to main only, no serial group", () => {
   const cfg = readText(".circleci/config.yml");
   assert.match(cfg, /\n {2}api_jest_gate_enabled:\n {4}type: boolean\n {4}default: true\n/);
-  const job = cfg.slice(cfg.indexOf("\n  api-jest-gate:\n    machine:"), cfg.indexOf("\n  # RT-981: the db and worker suites"));
-  assert.match(job, /- checkout\n {6}- api-gate-guard\n {6}- backend-setup\n/);
-  assert.match(job, /node_modules\/\.bin\/jest --coverage --forceExit --json --outputFile=\/tmp\/gate\/api-jest\.json \|\| rc=\$\?/);
-  assert.match(job, /api-gate-complete\.cjs \/tmp\/gate\/api-jest\.json \/tmp\/gate\/discovered\.txt "\$PWD" \|\| rc=1/);
-  assert.match(job, /exit \$rc/);
-  assert.doesNotMatch(job, /coverageThreshold|--run-tests=impacted|--findRelatedTests|store_artifacts/);
-  // The only early exit is the guard's out-of-scope halt; the test step itself never halts.
-  assert.doesNotMatch(job, /step halt/);
-  const guard = cfg.slice(cfg.indexOf("\n  api-gate-guard:\n"), cfg.indexOf("\n  # RT-1036: Node from the root .nvmrc"));
-  assert.equal((guard.match(/circleci-agent step halt/g) || []).length, 1);
-  assert.match(guard, /node \.circleci\/scripts\/api-gate-scope\.cjs \/tmp\/gate\/changed\.txt \|\| rc=\$\?\n\s+if \[ "\$rc" -eq 10 \]; then/);
-  assert.match(guard, /git diff --quiet refs\/remotes\/origin\/main HEAD -- \.circleci\//);
+  const jobs = cfg.slice(cfg.indexOf("\n  api-jest-scope:\n"), cfg.indexOf("\n  # RT-981: the db and worker suites"));
+  const scopeJob = jobs.slice(0, jobs.indexOf("\n  api-jest-shard:\n"));
+  const shard = jobs.slice(jobs.indexOf("\n  api-jest-shard:\n"), jobs.indexOf("\n  api-jest-gate:\n"));
+  const gate = jobs.slice(jobs.indexOf("\n  api-jest-gate:\n"));
+  assert.match(scopeJob, /- checkout\n {6}- api-gate-guard\n {6}- persist_to_workspace:\n {10}root: \/tmp\/gate\n {10}paths:\n {12}- scope\.txt\n/);
+  // Shards: the one scope decision, setup, timing split of the FULL list, coverage json, no per-node floors.
+  assert.match(shard, /parallelism: 3\n/);
+  assert.match(shard, /- api-gate-scope-skip\n {6}- checkout\n {6}- backend-setup\n/);
+  assert.ok(shard.includes('circleci tests split --split-by=timings --timings-type=filename < "$d/discovered.txt" > "$d/assigned.txt"'));
+  assert.ok(shard.includes('jest --runTestsByPath "${atoms[@]}" --coverage'));
+  assert.ok(shard.includes("--coverageReporters=json --coverageDirectory=\"$d/cov\" --coverageThreshold='{}'"));
+  assert.match(shard, /exit \$rc\n {6}- persist_to_workspace:\n {10}root: \/tmp\/gate\n {10}paths:\n {12}- nodes\n {6}- store_test_results:/);
+  assert.doesNotMatch(shard, /--run-tests=impacted|--findRelatedTests|store_artifacts|step halt/);
+  // The fan-in is the job the verifier reads; it enforces the floors from jest.config.cjs itself.
+  assert.match(gate, /- api-gate-scope-skip\n {6}- checkout\n {6}- run:/);
+  assert.ok(gate.includes('node .circleci/scripts/api-gate-merge.cjs /tmp/gate services/backend-core/apps/api/jest.config.cjs "$head"'));
+  assert.doesNotMatch(gate, /step halt|store_artifacts/);
+  // One scope decision: only the skip command halts, and only on `out`.
+  const skip = cfg.slice(cfg.indexOf("\n  api-gate-scope-skip:\n"), cfg.indexOf("\n  # RT-1036: Node from the root .nvmrc"));
+  assert.ok(skip.includes('out) echo "Out of scope: nothing to run."; circleci-agent step halt ;;'));
+  assert.ok(skip.includes("*) echo \"No valid scope decision ('$scope'); refusing to run.\"; exit 1 ;;"));
+  const guard = cfg.slice(cfg.indexOf("\n  api-gate-guard:\n"), cfg.indexOf("\n  api-gate-scope-skip:\n"));
+  assert.doesNotMatch(guard, /step halt/);
+  assert.ok(guard.includes("echo out > /tmp/gate/scope.txt"));
+  assert.ok(guard.includes("echo in > /tmp/gate/scope.txt"));
+  assert.ok(guard.includes("git diff --quiet refs/remotes/origin/main HEAD -- .circleci/"));
   // pull_request pipeline values only inside the workflow's expression `when` (compile safety).
   const workflows = cfg.slice(cfg.indexOf("\nworkflows:\n"));
-  const outsideWhen = cfg.slice(0, cfg.indexOf("\nworkflows:\n"));
-  assert.doesNotMatch(outsideWhen, /pipeline\.event\./);
+  assert.doesNotMatch(cfg.slice(0, cfg.indexOf("\nworkflows:\n")), /pipeline\.event\./);
   const wf = workflows.slice(workflows.indexOf("\n  api-jest-gate:\n"), workflows.indexOf("\n  # RT-981: manual, owner-triggered"));
   assert.match(wf, /when: >-\n {6}pipeline\.parameters\.api_jest_gate_enabled\n {6}and pipeline\.event\.name == "pull_request"\n/);
   assert.match(wf, /and pipeline\.event\.github\.pull_request\.base\.ref == "main"/);
-  assert.match(wf, /jobs:\n {6}- api-jest-gate\n$/);
+  assert.ok(wf.endsWith("jobs:\n      - api-jest-scope\n      - api-jest-shard:\n          requires:\n            - api-jest-scope: [success, failed]\n      - api-jest-gate:\n          requires:\n            - api-jest-shard: [success, failed]\n"));
   assert.doesNotMatch(wf, /serial-group/);
-  assert.equal((cfg.match(/- api-jest-gate\n/g) || []).length, 1);
+  assert.equal((cfg.match(/- api-jest-gate:\n/g) || []).length, 1);
 });
