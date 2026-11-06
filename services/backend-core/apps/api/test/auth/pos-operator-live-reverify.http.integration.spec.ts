@@ -261,6 +261,7 @@ afterEach(async () => {
     [OPERATOR_MEMBERSHIP_ID, MANAGER_ROLE_ID],
   );
   await env.admin.query(`UPDATE devices SET revoked_at = NULL WHERE id = $1`, [DEVICE_ID]);
+  await env.admin.query(`UPDATE users SET deleted_at = NULL WHERE id = $1`, [OPERATOR_USER_ID]);
   await env.admin.query(
     `INSERT INTO store_access (membership_id, store_id, tenant_id) VALUES ($1, $2, $3)
        ON CONFLICT DO NOTHING`,
@@ -298,6 +299,12 @@ const revocations: ReadonlyArray<{ axis: string; revoke: () => Promise<unknown> 
         OPERATOR_MEMBERSHIP_ID,
         STORE_ID,
       ]),
+  },
+  {
+    // RT-1255: the membership row stays active; only the user is deleted.
+    axis: "user soft-deleted",
+    revoke: () =>
+      E().admin.query(`UPDATE users SET deleted_at = now() WHERE id = $1`, [OPERATOR_USER_ID]),
   },
 ];
 

@@ -19,8 +19,8 @@
  *      predicate (G-4), this guard recovers the bound `device_id` from the
  *      `auth_tokens` row and calls `OperatorReverifier.reverify(...)` to
  *      re-evaluate them LIVE on every sale. A mid-session revocation (pulled
- *      membership, revoked device, removed store-access) therefore stops the
- *      next sale immediately — not after the 8h TTL.
+ *      membership, revoked device, removed store-access, soft-deleted user —
+ *      RT-1255) therefore stops the next sale immediately — not after the 8h TTL.
  *
  * Every refusal (missing/invalid/revoked/expired envelope OR a failed live
  * re-verification) collapses to the SAME generic `UnauthorizedException` (401):
@@ -74,7 +74,7 @@ export class PosOperatorEnvelopeSaleGuard extends AuthGuard {
     }
 
     // Layer 2 — live predicate (G-4). Recover the bound device, then re-verify
-    // membership / device / store-access LIVE. Any refusal → generic 401.
+    // user / membership / device / store-access LIVE. Any refusal → generic 401.
     const deviceId = await this.reverifier.recoverDeviceId(principal.tokenId);
     if (deviceId === null) throw new UnauthorizedException("Unauthorized");
 

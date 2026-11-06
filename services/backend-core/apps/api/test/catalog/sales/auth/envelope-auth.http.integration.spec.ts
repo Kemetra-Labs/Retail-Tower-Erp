@@ -36,7 +36,8 @@
  *     visible under its own tenant GUC and invisible under another tenant's.
  *   - Layer 1: missing / unknown envelope → 401.
  *   - G-4 end-to-end: after a successful sale, a mid-session revocation of
- *     (a) membership, (b) device, (c) store-access → 401 on the NEXT
+ *     (a) membership, (b) device, (c) store-access, or (d) a soft-delete of the
+ *     operator's user (RT-1255) → 401 on the NEXT
  *     capture / void / refund, while the auth_tokens row itself is still
  *     active (so the refusal is the live predicate, not the token check).
  *
@@ -377,6 +378,7 @@ afterEach(async () => {
     OPERATOR_MEMBERSHIP_ID,
   ]);
   await env.admin.query(`UPDATE devices SET revoked_at = NULL WHERE id = $1`, [DEVICE_ID]);
+  await env.admin.query(`UPDATE users SET deleted_at = NULL WHERE id = $1`, [OPERATOR_USER_ID]);
   await env.admin.query(
     `INSERT INTO store_access (membership_id, store_id, tenant_id) VALUES ($1, $2, $3)
        ON CONFLICT DO NOTHING`,
@@ -526,6 +528,12 @@ describe("#560 envelope auth — G-4 live predicate: mid-session revocation → 
           OPERATOR_MEMBERSHIP_ID,
           STORE_ID,
         ]),
+    },
+    {
+      // RT-1255: the membership row stays active; only the user is deleted.
+      axis: "user soft-deleted",
+      revoke: () =>
+        E().admin.query(`UPDATE users SET deleted_at = now() WHERE id = $1`, [OPERATOR_USER_ID]),
     },
   ];
 

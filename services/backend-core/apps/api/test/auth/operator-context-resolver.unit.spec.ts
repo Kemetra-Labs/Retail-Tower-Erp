@@ -293,3 +293,59 @@ describe("PgOperatorContextResolver — membership lookup determinism (audit M-3
     expect(normalized.indexOf("ORDER BY")).toBeLessThan(normalized.indexOf("LIMIT 1"));
   });
 });
+
+describe("PgOperatorContextResolver.reverify — live user check (RT-1255)", () => {
+  function buildReverifier(userRows: Array<{ deleted_at: Date | null }>) {
+    const seenSql: string[] = [];
+    const query = jest.fn((sql: string) => {
+      const text = String(sql);
+      seenSql.push(text);
+      if (text.includes("FROM users")) return Promise.resolve({ rows: userRows });
+      if (text.includes("FROM memberships")) {
+        return Promise.resolve({
+          rows: [{
+            id: MEMBERSHIP_ID,
+            store_access_kind: "all",
+            revoked_at: null,
+            deleted_at: null,
+            role_code: "store_manager",
+          }],
+        });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const deviceRepository = {
+      findActiveById: jest.fn().mockResolvedValue(makeDevice()),
+    } as unknown as DeviceRepository;
+    const identityProvider = {} as unknown as IdentityProviderPort;
+    const resolver = new PgOperatorContextResolver(
+      fakePool(query),
+      identityProvider,
+      deviceRepository,
+    );
+    return { resolver, seenSql, deviceRepository };
+  }
+
+  it("live user, active device + membership → ok", async () => {
+    const { resolver, seenSql } = buildReverifier([{ deleted_at: null }]);
+    await expect(resolver.reverify(USER_ID, DEVICE_ID, STORE_ID)).resolves.toEqual({ kind: "ok" });
+    expect(seenSql.some((s) => s.includes("FROM users"))).toBe(true);
+  });
+
+  it("soft-deleted user with an active membership → user_disabled", async () => {
+    const { resolver, deviceRepository } = buildReverifier([{ deleted_at: new Date() }]);
+    await expect(resolver.reverify(USER_ID, DEVICE_ID, STORE_ID)).resolves.toEqual({
+      kind: "refused",
+      reason: "user_disabled",
+    });
+    expect(deviceRepository.findActiveById).not.toHaveBeenCalled();
+  });
+
+  it("missing user row → user_disabled (fail closed)", async () => {
+    const { resolver } = buildReverifier([]);
+    await expect(resolver.reverify(USER_ID, DEVICE_ID, STORE_ID)).resolves.toEqual({
+      kind: "refused",
+      reason: "user_disabled",
+    });
+  });
+});
