@@ -82,7 +82,8 @@ describe('boot order of the extracted wiring', () => {
     const at = indexSource.indexOf('registerSaleVoid({');
     for (const needle of [
       'const managerApprovals = createManagerApprovalService(',
-      'const forwardAuditEvent = ',
+      // RT-1219: the audit forwarder is built by `registerCart` (bootstrap/payments-cart.ts).
+      'const paymentsCore = registerCart(',
       'const printPipeline = trackPrintPipeline(',
       'const drawerKickTransport: DrawerKickTransport =',
     ]) {

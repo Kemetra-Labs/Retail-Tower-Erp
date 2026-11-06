@@ -55,12 +55,25 @@ describe('main/index.ts keys security decisions on the shipped app (RT-165)', ()
     'createSecretStore',
     'applyDevSkipPairingIfRequested',
     'applyDevSkipOperatorSignInIfRequested',
-    'createCartBridgeHandlers',
   ])('%s receives the shipped identity as its isPackaged dep', (fn) => {
     const start = code.search(new RegExp(`\\b${fn}\\(\\{`));
     expect(start).toBeGreaterThan(-1);
     const call = code.slice(start, code.indexOf('});', start));
     expect(call).toMatch(/\bisPackaged: shippedApp\b/);
+  });
+
+  it('createCartBridgeHandlers receives the shipped identity as its isPackaged dep', () => {
+    // RT-1219: the cart wiring moved to `bootstrap/payments-cart.ts`; index.ts hands it `shippedApp`.
+    const moved = readFileSync(resolve(__dirname, '../bootstrap/payments-cart.ts'), 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(moved).not.toMatch(/app\.isPackaged/);
+    const start = moved.search(/\bcreateCartBridgeHandlers\(\{/);
+    expect(start).toBeGreaterThan(-1);
+    const call = moved.slice(start, moved.indexOf('});', start));
+    expect(call).toMatch(/\bisPackaged: shippedApp\b/);
+    const deps = /const paymentsCartDeps = \{[^}]*\};/.exec(code)?.[0] ?? '';
+    expect(deps).toMatch(/^\s*shippedApp,$/m);
   });
 
   it('resolves the migrations directory from the shipped identity', () => {
