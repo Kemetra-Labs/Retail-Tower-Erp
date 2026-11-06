@@ -117,7 +117,7 @@ export class PosAuditEventsService {
     const duplicates: string[] = [];
     const rejected: RejectedEvent[] = [];
 
-    // sequential: events are processed in batch order, so a repeated event within one batch is seen as a duplicate.
+    // sequential: in batch order, so the first copy of a repeated event is the one accepted and results keep input order.
     for (const event of body.events) {
       try {
         await this.processEvent(

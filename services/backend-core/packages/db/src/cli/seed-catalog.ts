@@ -274,7 +274,7 @@ async function seedAliases(
     ...p.skus!.map((value) => ({ type: 'sku' as const, value })),
     ...p.barcodes!.map((value) => ({ type: 'barcode' as const, value })),
   ];
-  // sequential: aliases are checked then inserted on one PoolClient (pg runs its queries one at a time).
+  // sequential: aliases are checked then inserted on one pg client (it runs its queries one at a time).
   for (const a of aliasRows) {
     const existingAlias = await client.query<{ id: string }>(
       `SELECT id FROM product_aliases
@@ -309,13 +309,13 @@ async function seed(
   // Resolve-or-create each distinct category (idempotent on (tenant_id, name)).
   const categoryIds = new Map<string, string>();
   const distinctCategories = [...new Set(products.map((p) => p.category))];
-  // sequential: categories are resolved or created on one PoolClient (pg runs its queries one at a time).
+  // sequential: categories are resolved or created on one pg client (it runs its queries one at a time).
   for (const name of distinctCategories) {
     categoryIds.set(name, await seedCategory(client, cfg, name, summary));
   }
 
   // Products + aliases.
-  // sequential: each product needs its id before its aliases; all on one PoolClient (pg runs its queries one at a time).
+  // sequential: each product needs its id before its aliases; all on one pg client (it runs its queries one at a time).
   for (const p of products) {
     const productId = await seedProduct(client, cfg, p, categoryIds.get(p.category), summary);
     await seedAliases(client, cfg, p, productId, summary);

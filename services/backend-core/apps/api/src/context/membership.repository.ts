@@ -353,7 +353,7 @@ export class MembershipRepository {
     const baseRows = await this.activeMembershipRows(db, userId);
 
     const summaries: MembershipSummary[] = [];
-    // sequential: store grants are read per membership on one connection/transaction when a client is passed.
+    // sequential: store grants are read per membership on the passed client's transaction when one is given.
     for (const row of baseRows) {
       const kind = row.storeAccessKind as StoreAccessKind;
       let accessible: readonly string[] = [];
@@ -549,7 +549,7 @@ export class MembershipRepository {
       );
 
     const details: MembershipDetail[] = [];
-    // sequential: store grants are read per membership on one connection/transaction when a client is passed.
+    // sequential: store grants are read per membership on the caller's one connection/transaction.
     for (const row of baseRows) {
       const kind = row.storeAccessKind as StoreAccessKind;
       let accessible: readonly string[] = [];

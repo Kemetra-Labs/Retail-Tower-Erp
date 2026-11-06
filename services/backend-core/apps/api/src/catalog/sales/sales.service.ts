@@ -1131,7 +1131,7 @@ async function insertSaleLines(
     readonly lines: CaptureSaleRequestDto["lines"];
   },
 ): Promise<void> {
-  // sequential: sale lines are inserted on the capture transaction (one PoolClient (pg runs its queries one at a time)).
+  // sequential: sale lines are inserted on the capture transaction; pg runs one PoolClient's queries one at a time.
   for (const [index, line] of sale.lines.entries()) {
     await client.query(
       `INSERT INTO sale_lines
