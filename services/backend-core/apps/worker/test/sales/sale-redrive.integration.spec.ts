@@ -342,6 +342,35 @@ describe("RT-1250 (a') — a sale repaired through the Console is re-driven by r
     expect(found.filter((s) => s.saleId === saleId)).toEqual([{ saleId, storeId: STORE_A }]);
   });
 
+  it("orders by each sale's own window clock, so an unrepaired sale near its max age goes before a fresh repair", async () => {
+    if (skip) return;
+    const nearExpiry = await seedSale({ ageMinutes: 6 * 24 * 60, syncStatus: "failed-retryable" });
+    const repaired = await seedSale({ ageMinutes: EIGHT_DAYS + 60, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(repaired, 30);
+
+    const ids = (await new PgSaleRedriveRepository(e().app).findUnprocessedSales(TENANT_A, WINDOW, BATCH)).map(
+      (s) => s.saleId,
+    );
+
+    expect(ids).toContain(repaired);
+    expect(ids.indexOf(nearExpiry)).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf(nearExpiry)).toBeLessThan(ids.indexOf(repaired));
+    await runSweep();
+    expect((await saleState(nearExpiry)).processed).toBe(true);
+    expect((await saleState(repaired)).processed).toBe(true);
+  });
+
+  it("selects a sale repaired twice inside the window once", async () => {
+    if (skip) return;
+    const saleId = await seedSale({ ageMinutes: EIGHT_DAYS, syncStatus: "failed-retryable" });
+    await seedNeedsRepairRow(saleId, 120);
+    await seedNeedsRepairRow(saleId, 20);
+
+    const found = await new PgSaleRedriveRepository(e().app).findUnprocessedSales(TENANT_A, WINDOW, BATCH);
+
+    expect(found.filter((s) => s.saleId === saleId)).toEqual([{ saleId, storeId: STORE_A }]);
+  });
+
   it("does not see another tenant's repaired sale", async () => {
     if (skip) return;
     const saleB = await seedSale({ tenant: "B", ageMinutes: EIGHT_DAYS, syncStatus: "failed-retryable" });

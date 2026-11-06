@@ -104,18 +104,27 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
     });
   }
 
+  /**
+   * Unprocessed sales to re-drive for one tenant, at most `limit`: (a) those
+   * captured inside the age window, and (a') RT-1250 those whose needs-repair
+   * dead-letter was resolved (a Console repair) inside it. Each candidate is
+   * ordered by the timestamp that governs ITS window (capture, or repair), the
+   * earliest first, so the item closest to leaving its window goes first and
+   * old-capture repaired sales cannot crowd unrepaired ones out of the batch.
+   */
   async findUnprocessedSales(tenantId: string, window: SaleRedriveWindow, limit: number): Promise<StrandedSale[]> {
     return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
-      // UNION (not OR) so each branch keeps its own plan; it also dedups a
-      // sale that is in both (captured AND repaired inside the window).
+      // Two branches (not one OR) so each keeps its own plan. A sale matched
+      // more than once (captured AND repaired in the window, or repaired
+      // twice) is one row, keyed by its earliest window timestamp.
       const r = await client.query<{ id: string; store_id: string }>(
         `SELECT id, store_id FROM (
-           SELECT s.id, s.store_id, s.created_at FROM sales s
+           SELECT s.id, s.store_id, s.created_at AS window_at FROM sales s
             WHERE s.tenant_id = $1 AND s.processed_at IS NULL
               AND s.sync_status <> 'failed-needs-repair'
               AND ${inWindow("s.created_at")}
-           UNION
-           SELECT s.id, s.store_id, s.created_at FROM sale_sync_deadletters d
+           UNION ALL
+           SELECT s.id, s.store_id, d.resolved_at AS window_at FROM sale_sync_deadletters d
              JOIN sales s ON s.id = d.sale_id AND s.tenant_id = d.tenant_id
             WHERE d.tenant_id = $1
               AND d.classification = 'needs-repair'
@@ -124,7 +133,8 @@ export class PgSaleRedriveRepository implements SaleRedriveRepository {
               AND s.processed_at IS NULL
               AND s.sync_status = 'failed-retryable'
          ) stranded
-          ORDER BY created_at, id
+          GROUP BY id, store_id
+          ORDER BY min(window_at), id
           LIMIT $4`,
         [tenantId, window.minAgeMs, window.maxAgeMs, limit],
       );
