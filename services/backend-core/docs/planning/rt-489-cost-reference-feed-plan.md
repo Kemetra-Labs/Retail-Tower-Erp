@@ -136,11 +136,16 @@ One snapshot = *ERPNext said item I, at scope S, had cost A per UOM U in currenc
 | `recorded_at` | timestamptz | Backend-Core server clock at ingest | §X |
 | `provenance` | jsonb (closed shape) | `{ erpSiteId, erpVersion, compatibilityFingerprint, sourceDoctype, sourceDocRef?, valuationMethod?, priceListRef?, connectorVersion, requestRef, attemptRef }` | 578 |
 | `content_hash` | text | Hash of the business fields; used for dedupe (§5.4) | — |
-| `superseded_by` | uuid, nullable | Set when a newer snapshot replaces this one for the same key | §XII |
+| `supersedes` | uuid, nullable | Backward reference, written once at insert: the snapshot this row replaced for the same key | §XII |
+| `ingest_seq` | bigint | Backend-Core monotonic sequence assigned at insert; the final tie-break in §5.4 | — |
 
 The **key** is `(tenant_id, tenant_product_id, scope_kind, store_id | erp_company_ref, basis)`. Rows are
-**immutable**. A newer reading inserts a new row and supersedes the previous current row for the key; nothing
-is updated in place (Backend-Core constitution §XII, as for price events in spec 041 §3.1).
+**immutable**: no column of an existing row is ever updated (Backend-Core constitution §XII, as for price events
+in spec 041 §3.1, and enforced by the C-3 immutability trigger). Supersession is recorded only on the **new**
+row (`supersedes`). The **current** snapshot for a key is the row that wins the §5.4 precedence order and that no
+other row `supersedes`. Each read (each time a value is seen again, unchanged) goes to a separate append-only
+`cost_reference_observations` table (`snapshot_id`, `read_at`, `recorded_at`, `requestRef`), never to the
+snapshot row.
 
 **Missing values are explicit.** A report entry may say `status: "missing"` with a reason (`no_valuation`,
 `no_purchase_history`, `no_standard_cost`, `uom_unmapped`, `item_disabled`). Backend-Core records that as a
@@ -223,11 +228,20 @@ silent gaps (666–667).
 
 - **Transport:** each report window has a deterministic key, `costref-<requestRef>-<attemptRef>-w<windowSeq>`,
   which fits the 16–128 rule. A replay returns the recorded acknowledgement.
-- **Content:** Backend-Core inserts a new snapshot only when `content_hash` differs from the current row for the
-  key, or `as_of` is newer. Re-reading an unchanged ERPNext value does not grow history. `read_at` on the current
-  row is refreshed through a separate observation timestamp, which feeds `feed_lag` (§4.3).
-- **Ordering:** a report whose `as_of` is **older** than the current row's `as_of` is recorded as an observation
-  and does not supersede. Late or out-of-order windows cannot roll cost back.
+- **Content:** Backend-Core inserts a new snapshot only when the incoming entry **wins the precedence order
+  below** and its `content_hash` differs from the current row. Re-reading an unchanged ERPNext value does not grow
+  history; it adds a row to `cost_reference_observations` (§4.1), whose latest `read_at` feeds `feed_lag` (§4.3).
+- **Precedence order** (all three compared in turn, earlier wins ties to later):
+  1. `as_of`, newer wins. A `missing` entry has no `as_of`, so it skips this step against a present entry and is
+     compared on step 2.
+  2. Connector `read_at`, later wins. Two readings with the same `as_of` but different costs are ordered by
+     when the Connector read them. A `missing` entry supersedes a present cost only if its `read_at` is later
+     than the present row's `read_at`.
+  3. Backend-Core `ingest_seq`, higher wins. It is used only when steps 1 and 2 are both equal (the same
+     Connector read reported twice with different content, which is itself a defect and is logged).
+- **No precedence → no supersession.** An entry that loses, or whose precedence cannot be established (for
+  example a missing `read_at`), is recorded as an observation only and never becomes current. A late or
+  out-of-order window therefore cannot restore an obsolete cost.
 
 ### 5.5 Tenant and store scoping
 
@@ -258,9 +272,20 @@ estimateMargin(price: Resolution, cost: CostReference | none, sellUnit, now) -> 
    net-of-tax price is a Fiscal derivation (RT-294, Gate 3), which Pricing must not compute (468, 591). CR-6
    decides what happens before G3.
 6. **Freshness:** §6.3.
-7. **Result**, all decimal: `marginAmount = netPrice − cost`, and `marginPct = marginAmount / netPrice` (on price).
-   Markup (`/ cost`) is the alternative definition (CR-7). Results are rounded half-up to 2 decimal places *for
-   display only*, and the exact value is kept.
+7. **Result**, all decimal:
+   - `marginAmount = netPrice − cost`. This is exact (a difference of two `numeric(19,4)` values). It is
+     displayed rounded half-up to the **Book currency's minor unit** (`minorUnitExponent`, spec 041 F4), so a
+     3-decimal currency keeps 3 decimals.
+   - `marginPct = marginAmount / netPrice × 100` (percentage units on price; `28.29` means 28.29 %). A ratio
+     usually has no finite decimal, so it is computed at a fixed scale of 6 decimal places, rounded half-up, and
+     displayed at 2 decimal places. It is never described as exact.
+   - Comparisons against a threshold (for RT-284 guardrails, or a "below margin floor" count in the preview) use
+     the exact amounts, not the rounded ratio: `marginAmount × 100 ≥ floorPct × netPrice`.
+   - `netPrice = 0` → `unavailable(zero_net_price)`; it cannot occur for a v1 regular price (spec 041 Q-4) but is
+     defined so the function is total.
+   - Markup (`marginAmount / cost × 100`) is the alternative definition (CR-7). If markup is chosen, a present cost
+     of `0` (valid under §4.1) gives `unavailable(zero_cost_markup)` for markup only; `marginAmount` and margin on
+     price are still returned.
 
 ### 6.2 Result shape (draft, not OpenAPI)
 
@@ -278,7 +303,7 @@ estimateMargin(price: Resolution, cost: CostReference | none, sellUnit, now) -> 
 { "status": "stale", "cost": { "...": "…", "freshness": "stale", "asOf": "…" }, "staleEstimate": { "...": "only if CR-5 allows" } }
 // no estimate
 { "status": "unavailable", "reason": "missing_cost" }
-// | expired_cost | currency_mismatch | uom_unconvertible | tax_basis_unresolved | price_unpriced
+// | expired_cost | currency_mismatch | uom_unconvertible | tax_basis_unresolved | price_unpriced | zero_net_price
 ```
 
 ### 6.3 Stale cost rule (582)
@@ -364,7 +389,8 @@ margin is shown.
 
 **Test strategy, written now so the contracts are testable:**
 
-- C-4: idempotent replay, key conflict, out-of-order `as_of` does not supersede, dedupe on unchanged content,
+- C-4: idempotent replay, key conflict, out-of-order `as_of` does not supersede, equal `as_of` ordered by
+  `read_at`, a `missing` entry read earlier does not hide a present cost, no snapshot row is ever updated, dedupe on unchanged content,
   cross-tenant `requestRef` → 404, RLS matrix.
 - C-5: Connector unit tests per basis, including `missing` reasons, negative/zero valuation and UOM conversion.
 - C-7: property tests: margin uses only decimal arithmetic; a stale or expired cost never yields
@@ -380,7 +406,7 @@ margin is shown.
 | **CR-4** | Freshness thresholds (`fresh_for`, `expire_after`) per basis, and who sets them | (a) system constants; (b) tenant-configurable within system bounds, as RT-284 policy entries |
 | **CR-5** | How stale cost is displayed (582) | (a) withhold margin, show "cost stale since `asOf`"; (b) show a clearly labelled stale estimate with `asOf` |
 | **CR-6** | Margin on **tax-inclusive** Books before RT-294 / Gate 3 | (a) `unavailable(tax_basis_unresolved)` until G3; (b) an explicitly labelled "gross margin vs tax-inclusive price"; (c) wait for RT-294 before C-7 |
-| **CR-7** | Margin definition | (a) margin on net price; (b) markup on cost; (c) both, labelled |
+| **CR-7** | Margin definition | (a) margin on net price; (b) markup on cost (a zero cost gives `unavailable(zero_cost_markup)`, §6.1); (c) both, labelled |
 | **CR-8** | Is a standing, history-keeping Cost Reference store acceptable under the 014 OQ-1 "no standing mirror" posture? How long is history retained? | (a) yes, current + superseded history, retention N; (b) current row only; (c) run-scoped only, as for Bin (would not meet 573 without live calls) |
 | **CR-9** | Who may see cost and margin? Capability name and risk tier | (a) owner/tenant_admin only; (b) also store_manager for their stores; POS in no option |
 | **CR-10** | Cost currency ≠ Book currency | (a) margin `unavailable`; (b) an approved FX reference converts at authoring time only (481–482), with its own provenance |
