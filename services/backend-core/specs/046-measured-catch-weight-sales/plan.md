@@ -167,7 +167,7 @@ measure:                 # optional; absent = count line (today's rule)
   properties:
     kind:      { enum: [measured] }            # catch_weight too if Q-1 says so
     uom:       { type: string }                # canonical rate UOM code, equals `unit`
-    precision: { type: integer, minimum: 0, maximum: 3 }   # maximum = the Q-3 cap (3 recommended, ≤ 6)
+    precision: { type: integer, minimum: 0, maximum: 6 }   # wire bound; capture also enforces the ratified Q-3 cap (3 recommended)
     source:    { enum: [scale, barcode_weight, barcode_price, manual] }   # subset per Q-6/Q-7
 ```
 
