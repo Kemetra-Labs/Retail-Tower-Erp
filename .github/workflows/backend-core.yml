@@ -37,6 +37,10 @@
 #  - the informational Codecov upload and its lcov check are not carried over (the upload
 #    needs a repo credential, which PR-reachable workflows must not use). Coverage is still
 #    collected and the Jest thresholds in apps/api/jest.config.cjs still gate the job.
+#  - RT-1256: on a pull request whose trusted base has the cutover (pgraph/circleci_gate.py),
+#    bc/db-integration runs no API Jest: it verifies CircleCI's `api-jest-gate` status (the full
+#    suite with --coverage, same thresholds) for the exact head SHA, from the CircleCI app only,
+#    and fails on anything else. Push to main and a base without the cutover run it here as before.
 #  - run directory: `defaults.run.working-directory` does not apply to `uses:` steps, so the
 #    pnpm cache path carries the services/backend-core/ prefix explicitly.
 #  - environment, not parity: the api test step sets NODE_OPTIONS=--max-old-space-size=4096 and
@@ -235,12 +239,15 @@ jobs:
     # The product keeps 40 until it has more measurements; this repo uses its own measurement.
     # RT-949: +5 minutes for the shadow steps (full history fetch, selector capped at 3 minutes,
     # report), so the shadow can never push the unchanged API run past the job timeout.
-    timeout-minutes: 30
+    # RT-1256: 45 covers the verifier's 40-minute wait for the CircleCI status plus setup.
+    timeout-minutes: 45
     # RT-949: read-only scopes for the shadow selector's evidence (workflow runs, jobs, check-runs).
+    # RT-1256: statuses: read for the CircleCI commit status the verifier judges.
     permissions:
       contents: read
       actions: read
       checks: read
+      statuses: read
     steps:
       # fetch-depth 0 (RT-949): the shadow selector diffs the PR's own commits and the base history.
       - name: Checkout
@@ -249,12 +256,114 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # RT-1256: where API Jest runs. On a pull request whose TRUSTED base (the PR base commit,
+      # extracted with git archive, never the PR head) has pgraph/circleci_gate.py with
+      # CUTOVER_ENABLED = True, this job only verifies CircleCI's `api-jest-gate` result for the exact
+      # head SHA (mode=circleci) and runs no API Jest. Otherwise it runs the full suite here
+      # (mode=github): push to main (also Sonar's lcov), a base before the cutover or with the flag
+      # off, a fork PR (CircleCI never builds forks), or a PR whose .circleci/ differs from the base
+      # (CircleCI would compile the PR's own config, so its result cannot be trusted; this is also
+      # the rollback path: one PR that sets api_jest_gate_enabled false and CUTOVER_ENABLED = False
+      # runs here). Both fallbacks add no trust: the workflow file is the PR's own, as before.
+      - name: API Jest provider (RT-1256) - verify CircleCI or run here
+        id: mode
+        working-directory: .
+        env:
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mode=github
+          why="not a pull request"
+          if [ "$EVENT" = pull_request ]; then
+            [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+            dir="$RUNNER_TEMP/pgraph-base"
+            mkdir -p "$dir"
+            git archive "$BASE_SHA" tools/project-graph | tar -x -C "$dir"
+            gate="$dir/tools/project-graph/pgraph/circleci_gate.py"
+            rc=0
+            git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- .circleci/ || rc=$?
+            if ! { [ -f "$gate" ] && grep -qx 'CUTOVER_ENABLED = True' "$gate"; }; then
+              why="the trusted base has no cutover"
+            elif [ "$HEAD_REPO" != "$REPO" ]; then
+              why="fork PR"
+            elif [ "$rc" -ne 0 ]; then
+              why=".circleci/ differs from the base (git diff rc=$rc)"
+            else
+              mode=circleci
+              why="verify CircleCI api-jest-gate"
+            fi
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "### API Jest provider (RT-1256): $mode ($why)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Python (CircleCI verifier)
+        if: steps.mode.outputs.mode == 'circleci'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
+      # The verdict comes from the trusted base's pgraph (circleci_gate.judge). Exit 0 passes, 1 fails,
+      # 3 waits and polls again; at the deadline a wait becomes a failure (ABSENT_STATUS /
+      # STATUS_INCOMPLETE). A failed statuses call is a wait, then a failure at the deadline.
+      - name: Verify the CircleCI API Jest result for the exact head SHA (RT-1256)
+        if: steps.mode.outputs.mode == 'circleci'
+        working-directory: .
+        timeout-minutes: 42
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pg="$RUNNER_TEMP/pgraph-base/tools/project-graph"
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r "$pg/requirements.txt"
+          out="$RUNNER_TEMP/api-gate"
+          mkdir -p "$out"
+          flags=()
+          [ "$HEAD_REPO" = "$REPO" ] || flags+=(--fork)
+          git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- .circleci/ || flags+=(--circleci-changed)
+          mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          # --no-renames: a rename lists its old and new path, as the graph classifies both.
+          git diff --name-only --no-renames "$mb" "$HEAD_SHA" > "$out/paths.txt"
+          deadline=$((SECONDS + 40 * 60))
+          while :; do
+            late=()
+            [ "$SECONDS" -lt "$deadline" ] || late=(--deadline-passed)
+            rc=0
+            if gh api --paginate "repos/$REPO/commits/$HEAD_SHA/statuses?per_page=100" > "$out/raw.json" 2> "$out/api.err" \
+              && jq -s 'add // []' "$out/raw.json" > "$out/statuses.json"; then
+              (cd "$pg" && python -m pgraph circleci-gate --event pull_request --head "$HEAD_SHA" \
+                --statuses "$out/statuses.json" --paths "$out/paths.txt" "${flags[@]}" "${late[@]}") \
+                > "$out/verdict.json" || rc=$?
+              jq -c . "$out/verdict.json"
+            else
+              echo "statuses API call failed: $(head -c 300 "$out/api.err")"
+              rc=3
+              [ "${#late[@]}" -eq 0 ] || rc=1
+            fi
+            case "$rc" in
+              0) echo "CircleCI api-jest-gate passed for $HEAD_SHA."; break ;;
+              3) sleep 30 ;;
+              *) echo "::error::CircleCI API Jest result not accepted: $(jq -c .reasons "$out/verdict.json" 2>/dev/null || echo unknown)"; exit 1 ;;
+            esac
+          done
+          jq -r '"CircleCI status: \(.status.state) at \(.status.created_at), \(.status.target_url)"' "$out/verdict.json" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Enable corepack and pin pnpm
+        if: steps.mode.outputs.mode == 'github'
         run: |
           corepack enable
           corepack prepare pnpm@9.15.0 --activate
 
       - name: Setup Node (.nvmrc)
+        if: steps.mode.outputs.mode == 'github'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
@@ -262,9 +371,11 @@ jobs:
           cache-dependency-path: services/backend-core/pnpm-lock.yaml
 
       - name: Install dependencies
+        if: steps.mode.outputs.mode == 'github'
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build workspaces required by db/api/worker tests
+        if: steps.mode.outputs.mode == 'github'
         run: >-
           pnpm
           --filter @data-pulse-2/shared
@@ -279,14 +390,14 @@ jobs:
       # so the selector runs from the checked-out tree here; Phase 2 would move it to the plan job's
       # trusted base archive. Any error or doubt becomes mode=full in the report.
       - name: Set up Python (shadow selector)
-        if: github.event_name == 'pull_request'
+        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request'
         continue-on-error: true
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: .python-version
 
       - name: Impact selection (shadow) - anchor, changed paths, related specs
-        if: github.event_name == 'pull_request'
+        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request'
         continue-on-error: true
         timeout-minutes: 3
         working-directory: .
@@ -335,11 +446,13 @@ jobs:
           fi
 
       - name: Pre-pull postgres:16-alpine
+        if: steps.mode.outputs.mode == 'github'
         run: docker pull postgres:16-alpine
 
       # Read-only: prints the runner's size and Node's effective heap limit, so the heap setting
       # on the api step below is backed by a measurement from this runner.
       - name: Report runner size and Node heap limit
+        if: steps.mode.outputs.mode == 'github'
         run: |
           echo "nproc: $(nproc)"
           free -m
@@ -356,6 +469,7 @@ jobs:
       # RT-949: --json --outputFile only writes the per-spec results for the shadow report below;
       # the run, its coverage thresholds and its exit code are unchanged.
       - name: Test @data-pulse-2/api (RLS + audit + auth suites)
+        if: steps.mode.outputs.mode == 'github'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
@@ -364,7 +478,7 @@ jobs:
             --outputFile="$RUNNER_TEMP/api-jest-shadow/results.json"
 
       - name: Impact selection (shadow) - report selected vs failing specs
-        if: github.event_name == 'pull_request' && !cancelled()
+        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request' && !cancelled()
         continue-on-error: true
         timeout-minutes: 2
         working-directory: tools/project-graph
@@ -382,7 +496,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the shadow selection (RT-950 evidence)
-        if: github.event_name == 'pull_request' && !cancelled()
+        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request' && !cancelled()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -399,7 +513,7 @@ jobs:
       # each push to main. A push-only, credential-free upload that cannot change this job's
       # result; PR runs upload nothing. The paths in it are relative to apps/api.
       - name: Upload lcov for the Sonar scan (main pushes only)
-        if: github.event_name == 'push' && !cancelled()
+        if: steps.mode.outputs.mode == 'github' && github.event_name == 'push' && !cancelled()
         continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
