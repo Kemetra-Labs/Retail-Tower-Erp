@@ -17,6 +17,12 @@
  *                            then parked (skipped) until the next start
  *   batch not delivered    → nothing written; the caller backs off
  *                            (`schedule-audit-sync.ts`)
+ *   batch refused (400)    → the whole request was refused for one bad event:
+ *                            the next batch is halved until the event goes
+ *                            alone, where its refusals count toward
+ *                            `maxEventAttempts` and it is parked like any
+ *                            other retryable event, so it cannot block later
+ *                            uploads
  *
  * "Settled without upload" (local-only or final) is a sync-state row with a
  * NULL `synced_at`; the category tells the two apart. No schema change: the
@@ -78,19 +84,26 @@ export interface AuditSyncStore {
 }
 
 /**
- * HTTP seam. `sendBatch` NEVER throws: it resolves to the parsed 200 body, or
- * `'network_error'` when the batch was not delivered (no credential, transport
- * fault, timeout, non-200 status, unreadable body).
+ * HTTP seam. `sendBatch` NEVER throws: it resolves to the parsed 200 body,
+ * `'batch_refused'` when Backend-Core refused the request itself (400: one
+ * event in it is off-contract), or `'network_error'` when the batch was not
+ * delivered (no credential, transport fault, timeout, any other non-200
+ * status, unreadable body).
  */
 export interface AuditSyncClient {
-  sendBatch(events: AuditEvent[]): Promise<AuditSyncBatchResponse | 'network_error'>;
+  sendBatch(
+    events: AuditEvent[],
+  ): Promise<AuditSyncBatchResponse | 'network_error' | 'batch_refused'>;
 }
 
 /** Why an event was settled without upload or parked. Ids and closed codes only (P7). */
 export type AuditSettleReason =
   | { kind: 'rejected_final'; category: AuditRejectionCategory }
   | { kind: 'invalid_local' }
-  | { kind: 'parked'; attempts: number; category: AuditRejectionCategory | 'unaccounted' };
+  | { kind: 'parked'; attempts: number; category: RetryCategory };
+
+/** Why an event is retried: a per-event rejection, no answer for it, or a 400 alone. */
+type RetryCategory = AuditRejectionCategory | 'unaccounted' | 'batch_refused';
 
 export interface AuditSyncObserver {
   /** One event refused for good, or parked: for the main log (diagnostics). */
@@ -169,11 +182,14 @@ export class AuditSync {
   /** Events skipped until the next start. */
   private readonly parked = new Set<string>();
   private readonly totals = zeroCounts();
+  /** Events per POST: halved on a 400, doubled back on each answered batch. */
+  private sendLimit: number;
 
   constructor(options: AuditSyncOptions) {
     this.store = options.store;
     this.client = options.client;
     this.batchLimit = options.batchLimit ?? DEFAULT_BATCH_LIMIT;
+    this.sendLimit = this.batchLimit;
     this.maxEventAttempts = options.maxEventAttempts ?? DEFAULT_MAX_EVENT_ATTEMPTS;
     this.maxPagesPerFlush = options.maxPagesPerFlush ?? DEFAULT_MAX_PAGES_PER_FLUSH;
     this.isStopped = options.isStopped ?? (() => false);
@@ -196,7 +212,7 @@ export class AuditSync {
       const events = this.store.listUnsynced(this.batchLimit, [...this.parked]);
       if (events.length === 0) break;
       const sendable = this.settleUnsendable(events, counts);
-      if (sendable.length > 0) return this.send(sendable, counts);
+      if (sendable.length > 0) return this.send(sendable.slice(0, this.sendLimit), counts);
     }
     return this.finish(counts);
   }
@@ -224,11 +240,29 @@ export class AuditSync {
   private async send(events: AuditEvent[], counts: AuditFlushCounts): Promise<AuditFlushOutcome> {
     const result = await this.client.sendBatch(events);
     if (this.isStopped()) return this.finish(counts);
+    if (result === 'batch_refused') return this.refused(events, counts);
     if (result === 'network_error' || !isWellFormed(result)) {
       this.add(counts);
       return { kind: 'undelivered' };
     }
+    this.sendLimit = Math.min(this.batchLimit, this.sendLimit * 2);
     this.apply(result, events, counts);
+    return this.finish(counts);
+  }
+
+  /**
+   * A 400 for the whole request. Several events: halve the next batch and back
+   * off, so the bad event ends up alone. One event: it is the cause, so its
+   * refusal counts toward the bound like any retryable rejection.
+   */
+  private refused(events: AuditEvent[], counts: AuditFlushCounts): AuditFlushOutcome {
+    const [only] = events;
+    if (events.length > 1 || only === undefined) {
+      this.sendLimit = Math.max(1, Math.floor(events.length / 2));
+      this.add(counts);
+      return { kind: 'undelivered' };
+    }
+    this.retryLater(only, 'batch_refused', counts);
     return this.finish(counts);
   }
 
@@ -263,11 +297,7 @@ export class AuditSync {
   }
 
   /** A retryable outcome: counted, and parked once it reaches the bound. */
-  private retryLater(
-    event: AuditEvent,
-    category: AuditRejectionCategory | 'unaccounted',
-    counts: AuditFlushCounts,
-  ): void {
+  private retryLater(event: AuditEvent, category: RetryCategory, counts: AuditFlushCounts): void {
     const attempts = (this.attempts.get(event.event_id) ?? 0) + 1;
     if (attempts < this.maxEventAttempts) {
       this.attempts.set(event.event_id, attempts);

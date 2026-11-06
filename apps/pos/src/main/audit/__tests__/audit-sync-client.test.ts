@@ -88,7 +88,14 @@ describe('RT-1231 createAuditSyncClient', () => {
     expect(onUndelivered).toHaveBeenCalledWith({ reason: 'no_credential' });
   });
 
-  it.each([400, 401, 429, 500, 503])('reports status %i as undelivered', async (status) => {
+  it('reports a 400 (the request itself refused) as batch_refused', async () => {
+    const onUndelivered = vi.fn();
+    const fetch = respond(400, { error: { code: 'validation_error', message: 'y' } });
+    expect(await clientOf(fetch, { onUndelivered }).sendBatch([EVENT])).toBe('batch_refused');
+    expect(onUndelivered).toHaveBeenCalledWith({ reason: 'status', status: 400 });
+  });
+
+  it.each([401, 403, 429, 500, 503])('reports status %i as undelivered', async (status) => {
     const onUndelivered = vi.fn();
     const fetch = respond(status, { error: { code: 'x', message: 'y' } });
     expect(await clientOf(fetch, { onUndelivered }).sendBatch([EVENT])).toBe('network_error');

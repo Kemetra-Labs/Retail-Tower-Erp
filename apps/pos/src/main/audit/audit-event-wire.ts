@@ -10,12 +10,46 @@
  * rejections, which do not block the batch.
  *
  * Formats as the contract states them: `uuid` ids (8-4-4-4-12 hex), a UTC
- * `date-time` with `Z`, non-empty operator ids, an object payload.
+ * `date-time` with `Z` that is a real calendar instant, non-empty operator ids,
+ * an object payload. A request-level 400 that still gets through is isolated
+ * and bounded by `audit-sync.ts`.
  */
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const UTC_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+const UTC_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?Z$/;
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * A UTC `date-time` with `Z` that names a real instant, as Backend-Core's zod
+ * `datetime()` checks it: month 01-12, a day that exists in that month (leap
+ * years included), hour 00-23, minute and second 00-59.
+ */
+function isUtcDateTime(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const m = UTC_DATE_TIME.exec(value);
+  if (m === null) return false;
+  const [year, month, day, hour, minute, second] = m.slice(1, 7).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  return (
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= daysInMonth(year, month) &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59
+  );
+}
 
 function isUuid(value: unknown): boolean {
   return typeof value === 'string' && UUID.test(value);
@@ -44,8 +78,7 @@ export function isWireReady(event: AuditEvent): boolean {
     isNullableUuid(event.session_id) &&
     isNullableUuid(event.shift_id) &&
     isNonEmpty(event.action_category) &&
-    typeof event.created_at === 'string' &&
-    UTC_DATE_TIME.test(event.created_at) &&
+    isUtcDateTime(event.created_at) &&
     (event.approving_supervisor_id === null || isNonEmpty(event.approving_supervisor_id)) &&
     isPayloadObject(event.payload)
   );

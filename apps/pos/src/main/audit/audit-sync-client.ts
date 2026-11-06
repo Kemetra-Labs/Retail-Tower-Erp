@@ -119,7 +119,9 @@ export function createAuditSyncClient(deps: AuditSyncClientDeps): AuditSyncClien
       }
       if (answer.status !== 200) {
         undelivered({ reason: 'status', status: answer.status });
-        return 'network_error';
+        // 400 = the request itself is off-contract (one bad event); the sync
+        // isolates and bounds it. Every other status is retried with backoff.
+        return answer.status === 400 ? 'batch_refused' : 'network_error';
       }
       const body = readSyncResponse(answer.json);
       if (body === null) {

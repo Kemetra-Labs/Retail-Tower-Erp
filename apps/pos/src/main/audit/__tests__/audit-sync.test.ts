@@ -358,7 +358,104 @@ describe('AuditSync — flush() (T047)', () => {
     });
   });
 
+  // ── RT-1231 request-level 400 (CodeRabbit #392) ─────────────────────────
+
+  describe('RT-1231 a request-level 400 is isolated and bounded', () => {
+    /** Backend-Core: a 400 for any batch that holds `bad`, else every event accepted. */
+    function refusingClient(bad: string) {
+      return vi.fn<AuditSyncClient['sendBatch']>((events) =>
+        Promise.resolve(
+          events.some((e) => e.event_id === bad)
+            ? ('batch_refused' as const)
+            : { accepted: events.map((e) => e.event_id), duplicates: [], rejected: [] },
+        ),
+      );
+    }
+
+    it('halves the batch until the bad event goes alone, parks it, and uploads the rest', async () => {
+      const events = Array.from({ length: 8 }, (_, i) => makeEvent(evt(i + 1)));
+      const { store, syncedIds, unsynced } = makeFakeStore(events);
+      const sendBatch = refusingClient(evt(6));
+      const onEventSettled = vi.fn();
+      const sync = new AuditSync({
+        store,
+        client: { sendBatch },
+        maxEventAttempts: 2,
+        observer: { onEventSettled },
+      });
+
+      for (let i = 0; i < 30; i += 1) await sync.flush();
+
+      expect(syncedIds.map((s) => s.event_id).sort()).toEqual(
+        [1, 2, 3, 4, 5, 7, 8].map(evt).sort(),
+      );
+      expect(unsynced.map((e) => e.event_id)).toEqual([evt(6)]);
+      expect(sync.status().parked).toBe(1);
+      expect(onEventSettled).toHaveBeenCalledWith(expect.objectContaining({ event_id: evt(6) }), {
+        kind: 'parked',
+        attempts: 2,
+        category: 'batch_refused',
+      });
+      // Bounded: after parking, the bad event is never sent again.
+      const sends = sendBatch.mock.calls.length;
+      await sync.flush();
+      await sync.flush();
+      expect(sendBatch.mock.calls.slice(sends).flat(2)).not.toContainEqual(
+        expect.objectContaining({ event_id: evt(6) }),
+      );
+    });
+
+    it('a multi-event 400 writes nothing and asks the caller to back off', async () => {
+      const { store, syncedIds, settledIds } = makeFakeStore([
+        makeEvent(evt(1)),
+        makeEvent(evt(2)),
+      ]);
+      const outcome = await new AuditSync({
+        store,
+        client: { sendBatch: refusingClient(evt(1)) },
+      }).flush();
+      expect(outcome).toEqual({ kind: 'undelivered' });
+      expect(syncedIds).toHaveLength(0);
+      expect(settledIds).toHaveLength(0);
+    });
+
+    it('a lone 400 counts as a retryable attempt', async () => {
+      const { store, unsynced } = makeFakeStore([makeEvent(evt(1))]);
+      const outcome = await new AuditSync({
+        store,
+        client: { sendBatch: refusingClient(evt(1)) },
+      }).flush();
+      expect(outcome).toMatchObject({ kind: 'retry', counts: { retryable: 1 } });
+      expect(unsynced).toHaveLength(1);
+    });
+  });
+
   // ── RT-1231 locally off-contract ────────────────────────────────────────
+
+  it.each([
+    '2026-02-30T00:00:00Z',
+    '2025-02-29T00:00:00.000Z',
+    '2026-13-01T00:00:00Z',
+    '2026-04-31T00:00:00Z',
+    '2026-11-06T24:00:00Z',
+    '2026-11-06T10:60:00Z',
+    '2026-11-06T10:00:00+02:00',
+  ])('settles locally an event created_at %s (Backend-Core would 400 the batch)', async (at) => {
+    const { store, settledIds } = makeFakeStore([makeEvent(evt(1), { created_at: at })]);
+    const { client, calls } = makeFakeClient(OK_EMPTY);
+    await new AuditSync({ store, client }).flush();
+    expect(calls).toHaveLength(0);
+    expect(settledIds).toEqual([{ tenant_id: TENANT_A, event_id: evt(1) }]);
+  });
+
+  it('sends a leap-day created_at', async () => {
+    const { store } = makeFakeStore([
+      makeEvent(evt(1), { created_at: '2028-02-29T23:59:59.999Z' }),
+    ]);
+    const { client, calls } = makeFakeClient({ accepted: [evt(1)], duplicates: [], rejected: [] });
+    await new AuditSync({ store, client }).flush();
+    expect(calls).toHaveLength(1);
+  });
 
   it('settles a central event that is off-contract locally instead of sending it', async () => {
     const bad = makeEvent(evt(1), { session_id: 'not-a-uuid' });
