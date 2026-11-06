@@ -860,3 +860,80 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           overwrite: true
+
+  # RT-612 phase 1 (owner decision 2026-11-05, confirmed 2026-11-06): the operator-envelope
+  # surface. `run.sh operator` fuzzes the operatorAuthorization (POS envelope) operations with
+  # not_a_server_error and the envelope that stack-up.sh mints. It is NON-GATING three ways:
+  #  - run.sh operator exits 0 on findings (they go to the job summary); it fails only when
+  #    Schemathesis could not run;
+  #  - `continue-on-error: true` on the job, so even that failure never fails the workflow;
+  #  - the name is an expression, so it is not a graph key: it is never in plan.json
+  #    `needed_jobs`, the `required` aggregator lists it as not_selected, and no graph job
+  #    needs it (bc/schemathesis and its fan-in are unchanged).
+  # It runs whenever the graph selects bc/schemathesis, on its own runner and stack, so it adds
+  # no time to the shards. Images are built from the shards' layer cache (read only; this job
+  # never writes the cache). Promoting it to a gate is a separate owner decision.
+  bc-schemathesis-operator:
+    name: ${{ 'schemathesis operator (non-gating)' }}
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      FUZZ_PROJECT: api-fuzz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build api image (layer cache, read only)
+        timeout-minutes: 10
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: api
+          tags: api-fuzz-api:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=bc-st-api
+
+      - name: Build migrate image (layer cache, read only)
+        timeout-minutes: 10
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: services/backend-core
+          target: migrate
+          tags: api-fuzz-migrate:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=bc-st-migrate
+
+      - name: Start ephemeral stack
+        timeout-minutes: 10
+        env:
+          SKIP_BUILD: "1"
+        run: bash tools/schemathesis/stack-up.sh
+
+      # Findings never fail this step (see the job comment); it fails only if Schemathesis
+      # could not run. The step summary carries the findings, never the envelope.
+      - name: "Operator envelope (non-gating): not_a_server_error"
+        timeout-minutes: 15
+        run: bash tools/schemathesis/run.sh operator
+
+      - name: Tear down
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/api-fuzz"
+          if [ -f "$out/stack.env" ]; then
+            set -a; . "$out/stack.env"; set +a
+            export API_IMAGE=api-fuzz-api:local
+            docker compose -p "$FUZZ_PROJECT" -f tools/schemathesis/compose.yml down -v
+          fi
+          rm -rf "$out"
