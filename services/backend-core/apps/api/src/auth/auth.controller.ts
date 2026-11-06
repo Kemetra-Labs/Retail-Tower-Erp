@@ -117,6 +117,13 @@ const RATE_LIMIT_429: HttpException = new HttpException(
   HttpStatus.TOO_MANY_REQUESTS,
 );
 
+/**
+ * RT-1248 follow-up: the longest app close waits for in-flight password-reset work.
+ * Well under Docker's default 10 s stop grace (the compose files set none), so the
+ * remaining shutdown hooks and the HTTP close still run before SIGKILL.
+ */
+const RESET_DRAIN_TIMEOUT_MS = 5_000;
+
 let logger: Logger | null = null;
 function log(): Logger {
   logger ??= createLogger({ service: "api.auth", level: process.env["LOG_LEVEL"] ?? "info" });
@@ -338,12 +345,36 @@ export class AuthController implements OnModuleDestroy {
   }
 
   /**
-   * RT-1248: delays app close until in-flight reset work settles. Best effort
-   * only: Nest runs AuthModule's destroy hooks together, so the pool and email
-   * queue may close first and that work then fails (logged, nothing sent).
+   * RT-1248 follow-up: waits for in-flight reset work, but at most `timeoutMs`,
+   * so a hung DB pool or email queue cannot hold app close open until the process
+   * manager kills it. On timeout the remaining work is abandoned and only its
+   * count is logged (no email, IP or token). Returns how many items were left.
+   */
+  async drainPasswordResetWork(timeoutMs: number): Promise<number> {
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<true>((resolve) => {
+      timer = setTimeout(() => resolve(true), timeoutMs);
+      timer.unref();
+    });
+    try {
+      const outcome = await Promise.race([this.settlePasswordResetWork().then(() => false as const), timedOut]);
+      if (outcome !== true) return 0;
+      const dropped = this.pendingResetWork.size;
+      log().warn({ dropped, timeoutMs }, "password-reset work still pending at shutdown; not waiting longer");
+      return dropped;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * RT-1248: delays app close until in-flight reset work settles, for at most
+   * RESET_DRAIN_TIMEOUT_MS. Best effort only: Nest runs AuthModule's destroy hooks
+   * together, so the pool and email queue may close first and that work then
+   * fails (logged, nothing sent).
    */
   async onModuleDestroy(): Promise<void> {
-    await this.settlePasswordResetWork();
+    await this.drainPasswordResetWork(RESET_DRAIN_TIMEOUT_MS);
   }
 
   // ---------------------------------------------------------------------

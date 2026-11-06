@@ -850,6 +850,36 @@ describe("RT-1248: password-reset/request replies before any account work", () =
   it("settlePasswordResetWork resolves at once when nothing is pending", async () => {
     await expect(settle()).resolves.toBeUndefined();
   });
+
+  // Follow-up (PR #385 review): app close waits for reset work only up to a bound.
+  it("the shutdown drain stops waiting at its bound and logs only the count", async () => {
+    mockLogLines.length = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    jest.spyOn(svc, "requestPasswordReset").mockImplementation(() => gate);
+    try {
+      const res = await http().post("/api/v1/auth/password-reset/request").send({ email: KNOWN });
+      expect(res.status).toBe(202);
+      const started = Date.now();
+      await expect(app.get(AuthController).drainPasswordResetWork(50)).resolves.toBe(1);
+      expect(Date.now() - started).toBeLessThan(5000);
+      const text = JSON.stringify(mockLogLines);
+      expect(text).toContain("password-reset work still pending at shutdown");
+      expect(text).toContain('"dropped":1');
+      expect(text).not.toContain(KNOWN);
+    } finally {
+      release();
+    }
+    await settle();
+  });
+
+  it("the shutdown drain returns 0 when the work settles within the bound", async () => {
+    jest.spyOn(svc, "requestPasswordReset").mockResolvedValue(undefined);
+    await http().post("/api/v1/auth/password-reset/request").send({ email: UNKNOWN });
+    await expect(app.get(AuthController).drainPasswordResetWork(5000)).resolves.toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
