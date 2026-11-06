@@ -247,7 +247,7 @@ describe("LoggingInterceptor – unit", () => {
     return obj.status;
   }
 
-  it.each(["22003", "23514", "22P02", "22007", "22008", "22021"])(
+  it.each(["22003", "23514", "22P02", "22007", "22008", "22021", "22P05"])(
     "LI7: PostgreSQL input error %s → logged status 400",
     async (code) => {
       expect(await loggedErrorStatus(pgError(code))).toBe(400);
