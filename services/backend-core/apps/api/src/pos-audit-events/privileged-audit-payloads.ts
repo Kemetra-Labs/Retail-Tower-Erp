@@ -29,11 +29,22 @@ const ActionKind = z.string().regex(/^[a-z][a-z0-9_]{0,39}(\.[a-z][a-z0-9_]{0,39
 const ReasonCode = z.string().regex(/^[a-z][a-z0-9_]{0,39}$/);
 const Timestamp = z.string().datetime({ offset: true });
 const MinorUnits = z.number().int().nonnegative().refine(Number.isSafeInteger);
+/**
+ * True when `value` (already `YYYY-MM-DD`) is a date that exists. An
+ * out-of-range month or day (`2026-13-01`, `2026-01-00`) is an Invalid Date,
+ * whose `toISOString()` throws, so it is checked first: a refinement that
+ * throws would turn a `schema_violation` into an `invalid_input`.
+ */
+function isExistingCalendarDate(value: string): boolean {
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
+}
+
 /** A calendar date `YYYY-MM-DD` that exists (the void's store business day). */
 const CalendarDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .refine((v) => new Date(`${v}T00:00:00Z`).toISOString().startsWith(v));
+  .refine(isExistingCalendarDate);
 const CurrencyCode = z.string().regex(/^[A-Z]{3}$/);
 /** The RT-114 approval policy version (POS `APPROVAL_POLICY_VERSION`, e.g. `rt114-2026-10-07`). */
 const PolicyVersion = z.string().regex(/^[A-Za-z0-9_.:-]{1,64}$/);

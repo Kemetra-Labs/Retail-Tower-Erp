@@ -644,6 +644,24 @@ describe("syncBatch — RT-1230 privileged categories", () => {
     expect(runWithTenantContext).not.toHaveBeenCalled();
   });
 
+  it.each(["2026-13-01", "2026-00-10", "2026-01-00"])(
+    "PV5: an out-of-range business_date %s is schema_violation (never a thrown invalid_input)",
+    async (businessDate) => {
+      const evt = makeEvent({
+        action_category: "sale.void.requested",
+        payload: { ...valid["sale.void.requested"], business_date: businessDate },
+      });
+      const result = await service.syncBatch(makeBody([evt]), "req-id");
+
+      expect(result).toEqual({
+        accepted: [],
+        duplicates: [],
+        rejected: [{ event_id: evt.event_id, category: "schema_violation" }],
+      });
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+    },
+  );
+
   it("PV4: one invalid privileged event does not block a valid one in the same batch", async () => {
     (runWithTenantContext as jest.Mock).mockImplementation(
       async (_pool: unknown, _ctx: unknown, fn: (client: { query: jest.Mock }) => Promise<unknown>) =>
