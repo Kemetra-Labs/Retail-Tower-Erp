@@ -13,7 +13,8 @@
 -- cannot supply that order, so every page sorted all of the tenant's closes
 -- before applying LIMIT. With it a page is the first LIMIT index entries.
 -- The single-store page (store filter $3) is served by 0085, or by this index
--- filtering the store; the planner picks by cost, either way with no Sort.
+-- filtering the store; the planner picks by cost. A small store's page may
+-- still sort (owner-approved, RT-429 comment 15764); see 0085.
 --
 -- Expected, owner-approved (RT-429 comment 15731): a user scoped to several
 -- stores (store_id = ANY($2), no single-store filter) may still sort. Neither
