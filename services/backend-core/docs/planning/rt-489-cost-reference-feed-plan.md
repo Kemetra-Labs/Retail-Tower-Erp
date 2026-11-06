@@ -151,9 +151,9 @@ one row to `cost_reference_observations`. That table is also immutable and appen
 | `status` | enum `present` \| `missing` | What ERPNext said |
 | `snapshot_id` | uuid, nullable | Set when `status = present`: the snapshot holding that value (inserted first if the value is new). Null when `missing` |
 | `missing_reason` | enum, nullable | Set when `status = missing`: `no_valuation`, `no_purchase_history`, `no_standard_cost`, `uom_unmapped`, `item_disabled` |
-| `reader_epoch` | integer, required | Connector reader epoch for this ERPNext site (§5.4); changes only when the site's read counter is re-created |
+| `reader_epoch` | integer, required | Reader epoch **issued by Backend-Core** to this Connector registration (§5.4); a new one is issued whenever the Connector's counter may have rolled back |
 | `read_seq` | bigint, required | Connector per-site counter value assigned **when this entry was read** (§5.4); the ordering signal |
-| `read_at` | timestamptz | When the Connector read ERPNext (wall clock); kept as received for display and `feed_lag`; **never used for ordering** and never a security clock (F-6) |
+| `read_at` | timestamptz | When the Connector read **this entry** in ERPNext (per-entry wall clock); kept as received for display and `feed_lag`; **never used for ordering** and never a security clock (F-6) |
 | `recorded_at` | timestamptz | Backend-Core server clock at ingest |
 | `ingest_seq` | bigint | Backend-Core monotonic sequence assigned at insert |
 | `request_ref`, `attempt_ref` | text | Which request and attempt delivered it |
@@ -203,8 +203,9 @@ extension of `stock-view.yaml` (F-2; the home is confirmed by CR-12). Draft oper
 
 | Operation (draft) | Direction | Content |
 |---|---|---|
-| `costReferencePullRequests` — `GET /api/connector/v1/erpnext/cost-reference-requests?cursor=` | Connector pulls from Backend-Core | Ordered, idempotent feed of wanted reads: `{ requestRef, scope (store + mapped warehouse, or company), bases[], itemWindow }`, scoped to the principal's tenant(s). Stale cursor → 409 `snapshot_required` |
-| `costReferenceReportSnapshot` — `POST …/cost-reference-requests/{requestRef}/snapshot` | Connector reports to Backend-Core | `{ readAt, readerEpoch, window?, entries: [ { erpnextItemRef, basis, readSeq, status: "present" \| "missing", amount?, currencyCode?, uom?, asOf?, reason?, source{…} } ] }`. `Idempotency-Key` required (`^[\x21-\x7E]{16,128}$`); duplicate → 200 `Idempotent-Replayed: true`; same key, different body → 409 `idempotency_key_conflict` |
+| `costReferencePullRequests` — `GET /api/connector/v1/erpnext/cost-reference-requests?cursor=` | Connector pulls from Backend-Core | Ordered, idempotent feed of wanted reads: `{ requestRef, scope (store + mapped warehouse, or company), bases[], itemWindow }`, plus the reader high-water mark `{ readerEpoch, maxReadSeq }` (§5.4), scoped to the principal's tenant(s). Stale cursor → 409 `snapshot_required` |
+| `costReferenceReportSnapshot` — `POST …/cost-reference-requests/{requestRef}/snapshot` | Connector reports to Backend-Core | `{ attemptStartedAt, readerEpoch, window?, entries: [ { erpnextItemRef, basis, readSeq, readAt, status: "present" \| "missing", amount?, currencyCode?, uom?, asOf?, reason?, source{…} } ] }`. `Idempotency-Key` required (`^[\x21-\x7E]{16,128}$`); duplicate → 200 `Idempotent-Replayed: true`; same key, different body → 409 `idempotency_key_conflict` |
+| `costReferenceAcquireEpoch` — `POST /api/connector/v1/erpnext/cost-reference-reader-epochs` | Connector asks Backend-Core | Returns a new `readerEpoch` (`max issued + 1` for this Connector registration) and the current high-water mark. Called on first start and whenever rollback is detected (§5.4). Idempotent per `Idempotency-Key` |
 
 The draft reuses everything 019 already settled: connector-paged windows (`maxWindows × maxItems`, loud refusal
 above the limit), the closed `Error` envelope, a non-disclosing 404 for out-of-scope refs, no `tenant_id` in
@@ -249,8 +250,8 @@ silent gaps (666–667).
   ERPNext site in its own persistent store (a Frappe-site sequence, so it survives restarts and wall-clock
   corrections). Each entry takes the next value as `readSeq` **at the moment that item is read**, so the order
   reflects the actual reads, even when request windows overlap. The report also carries `readerEpoch`, which
-  changes only if that counter is re-created (for example after a site restore). A window-level `readAt` is kept
-  for display only.
+  is issued by Backend-Core (below). Each entry also carries its own `readAt` (wall clock, display and `feed_lag`
+  only); the window carries `attemptStartedAt` for diagnostics.
 - **One total order.** For each key, observations are ordered by the tuple **(`reader_epoch` descending,
   `read_seq` descending)**, the same rule for `present` and `missing` entries. The first observation is the
   current state. It is a sort on a single tuple, so it is transitive and gives the same current state for every
@@ -261,16 +262,37 @@ silent gaps (666–667).
     re-reads, because every read is an observation. A late or overlapping window therefore cannot restore an
     obsolete cost or hide a newer reading.
   - A wall-clock step backwards on the Connector has no effect, because `read_at` is not compared.
-  - **Epochs:** Backend-Core accepts a new `reader_epoch` only if it is higher than every epoch already recorded
-    for that Connector registration. A report with a lower epoch is rejected with 409 and logged. A new epoch
-    therefore always outranks the old one, and its first read of each key becomes current, which is the
-    recovery path after a counter reset.
+  - **Epochs come from Backend-Core, not from the site.** A site restore can roll the Connector's counter back
+    without the site knowing, so the epoch cannot live only in the site. Backend-Core keeps, per Connector
+    registration, a monotonic epoch allocator and the **high-water mark** `(reader_epoch, max read_seq)` it has
+    recorded. The pull feed (§5.1) returns that high-water mark with every page.
+  - **Rollback detection.** Before reading, the Connector compares its local `(epoch, counter)` with the
+    high-water mark. If its epoch is lower, or its epoch is equal and its counter is not above `max read_seq`,
+    the counter may have rolled back: the Connector calls a new `costReferenceAcquireEpoch` operation (C-1),
+    Backend-Core issues `max epoch + 1`, and the Connector restarts its counter under that epoch.
+  - **Backend-Core enforcement.** A report entry for a new request whose `(reader_epoch, read_seq)` is not above
+    the recorded high-water mark is rejected with 409 `reader_sequence_regression` (an idempotent replay of an
+    already-recorded report is recognised by its `Idempotency-Key` and is not affected). This forces the
+    Connector to acquire a new epoch, so a rolled-back counter can never record reads that lose to, or collide
+    with, older ones. A report with an epoch Backend-Core never issued is rejected with 409.
+  - A new epoch outranks every older one, so its first read of each key becomes current: that is the recovery
+    path after a restore.
 - **Ties.** `(reader_epoch, read_seq)` is unique per read, so two different reads never tie. The same pair seen
   twice with the **same** content is an idempotent duplicate (one observation is kept). The same pair with
-  **different** content is a Connector defect: neither entry becomes current, the previous current state stands,
-  and it is logged and counted (`costref.observation.conflicting_tie`). `ingest_seq` is never an ordering
-  signal; it is kept only for audit.
-- **Required fields.** An entry without `readSeq`, or a report without `readerEpoch`, is rejected with 400
+  **different** content is a Connector defect, handled like this:
+  - Ingest appends a row to an append-only `cost_reference_conflicts` table naming the pair, in the **same
+    transaction** that records the second observation.
+  - Current state is always computed **excluding** observations whose pair appears in `cost_reference_conflicts`.
+    When the conflict is recorded, the current state of that key is therefore recomputed to the best remaining
+    observation (the state before the conflicting pair), even if the first entry of the pair had already become
+    current.
+  - Before the second entry arrives, consumers **can** see the first one; that cannot be prevented without
+    delaying every read. Mitigation: previews store the `snapshotId` (and observation id) they used (§6.4), and
+    Pricing Health lists unpublished Change Sets whose preview used an observation later excluded by a
+    conflict, so they are re-validated before approval.
+  - The event is logged and counted (`costref.observation.conflicting_tie`). `ingest_seq` is never an ordering
+    signal; it is kept only for audit.
+- **Required fields.** An entry without `readSeq` or `readAt`, or a report without `readerEpoch`, is rejected with 400
   `validation_error` and never recorded. Every observation can therefore be ordered.
 - **Serialization (C-2).** The Connector processes cost-reference reads for one site one at a time, so
   `read_seq` order is also read order. If C-2 later allows parallel readers, they must share the same per-site
@@ -404,8 +426,8 @@ after ratification). `[GATED]` items need their own owner authorization.
 | Step | Repo / path | Item (proposed) | Depends on | Delivers |
 |---|---|---|---|---|
 | C-1 | Backend-Core `packages/contracts/openapi/erpnext-connector/cost-reference.yaml` | `[GATED OpenAPI]` Cost Reference feed + report contract, with structural conformance spec | Ratified CR-1–CR-4, CR-8, CR-12 | §5.1 surface, §4.1 entry shape, closed error set |
-| C-2 | ERPNext-Connector `specs/0xx-cost-reference-reader/` + `contracts/backend-core/PIN` | Connector spec: basis readers on v16 (resolves every §5.3 "verify" row), Compatibility Profile capabilities, the persistent per-site read counter and reader epoch (§5.4), single-reader serialization, PIN to C-1 | C-1 | Verified field mapping, failure taxonomy |
-| C-3 | Backend-Core `packages/db/drizzle/` | `[GATED migration]` `cost_reference_snapshots` (+ observations), RLS, immutability trigger, key index | C-1 | §4.1 / §4.2 storage |
+| C-2 | ERPNext-Connector `specs/0xx-cost-reference-reader/` + `contracts/backend-core/PIN` | Connector spec: basis readers on v16 (resolves every §5.3 "verify" row), Compatibility Profile capabilities, the persistent per-site read counter, rollback detection and epoch acquisition from Backend-Core (§5.4), single-reader serialization, PIN to C-1 | C-1 | Verified field mapping, failure taxonomy |
+| C-3 | Backend-Core `packages/db/drizzle/` | `[GATED migration]` `cost_reference_snapshots` (+ observations, conflicts, per-registration epoch allocator and high-water mark), RLS, immutability trigger, key index | C-1 | §4.1 / §4.2 storage |
 | C-4 | Backend-Core `apps/api` | Feed + report ingest runtime (request scheduler, idempotent ingest, dedupe, observation log and current-state order, freshness) | C-1, C-3 | Snapshots land |
 | C-5 | ERPNext-Connector runtime | Poller + reader + reporter (pattern of `bin_view/`) | C-2, C-4 deployed | Live feed |
 | C-6 | Backend-Core `packages/contracts/openapi/` | `[GATED OpenAPI]` Margin fields in the PR-04 preview/inquiry contract + cost-reference console read | C-1; RT-282 PR-04 | §6.2 shapes, capability gating |
@@ -428,7 +450,9 @@ margin is shown.
 - C-4: idempotent replay, key conflict, the current state is identical for every permutation of arrival order
   (property test over present and missing entries), a delayed `missing` entry does not hide a later unchanged
   re-read, overlapping windows resolve by per-entry `readSeq`, a Connector clock stepped backwards does not change the
-  order, a lower `readerEpoch` is rejected and a higher one takes over, an entry without `readSeq` is rejected, a
+  order, a restored counter under an unchanged epoch is rejected with `reader_sequence_regression` and recovers via
+  `costReferenceAcquireEpoch`, a higher epoch takes over, a conflicting pair recorded after its first entry became
+  current removes that entry from current state, an entry without `readSeq` is rejected, a
   conflicting duplicate `(readerEpoch, readSeq)` leaves the current state unchanged, the first report being `missing` is stored without a snapshot,
   no snapshot or observation row is ever updated, dedupe on unchanged content,
   cross-tenant `requestRef` → 404, RLS matrix.
