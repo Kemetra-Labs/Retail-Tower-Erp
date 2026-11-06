@@ -278,6 +278,11 @@ export const stockMovements = pgTable(
       t.occurredAt.desc(),
       t.id.desc(),
     ),
+    // RT-459 (0083, built CONCURRENTLY): the Tracking Profile lock probe
+    // (EXISTS ... WHERE tenant_product_ref = $1; RLS supplies tenant_id).
+    index("idx_stock_movements_tenant_product")
+      .on(t.tenantId, t.tenantProductRef)
+      .where(sql`${t.tenantProductRef} IS NOT NULL`),
     index("idx_stock_movements_transfer_group")
       .on(t.transferGroupId)
       .where(sql`${t.transferGroupId} IS NOT NULL`),
