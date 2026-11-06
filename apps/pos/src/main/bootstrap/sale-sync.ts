@@ -37,6 +37,7 @@ import { createSaleSyncStatusReader } from '../sales-sync/sale-sync-status-reade
 import { SALE_SYNC_DRAIN_TIMEOUT_MS, scheduleSaleSync } from '../sales-sync/schedule-sale-sync.js';
 import { createTerminalSyncAggregateReader } from '../terminal-status/sync-aggregate.js';
 import type { TerminalStatusPublisher } from '../terminal-status/terminal-status-publisher.js';
+import { auditSyncDepsOf, startAuditSync } from './audit-sync.js';
 import { resolveApiBaseUrl } from './env.js';
 import type { SalesBridges } from './sales-bridges.js';
 
@@ -292,5 +293,9 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
   workerRegistry.register('sale-sync interval', () => {
     void stopSaleSync();
   });
+
+  // RT-1231 — the RT-160 D-2 audit upload rides the same paired-only sync
+  // lifecycle, on its own timer and stop (device attestation in the body).
+  startAuditSync(auditSyncDepsOf(deps), pairingStatus);
   mainLogger.info({ terminal_id: pairingStatus.terminal_id }, 'sale_sync_engine:started');
 }

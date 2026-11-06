@@ -7,6 +7,9 @@
  *
  * It owns the plumbing each client used to copy:
  *   • auth: `Authorization: Bearer <token>`; an empty token → no request;
+ *     `null` (RT-1231) → no `Authorization` header, for a route whose device
+ *     credential travels in the body (`device_token_attestation`), where an
+ *     Authorization header would be verified as an operator JWT;
  *   • timeout: one `AbortSignal.timeout` per call;
  *   • the answer: the status plus the JSON body, read with a byte cap so an
  *     untrusted answer cannot exhaust memory (Content-Length or streamed);
@@ -44,8 +47,11 @@ export interface BackendRequest {
   readonly method: BackendMethod;
   /** Appended to the base URL, query string included. */
   readonly path: string;
-  /** The bearer credential; empty → no request. */
-  readonly bearer: string;
+  /**
+   * The bearer credential; empty → no request. `null` → no `Authorization`
+   * header: only for a route that authenticates in the body (RT-1231).
+   */
+  readonly bearer: string | null;
   /** Extra headers (content type, idempotency key, selectors). */
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
@@ -101,17 +107,32 @@ async function boundedJson(response: Response, maxBytes: number): Promise<unknow
   return text === null ? undefined : parseJsonBody(text);
 }
 
+/**
+ * The caller headers plus the bearer, which always wins. With `bearer: null` no
+ * `Authorization` header is sent at all, even one a caller passed.
+ */
+function headersOf(request: BackendRequest): Record<string, string> {
+  if (request.bearer !== null) {
+    return { ...request.headers, Authorization: `Bearer ${request.bearer}` };
+  }
+  return Object.fromEntries(
+    Object.entries(request.headers ?? {}).filter(
+      ([name]) => name.toLowerCase() !== 'authorization',
+    ),
+  );
+}
+
 export function createBackendTransport(deps: BackendTransportDeps): BackendTransport {
   const root = deps.baseUrl.replace(/\/$/, '');
 
   return {
     async send(request) {
-      if (request.bearer.length === 0) return null;
+      if (request.bearer?.length === 0) return null;
       try {
         const response = await deps.fetch(`${root}${request.path}`, {
           method: request.method,
           ...(request.body === undefined ? {} : { body: request.body }),
-          headers: { ...request.headers, Authorization: `Bearer ${request.bearer}` },
+          headers: headersOf(request),
           signal: AbortSignal.timeout(deps.timeoutMs),
         });
         return { status: response.status, json: await boundedJson(response, deps.maxBodyBytes) };

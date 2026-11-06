@@ -293,6 +293,229 @@ export namespace CatalogReadDown {
     }
 }
 
+/** Generated from contracts/backend-core/openapi/pos-audit-events.openapi.yaml. */
+export namespace PosAuditEvents {
+    export interface paths {
+        "/api/pos/v1/audit-events": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Sync a batch of locally-emitted audit events to the backend.
+             * @description Accepts a batch of audit events from the terminal's offline outbox and persists each event to the backend audit log. Each event is identified by a client-generated `event_id` (UUIDv4) used as the dedup key (P5 idempotency): re-submitting an event that the backend already holds produces a `duplicates` entry rather than a second persisted row.
+             *
+             *     Per-event isolation: one malformed or tenant-mismatched event MUST NOT prevent the remaining valid events in the same batch from being accepted. The response's `accepted`, `duplicates`, and `rejected` arrays together account for every `event_id` in the request.
+             *
+             *     The action-category catalogue (FR-026) is closed for this contract version. Events whose `action_category` is not in the recognised set are rejected with category `schema_violation`. The catalogue is append-only; future categories land in a contract revision.
+             *
+             *     A `schema_violation` rejection is NON-RETRYABLE (RT-1230): it depends only on the event's own content, so re-sending the same event always gets the same answer. A sender MUST NOT retry it; it records the refusal locally and stops sending that event. This is how an event whose `action_category` is outside the catalogue is refused: per event, in the 200 response, never with a request-level 4xx.
+             *
+             *     The Clerk JWT (`Authorization: Bearer`) is accepted when present and MUST be verified (signature + `exp` + `nbf` + `iss`) but is NOT required. Event ownership is established by the `acting_operator_id` field (Clerk subject) cross-referenced with the device token's tenant + branch scope, not by the Clerk JWT.
+             */
+            post: operations["posAuditEventsSync"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            AuditEventItem: {
+                /** @description Clerk subject (`clerk_user_id`) of the operator who performed the action. The backend resolves this to `users.id` via the `users.clerk_user_id` column to satisfy the `actor_user_id` FK on the audit_events table. MUST NOT be a PIN, password, or any credential value. */
+                acting_operator_id: string;
+                /**
+                 * @description Discriminates the event type. The catalogue is append-only (FR-026); unknown values are rejected with category `schema_violation`. `shift.forced_close` and `shift.close` MUST be persisted distinctly — the backend MUST NOT collapse them.
+                 * @enum {string}
+                 */
+                action_category: "shift.open" | "shift.close" | "shift.forced_close" | "operator.session.takeover" | "cashier.pin.reset" | "cashier.pin.unlock" | "cart.discount.manager_authorized" | "manager_approval.granted" | "manager_approval.refused" | "payment.recovery_completed" | "payment.recovery_cancelled" | "cart.held_cancelled_by_manager" | "cart.cancel.post_handoff" | "sale.receipt.manual_override" | "sale.void.requested" | "payment.force_failed" | "tender.reversed" | "tender.reversal_pending";
+                /** @description Clerk subject of the supervisor who approved a §A1-gated action (e.g. `cashier.pin.reset`). NULL when not applicable. MUST NOT be a PIN, password, or any credential value. */
+                approving_supervisor_id?: string | null;
+                /**
+                 * Format: uuid
+                 * @description Branch (store) the event belongs to. Surfaced as `branch_id` in POS vocabulary; mapped internally to `store_id` at the DTO boundary. MUST match the device token's resolved branch scope; mismatch → `tenant_mismatch` rejection.
+                 */
+                branch_id: string;
+                /**
+                 * Format: date-time
+                 * @description ISO 8601 UTC timestamp when the event was emitted on the terminal. Not the backend ingestion time — the backend records its own `ingested_at` separately.
+                 */
+                created_at: string;
+                /**
+                 * Format: uuid
+                 * @description Client-generated UUIDv4. Used as the dedup key (P5 idempotency). The backend inserts with `ON CONFLICT (event_id) DO NOTHING`; a conflicting id produces a `duplicates` entry in the response.
+                 */
+                event_id: string;
+                /**
+                 * Format: uuid
+                 * @description Internal id of the terminal that produced this event (FR-013 minimum-disclosure — not a user-visible label).
+                 */
+                originating_terminal_id: string;
+                /**
+                 * @description Per-category structured payload. Shape is determined by `action_category` (see data-model.md §"Action Category Catalogue").
+                 *
+                 *     FORBIDDEN FIELDS (PR-1 / FR-027): the following keys MUST NOT appear at any nesting level — `pin`, `pin_hash`, `password`, `password_hash`, `clerk_jwt`, `clerk_session_token`, `device_token`, `device_token_attestation`, `token`, `secret`, `credential`. Events whose payload contains any forbidden key are rejected with category `schema_violation`.
+                 *
+                 *     Expected shapes per category:
+                 *       shift.open:         { shift_id, opened_at }
+                 *       shift.close:        { shift_id, closed_at, declared_count_state }
+                 *       shift.forced_close: { shift_id, shift_owner_id, forced_close_actor_id,
+                 *                             forced_close_reason, annotation? }
+                 *       operator.session.takeover: { superseded_session_id, prior_terminal_reference }
+                 *       cashier.pin.reset:  { target_cashier_id, terminal_id }
+                 *       cashier.pin.unlock: { target_cashier_id, terminal_id }
+                 *       cart.discount.manager_authorized: { cart_id, cart_line_id,
+                 *                             placeholder_id, approval_id?, reason_code?,
+                 *                             kind?, value?, amount_minor?, approver_role? }
+                 *       manager_approval.granted:   { approval_id, action_kind, subject_ref,
+                 *                                     reason_code }
+                 *       manager_approval.refused:   { action_kind, subject_ref }
+                 *       payment.recovery_completed: { payment_attempt_id, cart_id, approval_id }
+                 *       payment.recovery_cancelled: { payment_attempt_id, cart_id, approval_id,
+                 *                                     cash_returned_confirmed,
+                 *                                     card_void_confirmed_on_terminal }
+                 *       cart.held_cancelled_by_manager: { cart_id, approval_id, kind, parked }
+                 *       cart.cancel.post_handoff:   { cart_id, handoff_action_id, approval_id? }
+                 *       sale.receipt.manual_override: { sale_id, print_event_id }
+                 *       sale.void.requested:        { void_id, sale_id, amount_minor,
+                 *                                     currency_code, business_date,
+                 *                                     approval_id, policy_version,
+                 *                                     approved_at, requester_user_id }
+                 *       payment.force_failed:       { force_failed_at,
+                 *                                     force_fail_attribution_operator_id,
+                 *                                     original_cashier_operator_id }
+                 *       tender.reversed:            { tender_line_id, payment_attempt_id,
+                 *                                     tender_type, reversed_at,
+                 *                                     attribution_operator_id,
+                 *                                     manual_void_required,
+                 *                                     reversal_pending_since? }
+                 *       tender.reversal_pending:    { tender_line_id, payment_attempt_id,
+                 *                                     tender_type, reversal_pending_since,
+                 *                                     attribution_operator_id }
+                 *
+                 *
+                 *     `cart.discount.manager_authorized` (RT-740 DEP-2): the key set is CLOSED, and any other key is rejected with `schema_violation`. `cart_id`, `cart_line_id` and `placeholder_id` are required ids; every id is 1–128 characters of `[A-Za-z0-9_:.-]` (no spaces, nothing outside ASCII). `approval_id` is the consumed `cart.discount.manual` approval, present on the cashier path. `reason_code` is one of `promotion`, `loyal_or_contract_customer`, `near_expiry_or_damaged`, `price_correction` (the `sales.yaml` `CaptureSaleLineDiscount` list), and is never free text. `kind` is `percent` or `amount`. `value` is an integer: a whole percent 1–100 for `percent`, or the amount off in minor units (at least 1) for `amount`, equal to `amount_minor` when both are present; a `value` without `kind` is refused. `amount_minor` is the computed discount in minor units, an integer of at least 0. `approver_role` is `manager` or `admin`. The magnitude fields and `approver_role` are optional, because events written before they existed (RT-608) do not carry them. The requester is `acting_operator_id`, and the approver is `approving_supervisor_id`.
+                 *
+                 *     RT-1230 categories (RT-160 D-2): each key set is CLOSED, and any other key, a missing required key or a malformed value is rejected with `schema_violation`. Every id (`*_id`, `subject_ref`) is 1–128 characters of `[A-Za-z0-9_:.-]`. `action_kind` is a dotted machine code of lower-case segments (`[a-z][a-z0-9_]*`, at most four, e.g. `recovery.cancel_attempt`); `reason_code` is a machine code matching `^[a-z][a-z0-9_]{0,39}$`, never the free-text note. Times (`*_at`, `reversal_pending_since`) are ISO 8601 date-times. `amount_minor` is an integer of at least 0 in minor units; `currency_code` is three upper-case letters; `business_date` is a `YYYY-MM-DD` calendar date; `policy_version` is 1–64 characters of `[A-Za-z0-9_:.-]`. `cart.held_cancelled_by_manager` `kind` is `draft` or `handed_off`; `tender_type` is `cash`, `external_card_terminal` or `internal_voucher`; `parked`, `cash_returned_confirmed`, `card_void_confirmed_on_terminal` and `manual_void_required` are booleans. For a manager-approved action the requester is `acting_operator_id` and the approver is `approving_supervisor_id`; on `payment.force_failed` the manager is `acting_operator_id` and the payload names both operators.
+                 */
+                payload: Record<string, never>;
+                /**
+                 * Format: uuid
+                 * @description Backend operator session id active when the event was emitted. NULL for events emitted before a session was established or after it ended.
+                 */
+                session_id?: string | null;
+                /**
+                 * Format: uuid
+                 * @description Shift id the event is associated with. NULL for events not tied to a shift (e.g. `operator.session.takeover`).
+                 */
+                shift_id?: string | null;
+                /**
+                 * Format: uuid
+                 * @description Tenant the event belongs to. MUST match the device token's resolved tenant scope; mismatch → `tenant_mismatch` rejection.
+                 */
+                tenant_id: string;
+            };
+            Error: {
+                error: {
+                    /** @description Stable error code. Refusals share a single generic code so the response body cannot distinguish causes. */
+                    code: string;
+                    /** @description Generic human-readable string. Never enumerates causes. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id. The actual refusal cause is recorded server-side keyed by this id and is never returned in the response body.
+                     */
+                    request_id?: string;
+                };
+            };
+            /** @description `device_token_attestation` authenticates the terminal (matching the Wave 1 body-based pattern). `events` is the batch from the terminal's offline outbox; minimum one event per request. */
+            PosAuditEventsSyncRequest: {
+                /** @description Terminal-side proof of possession of the paired device token. The backend resolves this to `tenant_id` + `branch_id` scope and validates each event's claimed `tenant_id` and `branch_id` against that scope. The plaintext device token / attestation MUST NOT appear in logs, audit rows, or worker payloads. */
+                device_token_attestation: string;
+                /** @description Ordered list of audit events from the terminal's outbox. Events are processed independently; failure of one does not affect others. */
+                events: components["schemas"]["AuditEventItem"][];
+            };
+            /** @description Every `event_id` from the request appears in exactly one of the three arrays. The client MUST check all three — a 200 does not mean every event was accepted. */
+            PosAuditEventsSyncResponse: {
+                /** @description `event_id` values the backend has now persisted for the first time. The client MAY mark these as `synced` in its local outbox. */
+                accepted: string[];
+                /** @description `event_id` values already known to the backend (P5 idempotency). The client MAY treat these as `synced` — they are already in the audit log. */
+                duplicates: string[];
+                /** @description Events the backend refuses to persist. These remain in the client's local outbox; support reviews them via support-bundle export. */
+                rejected: components["schemas"]["RejectedEvent"][];
+            };
+            RejectedEvent: {
+                /**
+                 * @description `invalid_input` — the event is structurally malformed (missing required fields, wrong types). `tenant_mismatch` — the event's `tenant_id` or `branch_id` does not match the device token's resolved scope. `schema_violation` — the event's `payload` contains a forbidden field name (PR-1 / FR-027), breaks its category's payload rule, or the `action_category` is unrecognised.
+                 *
+                 *     `schema_violation` is NON-RETRYABLE (RT-1230): the same event always gets the same answer, so the sender records the refusal locally and never re-sends that event.
+                 * @enum {string}
+                 */
+                category: "invalid_input" | "tenant_mismatch" | "schema_violation";
+                /** Format: uuid */
+                event_id: string;
+            };
+        };
+        responses: never;
+        parameters: never;
+        requestBodies: never;
+        headers: never;
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        posAuditEventsSync: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PosAuditEventsSyncRequest"];
+                };
+            };
+            responses: {
+                /** @description Batch processed. Every event in the request is accounted for across `accepted`, `duplicates`, and `rejected`. A 200 does NOT mean every event was accepted — check each sub-array. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PosAuditEventsSyncResponse"];
+                    };
+                };
+                /** @description The request body is structurally invalid (missing required top-level fields, non-array `events`, etc.). Per-event validation failures are reported inline in the 200 `rejected` array, not as a 400. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Generic refusal. The body does not distinguish between an invalid or missing device token, an expired Clerk JWT (when present), a device token whose tenant/branch scope cannot be resolved, or rate-limit exhaustion. The actual cause is recorded server-side with `request_id` and is never returned to the client. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+    }
+}
+
 /** Generated from contracts/backend-core/openapi/pos-cashier-admissions.openapi.yaml. */
 export namespace PosCashierAdmissions {
     export interface paths {
@@ -2104,14 +2327,14 @@ export namespace PosSalesSales {
             /**
              * Capture a completed POS sale as an immutable fact.
              * @description Create the immutable `sales` header + frozen `sale_lines` snapshot from a completed POS sale. The authenticated principal supplies `tenant_id` and `store_id` (spec 002); body-supplied tenant / store / created_by / received_at / business_date / processed_at / mismatch_flag are rejected (FR-061). POS-reported totals are preserved verbatim (FR-030); the SaaS computes a per-line / half-up comparison total for an ADVISORY mismatch flag only — it never rewrites the POS total. Line snapshots (`line_name` / `unit_price` / `tax_amount` / `unit`) are frozen at capture and are unaffected by later catalog edits (FR-003). A line that resolves to no tenant product is still snapshotted; no tenant product is auto-created (FR-004).
-             *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply.
+             *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply. A provenance replay must carry the same sale facts (RT-1206): when the re-sent body, without `operatorUserId`, `admissionCheckAt` and `receipt`, hashes differently from the stored `payload_hash` (byte-exact, so reordered arrays or a differently written decimal differ), the answer is 409 `idempotency_key_conflict` and nothing is recorded. The store scope is decided first, so a replay never reveals another store's sale.
              *     Tender (RT-10 D1, from RT-77): the optional `tenders` list records how the sale was paid. Each `amount` is NET of change (cash = tendered − change), each entry is one tender line (RT-359: `tenderRef` / `sequence`; see the `tenders` field for the per-sale rules). When `responsibilities` is absent, the amounts MUST sum to `posTotal` exactly (else 422 `sale_tender_mismatch`); nothing is recorded on either failure. When it is present, the combined coverage rule replaces this one (RT-417, see Payer responsibilities below): the tenders cover only the part paid at the till. The tender list is hashed into the payload, so a replay that adds, drops or changes tenders is a different payload (409). An absent list is a tender-unknown sale (RT-10 D8): it is captured exactly as before, and the server NEVER derives tender from `posTotal`.
-             *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and still returns 200 with the stored projection.
+             *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and an identical one still returns 200 with the stored projection.
              *     Cashier attribution (RT-224): a sale may instead be sent with the `device` scheme (the paired terminal's device bearer) plus the cashier's `operatorUserId` in the body. The presence of `operatorUserId` selects this path; without it the request is an `operatorAuthorization` request exactly as before. On this path the device row supplies the tenant, store and device, and the server accepts the sale only if the device is active, a cashier admission of that device and store for that user covers `occurredAt` (see `operatorUserId`), and the cashier's membership, store access and account are still live. A missing, invalid or revoked device credential is the same generic 401 as an invalid envelope. A refused cashier claim from an authenticated device (no covering admission, an ineligible cashier, a sale outside the window or beyond the dating caps, an unknown or foreign `operatorUserId`) is the generic 403 `refused`, with one body for every cause: it never reveals whether the user or the admission exists, and it is never a sign that the device was revoked. A malformed body from an authenticated device is the usual 400. Idempotency, provenance dedup, the 409 divergence rule and the per-device rate limit apply unchanged; the idempotency key is scoped to the verified cashier, as it is scoped to the operator on the envelope path.
              *     Admission check time (RT-225): on this path the body may also carry `admissionCheckAt`, which then replaces `occurredAt` in the admission-window comparison only (see the field). Sent without `operatorUserId`, it is a 400.
              *     Payer responsibilities (RT-417, from RT-418): the optional `responsibilities` list records who owes the part of the sale not paid by `tenders`. When it is present, `sum(tenders) + sum(responsibilities) = posTotal` must hold exactly (else 422 `sale_responsibility_mismatch`), and every payer must be eligible (else 422 `sale_responsibility_payer_invalid`); see the field and `CaptureUnprocessable`. Responsibilities are accepted only on the `operatorAuthorization` path (owner decision 2026-10-16, option A). On the `device` path a body with `responsibilities` is 422 `sale_responsibility_offline_refused`, decided before the coverage rule and after authentication and the RT-224 cashier-claim check (403 `refused`). On the envelope path the role check (403 `sale_responsibility_role_refused`) is decided after authentication and before every 422. Order of the 422s: the device-path offline refusal, then the coverage rule, then the line price invariant, then the payers (as in `CaptureUnprocessable`). A replay of an already-captured sale answers after authentication and the RT-224 cashier-claim check (403 `refused`), and before the role check (403 `sale_responsibility_role_refused`) and every 422, so a payer suspended after capture never turns a stored result into a 403 or a 422. Nothing is recorded on any failure.
              *     Receipt snapshot (RT-537): the body may carry the optional `receipt` (see `CaptureSaleReceipt`). The server stores it first-write-wins and keeps it out of the `payload_hash`. From RT-539 the order of `lines` is stored as the receipt line order.
-             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and under another key (a provenance replay) the stored sale is returned and its stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons: a refusal would only strand the fact in the till's dead-letter. The server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
+             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and so is a provenance replay under another key with different tracking (RT-1206). Stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons: a refusal would only strand the fact in the till's dead-letter. The server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
              *
              *       1. Valid: a known identity of this product, a `validationId` that
              *          matches an accepted validation of that identity (same tenant,
@@ -3165,7 +3388,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description FR-101 `conflict` category (which subsumes the idempotency-token-mismatch case). The single wire `error.code` is `idempotency_key_conflict` — the same `Idempotency-Key` reused with a different logical payload (FR-051 / 005 FR-021c). Deterministic, no side effects. ("idempotency-token-mismatch" is the FR-101 category label only, never a second `error.code`.) */
+            /** @description FR-101 `conflict` category (which subsumes the idempotency-token-mismatch case). The single wire `error.code` is `idempotency_key_conflict` — the same `Idempotency-Key` reused with a different logical payload (FR-051 / 005 FR-021c), or, on `captureSale` (RT-1206), a provenance replay under another key whose sale facts differ from the captured sale's. Deterministic, no side effects. ("idempotency-token-mismatch" is the FR-101 category label only, never a second `error.code`.) */
             Conflict: {
                 headers: {
                     [name: string]: unknown;
@@ -3357,7 +3580,7 @@ export namespace PosSalesSales {
                 };
             };
             responses: {
-                /** @description Provenance replay — the same `(tenant, sourceSystem, externalId)` was already captured, and no live replay entry exists for this `Idempotency-Key` (a different key, or the same key after its 72h replay window). Returns the identical `toBody` sale projection with the `Idempotent-Replayed: true` header (mirrors `posCaptureItem`). No second record is created. A retry with the SAME `Idempotency-Key` is answered by the idempotency layer with the stored status instead (the `201` below, RT-82 K4). */
+                /** @description Provenance replay — the same `(tenant, sourceSystem, externalId)` was already captured with the same sale facts (the re-sent body hashes to the stored `payload_hash`, RT-1206; otherwise 409), and no live replay entry exists for this `Idempotency-Key` (a different key, or the same key after its 72h replay window). Returns the identical `toBody` sale projection with the `Idempotent-Replayed: true` header (mirrors `posCaptureItem`). No second record is created. A retry with the SAME `Idempotency-Key` is answered by the idempotency layer with the stored status instead (the `201` below, RT-82 K4). */
                 200: {
                     headers: {
                         "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];

@@ -444,3 +444,29 @@ export function isRt1183ExemptFile(branch: string, file: string): boolean {
     (RT_1183_STOP_STORING_PRINTER_FIELDS_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-1231-pos-audit-sync` implements Jira RT-1231: the POS uploads the RT-160 D-2
+ * audit events to `POST /api/pos/v1/audit-events`, so it repins the POS to the
+ * in-tree Backend-Core contract after RT-1230 (#390) to vendor
+ * `pos-audit-events.openapi.yaml` (`npm run contracts:repin`), which regenerates
+ * `src/shared/api-types.ts`.
+ *
+ * Authority: owner approval for RT-1231 (2026-11-06: "If the POS contract
+ * snapshot needs a repin to pick up the merged audit-events contract, that is in
+ * scope"), following the RT-889 / RT-1051 / RT-1181 repin pattern: exactly ONE
+ * file on exactly ONE branch (exact name, no `startsWith`). Narrowness is asserted
+ * by `source-scope-guard-rt1231.test.ts`.
+ */
+export const RT_1231_AUDIT_SYNC_REPIN_BRANCH = 'rt-1231-pos-audit-sync' as const;
+export const RT_1231_AUDIT_SYNC_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1231 exemption allows on `branch`. */
+export function isRt1231ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1231_AUDIT_SYNC_REPIN_BRANCH &&
+    (RT_1231_AUDIT_SYNC_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

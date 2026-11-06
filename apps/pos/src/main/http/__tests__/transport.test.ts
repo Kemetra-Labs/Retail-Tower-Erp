@@ -67,6 +67,19 @@ describe('RT-880 backend transport — request', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('RT-1231: sends no Authorization header at all for a body-authenticated request', async () => {
+    const fetch = respond(200, '{}');
+    await transportOf(fetch).send({
+      method: 'POST',
+      path: '/api/x',
+      bearer: null,
+      headers: { 'Content-Type': 'application/json', authorization: 'Bearer spoofed' },
+      body: '{"device_token_attestation":"d"}',
+    });
+    expect(initOf(fetch).headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(initOf(fetch).body).toBe('{"device_token_attestation":"d"}');
+  });
+
   it('arms the per-call timeout signal', async () => {
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     const fetch = respond(200, '{}');
