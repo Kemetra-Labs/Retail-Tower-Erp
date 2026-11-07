@@ -353,7 +353,7 @@ class AdminWiringTests(unittest.TestCase):
         job = wf["jobs"]["admin-build-test"]
         self.assertEqual(job["name"], "admin/build-test")
         self.assertEqual(job["permissions"], {"contents": "read", "statuses": "read"})
-        self.assertEqual(job["timeout-minutes"], 30)
+        self.assertEqual(job["timeout-minutes"], 40)
         steps = job["steps"]
         names = [s.get("name", s.get("uses", "")) for s in steps]
         mode_at = names.index("Vitest provider (RT-1265) - verify CircleCI or run here")

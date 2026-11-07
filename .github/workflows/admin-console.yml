@@ -152,8 +152,10 @@ jobs:
     if: contains(fromJSON(needs.plan.outputs.jobs), 'admin/build-test')
     runs-on: ubuntu-latest
     # RT-584: default is 360 min; the job's p90 is ~2 min, so a hang fails fast.
-    # RT-1265: 30 covers the verifier's 20-minute wait for the CircleCI status plus the other steps.
-    timeout-minutes: 30
+    # RT-1265: 40 = the verifier step's 22 minutes (20-minute wait for the CircleCI status plus
+    # polling) + up to 18 minutes for the steps before it (p90 today about 1 minute), so a slow
+    # install or build never cancels the job while a CircleCI success is still on its way.
+    timeout-minutes: 40
     # RT-1265: statuses: read for the CircleCI commit status the verifier judges.
     permissions:
       contents: read
