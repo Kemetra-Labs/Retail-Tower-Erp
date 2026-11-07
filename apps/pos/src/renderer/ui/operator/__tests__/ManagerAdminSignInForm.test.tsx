@@ -224,6 +224,20 @@ describe('ManagerAdminSignInForm — T021 (Slice 0 Note 1) error-then-resubmit',
     expect(screen.queryByTestId('sign-in-spinner')).not.toBeInTheDocument();
   });
 
+  it('on a no_connection refusal renders the existing no-connection copy (RT-1267)', async () => {
+    const user = userEvent.setup();
+    const noConnection = (): Promise<SignInResponse> =>
+      Promise.resolve({ kind: 'refused', category: 'no_connection' });
+    render(<ManagerAdminSignInForm operator={bridgeWith(noConnection).bridge} />);
+    await user.type(screen.getByTestId('sign-in-identifier'), 'm@x.test');
+    await user.type(screen.getByTestId('sign-in-password'), 'secret');
+    await user.click(screen.getByTestId('sign-in-submit'));
+    const alert = await screen.findByTestId('sign-in-refusal');
+    expect(alert).toHaveAttribute('data-category', 'no_connection');
+    expect(alert).toHaveTextContent(SIGN_IN_REFUSAL_COPY.no_connection);
+    expect(alert).not.toHaveTextContent(SIGN_IN_REFUSAL_COPY.invalid_input);
+  });
+
   it('typing a new keystroke dismisses the inline alert', async () => {
     const user = userEvent.setup();
     render(<ManagerAdminSignInForm operator={bridgeWith(refusedResponse).bridge} />);

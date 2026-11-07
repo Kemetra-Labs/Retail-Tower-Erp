@@ -230,8 +230,9 @@ export interface CreateBackendClientDeps {
  * resolve to `{ kind: 'no_connection' }`. The function NEVER throws,
  * so callers do not need a try/catch wrapper.
  *
- * Failure-mode collapse: every 4xx/5xx maps to `refused` (PR-2 — no
- * factor distinction).
+ * Failure-mode collapse: every 4xx maps to `refused` (PR-2 — no factor
+ * distinction). Exception (RT-1267): a manager sign-in 5xx maps to
+ * `no_connection`; the other calls still collapse 5xx to `refused`.
  *
  * Redaction: the `Authorization` header value (the JWT) is held only
  * in the `init.headers` object passed to fetch and never logged.
@@ -285,6 +286,7 @@ export function createBackendClient(deps: CreateBackendClientDeps): BackendClien
         `${root}${SIGN_IN_PATH}`,
         jsonPost(jwt, req),
         interpretSignInResponse,
+        signInRefusal,
       );
     },
 
@@ -439,6 +441,20 @@ function rosterRefusal(status: number): ListRefusal {
   if (status === 401) return { kind: 'unauthenticated' };
   if (status === 403) return { kind: 'forbidden' };
   return { kind: 'refused' };
+}
+
+/**
+ * RT-1267 (RT-1254 F2): a non-2xx manager sign-in answer. A 5xx is a server
+ * fault that says nothing about the account, so it reads as `no_connection`
+ * (retry later) instead of "wrong credentials". This narrows the PR-2
+ * failure-mode collapse for 5xx only (owner decision 2026-11-07); every 4xx
+ * (401/403/422/…) still collapses to the generic, non-disclosing `refused`.
+ */
+/** An HTTP status code. */
+type HttpStatus = number;
+
+function signInRefusal(status: HttpStatus): { kind: 'refused' } | { kind: 'no_connection' } {
+  return status >= 500 ? { kind: 'no_connection' } : { kind: 'refused' };
 }
 
 /** RT-358: a non-2xx stuck-shifts answer, classified exactly like the roster's (RT-214). */

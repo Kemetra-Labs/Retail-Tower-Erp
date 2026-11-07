@@ -139,16 +139,26 @@ describe('createBackendClient — sign-in request shape', () => {
     expect(res.kind).toBe('takeover_required');
   });
 
-  it('collapses any 4xx/5xx to refused', async () => {
-    for (const status of [400, 401, 403, 409, 422, 500]) {
-      const { fetchImpl } = captureFetch(new Response('{}', { status }));
-      const client = createBackendClient({ baseUrl: BASE, fetch: fetchImpl });
-      const res = await client.signIn(
-        { kind: 'manager_admin', device_token_attestation: 'a' },
-        'j',
-      );
-      expect(res.kind).toBe('refused');
-    }
+  // PR-2: every 4xx collapses to the non-disclosing `refused`. RT-1267 (RT-1254 F2):
+  // a 5xx says nothing about the account, so it maps to `no_connection` instead.
+  it.each([
+    [400, 'refused'],
+    [401, 'refused'],
+    [403, 'refused'],
+    [404, 'refused'],
+    [409, 'refused'],
+    [422, 'refused'],
+    [429, 'refused'],
+    [500, 'no_connection'],
+    [502, 'no_connection'],
+    [503, 'no_connection'],
+    [504, 'no_connection'],
+    [599, 'no_connection'],
+  ] as const)('answers HTTP %i with %s', async (status, kind) => {
+    const { fetchImpl } = captureFetch(new Response('{}', { status }));
+    const client = createBackendClient({ baseUrl: BASE, fetch: fetchImpl });
+    const res = await client.signIn({ kind: 'manager_admin', device_token_attestation: 'a' }, 'j');
+    expect(res).toEqual({ kind });
   });
 
   it('returns no_connection on network failure', async () => {
