@@ -7,6 +7,12 @@
 #   release-sha  the 40-hex commit the release was built from
 #   ledger.json  the live ledger; nothing is sent unless its .outcome is "deployed"
 #
+# RT-1242 mode: sentry-release.sh sourcemaps admin-console <release> <release-sha> <dir>
+#   <dir>/assets holds the built *.js and the hidden *.js.map files of the Console release. They are
+#   uploaded to Sentry under release <release> (SHA12) with `--url-prefix "~/assets"`, matched by
+#   release + URL path (both scrubbers drop debug_meta, so no `sourcemaps inject` and no Debug IDs).
+#   Same token, same pinned binary, same never-fail rule as below.
+#
 # Steps, all with the pinned sentry-cli below:
 #   releases new -> releases set-commits -> releases finalize -> deploys new -e staging
 #
@@ -29,7 +35,36 @@ export SENTRY_ORG="kemetra"
 
 warn() { echo "::warning::Sentry release (RT-1241): $*"; }
 
+# RT-1242: upload the Console's source maps for a published release. Evidence only, like main().
+sourcemaps_main() {
+  local product="${1:-}" release="${2:-}" sha="${3:-}" dir="${4:-}"
+  [ "$product" = admin-console ] || { warn "source maps are uploaded for admin-console only, not '$product'; skipped"; return 0; }
+  [[ "$release" =~ ^[0-9a-f]{12}$ ]] || { warn "release '$release' is not a SHA12; source maps skipped"; return 0; }
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && [ "${sha:0:12}" = "$release" ] || { warn "release '$release' is not the first 12 hex of the release commit; source maps skipped"; return 0; }
+  local maps=0 f
+  for f in "$dir"/assets/*.js.map; do [ -f "$f" ] && maps=$((maps + 1)); done
+  if [ "$maps" -eq 0 ]; then
+    warn "no *.js.map files under $dir/assets (is build.sourcemap 'hidden' still set?); nothing uploaded for $release."
+    return 0
+  fi
+  if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+    warn "SENTRY_AUTH_TOKEN is not set on this environment; $maps source maps were not uploaded for $release."
+    return 0
+  fi
+  export SENTRY_PROJECT="$product"
+  local cli
+  cli="$(install_cli)" || { warn "could not install the pinned sentry-cli $SENTRY_CLI_VERSION; source maps not uploaded for $release."; return 0; }
+  run_cli "$cli" releases new "$release" || { warn "releases new $release failed (token scopes or project?); source maps not uploaded."; return 0; }
+  if run_cli "$cli" sourcemaps upload --release "$release" --url-prefix "~/assets" --no-rewrite "$dir/assets"; then
+    echo "Sentry source maps: $maps maps uploaded under release $release (project $product, url-prefix ~/assets)."
+  else
+    warn "sourcemaps upload for $release failed; the Console stays minified in Sentry."
+  fi
+  return 0
+}
+
 main() {
+  if [ "${1:-}" = sourcemaps ]; then shift; sourcemaps_main "$@"; return 0; fi
   local product="${1:-}" release="${2:-}" sha="${3:-}" ledger="${4:-}"
   case "$product" in backend-core | admin-console | erpnext-connector) ;; *) warn "unknown product '$product'; skipped"; return 0 ;; esac
   [[ "$release" =~ ^(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{12})$ ]] || { warn "release '$release' is neither vX.Y.Z nor SHA12; skipped"; return 0; }

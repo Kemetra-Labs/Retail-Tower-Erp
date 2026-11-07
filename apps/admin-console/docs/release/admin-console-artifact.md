@@ -24,6 +24,14 @@ The build refuses to release when:
   replace the same-origin API default;
 - `dist/` lacks `index.html` or `assets/`, or contains source maps or `.env*` files.
 
+Source maps (RT-1242): `vite.config.ts` builds hidden maps (`build.sourcemap: "hidden"`, no
+`sourceMappingURL` comment). The build job moves them out of `dist/` before `release-artifact.ts`,
+the archive and its hash, and asserts the archive holds 0 `.map` files, so neither the archive nor
+the hosted Console ever carries one. Publish uploads them to Sentry (project `admin-console`,
+release = the SHA12 of the release commit, `--url-prefix "~/assets"`, no `inject`) with
+`.github/release/sentry-release.sh sourcemaps`. Matching is by release and URL path because both
+scrubbers drop `debug_meta`. A missing token or a Sentry error is a warning, never a failed release.
+
 An `admin-console/vX.Y.Z` tag publishes (RT-717 C1). The publish job runs behind the
 `release-admin-console` environment (owner reviewer, tag-only policy) and refuses to run
 if that environment is not set up that way. It checks that the archive is the one the
