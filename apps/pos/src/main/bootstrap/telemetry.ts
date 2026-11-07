@@ -56,7 +56,17 @@ export type SentrySdk = Pick<
   | 'onUnhandledRejectionIntegration'
   | 'linkedErrorsIntegration'
   | 'dedupeIntegration'
+  | 'captureException'
 >;
+
+/**
+ * RT-1253 lab proof (AC8): a packaged build has no UI path that throws and refuses every debug
+ * switch, so a lab terminal can report ONE controlled test error per start when this env flag is
+ * `1`. It only ever fires on a build classified `lab` (never production, never unclassified), only
+ * in tunnel mode, and only once the config is enabled and the terminal is paired.
+ */
+const SELFTEST_FLAG = 'POS_PULSE_TELEMETRY_SELFTEST';
+const SELFTEST_MESSAGE = 'RT-1253 lab telemetry self-test: a controlled error, not a product error';
 
 interface TelemetryLogger {
   info(fields: Record<string, unknown>, msg: string): void;
@@ -221,8 +231,18 @@ function registerTunnel(
     stopped = true;
     if (timer !== undefined) clearTimeout(timer);
   };
+  let selfTestSent = false;
+  const selfTestWanted = mode.build === 'lab' && deps.env[SELFTEST_FLAG] === '1';
+  const maybeSelfTest = (): void => {
+    if (!selfTestWanted || selfTestSent) return;
+    if (config.current()?.kind !== 'enabled' || binding().currentTerminalId() === null) return;
+    selfTestSent = true;
+    sentry.captureException(new Error(SELFTEST_MESSAGE));
+    logger.info({ flag: SELFTEST_FLAG }, 'telemetry:selftest-sent');
+  };
   const tick = async (): Promise<void> => {
     await config.refresh();
+    maybeSelfTest();
     schedule();
   };
 
