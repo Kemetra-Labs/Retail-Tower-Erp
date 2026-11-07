@@ -11,7 +11,7 @@ from the PR, not re-run" when a number comes from a PR description.
 **Merged evidence**
 * PR [#<n>](https://github.com/Kemetra-Labs/Retail-Tower-Erp/pull/<n>), merge commit `<sha9>` (<date>), head `<sha9>`.
 * `required` on that head: newest completed run `success` (GitHub check-runs API). <or: the owner-accepted earlier-gate note, plus the push runs on the merge commit with their run ids>
-* No revert of #<n> on `origin/main`.
+* No revert of #<n> on `origin/main` (searched `This reverts commit` bodies for the merge and PR commits, any subject, and `Revert "` subjects naming #<n>).
 
 **Acceptance criteria mapped to evidence**
 1. <criterion, short> -> <test name, file, run id or comment id that proves it>

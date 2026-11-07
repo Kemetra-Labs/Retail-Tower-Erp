@@ -156,22 +156,43 @@ def required_summary(repo: str, sha: str) -> str:
     return f"newest = {newest['status']} (started after the last completed run: {last_done})"
 
 
-def revert_lines(pr: int, merge: str) -> tuple[list[str], str]:
-    """Commits on origin/main whose subject starts with 'Revert "' and names the PR."""
+def revert_lines(pr: int, shas: list[str]) -> tuple[list[str], str]:
+    """Commits on origin/main that revert the PR, matched two ways.
+
+    A commit counts when its body says "This reverts commit <sha>" for the merge SHA or any
+    PR commit, whatever its subject (this repo also writes `revert(scope): ...` subjects),
+    or when its subject starts with 'Revert "' and names #<pr>. A manual revert that uses
+    neither form is not detectable here, so the scope line says what was searched.
+    """
     try:
         base = run(["git", "rev-parse", "--short", "origin/main"]).strip()
-        log = run(["git", "log", "origin/main", "--format=%h %s"])
+        log = run(["git", "log", "origin/main", "--format=%H%x00%s%x00%b%x1e"])
     except RuntimeError as exc:
         warn(f"revert check skipped: {exc}")
         return [], "not checked"
-    hits = [
-        ln
-        for ln in log.splitlines()
-        if ln.split(" ", 1)[-1].startswith('Revert "')
-        and re.search(rf"#{pr}\b", ln)
-        and not (merge and ln.startswith(merge[:9]))
-    ]
-    return hits, f"origin/main {base} (run `git fetch origin` first if it may be stale)"
+    targets = {s.lower() for s in shas if s}
+    hits = []
+    for rec in log.split("\x1e"):
+        parts = rec.strip("\n").split("\x00")
+        if len(parts) < 3 or parts[0].lower() in targets:
+            continue
+        sha, subject, body = parts[0], parts[1], parts[2]
+        reverted = {
+            m.lower() for m in re.findall(r"reverts commit ([0-9a-f]{7,40})", body)
+        }
+        by_body = any(
+            t.startswith(r) or r.startswith(t) for r in reverted for t in targets
+        )
+        by_subject = subject.startswith('Revert "') and re.search(rf"#{pr}\b", subject)
+        if by_body or by_subject:
+            hits.append(f"{sha[:9]} {subject}")
+    scope = (
+        f"origin/main {base}; searched 'Revert \"' subjects naming #{pr} and "
+        f"'This reverts commit' bodies (any subject) for {len(targets)} SHAs "
+        "(merge + PR commits); "
+        "run `git fetch origin` first if it may be stale"
+    )
+    return hits, scope
 
 
 def cmd_ci(a: argparse.Namespace) -> None:
@@ -185,7 +206,7 @@ def cmd_ci(a: argparse.Namespace) -> None:
                 "--repo",
                 a.repo,
                 "--json",
-                "headRefOid,mergeCommit,mergedAt,state,title",
+                "headRefOid,mergeCommit,mergedAt,state,title,commits",
             ]
         )
         head = d["headRefOid"]
@@ -218,7 +239,8 @@ def cmd_ci(a: argparse.Namespace) -> None:
             for r in push
             if r["workflowName"] in a.workflows
         ]
-        hits, checked = revert_lines(n, merge)
+        pr_shas = [c.get("oid", "") for c in d.get("commits") or []]
+        hits, checked = revert_lines(n, [merge, *pr_shas])
         print(
             f"#{n} {d['state']} merged {(d.get('mergedAt') or '')[:10]} head {head[:9]} merge {merge[:9]}"
         )
