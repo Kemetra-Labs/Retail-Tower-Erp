@@ -136,7 +136,10 @@ revocation done first blocks step 1.
 2. **Cut tenant access, only if step 1 cannot happen soon, or to end POS access
    at once.** The user's membership is revoked (`DELETE /api/v1/memberships/<id>`)
    by an owner or a tenant admin; an owner's membership only by another owner or a
-   platform admin (a tenant admin gets 403).
+   platform admin (a tenant admin gets 403). A membership covers one tenant only: a
+   user who belongs to several tenants keeps access, on POS and Admin, in every
+   tenant where a membership is still active. Revoke the membership in each tenant
+   the user belongs to (the tenants their Admin sign-in lists).
    An open Admin session stays valid, but every tenant-scoped request is refused,
    because `TenantContextGuard` checks for an active membership on each request
    (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
@@ -147,11 +150,17 @@ revocation done first blocks step 1.
    - a platform admin is not bound by tenant membership: use step 1;
    - the session can still reach routes that are not tenant-scoped (for example its
      own sign-out) until it expires.
-3. **If step 2 already happened:** set the new password (above). Wait for the full
-   configured age cap (`DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS`, default 8.5 hours) plus
-   a few minutes since the password was set: the verifier allows 5 seconds of clock
-   tolerance on `exp` and on the age cap, and server clocks can drift. Only then is a
-   JWT issued before the change unusable. Then re-invite the user so they hold a membership
+3. **If step 2 already happened:** set the new password (above), then wait before
+   restoring any membership, counted from the password set:
+   - POS: the full configured age cap (`DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS`, default
+     8.5 hours) plus a few minutes, because the verifier allows 5 seconds of clock
+     tolerance on `exp` and on the age cap and server clocks can drift;
+   - Admin: the 24-hour absolute session expiry plus a few minutes, because an old
+     Admin session regains tenant access as soon as a membership is restored, before
+     the user has changed the password.
+
+   So wait at least 24 hours plus a margin. Only then are the old POS tokens and
+   Admin sessions unusable. Then re-invite the user so they hold a membership
    again, and have them change the password on the
    account page at their first sign-in (step 1). The other sessions stay valid until
    that change, or until their 24-hour expiry.
