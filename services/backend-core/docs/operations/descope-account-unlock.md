@@ -100,12 +100,27 @@ Management API does not end sessions Backend-Core already issued: an Admin sessi
 lives until its 24-hour absolute expiry, and a POS operator token until its age cap
 (8.5 hours by default). If someone else may have signed in:
 
-- have the user change the password from Admin once (revokes their other Admin
-  sessions);
-- for POS, and for an account the user cannot reach, revoke the user's membership
-  (owner or tenant admin, `DELETE /api/v1/memberships/<id>`). POS operator routes
-  look up the membership on every call (RT-943 item 2). **Needs verification:**
-  whether a membership revocation also ends an open Admin session.
+1. **Contain (works for every account, including the last owner).** A Descope admin
+   sets a new password (above). The user, or the owner with the user present, signs
+   in with it and changes the password once from Admin. That change revokes every
+   other Admin session of the user (RT-937 D-C). Backend-Core has no other route that
+   ends another user's Admin sessions.
+2. **Cut tenant access meanwhile, if the user cannot sign in yet.** An owner or
+   tenant admin revokes the user's membership (`DELETE /api/v1/memberships/<id>`).
+   An open Admin session stays valid, but every tenant-scoped request is refused,
+   because `TenantContextGuard` checks for an active membership on each request
+   (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
+   Limits:
+   - the last active owner of a tenant cannot be revoked
+     (`memberships/membership-hierarchy.ts`, "A tenant must keep at least one active
+     owner"): use step 1;
+   - a platform admin is not bound by tenant membership: use step 1;
+   - the session can still reach routes that are not tenant-scoped (for example its
+     own sign-out) until it expires.
+3. Re-invite the user once the account is safe, if the membership was revoked.
+
+Not observed on a live system: these steps follow from the code at the time of
+writing and have not been exercised on a lab session.
 - Record the event (date, account, cause, action) on the pilot's incident log or the
   relevant Jira issue. Do not include the password or any key.
 
