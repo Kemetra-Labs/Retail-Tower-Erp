@@ -143,10 +143,15 @@ function inertHandle(
   };
 }
 
-interface LateState {
-  bound: boolean;
-  binding: TelemetryLateBinding | null;
-}
+/**
+ * What the transport sees before `bind`: no token, no terminal, and a fetch that rejects.
+ * The executor itself refuses to send while unbound, so this is only the safe default.
+ */
+const UNBOUND: TelemetryLateBinding = {
+  fetch: () => Promise.reject(new Error('telemetry:not-ready')),
+  readToken: () => Promise.resolve(null),
+  currentTerminalId: () => null,
+};
 
 function registerTunnel(
   deps: TelemetryDeps,
@@ -158,33 +163,30 @@ function registerTunnel(
   const tunnelUrl = `${root}${TELEMETRY_TUNNEL_PATH}`;
   const telemetryDir = path.join(deps.app.getPath('userData'), 'telemetry');
   const queuePath = path.join(telemetryDir, 'queue');
-  const late: LateState = { bound: false, binding: null };
+  let bound: TelemetryLateBinding | null = null;
+  const binding = (): TelemetryLateBinding => bound ?? UNBOUND;
 
+  const configClient = createTelemetryConfigClient({
+    transport: createBackendTransport({
+      baseUrl: deps.baseUrl,
+      fetch: (input, init) => binding().fetch(input, init),
+      timeoutMs: CONFIG_TIMEOUT_MS,
+      maxBodyBytes: CONFIG_MAX_BODY_BYTES,
+    }),
+    readToken: () => binding().readToken(),
+  });
   const config = createTelemetryConfig({
     store: createFileConfigStore(path.join(telemetryDir, 'config.json')),
-    fetchConfig: () => {
-      const binding = late.binding;
-      if (binding === null) return Promise.resolve(null);
-      return createTelemetryConfigClient({
-        transport: createBackendTransport({
-          baseUrl: deps.baseUrl,
-          fetch: binding.fetch,
-          timeoutMs: CONFIG_TIMEOUT_MS,
-          maxBodyBytes: CONFIG_MAX_BODY_BYTES,
-        }),
-        readToken: binding.readToken,
-      }).read();
-    },
+    fetchConfig: () => configClient.read(),
   });
 
   const executor = createTunnelRequestExecutor({
-    isBound: () => late.bound,
+    isBound: () => bound !== null,
     isEnabled: () => config.current()?.kind === 'enabled',
     tunnelUrl,
-    readToken: () => late.binding?.readToken() ?? Promise.resolve(null),
-    currentTerminalId: () => late.binding?.currentTerminalId() ?? null,
-    fetch: (input, init) =>
-      late.binding?.fetch(input, init) ?? Promise.reject(new Error('unbound')),
+    readToken: () => binding().readToken(),
+    currentTerminalId: () => binding().currentTerminalId(),
+    fetch: (input, init) => binding().fetch(input, init),
     timeoutMs: TUNNEL_TIMEOUT_MS,
   });
   const makeTransport = sentry.makeElectronOfflineTransport((options) =>
@@ -198,7 +200,7 @@ function registerTunnel(
     tunnelUrl,
     commit: buildIdentity?.commit ?? null,
     config,
-    currentTerminalId: () => late.binding?.currentTerminalId() ?? null,
+    currentTerminalId: () => binding().currentTerminalId(),
     makeTransport,
     queuePath,
   });
@@ -226,9 +228,8 @@ function registerTunnel(
     mode,
     buildIdentity,
     isInitialized: () => result.kind === 'initialized',
-    bind(binding) {
-      late.binding = binding;
-      late.bound = true;
+    bind(late) {
+      bound = late;
       deps.workerRegistry.register('telemetry config refresh', stop);
       if (result.kind === 'initialized') void tick();
     },

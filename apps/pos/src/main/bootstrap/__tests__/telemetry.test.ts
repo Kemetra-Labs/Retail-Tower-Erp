@@ -30,12 +30,36 @@ interface Fixture {
   dir: string;
 }
 
-function fixture(env: Record<string, string | undefined>, shipped = true): Fixture {
+interface FixtureOptions {
+  /** Write `dist/build-identity.json` (default true). */
+  stamp?: boolean;
+  /** `Sentry.init` throws (a malformed setup). */
+  initThrows?: boolean;
+  /** A config cached by an earlier run. */
+  cachedConfig?: { kind: 'enabled'; environment: string };
+}
+
+function fixture(
+  env: Record<string, string | undefined>,
+  shipped = true,
+  extra: FixtureOptions = {},
+): Fixture {
   const dir = mkdtempSync(path.join(tmpdir(), 'rt1253-boot-'));
   tmp = dir;
   mkdirSync(path.join(dir, 'dist'));
-  writeFileSync(path.join(dir, 'dist', 'build-identity.json'), JSON.stringify({ commit: COMMIT }));
-  const init = vi.fn<(o: ElectronMainOptions) => void>();
+  if (extra.stamp !== false) {
+    writeFileSync(
+      path.join(dir, 'dist', 'build-identity.json'),
+      JSON.stringify({ commit: COMMIT }),
+    );
+  }
+  if (extra.cachedConfig !== undefined) {
+    mkdirSync(path.join(dir, 'telemetry'));
+    writeFileSync(path.join(dir, 'telemetry', 'config.json'), JSON.stringify(extra.cachedConfig));
+  }
+  const init = vi.fn<(o: ElectronMainOptions) => void>(() => {
+    if (extra.initThrows === true) throw new Error('boom');
+  });
   const registered: string[] = [];
   const marker = (): never => ({ name: 'fake' }) as never;
   const sentry = {
@@ -215,5 +239,154 @@ describe('registerTelemetry — tunnel mode', () => {
     expect(() => {
       wiring.purgeQueue();
     }).not.toThrow();
+  });
+});
+
+describe('registerTelemetry — the rest of the tunnel lifecycle', () => {
+  const stable = { POS_PULSE_UPDATE_CHANNEL: 'stable' };
+  const enabled = { kind: 'enabled', environment: 'lab' } as const;
+  const configBody = JSON.stringify({
+    enabled: true,
+    tunnel: '/api/pos/v1/telemetry/envelope',
+    environment: 'lab',
+  });
+  const envelope = `{}\n{"type":"event"}\n{"tags":{"${CAPTURE_TERMINAL_TAG}":"term-A"}}\n`;
+
+  const json = (status: number, body?: string): Response =>
+    new Response(body ?? null, { status, headers: { 'content-type': 'application/json' } });
+
+  const urlOf = (input: RequestInfo | URL): string =>
+    typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+
+  function executorOf(f: Fixture): (r: { body: string }) => Promise<{ statusCode: number }> {
+    const transport = options(f).transport as unknown as (o: unknown) => { exec: never };
+    return transport({}).exec;
+  }
+
+  it('a bound, enabled terminal forwards an envelope through the tunnel with the device token', async () => {
+    const f = fixture(stable, true, { cachedConfig: enabled });
+    const wiring = registerTelemetry(f.deps);
+    const fetch = vi.fn((url: RequestInfo | URL) =>
+      Promise.resolve(
+        urlOf(url).endsWith('/config')
+          ? json(200, configBody)
+          : new Response(null, { status: 204 }),
+      ),
+    );
+    wiring.bind({
+      fetch,
+      readToken: () => Promise.resolve('tok'),
+      currentTerminalId: () => 'term-A',
+    });
+    const answer = await executorOf(f)({ body: envelope });
+    expect(answer.statusCode).toBe(204);
+    const sent = fetch.mock.calls.find(([url]) => url === TUNNEL);
+    expect(sent).toBeDefined();
+    expect(new Headers((sent?.[1] as RequestInit).headers).get('authorization')).toBe('Bearer tok');
+    wiring.stop();
+  });
+
+  it('before bind an enabled terminal records nothing: no terminal is paired yet', () => {
+    const f = fixture(stable, true, { cachedConfig: enabled });
+    registerTelemetry(f.deps);
+    const beforeSend = options(f).beforeSend as unknown as BeforeSend;
+    expect(beforeSend(exception())).toBeNull();
+  });
+
+  it('the direct and inert handles ignore bind, purge and stop', () => {
+    const direct = registerTelemetry(
+      fixture({ SENTRY_DSN: ENV_DSN, POS_PULSE_UPDATE_CHANNEL: 'lab' }).deps,
+    );
+    const inert = registerTelemetry(fixture({}, false).deps);
+    for (const wiring of [direct, inert]) {
+      expect(() => {
+        wiring.bind({
+          fetch: () => Promise.resolve(new Response(null, { status: 204 })),
+          readToken: () => Promise.resolve('tok'),
+          currentTerminalId: () => 'term-A',
+        });
+        wiring.purgeQueue();
+        wiring.stop();
+      }).not.toThrow();
+    }
+  });
+
+  it('a build without a stamp reports release unknown and has no buildIdentity', () => {
+    const f = fixture(stable, true, { stamp: false });
+    const wiring = registerTelemetry(f.deps);
+    expect(wiring.buildIdentity).toBeNull();
+    expect(options(f).release).toBe('unknown');
+  });
+
+  it('a throwing init is survived: not initialised and the config is never fetched', () => {
+    const f = fixture(stable, true, { initThrows: true });
+    const wiring = registerTelemetry(f.deps);
+    const fetch = vi.fn();
+    wiring.bind({
+      fetch,
+      readToken: () => Promise.resolve('tok'),
+      currentTerminalId: () => 'term-A',
+    });
+    expect(wiring.isInitialized()).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  describe('refresh timing', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const bindWith = (
+      wiring: ReturnType<typeof registerTelemetry>,
+      fetch: () => Promise<Response>,
+    ) => {
+      wiring.bind({
+        fetch,
+        readToken: () => Promise.resolve('tok'),
+        currentTerminalId: () => 'term-A',
+      });
+    };
+
+    it('retries every 5 minutes while the config was never fetched', async () => {
+      vi.useFakeTimers();
+      const wiring = registerTelemetry(fixture(stable).deps);
+      const fetch = vi.fn(() => Promise.reject(new TypeError('fetch failed')));
+      bindWith(wiring, fetch);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      wiring.stop();
+    });
+
+    it('refreshes slowly (6 hours) once a config is cached', async () => {
+      vi.useFakeTimers();
+      const wiring = registerTelemetry(fixture(stable, true, { cachedConfig: enabled }).deps);
+      const fetch = vi.fn(() => Promise.resolve(json(200, configBody)));
+      bindWith(wiring, fetch);
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      wiring.stop();
+    });
+
+    it('stop() while a refresh is in flight schedules nothing afterwards', async () => {
+      vi.useFakeTimers();
+      const wiring = registerTelemetry(fixture(stable, true, { cachedConfig: enabled }).deps);
+      let release: (r: Response) => void = () => undefined;
+      const fetch = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+      );
+      bindWith(wiring, fetch);
+      await vi.advanceTimersByTimeAsync(0);
+      wiring.stop();
+      release(json(200, configBody));
+      await vi.advanceTimersByTimeAsync(7 * 60 * 60 * 1000);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
   });
 });
