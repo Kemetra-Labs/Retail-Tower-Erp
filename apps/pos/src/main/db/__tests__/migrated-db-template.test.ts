@@ -36,6 +36,7 @@ async function freshReplay(): Promise<SqlJsDatabase> {
   return db;
 }
 
+/** Every schema object (type, name, table, DDL) except SQLite's internal autoindexes, sorted. */
 function schemaOf(db: SqlJsDatabase): unknown[][] {
   const res = db.exec(
     "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_autoindex%' ORDER BY type, name",
@@ -49,6 +50,7 @@ function rowsOf(db: SqlJsDatabase, table: string): string[] {
   return values.map((row) => JSON.stringify(row)).sort();
 }
 
+/** The first column of the first row `sql` returns, or `undefined` when there is none. */
 function scalar(db: SqlJsDatabase, sql: string): unknown {
   return db.exec(sql)[0]?.values[0]?.[0];
 }
