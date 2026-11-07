@@ -49,8 +49,8 @@ each step, so a cut session can be recovered:
 2026-11-07 19:04	RT-1262	comment 15981 (evidence)	-	posted
 2026-11-07 19:04	RT-1262	set customfield_10242	pending	verified(10174)
 2026-11-07 19:05	RT-1262	transition 41 (Done)	In Review	Done (pending readback)
-2026-11-07 20:22	RT-170	DELETED issueLink 10448 (blocked by RT-16, Done)	present	removed
 2026-11-07 19:07	READBACK	RT-157,RT-1218	In Review	Done, resolution Done, gate verified
+2026-11-07 20:22	RT-170	DELETED issueLink 10448 (blocked by RT-16, Done)	present	removed
 ```
 
 For link deletions, log the link ID and the blocker key so the link can be re-created.

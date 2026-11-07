@@ -36,8 +36,10 @@ issues (apply OS section 4A directly).
 
 1. **Scope and authority.** Default to a dry run. Mutate only after the owner authorizes,
    in this chat, the specific kind of change (transition, close, comment, link removal).
-   Each kind needs its own yes. Destructive edits (link deletion) need approval of the
-   exact list.
+   Each kind needs its own yes. Closes and link deletions also need the owner's approval
+   of the exact list: present each issue (or link) with a one-line evidence summary and
+   wait for a yes on that list. The agent produces evidence; the owner decides Done
+   (CLAUDE.md section 13).
 2. **Gather in bulk, not per issue.** Pull all candidate issues with one JQL query
    (results spill to a file; parse the file). Run `python -X utf8 scripts/rt_reconcile.py`
    for the GitHub side: own PRs per key, newest completed `required` per head, push runs
@@ -52,8 +54,10 @@ issues (apply OS section 4A directly).
    3. Own PRs only: the issue key that comes first in the PR title (else the branch).
       A PR that merely mentions a key belongs to its first key, not to every key named.
    4. The PR file list: captures (`*.png`), specs, migrations, docs named by the criteria.
-   5. The newest **completed** `required` check-run on each PR head. Older runs stuck
-      `in_progress` are superseded duplicates; `gh pr checks` alone misleads.
+   5. The newest `required` check-run on each PR head by `started_at` (CLAUDE.md 11.6).
+      If it is completed and green, older runs stuck `in_progress` are superseded
+      duplicates. If the newest run is itself unfinished, there is no green result.
+      `gh pr checks` alone misleads.
    6. If no completed green `required` exists: count CI only with an owner acceptance
       you can attribute to the owner (see below), plus green push runs on the merge commit.
    7. Reverts of the PR on `origin/main`.
@@ -75,7 +79,7 @@ issues (apply OS section 4A directly).
 | Planning item, artifact merged, owner decision pending | Move to In Review at most |
 | To Do or In Progress with own merged PRs, series unfinished | Move to In Progress |
 | To Do or In Progress, all planned PRs merged, evidence outstanding | Move to In Review |
-| Owner confirms a decision in chat | Record it on the issue (quote date and wording), then re-check |
+| Owner confirms a decision in chat | Record it on the issue (quote date and wording; a comment, so it needs comment authorization), then re-check |
 
 Accepting an earlier CI gate covers CI evidence only. It never waives captures, staging,
 lab runs or owner decisions named in the criteria.
@@ -110,7 +114,8 @@ see it before you close.
 |---|---|
 | Triage by keywords in the criteria | Read every comment and the PR file list first |
 | Crediting a PR to every key in its title | Primary key only (first key in title, else branch) |
-| Trusting `gh pr checks` or the merged state | Newest completed `required` on the head SHA |
+| Trusting `gh pr checks` or the merged state | Newest `required` run on the head SHA, by `started_at` |
+| Counting a revert PR as more merged work | The script tags titles starting `Revert`; exclude them |
 | Looking for a Done transition before setting the gate | Done (41) appears only after the gate is `verified` |
 | Posting a generic "merged, not verified" comment | Comment only with a specific missing fact or a closeout |
 | Claiming a result before reading it back | One readback query of all changed issues |
