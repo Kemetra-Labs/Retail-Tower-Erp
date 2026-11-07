@@ -105,3 +105,4 @@ RT-1184 consumer:admin intentional (owner decision RT-1165 comment 15479, 2026-1
 # RT-1051 (owner decision 2026-11-05): capture-sale `lines` gains maxItems 500.
 RT-1051 consumer:POS intentional (owner decision 2026-11-05, RT-1051 comment 15572; zod GHSA-mrhx-c7xc-m3w5; POS repinned in this PR; it caps a cart at 30 lines, RT-1052): in API POST /api/pos/v1/sales the `lines` request property's maxItems was set to `500` [request-property-max-items-set].
 RT-1051 consumer:POS intentional (owner decision 2026-11-05, RT-1051; zod GHSA-mrhx-c7xc-m3w5; POS repinned in this PR; one tender per payment method, at most a handful per sale): in API POST /api/pos/v1/sales the `tenders` request property's maxItems was set to `16` [request-property-max-items-set].
+RT-936 probe A (untagged, closed unmerged, never merge): in API POST /api/pos/v1/sales the `lines` request property's maxItems was set to `500` [request-property-max-items-set].
