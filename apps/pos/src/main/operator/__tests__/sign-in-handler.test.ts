@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { Logger } from 'pino';
 
 import { SignInHandler } from '../sign-in-handler.js';
 import { SessionManager } from '../session-manager.js';
@@ -309,6 +310,23 @@ describe('SignInHandler — manager/admin path', () => {
       password: 'p',
     });
     expect(res).toEqual({ kind: 'refused', category: 'no_connection' });
+  });
+
+  it('logs the backend stage as no_connection when backend is down (RT-1267)', async () => {
+    const info = vi.fn();
+    const handler = new SignInHandler({
+      clerk: fakeClerk(HAPPY_CLERK_RESULT),
+      backend: fakeBackend({ kind: 'no_connection' }),
+      sessionManager: new SessionManager(),
+      protoStore: new ProtoSessionStore(),
+      deviceTokenAttestation: () => 'attest',
+      logger: { info } as unknown as Logger,
+    });
+    await handler.signIn({ kind: 'manager_admin', identifier: 'i', password: 'p' });
+    expect(info).toHaveBeenCalledWith(
+      { event: 'operator.sign_in.refused', category: 'no_connection', stage: 'backend' },
+      'sign-in refused',
+    );
   });
 
   it('refuses generically when backend rejects (any cause)', async () => {
