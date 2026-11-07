@@ -68,6 +68,9 @@ const DUMMY_PHC =
 /** One message for a wrong current password, a rejected new password and an unverifiable provider answer. */
 const PASSWORD_CHANGE_REFUSED = "The password could not be changed";
 
+/** One message for an unknown, used, expired or wrong-scope reset token, and for a linked user's token (RT-1262). */
+const INVALID_RESET_TOKEN = "Invalid or expired token";
+
 const SESSION_ABSOLUTE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h, per data-model §9.
 const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000; // 15 min — research.md §PQ-4.
 const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // 24h.
@@ -526,10 +529,16 @@ export class AuthService {
    * Always succeeds from the caller's perspective. If the email maps to
    * an active user, issue a one-shot reset token and enqueue the email
    * job; otherwise do nothing. The controller returns 202 either way.
+   *
+   * RT-1262: a user with an ACTIVE external identity link signs in with the
+   * provider's password only, so a local reset cannot help them. Nothing is
+   * issued or sent until provider-backed recovery exists (RT-937 item 3). The
+   * route still answers 202, so the link is not disclosed.
    */
   async requestPasswordReset(input: { email: string }): Promise<void> {
     const userRow = await this.findActiveUserByEmail(input.email);
     if (!userRow) return; // silent success — no leak
+    if ((await this.externalLinkSubject(userRow.id)) !== null) return;
 
     const rawToken = generateRawToken();
     await this.requireAuthTokens().issue(rawToken, {
@@ -562,6 +571,11 @@ export class AuthService {
    * the user, and revoke ALL of the user's active sessions so a stolen
    * cookie can't outlive the credential change. If a later step fails the
    * token stays consumed (fail closed); the user requests a new link.
+   *
+   * RT-1262: a token whose user has an ACTIVE external identity link at confirm
+   * time (issued before the request guard, or linked since) is consumed and
+   * refused with the same 400: no local hash is written, no session is revoked
+   * and no address is returned, so the controller clears no sign-in lockout.
    */
   async confirmPasswordReset(input: {
     rawToken: string;
@@ -573,9 +587,12 @@ export class AuthService {
       AUTH_TOKEN_SCOPES.passwordReset,
     );
     if (!tokenRow || tokenRow.userId === null) {
-      throw new BadRequestException("Invalid or expired token");
+      throw new BadRequestException(INVALID_RESET_TOKEN);
     }
     const userId = tokenRow.userId;
+    if ((await this.externalLinkSubject(userId)) !== null) {
+      throw new BadRequestException(INVALID_RESET_TOKEN);
+    }
 
     const newHash = await hashPassword(input.newPassword);
     const updated = await this.db
