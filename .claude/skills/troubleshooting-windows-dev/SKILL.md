@@ -19,7 +19,7 @@ Docker lives only in WSL Ubuntu. Git Bash rewrites any argument that starts with
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `vitest --version` works, `vitest run` dies with `ERR_PACKAGE_IMPORT_NOT_DEFINED "#module-evaluator"` in a worktree | pnpm virtual-store path under the long worktree path passes MAX_PATH (260) | `rm -rf node_modules; pnpm install --frozen-lockfile --virtual-store-dir=C:/w/v` (lockfile unchanged). `subst` does not help |
+| `vitest --version` works, `vitest run` dies with `ERR_PACKAGE_IMPORT_NOT_DEFINED "#module-evaluator"` in a worktree | pnpm virtual-store path under the long worktree path passes MAX_PATH (260) | `rm -rf node_modules; pnpm install --frozen-lockfile --virtual-store-dir=<short root, e.g. C:/w/v>` (lockfile unchanged). `subst` does not help |
 | `pnpm install` ends `@nestjs/core postinstall … ELIFECYCLE -4058`; then `'jest' is not recognized` or `Cannot find module '@data-pulse-2/auth'` | `opencollective \|\| exit 0` fails under Windows cmd; install aborts before `.bin` and workspace `dist` | `pnpm install --frozen-lockfile --ignore-scripts`, then build `@data-pulse-2/shared`, `db`, `auth` in that order; run jest from `apps/api` |
 | Backend-Core DB specs, `auth.service`, `session.repository`, `deploy/redis-restart` fail locally | No Docker on Windows | Expected; same on `origin/main`. `MIGRATION_TEST_ALLOW_SKIP=1` makes DB specs report success without running: never cite that as proof |
 | `auth-contract-cleanup` spec fails | It fails on any dirty tree | Re-run after committing |

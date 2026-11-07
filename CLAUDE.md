@@ -15,6 +15,9 @@ Repo skills in [.claude/skills/](.claude/skills/README.md) add the Retail Tower 
 | `pr-review`, CircleCI `write-config`, `api-design` on gated paths | `landing-gated-changes` |
 | `aws-core:*`, Datadog or Sentry skills for the lab | `operating-rt-lab` |
 | Any local command or test failing on Windows | `troubleshooting-windows-dev` |
+| `twg-jira` for reconciling RT issues with merged work | `reconciling-rt-jira-with-github` |
+
+Domain skills that trigger on their own: `nestjs-drizzle-bullmq` (Backend-Core), `driving-electron-via-cdp` (POS Electron), `ux-pos-console` (POS and Admin Console UX). Catalog: [.claude/skills/README.md](.claude/skills/README.md).
 
 Lessons learned while solving an RT problem go into the matching repo skill in the same PR, instead of a personal notes file (owner decision 2026-11-07).
 

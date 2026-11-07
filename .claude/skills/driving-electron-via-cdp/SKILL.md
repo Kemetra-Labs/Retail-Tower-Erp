@@ -12,6 +12,8 @@ Drive dev Electron through the Chrome DevTools Protocol with Node 22's global `W
 1. Reuse the running Vite (5173). Build preload with `npx vite build --config vite.config.preload.ts` and main with `npx tsc -p tsconfig.main.json`.
 2. Run `electron . --remote-debugging-port=9333 --user-data-dir=<scratch>/ud`.
    - **Always use a scratch `--user-data-dir` from the first launch.** The DB lives in userData. Never touch the owner's `%APPDATA%\pos-pulse`.
+   - **Give it as an 8.3 short path** (`cmd /c for %I in ("<dir>") do @echo %~sI`). Chromium silently ignores an over-long path and falls back to `%APPDATA%\pos-pulse`, running migrations on the owner's real DB; a session scratchpad path is long enough to trigger this.
+   - **Before any interaction**, confirm the scratch dir gained `pos-pulse.db` and the owner's `%APPDATA%\pos-pulse` files did not change.
    - The dev catalogue seed is skipped if ANY tenant has products. A fresh profile fixes "0 products".
 3. Env flags as needed: `POS_PULSE_DEV_SKIP_PAIRING`, `…_OPERATOR_SIGNIN`, `…_SEED_CATALOGUE`, `FEATURE_CART`, `PRODUCT_SEARCH`, `PAYMENTS` = `1`.
 4. Wait for the role-landing redirect to settle before navigating (for example `#/v5/sale`).

@@ -4,7 +4,7 @@ Both repos record **shipped tokens** in their own files (POS `src/renderer/style
 
 ## Colour (UX-02)
 
-Direction: **Mineral Daylight + Tower Teal**, light-first, one semantic system shared by POS and Admin (UX-02.1, .4).
+Direction: **Mineral Daylight + Tower Teal**, light-first, one semantic system shared by POS and Admin (UX-02.1, .4). Tower Teal is the **shipped** Admin state (`apps/admin-console/src/styles/tokens.css`); the Console "Ink & Receipt" look (owner decision 2026-10-30) is the approved target, not yet shipped (see `authority-and-amendments.md`).
 
 | Role | Value (shipped) | Meaning |
 |---|---|---|

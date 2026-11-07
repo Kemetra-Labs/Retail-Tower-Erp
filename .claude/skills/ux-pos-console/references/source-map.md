@@ -46,22 +46,18 @@ Recorded 2026-10-21. Space: Confluence **RETAIL** (Retail Tower), site `rahmaqan
 
 **Not read yet (read before relying on them):** Catalog and Product Mgmt 23461894, Org and Store Mgmt 23625729, Pricing and Store Overrides 23855106, Payment/Tender/Receivables 23560196, Device Registry 23887876, ERP Integration and Sync Ops 25264129, Operational Support 25264161, Policy/Permissions 23134209, Fiscal and Tax product architecture 24084489, shadcn/MUI extraction 24576002, Reference Library 18120705, Khepri v2 8060950 (non-governing).
 
-## Repo baselines (verified 2026-10-21 against `origin/main` after `git fetch`)
+## Repo docs (monorepo `Kemetra-Labs/Retail-Tower-Erp`)
 
-| Repo | `origin/main` | Doc last changed on main | Note |
-|---|---|---|---|
-| POS | `35546954` | `docs/DESIGN.md` and `15-vnext-freeze-package.md`: `b8de5949`, 2026-10-21 | Local checkout was on branch `fix/pos-checkout-keypad-1024` (`8754e673`), 2 commits ahead. Its `docs/DESIGN.md` differs from `main` (unmerged nav and button-system text); the skill uses `main` wording. Other docs read are identical to `main` |
-| Admin-Console | `b0b35e3` | `DESIGN.md`: `899269f`, 2026-10-20 | Local checkout was on `feat/admin-button-system-transitions` (`8199191`), 1 commit ahead; only `DESIGN.md` differs (buttons, motion notes) |
+Both products live in this repository since the RT-715 cutover (2026-10-25); the former POS and
+Admin-Console repositories are frozen. Before citing a doc, run `git fetch` and
+`git diff --stat origin/main -- <doc>`: worktrees are often on feature branches.
 
-Verified on Admin `origin/main` b0b35e3 (2026-10-21): `index.html` is `lang="ar-EG" dir="rtl"`, `DEFAULT_LOCALE = "ar"`, `src/i18n/` catalog and `LocaleSwitch` exist. Confluence pages dated 2026-10-07 that call Admin English/LTR are stale on this point.
+Admin Console is Arabic-first: `index.html` is `lang="ar-EG" dir="rtl"` and `DEFAULT_LOCALE = "ar"`
+(verified 2026-10-21). Confluence pages dated 2026-10-07 that call Admin English/LTR are stale.
 
-Re-run `git fetch` and `git diff --stat origin/main -- <doc>` before citing repo docs; the checkouts on this machine are often on feature branches or worktrees. Doc-only drift shows up as a changed "Doc last changed" commit.
+POS (`apps/pos/`): `docs/DESIGN.md` (shipped tokens, constitution reconciliation table, open questions Q-1..Q-4); `docs/design/vnext/README.md`; `08-rt24-invariants.md` (I-1..I-17); `15-vnext-freeze-package.md` (journey map, state matrix S1-S22, M-states, input/focus/scanner contract, component/token contract, message catalogue M-*); `19`, `20`, `21` (PIN status, sale number, card outcome), `22-rt311-locale-architecture.md`, `24-vn-s6-connection-sync-signal.md`, `25-rt263-icon-registry-fluent-poc.md`, `26-rt536-cashier-feature-completeness.md`, `28-rt699-manual-discount-contract.md`, `29-rt278-shift-amount-bounds.md`; `visual-acceptance/` (visual reference only); `src/renderer/icons/`; `src/renderer/ui/format/human-format.ts`.
 
-## Repo docs
-
-POS (`C:\Users\user\Documents\GitHub\POS`): `docs/DESIGN.md` (shipped tokens, constitution reconciliation table, open questions Q-1..Q-4); `docs/design/vnext/README.md`; `08-rt24-invariants.md` (I-1..I-17); `15-vnext-freeze-package.md` (journey map, state matrix S1-S22, M-states, input/focus/scanner contract, component/token contract, message catalogue M-*); `19`, `20`, `21` (PIN status, sale number, card outcome), `22-rt311-locale-architecture.md`, `24-vn-s6-connection-sync-signal.md`, `25-rt263-icon-registry-fluent-poc.md`, `26-rt536-cashier-feature-completeness.md`, `28-rt699-manual-discount-contract.md`, `29-rt278-shift-amount-bounds.md`; `visual-acceptance/` (visual reference only); `src/renderer/icons/`; `src/renderer/ui/format/human-format.ts`.
-
-Admin-Console (`C:\Users\user\Documents\GitHub\Admin-Console`): `DESIGN.md` v2.0; `docs/design/arabic-first-rtl-migration-plan.md` (RT-266); `docs/design/rt777-platform-console/README.md`; `docs/design/rt263-icon-registry/`; `design/claude-design-system/README.md`; `design/screens/README.md`; `src/styles/tokens.css`; `src/components/DataTable.tsx`.
+Admin Console (`apps/admin-console/`): `DESIGN.md` v4.0 (token block = shipped truth; §12 = the approved, not yet shipped, "Ink & Receipt" target); `docs/design/arabic-first-rtl-migration-plan.md` (RT-266); `docs/design/rt777-platform-console/README.md`; `docs/design/rt263-icon-registry/`; `design/claude-design-system/README.md`; `design/screens/README.md`; `src/styles/tokens.css`; `src/components/DataTable.tsx`.
 
 ## Quick staleness tells
 

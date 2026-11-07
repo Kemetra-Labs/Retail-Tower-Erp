@@ -48,7 +48,8 @@ State this in the PR body.
 - `contracts/check` compares every consumer PIN (POS, Admin Console, Connector) with the in-tree
   contract in the same PR and fails closed. A field removal or rename breaks it.
 - `bc/oasdiff` fails on breaking changes; an acknowledged break needs a line in
-  `tools/oasdiff/breaking-ignore.txt` tagged `consumer:<NAME>` for each affected consumer (README there).
+  `services/backend-core/tools/oasdiff/breaking-ignore.txt` tagged `consumer:<NAME>` (`POS`,
+  `admin`, `connector`) for each affected consumer, or `consumer:none` (README there).
 - Remove or rename in slices, as RT-1181, RT-1182 and RT-1183 did: (1) Backend-Core accepts the field
   as optional and nullable; (2) each consumer stops sending or storing it and repins
   (`npm run contracts:repin` in `apps/pos`); (3) remove it. Each slice is its own issue when the
@@ -70,7 +71,9 @@ State this in the PR body.
   (`services/backend-core/apps/api/src/auth/grant-registry.ts`, checked at boot as
   `DOMAIN_REQUIRED_GRANTS`) and add a `services/backend-core/docs/operations/sql/*-domain-grants.sql`
   deploy step, or production boots healthy and fails later.
-- An index on a hot table: the concurrent-index migration helper, in its own migration.
+- An index on a hot table: a single-statement `CREATE INDEX CONCURRENTLY` migration file (precedents
+  `0036`, `0048`), proven with `expectSingleConcurrentStatement` from
+  `packages/db/__tests__/_helpers/concurrent-index-migration.ts`.
 
 ## Dependencies and lockfiles
 

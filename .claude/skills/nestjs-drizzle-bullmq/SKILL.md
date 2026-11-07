@@ -6,7 +6,7 @@ description: Use when changing Backend-Core (Data-Pulse-2) or its dp2-* worktree
 # Backend-Core: NestJS + Drizzle + BullMQ
 
 ## Overview
-Repo docs are authoritative. Read `docs/idempotency/strategy.md`, `docs/outbox/*.md` and `docs/observability/signals.md` before touching those areas, plus the constitution and standing rules the repo CLAUDE.md lists. This skill covers only the traps that keep recurring.
+Repo docs are authoritative. Read `services/backend-core/docs/idempotency/strategy.md`, `services/backend-core/docs/outbox/*.md` and `services/backend-core/docs/observability/signals.md` before touching those areas, plus the constitution and standing rules `services/backend-core/CLAUDE.md` lists. This skill covers only the traps that keep recurring.
 
 ## DI wiring (NestJS)
 - A `useFactory` provider that calls `new X(a, b)` while X's constructor takes optional `c, d` compiles and boots, but `c`/`d` are silently `undefined` (#611: the audit enqueuer and logger were never wired). Pass every constructor dependency, list it in `inject`, and import the module that exports each token (for example `AUDIT_JOB_ENQUEUER` → `OutboxAuditEnqueuerModule`).
@@ -26,7 +26,7 @@ Repo docs are authoritative. Read `docs/idempotency/strategy.md`, `docs/outbox/*
 - Extract the OTel `traceContext` carrier **before** Zod `safeParse`, because Zod strips unknown keys. Prove it with a test that captures `traceId` inside the collaborator, not "process() resolves".
 
 ## Idempotency
-- Target design (branch `fix/614-idempotency-pg-mirror`, not yet on main as of 2026-09-25; check `docs/idempotency/strategy.md` for current state): the Postgres claim is durable and written before Redis (the fast path). The unique claim stops double execution; in-flight markers include the tenant; body fingerprints sort keys. Tests prove a save by counting pg insert attempts.
+- The current store design is in `services/backend-core/docs/idempotency/strategy.md` (it describes Redis-primary storage with a Postgres mirror); follow that document, not older branch designs. In-flight markers include the tenant; body fingerprints sort keys.
 
 ## Tests / CI
 - After `reset --hard`/checkout that changes `packages/shared` or `packages/db`, rebuild dist (`pnpm --filter @data-pulse-2/shared run build`, then db). "Symbol not registered / suite failed to run" means stale dist.

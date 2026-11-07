@@ -56,6 +56,10 @@ Lazy cart creation; the F-key map (D-K1); OD-3 validation of grouped money again
 
 **Known doc tension to surface, not settle:** RT-495 decision 1 says voiding a sale needs the store/shift manager *password*; the shipped RT-530 screen and the RT-654 references draw a *manager-PIN* confirm dialog under a separately approved four-eyes rule (RT-530 comments 11988, 12006). Ask which governs before writing void copy or fields.
 
+## Later owner decisions
+
+- **2026-10-30, Admin Console "Ink & Receipt" (canvas board v9): approved, not shipped.** `apps/admin-console/DESIGN.md` v4.0 §12 records it as the visual target. The DESIGN.md token block and `src/styles/tokens.css` stay the shipped truth until the slices that implement it land through their Jira issues. Do not describe v9 colours or receipt cards as shipped.
+
 ## Non-authoritative material
 
 `design_handoff_retail_tower_console/` (charts, KPI colouring, dual-axis, route map), Admin `DESIGN.md` v1.0 (dark default, gold, navy, Inter), POS v3.5 system (`docs/design/pos-v3.5/`), Visual Pack Iteration-1 / exploration folders, and Khepri v2 design system (non-governing) are reference only. Do not build from them.
