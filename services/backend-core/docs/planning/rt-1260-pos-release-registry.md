@@ -386,9 +386,11 @@ or two is open for S2; RT-322 and RT-324 own the feed.*
 - `POST /api/v1/platform/pos-releases/{releaseId}/activate`, `platformActivatePosRelease` (E7). **Not** the
   promotion workflow: the `cookieAuth` session of a platform admin with a trusted `Origin`, exactly as
   `platformSetPosVersionPolicy` (RT-327; 401 for any other credential, 403 `forbidden` / `origin_rejected`). No
-  body. Sets `activated_at` / `activated_by_user_id` and writes `pos.release.activated`. Already activated: a 200
-  that writes nothing. A withdrawn row: 409 `release_withdrawn`, nothing written. Absent id: 404. It does not
-  depend on D-5a.
+  body. Sets `activated_at` / `activated_by_user_id` and writes `pos.release.activated`. Checked in this order:
+  absent id: 404; a withdrawn row (`approved = false`), **whether or not it was activated before**: 409
+  `release_withdrawn`, nothing written (withdrawal takes precedence over the replay rule); already activated: a
+  200 that writes nothing. It does not depend on D-5a, but its runtime ships with the other registry writes in
+  S2 (§10): in S1 it is `x-runtime-status: contract-only`.
 
 ### 8.4 D-5a — the workflow's credential (**open, blocks the write routes**)
 
@@ -424,8 +426,8 @@ Proposed only. No issue is created by this item (AC5).
 
 | # | Slice | Product | Depends on | Existing owner issue |
 | --- | --- | --- | --- | --- |
-| S1 | Registry + resolver: contract (resolver served, write routes `contract-only`), migration, runtime, §6.3 test | Backend-Core | RT-1260 merged | **None found.** A new Implementation issue is needed. Title search (download, installer, registry, resolver, promotion, production signing) found only RT-1260, RT-1261 and RT-1082, none of which owns this. |
-| S2 | Promotion workflow (D-5), structured manifest `signing` (D-4), the write routes' runtime | Repo-wide `.github` + Backend-Core | S1; **D-5a**; production signing (RT-321) to register a real row | Partly **RT-321** (production signing, `[GATED .github]`) and **RT-717** (independent product releases); the workflow itself has no owner. The owner decides whether it is a new issue or an RT-321 scope addition. |
+| S1 | Registry + resolver: contract (resolver served; register, withdraw and activate `contract-only`), migration, resolver runtime, §6.3 test | Backend-Core | RT-1260 merged | **None found.** A new Implementation issue is needed. Title search (download, installer, registry, resolver, promotion, production signing) found only RT-1260, RT-1261 and RT-1082, none of which owns this. |
+| S2 | Promotion workflow (D-5), structured manifest `signing` (D-4), the runtime of the three registry writes (register, withdraw, activate) | Repo-wide `.github` + Backend-Core | S1; **D-5a**; production signing (RT-321) to register a real row | Partly **RT-321** (production signing, `[GATED .github]`) and **RT-717** (independent product releases); the workflow itself has no owner. The owner decides whether it is a new issue or an RT-321 scope addition. |
 | S3 | Console Devices → Download POS page (§7) | Admin-Console | S1 contract | **None found.** RT-1006 is the origin assessment, not an implementation owner. |
 | S4 | S3 bucket and IAM (D-1) | Infrastructure (owner steps) | — | **RT-717** covers lab release infrastructure; the production bucket has no owner. |
 | S5 | Entitlement check on the resolver | Backend-Core | RT-1001 | **RT-1001** (Planning). |
@@ -719,15 +721,20 @@ paths:
       operationId: platformActivatePosRelease
       tags: [pos-release-registry]
       x-audit-action: pos.release.activated
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with the other registry writes in S2 (design note §10).
       security:
         - platformSession: []
       description: >
         The release-specific activation (E7). Registration alone never makes
         a release downloadable; it also needs this action and the `stable`
         `recommended_version` to name it. Sets `activatedAt` and
-        `activatedByUserId` and writes `pos.release.activated`. Already
-        activated: a 200 that writes nothing. A withdrawn release is 409
-        `release_withdrawn`. No body.
+        `activatedByUserId` and writes `pos.release.activated`. Order: an
+        absent id is 404; a withdrawn release is 409 `release_withdrawn`
+        even if it was activated before (withdrawal wins over the replay
+        rule); an already activated release is a 200 that writes nothing.
+        No body.
       parameters:
         - $ref: "#/components/parameters/ReleaseIdPath"
       responses:
@@ -743,7 +750,7 @@ paths:
         "400":
           $ref: "#/components/responses/WriteValidationFailure"
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          $ref: "#/components/responses/PlatformUnauthorized"
         "403":
           $ref: "#/components/responses/PlatformWriteForbidden"
         "404":
@@ -1126,6 +1133,16 @@ components:
         member, or who holds such a session, is admitted whatever the role.
         Every gate decision writes `platform.cross_tenant.accessed`. No URL
         is issued.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PlatformUnauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential (a bearer, POS `device` token or operator
+        envelope). A platform admin needs no active tenant on this route.
+        Nothing is written.
       content:
         application/json:
           schema:
