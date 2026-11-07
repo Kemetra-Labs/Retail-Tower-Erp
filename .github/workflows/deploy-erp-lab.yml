@@ -469,7 +469,8 @@ jobs:
         run: |
           set -euo pipefail
           RELEASE_SHA="$TARGET_SHA"; RELEASE="${TARGET_SHA:0:12}"
-          bash .github/release/sentry-release.sh erpnext-connector "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json"
+          timeout 240 bash .github/release/sentry-release.sh erpnext-connector "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json" \
+            || echo "::warning::Sentry release (RT-1241): the helper ran over its 240 s bound or failed; nothing more recorded."
 
       # RT-1084: what the ledger proves is recorded: a finished deploy makes the product ok with the version the
       # ledger names; a run that may have reached the host makes it dirty; a run that provably never reached it
