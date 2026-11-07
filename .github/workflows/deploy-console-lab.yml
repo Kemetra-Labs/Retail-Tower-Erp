@@ -442,6 +442,23 @@ jobs:
             --ledger "$RUNNER_TEMP/live-ledger/ledger.json" --begin-version "$BEGIN_VERSION" \
             --root "$GITHUB_WORKSPACE" --out-dir "$RUNNER_TEMP/live-ledger"
 
+      # RT-1241: Sentry release and staging deploy, evidence only (RT-617). Sent only when the ledger says
+      # "deployed"; no token or any Sentry problem is a warning, never a failed deploy. The release name is
+      # the one the runtime SDK reports. The token exists only in this step's environment.
+      - name: Record the Sentry release and deploy (evidence only)
+        if: always()
+        # Bounded (the script times each call out too) so a hung download or API call cannot starve the
+        # live-state write that follows. The script itself always exits 0.
+        timeout-minutes: 6
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          RELEASE="${RELEASE_SHA:0:12}"
+          timeout 240 bash .github/release/sentry-release.sh admin-console "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json" \
+            || echo "::warning::Sentry release (RT-1241): the helper ran over its 240 s bound or failed; nothing more recorded."
+
       - name: Upload the live ledger
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
