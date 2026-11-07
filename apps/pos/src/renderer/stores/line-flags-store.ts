@@ -10,8 +10,10 @@ import type { ProductSnapshotDisplay } from '../../shared/catalogue/product-snap
  * `cart.snapshot` return a name and a price only), so the renderer keeps what
  * it saw at add time. Display only (I-17: no prescription workflow). The map
  * survives a remount of the Sale (Back from Checkout) because it lives here,
- * not in the screen; it is renderer-session state, so a line read back after
- * an app restart shows no badge.
+ * not in the screen. It is renderer-session state, so RT-1178 also refills it
+ * from every `cart.snapshot` the Sale applies (`rememberSnapshot`): main reads
+ * each line's flags from the local catalogue, so a line read back after a
+ * reload or an app restart keeps its badge.
  */
 export type LineFlags = Pick<
   ProductSnapshotDisplay,
@@ -22,10 +24,12 @@ interface LineFlagsState {
   readonly byLine: Readonly<Record<string, LineFlags>>;
   /** Record the flags of the product a confirmed add landed on; unflagged products are not stored. */
   remember(lineId: string, product: LineFlags): void;
+  /** RT-1178 — record the flags of every flagged line in a cart snapshot. */
+  rememberSnapshot(lines: ReadonlyArray<LineFlags & { readonly line_id: string }>): void;
   reset(): void;
 }
 
-export const useLineFlagsStore = create<LineFlagsState>((set) => ({
+export const useLineFlagsStore = create<LineFlagsState>((set, get) => ({
   byLine: {},
   remember: (lineId, product) => {
     if (!product.controlled_substance && !product.prescription_required) return;
@@ -38,6 +42,9 @@ export const useLineFlagsStore = create<LineFlagsState>((set) => ({
         },
       },
     }));
+  },
+  rememberSnapshot: (lines) => {
+    for (const line of lines) get().remember(line.line_id, line);
   },
   reset: () => {
     set({ byLine: {} });

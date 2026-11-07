@@ -45,6 +45,8 @@ function snapshot(paid = false): CartSnapshot {
         line_subtotal_minor: 1250,
         note: null,
         version: 3,
+        controlled_substance: false,
+        prescription_required: false,
       },
     ],
     discount_placeholders: [],

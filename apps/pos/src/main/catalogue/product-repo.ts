@@ -81,6 +81,12 @@ export interface SeamProductRow {
   readonly active: boolean;
 }
 
+/** RT-1178 — a product's cashier-awareness flags (display only, I-17). */
+export interface ProductAwarenessFlags {
+  readonly controlled_substance: boolean;
+  readonly prescription_required: boolean;
+}
+
 /** The resolve read result. `unavailable` is the repo's infra signal (FR-24). */
 export type ProductResolveResult =
   | { kind: 'found'; product: SeamProductRow }
@@ -107,6 +113,13 @@ export interface ProductRepo {
    * empty / missing / unreadable read model.
    */
   resolveForSeam(tenantId: string, productId: string): ProductResolveResult;
+  /**
+   * RT-1178 — the awareness flags of a product by its `product_id`, WITHOUT the
+   * active filter (owner decision: a line already in the cart keeps its flags
+   * when its product is deactivated). Tenant-scoped in SQL (P17). `null` when
+   * there is no such product or the read model is missing / unreadable.
+   */
+  awarenessFlags(tenantId: string, productId: string): ProductAwarenessFlags | null;
   /**
    * 010 — tenant-scoped live product count (P17), for the freshness surface's
    * `is_empty` discriminator (FR-16b / SC-10). Returns 0 on a missing/unreadable
@@ -223,6 +236,25 @@ export function createProductRepo(db: DatabaseHandle): ProductRepo {
     }
   }
 
+  function awarenessFlags(tenantId: string, productId: string): ProductAwarenessFlags | null {
+    try {
+      const stmt = db.prepare(`
+        SELECT p.controlled_substance, p.prescription_required
+        FROM products p
+        WHERE p.tenant_id = ? AND p.product_id = ?
+      `) as PrepareGet<{ controlled_substance: number; prescription_required: number }>;
+      const row = stmt.get(tenantId, productId);
+      if (row === undefined) return null;
+      return {
+        controlled_substance: row.controlled_substance === 1,
+        prescription_required: row.prescription_required === 1,
+      };
+    } catch {
+      // Missing table / unreadable handle → unknown, never throw across the boundary.
+      return null;
+    }
+  }
+
   function countByTenant(tenantId: string): number {
     try {
       const stmt = db.prepare(
@@ -253,6 +285,7 @@ export function createProductRepo(db: DatabaseHandle): ProductRepo {
     lookupBySku,
     search,
     resolveForSeam,
+    awarenessFlags,
     countByTenant,
     countBarcodesByTenant,
   };

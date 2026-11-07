@@ -1,5 +1,6 @@
 import { useRef, useState, type JSX, type ReactNode } from 'react';
 import type { CartBridgeAPI, CatalogueBridgeAPI } from '../../../shared/bridge-api';
+import type { CartSnapshot } from '../../../shared/cart/bridge-types';
 import { CartState } from '../../../shared/cart/cart-state';
 import {
   envelopeAmountDue,
@@ -208,6 +209,10 @@ function CartHydrationState(
   );
 }
 
+function rememberSnapshotFlags(snapshot: CartSnapshot): void {
+  useLineFlagsStore.getState().rememberSnapshot(snapshot.lines);
+}
+
 /** Why a scan or pick cannot add to the cart on screen (read when each queued add runs). */
 function addBlockOf(state: CartState | null, paid: boolean): AddBlock {
   if (paid) return 'paid';
@@ -225,6 +230,8 @@ function LiveSaleActive(
   const lineFlags = useLineFlagsStore((state) => state.byLine);
   const cart = useSaleCartController({
     hydrateActiveCart: true,
+    // RT-1178: a cart read back from main (reload, restart, resync) brings its line flags.
+    onSnapshotApplied: rememberSnapshotFlags,
     ...(props.cartBridge ? { bridge: props.cartBridge } : {}),
   });
   const lane = useAddLane();
