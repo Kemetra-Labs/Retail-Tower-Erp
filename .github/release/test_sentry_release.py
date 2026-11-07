@@ -23,7 +23,7 @@ SHA = "a" * 40
 STUB = """#!/usr/bin/env bash
 echo "$* | org=$SENTRY_ORG url=$SENTRY_URL project=$SENTRY_PROJECT" >> "$STUB_LOG"
 for fail in ${STUB_FAIL:-}; do
-  case " $* " in *" $fail "*) echo "stub failure: $fail"; exit 1 ;; esac
+  if [ "$1-$2" = "$fail" ]; then echo "stub failure: $fail token=${SENTRY_AUTH_TOKEN:-}"; exit 1; fi
 done
 echo "ok"
 """
@@ -110,14 +110,24 @@ class SentryRelease(unittest.TestCase):
             self.assertIn("::warning::", out.stdout)
 
     def test_every_cli_failure_is_a_warning_never_a_failed_step(self):
-        for fail in ("new", "set-commits", "finalize", "deploys"):
+        for fail in ("releases-new", "releases-set-commits", "releases-finalize", "deploys-new"):
             self.log.unlink(missing_ok=True)
             out, _ = self.run_script(STUB_FAIL=fail)
             self.assertEqual(out.returncode, 0, fail)
             self.assertIn("::warning::", out.stdout, fail)
 
+    def test_a_failed_release_new_stops_the_sequence(self):
+        out, calls = self.run_script(STUB_FAIL="releases-new")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("releases new v1.2.3 failed", out.stdout)
+
+    def test_a_failed_finalize_still_records_the_deploy(self):
+        out, calls = self.run_script(STUB_FAIL="releases-finalize")
+        self.assertTrue(calls[-1].startswith("deploys new --release v1.2.3 -e staging"))
+        self.assertIn("::warning::", out.stdout)
+
     def test_set_commits_failure_says_the_release_has_no_commits_and_still_deploys(self):
-        out, calls = self.run_script(STUB_FAIL="set-commits")
+        out, calls = self.run_script(STUB_FAIL="releases-set-commits")
         self.assertIn("NO commits", out.stdout)
         self.assertTrue(calls[-1].startswith("deploys new --release v1.2.3 -e staging"))
 
@@ -131,6 +141,7 @@ class SentryRelease(unittest.TestCase):
         env = {**os.environ, "SENTRY_CLI_BIN": str(self.cli), "STUB_LOG": str(self.log), "SENTRY_AUTH_TOKEN": "t"}
         subprocess.run([BASH, str(SCRIPT), "backend-core", "v1.2.3", head, str(self.ledger)], cwd=repo, env=env, check=True, capture_output=True)
         self.assertIn("releases set-commits v1.2.3 --auto", self.log.read_text(encoding="utf-8"))
+        self.assertNotIn("--commit", self.log.read_text(encoding="utf-8"))
 
 
 class WorkflowWiring(unittest.TestCase):
@@ -152,6 +163,7 @@ class WorkflowWiring(unittest.TestCase):
             self.assertLess(live.index(step), live.index("- name: Record the live state"), name)
             block = live[live.index(step):live.index("- name: Assume the deploy role to record the outcome")]
             self.assertIn("if: always()", block, name)
+            self.assertIn("timeout-minutes: 6", block, name)
             self.assertIn("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}", block, name)
             self.assertEqual(len(re.findall(r"secrets\.SENTRY_AUTH_TOKEN", text)), 1, name)
 
@@ -165,7 +177,7 @@ class WorkflowWiring(unittest.TestCase):
     def test_the_script_pins_the_cli_and_the_eu_region(self):
         text = SCRIPT.read_text(encoding="utf-8")
         self.assertRegex(text, r'SENTRY_CLI_VERSION="\d+\.\d+\.\d+"')
-        self.assertRegex(text, r'SENTRY_CLI_SHA256="[0-9a-f]{64}"')
+        self.assertRegex(text, r'CLI_BINARY_SHA256="[0-9a-f]{64}"')
         self.assertIn('SENTRY_URL="https://de.sentry.io"', text)
         self.assertIn('SENTRY_ORG="kemetra"', text)
         self.assertNotIn("npm", text)

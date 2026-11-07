@@ -16,13 +16,14 @@
 #   GITHUB_REPOSITORY  owner/name of the repository the commits are read from.
 #
 # Commits: `set-commits --auto` when the checkout is at the release commit (it reads HEAD); otherwise the
-# explicit `--commit <repo>@<sha>`, which Sentry resolves through the same GitHub integration (the range
-# starts at the previous release's last commit). If both fail the release stays without commits and the
+# explicit `--commit <repo>@<sha>`, which Sentry resolves through the same GitHub integration (sentry-cli
+# documents that without a start commit the range is taken from the previous release; the first live run
+# shows the real commit count). If both fail the release stays without commits and the
 # warning says so; there is no silent no-op.
 set -uo pipefail
 
 SENTRY_CLI_VERSION="3.8.2"
-SENTRY_CLI_SHA256="c958865f9d4000183509ea21b1f04925d5390de6d8d87386b9e69f2b305070c3" # sentry-cli-Linux-x86_64
+CLI_BINARY_SHA256="c958865f9d4000183509ea21b1f04925d5390de6d8d87386b9e69f2b305070c3" # sentry-cli-Linux-x86_64
 export SENTRY_URL="https://de.sentry.io"
 export SENTRY_ORG="kemetra"
 
@@ -72,7 +73,7 @@ main() {
 # Runs sentry-cli with its output kept: the token is only in the environment, never in an argument.
 run_cli() {
   local cli="$1"; shift
-  "$cli" "$@" 2>&1 | sed 's/^/  sentry-cli: /'
+  timeout 40 "$cli" "$@" 2>&1 | sed 's/^/  sentry-cli: /'
   return "${PIPESTATUS[0]}"
 }
 
@@ -82,8 +83,8 @@ install_cli() {
   local dir="${RUNNER_TEMP:-/tmp}/sentry-cli-$SENTRY_CLI_VERSION" url
   url="https://github.com/getsentry/sentry-cli/releases/download/$SENTRY_CLI_VERSION/sentry-cli-Linux-x86_64"
   mkdir -p "$dir" || return 1
-  curl -fsSL --retry 3 --max-time 120 -o "$dir/sentry-cli" "$url" || return 1
-  echo "$SENTRY_CLI_SHA256  $dir/sentry-cli" | sha256sum -c - >&2 || { rm -f "$dir/sentry-cli"; return 1; }
+  curl -fsSL --retry 2 --max-time 30 -o "$dir/sentry-cli" "$url" || return 1
+  echo "$CLI_BINARY_SHA256  $dir/sentry-cli" | sha256sum -c - >&2 || { rm -f "$dir/sentry-cli"; return 1; }
   chmod +x "$dir/sentry-cli" && echo "$dir/sentry-cli"
 }
 

@@ -460,6 +460,9 @@ jobs:
       # the one the runtime SDK reports. The token exists only in this step's environment.
       - name: Record the Sentry release and deploy (evidence only)
         if: always()
+        # Bounded (the script times each call out too) so a hung download or API call cannot starve the
+        # live-state write that follows. The script itself always exits 0.
+        timeout-minutes: 6
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           TARGET_SHA: ${{ inputs.target_sha }}
