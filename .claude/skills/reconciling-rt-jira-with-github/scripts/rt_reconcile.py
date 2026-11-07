@@ -82,10 +82,12 @@ def cmd_ci(a: argparse.Namespace) -> None:
         pending = sum(1 for r in runs if r["status"] != "completed")
         push = []
         if merge:
-            push = gh_json(["run", "list", "--repo", a.repo, "--commit", merge, "--json",
-                            "workflowName,databaseId,conclusion,event"]) or []
+            # Ask for push events only, with a high limit: a merge commit also collects many
+            # gate `workflow_run` entries, and the default limit (20) can hide the push runs.
+            push = gh_json(["run", "list", "--repo", a.repo, "--commit", merge, "--event", "push",
+                            "--limit", "100", "--json", "workflowName,databaseId,conclusion"]) or []
         push = [f"{r['workflowName']}={r['conclusion']}({r['databaseId']})" for r in push
-                if r["event"] == "push" and r["workflowName"] in a.workflows]
+                if r["workflowName"] in a.workflows]
         reverts = [ln for ln in log.splitlines() if re.search(rf"\(#{n}\)|#{n}\b", ln)
                    and "Kemetra/" not in ln]
         print(f"#{n} {d['state']} merged {(d.get('mergedAt') or '')[:10]} head {head[:9]} merge {merge[:9]}")

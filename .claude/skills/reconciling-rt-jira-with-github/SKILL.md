@@ -41,7 +41,8 @@ issues (apply OS section 4A directly).
 2. **Gather in bulk, not per issue.** Pull all candidate issues with one JQL query
    (results spill to a file; parse the file). Run `python -X utf8 scripts/rt_reconcile.py`
    for the GitHub side: own PRs per key, newest completed `required` per head, push runs
-   on merge commits, reverts. See the script's `--help`.
+   on merge commits, reverts. See the script's `--help`. Comments are the largest
+   payload: fetch them per issue, and only for candidates that have own merged PRs.
 3. **Read the evidence for each candidate, in this order** (the order matters: later
    steps often overturn earlier guesses):
    1. Acceptance criteria and evidence contract in the description.
@@ -53,8 +54,8 @@ issues (apply OS section 4A directly).
    4. The PR file list: captures (`*.png`), specs, migrations, docs named by the criteria.
    5. The newest **completed** `required` check-run on each PR head. Older runs stuck
       `in_progress` are superseded duplicates; `gh pr checks` alone misleads.
-   6. If no completed green `required` exists: count CI only with a recorded owner
-      acceptance (in chat or an issue comment), plus the push runs on the merge commit.
+   6. If no completed green `required` exists: count CI only with an owner acceptance
+      you can attribute to the owner (see below), plus green push runs on the merge commit.
    7. Reverts of the PR on `origin/main`.
 4. **Decide per issue** with the table below. Never decide from keywords in the criteria
    ("lab", "captures") without doing step 3.
@@ -78,6 +79,22 @@ issues (apply OS section 4A directly).
 
 Accepting an earlier CI gate covers CI evidence only. It never waives captures, staging,
 lab runs or owner decisions named in the criteria.
+
+## Owner Decisions and New Evidence
+
+**Who decided.** Agents post under the owner's Jira accounts too, so a comment's author
+proves nothing. An owner decision counts when the owner states it in the current chat,
+or when a comment records the owner's decision with its date and wording and no later
+comment contradicts it. If a later comment says the proof is still pending, or you
+cannot tell who decided, ask the owner before you close.
+
+**Evidence you produce.** A measurement you take during reconciliation (a CodeScene
+score, a grep, a re-run test) can prove an objective criterion when it is reproducible:
+re-check it once, then record the method and the result in the closeout comment. It
+cannot prove what had to happen before the merge (tests written and passing before a
+split), and it never replaces staging, lab, packaged or visual criteria. When your
+measurement is the only proof for a criterion, say so in the report so the owner can
+see it before you close.
 
 ## Quick Reference
 
