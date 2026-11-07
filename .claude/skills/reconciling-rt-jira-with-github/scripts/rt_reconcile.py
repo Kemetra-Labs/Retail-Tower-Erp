@@ -44,10 +44,12 @@ def run(cmd: list[str]) -> str:
 
 
 def gh_json(args: list[str]) -> Any:
+    """Run `gh` with the given arguments and parse its stdout as JSON (None when empty)."""
     return json.loads(run(["gh", *args]) or "null")
 
 
 def warn(msg: str) -> None:
+    """Print a warning to stderr so it never mixes with the evidence on stdout."""
     print(f"warning: {msg}", file=sys.stderr)
 
 
@@ -58,6 +60,7 @@ def primary_key(title: str, branch: str) -> str | None:
 
 
 def cmd_prs(a: argparse.Namespace) -> None:
+    """Write merged (since --since) and open PRs with their primary RT key to --out."""
     fields = "number,title,headRefName,state,mergedAt,url"
     merged = (
         gh_json(
@@ -172,6 +175,7 @@ def revert_lines(pr: int, merge: str) -> tuple[list[str], str]:
 
 
 def cmd_ci(a: argparse.Namespace) -> None:
+    """Print head/merge SHAs, newest `required`, push runs and reverts for each PR."""
     for n in a.prs:
         d = gh_json(
             [
@@ -224,6 +228,7 @@ def cmd_ci(a: argparse.Namespace) -> None:
 
 
 def load_issues(files: list[str]) -> list[dict[str, Any]]:
+    """Read saved Jira search results; skip files that lack {"issues": {"nodes": [...]}}."""
     nodes: list[dict[str, Any]] = []
     for f in files:
         data = json.loads(Path(f).read_text(encoding="utf-8", errors="replace"))
@@ -239,6 +244,7 @@ def load_issues(files: list[str]) -> list[dict[str, Any]]:
 
 
 def cmd_issues(a: argparse.Namespace) -> None:
+    """Join Jira issues with the `prs` output: own PRs, mentions and stale blocker links."""
     prs = json.loads(Path(a.prs).read_text(encoding="utf-8"))
     own: dict[str, list[str]] = {}
     ment: dict[str, list[str]] = {}
@@ -289,6 +295,7 @@ def cmd_issues(a: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """Parse arguments, run the chosen subcommand, and exit non-zero on a command failure."""
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
