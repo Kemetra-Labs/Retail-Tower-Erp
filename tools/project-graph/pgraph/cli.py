@@ -210,7 +210,7 @@ def cmd_circleci_gate(args):
         _emit({"verdict": cg.FAIL, "reasons": ["NO_PATHS"], "rejected": [], "status": None})
         return 1
     result = cg.judge(args.event, args.head, args.fork, args.circleci_changed, paths, statuses,
-                      args.deadline_passed)
+                      args.deadline_passed, target=args.target)
     _emit(result)
     return {cg.OK: 0, cg.PENDING: 3}.get(result["verdict"], 1)
 
@@ -282,6 +282,8 @@ def main(argv=None):
     cg.add_argument("--fork", action="store_true")
     cg.add_argument("--circleci-changed", action="store_true")
     cg.add_argument("--deadline-passed", action="store_true")
+    # RT-1265: which CircleCI gate to judge; api (default, RT-1256) or admin (Admin Console Vitest).
+    cg.add_argument("--target", choices=["api", "admin"], default="api")
     cg.set_defaults(func=cmd_circleci_gate)
 
     pv = sub.add_parser("privileges")

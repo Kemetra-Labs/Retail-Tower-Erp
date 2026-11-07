@@ -140,6 +140,15 @@ parameters:
   api_gate_tia_enabled:
     type: boolean
     default: true
+  # RT-1265: the Admin Console Vitest gate (workflow admin-vitest-gate). true (default): every pull
+  # request to main runs job admin-vitest-gate, which skips itself unless the change can select
+  # admin/build-test, and otherwise runs the full Vitest suite with coverage once; admin/build-test
+  # on GitHub verifies its status instead of running Vitest. Rollback: set this default to false AND
+  # ADMIN_CUTOVER_ENABLED = False in tools/project-graph/pgraph/circleci_gate.py (in one PR), so
+  # admin/build-test runs Vitest itself again. The API gate above is independent of this switch.
+  admin_vitest_gate_enabled:
+    type: boolean
+    default: true
 
 commands:
   backend-setup:
@@ -279,6 +288,47 @@ commands:
               out) echo "Out of scope: nothing to run."; circleci-agent step halt ;;
               *) echo "No valid scope decision ('$scope'); refusing to run."; exit 1 ;;
             esac
+
+  # RT-1265: the Admin Console Vitest gate's guard, the same exact-SHA and .circleci/ checks as
+  # api-gate-guard, with its own scope script. One job, so an out-of-scope change halts here (a
+  # success status); the GitHub verifier's SCOPE_DRIFT rejects a halted success for any change the
+  # graph selects admin/build-test for, so the halt only saves credits.
+  admin-gate-guard:
+    description: Exact head SHA, .circleci/ equal to origin/main, and the Admin Vitest scope (halt when out of scope).
+    steps:
+      - run:
+          name: "Admin Vitest gate guard: exact head SHA, .circleci/ equal to origin/main, scope"
+          environment:
+            PIPELINE_REVISION: "<< pipeline.git.revision >>"
+          command: |
+            head="$(git rev-parse HEAD)"
+            if ! [[ "$head" =~ ^[0-9a-f]{40}$ ]] || [ "$head" != "$PIPELINE_REVISION" ] || [ "${CIRCLE_SHA1:-}" != "$head" ]; then
+              echo "Checked out '$head', pipeline revision '$PIPELINE_REVISION', CIRCLE_SHA1 '${CIRCLE_SHA1:-}': not one exact commit; refusing to run."
+              exit 1
+            fi
+            git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main \
+              || { echo "Could not fetch origin/main; refusing to run."; exit 1; }
+            rc=0
+            git diff --quiet refs/remotes/origin/main HEAD -- .circleci/ || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo ".circleci/ differs from origin/main (rc=$rc): the gate only trusts main's CircleCI config, so it does not run. Expected on a PR that changes .circleci/ (admin/build-test then runs Vitest on GitHub); on any other PR, merge origin/main."
+              exit 1
+            fi
+            mkdir -p /tmp/gate
+            mb="$(git merge-base refs/remotes/origin/main HEAD)" \
+              || { echo "No merge-base with origin/main; refusing to run."; exit 1; }
+            # --no-renames: a rename lists its old and new path, as the graph classifies both.
+            git diff --name-only --no-renames "$mb" HEAD > /tmp/gate/changed.txt
+            echo "$(wc -l < /tmp/gate/changed.txt) changed path(s) since merge-base $mb"
+            rc=0
+            node .circleci/scripts/admin-gate-scope.cjs /tmp/gate/changed.txt || rc=$?
+            if [ "$rc" -eq 10 ]; then
+              echo "No changed path can select admin/build-test: no Admin Vitest run."
+              circleci-agent step halt
+            elif [ "$rc" -ne 0 ]; then
+              echo "Scope check failed (rc=$rc); refusing to run."
+              exit 1
+            fi
 
   # RT-1258 (owner decision, comment 15863): the plan of the API gate, made in api-jest-scope after
   # the guard, only while api_gate_tia_enabled. It reuses the RT-1239 selector (tia-canary-select.cjs:
@@ -1236,6 +1286,42 @@ jobs:
       - store_test_results:
           path: /tmp/test-reports
 
+  # RT-1265: the Admin Console Vitest gate. The full suite with coverage, exactly `pnpm test`
+  # (vitest run --coverage) on one large machine, once per pull request head, then the completeness
+  # check (every included spec file reported, none failed, lcov written). No splitting and no impact
+  # analysis: the suite takes about 2.5 minutes and there is no Admin impact data (RT-1265 c15995).
+  # Admin Console has no coverage floor; none is added. Test results only (public project: no
+  # artifacts). admin/build-test on GitHub verifies this job's status for the exact head SHA.
+  admin-vitest-gate:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - admin-gate-guard
+      - node-toolchain:
+          app_dir: apps/admin-console
+      - run:
+          name: Install (Admin Console)
+          working_directory: ~/project/apps/admin-console
+          command: timeout -k 1m 10m pnpm install --frozen-lockfile --ignore-scripts
+      - run:
+          name: Admin Console Vitest, full suite with coverage, then the completeness check (RT-1265)
+          working_directory: ~/project/apps/admin-console
+          no_output_timeout: 10m
+          environment:
+            TZ: UTC
+          command: |
+            mkdir -p /tmp/gate /tmp/test-reports
+            rc=0
+            timeout -k 1m 20m pnpm exec vitest run --coverage --reporter=default \
+              --reporter=json --outputFile.json=/tmp/gate/admin-vitest.json \
+              --reporter=junit --outputFile.junit=/tmp/test-reports/admin-vitest.xml || rc=$?
+            node ~/project/.circleci/scripts/admin-gate-complete.cjs /tmp/gate/admin-vitest.json "$PWD" || rc=1
+            exit $rc
+      - store_test_results:
+          path: /tmp/test-reports
+
   # RT-1036: the Admin Console Playwright suite for a pushed feature branch, as admin/e2e.
   # CircleCI sets CI=true, so retries (2), forbidOnly and the JSON report behave as on GitHub;
   # the last step lists retried tests, as admin/e2e's two retry-report steps do, so a pass on
@@ -1476,6 +1562,17 @@ workflows:
         - equal: [none, << pipeline.parameters.remote_suite >>]
     jobs:
       - backend-api-jest-tia-probe
+
+  # RT-1265: the Admin Console Vitest gate, on the same pull request events as api-jest-gate below
+  # (the same expression `when`, so non-PR pipelines still compile). Kill switch: admin_vitest_gate_enabled.
+  admin-vitest-gate:
+    when: >-
+      pipeline.parameters.admin_vitest_gate_enabled
+      and pipeline.event.name == "pull_request"
+      and (pipeline.event.action == "opened" or pipeline.event.action == "synchronize" or pipeline.event.action == "reopened")
+      and pipeline.event.github.pull_request.base.ref == "main"
+    jobs:
+      - admin-vitest-gate
 
   # RT-1256: the automatic API Jest gate, pull requests to main only (opened, pushed to, reopened).
   # An expression `when`: the pull_request values are read only after the event check, which keeps

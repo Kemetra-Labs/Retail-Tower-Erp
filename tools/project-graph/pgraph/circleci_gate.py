@@ -21,7 +21,11 @@ head SHA. Every doubt is a failure or a wait, never a pass:
 CUTOVER_ENABLED is read from the TRUSTED base commit (the workflow extracts tools/project-graph
 with `git archive` of the PR base). A base without this module, or with the flag False, makes the
 GitHub job run the full API Jest itself (bootstrap and rollback). Push to main always runs the
-GitHub full suite (coverage for Sonar; CircleCI runs no gate job on push)."""
+GitHub full suite (coverage for Sonar; CircleCI runs no gate job on push).
+
+RT-1265 adds a second target with the same rules: `admin` (Admin Console Vitest, status context
+ADMIN_CONTEXT, scope ADMIN_OUT_OF_SCOPE_RE, switch ADMIN_CUTOVER_ENABLED), judged by
+`judge(..., target="admin")` for `admin/build-test`. The default target `api` is unchanged."""
 
 import re
 
@@ -43,13 +47,44 @@ OUT_OF_SCOPE_RE = re.compile(
     r"|tests/e2e/|docs/|system/|README\.md$|ARCHITECTURE\.md$)"
 )
 
+# RT-1265: the second target, Admin Console Vitest. `admin/build-test` keeps codegen and drift,
+# build, parity, lint and code-health on GitHub and, on a pull request, verifies CircleCI's
+# `admin-vitest-gate` status instead of running Vitest (the full suite with --coverage, as
+# `pnpm test`). Its own rollback switch, read from the trusted base like CUTOVER_ENABLED: False
+# puts Vitest back on GitHub without touching the API gate. Push to main always runs Vitest on
+# GitHub (its lcov feeds Sonar). Admin has no coverage floor (vitest.config.ts), so none is added.
+ADMIN_CUTOVER_ENABLED = True
+ADMIN_CONTEXT = "ci/circleci: admin-vitest-gate"
+
+# Paths whose change never selects admin/build-test (pinned against the real graph by the tests,
+# and .circleci/scripts/admin-gate-scope.cjs holds the same pattern): POS and the connector (not
+# their .github/), Backend-Core except its `contracts` tier and the admin edge (packages/contracts/,
+# the API openapi sources and tests, tools/oasdiff, tools/schemathesis, the shared observability
+# vectors), the e2e suite, docs, system manifests, the two root prose files, and the Admin Console's
+# own `low` tier. Anything else is in scope: the CircleCI job runs the suite.
+ADMIN_OUT_OF_SCOPE_RE = re.compile(
+    r"^(?:(?:apps/pos|integrations/erpnext-connector)/(?!(?:.*/)?\.github/)"
+    r"|services/backend-core/(?!(?:.*/)?\.github/|packages/contracts/|packages/shared/__tests__/observability/"
+    r"|apps/api/src/openapi/|apps/api/test/openapi/|apps/api/test/contract-conformance\.spec\.ts$"
+    r"|tools/oasdiff/|tools/schemathesis/)"
+    r"|apps/admin-console/(?:(?:docs|specs|design|design_handoff_retail_tower_console|\.design-sync|\.claude"
+    r"|\.specify|\.impeccable)/|[^/]+\.md$)"
+    r"|tests/e2e/|docs/|system/|README\.md$|ARCHITECTURE\.md$)"
+)
+
+TARGETS = {
+    "api": {"context": CONTEXT, "out_of_scope": OUT_OF_SCOPE_RE},
+    "admin": {"context": ADMIN_CONTEXT, "out_of_scope": ADMIN_OUT_OF_SCOPE_RE},
+}
+
 OK, FAIL, PENDING = "ok", "fail", "pending"
 
 
-def out_of_scope(paths):
+def out_of_scope(paths, target="api"):
     """True when there is at least one path and every one is out of scope (the CircleCI job skips)."""
+    pattern = TARGETS[target]["out_of_scope"]
     paths = [p for p in paths if p]
-    return bool(paths) and all(OUT_OF_SCOPE_RE.match(p) for p in paths)
+    return bool(paths) and all(pattern.match(p) for p in paths)
 
 
 def _status_problem(s):
@@ -61,9 +96,13 @@ def _status_problem(s):
     return None
 
 
-def judge(event, head_sha, fork, circleci_changed, paths, statuses, deadline_passed=False):
+def judge(event, head_sha, fork, circleci_changed, paths, statuses, deadline_passed=False, target="api"):
     """Return {verdict, reasons, rejected, status}. `statuses` is GitHub's list for head_sha."""
     out = {"verdict": FAIL, "reasons": [], "rejected": [], "status": None}
+    if target not in TARGETS:
+        out["reasons"].append("UNKNOWN_TARGET")
+        return out
+    context = TARGETS[target]["context"]
     if event != "pull_request":
         out["reasons"].append("WRONG_EVENT")
     if not isinstance(head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
@@ -72,7 +111,9 @@ def judge(event, head_sha, fork, circleci_changed, paths, statuses, deadline_pas
         out["reasons"].append("FORK_PR")
     if circleci_changed:
         out["reasons"].append("CIRCLECI_CONFIG_CHANGED")
-    if out_of_scope(paths):
+    if not isinstance(paths, list):
+        out["reasons"].append("NO_PATHS")
+    elif out_of_scope(paths, target):
         out["reasons"].append("SCOPE_DRIFT")
     if not isinstance(statuses, list):
         out["reasons"].append("NO_STATUS_LIST")
@@ -81,7 +122,7 @@ def judge(event, head_sha, fork, circleci_changed, paths, statuses, deadline_pas
 
     valid = []
     for s in statuses:
-        if not isinstance(s, dict) or s.get("context") != CONTEXT:
+        if not isinstance(s, dict) or s.get("context") != context:
             continue
         problem = _status_problem(s)
         if problem:
