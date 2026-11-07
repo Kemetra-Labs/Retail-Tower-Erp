@@ -159,9 +159,10 @@ class WorkflowWiring(unittest.TestCase):
             live = text[text.index("\n  live:"):]
             step = "- name: Record the Sentry release and deploy (evidence only)"
             self.assertIn(step, live, name)
-            self.assertLess(live.index("- name: Write the live ledger"), live.index(step), name)
-            self.assertLess(live.index(step), live.index("- name: Record the live state"), name)
-            block = live[live.index(step):live.index("- name: Assume the deploy role to record the outcome")]
+            # After the live-state record (it can never delay it), before the ledger upload.
+            self.assertLess(live.index("- name: Record the live state"), live.index(step), name)
+            self.assertLess(live.index(step), live.index("- name: Upload the live ledger"), name)
+            block = live[live.index(step):live.index("- name: Upload the live ledger")]
             self.assertIn("if: always()", block, name)
             self.assertIn("timeout-minutes: 6", block, name)
             self.assertIn("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}", block, name)

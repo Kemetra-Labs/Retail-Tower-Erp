@@ -466,9 +466,9 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
       "Mark the live-state record inflight",
       "Run the SSM gates",
       "Write the live ledger",
-      "Record the Sentry release and deploy",
       "Assume the deploy role to record the outcome",
       "Record the live state",
+      "Record the Sentry release and deploy",
       "Upload the live ledger",
     ];
     expect(live.steps.map((s) => steps.findIndex((p) => (s.name ?? "").startsWith(p)))).toEqual(steps.map((_, i) => i));
