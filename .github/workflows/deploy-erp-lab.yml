@@ -467,6 +467,7 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           TARGET_SHA: ${{ inputs.target_sha }}
         run: |
+          set -euo pipefail
           RELEASE_SHA="$TARGET_SHA"; RELEASE="${TARGET_SHA:0:12}"
           bash .github/release/sentry-release.sh erpnext-connector "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json"
 

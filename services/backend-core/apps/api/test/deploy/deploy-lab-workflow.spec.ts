@@ -216,10 +216,12 @@ describe("deploy-lab workflow", () => {
     for (const step of allSteps) if (step.run !== undefined) expect(step.run).not.toContain("${{");
   });
 
-  it("uses no secret but the read-only GITHUB_TOKEN, and no AWS key anywhere", () => {
+  it("uses no secret but the read-only GITHUB_TOKEN and the Sentry evidence token (RT-1241), and no AWS key anywhere", () => {
     const secrets = [...workflowText.matchAll(/secrets\.(\w+)/g)].map((m) => m[1]);
     expect(secrets.length).toBeGreaterThan(0);
-    expect(new Set(secrets)).toEqual(new Set(["GITHUB_TOKEN"]));
+    expect(new Set(secrets)).toEqual(new Set(["GITHUB_TOKEN", "SENTRY_AUTH_TOKEN"]));
+    // RT-1241: the Sentry token is read only by the evidence step of the live job (aws-lab environment).
+    expect(secrets.filter((s) => s === "SENTRY_AUTH_TOKEN")).toHaveLength(1);
     expect(workflowText).not.toMatch(/aws-access-key-id|aws-secret-access-key|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN/);
   });
 
@@ -464,6 +466,7 @@ describe("deploy-lab workflow: live job (RT-842)", () => {
       "Mark the live-state record inflight",
       "Run the SSM gates",
       "Write the live ledger",
+      "Record the Sentry release and deploy",
       "Assume the deploy role to record the outcome",
       "Record the live state",
       "Upload the live ledger",

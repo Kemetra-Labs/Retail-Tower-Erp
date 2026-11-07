@@ -654,6 +654,7 @@ jobs:
           BACKEND_RELEASE: ${{ inputs.backend_release }}
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
         run: |
+          set -euo pipefail
           RELEASE="${BACKEND_RELEASE#backend-core/}"
           bash .github/release/sentry-release.sh backend-core "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json"
 

@@ -430,6 +430,7 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
         run: |
+          set -euo pipefail
           RELEASE="${RELEASE_SHA:0:12}"
           bash .github/release/sentry-release.sh admin-console "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json"
 
