@@ -139,7 +139,12 @@ revocation done first blocks step 1.
    platform admin (a tenant admin gets 403). A membership covers one tenant only: a
    user who belongs to several tenants keeps access, on POS and Admin, in every
    tenant where a membership is still active. Revoke the membership in each tenant
-   the user belongs to (the tenants their Admin sign-in lists).
+   the user belongs to. Do not rely on the tenant list the user's Admin sign-in
+   shows: it lists active tenants only, so a membership in a suspended or pending
+   tenant is missing from it, and it comes back into force if that tenant is
+   reactivated. Have a platform admin list every unrevoked membership of the user
+   across all tenant statuses (a read-only query is enough), revoke each one, and
+   keep a suspended tenant suspended until its membership is revoked.
    An open Admin session stays valid, but every tenant-scoped request is refused,
    because `TenantContextGuard` checks for an active membership on each request
    (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
