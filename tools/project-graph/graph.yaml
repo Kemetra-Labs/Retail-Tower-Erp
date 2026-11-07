@@ -257,10 +257,11 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
-  # RT-1268: repo-level Claude Code agent configuration (skills under .claude/skills/**). No product
-  # build, test or workflow reads it, so like docs it selects no job. Product-level .claude/** stays
-  # in each product's `low` tier.
-  agent:   { precedence: 3, globs: [.claude/**], selects: [] }
+  # RT-1268: repo-level Claude Code skills. No product build, test or workflow reads them, so like
+  # docs they select no job. Deliberately skills only: other root .claude/** files (settings, hooks)
+  # stay unclassified so the selftest forces a decision. Product-level .claude/** stays in each
+  # product's `low` tier.
+  agent:   { precedence: 3, globs: [.claude/skills/**], selects: [] }
   # RT-1030: system release manifests (system/releases/*.json) name the product releases deployed
   # together; contracts/check runs the system release gate (G1-G5) on every one of them.
   # RT-1173: no product job reads system/**; contracts/check does (system gate and release specs),
