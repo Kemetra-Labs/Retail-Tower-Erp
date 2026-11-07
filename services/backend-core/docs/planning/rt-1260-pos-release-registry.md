@@ -83,8 +83,11 @@ resolver checks the role only, not a store scope.
 | Signed in, role not `owner` / `tenant_admin` / `store_manager` | **404** `not_found` (as the devices surface: the non-disclosing 404, no 403), identical to the row above. No URL, no audit row. |
 | Signed in with an allowed role | **200** with `available: true` and the release (§3.3), or `available: false` (§3.4). |
 | Platform admin (`users.is_platform_admin`) with a live membership in the active tenant | Admitted whatever the membership role: `RolesGuard` lets a platform admin through (`apps/api/src/auth/roles.guard.ts`). **200** as above. |
-| Platform admin with no membership, with an `active` RT-414 support session for exactly that tenant | Admitted by `TenantContextGuard`'s support-session gate, which writes one `platform.cross_tenant.accessed` row. **200** as above. |
-| Platform admin with no membership and no such session | **403**, `error.code` from the RT-414 gate: `support_session_required`, `support_session_expired` or `support_session_read_only`. Not a 404: the reused guard refuses before the role check. No URL, no audit row of this route. |
+| Platform admin with no membership, with an `active` RT-414 support session for exactly that tenant | Admitted by `TenantContextGuard`'s support-session gate. **200** as above. |
+| Platform admin with no membership and no live, unexpired session for that tenant | **403** `support_session_required` or `support_session_expired` from the RT-414 gate. Not a 404: the reused guard refuses before the role check. No URL, no audit row of this route. (`support_session_read_only` cannot occur here: the gate applies it only to unsafe methods on a suspended tenant, and this route is a `GET`.) |
+
+Every RT-414 gate decision, admitted or refused, writes one `platform.cross_tenant.accessed` row
+(`support-session.gate.ts`); the resolver's own `pos.release.download_link_issued` row (§3.6) is separate.
 
 No route-specific guard is proposed: the resolver reuses the pairing routes' guard chain, and this matrix is that
 chain's behaviour. D-3 names the tenant roles that may download; platform admins reach every tenant route the
@@ -138,7 +141,7 @@ The canonical envelope `{ error: { code, message, request_id } }`, as RT-327.
 | --- | --- | --- |
 | 400 | `validation_error` | Any query parameter is present (the route takes none). Checked after the guards. |
 | 401 | `unauthorized` | §3.2, including a session with no active tenant. |
-| 403 | `support_session_required` / `support_session_expired` / `support_session_read_only` | A platform admin without membership or a valid RT-414 support session (§3.2). |
+| 403 | `support_session_required` / `support_session_expired` | A platform admin without membership or a live RT-414 support session (§3.2). |
 | 404 | `not_found` | §3.2. Non-disclosing. |
 | 429 | `rate_limited` | The RT-574 console limit. Class `read` is proposed; the class file is `apps/api/test/console-rate-limit/classes/pos-releases.rate-limit.yaml` (§9). |
 | 500 | `system_failure` | Unexpected error, including a presign failure. A presign failure is never `available: false`: that would hide a broken bucket or credential as "no release". |
@@ -261,7 +264,7 @@ or a release the owner chose not to recommend. Changing which release customers 
 | **Unapproved release** (no row; or row withdrawn) | Without an approved promotion run the workflow never calls the write (§8); a call without the promotion credential is 401. A withdrawn row stays `approved = false` for good. | E2 or E3 fails: `available: false`. Recommending an unregistered version is not refused by the policy write (that would couple RT-327 to this table); the resolver returns nothing, and registering that version later still returns nothing until a platform admin activates that row (E7). |
 | **Release below `min_supported_version`** | Accepted: the registry records what was shipped, not what is current. | Cannot be returned: only `recommended_version` is considered, the policy keeps `min <= recommended` (RT-327 422 `version_order_invalid`), and E6 checks it again. `available: false` if ever reached. |
 | **Unauthenticated caller** | 401 on both write routes. | 401, no URL, no audit row (§3.2). |
-| **Unauthorized caller** | A valid credential without the promotion claims (D-5a): 403 `forbidden`; a Console session of any user, including a platform admin: 401 (the write routes take no cookie). | 404 `not_found`, identical for a role outside the list and for no active membership; a session with no active tenant is 401; a platform admin without membership or support session is 403 `support_session_*` (§3.2). |
+| **Unauthorized caller** | A valid credential without the promotion claims (D-5a): 403 `forbidden`; a Console session of any user, including a platform admin: 401 (the write routes take no cookie). | 404 `not_found`, identical for a role outside the list and for no active membership; a session with no active tenant is 401; a platform admin without membership or a live support session is 403 `support_session_required` / `support_session_expired` (§3.2). |
 | **Production pin not configured** (today: no production certificate, RT-321) | 503 `publisher_pin_unset`: nothing can be registered. | E5 fails: `available: false` for everyone. |
 
 ## 6. Lab versus production, by construction (D-4)
@@ -1118,9 +1121,11 @@ components:
         403 from the reused `TenantContextGuard` (RT-414): a platform admin
         with no live membership in the active tenant and no `active` support
         session for it. `error.code` one of `support_session_required`,
-        `support_session_expired`, `support_session_read_only`. A platform
-        admin who is a member, or who holds such a session, is admitted
-        whatever the role. No URL is issued.
+        `support_session_expired` (`support_session_read_only` applies only
+        to unsafe methods, never to this GET). A platform admin who is a
+        member, or who holds such a session, is admitted whatever the role.
+        Every gate decision writes `platform.cross_tenant.accessed`. No URL
+        is issued.
       content:
         application/json:
           schema:
