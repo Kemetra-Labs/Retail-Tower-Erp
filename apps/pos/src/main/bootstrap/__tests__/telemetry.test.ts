@@ -266,13 +266,15 @@ describe('registerTelemetry — the rest of the tunnel lifecycle', () => {
   it('a bound, enabled terminal forwards an envelope through the tunnel with the device token', async () => {
     const f = fixture(stable, true, { cachedConfig: enabled });
     const wiring = registerTelemetry(f.deps);
-    const fetch = vi.fn((url: RequestInfo | URL) =>
-      Promise.resolve(
+    const seen: { url: string; auth: string | null }[] = [];
+    const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({ url: urlOf(url), auth: new Headers(init?.headers).get('authorization') });
+      return Promise.resolve(
         urlOf(url).endsWith('/config')
           ? json(200, configBody)
           : new Response(null, { status: 204 }),
-      ),
-    );
+      );
+    });
     wiring.bind({
       fetch,
       readToken: () => Promise.resolve('tok'),
@@ -280,9 +282,7 @@ describe('registerTelemetry — the rest of the tunnel lifecycle', () => {
     });
     const answer = await executorOf(f)({ body: envelope });
     expect(answer.statusCode).toBe(204);
-    const sent = fetch.mock.calls.find(([url]) => url === TUNNEL);
-    expect(sent).toBeDefined();
-    expect(new Headers((sent?.[1] as RequestInit).headers).get('authorization')).toBe('Bearer tok');
+    expect(seen).toContainEqual({ url: TUNNEL, auth: 'Bearer tok' });
     wiring.stop();
   });
 
@@ -309,6 +309,24 @@ describe('registerTelemetry — the rest of the tunnel lifecycle', () => {
         wiring.stop();
       }).not.toThrow();
     }
+  });
+
+  it('bind is idempotent: a second call neither registers twice nor starts a second refresh', async () => {
+    const f = fixture(stable, true, { cachedConfig: enabled });
+    const wiring = registerTelemetry(f.deps);
+    const fetch = vi.fn(() => Promise.resolve(json(200, configBody)));
+    const binding = {
+      fetch,
+      readToken: () => Promise.resolve('tok'),
+      currentTerminalId: () => 'term-A',
+    };
+    wiring.bind(binding);
+    wiring.bind({ ...binding, currentTerminalId: () => 'term-B' });
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+    expect(f.registered).toEqual(['telemetry config refresh']);
+    wiring.stop();
   });
 
   it('a build without a stamp reports release unknown and has no buildIdentity', () => {

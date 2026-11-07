@@ -165,11 +165,13 @@ function registerTunnel(
   const queuePath = path.join(telemetryDir, 'queue');
   let bound: TelemetryLateBinding | null = null;
   const binding = (): TelemetryLateBinding => bound ?? UNBOUND;
+  // ONE forwarding call site for both clients (the contract registry counts fetch call sites).
+  const lateFetch: FetchLike = (input, init) => binding().fetch(input, init);
 
   const configClient = createTelemetryConfigClient({
     transport: createBackendTransport({
       baseUrl: deps.baseUrl,
-      fetch: (input, init) => binding().fetch(input, init),
+      fetch: lateFetch,
       timeoutMs: CONFIG_TIMEOUT_MS,
       maxBodyBytes: CONFIG_MAX_BODY_BYTES,
     }),
@@ -186,7 +188,7 @@ function registerTunnel(
     tunnelUrl,
     readToken: () => binding().readToken(),
     currentTerminalId: () => binding().currentTerminalId(),
-    fetch: (input, init) => binding().fetch(input, init),
+    fetch: lateFetch,
     timeoutMs: TUNNEL_TIMEOUT_MS,
   });
   const makeTransport = sentry.makeElectronOfflineTransport((options) =>
@@ -229,6 +231,8 @@ function registerTunnel(
     buildIdentity,
     isInitialized: () => result.kind === 'initialized',
     bind(late) {
+      // Idempotent: a second call must not start a second refresh chain or register twice.
+      if (bound !== null) return;
       bound = late;
       deps.workerRegistry.register('telemetry config refresh', stop);
       if (result.kind === 'initialized') void tick();
