@@ -145,6 +145,16 @@ revocation done first blocks step 1.
    reactivated. Have a platform admin list every unrevoked membership of the user
    across all tenant statuses (a read-only query is enough), revoke each one, and
    keep a suspended tenant suspended until its membership is revoked.
+
+   A suspended (or pending) tenant is already contained while it stays that way: a
+   membership there reads exactly like a revoked one, so the user has no access to
+   it (RT-669). The membership often cannot be revoked there, though: a platform
+   admin's support session is read-only in a suspended tenant, and the DELETE needs
+   an owner, a tenant admin or a platform admin who can write in that tenant. In
+   that case record the membership on the incident and do not reactivate the tenant
+   until step 1 is done and the step 3 wait has passed; then revoke the membership
+   right after reactivation if it is still needed. If the tenant must be reactivated
+   sooner, escalate to the owner first.
    An open Admin session stays valid, but every tenant-scoped request is refused,
    because `TenantContextGuard` checks for an active membership on each request
    (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
