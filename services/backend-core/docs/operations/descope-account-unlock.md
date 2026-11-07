@@ -55,7 +55,13 @@ link:
 - **Admin:** sign-in logs no cause. Check that the user exists, is not deleted, and
   has an ACTIVE `descope` link whose subject is the Descope user id.
 
-Only then is it a wrong password. A user who knows the current password can change it from Admin. A user
+Even then a wrong password is the likely cause, not a certain one: a Descope token
+that fails Backend-Core's verification (signature, issuer, audience, expiry or age
+cap, for example after a configuration change or while the Descope key set cannot be
+fetched) gives the same refusal. On POS it shows as `identity_token_invalid`; Admin
+logs nothing, so if several Descope-linked users fail at once, check the API's
+`DESCOPE_*` settings and its reach to `api.descope.com` before resetting anyone's
+password. A user who knows the current password can change it from Admin. A user
 who has forgotten it cannot recover it through Backend-Core yet: the legacy reset
 does nothing for a Descope-linked user (RT-1262), and provider-backed recovery is
 RT-937 item 3. Until then a Descope admin sets a new password (step 3, "Set a new
@@ -141,9 +147,11 @@ revocation done first blocks step 1.
    - a platform admin is not bound by tenant membership: use step 1;
    - the session can still reach routes that are not tenant-scoped (for example its
      own sign-out) until it expires.
-3. **If step 2 already happened:** set the new password (above). Wait until the
-   POS window above has passed since the password was set, so a JWT issued before
-   it can no longer be used, then re-invite the user so they hold a membership
+3. **If step 2 already happened:** set the new password (above). Wait for the full
+   configured age cap (`DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS`, default 8.5 hours) plus
+   a few minutes since the password was set: the verifier allows 5 seconds of clock
+   tolerance on `exp` and on the age cap, and server clocks can drift. Only then is a
+   JWT issued before the change unusable. Then re-invite the user so they hold a membership
    again, and have them change the password on the
    account page at their first sign-in (step 1). The other sessions stay valid until
    that change, or until their 24-hour expiry.
