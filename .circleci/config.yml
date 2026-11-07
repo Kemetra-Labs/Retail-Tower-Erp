@@ -129,6 +129,17 @@ parameters:
   api_jest_gate_enabled:
     type: boolean
     default: true
+  # RT-1258 (owner decision, RT-1258 comment 15863): impacted-only API specs in that gate. true
+  # (default): the scope job runs the RT-1075 risk guard and, only for a TIA_ELIGIBLE change (a narrow
+  # class: API src and spec files outside the critical tiers), the impact-analysis plan. An accepted
+  # IMPACTED plan makes the shards run only the planned specs (no coverage) and the fan-in skip the
+  # global coverage floors, which the full suite on main (GitHub bc/db-integration on every push)
+  # still enforces. Every other change, and every doubt, is the full split run with merged coverage,
+  # exactly as before. Kill switch and rollback: set this default to false (the gate is then the full
+  # split run only). Reading it does not change api_jest_gate_enabled's own rollback above.
+  api_gate_tia_enabled:
+    type: boolean
+    default: true
 
 commands:
   backend-setup:
@@ -268,6 +279,114 @@ commands:
               out) echo "Out of scope: nothing to run."; circleci-agent step halt ;;
               *) echo "No valid scope decision ('$scope'); refusing to run."; exit 1 ;;
             esac
+
+  # RT-1258 (owner decision, comment 15863): the plan of the API gate, made in api-jest-scope after
+  # the guard, only while api_gate_tia_enabled. It reuses the RT-1239 selector (tia-canary-select.cjs:
+  # risk-guard decision, full-test-run-paths bypass, list-tests, selection probe, must-run and
+  # text-reader specs, `plan`), so there is no second selection engine. The risk guard alone decides
+  # whether anything more runs: a change outside the TIA_ELIGIBLE class (about 91% of recent Backend-Core
+  # API merges) writes a FULL plan at once, with no install and no impact data read. For an eligible
+  # change, every problem (setup, list-tests, probe, selector) also writes a FULL plan: planning never
+  # fails the job and never narrows the run on a doubt. The result is /tmp/gate/plan/plan.json;
+  # api-gate-plan.cjs (shards) and api-gate-merge.cjs (fan-in) judge it. Runs main's scripts only
+  # (api-gate-guard already required .circleci/ equal to origin/main).
+  api-gate-plan:
+    description: Risk guard, then for an eligible change the impact-analysis plan (/tmp/gate/plan/plan.json); any doubt is FULL.
+    steps:
+      - run:
+          name: "API gate plan: risk guard (only a TIA_ELIGIBLE change goes on to impact analysis)"
+          environment:
+            EXPECTED_SHA: "<< pipeline.git.revision >>"
+          command: |
+            mkdir -p /tmp/gate/plan /tmp/tia
+            rm -f /tmp/gate/plan/plan.json /tmp/gate/plan/eligible
+            full() {
+              printf '{"mode":"FULL","reasons":["%s"],"atoms":[]}\n' "$1" > /tmp/gate/plan/plan.json
+              echo "API gate plan: FULL ($1)"
+            }
+            if [ "$(cat /tmp/gate/scope.txt 2>/dev/null)" != in ]; then full "scope is not in"; exit 0; fi
+            rc=0
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test .circleci/scripts/tia-risk-guard.test.cjs || rc=$?
+            if [ "$rc" -ne 0 ]; then full "guard self-test failed (exit $rc)"; exit 0; fi
+            rc=0
+            timeout 120 node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/tia || rc=$?
+            if [ "$rc" -ne 0 ]; then full "guard exited $rc"; exit 0; fi
+            decision="$(node -p 'const g = require("/tmp/tia/guard.json"); g.head === process.env.EXPECTED_SHA ? g.decision : "wrong-head"' 2>/dev/null || echo unreadable)"
+            if [ "$decision" = TIA_ELIGIBLE ]; then
+              touch /tmp/gate/plan/eligible
+              echo "API gate plan: TIA_ELIGIBLE, building the impact-analysis plan"
+            else
+              full "risk guard: $decision"
+            fi
+            exit 0
+      - run:
+          name: "API gate plan: Node, pnpm, dependencies, workspaces (eligible changes only; a failure keeps the full run)"
+          working_directory: ~/project/services/backend-core
+          no_output_timeout: 10m
+          command: |
+            [ -f /tmp/gate/plan/eligible ] || { echo "Not eligible: skipped."; exit 0; }
+            fail() {
+              rm -f /tmp/gate/plan/eligible
+              printf '{"mode":"FULL","reasons":["%s"],"atoms":[]}\n' "$1" > /tmp/gate/plan/plan.json
+              echo "API gate plan: FULL ($1)"
+              exit 0
+            }
+            # Every command that can fail goes through `fail` (a FULL plan), never through the shell's
+            # exit-on-error: planning must not turn the scope job red.
+            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)" || fail "could not read the root .nvmrc"
+            [ -n "$node_version" ] || fail "the root .nvmrc is empty"
+            nvm install "$node_version" || fail "nvm install failed"
+            node_bin="$(dirname "$(nvm which "$node_version")")" || fail "nvm which failed"
+            [ -x "$node_bin/node" ] || fail "no node binary for the pinned version"
+            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV" || fail "could not extend PATH"
+            export PATH="$node_bin:$PATH"
+            corepack enable || fail "corepack enable failed"
+            pm="$(node -p "require('./package.json').packageManager")" || fail "could not read packageManager"
+            corepack prepare "$pm" --activate || fail "corepack prepare failed"
+            pnpm install --frozen-lockfile --ignore-scripts || fail "pnpm install failed"
+            pnpm --filter @data-pulse-2/shared --filter @data-pulse-2/auth --filter @data-pulse-2/db --filter @data-pulse-2/worker run build || fail "workspace build failed"
+      - run:
+          name: "API gate plan: bypass, list-tests, selection probe, plan (eligible changes only; any doubt is FULL)"
+          working_directory: ~/project
+          no_output_timeout: 10m
+          environment:
+            EXPECTED_SHA: "<< pipeline.git.revision >>"
+          command: |
+            [ -f /tmp/gate/plan/eligible ] || { echo "Not eligible: skipped."; exit 0; }
+            rc=0
+            TIA_GUARD_RUNTIME=1 timeout 120 node --test .circleci/scripts/tia-canary-select.test.cjs || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "selector self-test failed (exit $rc); no bypass."
+              printf '{"applied":false,"reason":"selector self-test failed (exit %s)"}\n' "$rc" > /tmp/tia/fullrun-bypass.json
+            else
+              timeout 60 node .circleci/scripts/tia-canary-select.cjs bypass --out /tmp/tia --suites .circleci/test-suites.yml \
+                || echo "bypass exited $?; the restore below runs either way."
+            fi
+            cd ~/project/services/backend-core/apps/api
+            rc=0
+            timeout 300 circleci testsuite list-tests "backend api jest" > /tmp/tia/selected.txt 2> /tmp/tia/list-tests.log || rc=$?
+            echo "$rc" > /tmp/tia/list-tests.rc
+            cat /tmp/tia/list-tests.log
+            rc=0
+            timeout 300 circleci testsuite run "backend api jest" --run-tests=none --analyze-tests=none > /tmp/tia/probe.log 2>&1 || rc=$?
+            echo "$rc" > /tmp/tia/probe.rc
+            grep -E '^(Discovered|Found test impact|Selecting all|- [0-9]+ |Selected|Patching|Analyzing|Running impact analysis)' /tmp/tia/probe.log || true
+            find ~/project/.circleci -maxdepth 1 -name 'impact-*.json' -exec mv -t /tmp/tia {} + || true
+            # Undo the bypass before the plan reads the checkout.
+            rc=0
+            git -C ~/project checkout -- .circleci/test-suites.yml || rc=$?
+            git -C ~/project diff --quiet -- .circleci/test-suites.yml || rc=$?
+            echo "$rc" > /tmp/tia/fullrun-restore.rc
+            node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > /tmp/tia/discovered.txt \
+              || echo "could not list the specs (the selector plans FULL)"
+            rc=0
+            timeout 120 node ~/project/.circleci/scripts/tia-canary-select.cjs plan --out /tmp/tia --api-root "$PWD" || rc=$?
+            if [ "$rc" -eq 0 ] && [ -f /tmp/tia/canary-plan.json ]; then
+              cp /tmp/tia/canary-plan.json /tmp/gate/plan/plan.json
+            else
+              printf '{"mode":"FULL","reasons":["selector exited %s"],"atoms":[]}\n' "$rc" > /tmp/gate/plan/plan.json
+            fi
+            exit 0
 
   # RT-1036: Node from the root .nvmrc for a product directory, as backend-setup does for
   # Backend-Core; pnpm through corepack when the product's package.json names a packageManager
@@ -810,7 +929,8 @@ jobs:
   #                   parallelism 3 (a bound, not dynamic): each node runs its share with --coverage
   #                   (json reporter) and per-node thresholds off, and persists its inventory, Jest
   #                   JSON and coverage map. Nothing is selected out: the shards together run every spec
-  #                   once.
+  #                   once. RT-1258 (switch on): when the plan is an accepted IMPACTED plan the shards
+  #                   split only the planned specs and run them without coverage.
   #   api-jest-gate   the fan-in (api-gate-merge.cjs): all nodes present on this commit, the same
   #                   discovered list everywhere, assignments disjoint and covering it exactly, every
   #                   node's run complete and green, and the MERGED coverage against
@@ -823,8 +943,16 @@ jobs:
   #                   overlapping or missing assignments; the fan-in then fails ("assigned twice" /
   #                   "assigned to no node") and a rerun fixes it. A failed shard persists nothing: read
   #                   the shard job for the test failure itself.
-  # Impacted-only (TIA) selection is NOT used for this gate: a selective run cannot measure the
-  # global coverage floors, so it needs an owner decision on the coverage policy (RT-1258 report).
+  # RT-1258 (owner decision, comment 15863): the run may be IMPACTED. A selective run cannot measure
+  # the global coverage floors, so the owner moved that check: on a TIA_ELIGIBLE change the gate
+  # runs only the planned specs and does NOT evaluate the floors (the fan-in says so in its log), and
+  # the full suite with the floors still runs on main (bc/db-integration on every push), so a
+  # regression only the full suite or the global coverage sees is caught after merge, and main is not
+  # healthy until that run is green. The plan is made once, in api-jest-scope (command api-gate-plan,
+  # switch api_gate_tia_enabled); the shards split the planned specs instead of the full list and skip
+  # coverage; the fan-in re-validates the plan against a risk guard it re-runs itself and requires
+  # the planned inventory exactly. Any change outside the eligible class, and any doubt, is the full
+  # split run above.
   # No serial group. Stores test results only (the builds are public: no coverage artifacts; the
   # workspace stays inside the pipeline).
   api-jest-scope:
@@ -834,10 +962,24 @@ jobs:
     steps:
       - checkout
       - api-gate-guard
-      - persist_to_workspace:
-          root: /tmp/gate
-          paths:
-            - scope.txt
+      # RT-1258: switch ON plans and persists plan/ with scope.txt. OFF persists scope.txt only, exactly the
+      # previous job.
+      - when:
+          condition: << pipeline.parameters.api_gate_tia_enabled >>
+          steps:
+            - api-gate-plan
+            - persist_to_workspace:
+                root: /tmp/gate
+                paths:
+                  - scope.txt
+                  - plan
+      - unless:
+          condition: << pipeline.parameters.api_gate_tia_enabled >>
+          steps:
+            - persist_to_workspace:
+                root: /tmp/gate
+                paths:
+                  - scope.txt
 
   api-jest-shard:
     machine:
@@ -848,33 +990,84 @@ jobs:
       - api-gate-scope-skip
       - checkout
       - backend-setup
-      - run:
-          name: API Jest shard, timing-split share of the full suite with coverage (RT-1258)
-          working_directory: ~/project/services/backend-core/apps/api
-          no_output_timeout: 10m
-          environment:
-            NODE_OPTIONS: --max-old-space-size=4096
-          command: |
-            n="${CIRCLE_NODE_INDEX:?}"
-            d="/tmp/gate/nodes/$n"
-            mkdir -p "$d" /tmp/test-reports
-            git -C ~/project rev-parse HEAD > "$d/sha"
-            echo "${CIRCLE_NODE_TOTAL:?}" > "$d/total"
-            node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > "$d/discovered.txt" \
-              || : > "$d/discovered.txt"
-            circleci tests split --split-by=timings --timings-type=filename < "$d/discovered.txt" > "$d/assigned.txt"
-            echo "node $n of $CIRCLE_NODE_TOTAL: $(wc -l < "$d/assigned.txt") of $(wc -l < "$d/discovered.txt") specs"
-            rc=0
-            if [ -s "$d/assigned.txt" ]; then
-              mapfile -t atoms < "$d/assigned.txt"
-              timeout -k 2m 25m node_modules/.bin/jest --runTestsByPath "${atoms[@]}" --coverage \
-                --coverageReporters=json --coverageDirectory="$d/cov" --coverageThreshold='{}' \
-                --forceExit --json --outputFile="$d/api-jest.json" || rc=$?
-              cp "$d/cov/coverage-final.json" "$d/coverage-final.json" || rc=1
-              node ~/project/.circleci/scripts/jest-json-to-junit.cjs "$d/api-jest.json" "/tmp/test-reports/api-jest-shard-$n.xml" "$PWD" || rc=1
-            fi
-            rm -rf "$d/cov"
-            exit $rc
+      # RT-1258: with the switch ON the shards read the plan (api-gate-plan.cjs select). The OFF step below is the
+      # pre-RT-1258 step verbatim, so turning the switch off compiles to exactly the previous gate.
+      - when:
+          condition: << pipeline.parameters.api_gate_tia_enabled >>
+          steps:
+            - run:
+                name: API Jest shard, timing-split share of the full suite with coverage (RT-1258)
+                working_directory: ~/project/services/backend-core/apps/api
+                no_output_timeout: 10m
+                environment:
+                  NODE_OPTIONS: --max-old-space-size=4096
+                command: |
+                  n="${CIRCLE_NODE_INDEX:?}"
+                  d="/tmp/gate/nodes/$n"
+                  mkdir -p "$d" /tmp/test-reports
+                  git -C ~/project rev-parse HEAD > "$d/sha"
+                  echo "${CIRCLE_NODE_TOTAL:?}" > "$d/total"
+                  node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > "$d/discovered.txt" \
+                    || : > "$d/discovered.txt"
+                  # RT-1258: the specs to split. The planned specs when the plan is a valid IMPACTED plan for
+                  # this commit (api-gate-plan.cjs), else the FULL list. The fan-in judges the plan again.
+                  mode=FULL
+                  src="$d/discovered.txt"
+                  if [ -f /tmp/gate/plan/plan.json ]; then
+                    m="$(node ~/project/.circleci/scripts/api-gate-plan.cjs select /tmp/gate/plan/plan.json "$d/discovered.txt" "$(git -C ~/project rev-parse HEAD)" "$d/plan-atoms.txt")" || m=FULL
+                    if [ "$m" = IMPACTED ] && [ -s "$d/plan-atoms.txt" ]; then
+                      mode=IMPACTED
+                      src="$d/plan-atoms.txt"
+                    fi
+                  fi
+                  circleci tests split --split-by=timings --timings-type=filename < "$src" > "$d/assigned.txt"
+                  echo "node $n of $CIRCLE_NODE_TOTAL ($mode): $(wc -l < "$d/assigned.txt") of $(wc -l < "$src") specs"
+                  rc=0
+                  if [ -s "$d/assigned.txt" ]; then
+                    mapfile -t atoms < "$d/assigned.txt"
+                    if [ "$mode" = IMPACTED ]; then
+                      timeout -k 2m 25m node_modules/.bin/jest --runTestsByPath "${atoms[@]}" \
+                        --forceExit --json --outputFile="$d/api-jest.json" || rc=$?
+                    else
+                      timeout -k 2m 25m node_modules/.bin/jest --runTestsByPath "${atoms[@]}" --coverage \
+                        --coverageReporters=json --coverageDirectory="$d/cov" --coverageThreshold='{}' \
+                        --forceExit --json --outputFile="$d/api-jest.json" || rc=$?
+                      cp "$d/cov/coverage-final.json" "$d/coverage-final.json" || rc=1
+                    fi
+                    node ~/project/.circleci/scripts/jest-json-to-junit.cjs "$d/api-jest.json" "/tmp/test-reports/api-jest-shard-$n.xml" "$PWD" || rc=1
+                  fi
+                  rm -rf "$d/cov"
+                  exit $rc
+      - unless:
+          condition: << pipeline.parameters.api_gate_tia_enabled >>
+          steps:
+            - run:
+                name: API Jest shard, timing-split share of the full suite with coverage (RT-1258)
+                working_directory: ~/project/services/backend-core/apps/api
+                no_output_timeout: 10m
+                environment:
+                  NODE_OPTIONS: --max-old-space-size=4096
+                command: |
+                  n="${CIRCLE_NODE_INDEX:?}"
+                  d="/tmp/gate/nodes/$n"
+                  mkdir -p "$d" /tmp/test-reports
+                  git -C ~/project rev-parse HEAD > "$d/sha"
+                  echo "${CIRCLE_NODE_TOTAL:?}" > "$d/total"
+                  node_modules/.bin/jest --listTests | sed "s#^$PWD/##" | sort > "$d/discovered.txt" \
+                    || : > "$d/discovered.txt"
+                  circleci tests split --split-by=timings --timings-type=filename < "$d/discovered.txt" > "$d/assigned.txt"
+                  echo "node $n of $CIRCLE_NODE_TOTAL: $(wc -l < "$d/assigned.txt") of $(wc -l < "$d/discovered.txt") specs"
+                  rc=0
+                  if [ -s "$d/assigned.txt" ]; then
+                    mapfile -t atoms < "$d/assigned.txt"
+                    timeout -k 2m 25m node_modules/.bin/jest --runTestsByPath "${atoms[@]}" --coverage \
+                      --coverageReporters=json --coverageDirectory="$d/cov" --coverageThreshold='{}' \
+                      --forceExit --json --outputFile="$d/api-jest.json" || rc=$?
+                    cp "$d/cov/coverage-final.json" "$d/coverage-final.json" || rc=1
+                    node ~/project/.circleci/scripts/jest-json-to-junit.cjs "$d/api-jest.json" "/tmp/test-reports/api-jest-shard-$n.xml" "$PWD" || rc=1
+                  fi
+                  rm -rf "$d/cov"
+                  exit $rc
       - persist_to_workspace:
           root: /tmp/gate
           paths:
@@ -889,6 +1082,23 @@ jobs:
     steps:
       - api-gate-scope-skip
       - checkout
+      # RT-1258: for an IMPACTED plan only, a risk guard this job runs itself on the same commit. The
+      # fan-in accepts the plan only if this guard independently agrees (api-gate-merge.cjs).
+      - when:
+          condition: << pipeline.parameters.api_gate_tia_enabled >>
+          steps:
+            - run:
+                name: "API gate: independent risk guard on this commit (read only for an IMPACTED plan)"
+                command: |
+                  if ! grep -q '"mode": "IMPACTED"' /tmp/gate/plan/plan.json 2>/dev/null; then
+                    echo "The plan is not IMPACTED: the independent guard is not needed."
+                    exit 0
+                  fi
+                  mkdir -p /tmp/gate/fanin-guard
+                  rc=0
+                  timeout 120 node .circleci/scripts/tia-risk-guard.cjs --repo ~/project --out /tmp/gate/fanin-guard || rc=$?
+                  echo "independent guard exit code: $rc"
+                  exit 0
       - run:
           name: "API gate: complete inventory, all shards green, merged coverage vs jest.config.cjs floors"
           environment:
