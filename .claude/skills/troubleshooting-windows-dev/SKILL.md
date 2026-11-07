@@ -9,8 +9,10 @@ description: Use when a local command, install, lint or test fails on a Windows 
 
 Most local failures on this Windows setup are environment, not code. Before you call anything a
 regression: compare against a clean `origin/main` (a detached `git worktree`, never a stash; the
-stash is shared across sessions). If it fails there too, report an **environment failure** with
-the first failing boundary; if it passes there, report the comparison and the first failing
+stash is shared across sessions). If it fails there too, it predates your change: call it an
+**environment failure** only when the evidence supports it (a symptom in the table below, or the
+same check passing on CI), otherwise report it as a pre-existing failure with the first failing
+boundary; if it passes there, report the comparison and the first failing
 boundary, not an environment failure. Heavy suites run on CI (`merging-rt-pull-requests`), not here.
 
 Docker lives only in WSL Ubuntu. Git Bash rewrites any argument that starts with `/`
