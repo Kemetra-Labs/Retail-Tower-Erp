@@ -18,6 +18,10 @@ const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''
 const envSource = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8');
 const envCode = envSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+// RT-1253: the Sentry init (tunnel, direct or inert) lives in `bootstrap/telemetry.ts`.
+const telemetrySource = readFileSync(resolve(__dirname, '../bootstrap/telemetry.ts'), 'utf-8');
+const telemetryCode = telemetrySource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
 describe('main/index.ts observability wiring (RT-634)', () => {
   it('every raw fetch except the identity provider is wrapped with X-Request-Id', () => {
     const lines = [...code.split('\n'), ...envCode.split('\n')].filter((line) =>
@@ -38,13 +42,15 @@ describe('main/index.ts observability wiring (RT-634)', () => {
   });
 
   it('inits Sentry with the reviewed integrations and never hands the renderer a DSN', () => {
-    expect(code).toMatch(/integrations: \(\) => mainIntegrations\(Sentry\)/);
+    // RT-1253: the init moved to `bootstrap/telemetry.ts`; the composition root hands it the SDK.
+    expect(code).toMatch(/registerTelemetry\(\{\s*sentry: Sentry,/);
+    expect(telemetryCode).toMatch(/integrations: \(\) => mainIntegrations\(sentry\)/);
     expect(code).not.toMatch(/sentryDsn/);
     expect(code).not.toMatch(/process\.env\['SENTRY_DSN'\]/);
   });
 
   it('registers the renderer error channel on the guarded ipcMain', () => {
     expect(code).toMatch(/registerReportErrorHandler\(\s*guardedIpcMain,/);
-    expect(code).toMatch(/isEnabled: \(\) => sentryMain\.kind === 'initialized'/);
+    expect(code).toMatch(/isEnabled: \(\) => telemetry\.isInitialized\(\)/);
   });
 });

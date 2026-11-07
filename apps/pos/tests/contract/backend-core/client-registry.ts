@@ -41,6 +41,12 @@ import { validateVoucher } from '../../../src/main/payments/voucher-authority-cl
 import { redeemVoucher } from '../../../src/main/payments/voucher-authority-client/redeem.js';
 import { reverseVoucher } from '../../../src/main/payments/voucher-authority-client/reverse.js';
 import { runLivenessProbe } from '../../../src/main/terminal-status/liveness-probe.js';
+import { createBackendTransport } from '../../../src/main/http/transport.js';
+import { createTelemetryConfigClient } from '../../../src/main/observability/telemetry-config.js';
+import {
+  CAPTURE_TERMINAL_TAG,
+  createTunnelRequestExecutor,
+} from '../../../src/main/observability/tunnel-transport.js';
 import type { HttpMethod } from './openapi-index.js';
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -253,6 +259,17 @@ const cashierAdmissionClient = (
     getDeviceToken: () => Promise.resolve(SENTINEL.device),
   });
 
+const telemetryConfigClient = (fetch: FetchLike): ReturnType<typeof createTelemetryConfigClient> =>
+  createTelemetryConfigClient({
+    transport: createBackendTransport({
+      baseUrl: BASE_URL,
+      fetch,
+      timeoutMs: 10_000,
+      maxBodyBytes: 4096,
+    }),
+    readToken: () => Promise.resolve(SENTINEL.device),
+  });
+
 const BACKEND_CLIENT = 'src/main/operator/backend-client.ts';
 const CASHIER_ADMISSION_CLIENT = 'src/main/operator/cashier-admission-client.ts';
 const CASHIER_ADMISSION_WIRING =
@@ -265,6 +282,10 @@ const SHIFT_SYNC_ENVELOPE_WIRING =
   'index.ts startShiftSync: `getEnvelope` = createManagerEnvelopeReader (the manager / admin session envelope from operatorEnvelopeHolder; null for a cashier session)';
 
 const LIVENESS_PROBE = 'src/main/terminal-status/liveness-probe.ts';
+const TELEMETRY_CONFIG_MODULE = 'src/main/observability/telemetry-config.ts';
+const TUNNEL_TRANSPORT_MODULE = 'src/main/observability/tunnel-transport.ts';
+const TELEMETRY_WIRING =
+  'bootstrap/telemetry.ts bind(): `readToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215), on the shared base fetch BEFORE the terminal-status observer (a telemetry 401 never counts toward a revocation)';
 
 export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: BACKEND_CLIENT, fetchCallSites: 2, surface: backendClient },
@@ -295,6 +316,10 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: `${VOUCHER_DIR}/reverse.ts`, fetchCallSites: 1 },
   // RT-602: the connection monitor's credential-free liveness probe.
   { module: LIVENESS_PROBE, fetchCallSites: 1 },
+  // RT-1253: the POS error-reporting tunnel (device bearer): the config read (on the shared
+  // transport) and the envelope forward.
+  { module: TELEMETRY_CONFIG_MODULE, fetchCallSites: 0, surface: telemetryConfigClient },
+  { module: TUNNEL_TRANSPORT_MODULE, fetchCallSites: 1 },
 ];
 
 /** Modules that call `fetch` but not Backend-Core. Each needs a reason. */
@@ -340,6 +365,12 @@ export const TRANSPORT_DECORATORS: ReadonlyArray<{
   readonly fetchCallSites: number;
   readonly reason: string;
 }> = [
+  {
+    module: 'src/main/bootstrap/telemetry.ts',
+    fetchCallSites: 1,
+    reason:
+      'RT-1253 registerTelemetry late-binds the shared base fetch (the pairing store and token reader do not exist when Sentry is initialised): it calls the bound fetch unchanged with the request the registered telemetry tunnel executor built.',
+  },
   {
     module: 'src/main/pairing/device-auth-detector.ts',
     fetchCallSites: 1,
@@ -669,6 +700,36 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
         { redemption_id: UUID },
         { baseUrl: BASE_URL, fetch, logger: NOOP_LOGGER, idempotencyKey: UUID },
       ),
+  },
+  {
+    id: 'telemetryConfigClient.read',
+    module: TELEMETRY_CONFIG_MODULE,
+    method: 'get',
+    pathTemplate: '/api/pos/v1/telemetry/config',
+    wiring: TELEMETRY_WIRING,
+    invoke: (fetch) => telemetryConfigClient(fetch).read(),
+  },
+  {
+    id: 'createTunnelRequestExecutor',
+    module: TUNNEL_TRANSPORT_MODULE,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/telemetry/envelope',
+    wiring: TELEMETRY_WIRING,
+    invoke: (fetch) =>
+      createTunnelRequestExecutor({
+        isBound: () => true,
+        isEnabled: () => true,
+        tunnelUrl: `${BASE_URL}/api/pos/v1/telemetry/envelope`,
+        readToken: () => Promise.resolve(SENTINEL.device),
+        currentTerminalId: () => UUID,
+        fetch,
+        timeoutMs: 10_000,
+      })({
+        body: `{}
+{"type":"event"}
+{"tags":{"${CAPTURE_TERMINAL_TAG}":"${UUID}"}}
+`,
+      }),
   },
   {
     id: 'runLivenessProbe',

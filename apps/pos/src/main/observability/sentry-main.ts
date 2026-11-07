@@ -47,7 +47,7 @@ export const OFFLINE_MAX_AGE_DAYS = 7;
 export type Integration = Extract<ElectronMainOptions['integrations'], unknown[]>[number];
 
 /** `IPCMode.Classic`. The enum's runtime module loads `electron`, so it is typed only. */
-const IPC_MODE_CLASSIC = 1 as IPCMode;
+export const IPC_MODE_CLASSIC = 1 as IPCMode;
 
 export type SentryInitFn = (options: ElectronMainOptions) => void;
 

@@ -597,3 +597,38 @@ describe('RT-215 10897-A — onRecheckCleared (a "Check again" answered 2xx)', (
     expect(h.pushed).toEqual([{ kind: 'paired' }]);
   });
 });
+
+describe('RT-1253 R1 — the telemetry queue is purged on revoke and on re-pair', () => {
+  it('a confirmed revocation purges the queue', () => {
+    const h = harness({ purgeTelemetryQueue: () => h.calls.push('telemetry-purge') });
+    createDeviceRevocationFlow(h.deps).onConfirmed('cashier_admissions');
+    expect(h.calls).toContain('telemetry-purge');
+  });
+
+  it('a successful pairing purges the queue BEFORE the relaunch', async () => {
+    const h = harness({ purgeTelemetryQueue: () => h.calls.push('telemetry-purge') });
+    h.workersStarted.value = true;
+    await createDeviceRevocationFlow(h.deps).onPaired({ previouslyRevoked: true });
+    expect(h.calls).toContain('telemetry-purge');
+    expect(h.calls.indexOf('telemetry-purge')).toBeLessThan(h.calls.indexOf('relaunch'));
+  });
+
+  it('a first pairing purges too (a queue left by an earlier pairing never survives)', async () => {
+    const h = harness({ purgeTelemetryQueue: () => h.calls.push('telemetry-purge') });
+    await createDeviceRevocationFlow(h.deps).onPaired({ previouslyRevoked: false });
+    expect(h.calls).toContain('telemetry-purge');
+  });
+
+  it('a failing purge is logged by step name only and the rest of the flow still runs', async () => {
+    const h = harness({
+      purgeTelemetryQueue: () => {
+        throw new Error('C:\Users\secret\path');
+      },
+    });
+    h.workersStarted.value = true;
+    await createDeviceRevocationFlow(h.deps).onPaired({ previouslyRevoked: true });
+    expect(h.relaunched.count).toBe(1);
+    expect(JSON.stringify(h.logs)).toContain('telemetry');
+    expect(JSON.stringify(h.logs)).not.toContain('secret');
+  });
+});

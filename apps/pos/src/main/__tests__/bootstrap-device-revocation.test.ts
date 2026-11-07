@@ -99,7 +99,7 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
       /const backendFetch = terminalStatus\.observeFetch\(backendBaseFetch\);/,
     );
     expect(source).toMatch(
-      /const backendBaseFetch = withBuildIdentity\(\s*withRequestId\(globalThis\.fetch\.bind\(globalThis\), \{\s*logger: mainLogger,\s*\}\),\s*\{\s*baseUrl: resolveApiBaseUrl\(\),\s*identity: \(\) => buildIdentity,\s*readDeviceToken: readSendableDeviceToken,\s*\},?\s*\);/,
+      /const backendBaseFetch = withBuildIdentity\(\s*withRequestId\(globalThis\.fetch\.bind\(globalThis\), \{\s*logger: mainLogger,\s*\}\),\s*\{\s*baseUrl: resolveApiBaseUrl\(\),\s*identity: \(\) => telemetry\.buildIdentity,\s*readDeviceToken: readSendableDeviceToken,\s*\},?\s*\);/,
     );
   });
 

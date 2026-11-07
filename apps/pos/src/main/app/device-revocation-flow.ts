@@ -84,6 +84,13 @@ export interface DeviceRevocationFlowDeps {
   resetDetector: () => void;
   /** Delete PIN records of every terminal but this one; returns the count. */
   purgeOtherTerminalPins: (terminalId: string) => number;
+  /**
+   * RT-1253 R1 — delete the queued telemetry envelopes (SYNC, best effort). Run on a
+   * confirmed revocation and, before the relaunch, on every successful pairing, so an
+   * event captured under the old pairing is never sent after the move or re-pair.
+   * Optional: absent means there is no telemetry queue to purge.
+   */
+  purgeTelemetryQueue?: () => void;
   /** Main → renderer `pairing:status-changed`. */
   pushStatus: (event: PairingStatusChangedEvent) => void;
   audit: { emit(event: AuditEvent): void };
@@ -118,6 +125,7 @@ type Step =
   | 'detector'
   | 'status'
   | 'pins'
+  | 'telemetry'
   | 'relaunch';
 
 const DEVICE_REVOKED_EVENT: PairingStatusChangedEvent = {
@@ -209,6 +217,12 @@ export function createDeviceRevocationFlow(deps: DeviceRevocationFlowDeps): Devi
     if (previouslyRevoked) audit('pairing.device_revoked_cleared', scope, { source: 're_pair' });
   }
 
+  /** RT-1253 R1: drop the telemetry queue of the previous pairing (a no-op without one). */
+  function purgeTelemetry(): void {
+    const purge = deps.purgeTelemetryQueue;
+    if (purge !== undefined) step('telemetry', purge);
+  }
+
   function pushPaired(): void {
     step('push', () => {
       deps.pushStatus({ kind: 'paired' });
@@ -260,6 +274,7 @@ export function createDeviceRevocationFlow(deps: DeviceRevocationFlowDeps): Devi
       const scope = attempt('mark', deps.markDeviceRevoked);
       step('credentials', deps.clearCredentials);
       step('grants', deps.invalidateGrants);
+      purgeTelemetry();
       routePending = true;
       step('latch', deps.latchSession);
       if (scope !== null) audit('pairing.device_revoked', scope, { source });
@@ -269,6 +284,8 @@ export function createDeviceRevocationFlow(deps: DeviceRevocationFlowDeps): Devi
     async onPaired({ previouslyRevoked }) {
       routePending = false;
       step('detector', deps.resetDetector);
+      // R1: before anything that can relaunch, or the next start would flush the old queue.
+      purgeTelemetry();
       latchLeftoverSession();
       const status = await readStatus();
       const scope = pairedScope(status);

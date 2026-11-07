@@ -74,6 +74,13 @@ These come from the constitution and are repeated here for quick agent reference
   - POS uses the Sentry channel only (RT-634): no Datadog, no RUM. Main is the only process that
     holds the DSN and talks to Sentry; it refuses a DSN outside `*.ingest.de.sentry.io`
     (`src/main/observability/config.ts`). Renderer errors reach it over `app:report-error`.
+  - **Production egress is Backend-Core only (RT-1253, RT-1251 R3).** A shipped build on update
+    channel `canary` or `stable`, or on an unknown channel, ignores the env `SENTRY_DSN` and sends
+    errors only to the Backend-Core tunnel (`/api/pos/v1/telemetry/envelope`, device bearer), which
+    forwards to Sentry project `kemetra/pos`; the terminal holds no DSN. Lab (channel `lab`) and dev
+    builds keep the direct env-DSN path (RT-1243); lab without an env DSN uses the tunnel. The
+    classification lives in `src/main/observability/telemetry-mode.ts`; wiring in
+    `src/main/bootstrap/telemetry.ts`.
 
 ## Main-process wiring (RT-893)
 
