@@ -25,7 +25,7 @@ Scan in order. Cite the rule ID. Mark anything you cannot prove from code or a c
 - [ ] Colour is the only carrier of meaning; status colours used as decoration or chart series (UX-02.9, UX-13.12).
 - [ ] Physical left/right CSS, missing `dir`/`lang`, unisolated machine data in RTL (UX-11.12-.15).
 - [ ] Non-Western digits or ungrouped/oddly formatted money in system output; device-locale dependent formatting (UX-12.20, .25, .26).
-- [ ] English or bilingual duplicate copy, raw codes/keys/backend text shown, generic "Retry" or "OK" (UX-12.2-.3, .6, .33-.34).
+- [ ] English copy on POS (Admin's separate English locale is allowed); bilingual duplicate copy on either surface; raw codes/keys/backend text shown; generic "Retry" or "OK" (UX-12.2-.3, .6, .33-.34).
 - [ ] Wrong terminology (الفرع for Store, leaking `tenant_product`, receipt called invoice) (UX-12.14, .16-.19).
 - [ ] «طُبع» without print proof; blanket «تمت العملية بنجاح» (UX-12.12-.13).
 - [ ] Table inside a card, nested cards, gradient or glass surfaces (UX-04.16, UX-01.28-.29, UX-02.13).
@@ -34,7 +34,7 @@ Scan in order. Cite the rule ID. Mark anything you cannot prove from code or a c
 - [ ] Scope switch or navigation discards unsaved work; deep link silently changes scope (UX-09.8-.10).
 - [ ] Save-on-blur for a consequential value; error attached at the wrong level (UX-05.26, UX-08.9).
 - [ ] Banner stack pushes the work surface down without an attention budget (UX-04.13, UX-07.23).
-- [ ] Shortcut or F-key invented (D-K1); new package or hard-coded hex added; Gold/navy/dark-only reintroduced.
+- [ ] POS shortcut or F-key invented (D-K1; Admin's Ctrl+K navigator is approved); new package or hard-coded hex added; Gold/navy/dark-only reintroduced.
 - [ ] POS: money, commit, cancel/back or scanner state can scroll away at 1024x768 / 1280x800; target below 44px; text below 12px (I-3, UX-04.10-.11, UX-03.14).
 - [ ] Chart: truncated bar axis, bare delta, dual axis without justification, missing bucket drawn as zero (UX-13.8, .17, .19, .24).
 
@@ -43,7 +43,7 @@ Scan in order. Cite the rule ID. Mark anything you cannot prove from code or a c
 - [ ] Arbitrary motion duration; ease/bounce instead of the three roles; page-load choreography (UX-06.9, .12).
 - [ ] Mono used as a "technical" look outside machine IDs (UX-03.11).
 - [ ] Icon not from the semantic registry, raw `<svg>`, icon-only on a financial/destructive action, wrongly mirrored or filled icon (UX-03.17-.36).
-- [ ] Spacing off the 4px scale; radius off the repo's shipped tokens; shadow on a non-overlay surface.
+- [ ] Spacing off the 4px scale; radius off the repo's shipped tokens; shadow on a non-overlay surface (Admin section panels and receipt cards may use `--shadow-resting`).
 - [ ] Dubai weight 600 or letter-spacing on Arabic text; Arabic line-height under 1.5.
 - [ ] Skeleton shimmer that is long or decorative; loading flash on fast loads (UX-06.21-.22).
 

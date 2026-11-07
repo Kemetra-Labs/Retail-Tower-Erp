@@ -20,8 +20,8 @@ It adds the RT facts those rules depend on, where agents go wrong.
 
 | Changed path | `remote_suite` | Not covered there, run locally before the preflight push |
 |---|---|---|
-| `services/backend-core/apps/api/**` | `api` | `npx eslint --ext .ts ./apps/worker/src ./apps/api/src` |
-| `services/backend-core/apps/worker/**` (worker DB specs included) or `packages/db/**` | `db-package` (only suite with `WORKER_INCLUDE_DB_TESTS=1`); add `api` if `apps/api` changed too | same eslint |
+| `services/backend-core/apps/api/**` | `api`, `backend-fast` | `(cd services/backend-core && pnpm lint:eslint)` |
+| `services/backend-core/apps/worker/**` (worker DB specs included) or `packages/db/**` | `db-package` (only suite with `WORKER_INCLUDE_DB_TESTS=1`), `backend-fast`; add `api` if `apps/api` changed too | same eslint |
 | Backend-Core shared code, lint, typecheck | `backend-fast` | the code-health ratchet (`node tools/code-health/check.mjs` from `services/backend-core`) and the api unit specs (see below) |
 | `apps/admin-console/**` | `admin`, `admin-e2e` | — |
 | `apps/pos/**` | `pos` | — |
@@ -39,11 +39,13 @@ minute wait). The 30-per-Cairo-day cap still counts every trigger.
 
 ## Prove a Docker-gated spec really ran
 
-Backend-Core DB specs return early when Docker is missing, and junit still says success.
-Use the CircleCI `list_job_tests` tool with `all=true` and
-`filter=["classname=test/<path>.spec.ts"]` (path relative to the app, for example `apps/api`).
-Real Postgres tests take about 0.17 to 0.23 s each; a skipped body takes about 0.001 s. Cite the
-per-test `run_time`, not the green job.
+Backend-Core DB specs fail hard without Docker unless `MIGRATION_TEST_ALLOW_SKIP=1` is set; with
+it they return early and junit still says success. Per-test `run_time` is not proof:
+`.circleci/scripts/jest-json-to-junit.cjs` spreads suite start-up and `beforeAll` time over every
+test. Use the CircleCI `list_job_tests` tool with `all=true` and
+`filter=["classname=test/<path>.spec.ts"]` (path relative to the app, for example `apps/api`) to
+list the tests, then cite that `MIGRATION_TEST_ALLOW_SKIP` was unset for the job and that its log
+has no skip warning, not the green job.
 
 ## Waiting for CI
 
@@ -54,8 +56,10 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
 ## After the merge
 
 1. `gh pr view <n> --json headRefOid,mergeCommit`: the merged head must equal the last SHA you
-   pushed. If not, `git merge-base --is-ancestor <sha> origin/main`; a missing commit goes in a
-   small follow-up PR (cherry-pick onto a fresh branch from `origin/main`).
+   pushed. PRs land as squash commits, so never test `<sha>` against `origin/main` ancestry. If
+   the heads differ, `git fetch origin` and run `git merge-base --is-ancestor <sha> <headRefOid>`;
+   if it is not an ancestor, compare `git diff <sha> <headRefOid>` for the PR's paths. Only changes
+   really missing go in a small follow-up PR (cherry-pick onto a fresh branch from `origin/main`).
 2. `gh run list --commit <merge-sha> --event push --limit 100`. Without `--event push` and the
    higher limit, the many gate `workflow_run` entries hide the push runs.
 3. Reverts: a commit reverts the PR when its body has `This reverts commit <sha>` matching the
@@ -65,5 +69,5 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
 ## Common mistakes
 
 - Waiting for "no remote run in progress" while other sessions keep queueing.
-- Reporting a DB spec as passed from a green job alone.
+- Reporting a DB spec as passed from a green job or per-test time alone.
 - Reading `gh run list --commit <sha>` with the default limit and concluding "no push run".

@@ -39,7 +39,9 @@ Report three sources separately; only the third proves the hosts:
 1. **Record:** the newest live ledger of `deploy-lab`, `deploy-console-lab`, `deploy-erp-lab`,
    `deploy-system-lab` (`gh run download`; 90-day retention).
 2. **State record:** SSM `/rt/lab/live-state` (version, per-product status, `inflight` or `dirty`).
-3. **Host-observed:** read-only `docker ps` and the `org.opencontainers.image.revision` labels via SSM.
+3. **Host-observed:** read-only `docker ps` and the `org.opencontainers.image.revision` labels via
+   SSM; for the Console (static files, no container) read `readlink /opt/dp2-console/current` and
+   that release's `version.json` (`sha`, `backendContractPin`) on lab-01.
 If they disagree, report it; do not resolve it yourself.
 
 ## `/rt/lab/live-state`
@@ -79,9 +81,13 @@ applies IAM changes.
 - Do not build it locally (native modules need Visual Studio C++ tools). Use the CI artifact
   `pos-pulse-win-unpacked-<sha>` from `pos.yml` (main pushes only, kept 1 day):
   `gh run download <run-id> -n pos-pulse-win-unpacked-<sha> -D <new empty dir>`.
-- Launch with process-scope env vars only (never `setx`) and a fresh `--user-data-dir` given as an
-  **8.3 short path** (`cmd /c for %I in ("<dir>") do @echo %~sI`). A long path is silently ignored
-  and the app opens the owner's real `%APPDATA%\pos-pulse` profile, running migrations on it.
+- Set `VITE_API_BASE_URL` to the lab API endpoint (ask the owner for it) as a process-scope env
+  var; unset, the app uses `https://example.invalid` and cannot pair.
+- Launch with process-scope env vars only (never `setx`) and a fresh `--user-data-dir` under a
+  short root such as `C:\rt\<name>` (a Windows absolute path; do not rely on 8.3 conversion, which
+  returns the long path when no 8.3 name exists). Check the final path's length before launch. A
+  long path is silently ignored and the app opens the owner's real `%APPDATA%\pos-pulse` profile,
+  running migrations on it.
 - Before any interaction, verify isolation: the scratch dir gains `pos-pulse.db`, and the real
   profile's files do not change.
 - Check which identity-provider env names the lab expects (names only) before preparing sign-in.

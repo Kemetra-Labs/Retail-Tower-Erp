@@ -10,12 +10,12 @@ Drive dev Electron through the Chrome DevTools Protocol with Node 22's global `W
 
 ## Launch (POS-Pulse)
 1. Reuse the running Vite (5173). Build preload with `npx vite build --config vite.config.preload.ts` and main with `npx tsc -p tsconfig.main.json`.
-2. Run `electron . --remote-debugging-port=9333 --user-data-dir=<scratch>/ud`.
+2. Run `electron . --remote-debugging-port=9333 --user-data-dir=<scratch>/ud` with `NODE_ENV=development` set for that process only, as `apps/pos/scripts/dev-electron.cjs` does. Without it, main loads the built `dist/renderer/index.html` instead of Vite, so you review a stale or missing renderer.
    - **Always use a scratch `--user-data-dir` from the first launch.** The DB lives in userData. Never touch the owner's `%APPDATA%\pos-pulse`.
-   - **Give it as an 8.3 short path** (`cmd /c for %I in ("<dir>") do @echo %~sI`). Chromium silently ignores an over-long path and falls back to `%APPDATA%\pos-pulse`, running migrations on the owner's real DB; a session scratchpad path is long enough to trigger this.
+   - **Create the scratch profile under a short root** such as `C:\rt\<name>`, written as a Windows absolute path (not `/c/...`). Do not rely on 8.3 conversion (`%~sI`): Windows returns the long path when no 8.3 name exists. Check the final path's length before launch. Chromium silently ignores an over-long path and falls back to `%APPDATA%\pos-pulse`, running migrations on the owner's real DB; a session scratchpad path is long enough to trigger this.
    - **Before any interaction**, confirm the scratch dir gained `pos-pulse.db` and the owner's `%APPDATA%\pos-pulse` files did not change.
    - The dev catalogue seed is skipped if ANY tenant has products. A fresh profile fixes "0 products".
-3. Env flags as needed: `POS_PULSE_DEV_SKIP_PAIRING`, `…_OPERATOR_SIGNIN`, `…_SEED_CATALOGUE`, `FEATURE_CART`, `PRODUCT_SEARCH`, `PAYMENTS` = `1`.
+3. Env flags as needed, each = `1`: `POS_PULSE_DEV_SKIP_PAIRING`, `POS_PULSE_DEV_SKIP_OPERATOR_SIGNIN`, `POS_PULSE_DEV_SEED_CATALOGUE`, `POS_PULSE_FEATURE_CART`, `POS_PULSE_FEATURE_PRODUCT_SEARCH`, `POS_PULSE_FEATURE_PAYMENTS`. `POS_PULSE_FEATURE_PAYMENTS` needs `POS_PULSE_FEATURE_SALE_FINALIZATION=1` too; with payments on and finalization off, main refuses to start (`src/main/app/feature-flags.ts`).
 4. Wait for the role-landing redirect to settle before navigating (for example `#/v5/sale`).
 5. Git Bash rewrites `/app`-style args, so prefix `MSYS_NO_PATHCONV=1`.
 

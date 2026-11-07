@@ -9,8 +9,9 @@ description: Use when a local command, install, lint or test fails on a Windows 
 
 Most local failures on this Windows setup are environment, not code. Before you call anything a
 regression: compare against a clean `origin/main` (a detached `git worktree`, never a stash; the
-stash is shared across sessions), and report the result as an **environment failure** with the
-first failing boundary. Heavy suites run on CI (`merging-rt-pull-requests`), not here.
+stash is shared across sessions). If it fails there too, report an **environment failure** with
+the first failing boundary; if it passes there, report the comparison and the first failing
+boundary, not an environment failure. Heavy suites run on CI (`merging-rt-pull-requests`), not here.
 
 Docker lives only in WSL Ubuntu. Git Bash rewrites any argument that starts with `/`
 (`/rt/lab/x`, `/mnt/c/...`, `origin/main:path`) into a Windows path.
@@ -34,7 +35,7 @@ Docker lives only in WSL Ubuntu. Git Bash rewrites any argument that starts with
 | Playwright `Executable doesn't exist … chromium_headless_shell-NNNN` | Installed browser build differs from the pinned one | A throwaway untracked config that spreads the repo config and sets `launchOptions.executablePath` to the installed build; delete it after. Downloading browsers needs the owner's yes |
 | `tar` from `C:/…` extracts nothing ("Cannot connect to C:") | GNU tar reads `C:` as a remote host | `tar --force-local …` and check the extraction |
 | `git archive HEAD:<subdir>` gives an empty archive in CI | Run from inside that subdir | `git -C "$GITHUB_WORKSPACE" archive HEAD:<subdir>` |
-| Electron with `--user-data-dir=<long path>` touches the owner's real profile | Chromium ignores an over-long path and falls back to `%APPDATA%` | Use the 8.3 short path; verify the scratch profile gained its DB before interacting (see `driving-electron-via-cdp`) |
+| Electron with `--user-data-dir=<long path>` touches the owner's real profile | Chromium ignores an over-long path and falls back to `%APPDATA%` | Use a short root such as `C:\rt\<name>` (not an 8.3 conversion) and check its length before launch; verify the scratch profile gained its DB before interacting (see `driving-electron-via-cdp`) |
 
 ## Common mistakes
 

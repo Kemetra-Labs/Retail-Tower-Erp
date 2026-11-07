@@ -4,7 +4,7 @@ Both repos record **shipped tokens** in their own files (POS `src/renderer/style
 
 ## Colour (UX-02)
 
-Direction: **Mineral Daylight + Tower Teal**, light-first, one semantic system shared by POS and Admin (UX-02.1, .4). Tower Teal is the **shipped** Admin state (`apps/admin-console/src/styles/tokens.css`); the Console "Ink & Receipt" look (owner decision 2026-10-30) is the approved target, not yet shipped (see `authority-and-amendments.md`).
+Direction: **Mineral Daylight + Tower Teal**, light-first, one semantic system shared by POS and Admin (UX-02.1, .4). Tower Teal stays the shipped Admin colour for focus, links and selection (`apps/admin-console/src/styles/tokens.css`). The Console "Ink & Receipt" look (owner decision 2026-10-30) is the approved target and is partly shipped: the Ink primary fill, the resting elevation token, receipt cards and the Overview charts are on `main`; check the CSS for the rest (see `authority-and-amendments.md`).
 
 | Role | Value (shipped) | Meaning |
 |---|---|---|
@@ -20,7 +20,7 @@ Rules:
 - **Brand yields to truth**: critical truth -> primary action -> context/selection -> brand identity -> decoration (UX-02.6, .8).
 - **Meaning redundancy**: colour never carries meaning alone; add text, icon or shape (UX-02.9, UX-11.27).
 - **Pending is not success**: SETTLED while FINALIZING, FINALIZED but not POSTED use info, not green (POS DESIGN.md).
-- **No gradients** on POS, tables, forms, operational buttons or status surfaces (UX-02.13). **No secondary brand accent** (UX-02.23). Borders before shadows; one shadow, for overlays (UX-02.11, UX-04.32).
+- **No gradients** on POS, tables, forms, operational buttons or status surfaces (UX-02.13). **No secondary brand accent** (UX-02.23). Borders before shadows; on POS, one shadow, for overlays (UX-02.11, UX-04.32). Admin v4 also gives section panels and receipt cards one resting elevation (`--shadow-resting`, Admin DESIGN.md §12.5).
 - **Commit-Teal rule (POS)**: filled teal on at most one control per region plus selected washes.
 - Signatures are grammar, not wallpaper (UX-02.14-.19): Mineral Layering, **Signal Line** (2px inline-start bar for current context/selection, logical position), **Pulse Dot** (static unless real activity), **Precision Ledger** (aligned label/value rows, tabular numerals, anchored totals instead of a card per value).
 - Theme: POS light only (dark kept in CSS but not offered, OD-4); Admin light default with an opt-in dark theme shipped by RT-398. Future themes remap semantic roles, never component meaning (UX-02.21).
@@ -33,7 +33,7 @@ Rules:
 - One Arabic-first UI voice for both apps: **Dubai** (incumbent). Challenger IBM Plex Sans Arabic; control Noto Sans Arabic UI. **No speculative font migration**: needs rendered same-screen A/B (RT-262).
 - Dubai ships weights 300/400/500/700 only; a `600` renders Bold. No `letter-spacing` (breaks Arabic joining). Arabic line-height at least 1.5 (Admin uses 1.7); never italics or all-caps.
 - **Type jurisdiction** (UX-03.8): UI sans owns language; tabular numerals own prices, quantities, KPIs; **monospace owns machine IDs/codes/evidence only** (UX-03.11).
-- **Shipped vs target money type**: POS ships monospace tabular for amounts; target is UI sans with tabular lining numerals. Per the 2026-10-07 owner decision the shipped mono stays until RT-262 proves otherwise. Do not move money off mono outside that path.
+- **Money type (shipped)**: POS amounts and quantities use the UI sans (Dubai) with tabular lining numerals via `--font-family-money` (owner decision 2026-10-22 on RT-262, variant B; applied by RT-814). Monospace stays for IDs, SKUs, codes, PIN and reference fields. The printed receipt and receipt-slip preview keep their own typography (RT-476).
 - **12px floor** for anything a cashier must read; 11px only for keyboard-hint chips (UX-03.14).
 - Money stays the strongest numeric hierarchy on cashier surfaces (UX-03.9). Hierarchy by placement, spacing, weight and alignment before size (UX-03.13).
 - Role vocabulary (target; POS ships `--type-*` aliases, Admin `--text-*`): `display` (rare, Admin), `screen-title`, `section-title`, `body`, `body-strong`, `control`, `meta`, `money-hero`, `money-total`, `numeric-row`, `machine`, `kbd`. POS sizes: amount-hero 44/36px at 1024, amount-total 30/24px, screen title 20, section 16, body 14, meta 12.
@@ -52,7 +52,7 @@ Rules:
 
 - 4px-derived scale 4/8/12/16/24/32/48/64/96 used semantically (UX-04.1).
 - **Dense inside, breathing between; compress space before meaning; reflow before shrink** (UX-04.3-.5). Pressure order: **critical truth -> primary action -> current context** (UX-04.34).
-- POS (Direction B): cart-first command bar, persistent money column (about 280px at 1024, 320px at 1280), slim ~76px rail during an active sale and a labelled panel (208px / 140px) elsewhere **on `main`**. An unmerged POS branch records an owner decision of 2026-10-21 for the slim rail on every screen; treat it as pending until it is on `main`. Money, commit and scanner state never scroll away; the cart is the primary scroll surface (UX-04.7-.10). POS touch floor **44px**, even compact; commit button 56px; cart row at most 60px at 1280 and 52px at 1024.
+- POS (Direction B): cart-first command bar, persistent money column (about 280px at 1024, 320px at 1280), a slim ~76px rail (icon + short 12px label) on every screen (owner decision 2026-10-21, POS DESIGN.md). Money, commit and scanner state never scroll away; the cart is the primary scroll surface (UX-04.7-.10). POS touch floor **44px**, even compact; commit button 56px; cart row at most 60px at 1280 and 52px at 1024.
 - POS ships two density profiles (compact/comfortable) following the workspace container width (compact at 1120px or less, and under 768px viewport height). Mapping to UX-04's three modes is open (Q-1). Density switches only between transactions, never mid-sale (I-14).
 - Admin: adaptive workbench; **tables are full-bleed work surfaces, not inside cards**; details side-by-side when wide, drawer at medium, dedicated surface when narrow; overflow belongs to the data surface, not the app shell (UX-04.14-.19). Reading/form surfaces use a constrained measure (about 60-65ch). Admin controls are 36px (denser than POS, above the accessibility floor).
 - Surface grammar (UX-04.20-.25): Work Surface (flat), Section (heading/spacing), Panel (tone or divider), Card (only a genuine independent/selectable/actionable object; every card earns containment), Drawer (attached, real elevation), Dialog (strongest elevation).

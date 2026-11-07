@@ -24,7 +24,7 @@ Admin Console = **adaptive operational workbench**, not a scaled POS, a card das
 ## Forms, edits, destructive actions
 
 - Field contracts and error ownership per `shared-principles.md` (UX-08). Immutable values render read-only and copyable. Server authority errors (store-code conflict) map back to the field; stale-version conflicts surface at the form level explaining the record changed.
-- Buttons on `main`: `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-destructive`; one primary per context. An unmerged Admin branch (`8199191`) adds `.btn-danger-quiet` (starts a destructive action; `.btn-destructive` only in its confirm step), neutral hover and recessed-not-faded unavailable states. Check `origin/main` before using those names.
+- Buttons on `main`: `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-destructive`; one primary per context. `main` also has `.btn-danger-quiet` (starts a destructive action; `.btn-destructive` only in its confirm step), neutral hover and recessed-not-faded unavailable states. Check `origin/main` before using those names.
 - **Friction follows consequence** (UX-05.2): reversible = direct + undo only if the domain can restore; destructive/irreversible/financial = explicit consequence-aware commitment naming action, scope and consequence, safe default focus. (Type-to-confirm for rare catastrophic actions is an external suggestion, not a house rule; see advisory G18.)
 - Price and other consequential values: explicit commit, no save-on-blur (UX-05.26). Pricing governance: no Store Manager price authoring in V1; independent second approval before emergency price publication (ratified 2026-10-18).
 

@@ -12,7 +12,7 @@ Status: **Confirmed gap** = not found in pages or repo docs read; **Unconfirmed*
 | G5 | Latency budgets (visual ack under 100 ms; scan-to-line about 300 ms) and a time-to-first-sale metric | Confirmed gap | House has only motion timings (80/150/220 ms). Propose as measurable targets, not rules |
 | G6 | Soft delete / restore window for Admin entities with a stated deadline | Unconfirmed | Only RT-245 cart-line restore found |
 | G7 | Permission-matrix UI with view-as-role; masking cost/margin by default | Partial | Authority Matrix covers roles, scope and credentials; matrix editor, preview and masking not found |
-| G8 | Saved views, filter state in URL, sticky save bar, command palette | Confirmed gap (low risk) | UX-09.25 (URL depth vs visual depth) is compatible |
+| G8 | Saved views, filter state in URL, sticky save bar | Confirmed gap (low risk) | UX-09.25 (URL depth vs visual depth) is compatible. Not a gap: the Admin command palette ships as the RT-969 Ctrl+K navigator (`src/shell/Navigator.tsx`) |
 | G9 | Training mode; customer-facing display content rules | Confirmed gap, likely post-pilot | Do not design ahead of scope |
 | G10 | Peripheral health with one-tap test/reconnect | Partial | UX-07.3 names printer in the status vector; check Device Registry and Operational Support pages |
 | G11 | AAA contrast target for primary POS text under counter glare | Confirmed gap | House has forced-colours and the Color Under Pressure gate only |

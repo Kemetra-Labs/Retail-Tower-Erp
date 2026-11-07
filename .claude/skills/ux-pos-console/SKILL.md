@@ -26,7 +26,7 @@ These come from the behaviour authority and beat every visual preference:
 
 Hard stops. Do not do these, and say so when asked:
 
-- Invent keyboard shortcuts or F-keys (D-K1: wave 1 is keyless; only Esc, Enter, Tab, Up/Down, Delete, +/- exist).
+- Invent keyboard shortcuts or F-keys on POS (D-K1: POS wave 1 is keyless; only Esc, Enter, Tab, Up/Down, Delete, +/- exist). Admin's approved Ctrl+K navigator (RT-969) is not covered by D-K1.
 - Render payment UNKNOWN as a decline, or suggest re-charge/new tender/Back while an external charge is unresolved.
 - Put fiscal/VAT/QR claims or "Fiscal Ready" language on any screen; the Fiscal & Tax domain owns that.
 - Let a scanner burst into a money, PIN or card-reference field.

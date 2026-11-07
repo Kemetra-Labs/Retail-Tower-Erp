@@ -50,10 +50,12 @@ State this in the PR body.
 - `bc/oasdiff` fails on breaking changes; an acknowledged break needs a line in
   `services/backend-core/tools/oasdiff/breaking-ignore.txt` tagged `consumer:<NAME>` (`POS`,
   `admin`, `connector`) for each affected consumer, or `consumer:none` (README there).
-- Remove or rename in slices, as RT-1181, RT-1182 and RT-1183 did: (1) Backend-Core accepts the field
-  as optional and nullable; (2) each consumer stops sending or storing it and repins
-  (`npm run contracts:repin` in `apps/pos`); (3) remove it. Each slice is its own issue when the
-  consumers are out of scope.
+- Remove or rename in slices, as RT-1181 to RT-1184 did: (1) Backend-Core accepts the field as
+  optional and nullable; (2) each consumer stops sending or storing it; (3) remove it. Each contract
+  change (slices 1 and 3) turns the consumer PINs red in `contracts/check`, which has no ignore
+  file, so repin every affected consumer after it (`npm run contracts:repin` in `apps/pos`; the
+  Admin Console and Connector PINs by hand), as #317 and #321 did. Each slice is its own issue when
+  the consumers are out of scope.
 
 ## Migrations (`services/backend-core/packages/db/drizzle/`)
 
@@ -79,7 +81,8 @@ State this in the PR body.
 
 - A library used by two or more products is listed in `tools/versions/shared-deps.yaml` and must
   carry one version everywhere (guard: `.github/scripts/shared_deps.py`). Bump all products in one
-  PR; Renovate does this. A single-product bump of a listed library fails.
+  PR; Renovate does this. The guard (`project-graph.yml`) runs in report mode today: a
+  single-product bump only warns, but still align it (enforcement follows RT-924).
 - Each product has its own package manager and lockfile (`toolchain` in `graph.yaml`: POS npm,
   Admin Console and Backend-Core pnpm, Connector uv). Read the product's `package.json` first: a
   library can be pinned only through `pnpm.overrides`, not as a direct dependency.

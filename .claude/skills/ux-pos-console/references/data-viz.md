@@ -1,6 +1,6 @@
 # Data visualization and reporting (UX-13)
 
-No production chart/KPI system exists on either `main`. Treat everything here as target governance, not shipped.
+Admin Overview ships a first chart and KPI set on `main` (`ReceiptRow`, `TrendPanel` with the RT-993 trend chart, `PostingPanel` in `apps/admin-console/src/overview/`); POS has none. Review those against these rules and extend them rather than adding duplicates; anything beyond them is target.
 
 ## Before any chart
 
