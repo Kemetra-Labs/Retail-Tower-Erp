@@ -231,3 +231,6 @@
 .unknown-item-step:focus {
   outline: none;
 }
+.unknown-item-step:empty {
+  display: none;
+}
