@@ -226,11 +226,8 @@
   }
 }
 
-/* RT-1234: the step region takes focus when a step swaps in (programmatic, not a
- * tab stop), so it carries no ring of its own; the controls inside keep theirs. */
-.unknown-item-step:focus {
-  outline: none;
-}
+/* RT-1234: the step region takes focus when a step swaps in. It keeps the shared
+ * focus ring; an empty one (a non-pending item) takes no space. */
 .unknown-item-step:empty {
   display: none;
 }
