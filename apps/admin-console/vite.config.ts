@@ -23,6 +23,10 @@ export default defineConfig({
     // front, as before: screens share utility classes defined in other screens'
     // CSS (.table-scroll, .muted, .num), which a per-route split would drop.
     cssCodeSplit: false,
+    // RT-1242: build the maps but leave out the `sourceMappingURL` comment, so the browser is never
+    // pointed at one. The release workflow moves them out of dist/ (uploaded to Sentry only, never
+    // archived or hosted); release-artifact.ts refuses a dist/ that still holds a `.map`.
+    sourcemap: "hidden",
     rollupOptions: {
       output: {
         // RT-962: React and the router change only on a dependency bump, so they

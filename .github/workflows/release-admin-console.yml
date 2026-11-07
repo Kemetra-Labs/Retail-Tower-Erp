@@ -136,6 +136,29 @@ jobs:
           fi
           pnpm build
 
+      # RT-1242: build.sourcemap is "hidden", so the build wrote dist/assets/*.js.map without any
+      # sourceMappingURL comment. The maps (and a copy of the public JS they belong to) go to a
+      # separate artifact for the Sentry upload in publish; dist/ is then cleaned BEFORE it is
+      # checked, archived and hashed, so the release archive and the hosted Console never hold a map.
+      # A marker file keeps the artifact present even if no map was built (publish then warns).
+      - name: Move the source maps out of dist/
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          sm="$RUNNER_TEMP/admin-sourcemaps"
+          mkdir -p "$sm/assets"
+          n=0
+          for map in dist/assets/*.js.map; do
+            cp "$map" "$sm/assets/"
+            if [ -f "${map%.map}" ]; then cp "${map%.map}" "$sm/assets/"; fi
+            n=$((n + 1))
+          done
+          echo "$n source maps moved out of dist/" | tee "$sm/maps.txt"
+          if [ "$n" -eq 0 ]; then echo "::warning::RT-1242: the build produced no dist/assets/*.js.map (is build.sourcemap 'hidden' still set?); Sentry stack traces stay minified."; fi
+          find dist -name '*.map' -delete
+          left="$(find dist -name '*.map' | wc -l)"
+          [ "$left" -eq 0 ] || { echo "::error::$left .map files are still in dist/"; exit 1; }
+
       # RT-878: carried over from the retired product release-artifact.yml (RT-337). Checks the
       # dist/ layout and writes the public dist/version.json (sha, build time, Backend-Core contract
       # pin) that Backend-Core's Console hosting serves and checks (deploy/console-smoke.sh).
@@ -160,12 +183,26 @@ jobs:
           tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C dist -cf - . \
             | gzip -n -9 > "$out/$ARTIFACT"
           sha256sum "$out"/*.tar.gz
+          # RT-1242: the archive that is hashed, attested and hosted must hold no source map.
+          listing="$(tar -tzf "$out/$ARTIFACT")"
+          maps="$(grep -c '\.map$' <<<"$listing" || true)"
+          [ "$maps" -eq 0 ] || { echo "::error::the release archive holds $maps .map files"; exit 1; }
+          echo "archive holds 0 .map files"
 
       - name: Upload the build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: admin-console-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/admin-release/
+          if-no-files-found: error
+          retention-days: 7
+
+      # RT-1242: only publish reads this (to upload it to Sentry); it is never part of the release.
+      - name: Upload the source maps (for the Sentry upload only)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: admin-console-sourcemaps-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/admin-sourcemaps/
           if-no-files-found: error
           retention-days: 7
 
@@ -235,7 +272,8 @@ jobs:
       SHA: ${{ needs.resolve.outputs.sha }}
       TAG: ${{ needs.resolve.outputs.tag }}
       REPO: ${{ github.repository }}
-    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
+    # The only checkout is the last Sentry step's sparse one (.github/release, RT-1242). GH_TOKEN is set per
+    # step, only where gh needs it; SENTRY_AUTH_TOKEN only in the Sentry step.
     steps:
       # A job that names a missing environment creates it unprotected. Refuse unless the
       # environment has a required reviewer and admits only admin-console/v* tags.
@@ -337,6 +375,29 @@ jobs:
             echo "- release: $GITHUB_SERVER_URL/$REPO/releases/tag/$TAG"
             echo "- archive: \`$ART\` ($(jq -r '.artifacts[0].digest' "$PKG/release-manifest.json"))"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # RT-1242: upload the maps to Sentry under the SHA12 release the bundle reports (vite.config.ts stamps
+      # GITHUB_SHA). Evidence only: no token, a bad download or any Sentry error is a warning, never a failed
+      # release (the GitHub release above already exists), and the helper is bounded to 240 s.
+      - name: Download the source maps
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: admin-console-sourcemaps-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/sourcemaps
+
+      - name: Checkout the Sentry helper (sparse, the release SHA)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/release
+
+      - name: Upload the source maps to Sentry (evidence only)
+        timeout-minutes: 6
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          timeout 240 bash .github/release/sentry-release.sh sourcemaps admin-console "${SHA:0:12}" "$SHA" "$RUNNER_TEMP/sourcemaps"             || echo "::warning::Sentry source maps (RT-1242): the helper ran over its 240 s bound or failed; nothing more uploaded."
 
   env-probe:
     name: release/env-probe (must not start outside a admin-console/v* tag)
