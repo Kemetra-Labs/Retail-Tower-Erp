@@ -107,9 +107,9 @@ import { trackPrintPipeline } from './update/print-activity.js';
 import type { UpdateService } from './update/update-service.js';
 import { createSecretStore } from './secrets/index.js';
 import { createLogger, waitForLogDrain } from './logging/logger.js';
-import { initSentryMain, mainIntegrations } from './observability/sentry-main.js';
+import { registerTelemetry } from './bootstrap/telemetry.js';
 import { createRendererErrorReporter } from './observability/renderer-error-report.js';
-import { loadBuildIdentity, withBuildIdentity } from './observability/build-identity.js';
+import { withBuildIdentity } from './observability/build-identity.js';
 import { withRequestId } from './observability/request-id.js';
 import { registerReportErrorHandler } from './ipc/report-error.js';
 import { bindPairingStoreDb, createPairingStore } from './pairing/store.js';
@@ -335,20 +335,15 @@ singleInstanceReady
       return;
     }
 
-    // T068 — initialise Sentry AFTER the main logger is up but BEFORE
-    // migrations / window creation. Sentry's `init` is wrapped in
-    // try/catch inside `initSentryMain`; a thrown init logs one warn
-    // line via `mainLogger` and the app continues. With `SENTRY_DSN`
-    // unset (the default in `.env.example`), Sentry stays inert — no
-    // network calls, no crashes (AS-8).
-    // RT-634 (OBS-5) — OBS-1 contract: DSN / DEPLOYMENT_ENVIRONMENT /
-    // POS_PULSE_RELEASE from the launch env (main only), reviewed
-    // integrations only, allowlist beforeSend, bounded offline queue.
-    const sentryMain = initSentryMain({
-      sentryInit: Sentry.init,
-      integrations: () => mainIntegrations(Sentry),
+    // T068 / RT-634 / RT-1253 — Sentry: tunnel, direct or inert (bootstrap/telemetry.ts).
+    const telemetry = registerTelemetry({
+      sentry: Sentry,
       logger: mainLogger,
       env: process.env,
+      shippedApp,
+      app,
+      baseUrl: resolveApiBaseUrl(),
+      workerRegistry,
     });
 
     // RT-162 (RT-160 FU-1 / owner decision D-1) — fail-closed cashier profile.
@@ -516,20 +511,21 @@ singleInstanceReady
     // RT-719 — the build identity (`X-POS-Build-Commit`, `X-POS-Contract-Pin`) rides
     // the same shared fetch: added only on the device-token requests of the thirteen
     // reporting operations, omitted whenever the build has no honest identity.
-    const buildIdentity = loadBuildIdentity(
-      path.join(app.getAppPath(), 'dist', 'build-identity.json'),
-    );
-    mainLogger.info({ build_identity_known: buildIdentity !== null }, 'build_identity:loaded');
     const backendBaseFetch = withBuildIdentity(
       withRequestId(globalThis.fetch.bind(globalThis), {
         logger: mainLogger,
       }),
       {
         baseUrl: resolveApiBaseUrl(),
-        identity: () => buildIdentity,
+        identity: () => telemetry.buildIdentity,
         readDeviceToken: readSendableDeviceToken,
       },
     );
+    telemetry.bind({
+      fetch: backendBaseFetch,
+      readToken: readSendableDeviceToken,
+      currentTerminalId: () => pairingStore.getCurrentTerminalId(),
+    });
     const pairingNetwork = createNetwork({
       fetch: backendBaseFetch,
       baseUrl: resolveApiBaseUrl(),
@@ -622,7 +618,7 @@ singleInstanceReady
       guardedIpcMain,
       createRendererErrorReporter({
         captureException: (error, hint) => Sentry.captureException(error, hint),
-        isEnabled: () => sentryMain.kind === 'initialized',
+        isEnabled: () => telemetry.isInitialized(),
         logger: rendererLogger,
       }),
     );
@@ -1147,6 +1143,9 @@ singleInstanceReady
       audit: auditEmitter,
       uuid: () => randomUUID(),
       now: () => new Date(),
+      purgeTelemetryQueue: () => {
+        telemetry.purgeQueue();
+      },
       logger: mainLogger,
     });
     deviceRevocation.onConfirmed = (source) => {

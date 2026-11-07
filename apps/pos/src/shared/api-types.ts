@@ -4896,6 +4896,205 @@ export namespace PosShifts {
     }
 }
 
+/** Generated from contracts/backend-core/openapi/pos-telemetry.openapi.yaml. */
+export namespace PosTelemetry {
+    export interface paths {
+        "/api/pos/v1/telemetry/config": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** Whether the terminal should report errors, and to which tunnel with which environment. */
+            get: operations["posGetTelemetryConfig"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/pos/v1/telemetry/envelope": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /** Forward a Sentry envelope from a paired POS terminal to the POS Sentry project. */
+            post: operations["posForwardTelemetryEnvelope"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description A Sentry envelope as raw text. `maxLength` is the byte cap; a body of multibyte text reaches the cap with fewer characters. */
+            Envelope: string;
+            /** @description Canonical error envelope. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Fixed human-readable summary. Never quotes the request body. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                };
+            };
+            /** @description Runtime Sentry settings for a paired terminal. Never carries a DSN. */
+            PosTelemetryConfig: {
+                /**
+                 * @description Always `true` in a `200`; an inert tunnel answers `204`.
+                 * @constant
+                 */
+                enabled: true;
+                /** @description The server's Sentry environment (`SENTRY_ENVIRONMENT`, else `DEPLOYMENT_ENVIRONMENT`, else `unknown`). The tunnel stamps the same value on forwarded events. */
+                environment: string;
+                /**
+                 * @description The tunnel path, relative to the Backend-Core base URL.
+                 * @constant
+                 */
+                tunnel: "/api/pos/v1/telemetry/envelope";
+            };
+        };
+        responses: {
+            /** @description The generic, non-disclosing 401: missing, malformed, unknown, revoked or expired device token, or a device of a suspended tenant. */
+            DeviceUnauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: never;
+        requestBodies: never;
+        headers: {
+            CacheControlNoStore: "no-store";
+            /** @description RT-639 rotate-soon hint: the instant the device token should be rotated (`expires_at - 15 days`). Sent only on a successful response once 15 days or less are left, never on an error response. */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639 rotate-soon hint stage, sent with `X-Device-Token-Rotate-After`. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        posGetTelemetryConfig: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tunnel is configured. The terminal reports through `tunnel` with `environment`. Never carries a DSN. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PosTelemetryConfig"];
+                    };
+                };
+                /** @description The tunnel is inert (`POS_SENTRY_DSN` or `POS_TELEMETRY_REF_KEY` unset, blank or invalid). The terminal does not report. */
+                204: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["DeviceUnauthorized"];
+            };
+        };
+        posForwardTelemetryEnvelope: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description A Sentry envelope (newline-delimited: an envelope header line, then items, each an item header line and a payload). At most 65,536 bytes (`413 envelope_too_large`); a body with a `Content-Encoding` other than `identity` is `415`. */
+            requestBody: {
+                content: {
+                    "application/octet-stream": components["schemas"]["Envelope"];
+                    "application/x-sentry-envelope": components["schemas"]["Envelope"];
+                    "text/plain": components["schemas"]["Envelope"];
+                };
+            };
+            responses: {
+                /** @description Accepted. On a configured tunnel a well-formed envelope gets the same `204` whether its error event was forwarded, dropped by the scrubber, dropped by the capture-terminal rule, dropped by the forward bound, or dropped because the rate-limit store is unavailable. An inert tunnel answers `204` to every authenticated request. */
+                204: {
+                    headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description `envelope_malformed`: the body is empty, or the envelope header, an item header or an event payload is not a JSON object, or an item's `length` runs past the end of the body. The message is fixed and never quotes the input. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                401: components["responses"]["DeviceUnauthorized"];
+                /** @description `envelope_too_large`: the body is larger than 65,536 bytes. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `unsupported_media_type`: the `Content-Type` is not `text/plain`, `application/x-sentry-envelope` or `application/octet-stream` (a missing `Content-Type` is accepted), or the body has a `Content-Encoding` other than `identity`. */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `RATE_LIMITED`: this device's budget or the fleet's global budget for this endpoint is spent. The Sentry SDK backs off for `Retry-After` seconds. */
+                429: {
+                    headers: {
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+    }
+}
+
 /** Generated from contracts/backend-core/openapi/pos-terminal-pairing.openapi.yaml. */
 export namespace PosTerminalPairing {
     export interface paths {

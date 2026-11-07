@@ -1,0 +1,299 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — POS Telemetry (device Sentry tunnel) API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1252 (epic RT-617). Design and owner decisions: RT-1251
+    (Confluence page 69500929, approved 2026-11-05) and the Observability
+    contract OBS-1 §1 "POS fleet refs" (page 42926084 v6). A paired POS
+    terminal reports its error events to Sentry project `kemetra/pos` through
+    Backend-Core, so terminals never hold a DSN and nobody configures Sentry
+    per terminal.
+
+
+    **Posture.** `1.0.0-draft`, implemented by RT-1252: neither operation
+    carries `x-runtime-status: contract-only`. `[GATED]` contract, approved
+    by the owner on RT-1252 (comment 15673).
+
+
+    **Auth.** The `device` scheme only: the paired terminal's opaque device
+    token as `Authorization: Bearer <device_token>` (`PosDeviceAuthGuard`).
+    An unknown, revoked or expired token, or a device of a suspended tenant,
+    is the generic, non-disclosing 401 before anything else runs. Tenant,
+    store and device come from the device row; nothing in the request is
+    trusted as identity or scope. A revoked or moved terminal's old token is
+    refused at once.
+
+
+    **Not an open relay.** The tunnel forwards only to the Sentry project
+    named by the server's own `POS_SENTRY_DSN`. The `dsn` in the envelope
+    header is ignored. No inbound header is passed on.
+
+
+    **What is forwarded.** Only the first error `event` item, rebuilt by the
+    same allowlist rebuild as the Console tunnel (`console-telemetry`
+    RT-632/RT-683; OBS-1 §3): request data, user, extras, contexts,
+    breadcrumbs and `server_name` are dropped; JWTs, `Bearer` and
+    `Authorization` credentials, emails, phone numbers and URL query strings
+    are masked in exception messages; tags are cut to the OBS-1 §1/§2 key
+    set. Every other item type is dropped. When nothing survives, nothing is
+    forwarded.
+
+
+    **Server-stamped fields.** `environment` is the API's Sentry environment
+    (`SENTRY_ENVIRONMENT`, else `DEPLOYMENT_ENVIRONMENT`). The `service` tag
+    is `pos`. `release` and the `version` tag survive only as the same SHA12
+    (both dropped when they disagree). `sdk` is rebuilt with
+    `settings.infer_ip = "never"`. The server adds `tenant_ref`, `store_ref`
+    and `terminal_ref`: each the first 16 hex characters of an HMAC-SHA256 of
+    the device row's tenant id, store id and device id under the server key
+    `POS_TELEMETRY_REF_KEY` (OBS-1 §1 "POS fleet refs"). A client-sent value
+    of any of these is discarded, and the server never adds a raw tenant,
+    store or device id to the event. The reporting device's own raw tenant,
+    store and device ids are also replaced by their refs wherever they appear
+    in the rebuilt event (for example inside an exception message or a frame
+    path), case-insensitively. Any other identifier inside free text (another
+    device's id, a sale or request id) follows the OBS-1 §3 scrub like every
+    other surface: UUIDs are not masked there (golden vector N1), so they are
+    not masked here either.
+
+
+    **Capture terminal (R1).** The terminal tags each event it captures with
+    `capture_terminal_id`, the `terminal_id` it was paired as when the error
+    happened. An event whose tag is missing or names another device than the
+    bearer's is dropped (still `204`), so an event queued offline before a
+    move or a re-pair is never stamped with the new store. The tag itself is
+    never forwarded.
+
+
+    **Default-inert.** The tunnel is enabled only when `POS_SENTRY_DSN` is a
+    usable DSN and `POS_TELEMETRY_REF_KEY` is set (at least 32 characters).
+    Otherwise `posGetTelemetryConfig` answers `204` and
+    `posForwardTelemetryEnvelope` answers `204` without checking the rate
+    limits or the body (after the device auth). This is the fleet kill
+    switch: the terminal stops reporting on its next config read.
+    Forwarding runs after the response is sent, with a short timeout and a
+    bound on concurrent forwards; a Sentry failure or slowness never changes
+    the response and never affects other API traffic, and telemetry never
+    blocks a sale. The tunnel never logs envelope content, the DSN, the key
+    or the upstream URL.
+
+
+    **Abuse and noise.** A 64 KiB body cap, and a per-device then a global
+    rate limit, checked before the body is read. One noisy terminal spends
+    only its own budget. An unavailable rate-limit store drops the envelope
+    quietly (`204`).
+
+
+    **The path** avoids the word "sentry", so content blockers do not block
+    it.
+servers:
+  - url: https://api.example.com
+security:
+  - device: []
+paths:
+  /api/pos/v1/telemetry/config:
+    get:
+      summary: Whether the terminal should report errors, and to which tunnel with which environment.
+      operationId: posGetTelemetryConfig
+      security:
+        - device: []
+      responses:
+        "200":
+          description: >
+            The tunnel is configured. The terminal reports through `tunnel`
+            with `environment`. Never carries a DSN.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosTelemetryConfig"
+        "204":
+          description: >
+            The tunnel is inert (`POS_SENTRY_DSN` or `POS_TELEMETRY_REF_KEY`
+            unset, blank or invalid). The terminal does not report.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
+        "401":
+          $ref: "#/components/responses/DeviceUnauthorized"
+  /api/pos/v1/telemetry/envelope:
+    post:
+      summary: Forward a Sentry envelope from a paired POS terminal to the POS Sentry project.
+      operationId: posForwardTelemetryEnvelope
+      security:
+        - device: []
+      requestBody:
+        required: true
+        description: >
+          A Sentry envelope (newline-delimited: an envelope header line, then
+          items, each an item header line and a payload). At most 65,536
+          bytes (`413 envelope_too_large`); a body with a `Content-Encoding`
+          other than `identity` is `415`.
+        content:
+          text/plain:
+            schema:
+              $ref: "#/components/schemas/Envelope"
+          application/x-sentry-envelope:
+            schema:
+              $ref: "#/components/schemas/Envelope"
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/Envelope"
+      responses:
+        "204":
+          description: >
+            Accepted. On a configured tunnel a well-formed envelope gets the
+            same `204` whether its error event was forwarded, dropped by the
+            scrubber, dropped by the capture-terminal rule, dropped by the
+            forward bound, or dropped because the rate-limit store is
+            unavailable. An inert tunnel answers `204` to every authenticated
+            request.
+          headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
+        "400":
+          description: >
+            `envelope_malformed`: the body is empty, or the envelope header,
+            an item header or an event payload is not a JSON object, or an
+            item's `length` runs past the end of the body. The message is
+            fixed and never quotes the input.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/DeviceUnauthorized"
+        "413":
+          description: "`envelope_too_large`: the body is larger than 65,536 bytes."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: >
+            `unsupported_media_type`: the `Content-Type` is not `text/plain`,
+            `application/x-sentry-envelope` or `application/octet-stream`
+            (a missing `Content-Type` is accepted), or the body has a
+            `Content-Encoding` other than `identity`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            `RATE_LIMITED`: this device's budget or the fleet's global budget
+            for this endpoint is spent. The Sentry SDK backs off for
+            `Retry-After` seconds.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 600
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    device:
+      type: http
+      scheme: bearer
+      description: >
+        The paired terminal's opaque `devices` token, presented as
+        `Authorization: Bearer <device_token>` (`PosDeviceAuthGuard`; NOT a
+        JWT). The device row supplies the authoritative device, tenant and
+        store; nothing in the request is trusted as identity or scope. A
+        missing, malformed, unknown, revoked or otherwise refused token is the
+        generic, non-disclosing 401.
+  headers:
+    CacheControlNoStore:
+      required: true
+      schema:
+        type: string
+        const: no-store
+    DeviceTokenRotateAfter:
+      required: false
+      description: >
+        RT-639 rotate-soon hint: the instant the device token should be
+        rotated (`expires_at - 15 days`). Sent only on a successful response
+        once 15 days or less are left, never on an error response.
+      schema:
+        type: string
+        format: date-time
+    DeviceTokenRotateStage:
+      required: false
+      description: RT-639 rotate-soon hint stage, sent with `X-Device-Token-Rotate-After`.
+      schema:
+        type: string
+        enum: [notice, warning, urgent]
+  responses:
+    DeviceUnauthorized:
+      description: >
+        The generic, non-disclosing 401: missing, malformed, unknown, revoked
+        or expired device token, or a device of a suspended tenant.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    PosTelemetryConfig:
+      type: object
+      additionalProperties: false
+      required: [enabled, tunnel, environment]
+      description: Runtime Sentry settings for a paired terminal. Never carries a DSN.
+      properties:
+        enabled:
+          type: boolean
+          const: true
+          description: Always `true` in a `200`; an inert tunnel answers `204`.
+        tunnel:
+          type: string
+          const: /api/pos/v1/telemetry/envelope
+          description: The tunnel path, relative to the Backend-Core base URL.
+        environment:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >
+            The server's Sentry environment (`SENTRY_ENVIRONMENT`, else
+            `DEPLOYMENT_ENVIRONMENT`, else `unknown`). The tunnel stamps the
+            same value on forwarded events.
+    Envelope:
+      type: string
+      maxLength: 65536
+      description: >
+        A Sentry envelope as raw text. `maxLength` is the byte cap; a body
+        of multibyte text reaches the cap with fewer characters.
+    Error:
+      type: object
+      required: [error]
+      description: Canonical error envelope.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Fixed human-readable summary. Never quotes the request body.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
