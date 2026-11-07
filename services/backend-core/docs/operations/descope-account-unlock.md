@@ -143,18 +143,17 @@ revocation done first blocks step 1.
    shows: it lists active tenants only, so a membership in a suspended or pending
    tenant is missing from it, and it comes back into force if that tenant is
    reactivated. Have a platform admin list every unrevoked membership of the user
-   across all tenant statuses (a read-only query is enough), revoke each one, and
-   keep a suspended tenant suspended until its membership is revoked.
+   across all tenant statuses (a read-only query is enough), and revoke each one
+   in an active tenant.
 
    A suspended (or pending) tenant is already contained while it stays that way: a
    membership there reads exactly like a revoked one, so the user has no access to
-   it (RT-669). The membership often cannot be revoked there, though: a platform
-   admin's support session is read-only in a suspended tenant, and the DELETE needs
-   an owner, a tenant admin or a platform admin who can write in that tenant. In
-   that case record the membership on the incident and do not reactivate the tenant
-   until step 1 is done and the step 3 wait has passed; then revoke the membership
-   right after reactivation if it is still needed. If the tenant must be reactivated
-   sooner, escalate to the owner first.
+   it (RT-669). Its membership usually cannot be revoked while the tenant is
+   suspended (a platform admin's support session is read-only there). So: record
+   the membership on the incident, keep the tenant suspended until the step 3 wait
+   has passed, and revoke the membership as the first action after reactivation if
+   the user should no longer have it. If the tenant must be reactivated sooner,
+   escalate to the owner first.
    An open Admin session stays valid, but every tenant-scoped request is refused,
    because `TenantContextGuard` checks for an active membership on each request
    (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
@@ -165,7 +164,10 @@ revocation done first blocks step 1.
    - a platform admin is not bound by tenant membership: use step 1;
    - the session can still reach routes that are not tenant-scoped (for example its
      own sign-out) until it expires.
-3. **If step 2 already happened:** set the new password (above), then wait before
+3. **If step 2 already happened, or step 1 is not possible** (the user has no
+   active membership anywhere, for example because every tenant they belong to is
+   suspended, so the Admin account page is out of reach): set the new password
+   (above), then wait before
    restoring any membership, counted from the password set:
    - POS: the full configured age cap (`DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS`, default
      8.5 hours) plus a few minutes, because the verifier allows 5 seconds of clock
