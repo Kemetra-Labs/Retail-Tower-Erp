@@ -165,11 +165,16 @@ def revert_lines(pr: int, shas: list[str]) -> tuple[list[str], str]:
     neither form is not detectable here, so the scope line says what was searched.
     """
     try:
+        if run(["git", "rev-parse", "--is-shallow-repository"]).strip() == "true":
+            # A shallow clone lacks older history, so "none" would be a silent false negative.
+            raise RuntimeError(
+                "shallow clone; run `git fetch --unshallow origin` and retry"
+            )
         base = run(["git", "rev-parse", "--short", "origin/main"]).strip()
         log = run(["git", "log", "origin/main", "--format=%H%x00%s%x00%b%x1e"])
     except RuntimeError as exc:
         warn(f"revert check skipped: {exc}")
-        return [], "not checked"
+        return [], f"not checked: {exc}"
     targets = {s.lower() for s in shas if s}
     hits = []
     for rec in log.split("\x1e"):
