@@ -198,9 +198,11 @@ Times in evidence are Cairo local time, for example `2026-11-04 14:20 (Cairo)`.
 4. **Approve.** `sign-release` runs behind `release-pos-sign` (the only job that reads the PFX; approve it
    there too if that environment has a reviewer) and `publish` behind `release-pos`; the `release-pos`
    reviewer approves the publish. Expected: a GitHub
-   release `pos/vX.Y.Z` with exactly five assets: `POS-Pulse-LAB-Setup-X.Y.Z.exe`, its `.blockmap`,
-   `lab.yml`, the `.sha256` and `release-manifest.json`, plus a build-provenance attestation. Verify the
-   attestation as in the device step above.
+   release `pos/vX.Y.Z` with exactly six assets: `POS-Pulse-LAB-Setup-X.Y.Z.exe`, its `.blockmap`,
+   `lab.yml`, the `.sha256`, `release-manifest.json` and `POS-Pulse-X.Y.Z-win-x64.zip`, plus a
+   build-provenance attestation. The zip is the unsigned pilot package (RT-1261); it never goes to the lab
+   feed or a lab device. Releases made before RT-1261 (`pos/v0.1.0`, `pos/v0.1.1`) hold only the first five.
+   Verify the attestation as in the device step above.
 5. **Deploy dry-run.** Dispatch `deploy-pos-lab` from `main` with `pos_release` `pos/vX.Y.Z`, `jira_key`
    `RT-…` and `dry_run` `true`. It verifies the release (assets, digests, attestation, `lab.yml` against
    the installer), reads back `aws-lab`, uploads the planned ledger `pos-lab-planned-<run id>` and changes

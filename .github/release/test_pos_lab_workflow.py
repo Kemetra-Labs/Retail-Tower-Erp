@@ -11,7 +11,10 @@ The guard and the lab.yml check are run for real with bash (CI is Linux; locally
 
 import base64
 import hashlib
+import json
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -99,21 +102,61 @@ class DeployPosLab(unittest.TestCase):
         self.assertIn('--source-ref "refs/tags/$POS_RELEASE"', pre)
         self.assertIn('gh attestation verify "$DL/$EXE"', pre)
 
-    def test_preflight_requires_exactly_the_five_assets_release_pos_publishes(self):
+    def test_preflight_requires_exactly_the_assets_release_pos_publishes(self):
         pre = step_script(self.text, "Verify the POS release")
         assets = '"$EXE" "$EXE.blockmap" "$EXE.sha256" lab.yml release-manifest.json'
-        self.assertIn(f"printf '%s\\n' {assets} | sort", pre)
-        # S1: the publish step of release-pos.yml lists the same five files
-        self.assertIn('"$EXE" "$EXE.blockmap" lab.yml "$EXE.sha256" release-manifest.json', read(RELEASE_WORKFLOW))
+        # A release from before RT-1261 holds the five lab assets; a later one also holds the package zip.
+        self.assertIn(f"FIVE=\"$(printf '%s\\n' {assets} | sort", pre)
+        self.assertIn(f"SIX=\"$(printf '%s\\n' {assets} \"$ZIP\" | sort", pre)
+        self.assertIn('ZIP="POS-Pulse-$VERSION-win-x64.zip"', pre)
+        # S1: the publish step of release-pos.yml lists the same six files, with the same zip name.
+        release = read(RELEASE_WORKFLOW)
+        self.assertIn('"$EXE" "$EXE.blockmap" lab.yml "$EXE.sha256" release-manifest.json "$ZIP"', release)
+        self.assertIn('ZIP="POS-Pulse-$VERSION-win-x64.zip"', release)
 
     def test_preflight_binds_the_manifest_names_to_the_downloaded_files(self):
         pre = step_script(self.text, "Verify the POS release")
-        for name in ("pos-installer", "pos-blockmap", "pos-channel"):
+        for name in ("pos-installer", "pos-blockmap", "pos-channel", "pos-package"):
             self.assertIn(f'select(.name == "{name}"', pre)
             # the names release-pos.yml records in the manifest
             self.assertIn(f"--artifact \"{name}=", read(RELEASE_WORKFLOW))
         self.assertIn('.product == "pos" and .mode == "release" and .tag == $tag and .source.sha == $sha', pre)
+        # Three artifacts without the package (a five-asset release), four with it.
         self.assertIn("(.artifacts | length == 3)", pre)
+        self.assertIn("(.artifacts | length == 4)", pre)
+
+    @unittest.skipUnless(shutil.which("jq"), "jq is needed")
+    def test_manifest_predicate_matches_the_release_shape(self):
+        program = re.search(r"--arg zip \"\$ZIP\" --arg package \"\$PACKAGE\" '\n(.*?)\n            ' \"\$DL",
+                            self.text, re.S).group(1)
+        digest = {key: "sha256:" + key * 64 for key in "1234"}
+        five = {"product": "pos", "mode": "release", "tag": "pos/v0.1.2", "source": {"sha": "a" * 40}, "artifacts": [
+            {"name": "pos-installer", "file": "E", "digest": digest["1"]},
+            {"name": "pos-blockmap", "file": "E.blockmap", "digest": digest["2"]},
+            {"name": "pos-channel", "file": "lab.yml", "digest": digest["3"]}]}
+        six = {**five, "artifacts": [*five["artifacts"], {"name": "pos-package", "file": "Z", "digest": digest["4"]}]}
+        renamed = {**five, "artifacts": [*five["artifacts"], {"name": "pos-package", "file": "Y", "digest": digest["4"]}]}
+
+        def accepts(manifest: dict, package: str) -> bool:
+            args = ["--arg", "tag", "pos/v0.1.2", "--arg", "sha", "a" * 40, "--arg", "exe", "E",
+                    "--arg", "exe_digest", digest["1"], "--arg", "map", "E.blockmap", "--arg", "map_digest", digest["2"],
+                    "--arg", "yml", "lab.yml", "--arg", "yml_digest", digest["3"], "--arg", "zip", "Z",
+                    "--arg", "package", package]
+            return subprocess.run(["jq", "-e", *args, program], input=json.dumps(manifest), capture_output=True,
+                                  text=True, check=False).returncode == 0
+
+        self.assertTrue(accepts(five, "absent"), "a release from before RT-1261 must still verify")
+        self.assertTrue(accepts(six, "present"))
+        self.assertFalse(accepts(six, "absent"), "a manifest that records a package the release does not hold")
+        self.assertFalse(accepts(five, "present"), "a release package the manifest does not record")
+        self.assertFalse(accepts(renamed, "present"), "a package recorded under another name")
+
+    def test_the_package_never_reaches_the_feed(self):
+        pre = step_script(self.text, "Verify the POS release")
+        download = next(line for line in pre.splitlines() if "--pattern" in line)
+        self.assertNotIn("$ZIP", download)
+        self.assertNotIn("win-x64.zip", job(self.text, "live"))
+        self.assertNotIn("win-x64.zip", read(DOCUMENT))
 
     def test_lab_yml_is_checked_before_the_ledger(self):
         pre = job(self.text, "preflight")

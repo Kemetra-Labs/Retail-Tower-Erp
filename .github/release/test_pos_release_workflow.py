@@ -8,6 +8,8 @@ apps/pos/scripts/lab/ci/release-lab-installer.ps1, is Windows-only; it is first 
 The version gate of the resolve step is run for real with bash (CI is Linux; locally only when bash works).
 """
 
+import hashlib
+import io
 import json
 import os
 import re
@@ -16,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 try:  # optional: the release selftest installs nothing, so this check runs only where PyYAML exists
@@ -25,7 +28,7 @@ except ImportError:  # pragma: no cover
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_console_lab_workflow import BASH, HAVE_BASH, WORKFLOWS, job, read, step_script, triggers  # noqa: E402
+from test_console_lab_workflow import BASH, HAVE_BASH, WORKFLOWS, job, read, run_step, step_script, triggers  # noqa: E402
 
 SECRETS = ("POS_LAB_SIGN_PFX_BASE64", "POS_LAB_SIGN_PFX_PASSWORD")
 
@@ -249,6 +252,20 @@ class ReleasePos(unittest.TestCase):
         # publish downloads it only after the release-pos approval; keep it as long as the manifest.
         self.assertRegex(block, r"(?m)^          retention-days: 90$")
 
+    def test_build_zips_the_package_under_its_versioned_name(self):
+        # RT-1261: the zip is a release asset, named for the version, not the commit.
+        script = step_script(job(self.text, "build"), "Zip the package")
+        self.assertIn("require('./package.json').version", script)
+        self.assertIn('"$out/$ZIP"', script)
+        self.assertIn('ZIP="POS-Pulse-$VERSION-win-x64.zip"', script)
+        self.assertNotIn("pos-win-unpacked", self.text)
+
+    def test_package_artifact_outlasts_the_publish_approval_in_release_mode(self):
+        block = step(job(self.text, "build"), "Upload the package")
+        self.assertIn("name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}", block)
+        # publish reads it after the release-pos approval, like the installer; a dry-run keeps it 7 days.
+        self.assertIn("retention-days: ${{ needs.resolve.outputs.mode == 'release' && 90 || 7 }}", block)
+
     def test_manifest_records_the_installer_blockmap_and_channel_file(self):
         manifest = job(self.text, "manifest")
         condition = job_if(manifest)
@@ -261,10 +278,64 @@ class ReleasePos(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success'", condition)
         self.assertIn("needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'", condition)
         script = step_script(manifest, "Write the release manifest")
-        for name in ("pos-installer", "pos-blockmap", "pos-channel"):
+        for name in ("pos-installer", "pos-blockmap", "pos-channel", "pos-package"):
             self.assertIn(f'--artifact "{name}=', script)
-        self.assertNotIn("pos-win-unpacked", manifest)
         self.assertIn("signing=lab test certificate (RT-321 production signing not used)", script)
+        # RT-1261: the package zip of this run, and the digest of the app executable inside it.
+        download = step(manifest, "Download the Windows package")
+        self.assertIn("name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}", download)
+        self.assertIn('--note "app_exe_sha256=$APP_EXE_DIGEST"', script)
+        self.assertIn("POS Pulse", script)
+
+    @unittest.skipUnless(HAVE_BASH and shutil.which("unzip"), "bash and unzip are needed")
+    def test_manifest_step_records_the_package_and_its_app_exe(self):
+        script = step_script(job(self.text, "manifest"), "Write the release manifest")
+        exe = "POS-Pulse-LAB-Setup-0.1.2.exe"
+        # Stands in for `python3 .github/release/manifest.py ...`: records its arguments, one per line.
+        fake_python = '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$ARGS_FILE"\nmkdir -p "$RUNNER_TEMP/manifest"\necho "{}" > "$RUNNER_TEMP/manifest/release-manifest.json"\n'
+
+        def zipped(app: bytes, member: str = "POS Pulse.exe") -> bytes:
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr(member, app)
+            return buffer.getvalue()
+
+        def run(package: dict[str, bytes]) -> tuple[subprocess.CompletedProcess, list[str]]:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                for folder in ("pkg", "package", "bin"):
+                    (root / folder).mkdir()
+                for name in (exe, f"{exe}.blockmap", "lab.yml"):
+                    (root / "pkg" / name).write_bytes(b"x")
+                for name, data in package.items():
+                    (root / "package" / name).write_bytes(data)
+                shim = root / "bin" / "python3"
+                shim.write_text(fake_python, encoding="utf-8", newline="\n")
+                shim.chmod(0o755)
+                args_file = root / "args.txt"
+                env = {"PATH": f"{(root / 'bin').as_posix()}{os.pathsep}{os.environ.get('PATH', '')}",
+                       "RUNNER_TEMP": root.as_posix(), "ARGS_FILE": args_file.as_posix(),
+                       "GITHUB_STEP_SUMMARY": (root / "summary.md").as_posix(),
+                       "SHA": "f351186493df79c4fdd781ad7416594cf4eaac92", "MODE": "dry-run", "TAG": "",
+                       "REPOSITORY": "o/r", "CI_URL": "https://example.test/run"}
+                result = subprocess.run([BASH, "-c", script], capture_output=True, text=True, check=False, env=env)
+                args = args_file.read_text(encoding="utf-8").splitlines() if args_file.exists() else []
+                return result, args
+
+        good, args = run({"POS-Pulse-0.1.2-win-x64.zip": zipped(b"app")})
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+        self.assertTrue(any(a.startswith("pos-package=") and a.endswith("/package/POS-Pulse-0.1.2-win-x64.zip")
+                            for a in args), args)
+        self.assertIn("app_exe_sha256=sha256:" + hashlib.sha256(b"app").hexdigest(), args)
+        for label, package in (
+            ("no zip", {}),
+            ("a zip for another version", {"POS-Pulse-0.1.1-win-x64.zip": zipped(b"app")}),
+            ("an extra file", {"POS-Pulse-0.1.2-win-x64.zip": zipped(b"app"), "x.txt": b"x"}),
+            ("no POS Pulse.exe at the root", {"POS-Pulse-0.1.2-win-x64.zip": zipped(b"app", "sub/POS Pulse.exe")}),
+        ):
+            refused, refused_args = run(package)
+            self.assertNotEqual(refused.returncode, 0, f"the manifest step accepted {label}")
+            self.assertEqual(refused_args, [], f"manifest.py ran despite {label}")
 
     def test_publish_is_protected_and_runs_no_repository_code(self):
         publish = job(self.text, "publish")
@@ -295,11 +366,13 @@ class ReleasePos(unittest.TestCase):
         self.assertIn("--verify-tag", create)
         self.assertIn('--title "POS Pulse $TAG (LAB)"', create)
         self.assertIn("not for production", create)
-        # Exactly the five assets are passed to gh release create (the continuation line after --notes).
+        # Exactly the six assets are passed to gh release create (the continuation line after --notes).
         lines = create.splitlines()
         notes = next(i for i, line in enumerate(lines) if line.lstrip().startswith("--notes"))
         self.assertEqual(re.findall(r'"\$PKG/([^"]+)"', lines[notes + 1]),
-                         ["$EXE", "$EXE.blockmap", "lab.yml", "$EXE.sha256", "release-manifest.json"])
+                         ["$EXE", "$EXE.blockmap", "lab.yml", "$EXE.sha256", "release-manifest.json", "$ZIP"])
+        self.assertIn('ZIP="POS-Pulse-$VERSION-win-x64.zip"', create)
+        self.assertIn("unsigned", create)
 
     @unittest.skipUnless(HAVE_BASH and shutil.which("jq"), "bash and jq are needed")
     def test_publish_refuses_unless_both_environments_are_protected(self):
@@ -371,16 +444,93 @@ class ReleasePos(unittest.TestCase):
     def test_publish_checks_the_package_against_the_manifest(self):
         script = step_script(job(self.text, "publish"), "Check the package against the manifest")
         self.assertIn('VERSION="${TAG#pos/v}"', script)
-        for name in ("pos-installer", "pos-blockmap", "pos-channel"):
+        for name in ("pos-installer", "pos-blockmap", "pos-channel", "pos-package"):
             self.assertIn(f'"{name}"', script)
         self.assertIn('.product == "pos"', script)
         self.assertIn("sha256sum", script)
+        self.assertIn("(.artifacts | length == 4)", script)
+        self.assertIn(".notes.app_exe_sha256 == $app_exe", script)
 
-    def test_publish_attests_the_installer(self):
+    def test_publish_downloads_the_package_this_run_built(self):
+        publish = job(self.text, "publish")
+        block = step(publish, "Download the Windows package")
+        self.assertIn("name: pos-package-release-${{ github.run_id }}", block)
+        self.assertIn("path: ${{ runner.temp }}/pkg", block)
+        # Downloaded before the check, which runs before the attestation and the release.
+        order = ["- name: Download the Windows package", "- name: Check the package against the manifest",
+                 "- name: Attest build provenance", "- name: Create the GitHub release"]
+        positions = [publish.index(name) for name in order]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_publish_attests_the_installer_and_the_package(self):
         block = step(job(self.text, "publish"), "Attest build provenance")
         self.assertRegex(block, r"uses: actions/attest-build-provenance@[0-9a-f]{40}")
-        self.assertRegex(block, r"subject-path: .*POS-Pulse-LAB-Setup-\*\.exe\n")
+        paths = re.search(r"subject-path: \|\n((?:            .*\n)+)", block)
+        self.assertIsNotNone(paths, "subject-path must list one path per line")
+        self.assertEqual([line.strip() for line in paths.group(1).splitlines()],
+                         ["${{ runner.temp }}/pkg/POS-Pulse-LAB-Setup-*.exe",
+                          "${{ runner.temp }}/pkg/POS-Pulse-*-win-x64.zip"])
         self.assertIn("attestations: write", job(self.text, "publish"))
+
+    @unittest.skipUnless(HAVE_BASH and shutil.which("jq") and shutil.which("unzip"), "bash, jq and unzip are needed")
+    def test_publish_check_binds_the_package_and_its_app_exe_to_the_manifest(self):
+        script = step_script(job(self.text, "publish"), "Check the package against the manifest")
+        sha = "f351186493df79c4fdd781ad7416594cf4eaac92"
+        exe, zip_name = "POS-Pulse-LAB-Setup-0.1.2.exe", "POS-Pulse-0.1.2-win-x64.zip"
+
+        def digest(data: bytes) -> str:
+            return "sha256:" + hashlib.sha256(data).hexdigest()
+
+        def zipped(app: bytes, member: str = "POS Pulse.exe") -> bytes:
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr(member, app)
+                archive.writestr("resources/app.asar", b"asar")
+            return buffer.getvalue()
+
+        files = {exe: b"installer", f"{exe}.blockmap": b"blockmap", "lab.yml": b"version: 0.1.2\n",
+                 zip_name: zipped(b"app")}
+
+        def manifest_for(package: dict[str, bytes], app_exe: str = digest(b"app"), artifacts: int = 4) -> dict:
+            names = {exe: "pos-installer", f"{exe}.blockmap": "pos-blockmap", "lab.yml": "pos-channel",
+                     zip_name: "pos-package"}
+            entries = [{"name": names[name], "file": name, "digest": digest(data)}
+                       for name, data in package.items() if name in names]
+            return {"product": "pos", "mode": "release", "tag": "pos/v0.1.2", "source": {"sha": sha},
+                    "artifacts": entries[:artifacts], "notes": {"app_exe_sha256": app_exe}}
+
+        def run(package: dict[str, bytes], manifest: dict) -> subprocess.CompletedProcess:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "pkg").mkdir()
+                (root / "manifest").mkdir()
+                for name, data in package.items():
+                    (root / "pkg" / name).write_bytes(data)
+                (root / "manifest" / "release-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                result = run_step(script, {"TAG": "pos/v0.1.2", "SHA": sha, "RUNNER_TEMP": root.as_posix()})
+                if result.returncode == 0:
+                    published = sorted(p.name for p in (root / "pkg").iterdir())
+                    self.assertEqual(published, sorted([*package, f"{exe}.sha256", "release-manifest.json"]))
+                return result
+
+        ok = run(files, manifest_for(files))
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        altered = {**files, zip_name: zipped(b"other app")}
+        renamed = {k if k != zip_name else "pos-win-unpacked-0123456789ab.zip": v for k, v in files.items()}
+        missing = {k: v for k, v in files.items() if k != zip_name}
+        refusals = {
+            "a zip that is not the one the manifest recorded": (altered, manifest_for(files)),
+            "a renamed zip": (renamed, manifest_for(files)),
+            "no zip": (missing, manifest_for(files)),
+            "an extra file": ({**files, "extra.txt": b"x"}, manifest_for(files)),
+            "a manifest without the package": (files, manifest_for(files, artifacts=3)),
+            "an app exe that is not the recorded one": (files, manifest_for(files, app_exe=digest(b"other"))),
+            "a package without POS Pulse.exe at its root":
+                ({**files, zip_name: zipped(b"app", "app/POS Pulse.exe")},
+                 manifest_for({**files, zip_name: zipped(b"app", "app/POS Pulse.exe")})),
+        }
+        for label, (package, manifest) in refusals.items():
+            self.assertNotEqual(run(package, manifest).returncode, 0, f"publish accepted {label}")
 
     def test_no_job_downstream_of_a_mode_skipped_job_relies_on_the_implicit_success(self):
         names = re.findall(r"^  ([a-z][a-z0-9_-]*):\n", self.text.split("\njobs:\n", 1)[1], re.M)

@@ -152,6 +152,48 @@ appears, the relaunch dropped the values.
 
 ## 5. Provisioning procedure (per terminal)
 
+### 5.0 Get and verify the pilot build (RT-1261)
+
+The pilot build is the **unsigned Windows package** published with a
+`pos/vX.Y.Z` release as `POS-Pulse-<X.Y.Z>-win-x64.zip` (owner decision,
+RT-1006, 2026-11-07). Only releases made after RT-1261 carry it; `pos/v0.1.0`
+and `pos/v0.1.1` do not. Hand over only the release named as the pilot build in
+RT-1006. The `POS-Pulse-LAB-Setup-*.exe` in the same release is the lab-signed
+installer: **never** put it on a pilot terminal.
+
+On a Kemetra machine with `gh` signed in, in a new empty folder:
+
+```powershell
+$tag = 'pos/v<X.Y.Z>'
+$zip = 'POS-Pulse-<X.Y.Z>-win-x64.zip'
+gh release download $tag --repo Kemetra-Labs/Retail-Tower-Erp --pattern $zip --pattern release-manifest.json
+gh attestation verify $zip --repo Kemetra-Labs/Retail-Tower-Erp `
+  --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-pos.yml `
+  --source-ref "refs/tags/$tag"
+$m = Get-Content -Raw release-manifest.json | ConvertFrom-Json
+"sha256:$((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower())" -eq ($m.artifacts | Where-Object name -eq 'pos-package').digest
+```
+
+The attestation must verify and the last line must print `True`; otherwise
+stop and do not hand the package over. Carry the zip and
+`release-manifest.json` to the terminal, extract the zip into the final folder,
+then check the executable against the build recorded in the manifest:
+
+```powershell
+"sha256:$((Get-FileHash '<final folder>\POS Pulse.exe' -Algorithm SHA256).Hash.ToLower())" -eq $m.notes.app_exe_sha256
+```
+
+It must print `True`. That hash is the **Build** recorded in §6.4.
+
+- The build is **not code-signed**. Windows SmartScreen or an "unknown
+  publisher" warning on first launch is expected for this build. Continue
+  only when both checks above printed `True`.
+- It does **not** update itself: `UpdateService` refuses it with
+  `publisher_not_pinned` (§1). A new build, or a return to the previous one, is
+  a manual package swap done with Kemetra, verified with these same two checks
+  and followed by the §6 readiness check.
+- Supported Windows: Windows 10 22H2 x64 and Windows 11 x64.
+
 Prerequisites: packaged build installed in its final folder, terminal not yet
 paired or already paired to the correct store, a separate local admin account,
 **every cashier Windows account a standard user (not a local administrator)**,

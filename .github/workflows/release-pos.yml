@@ -8,8 +8,9 @@
 #                 ref whose version equals apps/pos/package.json, a dry-run needs nothing else.
 #   build         the Windows package (win-unpacked), unsigned: the same steps as pos/package-windows,
 #                 including the RT-830 fuse readback and native-load smoke. The win-unpacked directory is
-#                 uploaded for the signing jobs (and zipped as before). No cache: a release build reads
-#                 nothing a PR could write. No secrets, no environment.
+#                 uploaded for the signing jobs, and zipped as POS-Pulse-X.Y.Z-win-x64.zip: the unsigned
+#                 pilot package (RT-1261, RT-1006). No cache: a release build reads nothing a PR could
+#                 write. No secrets, no environment.
 #   sign-dry-run  dry-run mode only. Builds the per-user NSIS installer from the prebuilt win-unpacked
 #                 with an ephemeral lab certificate (release-lab-installer.ps1 -Mode dry-run) and runs
 #                 the same verification (signature, lab.yml, silent install and uninstall). No
@@ -18,14 +19,17 @@
 #                 the lab signing PFX). Installs with --ignore-scripts, signs with the stable lab
 #                 certificate, verifies, and always removes the certificates it added.
 #   manifest      release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py):
-#                 source SHA, apps/pos tree hash, installer, blockmap and lab.yml digests, Backend-Core
-#                 contract tree and the POS contract PIN, CI URL. Every run, dry-run included.
+#                 source SHA, apps/pos tree hash, installer, blockmap, lab.yml and package zip digests, the
+#                 digest of POS Pulse.exe inside the zip (note app_exe_sha256), Backend-Core contract tree
+#                 and the POS contract PIN, CI URL. Every run, dry-run included.
 #   publish       release mode only, behind the `release-pos` environment (tag-only deployment policy;
 #                 publish refuses unless release-pos is protected that way and release-pos-sign also admits
-#                 only pos/v* tags). Checks that the package
-#                 is the one the manifest recorded, attests the installer's build provenance and creates
-#                 the GitHub release pos/vX.Y.Z with the installer, its blockmap, lab.yml, its .sha256 and
-#                 the manifest. No rebuild, no repository code. Never overwrites a release, never deploys.
+#                 only pos/v* tags). Checks that the installer files and the package zip are the ones the
+#                 manifest recorded (and POS Pulse.exe inside the zip), attests the installer's and the
+#                 zip's build provenance and creates the GitHub release pos/vX.Y.Z with the installer, its
+#                 blockmap, lab.yml, its .sha256, the manifest and the package zip. No rebuild, no
+#                 repository code. Never overwrites a release, never deploys; the zip never reaches the
+#                 lab feed (deploy-pos-lab.yml).
 #   env-probe     manual negative probe (input probe_environment): asks for the environment from the
 #                 dispatched ref; from anything but a pos/v* tag it must never start.
 #
@@ -161,14 +165,17 @@ jobs:
       - name: Native-load smoke (packaged better-sqlite3 + argon2)
         run: npx tsx scripts/verify-packaged.ts native
 
+      # RT-1261: the unsigned pilot package (RT-1006), published as a release asset by publish. Named for the
+      # version, like the installer; resolve has already checked that a release tag equals this version.
       - name: Zip the package
-        env:
-          SHA: ${{ needs.resolve.outputs.sha }}
         run: |
           set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::apps/pos/package.json version '$VERSION' is not X.Y.Z"; exit 1; }
+          ZIP="POS-Pulse-$VERSION-win-x64.zip"
           out="$RUNNER_TEMP/pos-release"
           mkdir -p "$out"
-          (cd dist-electron/win-unpacked && 7z a -tzip -mx=9 "$out/pos-win-unpacked-${SHA:0:12}.zip" . > /dev/null)
+          (cd dist-electron/win-unpacked && 7z a -tzip -mx=9 "$out/$ZIP" . > /dev/null)
           sha256sum "$out"/*.zip
 
       - name: Upload the package
@@ -177,7 +184,8 @@ jobs:
           name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/pos-release/
           if-no-files-found: error
-          retention-days: 7
+          # A release publishes it after the release-pos approval, which may take days: as long as the installer.
+          retention-days: ${{ needs.resolve.outputs.mode == 'release' && 90 || 7 }}
 
       # The signing jobs build the installer from exactly this fused, smoke-tested directory.
       - name: Upload win-unpacked (for the signing jobs)
@@ -334,6 +342,12 @@ jobs:
           name: pos-installer-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/pkg
 
+      - name: Download the Windows package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/package
+
       - name: Write the release manifest
         env:
           SHA: ${{ needs.resolve.outputs.sha }}
@@ -344,16 +358,30 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          fail() { echo "::error::$*"; exit 1; }
           PKG="$RUNNER_TEMP/pkg"
           exes=("$PKG"/POS-Pulse-LAB-Setup-*.exe)
-          [ "${#exes[@]}" -eq 1 ] || { echo "::error::expected one installer, found ${#exes[@]}"; exit 1; }
+          [ "${#exes[@]}" -eq 1 ] || fail "expected one installer, found ${#exes[@]}"
           EXE="$(basename "${exes[0]}")"
           [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml | sort | paste -sd ' ' -)" ] \
-            || { echo "::error::the installer package must hold exactly $EXE, $EXE.blockmap and lab.yml (got: $(ls "$PKG" | paste -sd ' ' -))"; exit 1; }
+            || fail "the installer package must hold exactly $EXE, $EXE.blockmap and lab.yml (got: $(ls "$PKG" | paste -sd ' ' -))"
+          # RT-1261: the unsigned pilot package of the same build, named for the installer's version.
+          VERSION="${EXE#POS-Pulse-LAB-Setup-}"
+          VERSION="${VERSION%.exe}"
+          ZIP="POS-Pulse-$VERSION-win-x64.zip"
+          PACKAGE="$RUNNER_TEMP/package"
+          [ "$(ls "$PACKAGE" | paste -sd ' ' -)" = "$ZIP" ] \
+            || fail "the Windows package must hold exactly $ZIP (got: $(ls "$PACKAGE" | paste -sd ' ' -))"
+          # The digest of POS Pulse.exe at the zip's root: a pilot terminal records its build by it (RT-163 §6.4).
+          APP_EXE="$(unzip -Z1 "$PACKAGE/$ZIP" | grep -xE '(\./)?POS Pulse\.exe' || true)"
+          [ -n "$APP_EXE" ] && [ "$(grep -c . <<<"$APP_EXE")" = 1 ] || fail "$ZIP must hold POS Pulse.exe at its root"
+          APP_EXE_DIGEST="sha256:$(unzip -p "$PACKAGE/$ZIP" "$APP_EXE" | sha256sum | cut -d' ' -f1)"
           args=(--product pos --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
                 --artifact "pos-installer=$PKG/$EXE" --artifact "pos-blockmap=$PKG/$EXE.blockmap"
-                --artifact "pos-channel=$PKG/lab.yml"
+                --artifact "pos-channel=$PKG/lab.yml" --artifact "pos-package=$PACKAGE/$ZIP"
                 --note "signing=lab test certificate (RT-321 production signing not used)"
+                --note "package=unsigned Windows package for the controlled pilot hand-off (RT-1006, RT-1261)"
+                --note "app_exe_sha256=$APP_EXE_DIGEST"
                 --out "$RUNNER_TEMP/manifest")
           if [ -n "$TAG" ]; then args+=(--tag "$TAG"); fi
           python3 .github/release/manifest.py "${args[@]}"
@@ -441,29 +469,45 @@ jobs:
           name: pos-release-manifest-release-${{ github.run_id }}
           path: ${{ runner.temp }}/manifest
 
-      # What is published must be exactly what the signing job produced and the manifest job recorded: no rebuild.
+      # RT-1261: the package zip the build job made, next to the installer files.
+      - name: Download the Windows package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-package-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      # What is published must be exactly what the build and signing jobs produced and the manifest job
+      # recorded: no rebuild.
       - name: Check the package against the manifest
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
           VERSION="${TAG#pos/v}"
           EXE="POS-Pulse-LAB-Setup-$VERSION.exe"
+          ZIP="POS-Pulse-$VERSION-win-x64.zip"
           PKG="$RUNNER_TEMP/pkg"
           MANIFEST="$RUNNER_TEMP/manifest/release-manifest.json"
-          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml | sort | paste -sd ' ' -)" ] \
-            || fail "the package must hold exactly $EXE, $EXE.blockmap and lab.yml (got: $(ls "$PKG" | paste -sd ' ' -))"
+          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml "$ZIP" | sort | paste -sd ' ' -)" ] \
+            || fail "the package must hold exactly $EXE, $EXE.blockmap, lab.yml and $ZIP (got: $(ls "$PKG" | paste -sd ' ' -))"
           digest() { echo "sha256:$(sha256sum "$PKG/$1" | cut -d' ' -f1)"; }
+          # POS Pulse.exe inside the zip must be the one the manifest recorded (the pilot terminal's build hash).
+          APP_EXE="$(unzip -Z1 "$PKG/$ZIP" | grep -xE '(\./)?POS Pulse\.exe' || true)"
+          [ -n "$APP_EXE" ] && [ "$(grep -c . <<<"$APP_EXE")" = 1 ] || fail "$ZIP must hold POS Pulse.exe at its root"
+          APP_EXE_DIGEST="sha256:$(unzip -p "$PKG/$ZIP" "$APP_EXE" | sha256sum | cut -d' ' -f1)"
           jq -e --arg tag "$TAG" --arg sha "$SHA" \
               --arg exe "$EXE" --arg exe_digest "$(digest "$EXE")" \
               --arg map "$EXE.blockmap" --arg map_digest "$(digest "$EXE.blockmap")" \
-              --arg yml lab.yml --arg yml_digest "$(digest lab.yml)" '
+              --arg yml lab.yml --arg yml_digest "$(digest lab.yml)" \
+              --arg zip "$ZIP" --arg zip_digest "$(digest "$ZIP")" --arg app_exe "$APP_EXE_DIGEST" '
               .product == "pos" and .mode == "release" and .tag == $tag and .source.sha == $sha
               and ([.artifacts[] | select(.name == "pos-installer" and .file == $exe and .digest == $exe_digest)] | length == 1)
               and ([.artifacts[] | select(.name == "pos-blockmap" and .file == $map and .digest == $map_digest)] | length == 1)
               and ([.artifacts[] | select(.name == "pos-channel" and .file == $yml and .digest == $yml_digest)] | length == 1)
-              and (.artifacts | length == 3)
+              and ([.artifacts[] | select(.name == "pos-package" and .file == $zip and .digest == $zip_digest)] | length == 1)
+              and (.artifacts | length == 4)
+              and .notes.app_exe_sha256 == $app_exe
             ' "$MANIFEST" >/dev/null \
-            || fail "the manifest does not match the package: expected tag $TAG, sha $SHA, files $EXE, $EXE.blockmap and lab.yml"
+            || fail "the manifest does not match the package: expected tag $TAG, sha $SHA, files $EXE, $EXE.blockmap, lab.yml and $ZIP, and POS Pulse.exe $APP_EXE_DIGEST"
           # The .sha256 asset has the `sha256sum -c` shape, like the other products' releases.
           (cd "$PKG" && sha256sum "$EXE" > "$EXE.sha256")
           cp "$MANIFEST" "$PKG/release-manifest.json"
@@ -481,10 +525,13 @@ jobs:
           grep -qi "release not found" <<<"$OUT" \
             || { echo "::error::could not determine whether release $TAG exists: $OUT"; exit 1; }
 
+      # One subject per line: the lab installer and the unsigned pilot package (RT-1261).
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          subject-path: ${{ runner.temp }}/pkg/POS-Pulse-LAB-Setup-*.exe
+          subject-path: |
+            ${{ runner.temp }}/pkg/POS-Pulse-LAB-Setup-*.exe
+            ${{ runner.temp }}/pkg/POS-Pulse-*-win-x64.zip
 
       - name: Create the GitHub release (never overwrites)
         env:
@@ -494,9 +541,10 @@ jobs:
           fail() { echo "::error::$*"; exit 1; }
           VERSION="${TAG#pos/v}"
           EXE="POS-Pulse-LAB-Setup-$VERSION.exe"
+          ZIP="POS-Pulse-$VERSION-win-x64.zip"
           PKG="$RUNNER_TEMP/pkg"
-          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml "$EXE.sha256" release-manifest.json | sort | paste -sd ' ' -)" ] \
-            || fail "the release assets are not exactly $EXE, $EXE.blockmap, lab.yml, $EXE.sha256 and release-manifest.json"
+          [ "$(ls "$PKG" | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.blockmap" lab.yml "$EXE.sha256" release-manifest.json "$ZIP" | sort | paste -sd ' ' -)" ] \
+            || fail "the release assets are not exactly $EXE, $EXE.blockmap, lab.yml, $EXE.sha256, release-manifest.json and $ZIP"
           # --verify-tag only proves the tag exists: it must still point at the SHA this run built.
           TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
           [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
@@ -504,13 +552,14 @@ jobs:
             --repo "$REPO" \
             --verify-tag \
             --title "POS Pulse $TAG (LAB)" \
-            --notes "Lab-signed per-user POS installer built from $SHA by $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID. It is signed with a LAB TEST certificate and is not for production terminals. Verify with the .sha256 file and gh attestation verify before use." \
-            "$PKG/$EXE" "$PKG/$EXE.blockmap" "$PKG/lab.yml" "$PKG/$EXE.sha256" "$PKG/release-manifest.json"
+            --notes "Built from $SHA by $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID. $EXE is the lab-signed per-user installer: it is signed with a LAB TEST certificate and is not for production terminals. $ZIP is the same build as an unsigned Windows package, for the controlled pilot hand-off only (RT-1006). Verify with the .sha256 file, release-manifest.json and gh attestation verify before use." \
+            "$PKG/$EXE" "$PKG/$EXE.blockmap" "$PKG/lab.yml" "$PKG/$EXE.sha256" "$PKG/release-manifest.json" "$PKG/$ZIP"
           {
             echo "### Published $TAG"
             echo
             echo "- release: $GITHUB_SERVER_URL/$REPO/releases/tag/$TAG"
             echo "- installer: \`$EXE\` ($(jq -r '.artifacts[] | select(.name == "pos-installer") | .digest' "$PKG/release-manifest.json"))"
+            echo "- package: \`$ZIP\` ($(jq -r '.artifacts[] | select(.name == "pos-package") | .digest' "$PKG/release-manifest.json")), POS Pulse.exe $(jq -r '.notes.app_exe_sha256' "$PKG/release-manifest.json")"
           } >> "$GITHUB_STEP_SUMMARY"
 
   env-probe:
