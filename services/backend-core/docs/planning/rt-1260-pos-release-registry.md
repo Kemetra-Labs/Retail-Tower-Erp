@@ -82,6 +82,13 @@ resolver checks the role only, not a store scope.
 | Signed in, no active membership in that tenant | **404** `not_found` (the same guard, FR-ISO-4). |
 | Signed in, role not `owner` / `tenant_admin` / `store_manager` | **404** `not_found` (as the devices surface: the non-disclosing 404, no 403), identical to the row above. No URL, no audit row. |
 | Signed in with an allowed role | **200** with `available: true` and the release (§3.3), or `available: false` (§3.4). |
+| Platform admin (`users.is_platform_admin`) with a live membership in the active tenant | Admitted whatever the membership role: `RolesGuard` lets a platform admin through (`apps/api/src/auth/roles.guard.ts`). **200** as above. |
+| Platform admin with no membership, with an `active` RT-414 support session for exactly that tenant | Admitted by `TenantContextGuard`'s support-session gate, which writes one `platform.cross_tenant.accessed` row. **200** as above. |
+| Platform admin with no membership and no such session | **403**, `error.code` from the RT-414 gate: `support_session_required`, `support_session_expired` or `support_session_read_only`. Not a 404: the reused guard refuses before the role check. No URL, no audit row of this route. |
+
+No route-specific guard is proposed: the resolver reuses the pairing routes' guard chain, and this matrix is that
+chain's behaviour. D-3 names the tenant roles that may download; platform admins reach every tenant route the
+same way, under RT-414.
 
 ### 3.3 What the customer sees (200, `available: true`)
 
@@ -131,6 +138,7 @@ The canonical envelope `{ error: { code, message, request_id } }`, as RT-327.
 | --- | --- | --- |
 | 400 | `validation_error` | Any query parameter is present (the route takes none). Checked after the guards. |
 | 401 | `unauthorized` | §3.2, including a session with no active tenant. |
+| 403 | `support_session_required` / `support_session_expired` / `support_session_read_only` | A platform admin without membership or a valid RT-414 support session (§3.2). |
 | 404 | `not_found` | §3.2. Non-disclosing. |
 | 429 | `rate_limited` | The RT-574 console limit. Class `read` is proposed; the class file is `apps/api/test/console-rate-limit/classes/pos-releases.rate-limit.yaml` (§9). |
 | 500 | `system_failure` | Unexpected error, including a presign failure. A presign failure is never `available: false`: that would hide a broken bucket or credential as "no release". |
@@ -172,14 +180,18 @@ One row per promoted release. Platform-level, like `pos_version_policy`: not ten
 | `registered_at` | `timestamptz` NOT NULL DEFAULT `now()` | Server clock. |
 | `withdrawn_at` | `timestamptz` NULL | Set with `approved = false`. CHECK `approved = (withdrawn_at IS NULL)`. |
 | `withdrawn_by` | `text` NULL | GitHub login, same pattern. CHECK `(withdrawn_at IS NULL) = (withdrawn_by IS NULL)`. |
+| `activated_at` | `timestamptz` NULL | Set once by `platformActivatePosRelease` (§8.3, E7); server clock. Never cleared: withdrawal (`approved = false`) is what stops a release. |
+| `activated_by_user_id` | `uuid` NULL | The platform admin who activated it (a user id, never an email). CHECK `(activated_at IS NULL) = (activated_by_user_id IS NULL)`. |
 
-**Immutability.** No column except `approved`, `withdrawn_at` and `withdrawn_by` ever changes, and a withdrawn
+**Immutability.** No column except `approved`, `withdrawn_at`, `withdrawn_by` and, once, `activated_at` /
+`activated_by_user_id` ever changes, and a withdrawn
 row is never re-approved: a fix ships a higher version (RT-234 P-3, roll-forward only). A BEFORE UPDATE trigger
 refuses any other change and refuses `approved` going from `false` to `true`. No DELETE: no policy, no grant.
 
 **RLS.** ENABLE + FORCE. SELECT open to every context (the resolver runs in a tenant context; the registry is
 global and holds no tenant or personal data, as `pos_version_policy`). INSERT and UPDATE require the promotion
-writer's GUC (`app.pos_release_writer = 'true'`), set only by the registry-write routes (§8).
+writer's GUC (`app.pos_release_writer = 'true'`), set only by the registry-write routes (§8); the activation
+UPDATE requires `app.is_platform_admin = 'true'` and may touch only the two activation columns.
 
 **Data lifecycle (§XIV).** BUSINESS-class release metadata: versions, digests, a certificate subject, GitHub
 logins of the approvers and URLs. No customer data, no secret. Kept for the life of the system: it is the record
@@ -196,6 +208,8 @@ transaction** as the change, as `pos.release_policy.changed` (RT-327):
 | Register replay (same row, §8) | none | — |
 | Withdraw | `pos.release.withdrawn` | `releaseId`, `version`, `withdrawnBy`, `promotionRunUrl` |
 | Withdraw replay (already withdrawn) | none | — |
+| Activate (platform admin, §8.3) | `pos.release.activated` | `releaseId`, `version`; actor the platform admin |
+| Activate replay (already activated) | none | — |
 
 The actor is the promotion principal (§8). How the audit row names a non-user actor depends on D-5a and on the
 `audit_events` actor columns; **Needs verification** in S1.
@@ -213,15 +227,19 @@ The resolver returns a release **only if every condition holds**, evaluated in o
 4. **E4** that row has `signing_class = 'production'`;
 5. **E5** the pin is configured and non-empty, and the row's `publisher` equals it exactly;
 6. **E6** `version >= min_supported_version` in semantic-version precedence;
-7. **E7** the `stable` policy's last effective change (`pos_version_policy.updated_at`) is **after** the row's
-   `registered_at`.
+7. **E7** that row has been **explicitly activated**: `activated_at IS NOT NULL` (§4.1, §8.3
+   `platformActivatePosRelease`).
 
 E7 closes the pre-selected case: a platform admin may set `recommended_version` to a version that is not yet
 registered (§5.1). Without E7, registering that version later would make it downloadable with no second action.
-With E7, a registration never activates a release on its own: a platform admin must make an effective policy
-change after the registration (`platformSetPosVersionPolicy`, audited as `pos.release_policy.changed`). The
-RT-327 no-op rule means re-saving identical values writes nothing and does not activate. *E7 is a proposal of
-this note, for owner review.*
+Activation is a separate, release-specific platform-admin action on the registry row itself, audited as
+`pos.release.activated`. It is serialized by construction: a row can only be activated after it exists, and the
+activation names the row by id, so no clock or transaction-time ordering is involved. An unrelated policy edit
+(for example only `minSupportedGraceUntil`) never activates anything. The download therefore needs three
+deliberate acts, in any order between the last two: registration (promotion workflow), activation (platform
+admin) and recommendation (platform admin, RT-327). *E7 and the activation action are proposals of this note,
+for owner review. The alternative, that any effective policy change activates a pre-selected release, would
+need explicit owner agreement and is not proposed.*
 
 Otherwise the answer is `available: false` (§3.4), with the first failing condition as the metric `reason`
 (E7: `none_not_activated`).
@@ -240,10 +258,10 @@ or a release the owner chose not to recommend. Changing which release customers 
 | Case | Registry write (§8) | Resolver (§5) |
 | --- | --- | --- |
 | **Lab installer** (manifest `signing=lab`, or lab publisher) | Refused, 422 `release_not_production`, nothing written. A direct SQL insert fails the CHECKs (§6.2). | Cannot match: no lab row can exist (E4), and its publisher can never equal the production pin (E5). `available: false`. |
-| **Unapproved release** (no row; or row withdrawn) | Without an approved promotion run the workflow never calls the write (§8); a call without the promotion credential is 401. A withdrawn row stays `approved = false` for good. | E2 or E3 fails: `available: false`. Recommending an unregistered version is not refused by the policy write (that would couple RT-327 to this table); the resolver returns nothing, and registering that version later still returns nothing until a later effective policy change (E7). |
+| **Unapproved release** (no row; or row withdrawn) | Without an approved promotion run the workflow never calls the write (§8); a call without the promotion credential is 401. A withdrawn row stays `approved = false` for good. | E2 or E3 fails: `available: false`. Recommending an unregistered version is not refused by the policy write (that would couple RT-327 to this table); the resolver returns nothing, and registering that version later still returns nothing until a platform admin activates that row (E7). |
 | **Release below `min_supported_version`** | Accepted: the registry records what was shipped, not what is current. | Cannot be returned: only `recommended_version` is considered, the policy keeps `min <= recommended` (RT-327 422 `version_order_invalid`), and E6 checks it again. `available: false` if ever reached. |
 | **Unauthenticated caller** | 401 on both write routes. | 401, no URL, no audit row (§3.2). |
-| **Unauthorized caller** | A valid credential without the promotion claims (D-5a): 403 `forbidden`; a Console session of any user, including a platform admin: 401 (the write routes take no cookie). | 404 `not_found`, identical for a role outside the list and for no active membership; a session with no active tenant is 401 (§3.2). |
+| **Unauthorized caller** | A valid credential without the promotion claims (D-5a): 403 `forbidden`; a Console session of any user, including a platform admin: 401 (the write routes take no cookie). | 404 `not_found`, identical for a role outside the list and for no active membership; a session with no active tenant is 401; a platform admin without membership or support session is 403 `support_session_*` (§3.2). |
 | **Production pin not configured** (today: no production certificate, RT-321) | 503 `publisher_pin_unset`: nothing can be registered. | E5 fails: `available: false` for everyone. |
 
 ## 6. Lab versus production, by construction (D-4)
@@ -290,12 +308,12 @@ It must prove, against a real Postgres with the migration applied:
 3. The register route refuses a lab manifest body with 422 `release_not_production` and writes no row and no
    audit row (L2).
 4. With an approved production row whose `publisher` differs from the configured pin (inserted as the writer
-   role with the pin changed afterwards), and the `stable` policy recommending that version (set after the
-   registration, so E7 holds), the resolver returns
+   role with the pin changed afterwards), activated, and the `stable` policy recommending that version, the
+   resolver returns
    `{ available: false }` and presigns nothing (L4, E5).
 5. With the pin unset, the resolver returns `{ available: false }` for an otherwise eligible row (E5).
-6. A control: an approved production row with the pinned publisher at the recommended version, with the
-   policy set after the registration, returns `available: true` with that row's `sha256` and a URL naming its
+6. A control: an approved, activated production row with the pinned publisher at the recommended version
+   returns `available: true` with that row's `sha256` and a URL naming its
    `artifact_version_id`, so cases 4 and 5 do not pass vacuously.
 
 A unit test of the predicate alone does not satisfy AC4: case 1 and 2 need the real CHECKs.
@@ -334,7 +352,7 @@ stops promotion". D-5 is **the same mechanism applied to one more target**, and 
 | --- | --- |
 | Promotion is a manual workflow with approval | The promotion workflow is `workflow_dispatch` only, in a protected environment with a required reviewer (the owner). |
 | Each promotion is recorded | The row records `approved_by`, `approved_at` and `promotion_run_url`, and writes `pos.release.registered` (§4.2). |
-| Nothing promotes automatically | Registering a release does not make it downloadable. It becomes downloadable only after a platform admin's effective `stable` policy change made after the registration, with `recommended_version` set to it (RT-327, E7): a second, separately audited action, even when the version was recommended before it was registered. |
+| Nothing promotes automatically | Registering a release does not make it downloadable. It also needs a platform admin to activate that registry row (`pos.release.activated`, E7) and the `stable` `recommended_version` to name it (RT-327): separately audited actions, even when the version was recommended before it was registered. |
 | A failed stage stops promotion | A release is registered for customer download only after it has passed the RT-234 §10 exit criteria for `stable`. The workflow cannot check those criteria itself (they are Sentry, sync and soak signals); the reviewer attests them by approving. *The exact gate (a checklist in the approval, or a link to the RT-234 §12 drill result) is open for S2.* |
 | Withdrawal / halt (RT-234 §8) | `pos.release.withdrawn` sets `approved = false`; the resolver stops returning it at once. Recovery is a higher version (roll-forward, P-3). |
 
@@ -362,6 +380,12 @@ or two is open for S2; RT-322 and RT-324 own the feed.*
     that the object exists with that size (a `HeadObject`) is open for S1.*
 - `POST /api/v1/platform/pos-releases/{releaseId}/withdraw`, `platformWithdrawPosRelease`. Body: `withdrawnBy`,
   `promotionRunUrl`. Idempotent: withdrawing a withdrawn row is a 200 that writes nothing.
+- `POST /api/v1/platform/pos-releases/{releaseId}/activate`, `platformActivatePosRelease` (E7). **Not** the
+  promotion workflow: the `cookieAuth` session of a platform admin with a trusted `Origin`, exactly as
+  `platformSetPosVersionPolicy` (RT-327; 401 for any other credential, 403 `forbidden` / `origin_rejected`). No
+  body. Sets `activated_at` / `activated_by_user_id` and writes `pos.release.activated`. Already activated: a 200
+  that writes nothing. A withdrawn row: 409 `release_withdrawn`, nothing written. Absent id: 404. It does not
+  depend on D-5a.
 
 ### 8.4 D-5a — the workflow's credential (**open, blocks the write routes**)
 
@@ -386,7 +410,7 @@ The resolver (§3) does not depend on D-5a.
 | Contract (`[GATED]`) | new `packages/contracts/openapi/pos-releases.openapi.yaml` (from Appendix A); `apps/api/test/console-rate-limit/classes/pos-releases.rate-limit.yaml`; a contract spec `apps/api/test/pos-releases/pos-releases.contract.spec.ts`; `changelog.d/RT-<n>-pos-releases-contract.md`. |
 | Migration (`[GATED]`) | `packages/db/drizzle/00NN_pos_release_registry.sql` + `.down.sql` (table, enum, CHECKs, trigger, RLS); the Drizzle schema in `packages/db/src/`. |
 | Runtime | `apps/api/src/pos-releases/` (module, console controller, platform controller, service, presigner port and S3 adapter, writer guard); `apps/api/src/app.module.ts`; config schema for `POS_RELEASE_*`; `apps/api/package.json` + `pnpm-lock.yaml` for `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` (`[GATED]`). |
-| Tests | `apps/api/test/pos-releases/pos-release-registry.lab-never-resolvable.spec.ts` (§6.3), resolver authz (401 / 404 matrix), eligibility E1–E7 (including a version recommended before registration staying unavailable until a later policy change), register idempotency and conflicts, withdraw, audit rows, presign TTL bound and no URL in logs. |
+| Tests | `apps/api/test/pos-releases/pos-release-registry.lab-never-resolvable.spec.ts` (§6.3), resolver authz (the §3.2 matrix: 401 / 403 support session / 404 / 200, platform admin member and via support session), eligibility E1–E7 (including a version recommended before registration staying unavailable until the row is activated, and a grace-only policy edit not activating it), activation authz and replay, register idempotency and conflicts, withdraw, audit rows, presign TTL bound and no URL in logs. |
 | Release tooling (`[GATED .github]`) | `.github/release/manifest.py` + `test_manifest.py` (structured `signing`); `release-pos.yml` writes `signing: lab`; new `.github/workflows/promote-pos.yml`. |
 | Console | `apps/admin-console/src/` Devices → Download POS page and its API client; the Console contract PIN bump. |
 | Infrastructure (owner) | Private S3 bucket (block public access, SSE, **versioning required**: the resolver presigns a `VersionId`; S3 Object Lock is optional defence in depth), a read-only IAM grant for the Backend-Core runtime on `pos/releases/*`, a write grant for the promotion workflow. |
@@ -420,7 +444,7 @@ registered release.
 | D-6 | Gate placement | **Pre-commercial (Post-Pilot).** Not a V1 pilot blocker. | [c15843](https://rahmaqanater.atlassian.net/browse/RT-1260?focusedCommentId=15843) | Release horizon of every slice in §10. |
 
 Proposals of this note that are **not** owner decisions and stay open for review: the `stable`-only channel
-(§3.1), the 300 s / 900 s URL lifetime (§3.3), the audit row per issued link (§3.6), the no-fallback rule (§5),
+(§3.1), the 300 s / 900 s URL lifetime (§3.3), the audit row per issued link (§3.6), the no-fallback rule (§5), the explicit release activation (E7, `platformActivatePosRelease`, §8.3),
 whether S2 also publishes `stable.yml` (§8.2), the RT-234 exit-criteria gate in the approval (§8.2), and a
 `HeadObject` check on register (§8.3).
 
@@ -458,7 +482,7 @@ Results on 2026-11-07 (oasdiff 1.32.1, archive sha256 `7c8939fc…a1ee7f` verifi
 | `oasdiff validate` on the extracted draft | `No findings detected`, exit 0. |
 | Negative control: a dangling `$ref` | Refused (`map key "DoesNotExist" not found`). |
 | Negative control: an invalid security scheme `type` | Refused. |
-| Negative control: a duplicate `operationId` | **Not detected** by `oasdiff validate`. Checked separately: the draft's three operationIds are unique within the draft and do not appear in any file under `packages/contracts/openapi/`; neither path exists there either. |
+| Negative control: a duplicate `operationId` | **Not detected** by `oasdiff validate`. Checked separately: the draft's four operationIds are unique within the draft and do not appear in any file under `packages/contracts/openapi/`; none of its paths exists there either. |
 | `oasdiff breaking --composed --fail-on WARN` with the repo's `severity-levels.txt`, current contracts vs current contracts + the draft | `No breaking changes to report`, exit 0. |
 
 Not run: the api Jest contract specs (they need the pnpm workspace installed; the container has Node 22 and the
@@ -491,7 +515,7 @@ info:
   description: >
     DRAFT (Jira RT-1260, Planning; design note
     `docs/planning/rt-1260-pos-release-registry.md`). Not a contract of
-    record. Three operations, two principals:
+    record. Four operations, three principals:
 
       1. `consoleGetLatestPosRelease` — a signed-in Console user whose role
          can pair devices (owner, tenant_admin, store_manager; D-3) gets the
@@ -501,13 +525,17 @@ info:
          owner-run promotion workflow (D-5) writes and withdraws registry
          rows. Its credential is OPEN (D-5a); both stay contract-only until
          it is decided.
+      3. `platformActivatePosRelease` — a platform admin explicitly
+         activates one registered release (E7); registration alone never
+         makes a release downloadable.
 
 
     **Eligibility.** A release is returned only if the `stable` channel has
     a version policy (RT-327), a registry row exists for its
     `recommended_version`, the row is approved, its signing class is
     `production`, its publisher equals the configured production publisher
-    pin, and its version is not below `min_supported_version`. Otherwise
+    pin, its version is not below `min_supported_version`, and the row has
+    been explicitly activated by a platform admin. Otherwise
     the reply is `available: false`, with no reason. There is no fallback
     to another version.
 
@@ -567,6 +595,8 @@ paths:
           $ref: "#/components/responses/ReadValidationFailure"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/SupportSessionRefused"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -680,6 +710,48 @@ paths:
         "500":
           $ref: "#/components/responses/SystemFailure"
 
+  /api/v1/platform/pos-releases/{releaseId}/activate:
+    post:
+      summary: Activate a registered POS release for customer download (platform admins only).
+      operationId: platformActivatePosRelease
+      tags: [pos-release-registry]
+      x-audit-action: pos.release.activated
+      security:
+        - platformSession: []
+      description: >
+        The release-specific activation (E7). Registration alone never makes
+        a release downloadable; it also needs this action and the `stable`
+        `recommended_version` to name it. Sets `activatedAt` and
+        `activatedByUserId` and writes `pos.release.activated`. Already
+        activated: a 200 that writes nothing. A withdrawn release is 409
+        `release_withdrawn`. No body.
+      parameters:
+        - $ref: "#/components/parameters/ReleaseIdPath"
+      responses:
+        "200":
+          description: The release is activated (now, or already).
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosRelease"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "404":
+          $ref: "#/components/responses/ReleaseNotFound"
+        "409":
+          $ref: "#/components/responses/ReleaseWithdrawn"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -690,9 +762,19 @@ components:
         The human dashboard session cookie (httpOnly `dp2_session`), verified
         by `SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard` with
         `@Roles("owner", "tenant_admin", "store_manager")`, as the pairing-code
-        routes (D-3). A machine bearer, a POS `device` token or an
+        routes (D-3). A platform admin passes the role check; without a
+        membership it needs an RT-414 support session (403 otherwise). A machine bearer, a POS `device` token or an
         `operatorAuthorization` envelope is 401. 401 semantics are owned by
         028 (G10).
+    platformSession:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The same `dp2_session` cookie, for a platform admin
+        (`users.is_platform_admin`), as `platformSetPosVersionPolicy`
+        (RT-327): platform-scope, no active tenant needed, a trusted `Origin`
+        required (RT-430). Any other signed-in user is 403 `forbidden`.
     promotionWriter:
       type: http
       scheme: bearer
@@ -920,6 +1002,8 @@ components:
         - registeredAt
         - withdrawnAt
         - withdrawnBy
+        - activatedAt
+        - activatedByUserId
       description: One registry row, as the promotion workflow sees it. Never returned to the Console.
       properties:
         releaseId:
@@ -964,6 +1048,12 @@ components:
           oneOf:
             - $ref: "#/components/schemas/GitHubLogin"
             - type: "null"
+        activatedAt:
+          type: [string, "null"]
+          format: date-time
+        activatedByUserId:
+          type: [string, "null"]
+          format: uuid
 
     Error:
       type: object
@@ -1023,6 +1113,18 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    SupportSessionRefused:
+      description: >
+        403 from the reused `TenantContextGuard` (RT-414): a platform admin
+        with no live membership in the active tenant and no `active` support
+        session for it. `error.code` one of `support_session_required`,
+        `support_session_expired`, `support_session_read_only`. A platform
+        admin who is a member, or who holds such a session, is admitted
+        whatever the role. No URL is issued.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     WriterUnauthorized:
       description: >
         401 `unauthorized`: a missing, malformed, expired or unverifiable
@@ -1063,6 +1165,24 @@ components:
     ReleaseNotFound:
       description: >
         not_found (404): no registry row has this id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReleaseWithdrawn:
+      description: >
+        release_withdrawn (409): the release was withdrawn and can never be
+        activated again; ship a higher version. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PlatformWriteForbidden:
+      description: >
+        403, `error.code` one of: `forbidden` (a signed-in user who is not a
+        platform admin) or `origin_rejected` (RT-430: the `Origin` header is
+        missing, or is neither the API's own origin nor listed in
+        `ALLOWED_ORIGINS`). Nothing is written.
       content:
         application/json:
           schema:
