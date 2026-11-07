@@ -27,10 +27,12 @@ import {
  * line, close); the status reads as a pill, its text first. Actions, steps and
  * errors are unchanged.
  * RT-1117: each action carries its one-line description under it.
+ * RT-1234: a step swap unmounts the button that was clicked, which would drop
+ * focus to <body> outside the dialog; focus moves into the new step instead.
  * RT-399: enum fields render their localized labels (never the raw code), ids
  * stay LTR-isolated, and the instants render as operational times.
  */
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { UnknownItemCreateProduct } from "./UnknownItemCreateProduct";
 import { UnknownItemDismiss } from "./UnknownItemDismiss";
 import { UnknownItemErrorBanner } from "./UnknownItemErrorBanner";
@@ -191,6 +193,29 @@ function DetailBody({ item }: Readonly<{ item: ReviewQueueItem }>): React.JSX.El
   );
 }
 
+/**
+ * RT-1234: keep focus inside the dialog when a step swaps in. The clicked button
+ * unmounts, so focus would fall to <body> and Tab/Escape would leave the
+ * drawer's trap. Skips the first render (the Drawer focuses the panel itself).
+ * A form step opens on its first field; a confirm or the actions keep the
+ * region itself, so a destructive button is never focused by the swap.
+ */
+function useFocusOnStepChange(step: Step): React.RefObject<HTMLDivElement | null> {
+  const regionRef = useRef<HTMLDivElement>(null);
+  const shownStep = useRef<Step>(step);
+  useEffect(() => {
+    if (shownStep.current === step) return;
+    shownStep.current = step;
+    const region = regionRef.current;
+    if (!region) return;
+    const field = region.querySelector<HTMLElement>(
+      "input:not([disabled]),select:not([disabled]),textarea:not([disabled])",
+    );
+    (field ?? region).focus();
+  }, [step]);
+  return regionRef;
+}
+
 export function UnknownItemInspectDrawer({
   id,
   activeTenantId,
@@ -208,6 +233,8 @@ export function UnknownItemInspectDrawer({
   const error = result?.kind === "error" ? result.render : undefined;
   const isPending = item?.resolution_status === "pending";
   const isDismissed = item?.resolution_status === "dismissed";
+
+  const stepRef = useFocusOnStepChange(step);
 
   return (
     <Drawer
@@ -234,57 +261,59 @@ export function UnknownItemInspectDrawer({
             <Banner variant="warning" message={t("unknownItems.link.alreadyResolved")} />
           ) : null}
           <DetailBody item={item} />
-          {isPending && step === "actions" ? (
-            <div className="unknown-item-choices">
-              <ActionChoice
-                className="btn-primary"
-                label={t("unknownItems.create.action")}
-                hint={t("unknownItems.create.hint")}
-                onClick={() => setStep("create")}
+          <div ref={stepRef} tabIndex={-1} className="unknown-item-step">
+            {isPending && step === "actions" ? (
+              <div className="unknown-item-choices">
+                <ActionChoice
+                  className="btn-primary"
+                  label={t("unknownItems.create.action")}
+                  hint={t("unknownItems.create.hint")}
+                  onClick={() => setStep("create")}
+                />
+                <ActionChoice
+                  className="btn-secondary"
+                  label={t("unknownItems.link.action")}
+                  hint={t("unknownItems.link.hint")}
+                  onClick={() => setStep("link")}
+                />
+                <ActionChoice
+                  className="btn-danger-quiet"
+                  label={t("unknownItems.dismiss.action")}
+                  hint={t("unknownItems.dismiss.hint")}
+                  onClick={() => setStep("dismiss")}
+                />
+              </div>
+            ) : null}
+            {isPending && step === "link" ? (
+              <UnknownItemLinkProduct
+                key={activeTenantId ?? "none"}
+                item={item}
+                activeTenantId={activeTenantId}
+                onLinked={() => onCompleted("unknownItems.link.success")}
+                onResolvedElsewhere={() => {
+                  setResolvedElsewhere(true);
+                  setStep("actions");
+                }}
+                onCancel={() => setStep("actions")}
               />
-              <ActionChoice
-                className="btn-secondary"
-                label={t("unknownItems.link.action")}
-                hint={t("unknownItems.link.hint")}
-                onClick={() => setStep("link")}
+            ) : null}
+            {isPending && step === "create" ? (
+              <UnknownItemCreateProduct
+                item={item}
+                activeTenantId={activeTenantId}
+                onCreated={() => onCompleted("unknownItems.create.success")}
+                onCancel={() => setStep("actions")}
               />
-              <ActionChoice
-                className="btn-danger-quiet"
-                label={t("unknownItems.dismiss.action")}
-                hint={t("unknownItems.dismiss.hint")}
-                onClick={() => setStep("dismiss")}
+            ) : null}
+            {isPending && step === "dismiss" ? (
+              <UnknownItemDismiss
+                item={item}
+                activeTenantId={activeTenantId}
+                onDismissed={() => onCompleted(null)}
+                onCancel={() => setStep("actions")}
               />
-            </div>
-          ) : null}
-          {isPending && step === "link" ? (
-            <UnknownItemLinkProduct
-              key={activeTenantId ?? "none"}
-              item={item}
-              activeTenantId={activeTenantId}
-              onLinked={() => onCompleted("unknownItems.link.success")}
-              onResolvedElsewhere={() => {
-                setResolvedElsewhere(true);
-                setStep("actions");
-              }}
-              onCancel={() => setStep("actions")}
-            />
-          ) : null}
-          {isPending && step === "create" ? (
-            <UnknownItemCreateProduct
-              item={item}
-              activeTenantId={activeTenantId}
-              onCreated={() => onCompleted("unknownItems.create.success")}
-              onCancel={() => setStep("actions")}
-            />
-          ) : null}
-          {isPending && step === "dismiss" ? (
-            <UnknownItemDismiss
-              item={item}
-              activeTenantId={activeTenantId}
-              onDismissed={() => onCompleted(null)}
-              onCancel={() => setStep("actions")}
-            />
-          ) : null}
+            ) : null}
+          </div>
           {isDismissed ? (
             <ReopenAction
               item={item}

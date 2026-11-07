@@ -225,3 +225,9 @@
     background: CanvasText;
   }
 }
+
+/* RT-1234: the step region takes focus when a step swaps in (programmatic, not a
+ * tab stop), so it carries no ring of its own; the controls inside keep theirs. */
+.unknown-item-step:focus {
+  outline: none;
+}
