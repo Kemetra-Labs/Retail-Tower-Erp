@@ -42,9 +42,9 @@ const CONFIG_TIMEOUT_MS = 10_000;
 const CONFIG_MAX_BODY_BYTES = 4 * 1024;
 const TUNNEL_TIMEOUT_MS = 10_000;
 /** While the config was never fetched (unpaired, or Backend-Core down), retry this often. */
-export const CONFIG_RETRY_MS = 5 * 60 * 1000;
+const CONFIG_RETRY_MS = 5 * 60 * 1000;
 /** Once fetched, refresh slowly: the kill switch takes effect within this long. */
-export const CONFIG_REFRESH_MS = 6 * 60 * 60 * 1000;
+const CONFIG_REFRESH_MS = 6 * 60 * 60 * 1000;
 
 /** The SDK surface used here; production passes the `@sentry/electron/main` namespace. */
 export type SentrySdk = Pick<
@@ -58,7 +58,7 @@ export type SentrySdk = Pick<
   | 'dedupeIntegration'
 >;
 
-export interface TelemetryLogger {
+interface TelemetryLogger {
   info(fields: Record<string, unknown>, msg: string): void;
   warn(fields: Record<string, unknown>, msg: string): void;
 }
@@ -78,7 +78,7 @@ export interface TelemetryDeps {
 }
 
 /** What only exists after the DB and the pairing store are open. */
-export interface TelemetryLateBinding {
+interface TelemetryLateBinding {
   /** The shared base fetch BEFORE the terminal-status observer. */
   readonly fetch: FetchLike;
   /** `readSendableDeviceToken`. */

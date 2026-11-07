@@ -407,6 +407,28 @@ export const RT_1181_POS_PIN_REPIN_EXEMPT_FILES = [
   'src/main/pairing/__tests__/service.test.ts',
 ] as const satisfies readonly string[];
 
+/**
+ * `claude/sentry-pathway-completion-b6a25b` implements Jira RT-1253: the POS reports errors through the
+ * Backend-Core telemetry tunnel. Scope item 1 of RT-1253 pins `pos-telemetry.openapi.yaml`
+ * (`npm run contracts:repin`), which regenerates `src/shared/api-types.ts`.
+ *
+ * Authority: RT-1253 scope item 1 (the issue names the contract pin), following the RT-1181
+ * pattern: exactly ONE file on exactly ONE branch (exact name, no `startsWith`). Narrowness is
+ * asserted by `source-scope-guard-rt1253.test.ts`.
+ */
+export const RT_1253_TELEMETRY_TUNNEL_BRANCH = 'claude/sentry-pathway-completion-b6a25b' as const;
+export const RT_1253_TELEMETRY_TUNNEL_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-1253 exemption allows on `branch`. */
+export function isRt1253ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1253_TELEMETRY_TUNNEL_BRANCH &&
+    (RT_1253_TELEMETRY_TUNNEL_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
+
 /** True when `file` is one of the files the RT-1181 exemption allows on `branch`. */
 export function isRt1181ExemptFile(branch: string, file: string): boolean {
   return (

@@ -45,7 +45,7 @@ export const TUNNEL_PLACEHOLDER_DSN = 'https://public@pos-tunnel.invalid/1';
 const GIT_COMMIT = /^[0-9a-f]{40}$/;
 const UNKNOWN = 'unknown';
 
-export type TunnelTransportFactory = NonNullable<ElectronMainOptions['transport']>;
+type TunnelTransportFactory = NonNullable<ElectronMainOptions['transport']>;
 
 export interface InitSentryTunnelOptions {
   /** R9 DI seam — `Sentry.init` in production. */
@@ -69,7 +69,7 @@ export interface InitSentryTunnelOptions {
 export type SentryTunnelResult = { readonly kind: 'failed' } | { readonly kind: 'initialized' };
 
 /** The build stamp's commit as SHA12, or `unknown`. */
-export function releaseOf(commit: string | null): string {
+function releaseOf(commit: string | null): string {
   return commit !== null && GIT_COMMIT.test(commit) ? commit.slice(0, 12) : UNKNOWN;
 }
 

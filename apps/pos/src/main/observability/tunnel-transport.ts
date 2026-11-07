@@ -18,9 +18,16 @@
  * another terminal, kill switch) RESOLVES without a request.
  *
  * Nothing here reads or logs an envelope's content, the token or the URL.
+ *
+ * Deliberate exception to the shared-transport rule (RT-880, `apps/pos/CLAUDE.md`): this
+ * does not use `createBackendTransport`. That transport maps every network fault to `null`
+ * and drops the response headers, but the offline layer needs a THROW to queue an envelope
+ * and the `Retry-After` of a 429 to back off. The request is still built on the shared base
+ * fetch (request id, build identity), handed in as `deps.fetch`. The config read, which has
+ * no such need, does use the shared transport (`telemetry-config.ts`).
  */
 
-export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 /** The contract path of `posForwardTelemetryEnvelope`, relative to the Backend-Core base URL. */
 export const TELEMETRY_TUNNEL_PATH = '/api/pos/v1/telemetry/envelope';
