@@ -21,7 +21,7 @@ It adds the RT facts those rules depend on, where agents go wrong.
 | Changed path | `remote_suite` | Not covered there, run locally before the preflight push |
 |---|---|---|
 | `services/backend-core/apps/api/**` | `api`, `backend-fast` | `(cd services/backend-core && pnpm lint:eslint)` |
-| `services/backend-core/apps/worker/**` (worker DB specs included) or `packages/db/**` | `db-package` (only suite with `WORKER_INCLUDE_DB_TESTS=1`), `backend-fast`; add `api` if `apps/api` changed too | same eslint |
+| `services/backend-core/apps/worker/**` (worker DB specs included) or `services/backend-core/packages/db/**` | `db-package` (only suite with `WORKER_INCLUDE_DB_TESTS=1`), `backend-fast`; add `api` for any `packages/db` change (the api depends on it and its specs apply the migrations) or if `apps/api` changed | same eslint |
 | Backend-Core shared code, lint, typecheck | `backend-fast` | the code-health ratchet (`node tools/code-health/check.mjs` from `services/backend-core`) and the api unit specs (see below) |
 | `apps/admin-console/**` | `admin`, `admin-e2e` | — |
 | `apps/pos/**` | `pos` | — |
@@ -43,7 +43,8 @@ Backend-Core DB specs fail hard without Docker unless `MIGRATION_TEST_ALLOW_SKIP
 it they return early and junit still says success. Per-test `run_time` is not proof:
 `.circleci/scripts/jest-json-to-junit.cjs` spreads suite start-up and `beforeAll` time over every
 test. Use the CircleCI `list_job_tests` tool with `all=true` and
-`filter=["classname=test/<path>.spec.ts"]` (path relative to the app, for example `apps/api`) to
+`filter=["classname=<path>.spec.ts"]` (path relative to the package: `test/...` in `apps/api` and
+`apps/worker`, `__tests__/...` in `packages/db`) to
 list the tests, then cite that `MIGRATION_TEST_ALLOW_SKIP` was unset for the job and that its log
 has no skip warning, not the green job.
 
@@ -57,8 +58,8 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
 
 1. `gh pr view <n> --json headRefOid,mergeCommit`: the merged head must equal the last SHA you
    pushed. PRs land as squash commits, so never test `<sha>` against `origin/main` ancestry. If
-   the heads differ, `git fetch origin` and run `git merge-base --is-ancestor <sha> <headRefOid>`;
-   if it is not an ancestor, compare `git diff <sha> <headRefOid>` for the PR's paths. Only changes
+   the heads differ, `git fetch origin` and compare `git diff <sha> <headRefOid>` for the PR's
+   paths (a later commit can undo your work even when `<sha>` is an ancestor). Only changes
    really missing go in a small follow-up PR (cherry-pick onto a fresh branch from `origin/main`).
 2. `gh run list --commit <merge-sha> --event push --limit 100`. Without `--event push` and the
    higher limit, the many gate `workflow_run` entries hide the push runs.

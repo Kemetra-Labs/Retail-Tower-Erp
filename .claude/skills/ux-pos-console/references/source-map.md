@@ -57,7 +57,7 @@ Admin Console is Arabic-first: `index.html` is `lang="ar-EG" dir="rtl"` and `DEF
 
 POS (`apps/pos/`): `docs/DESIGN.md` (shipped tokens, constitution reconciliation table, open questions Q-1..Q-4); `docs/design/vnext/README.md`; `08-rt24-invariants.md` (I-1..I-17); `15-vnext-freeze-package.md` (journey map, state matrix S1-S22, M-states, input/focus/scanner contract, component/token contract, message catalogue M-*); `19`, `20`, `21` (PIN status, sale number, card outcome), `22-rt311-locale-architecture.md`, `24-vn-s6-connection-sync-signal.md`, `25-rt263-icon-registry-fluent-poc.md`, `26-rt536-cashier-feature-completeness.md`, `28-rt699-manual-discount-contract.md`, `29-rt278-shift-amount-bounds.md`; `visual-acceptance/` (visual reference only); `src/renderer/icons/`; `src/renderer/ui/format/human-format.ts`.
 
-Admin Console (`apps/admin-console/`): `DESIGN.md` v4.0 (token block = shipped truth; §12 = the approved, not yet shipped, "Ink & Receipt" target); `docs/design/arabic-first-rtl-migration-plan.md` (RT-266); `docs/design/rt777-platform-console/README.md`; `docs/design/rt263-icon-registry/`; `design/claude-design-system/README.md`; `design/screens/README.md`; `src/styles/tokens.css`; `src/components/DataTable.tsx`.
+Admin Console (`apps/admin-console/`): `DESIGN.md` v4.0 (token block = shipped truth; §12 = the approved "Ink & Receipt" target, partly shipped (check `src/styles/tokens.css`)); `docs/design/arabic-first-rtl-migration-plan.md` (RT-266); `docs/design/rt777-platform-console/README.md`; `docs/design/rt263-icon-registry/`; `design/claude-design-system/README.md`; `design/screens/README.md`; `src/styles/tokens.css`; `src/components/DataTable.tsx`.
 
 ## Quick staleness tells
 

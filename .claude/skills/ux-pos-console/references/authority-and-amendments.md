@@ -48,7 +48,7 @@ Where an owner decision is newer than older text, the owner decision wins (POS D
 | 2026-10-20 | D-K1 | F-key map deferred; wave 1 keyless; bench-test scanner prefix/suffix first |
 | 2026-10-20 | D-U1 | Undo decision closed: already **merged** (RT-242 W1-B PR4, POS #621, `cart.undoLast`). RT-242 stays In Review until packaged verification is recorded |
 | 2026-10-20 | RT-414/RT-392 | Break-glass = password re-entry + reason; suspended tenant read-only, break-glass refused; `perm_owner_console` dedicated audited permission; design-system sync = tokens + CSS vocabulary only; Platform Console design review (RT-777) before any `/platform` UI |
-| 2026-10-21 | Owner decision (POS DESIGN.md, on `main`) | Slim ~76px rail (icon + short 12px label) on every POS screen; RT-242's labelled off-sale panel is superseded. The shared `.v5-btn` button system (POS) and the Admin button variants (`.btn-danger-quiet`) are on `main` too |
+| 2026-10-21 | Owner decision (POS DESIGN.md, on `main`) | Slim ~76px rail (icon + short 12px label) on every POS screen in the app frame (`/app` under `V5AppLayout`; sign-in, pairing and Ready sit outside it, see RT-1042 entry screens); RT-242's labelled off-sale panel is superseded. The shared `.v5-btn` button system (POS) and the Admin button variants (`.btn-danger-quiet`) are on `main` too |
 | 2026-10-22 | RT-262 owner decision (POS DESIGN.md), shipped by RT-814 | Money type variant B: UI sans (Dubai) with tabular lining numerals via `--font-family-money`; monospace only for IDs, codes and evidence. Supersedes the 2026-10-07 mono decision. Printed receipt and receipt-slip preview excluded (RT-476) |
 
 ## Still open: do not resolve by design
@@ -59,7 +59,7 @@ Lazy cart creation; the F-key map (D-K1); OD-3 validation of grouped money again
 
 ## Later owner decisions
 
-- **2026-10-30, Admin Console "Ink & Receipt" (canvas board v9): approved, not shipped.** `apps/admin-console/DESIGN.md` v4.0 §12 records it as the visual target. The DESIGN.md token block and `src/styles/tokens.css` stay the shipped truth until the slices that implement it land through their Jira issues. Do not describe v9 colours or receipt cards as shipped.
+- **2026-10-30, Admin Console "Ink & Receipt" (canvas board v9): approved, partly shipped.** `apps/admin-console/DESIGN.md` v4.0 §12 records it as the visual target. `src/styles/tokens.css` is the shipped truth: the Ink roles and primary fill, `--shadow-resting`, receipt cards and the Overview (RT-993) are on `main`; the rest lands through its Jira slices. Call a part shipped only when the CSS has it.
 
 ## Non-authoritative material
 

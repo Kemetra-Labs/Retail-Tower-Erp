@@ -53,9 +53,11 @@ State this in the PR body.
 - Remove or rename in slices, as RT-1181 to RT-1184 did: (1) Backend-Core accepts the field as
   optional and nullable; (2) each consumer stops sending or storing it; (3) remove it. Each contract
   change (slices 1 and 3) turns the consumer PINs red in `contracts/check`, which has no ignore
-  file, so repin every affected consumer after it (`npm run contracts:repin` in `apps/pos`; the
-  Admin Console and Connector PINs by hand), as #317 and #321 did. Each slice is its own issue when
-  the consumers are out of scope.
+  file, so once it is on `main`, repin every affected consumer to that `main` commit in a follow-up
+  PR (`npm run contracts:repin -- --ref <sha>` in `apps/pos`; `pnpm generate:client --repin <sha>`
+  in `apps/admin-console`, committing the regenerated client; the Connector PIN by hand), as #317
+  and #321 did. Never pin a branch-only commit: CI reads the pinned commit from git, and a squash
+  merge drops it. Each slice is its own issue when the consumers are out of scope.
 
 ## Migrations (`services/backend-core/packages/db/drizzle/`)
 

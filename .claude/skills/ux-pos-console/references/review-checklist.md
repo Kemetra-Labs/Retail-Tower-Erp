@@ -6,7 +6,7 @@ Scan in order. Cite the rule ID. Mark anything you cannot prove from code or a c
 
 - [ ] Success wording/colour shown before the fact is persisted or proven (UX-05.16, UX-01.19, I-7).
 - [ ] UNKNOWN worded or styled as a decline; any re-charge, new tender, Back or sign-out reachable in UNKNOWN (UX-05.25, UX-12.15, I-7).
-- [ ] Scanner burst can reach a money, PIN or card-reference field, or activate a focused control; Enter can tender (I-4, UX-08.17).
+- [ ] Scanner burst can reach a money, PIN or card-reference field, or activate a focused control; scanner Enter can tender (I-4, UX-08.17). Keyboard Enter on a focused financial button is an open owner question (`pos.md`), not a Blocker.
 - [ ] Cart or tender can be silently discarded (inactivity, sign-out, restart, Back after funds applied) (RT-24 rule 1, I-8, I-12).
 - [ ] Recovery action can create a second sale or payment (RT-24 rule 3).
 - [ ] Undo offered where the domain cannot restore, or composed in the renderer (UX-05.21, RT-245).
@@ -25,7 +25,7 @@ Scan in order. Cite the rule ID. Mark anything you cannot prove from code or a c
 - [ ] Colour is the only carrier of meaning; status colours used as decoration or chart series (UX-02.9, UX-13.12).
 - [ ] Physical left/right CSS, missing `dir`/`lang`, unisolated machine data in RTL (UX-11.12-.15).
 - [ ] Non-Western digits or ungrouped/oddly formatted money in system output; device-locale dependent formatting (UX-12.20, .25, .26).
-- [ ] English copy on POS (Admin's separate English locale is allowed); bilingual duplicate copy on either surface; raw codes/keys/backend text shown; generic "Retry" or "OK" (UX-12.2-.3, .6, .33-.34).
+- [ ] English copy on POS other than source data, standard abbreviations and IDs (EGP, SKU, ERPNext; POS DESIGN.md One-Locale Rule) (Admin's separate English locale is allowed); bilingual duplicate copy on either surface; raw codes/keys/backend text shown; generic "Retry" or "OK" (UX-12.2-.3, .6, .33-.34).
 - [ ] Wrong terminology (الفرع for Store, leaking `tenant_product`, receipt called invoice) (UX-12.14, .16-.19).
 - [ ] «طُبع» without print proof; blanket «تمت العملية بنجاح» (UX-12.12-.13).
 - [ ] Table inside a card, nested cards, gradient or glass surfaces (UX-04.16, UX-01.28-.29, UX-02.13).
