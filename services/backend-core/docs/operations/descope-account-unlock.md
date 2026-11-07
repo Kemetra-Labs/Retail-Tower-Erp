@@ -100,13 +100,17 @@ Management API does not end sessions Backend-Core already issued: an Admin sessi
 lives until its 24-hour absolute expiry, and a POS operator token until its age cap
 (8.5 hours by default). If someone else may have signed in:
 
-1. **Contain (works for every account, including the last owner).** A Descope admin
-   sets a new password (above). The user, or the owner with the user present, signs
-   in with it and changes the password once from Admin. That change revokes every
+Do step 1 first. The password change lives on the Admin account page, which a user
+with no active membership cannot reach (Admin shows its no-access screen), so a
+revocation done first blocks step 1.
+
+1. **Contain (works for the last owner too).** A Descope admin sets a new password
+   (above). The user, or the owner with the user present, signs in with it and
+   changes the password once on the Admin account page. That change revokes every
    other Admin session of the user (RT-937 D-C). Backend-Core has no other route that
    ends another user's Admin sessions.
-2. **Cut tenant access meanwhile, if the user cannot sign in yet.** An owner or
-   tenant admin revokes the user's membership (`DELETE /api/v1/memberships/<id>`).
+2. **Cut tenant access, only if step 1 cannot happen soon.** An owner or tenant
+   admin revokes the user's membership (`DELETE /api/v1/memberships/<id>`).
    An open Admin session stays valid, but every tenant-scoped request is refused,
    because `TenantContextGuard` checks for an active membership on each request
    (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
@@ -117,10 +121,19 @@ lives until its 24-hour absolute expiry, and a POS operator token until its age 
    - a platform admin is not bound by tenant membership: use step 1;
    - the session can still reach routes that are not tenant-scoped (for example its
      own sign-out) until it expires.
-3. Re-invite the user once the account is safe, if the membership was revoked.
+3. **If step 2 already happened:** set the new password (above), then re-invite the
+   user so they hold a membership again, and have them change the password on the
+   account page at their first sign-in (step 1). The other sessions stay valid until
+   that change, or until their 24-hour expiry.
+
+**Needs verification:** a platform admin with no membership and no support session
+is sent to the platform area, not the account page, so step 1 may not be reachable
+for them from the UI. Confirm on the lab before relying on it, and escalate to the
+owner in that case.
 
 Not observed on a live system: these steps follow from the code at the time of
-writing and have not been exercised on a lab session.
+writing. An open session after a membership revocation and after an Admin password
+change has not yet been checked on the lab.
 - Record the event (date, account, cause, action) on the pilot's incident log or the
   relevant Jira issue. Do not include the password or any key.
 
