@@ -43,8 +43,19 @@ never say "locked".
 - **Descope audit:** look for `UserTemporaryPasswordLock` (a temporary lock) and the
   failed password sign-ins before it, with their source IPs.
 
-If the user is neither limited, disabled nor temporarily locked, it is a wrong
-password. A user who knows the current password can change it from Admin. A user
+If the user is neither limited, disabled nor temporarily locked, rule out the
+Backend-Core side before calling it a wrong password. The same generic refusal also
+covers a Backend-Core user that is missing or deleted, a user with no ACTIVE
+`descope` identity link, and a Descope token whose subject is not the one on the
+link:
+
+- **POS:** Backend-Core logs the cause, keyed by request id, as
+  `pos-operator sign-in refused` with a `refusal` field (for example
+  `identity_token_invalid`, `user_unmapped`, `membership_missing`, `device_invalid`).
+- **Admin:** sign-in logs no cause. Check that the user exists, is not deleted, and
+  has an ACTIVE `descope` link whose subject is the Descope user id.
+
+Only then is it a wrong password. A user who knows the current password can change it from Admin. A user
 who has forgotten it cannot recover it through Backend-Core yet: the legacy reset
 does nothing for a Descope-linked user (RT-1262), and provider-backed recovery is
 RT-937 item 3. Until then a Descope admin sets a new password (step 3, "Set a new
@@ -109,8 +120,17 @@ revocation done first blocks step 1.
    changes the password once on the Admin account page. That change revokes every
    other Admin session of the user (RT-937 D-C). Backend-Core has no other route that
    ends another user's Admin sessions.
-2. **Cut tenant access, only if step 1 cannot happen soon.** An owner or tenant
-   admin revokes the user's membership (`DELETE /api/v1/memberships/<id>`).
+
+   Step 1 does **not** end POS access. POS operator routes verify the Descope session
+   JWT locally, so a JWT someone already holds stays usable until its `exp` (8-hour
+   session TTL) or the age cap (`DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS`, default 8.5
+   hours), whichever comes first, while the user's membership is active. To cut that
+   sooner, use step 2. For the last owner, who cannot be revoked, POS exposure ends
+   only when that window has passed.
+2. **Cut tenant access, only if step 1 cannot happen soon, or to end POS access
+   at once.** The user's membership is revoked (`DELETE /api/v1/memberships/<id>`)
+   by an owner or a tenant admin; an owner's membership only by another owner or a
+   platform admin (a tenant admin gets 403).
    An open Admin session stays valid, but every tenant-scoped request is refused,
    because `TenantContextGuard` checks for an active membership on each request
    (FR-CTX-2). POS operator routes check it on every call too (RT-943 item 2).
@@ -121,8 +141,10 @@ revocation done first blocks step 1.
    - a platform admin is not bound by tenant membership: use step 1;
    - the session can still reach routes that are not tenant-scoped (for example its
      own sign-out) until it expires.
-3. **If step 2 already happened:** set the new password (above), then re-invite the
-   user so they hold a membership again, and have them change the password on the
+3. **If step 2 already happened:** set the new password (above). Wait until the
+   POS window above has passed since the password was set, so a JWT issued before
+   it can no longer be used, then re-invite the user so they hold a membership
+   again, and have them change the password on the
    account page at their first sign-in (step 1). The other sessions stay valid until
    that change, or until their 24-hour expiry.
 
