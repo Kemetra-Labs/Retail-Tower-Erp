@@ -639,6 +639,9 @@ jobs:
       - name: Check for breaking changes
         env:
           BASE_SHA: ${{ steps.base.outputs.base }}
+          # RT-936 (RT-680 part b): an acknowledged break without a `consumer:<NAME>` tag fails
+          # this check. Rollback: set it back to `report`.
+          CONSUMER_IMPACT_MODE: enforce
         run: |
           oasdiff --version
           bash tools/oasdiff/check.sh "$BASE_SHA"
