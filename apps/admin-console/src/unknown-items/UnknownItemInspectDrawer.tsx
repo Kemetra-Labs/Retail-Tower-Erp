@@ -200,7 +200,10 @@ function DetailBody({ item }: Readonly<{ item: ReviewQueueItem }>): React.JSX.El
  * A form step opens on its first field; a confirm or the actions keep the
  * region itself, so a destructive button is never focused by the swap.
  */
-function useFocusOnStepChange(step: Step): React.RefObject<HTMLDivElement | null> {
+function useFocusOnStepChange(
+  step: Step,
+  isPending: boolean,
+): React.RefObject<HTMLDivElement | null> {
   const regionRef = useRef<HTMLDivElement>(null);
   const shownStep = useRef<Step>(step);
   useEffect(() => {
@@ -213,6 +216,14 @@ function useFocusOnStepChange(step: Step): React.RefObject<HTMLDivElement | null
     );
     (field ?? region).focus();
   }, [step]);
+  // The item stopped being pending (resolved elsewhere, then refreshed): the step
+  // region is empty and hidden, so focus it held goes to the dialog, not <body>.
+  useEffect(() => {
+    if (isPending) return;
+    const dialog = regionRef.current?.closest("dialog");
+    const active = document.activeElement;
+    if (dialog && (active === regionRef.current || !dialog.contains(active))) dialog.focus();
+  }, [isPending]);
   return regionRef;
 }
 
@@ -234,7 +245,7 @@ export function UnknownItemInspectDrawer({
   const isPending = item?.resolution_status === "pending";
   const isDismissed = item?.resolution_status === "dismissed";
 
-  const stepRef = useFocusOnStepChange(step);
+  const stepRef = useFocusOnStepChange(step, isPending);
 
   return (
     <Drawer
