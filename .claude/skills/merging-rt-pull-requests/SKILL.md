@@ -1,0 +1,69 @@
+---
+name: merging-rt-pull-requests
+description: Use when pushing to, preflighting, waiting on, merging or confirming a merged pull request in Kemetra-Labs/Retail-Tower-Erp; when choosing which CircleCI remote_suite covers a change; when proving a Docker-gated spec really ran; when "gh run list" shows no push runs for a merge commit; or when asked "is it merged and fine?".
+---
+
+# Merging RT pull requests
+
+## Overview
+
+Repo `CLAUDE.md` section 11 holds the rules: batch one push per review round, preflight heavy
+suites on CircleCI, merge only on a completed green `required` on the exact head with
+`--match-head-commit`, check `main` after the merge. Follow it; this skill does not restate it.
+It adds the RT facts those rules depend on, where agents go wrong.
+
+**Related:** `safe-git-pr-workflow` (signing, commit and merge mechanics on this machine),
+`pr-comments-triage` (review threads), the CircleCI server skill `debug-failing-run` (a red run),
+`reconciling-rt-jira-with-github` (its `scripts/rt_reconcile.py ci` does the post-merge checks below).
+
+## Which remote_suite covers the change
+
+| Changed path | `remote_suite` | Not covered there, run locally before the preflight push |
+|---|---|---|
+| `services/backend-core/apps/api/**` | `api` | `npx eslint --ext .ts ./apps/worker/src ./apps/api/src` |
+| `services/backend-core/apps/worker/**` (worker DB specs included) or `packages/db/**` | `db-package` (only suite with `WORKER_INCLUDE_DB_TESTS=1`); add `api` if `apps/api` changed too | same eslint |
+| Backend-Core shared code, lint, typecheck | `backend-fast` | the code-health ratchet (`node tools/code-health/check.mjs` from `services/backend-core`) and the api unit specs (see below) |
+| `apps/admin-console/**` | `admin`, `admin-e2e` | — |
+| `apps/pos/**` | `pos` | — |
+| Connector, POS packaging, Electron e2e | none | GitHub Actions on the PR is the only cloud run |
+
+`backend-fast` misses two things CI's `bc/fast` checks: the code-health ratchet, and api unit
+specs whose hand-written `jest.mock("@data-pulse-2/shared", ...)` partials lack a new export.
+Run them from `services/backend-core/apps/api`:
+`npx jest --testPathPattern "unit\.spec|test/observability"`.
+
+Trigger rules are in RT-981 comment 14612. The remote-dev workflows share one CircleCI
+`serial-group`, so CircleCI runs them one at a time: with parallel sessions, queue your run
+instead of waiting for "no run in progress" (you would keep losing that race; expect a 6 to 15
+minute wait). The 30-per-Cairo-day cap still counts every trigger.
+
+## Prove a Docker-gated spec really ran
+
+Backend-Core DB specs return early when Docker is missing, and junit still says success.
+Use the CircleCI `list_job_tests` tool with `all=true` and
+`filter=["classname=test/<path>.spec.ts"]` (path relative to the app, for example `apps/api`).
+Real Postgres tests take about 0.17 to 0.23 s each; a skipped body takes about 0.001 s. Cite the
+per-test `run_time`, not the green job.
+
+## Waiting for CI
+
+Do not build a polling loop. In the desktop app, use the `ccd_pr` status tools and Auto-fix; in a
+terminal session, check once later or ask the owner to ping. A head pushed seconds ago has no
+`required` yet; `gh pr checks` can still show the previous head's results.
+
+## After the merge
+
+1. `gh pr view <n> --json headRefOid,mergeCommit`: the merged head must equal the last SHA you
+   pushed. If not, `git merge-base --is-ancestor <sha> origin/main`; a missing commit goes in a
+   small follow-up PR (cherry-pick onto a fresh branch from `origin/main`).
+2. `gh run list --commit <merge-sha> --event push --limit 100`. Without `--event push` and the
+   higher limit, the many gate `workflow_run` entries hide the push runs.
+3. Reverts: a commit reverts the PR when its body has `This reverts commit <sha>` matching the
+   merge SHA or any PR commit (prefix match). Do not grep the word "revert".
+4. A red push run: report it on the PR and the Jira issue; fix-forward or revert only when authorized.
+
+## Common mistakes
+
+- Waiting for "no remote run in progress" while other sessions keep queueing.
+- Reporting a DB spec as passed from a green job alone.
+- Reading `gh run list --commit <sha>` with the default limit and concluding "no push run".
