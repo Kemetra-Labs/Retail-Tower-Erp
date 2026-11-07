@@ -2,13 +2,15 @@
 # into the lab update feed on lab-01, modelled on deploy-console-lab.yml.
 #
 # preflight (every run): GitHub only, no AWS. Verifies an already published, immutable pos/vX.Y.Z
-# release (release-pos.yml): its commit is on main and it holds exactly its five assets; the
+# release (release-pos.yml): its commit is on main and it holds exactly its five lab assets, plus
+# the unsigned pilot package POS-Pulse-X.Y.Z-win-x64.zip for a release made after RT-1261; the
 # installer matches its .sha256 and carries a build-provenance attestation signed by
 # release-pos.yml for that tag; release-manifest.json names the tag and commit and records the
 # installer, blockmap and lab.yml (pos-installer, pos-blockmap, pos-channel) with the digests of
-# the downloaded files; and lab.yml names the version and the installer with the installer's own
-# sha512 and size. It reads back the aws-lab environment and uploads a planned ledger. It changes
-# nothing.
+# the downloaded files, and the package (pos-package) by name when the release holds it; and
+# lab.yml names the version and the installer with the installer's own sha512 and size. The
+# package is never downloaded here and never reaches the feed. It reads back the aws-lab
+# environment and uploads a planned ledger. It changes nothing.
 #
 # live (dry_run=false only): after the aws-lab reviewer approves, the job assumes the deploy role
 # through GitHub OIDC (no stored keys) and runs exactly one owner-created SSM document,
@@ -92,13 +94,19 @@ jobs:
           fail() { echo "::error::$*"; exit 1; }
           VERSION="${POS_RELEASE#pos/v}"
           EXE="POS-Pulse-LAB-Setup-$VERSION.exe"
+          ZIP="POS-Pulse-$VERSION-win-x64.zip"
           VIEW="$(gh release view "$POS_RELEASE" --repo "$REPO" --json isImmutable,isDraft,assets)" \
             || fail "$POS_RELEASE is not a published release"
           jq -e '.isImmutable == true and .isDraft == false' <<<"$VIEW" >/dev/null \
             || fail "$POS_RELEASE is not a published, immutable release"
-          [ "$(jq -r '[.assets[].name] | sort | join(" ")' <<<"$VIEW")" \
-            = "$(printf '%s\n' "$EXE" "$EXE.blockmap" "$EXE.sha256" lab.yml release-manifest.json | sort | paste -sd ' ' -)" ] \
-            || fail "$POS_RELEASE must hold exactly $EXE, $EXE.blockmap, $EXE.sha256, lab.yml and release-manifest.json"
+          # Five lab assets (a release made before RT-1261), or the same five plus the pilot package zip.
+          NAMES="$(jq -r '[.assets[].name] | sort | join(" ")' <<<"$VIEW")"
+          FIVE="$(printf '%s\n' "$EXE" "$EXE.blockmap" "$EXE.sha256" lab.yml release-manifest.json | sort | paste -sd ' ' -)"
+          SIX="$(printf '%s\n' "$EXE" "$EXE.blockmap" "$EXE.sha256" lab.yml release-manifest.json "$ZIP" | sort | paste -sd ' ' -)"
+          if [ "$NAMES" = "$FIVE" ]; then PACKAGE=absent
+          elif [ "$NAMES" = "$SIX" ]; then PACKAGE=present
+          else fail "$POS_RELEASE must hold exactly $EXE, $EXE.blockmap, $EXE.sha256, lab.yml and release-manifest.json, and optionally $ZIP"
+          fi
           SHA="$(gh api "repos/$REPO/commits/refs/tags/$POS_RELEASE" --jq .sha)" || fail "cannot resolve tag $POS_RELEASE"
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "tag $POS_RELEASE does not name a commit"
           case "$(gh api "repos/$REPO/compare/$SHA...main" --jq .status)" in
@@ -120,18 +128,23 @@ jobs:
           INSTALLER_DIGEST="$(digest "$EXE")"
           BLOCKMAP_DIGEST="$(digest "$EXE.blockmap")"
           CHANNEL_DIGEST="$(digest lab.yml)"
-          # The manifest release-pos.yml wrote and checked before publishing, with the same predicate.
+          # The manifest release-pos.yml wrote and checked before publishing, with the same predicate. The
+          # package is not deployed, so it is bound by name only: release-pos.yml checked its digest.
           jq -e --arg tag "$POS_RELEASE" --arg sha "$SHA" \
               --arg exe "$EXE" --arg exe_digest "$INSTALLER_DIGEST" \
               --arg map "$EXE.blockmap" --arg map_digest "$BLOCKMAP_DIGEST" \
-              --arg yml lab.yml --arg yml_digest "$CHANNEL_DIGEST" '
+              --arg yml lab.yml --arg yml_digest "$CHANNEL_DIGEST" \
+              --arg zip "$ZIP" --arg package "$PACKAGE" '
               .product == "pos" and .mode == "release" and .tag == $tag and .source.sha == $sha
               and ([.artifacts[] | select(.name == "pos-installer" and .file == $exe and .digest == $exe_digest)] | length == 1)
               and ([.artifacts[] | select(.name == "pos-blockmap" and .file == $map and .digest == $map_digest)] | length == 1)
               and ([.artifacts[] | select(.name == "pos-channel" and .file == $yml and .digest == $yml_digest)] | length == 1)
-              and (.artifacts | length == 3)
+              and (if $package == "present"
+                   then ([.artifacts[] | select(.name == "pos-package" and .file == $zip)] | length == 1)
+                        and (.artifacts | length == 4)
+                   else (.artifacts | length == 3) end)
             ' "$DL/release-manifest.json" >/dev/null \
-            || fail "release-manifest.json does not name $POS_RELEASE, $SHA and the downloaded installer, blockmap and lab.yml"
+            || fail "release-manifest.json does not name $POS_RELEASE, $SHA and the downloaded installer, blockmap and lab.yml (package: $PACKAGE)"
           {
             echo "version=$VERSION"
             echo "sha=$SHA"

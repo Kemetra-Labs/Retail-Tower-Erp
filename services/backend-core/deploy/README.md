@@ -679,7 +679,9 @@ from it.
 Run the workflow from `main` with `pos_release`, `jira_key` and `dry_run` (default `true`).
 
 - **preflight** (every run, GitHub only, deploys nothing):
-  - the release is immutable, its tag commit is on `main`, and it has exactly its five assets;
+  - the release is immutable, its tag commit is on `main`, and it has exactly its five lab assets,
+    plus the unsigned pilot package `POS-Pulse-X.Y.Z-win-x64.zip` for a release made after RT-1261
+    (never downloaded and never deployed to the feed);
   - the installer matches its `.sha256` and has a build-provenance attestation signed by
     `release-pos.yml` for that tag;
   - `release-manifest.json` names the tag and commit and records the installer, blockmap and
