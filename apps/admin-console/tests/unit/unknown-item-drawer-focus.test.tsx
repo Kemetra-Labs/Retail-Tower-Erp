@@ -50,6 +50,10 @@ async function openDrawer(): Promise<HTMLElement> {
   return drawer;
 }
 
+/** The step region the drawer moves focus into when a step swaps in. */
+const stepRegion = (drawer: HTMLElement): HTMLElement =>
+  drawer.querySelector(".unknown-item-step") as HTMLElement;
+
 describe("Unknown items drawer keeps keyboard focus inside after a step swaps in", () => {
   beforeEach(() => {
     listUnknownItems.mockReset();
@@ -74,8 +78,7 @@ describe("Unknown items drawer keeps keyboard focus inside after a step swaps in
     dismiss.focus();
     fireEvent.click(dismiss);
     await within(drawer).findByRole("region");
-    await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true));
-    expect(document.activeElement).not.toBe(document.body);
+    await waitFor(() => expect(document.activeElement).toBe(stepRegion(drawer)));
     // The destructive confirm is never focused by the swap itself.
     expect(document.activeElement).not.toBe(
       within(drawer).getByRole("button", { name: /^Dismiss$/ }),
@@ -87,8 +90,7 @@ describe("Unknown items drawer keeps keyboard focus inside after a step swaps in
     const link = within(drawer).getByRole("button", { name: "Link to a product" });
     link.focus();
     fireEvent.click(link);
-    await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true));
-    expect(document.activeElement).not.toBe(document.body);
+    await waitFor(() => expect(stepRegion(drawer).contains(document.activeElement)).toBe(true));
   });
 
   test("Cancel back to the actions keeps focus inside the drawer", async () => {
@@ -100,8 +102,7 @@ describe("Unknown items drawer keeps keyboard focus inside after a step swaps in
     cancel.focus();
     fireEvent.click(cancel);
     await within(drawer).findByRole("button", { name: "Create product" });
-    await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true));
-    expect(document.activeElement).not.toBe(document.body);
+    await waitFor(() => expect(document.activeElement).toBe(stepRegion(drawer)));
   });
 
   test("Escape from the step still closes the drawer", async () => {
@@ -110,7 +111,7 @@ describe("Unknown items drawer keeps keyboard focus inside after a step swaps in
     dismiss.focus();
     fireEvent.click(dismiss);
     await within(drawer).findByRole("region");
-    await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(stepRegion(drawer)));
     fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Unknown item" })).toBeNull());
   });
