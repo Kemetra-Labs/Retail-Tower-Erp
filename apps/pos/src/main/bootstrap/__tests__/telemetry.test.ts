@@ -18,6 +18,7 @@ const BASE = 'https://api.example.com';
 const TUNNEL = `${BASE}/api/pos/v1/telemetry/envelope`;
 
 let tmp: string | undefined;
+const captureException = vi.fn();
 afterEach(() => {
   if (tmp !== undefined) rmSync(tmp, { recursive: true, force: true });
   tmp = undefined;
@@ -57,6 +58,7 @@ function fixture(
     mkdirSync(path.join(dir, 'telemetry'));
     writeFileSync(path.join(dir, 'telemetry', 'config.json'), JSON.stringify(extra.cachedConfig));
   }
+  captureException.mockClear();
   const init = vi.fn<(o: ElectronMainOptions) => void>(() => {
     if (extra.initThrows === true) throw new Error('boom');
   });
@@ -65,6 +67,7 @@ function fixture(
   const sentry = {
     init,
     createTransport: (_options: unknown, exec: unknown) => ({ exec }),
+    captureException,
     makeElectronOfflineTransport: (base: unknown) => base,
     onUncaughtExceptionIntegration: marker,
     onUnhandledRejectionIntegration: marker,
@@ -406,5 +409,80 @@ describe('registerTelemetry — the rest of the tunnel lifecycle', () => {
       await vi.advanceTimersByTimeAsync(7 * 60 * 60 * 1000);
       expect(fetch).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('registerTelemetry — lab self-test (RT-1253 AC8)', () => {
+  const cached = { kind: 'enabled', environment: 'staging' } as const;
+  const lab = { POS_PULSE_UPDATE_CHANNEL: 'lab', POS_PULSE_TELEMETRY_SELFTEST: '1' };
+  const configBody = JSON.stringify({
+    enabled: true,
+    tunnel: '/api/pos/v1/telemetry/envelope',
+    environment: 'staging',
+  });
+
+  const pause = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 60));
+
+  /** Binds with a fetch that answers `answer`; resolves once the first config fetch has settled. */
+  async function bindAndSettle(
+    wiring: ReturnType<typeof registerTelemetry>,
+    terminal: string | null,
+    answer: () => Response = () => new Response(configBody, { status: 200 }),
+  ): Promise<void> {
+    const fetch = vi.fn(() => Promise.resolve(answer()));
+    wiring.bind({
+      fetch,
+      readToken: () => Promise.resolve('tok'),
+      currentTerminalId: () => terminal,
+    });
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
+    await pause();
+  }
+
+  it('a paired lab terminal with an enabled config reports exactly one controlled error', async () => {
+    const wiring = registerTelemetry(fixture(lab, true, { cachedConfig: cached }).deps);
+    await bindAndSettle(wiring, 'term-A');
+    expect(captureException).toHaveBeenCalledTimes(1);
+    const error = captureException.mock.calls[0]?.[0] as Error;
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('RT-1253 lab telemetry self-test');
+    wiring.stop();
+  });
+
+  it.each([
+    ['the flag is unset', { POS_PULSE_UPDATE_CHANNEL: 'lab' }],
+    [
+      'the flag is not 1',
+      { POS_PULSE_UPDATE_CHANNEL: 'lab', POS_PULSE_TELEMETRY_SELFTEST: 'true' },
+    ],
+    [
+      'the build is production',
+      { POS_PULSE_UPDATE_CHANNEL: 'stable', POS_PULSE_TELEMETRY_SELFTEST: '1' },
+    ],
+    [
+      'the channel is unknown (unclassified)',
+      { POS_PULSE_UPDATE_CHANNEL: 'x', POS_PULSE_TELEMETRY_SELFTEST: '1' },
+    ],
+  ])('never fires when %s', async (_name, env) => {
+    const wiring = registerTelemetry(fixture(env, true, { cachedConfig: cached }).deps);
+    await bindAndSettle(wiring, 'term-A');
+    expect(captureException).not.toHaveBeenCalled();
+    wiring.stop();
+  });
+
+  it('waits while the terminal is unpaired', async () => {
+    const wiring = registerTelemetry(fixture(lab, true, { cachedConfig: cached }).deps);
+    await bindAndSettle(wiring, null);
+    expect(captureException).not.toHaveBeenCalled();
+    wiring.stop();
+  });
+
+  it('waits while the config is inert (kill switch)', async () => {
+    const wiring = registerTelemetry(fixture(lab, true, {}).deps);
+    await bindAndSettle(wiring, 'term-A', () => new Response(null, { status: 204 }));
+    expect(captureException).not.toHaveBeenCalled();
+    wiring.stop();
   });
 });
