@@ -102,6 +102,39 @@ describe('createTunnelRequestExecutor', () => {
     expect(answer.statusCode).toBe(401);
   });
 
+  // RT-1266 (RT-1254 F1): the proxy answers 502/503/504 while Backend-Core is down. The
+  // offline layer drops a resolved status >= 400, so these must THROW to be queued.
+  it.each([502, 503, 504])(
+    'a %i (Backend-Core unavailable) THROWS so it is queued',
+    async (status) => {
+      const d = deps();
+      d.fetch.mockResolvedValue(new Response(null, { status }));
+      await expect(createTunnelRequestExecutor(d)({ body: sendable })).rejects.toThrow(
+        'telemetry:tunnel-unavailable',
+      );
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([400, 401, 413, 415, 500])(
+    'a %i resolves with its status (dropped, never queued)',
+    async (status) => {
+      const d = deps();
+      d.fetch.mockResolvedValue(new Response(null, { status }));
+      const answer = await createTunnelRequestExecutor(d)({ body: sendable });
+      expect(answer.statusCode).toBe(status);
+      expect(answer.headers['retry-after']).toBeNull();
+    },
+  );
+
+  it('a 2xx is sent once and resolves', async () => {
+    const d = deps();
+    d.fetch.mockResolvedValue(new Response(null, { status: 200 }));
+    const answer = await createTunnelRequestExecutor(d)({ body: sendable });
+    expect(answer.statusCode).toBe(200);
+    expect(d.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('a network fault THROWS so the offline layer queues the envelope', async () => {
     const d = deps();
     d.fetch.mockRejectedValue(new TypeError('fetch failed'));

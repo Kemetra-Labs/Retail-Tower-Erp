@@ -14,7 +14,7 @@
  *   throws                      the offline layer QUEUES the envelope for a retry
  *
  * So "cannot send right now" (not wired yet, a network fault, a failed token
- * read) THROWS, and "must never be sent" (no sendable token, captured under
+ * read, a 502/503/504 from the proxy, RT-1266) THROWS, and "must never be sent" (no sendable token, captured under
  * another terminal, kill switch) RESOLVES without a request.
  *
  * Nothing here reads or logs an envelope's content, the token or the URL.
@@ -68,6 +68,9 @@ const DROPPED: TunnelResponse = {
   headers: { 'retry-after': null, 'x-sentry-rate-limits': null },
 };
 
+/** Bad gateway, service unavailable, gateway timeout: "Backend-Core cannot answer right now". */
+const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
+
 function textOf(body: string | Uint8Array): string {
   return typeof body === 'string' ? body : new TextDecoder().decode(body);
 }
@@ -111,6 +114,22 @@ async function readTokenOrThrow(read: () => Promise<string | null>): Promise<str
   }
 }
 
+/**
+ * RT-1266 (RT-1254 F1): a proxy answers 502/503/504 while Backend-Core is down. A resolved status
+ * >= 400 is final for the offline layer, so unavailability must THROW to be queued. 500 is
+ * deliberately NOT here: it is a server bug, retrying it would only fill the queue.
+ */
+function toTunnelResponse(response: Response): TunnelResponse {
+  if (UNAVAILABLE_STATUSES.has(response.status)) throw new Error('telemetry:tunnel-unavailable');
+  return {
+    statusCode: response.status,
+    headers: {
+      'retry-after': response.headers.get('retry-after'),
+      'x-sentry-rate-limits': null,
+    },
+  };
+}
+
 export function createTunnelRequestExecutor(
   deps: TunnelExecutorDeps,
 ): (request: TunnelRequest) => Promise<TunnelResponse> {
@@ -134,12 +153,6 @@ export function createTunnelRequestExecutor(
       body: textOf(request.body), // an envelope is UTF-8 text
       signal: AbortSignal.timeout(deps.timeoutMs),
     });
-    return {
-      statusCode: response.status,
-      headers: {
-        'retry-after': response.headers.get('retry-after'),
-        'x-sentry-rate-limits': null,
-      },
-    };
+    return toTunnelResponse(response);
   };
 }
