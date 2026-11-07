@@ -17,11 +17,21 @@
 // CI by a real Jest fixture (two shard maps vs Jest's own full-run summary) and, locally, against
 // istanbul-lib-coverage when it is installed.
 //
+// RT-1258 (owner decision, comment 15863): the run may be IMPACTED. When the scope job's plan
+// (<workspace>/plan/plan.json, api-gate-plan.cjs) is a valid IMPACTED plan for this commit AND a risk
+// guard re-run by this job (<workspace>/fanin-guard/guard.json) independently agrees, the inventory the
+// shards must have covered is exactly the plan's specs, once each, and the global coverage floors are
+// NOT evaluated (a selective run cannot measure them; the full suite on main enforces them). A missing,
+// unreadable, stale or inconsistent plan means FULL: every discovered spec, merged coverage vs the
+// floors, exactly as before. A plan the shards would also have rejected is FULL here too, so the two
+// never disagree; only a disagreement with the independent guard fails the gate.
+//
 // usage: api-gate-merge.cjs <workspace dir> <jest.config.cjs> <head sha>   exit 0 pass, 1 fail
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const { check: checkComplete } = require("./api-gate-complete.cjs");
+const plans = require("./api-gate-plan.cjs");
 
 const KEYS = ["statements", "branches", "functions", "lines"];
 
@@ -112,7 +122,10 @@ function checkThresholds(summary, threshold) {
 const lines = (t) => t.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 
 // nodes: [{index, sha, total, discovered: [], assigned: [], result, coverage}]
-function checkNodes(nodes, headSha, apiRoot) {
+// opts.expected: the specs the run must have covered exactly once (an IMPACTED plan's atoms); absent
+// means every discovered spec, with coverage from every node that ran something.
+function checkNodes(nodes, headSha, apiRoot, opts = {}) {
+  const impacted = Array.isArray(opts.expected);
   const problems = [];
   if (!nodes.length) return ["no shard results in the workspace"];
   const total = nodes[0].total;
@@ -134,13 +147,45 @@ function checkNodes(nodes, headSha, apiRoot) {
     }
     const p = n.assigned.length ? checkComplete(n.result, n.assigned, apiRoot) : [];
     for (const x of p) problems.push(`node ${n.index}: ${x}`);
-    if (n.assigned.length && !n.coverage) problems.push(`node ${n.index}: no coverage-final.json`);
+    if (!impacted && n.assigned.length && !n.coverage) problems.push(`node ${n.index}: no coverage-final.json`);
   }
-  const missing = discovered.filter((s) => !seen.has(s));
-  if (missing.length) problems.push(`${missing.length} discovered spec(s) assigned to no node, first: ${missing[0]}`);
-  const foreign = [...seen.keys()].filter((s) => !discovered.includes(s));
-  if (foreign.length) problems.push(`${foreign.length} assigned spec(s) not discovered, first: ${foreign[0]}`);
+  const want = impacted ? opts.expected : discovered;
+  const missing = want.filter((s) => !seen.has(s));
+  if (missing.length) problems.push(`${missing.length} ${impacted ? "planned" : "discovered"} spec(s) assigned to no node, first: ${missing[0]}`);
+  const foreign = [...seen.keys()].filter((s) => !want.includes(s));
+  if (foreign.length) problems.push(`${foreign.length} assigned spec(s) not ${impacted ? "in the plan" : "discovered"}, first: ${foreign[0]}`);
+  if (impacted) {
+    const unknown = [...seen.keys()].filter((s) => !discovered.includes(s));
+    if (unknown.length) problems.push(`${unknown.length} assigned spec(s) not discovered, first: ${unknown[0]}`);
+  }
   return problems;
+}
+
+// What this run must have covered: { mode, atoms, problems, note }. IMPACTED only for a valid plan
+// that the independent guard confirms; FULL for anything the shards would also treat as FULL.
+function expectation(dir, headSha, discovered) {
+  const planFile = path.join(dir, "plan", "plan.json");
+  const plan = fs.existsSync(planFile) ? readJsonFile(planFile) : null;
+  if (plan === null) return { mode: "FULL", atoms: null, problems: [], note: "no plan: full run" };
+  if (plan.mode !== "IMPACTED") return { mode: "FULL", atoms: null, problems: [], note: `plan mode ${JSON.stringify(plan.mode)}: full run` };
+  const structural = plans.planProblems(plan, headSha, discovered);
+  if (structural.length) return { mode: "FULL", atoms: null, problems: [], note: `impacted plan not accepted, full run: ${structural.join("; ")}` };
+  const guard = readJsonFile(path.join(dir, "fanin-guard", "guard.json"));
+  const independent = plans.independentProblems(plan, guard, headSha);
+  return {
+    mode: "IMPACTED",
+    atoms: plan.atoms,
+    problems: independent.map((x) => `impacted plan rejected: ${x}`),
+    note: `${plan.atoms.length} of ${discovered.length} specs`,
+  };
+}
+
+function readJsonFile(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function readNodes(dir) {
@@ -172,11 +217,18 @@ function main(argv) {
   const [dir, jestConfig, headSha] = argv;
   const problems = [];
   let summary = null;
+  let impacted = false;
+  let note = "";
   try {
     if (!/^[0-9a-f]{40}$/.test(headSha || "")) throw new Error("head sha missing or malformed");
     const nodes = readNodes(dir);
-    problems.push(...checkNodes(nodes, headSha, path.dirname(path.resolve(jestConfig))));
-    if (!problems.length) {
+    const exp = nodes.length ? expectation(dir, headSha, nodes[0].discovered) : { mode: "FULL", atoms: null, problems: [], note: "" };
+    impacted = exp.mode === "IMPACTED";
+    if (exp.note && !impacted) console.log(`API gate plan: ${exp.note}`);
+    problems.push(...checkNodes(nodes, headSha, path.dirname(path.resolve(jestConfig)), impacted ? { expected: exp.atoms } : {}));
+    problems.push(...exp.problems);
+    if (impacted) note = exp.note;
+    if (!problems.length && !impacted) {
       summary = summarize(mergeCoverage(nodes.map((n) => n.coverage)));
       delete require.cache[path.resolve(jestConfig)];
       problems.push(...checkThresholds(summary, require(path.resolve(jestConfig)).coverageThreshold));
@@ -185,10 +237,18 @@ function main(argv) {
     problems.push(`merge error: ${e.message}`);
   }
   if (summary) console.log(`merged coverage: ${KEYS.map((k) => `${k} ${summary[k].pct}% (${summary[k].covered}/${summary[k].total})`).join(", ")}`);
-  console.log(problems.length ? `API gate FAILED: ${problems.join("; ")}` : "API gate passed: complete inventory, all specs green, coverage floors met");
+  if (problems.length) {
+    console.log(`API gate FAILED: ${problems.join("; ")}`);
+  } else if (impacted) {
+    console.log(
+      `API gate passed (IMPACTED run, ${note}): planned inventory complete, every planned spec green. Global coverage floors were NOT evaluated on this run: a selective run cannot measure them. The full suite on main enforces them.`,
+    );
+  } else {
+    console.log("API gate passed: complete inventory, all specs green, coverage floors met");
+  }
   return problems.length ? 1 : 0;
 }
 
-module.exports = { mergeCoverage, summarize, percent, checkThresholds, checkNodes, readNodes, main };
+module.exports = { mergeCoverage, summarize, percent, checkThresholds, checkNodes, expectation, readNodes, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
