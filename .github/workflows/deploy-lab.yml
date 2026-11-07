@@ -641,6 +641,19 @@ jobs:
             if [ -n "$FAILURE" ]; then echo; echo "Failure boundary: $FAILURE"; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # RT-1241: Sentry release and staging deploy, evidence only (RT-617). Sent only when the ledger says
+      # "deployed"; no token or any Sentry problem is a warning, never a failed deploy. The release name is
+      # the one the runtime SDK reports. The token exists only in this step's environment.
+      - name: Record the Sentry release and deploy (evidence only)
+        if: always()
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          BACKEND_RELEASE: ${{ inputs.backend_release }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+        run: |
+          RELEASE="${BACKEND_RELEASE#backend-core/}"
+          bash .github/release/sentry-release.sh backend-core "$RELEASE" "$RELEASE_SHA" "$RUNNER_TEMP/live-ledger/ledger.json"
+
       # RT-1084: what the ledger proves is recorded: a finished deploy makes the product ok with the version the
       # ledger names; a run that may have reached the host makes it dirty; a run that provably never reached it
       # changes nothing. It never infers success. A write that fails leaves the run marked inflight (the next
