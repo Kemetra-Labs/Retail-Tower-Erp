@@ -135,6 +135,20 @@ test("config.yml: the plan is switchable, guard-first, never fails the job, and 
   // The two heavy steps skip unless the guard flagged the change eligible, and fall back to FULL on a problem.
   assert.equal((cmd.match(/\[ -f \/tmp\/gate\/plan\/eligible \] \|\| \{ echo "Not eligible: skipped\."; exit 0; \}/g) || []).length, 2);
   assert.ok(cmd.includes('fail "pnpm install failed"'));
+  // CodeRabbit (PR #410): every setup command that can fail routes through `fail`, so no setup problem
+  // can turn the scope job red under the step's exit-on-error shell.
+  for (const guarded of [
+    '< ~/project/.nvmrc)" || fail "could not read the root .nvmrc"',
+    'nvm install "$node_version" || fail "nvm install failed"',
+    '|| fail "nvm which failed"',
+    '>> "$BASH_ENV" || fail "could not extend PATH"',
+    'corepack enable || fail "corepack enable failed"',
+    '|| fail "could not read packageManager"',
+    '--activate || fail "corepack prepare failed"',
+    'run build || fail "workspace build failed"',
+  ]) {
+    assert.ok(cmd.includes(guarded), guarded);
+  }
   assert.ok(cmd.includes("printf '{\"mode\":\"FULL\",\"reasons\":[\"selector exited %s\"],\"atoms\":[]}\\n' \"$rc\" > /tmp/gate/plan/plan.json"));
   // The plan comes from the existing RT-1239 selector pinned to this exact commit; no second engine.
   assert.ok(cmd.includes('EXPECTED_SHA: "<< pipeline.git.revision >>"'));

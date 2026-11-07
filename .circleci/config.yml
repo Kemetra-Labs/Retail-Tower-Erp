@@ -331,15 +331,18 @@ commands:
               echo "API gate plan: FULL ($1)"
               exit 0
             }
-            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)"
+            # Every command that can fail goes through `fail` (a FULL plan), never through the shell's
+            # exit-on-error: planning must not turn the scope job red.
+            node_version="$(tr -d '[:space:]' < ~/project/.nvmrc)" || fail "could not read the root .nvmrc"
             [ -n "$node_version" ] || fail "the root .nvmrc is empty"
             nvm install "$node_version" || fail "nvm install failed"
-            node_bin="$(dirname "$(nvm which "$node_version")")"
+            node_bin="$(dirname "$(nvm which "$node_version")")" || fail "nvm which failed"
             [ -x "$node_bin/node" ] || fail "no node binary for the pinned version"
-            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV"
+            echo "export PATH=\"$node_bin:\$PATH\"" >> "$BASH_ENV" || fail "could not extend PATH"
             export PATH="$node_bin:$PATH"
-            corepack enable
-            corepack prepare "$(node -p "require('./package.json').packageManager")" --activate || fail "corepack prepare failed"
+            corepack enable || fail "corepack enable failed"
+            pm="$(node -p "require('./package.json').packageManager")" || fail "could not read packageManager"
+            corepack prepare "$pm" --activate || fail "corepack prepare failed"
             pnpm install --frozen-lockfile --ignore-scripts || fail "pnpm install failed"
             pnpm --filter @data-pulse-2/shared --filter @data-pulse-2/auth --filter @data-pulse-2/db --filter @data-pulse-2/worker run build || fail "workspace build failed"
       - run:
