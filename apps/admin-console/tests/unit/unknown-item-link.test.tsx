@@ -282,6 +282,19 @@ describe("linking", () => {
     await waitFor(() => expect(inspectUnknownItem.mock.calls.length).toBeGreaterThan(inspectCalls));
     expect(linkUnknownItem).toHaveBeenCalledTimes(1);
   });
+
+  test("RT-1234: when the refresh shows the item is no longer pending, focus stays in the drawer", async () => {
+    linkUnknownItem.mockResolvedValue(fail(409, "already_reconciled"));
+    renderList();
+    const drawer = await reachConfirm();
+    inspectUnknownItem.mockResolvedValue({
+      status: 200,
+      data: { ...PENDING, resolution_status: "dismissed", resolution_action: "dismissed" },
+    });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Link the identifier" }));
+    await within(drawer).findByRole("button", { name: "Reopen" });
+    await waitFor(() => expect(document.activeElement).toBe(drawer));
+  });
 });
 
 describe("picker failures inside the link step", () => {

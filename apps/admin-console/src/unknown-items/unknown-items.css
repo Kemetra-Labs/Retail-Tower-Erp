@@ -225,3 +225,9 @@
     background: CanvasText;
   }
 }
+
+/* RT-1234: the step region takes focus when a step swaps in. It keeps the shared
+ * focus ring; an empty one (a non-pending item) takes no space. */
+.unknown-item-step:empty {
+  display: none;
+}

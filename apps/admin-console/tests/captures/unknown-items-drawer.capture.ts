@@ -381,8 +381,8 @@ for (const state of STATES) {
         expect.soft(m.dialogScrollsX, `${where} panel scrolls sideways`).toBe(false);
         expect.soft(m.bodyScrollsX, `${where} panel body scrolls sideways`).toBe(false);
         expect.soft(m.pageScrollsX, `${where} page scrolls sideways`).toBe(false);
-        // Focus lands inside on open. A step swaps the control that was clicked, so there it is only recorded.
-        if (!state.step) expect.soft(m.focusInside, `${where} focus inside the drawer`).toBe(true);
+        // Focus lands inside on open, and stays inside after a step swaps in (RT-1234).
+        expect.soft(m.focusInside, `${where} focus inside the drawer`).toBe(true);
 
         if (state.step) continue;
         // Escape closes it (reduced motion: at once).
