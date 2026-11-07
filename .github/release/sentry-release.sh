@@ -55,7 +55,8 @@ sourcemaps_main() {
   local cli
   cli="$(install_cli)" || { warn "could not install the pinned sentry-cli $SENTRY_CLI_VERSION; source maps not uploaded for $release."; return 0; }
   run_cli "$cli" releases new "$release" || { warn "releases new $release failed (token scopes or project?); source maps not uploaded."; return 0; }
-  if run_cli "$cli" sourcemaps upload --release "$release" --url-prefix "~/assets" --no-rewrite "$dir/assets"; then
+  # A production-size upload (84 maps and their JS) needs more than the 40 s of the other calls.
+  if CLI_TIMEOUT=120 run_cli "$cli" sourcemaps upload --release "$release" --url-prefix "~/assets" --no-rewrite "$dir/assets"; then
     echo "Sentry source maps: $maps maps uploaded under release $release (project $product, url-prefix ~/assets)."
   else
     warn "sourcemaps upload for $release failed; the Console stays minified in Sentry."
@@ -108,7 +109,7 @@ main() {
 # Runs sentry-cli with its output kept: the token is only in the environment, never in an argument.
 run_cli() {
   local cli="$1"; shift
-  timeout 40 "$cli" "$@" 2>&1 | sed 's/^/  sentry-cli: /'
+  timeout "${CLI_TIMEOUT:-40}" "$cli" "$@" 2>&1 | sed 's/^/  sentry-cli: /'
   return "${PIPESTATUS[0]}"
 }
 

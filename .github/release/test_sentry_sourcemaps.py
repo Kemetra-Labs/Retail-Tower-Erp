@@ -1,23 +1,61 @@
 """RT-1242: tests of the `sourcemaps` mode of sentry-release.sh and of the Console release wiring.
 
 The stub sentry-cli of test_sentry_release.py stands in for the pinned binary. The workflow checks
-read release-admin-console.yml: maps leave dist/ before it is checked, archived and hashed, the
-archive is asserted to hold 0 maps, and only the publish job (environment-protected) reads the token.
+read release-admin-console.yml as text (the release/selftest job has no PyYAML): maps leave dist/
+before it is checked, archived and hashed, the archive is asserted to hold 0 maps, and only the
+publish job (environment-protected) reads the token. The map-move step and the archive assertion are
+also executed with bash against a temporary dist/.
 """
 import os
 import re
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
-
-import yaml
 
 from test_sentry_release import BASH, HAVE_BASH, SCRIPT, STUB, WORKFLOWS
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 RELEASE = SHA[:12]
 ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = WORKFLOWS / "release-admin-console.yml"
+
+
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def job(text: str, name: str) -> str:
+    match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)", text, re.M | re.S)
+    if not match:
+        raise AssertionError(f"job {name} missing")
+    return match.group(1)
+
+
+def step_block(text: str, name: str) -> str:
+    match = re.search(rf"^      - name: {re.escape(name)}.*?\n(.*?)(?=^      - name: |^      # |\Z)", text, re.M | re.S)
+    if not match:
+        raise AssertionError(f"step {name} missing")
+    return match.group(1)
+
+
+def step_script(text: str, name: str) -> str:
+    """The `run: |` body of the step, dedented as Actions runs it."""
+    body = re.search(r"^        run: \|\n((?:          .*\n|\n)+)", step_block(text, name), re.M)
+    if not body:
+        raise AssertionError(f"step {name} has no run script")
+    return "\n".join(line[10:] for line in body.group(1).split("\n"))
+
+
+def posix(path: Path) -> str:
+    """A path bash's tar reads as local on Windows too (`C:` would be taken for a remote host)."""
+    s = path.as_posix()
+    return f"/{s[0].lower()}{s[2:]}" if os.name == "nt" and len(s) > 1 and s[1] == ":" else s
+
+
+def step_names(text: str) -> list[str]:
+    return re.findall(r"^      - name: (.*)$", text, re.M)
 
 
 @unittest.skipUnless(HAVE_BASH, "bash not available")
@@ -84,57 +122,128 @@ class SourcemapsMode(unittest.TestCase):
             self.assertIn("::warning::", out.stdout, fail)
 
 
+@unittest.skipUnless(HAVE_BASH, "bash not available")
+class ReleaseStepsRunForReal(unittest.TestCase):
+    """The map-move step and the 0-maps archive assertion, executed with bash."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.app = self.tmp / "app"
+        (self.app / "dist" / "assets").mkdir(parents=True)
+        (self.app / "dist" / "index.html").write_text("<html></html>", encoding="utf-8")
+        for name in ("index-a", "react-vendor-b"):
+            (self.app / "dist" / "assets" / f"{name}.js").write_text("js", encoding="utf-8")
+            (self.app / "dist" / "assets" / f"{name}.js.map").write_text("{}", encoding="utf-8")
+        self.runner_temp = self.tmp / "runner"
+        self.runner_temp.mkdir()
+        self.text = read(WORKFLOW)
+
+    def run_bash(self, script, cwd, **env):
+        full = {**os.environ, "RUNNER_TEMP": str(self.runner_temp), **env}
+        return subprocess.run([BASH, "-c", script], capture_output=True, text=True, cwd=cwd, env=full, check=False)
+
+    def test_move_step_empties_dist_of_maps_and_keeps_the_js_beside_them(self):
+        out = self.run_bash(step_script(job(self.text, "build"), "Move the source maps out of dist/"), self.app)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(sorted(p.name for p in (self.app / "dist").rglob("*.map")), [])
+        self.assertTrue((self.app / "dist" / "assets" / "index-a.js").exists())
+        moved = self.runner_temp / "admin-sourcemaps" / "assets"
+        self.assertEqual(sorted(p.name for p in moved.iterdir()), ["index-a.js", "index-a.js.map", "react-vendor-b.js", "react-vendor-b.js.map"])
+        self.assertIn("2 source maps moved", (self.runner_temp / "admin-sourcemaps" / "maps.txt").read_text(encoding="utf-8"))
+
+    def test_move_step_with_no_maps_warns_and_still_succeeds(self):
+        for m in (self.app / "dist" / "assets").glob("*.map"):
+            m.unlink()
+        out = self.run_bash(step_script(job(self.text, "build"), "Move the source maps out of dist/"), self.app)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("::warning::RT-1242", out.stdout)
+
+    def package_script(self):
+        return step_script(job(self.text, "build"), "Package dist/")
+
+    def build_archive(self, with_map):
+        out_dir = self.runner_temp / "admin-release"
+        out_dir.mkdir(exist_ok=True)
+        archive = out_dir / "admin-console-v0.0.1.tar.gz"
+        with tarfile.open(archive, "w:gz") as tar:
+            tar.add(self.app / "dist" / "index.html", arcname="./index.html")
+            if with_map:
+                tar.add(self.app / "dist" / "assets" / "index-a.js.map", arcname="./assets/index-a.js.map")
+        return archive
+
+    def assertion_part(self):
+        script = self.package_script()
+        return script[script.index('listing="$(tar -tzf'):]
+
+    def test_archive_assertion_passes_with_zero_maps_and_fails_with_one(self):
+        archive = self.build_archive(with_map=False)
+        env = {"out": posix(archive.parent), "ARTIFACT": archive.name}
+        ok = self.run_bash("set -euo pipefail\n" + self.assertion_part(), self.tmp, **env)
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        archive = self.build_archive(with_map=True)
+        bad = self.run_bash("set -euo pipefail\n" + self.assertion_part(), self.tmp, **env)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("holds 1 .map files", bad.stdout)
+
+    def test_archive_assertion_stops_on_a_broken_archive_instead_of_reading_zero_maps(self):
+        archive = self.runner_temp / "admin-release" / "admin-console-v0.0.1.tar.gz"
+        archive.parent.mkdir()
+        archive.write_bytes(b"not a tarball")
+        out = self.run_bash("set -euo pipefail\n" + self.assertion_part(), self.tmp, out=posix(archive.parent), ARTIFACT=archive.name)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertNotIn("archive holds 0 .map files", out.stdout)
+
+
 class ConsoleReleaseWiring(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = (WORKFLOWS / "release-admin-console.yml").read_text(encoding="utf-8")
-        cls.jobs = yaml.safe_load(cls.text)["jobs"]
-
-    @staticmethod
-    def names(job):
-        return [s.get("name", "") for s in job["steps"]]
-
-    def step(self, job, name):
-        return next(s for s in self.jobs[job]["steps"] if s.get("name") == name)
+        cls.text = read(WORKFLOW)
+        cls.build = job(cls.text, "build")
+        cls.publish = job(cls.text, "publish")
 
     def test_vite_builds_hidden_maps(self):
-        vite = (ROOT / "apps/admin-console/vite.config.ts").read_text(encoding="utf-8")
-        self.assertRegex(vite, r'sourcemap:\s*"hidden"')
+        self.assertRegex(read(ROOT / "apps/admin-console/vite.config.ts"), r'sourcemap:\s*"hidden"')
 
     def test_maps_leave_dist_before_it_is_checked_archived_and_hashed(self):
-        names = self.names(self.jobs["build"])
+        names = step_names(self.build)
         move = names.index("Move the source maps out of dist/")
         self.assertLess(names.index("Build"), move)
         self.assertLess(move, names.index("Write version.json"))
         self.assertLess(move, names.index("Package dist/"))
-        self.assertIn("find dist -name '*.map' -delete", self.step("build", "Move the source maps out of dist/")["run"])
+        self.assertIn("find dist -name '*.map' -delete", step_script(self.build, "Move the source maps out of dist/"))
 
     def test_the_archive_is_asserted_to_hold_zero_maps(self):
-        package = self.step("build", "Package dist/")["run"]
-        # a tar failure must stop the step, not read as "0 maps"
+        package = step_script(self.build, "Package dist/")
         self.assertIn('listing="$(tar -tzf "$out/$ARTIFACT")"', package)
         self.assertIn("grep -c '\\.map$'", package)
         self.assertIn('[ "$maps" -eq 0 ]', package)
 
     def test_only_publish_reads_the_token_and_the_build_job_stays_secret_free(self):
-        for name, job in self.jobs.items():
-            self.assertEqual("secrets.SENTRY_AUTH_TOKEN" in yaml.safe_dump(job), name == "publish", name)
         self.assertEqual(len(re.findall(r"secrets\.SENTRY_AUTH_TOKEN", self.text)), 1)
-        self.assertEqual(self.jobs["publish"]["environment"], "release-admin-console")
+        self.assertIn("secrets.SENTRY_AUTH_TOKEN", self.publish)
+        self.assertNotIn("secrets.", self.build)
+        self.assertIn("environment: release-admin-console", self.publish)
 
     def test_publish_uploads_after_the_release_exists_with_the_runtime_release_name(self):
-        names = self.names(self.jobs["publish"])
+        names = step_names(self.publish)
         self.assertLess(names.index("Create the GitHub release (never overwrites)"), names.index("Upload the source maps to Sentry (evidence only)"))
-        step = self.step("publish", "Upload the source maps to Sentry (evidence only)")
-        self.assertEqual(step["timeout-minutes"], 6)
-        self.assertNotIn("continue-on-error", step)
-        self.assertIn('sentry-release.sh sourcemaps admin-console "${SHA:0:12}" "$SHA"', step["run"])
-        self.assertIn("timeout 240", step["run"])
-        self.assertTrue(step["run"].startswith("set -euo pipefail\n"))
+        block = step_block(self.publish, "Upload the source maps to Sentry (evidence only)")
+        self.assertIn("timeout-minutes: 6", block)
+        self.assertNotIn("continue-on-error", block)
+        script = step_script(self.publish, "Upload the source maps to Sentry (evidence only)")
+        self.assertIn('sentry-release.sh sourcemaps admin-console "${SHA:0:12}" "$SHA"', script)
+        self.assertIn("timeout 240", script)
+        self.assertTrue(script.startswith("set -euo pipefail\n"))
 
     def test_the_maps_artifact_is_separate_from_the_package(self):
         self.assertIn("admin-console-sourcemaps-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}", self.text)
-        self.assertIn("admin-console-package-", self.step("manifest", "Download the package")["with"]["name"])
+        self.assertIn("admin-console-package-", step_block(job(self.text, "manifest"), "Download the package"))
+
+    def test_the_parity_manifest_does_not_hash_the_maps(self):
+        ci = read(WORKFLOWS / "admin-console.yml")
+        self.assertIn("find . -type f ! -name '*.map' -print0", ci)
 
 
 if __name__ == "__main__":

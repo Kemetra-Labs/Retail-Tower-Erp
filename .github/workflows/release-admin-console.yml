@@ -149,7 +149,8 @@ jobs:
           mkdir -p "$sm/assets"
           n=0
           for map in dist/assets/*.js.map; do
-            cp "$map" "${map%.map}" "$sm/assets/"
+            cp "$map" "$sm/assets/"
+            if [ -f "${map%.map}" ]; then cp "${map%.map}" "$sm/assets/"; fi
             n=$((n + 1))
           done
           echo "$n source maps moved out of dist/" | tee "$sm/maps.txt"
