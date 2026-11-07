@@ -36,6 +36,9 @@ function check(result, discovered, appRoot, lcovBytes) {
   if (!result || typeof result !== "object") return ["no Vitest JSON result"];
   if (discovered.length === 0) problems.push("no spec discovered");
   if (result.success !== true) problems.push("Vitest reported success=false");
+  // Review fix: whole-file skips are allowed, but a run where no test ran and passed (every file
+  // skipped or empty) is not evidence of anything, so it can never post a green status.
+  if (!(result.numPassedTests > 0)) problems.push(`numPassedTests=${result.numPassedTests}: no test ran and passed`);
   for (const k of ["numFailedTestSuites", "numFailedTests"]) {
     if (result[k] !== 0) problems.push(`${k}=${result[k]}`);
   }

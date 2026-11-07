@@ -59,6 +59,7 @@ const okResult = (specs) => ({
   success: true,
   numFailedTestSuites: 0,
   numFailedTests: 0,
+  numPassedTests: specs.length * 5,
   numTotalTestSuites: specs.length * 3, // Vitest counts describe blocks, not files
   testResults: specs.map((s) => file(s)),
 });
@@ -84,7 +85,14 @@ test("complete: a short, duplicated, failed, crashed or coverage-less run is inc
   assert.match(j({ ...okResult(D), numFailedTests: 2 }), /numFailedTests=2/);
   assert.match(j({ ...okResult(D), numFailedTestSuites: 1 }), /numFailedTestSuites=1/);
   assert.match(j(okResult(D), 0), /no coverage report/);
-  assert.deepEqual(complete.check(okResult([]), [], APP, 100), ["no spec discovered"]);
+  // every file skipped (or empty): no test ran and passed
+  const allSkipped = { ...okResult(D), numPassedTests: 0, testResults: D.map((s) => file(s, "skipped")) };
+  assert.match(j(allSkipped), /numPassedTests=0: no test ran and passed/);
+  assert.match(j({ ...okResult(D), numPassedTests: undefined }), /no test ran and passed/);
+  assert.deepEqual(complete.check(okResult([]), [], APP, 100), [
+    "no spec discovered",
+    "numPassedTests=0: no test ran and passed",
+  ]);
   assert.deepEqual(complete.check(null, D, APP, 100), ["no Vitest JSON result"]);
 });
 
