@@ -321,6 +321,11 @@ It must prove, against a real Postgres with the migration applied:
 
 A unit test of the predicate alone does not satisfy AC4: case 1 and 2 need the real CHECKs.
 
+**Which slice carries which case.** S1 (§10) ships the table and the resolver but not the registry-write runtime,
+so S1 carries cases 1, 2, 4, 5 and 6, seeding rows by direct SQL as the writer role. Case 3 needs the register
+route and is added to the same spec file by S2, with that route's runtime. AC4 is met when both slices have
+merged.
+
 ### 6.4 Today
 
 There is no production certificate (RT-321) and so no pin value. The resolver therefore returns
@@ -426,8 +431,8 @@ Proposed only. No issue is created by this item (AC5).
 
 | # | Slice | Product | Depends on | Existing owner issue |
 | --- | --- | --- | --- | --- |
-| S1 | Registry + resolver: contract (resolver served; register, withdraw and activate `contract-only`), migration, resolver runtime, §6.3 test | Backend-Core | RT-1260 merged | **None found.** A new Implementation issue is needed. Title search (download, installer, registry, resolver, promotion, production signing) found only RT-1260, RT-1261 and RT-1082, none of which owns this. |
-| S2 | Promotion workflow (D-5), structured manifest `signing` (D-4), the runtime of the three registry writes (register, withdraw, activate) | Repo-wide `.github` + Backend-Core | S1; **D-5a**; production signing (RT-321) to register a real row | Partly **RT-321** (production signing, `[GATED .github]`) and **RT-717** (independent product releases); the workflow itself has no owner. The owner decides whether it is a new issue or an RT-321 scope addition. |
+| S1 | Registry + resolver: contract (resolver served; register, withdraw and activate `contract-only`), migration, resolver runtime, §6.3 cases 1, 2, 4–6 | Backend-Core | RT-1260 merged | **None found.** A new Implementation issue is needed. Title search (download, installer, registry, resolver, promotion, production signing) found only RT-1260, RT-1261 and RT-1082, none of which owns this. |
+| S2 | Promotion workflow (D-5), structured manifest `signing` (D-4), the runtime of the three registry writes (register, withdraw, activate), §6.3 case 3 | Repo-wide `.github` + Backend-Core | S1; **D-5a**; production signing (RT-321) to register a real row | Partly **RT-321** (production signing, `[GATED .github]`) and **RT-717** (independent product releases); the workflow itself has no owner. The owner decides whether it is a new issue or an RT-321 scope addition. |
 | S3 | Console Devices → Download POS page (§7) | Admin-Console | S1 contract | **None found.** RT-1006 is the origin assessment, not an implementation owner. |
 | S4 | S3 bucket and IAM (D-1) | Infrastructure (owner steps) | — | **RT-717** covers lab release infrastructure; the production bucket has no owner. |
 | S5 | Entitlement check on the resolver | Backend-Core | RT-1001 | **RT-1001** (Planning). |
