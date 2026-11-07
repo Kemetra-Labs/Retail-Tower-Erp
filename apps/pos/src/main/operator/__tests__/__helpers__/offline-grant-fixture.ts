@@ -12,41 +12,30 @@
  *    `enc:<plain>` fake used elsewhere would let a test forge a seal by hand.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from 'sql.js';
+import type { Database as SqlJsDatabase } from 'sql.js';
 
 import { handleFor } from '../../../catalogue/__tests__/__helpers__/catalogue-fixture.js';
 import type { DatabaseHandle } from '../../../db/client.js';
+import {
+  MIGRATIONS_DIR,
+  cloneMigratedDb,
+  initMigratedDbTemplate,
+  isMigratedDbTemplateReady,
+} from '../../../db/__tests__/__helpers__/migrated-db.js';
 import type { SafeStorageLike } from '../../../secrets/safe-storage.js';
 import type { CashierAdmittedEvent } from '../../cashier-admission.js';
 
-export { handleFor };
+export { handleFor, MIGRATIONS_DIR };
 
-const __dirnameForFile = path.dirname(fileURLToPath(import.meta.url));
-// __tests__/__helpers__ → operator → main → src → repo root
-const REPO_ROOT = path.resolve(__dirnameForFile, '..', '..', '..', '..', '..');
-export const MIGRATIONS_DIR = path.join(REPO_ROOT, 'migrations');
-
-const ALL_MIGRATIONS = readdirSync(MIGRATIONS_DIR)
-  .filter((f) => f.endsWith('.sql'))
-  .sort((a, b) => a.localeCompare(b));
-
-let SQL: SqlJsStatic | undefined;
-
-/** Initialise the sql.js engine once. Call in a `beforeAll`. */
+/** Build the migrated template once (RT-1269). Call in a `beforeAll`. */
 export async function initGrantSql(): Promise<void> {
-  if (SQL === undefined) SQL = await initSqlJs();
+  await initMigratedDbTemplate();
 }
 
 /** A raw sql.js database with EVERY migration applied. */
 export function freshGrantDb(): SqlJsDatabase {
-  if (SQL === undefined) throw new Error('await initGrantSql() in beforeAll first');
-  const db = new SQL.Database();
-  db.exec('PRAGMA foreign_keys = ON;');
-  for (const name of ALL_MIGRATIONS) db.exec(readFileSync(path.join(MIGRATIONS_DIR, name), 'utf8'));
-  return db;
+  if (!isMigratedDbTemplateReady()) throw new Error('await initGrantSql() in beforeAll first');
+  return cloneMigratedDb();
 }
 
 export interface AeadSafeStorage extends SafeStorageLike {

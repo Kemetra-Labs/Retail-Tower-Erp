@@ -6,10 +6,12 @@
  */
 
 import { beforeAll, beforeEach } from 'vitest';
-import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from 'sql.js';
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { Database as SqlJsDatabase } from 'sql.js';
+
+import {
+  cloneMigratedDb,
+  initMigratedDbTemplate,
+} from '../../../../../src/main/db/__tests__/__helpers__/migrated-db.js';
 
 import { bindPaymentActionOutboxRepository } from '../../../../../src/main/payments/repositories/payment-action-outbox.repository.js';
 import { bindPaymentAttemptsRepository } from '../../../../../src/main/payments/repositories/payment-attempts.repository.js';
@@ -19,32 +21,17 @@ import { createTenderLineFsm } from '../../../../../src/main/payments/fsm/tender
 import { createIdempotencyHelper } from '../../../../../src/main/payments/idempotency.js';
 import { makeSqlJsHandle } from '../../cart/__helpers__/sql-js-handle.js';
 
-const MIGRATION_DIR = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../../../migrations',
-);
-
-/** Every `.sql` migration, in order. */
-const MIGRATIONS: readonly string[] = readdirSync(MIGRATION_DIR)
-  .filter((f) => f.endsWith('.sql'))
-  .sort()
-  .map((f) => readFileSync(path.join(MIGRATION_DIR, f), 'utf8'));
-
 /**
- * Registers the hooks that give each test a fresh migrated database, and
- * returns a reader for the current one.
+ * Registers the hooks that give each test a fresh migrated database (a clone
+ * of the RT-1269 template), and returns a reader for the current one.
  */
 export function freshMigratedDbPerTest(): () => SqlJsDatabase {
-  let SQL: SqlJsStatic | undefined;
   let db: SqlJsDatabase | undefined;
   beforeAll(async () => {
-    SQL = await initSqlJs();
+    await initMigratedDbTemplate();
   });
   beforeEach(() => {
-    if (SQL === undefined) throw new Error('sql.js not initialised');
-    db = new SQL.Database();
-    db.exec('PRAGMA foreign_keys = ON;');
-    for (const sql of MIGRATIONS) db.exec(sql);
+    db = cloneMigratedDb();
   });
   return () => {
     if (db === undefined) throw new Error('no database for this test');

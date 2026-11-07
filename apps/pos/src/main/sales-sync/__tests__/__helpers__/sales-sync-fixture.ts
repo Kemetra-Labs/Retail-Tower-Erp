@@ -11,23 +11,16 @@
  * sql.js is pure-WASM SQLite — loads under Vitest without the Electron-rebuilt
  * better-sqlite3 binary; column/CHECK/PK/trigger semantics match production.
  */
-import initSqlJs, { type Database as SqlJsDatabase, type SqlJsStatic } from 'sql.js';
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { Database as SqlJsDatabase } from 'sql.js';
 
 import { handleFor } from '../../../catalogue/__tests__/__helpers__/catalogue-fixture.js';
+import {
+  cloneMigratedDb,
+  initMigratedDbTemplate,
+  isMigratedDbTemplateReady,
+} from '../../../db/__tests__/__helpers__/migrated-db.js';
 
 export { handleFor };
-
-const __dirnameForFile = path.dirname(fileURLToPath(import.meta.url));
-// __tests__/__helpers__ → sales-sync → main → src → repo root
-const REPO_ROOT = path.resolve(__dirnameForFile, '..', '..', '..', '..', '..');
-const MIGRATIONS_DIR = path.join(REPO_ROOT, 'migrations');
-
-const ALL_MIGRATIONS = readdirSync(MIGRATIONS_DIR)
-  .filter((f) => f.endsWith('.sql'))
-  .sort((a, b) => a.localeCompare(b));
 
 /** Narrow a known-present value to non-null without a forbidden `!`. */
 export function nn<T>(value: T | null | undefined, message = 'expected a value, got null'): T {
@@ -35,22 +28,17 @@ export function nn<T>(value: T | null | undefined, message = 'expected a value, 
   return value;
 }
 
-let SQL: SqlJsStatic | undefined;
-
-/** Initialise the sql.js engine once. Call in a `beforeAll`. */
+/** Build the migrated template once (RT-1269). Call in a `beforeAll`. */
 export async function initSalesSyncSql(): Promise<void> {
-  if (SQL === undefined) SQL = await initSqlJs();
+  await initMigratedDbTemplate();
 }
 
 /** A raw sql.js database with EVERY migration applied (all sale tables empty). */
 export function freshSalesSyncDb(): SqlJsDatabase {
-  if (SQL === undefined) {
+  if (!isMigratedDbTemplateReady()) {
     throw new Error('initSalesSyncSql() must be awaited in beforeAll before freshSalesSyncDb()');
   }
-  const db = new SQL.Database();
-  db.exec('PRAGMA foreign_keys = ON;');
-  for (const name of ALL_MIGRATIONS) db.exec(readFileSync(path.join(MIGRATIONS_DIR, name), 'utf8'));
-  return db;
+  return cloneMigratedDb();
 }
 
 export interface SeedSaleInput {
