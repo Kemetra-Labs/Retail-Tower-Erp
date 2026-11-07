@@ -10,10 +10,11 @@ import { describe, it, expect } from 'vitest';
  * so this is a source check, like `bootstrap-sale-boundary.test.ts`.)
  */
 
-const INDEX_PATH = resolve(__dirname, '../index.ts');
+// RT-1219: the payments wiring moved from `index.ts` to `bootstrap/payments-cart.ts`.
+const PAYMENTS_CART_PATH = resolve(__dirname, '../bootstrap/payments-cart.ts');
 
-describe('main/index.ts wires the card-tender flag (RT-700)', () => {
-  const source = readFileSync(INDEX_PATH, 'utf-8');
+describe('bootstrap/payments-cart.ts wires the card-tender flag (RT-700)', () => {
+  const source = readFileSync(PAYMENTS_CART_PATH, 'utf-8');
 
   it('reads POS_PULSE_FEATURE_CARD_TENDER per call through the shared parser', () => {
     expect(source).toMatch(

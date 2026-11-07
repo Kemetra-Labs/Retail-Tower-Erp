@@ -11,10 +11,11 @@ import { describe, it, expect } from 'vitest';
  * source check, like `bootstrap-card-tender-flag.test.ts`.)
  */
 
-const INDEX_PATH = resolve(__dirname, '../index.ts');
+// RT-1219: the payments wiring moved from `index.ts` to `bootstrap/payments-cart.ts`.
+const PAYMENTS_CART_PATH = resolve(__dirname, '../bootstrap/payments-cart.ts');
 
-describe('main/index.ts wires the cash shift gate (RT-998)', () => {
-  const source = readFileSync(INDEX_PATH, 'utf-8');
+describe('bootstrap/payments-cart.ts wires the cash shift gate (RT-998)', () => {
+  const source = readFileSync(PAYMENTS_CART_PATH, 'utf-8');
 
   it('binds the gate to the open database in the shared write deps', () => {
     const block = /const paymentsWriteDeps = \{[^}]*\};/.exec(source)?.[0] ?? '';

@@ -49,7 +49,9 @@ describe('main/index.ts wires the RT-444 admission guard', () => {
   it('RT-441: wraps every handler in the recovery-mode guard and registers recovery', () => {
     expect(source).toMatch(/createRecoveryModeGuardedIpcMain\(/);
     expect(source).toMatch(/recoveryModeProbe\.active = \(\) =>/);
-    expect(source).toMatch(/registerRecoveryHandlers\(guardedIpcMain/);
-    expect(source).toContain('attemptHasLiveTender: bindAttemptHasLiveTender(db),');
+    // RT-1219: the recovery registration moved to `bootstrap/payments-cart.ts`.
+    const moved = readFileSync(resolve(__dirname, '../bootstrap/payments-cart.ts'), 'utf-8');
+    expect(moved).toMatch(/registerRecoveryHandlers\(guardedIpcMain/);
+    expect(moved).toContain('attemptHasLiveTender: bindAttemptHasLiveTender(db),');
   });
 });

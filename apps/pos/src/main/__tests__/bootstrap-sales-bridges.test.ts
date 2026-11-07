@@ -63,7 +63,8 @@ describe('main/index.ts hands the sales bridges to bootstrap/sales-bridges.ts', 
   it('builds the print pipeline, drawer transport and audit forwarder first', () => {
     const at = indexSource.indexOf('registerSalesBridges({');
     for (const needle of [
-      'const forwardAuditEvent = ',
+      // RT-1219: the audit forwarder is built by `registerCart` (bootstrap/payments-cart.ts).
+      'const paymentsCore = registerCart(',
       'const printPipeline = trackPrintPipeline(',
       'const chosenPrinterName = ',
       'const drawerKickTransport: DrawerKickTransport =',

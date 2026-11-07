@@ -14,6 +14,8 @@ import { describe, it, expect } from 'vitest';
  */
 
 const INDEX_PATH = resolve(__dirname, '../index.ts');
+// RT-1219: the cart and payments registrations moved to `bootstrap/payments-cart.ts`.
+const PAYMENTS_CART_PATH = resolve(__dirname, '../bootstrap/payments-cart.ts');
 
 describe('main/index.ts wires the sale-boundary choke point (RT-113 P2)', () => {
   const source = readFileSync(INDEX_PATH, 'utf-8');
@@ -43,7 +45,13 @@ describe('main/index.ts wires the sale-boundary choke point (RT-113 P2)', () => 
   });
 
   it('the cart and payments/tender handlers register on the guarded surface', () => {
-    expect(source).toMatch(/registerCartHandlers\(guardedIpcMain,/);
-    expect(source).toMatch(/registerPaymentsHandlers\(guardedIpcMain,/);
+    const moved = readFileSync(PAYMENTS_CART_PATH, 'utf-8');
+    expect(moved).toMatch(/registerCartHandlers\(guardedIpcMain,/);
+    expect(moved).toMatch(/registerPaymentsHandlers\(guardedIpcMain,/);
+    // The module's `guardedIpcMain` is the one index.ts hands it.
+    const deps = /const paymentsCartDeps = \{[^}]*\};/.exec(source)?.[0] ?? '';
+    expect(deps).toMatch(/^\s*guardedIpcMain,$/m);
+    expect(source).toMatch(/registerCart\(paymentsCartDeps\)/);
+    expect(source).toMatch(/registerPayments\(paymentsCartDeps, paymentsCore\)/);
   });
 });
