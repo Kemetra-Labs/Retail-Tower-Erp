@@ -78,8 +78,9 @@ resolver checks the role only, not a store scope.
 | Caller | Outcome |
 | --- | --- |
 | No session, an invalid or expired cookie, a bearer token, a POS `device` token or an operator envelope | **401** `unauthorized`. Non-disclosing; nothing is presigned, no audit row. |
-| Signed in, no active tenant | **404** `not_found` (as the devices surface: the non-disclosing 404, no 403). |
-| Signed in, role not `owner` / `tenant_admin` / `store_manager` | **404** `not_found`, identical to the row above. No URL, no audit row. |
+| Signed in, no active tenant | **401** `unauthorized`: `TenantContextGuard` refuses a session without `activeTenantId` before the handler runs (`apps/api/src/context/tenant-context.guard.ts`). No route-specific guard is proposed. |
+| Signed in, no active membership in that tenant | **404** `not_found` (the same guard, FR-ISO-4). |
+| Signed in, role not `owner` / `tenant_admin` / `store_manager` | **404** `not_found` (as the devices surface: the non-disclosing 404, no 403), identical to the row above. No URL, no audit row. |
 | Signed in with an allowed role | **200** with `available: true` and the release (§3.3), or `available: false` (§3.4). |
 
 ### 3.3 What the customer sees (200, `available: true`)
@@ -104,8 +105,11 @@ policy revision, other versions, or the reason a release is unavailable.
 - a lifetime of **300 seconds** by default, configurable to at most **900 seconds**; the contract fixes the
   maximum, not the default;
 - `response-content-disposition: attachment; filename="<fileName>"`;
-- no other override. The bucket name and the region are server configuration. The object key comes from the
-  registry row only (§4); a request can never choose a key.
+- `VersionId` = the row's `artifact_version_id`, so the URL serves exactly the object version whose digest and
+  publisher the promotion workflow verified (§4.1). A later write to the same key, by anyone with bucket write
+  access, creates a new version that this URL never serves;
+- no other override. The bucket name and the region are server configuration. The object key and version come
+  from the registry row only (§4); a request can never choose either.
 
 The response carries `Cache-Control: no-store`. A presigned URL is a bearer capability for 5 minutes: it is never
 logged, never written to an audit row and never sent to Sentry or Datadog.
@@ -126,7 +130,7 @@ The canonical envelope `{ error: { code, message, request_id } }`, as RT-327.
 | Status | `error.code` | When |
 | --- | --- | --- |
 | 400 | `validation_error` | Any query parameter is present (the route takes none). Checked after the guards. |
-| 401 | `unauthorized` | §3.2. |
+| 401 | `unauthorized` | §3.2, including a session with no active tenant. |
 | 404 | `not_found` | §3.2. Non-disclosing. |
 | 429 | `rate_limited` | The RT-574 console limit. Class `read` is proposed; the class file is `apps/api/test/console-rate-limit/classes/pos-releases.rate-limit.yaml` (§9). |
 | 500 | `system_failure` | Unexpected error, including a presign failure. A presign failure is never `available: false`: that would hide a broken bucket or credential as "no release". |
@@ -140,7 +144,7 @@ The canonical envelope `{ error: { code, message, request_id } }`, as RT-327.
 - **No audit row** for 401, 404, 400, 429, 500 or `available: false`.
 - **One metric counter** `pos_release_resolve_total{outcome}` with `outcome` in `issued`, `none_no_policy`,
   `none_no_row`, `none_not_approved`, `none_not_production`, `none_publisher_mismatch`, `none_pin_unset`,
-  `none_below_minimum`. No version, tenant or user label.
+  `none_below_minimum`, `none_not_activated`. No version, tenant or user label.
 
 ## 4. The registry
 
@@ -160,6 +164,7 @@ One row per promoted release. Platform-level, like `pos_version_policy`: not ten
 | `attestation_ref` | `text` NOT NULL | The GitHub attestation URL or id of the installer digest. CHECK pattern `^https://github\.com/Kemetra-Labs/Retail-Tower-Erp/attestations/[0-9]+$`. |
 | `source_sha` | `text` NOT NULL | The commit the tag points at. CHECK `^[0-9a-f]{40}$`. |
 | `artifact_key` | `text` NOT NULL UNIQUE | The S3 object key, not a URL. CHECK `artifact_key = 'pos/releases/' \|\| version \|\| '/POS-Pulse-Setup-' \|\| version \|\| '.exe'`. The bucket is configuration (§3.3). |
+| `artifact_version_id` | `text` NOT NULL | The S3 `VersionId` of the object the workflow uploaded and verified (sha256 and Authenticode publisher over those exact bytes). CHECK length 1..1024. Every presigned URL names it (§3.3), so a replaced object is never served under this row's digest. Requires bucket versioning (§9). |
 | `approved` | `boolean` NOT NULL | `true` at insert (the approval happened in the promotion environment, §8). Set to `false` only by a withdrawal. |
 | `approved_at` | `timestamptz` NOT NULL | The approval instant reported by the workflow, checked against the server clock (not in the future, not more than 24 h old). |
 | `approved_by` | `text` NOT NULL | The GitHub login of the environment reviewer who approved. CHECK `^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$`. A login, never an email. |
@@ -187,7 +192,7 @@ transaction** as the change, as `pos.release_policy.changed` (RT-327):
 
 | Write | Action | Metadata allowlist |
 | --- | --- | --- |
-| Register | `pos.release.registered` | `releaseId`, `tag`, `version`, `sha256`, `sizeBytes`, `publisher`, `signingClass`, `attestationRef`, `sourceSha`, `approvedBy`, `approvedAt`, `promotionRunUrl` |
+| Register | `pos.release.registered` | `releaseId`, `tag`, `version`, `sha256`, `sizeBytes`, `publisher`, `signingClass`, `attestationRef`, `sourceSha`, `approvedBy`, `approvedAt`, `promotionRunUrl`, `artifactVersionId` |
 | Register replay (same row, §8) | none | — |
 | Withdraw | `pos.release.withdrawn` | `releaseId`, `version`, `withdrawnBy`, `promotionRunUrl` |
 | Withdraw replay (already withdrawn) | none | — |
@@ -207,9 +212,19 @@ The resolver returns a release **only if every condition holds**, evaluated in o
 3. **E3** that row has `approved = true`;
 4. **E4** that row has `signing_class = 'production'`;
 5. **E5** the pin is configured and non-empty, and the row's `publisher` equals it exactly;
-6. **E6** `version >= min_supported_version` in semantic-version precedence.
+6. **E6** `version >= min_supported_version` in semantic-version precedence;
+7. **E7** the `stable` policy's last effective change (`pos_version_policy.updated_at`) is **after** the row's
+   `registered_at`.
 
-Otherwise the answer is `available: false` (§3.4), with the first failing condition as the metric `reason`.
+E7 closes the pre-selected case: a platform admin may set `recommended_version` to a version that is not yet
+registered (§5.1). Without E7, registering that version later would make it downloadable with no second action.
+With E7, a registration never activates a release on its own: a platform admin must make an effective policy
+change after the registration (`platformSetPosVersionPolicy`, audited as `pos.release_policy.changed`). The
+RT-327 no-op rule means re-saving identical values writes nothing and does not activate. *E7 is a proposal of
+this note, for owner review.*
+
+Otherwise the answer is `available: false` (§3.4), with the first failing condition as the metric `reason`
+(E7: `none_not_activated`).
 
 E4 and E6 are already implied by other rules (§6.2 makes E4 always true for a stored row; RT-327 keeps
 `min <= recommended`). They stay in the predicate so that each rule holds on its own, and a later change to one
@@ -225,10 +240,10 @@ or a release the owner chose not to recommend. Changing which release customers 
 | Case | Registry write (§8) | Resolver (§5) |
 | --- | --- | --- |
 | **Lab installer** (manifest `signing=lab`, or lab publisher) | Refused, 422 `release_not_production`, nothing written. A direct SQL insert fails the CHECKs (§6.2). | Cannot match: no lab row can exist (E4), and its publisher can never equal the production pin (E5). `available: false`. |
-| **Unapproved release** (no row; or row withdrawn) | Without an approved promotion run the workflow never calls the write (§8); a call without the promotion credential is 401. A withdrawn row stays `approved = false` for good. | E2 or E3 fails: `available: false`. Recommending an unregistered version is not refused by the policy write (that would couple RT-327 to this table); the resolver simply returns nothing. |
+| **Unapproved release** (no row; or row withdrawn) | Without an approved promotion run the workflow never calls the write (§8); a call without the promotion credential is 401. A withdrawn row stays `approved = false` for good. | E2 or E3 fails: `available: false`. Recommending an unregistered version is not refused by the policy write (that would couple RT-327 to this table); the resolver returns nothing, and registering that version later still returns nothing until a later effective policy change (E7). |
 | **Release below `min_supported_version`** | Accepted: the registry records what was shipped, not what is current. | Cannot be returned: only `recommended_version` is considered, the policy keeps `min <= recommended` (RT-327 422 `version_order_invalid`), and E6 checks it again. `available: false` if ever reached. |
 | **Unauthenticated caller** | 401 on both write routes. | 401, no URL, no audit row (§3.2). |
-| **Unauthorized caller** | A valid credential without the promotion claims (D-5a): 403 `forbidden`; a Console session of any user, including a platform admin: 401 (the write routes take no cookie). | 404 `not_found`, identical for a role outside the list and for no active tenant (§3.2). |
+| **Unauthorized caller** | A valid credential without the promotion claims (D-5a): 403 `forbidden`; a Console session of any user, including a platform admin: 401 (the write routes take no cookie). | 404 `not_found`, identical for a role outside the list and for no active membership; a session with no active tenant is 401 (§3.2). |
 | **Production pin not configured** (today: no production certificate, RT-321) | 503 `publisher_pin_unset`: nothing can be registered. | E5 fails: `available: false` for everyone. |
 
 ## 6. Lab versus production, by construction (D-4)
@@ -275,11 +290,13 @@ It must prove, against a real Postgres with the migration applied:
 3. The register route refuses a lab manifest body with 422 `release_not_production` and writes no row and no
    audit row (L2).
 4. With an approved production row whose `publisher` differs from the configured pin (inserted as the writer
-   role with the pin changed afterwards), and the `stable` policy recommending that version, the resolver returns
+   role with the pin changed afterwards), and the `stable` policy recommending that version (set after the
+   registration, so E7 holds), the resolver returns
    `{ available: false }` and presigns nothing (L4, E5).
 5. With the pin unset, the resolver returns `{ available: false }` for an otherwise eligible row (E5).
-6. A control: an approved production row with the pinned publisher at the recommended version returns
-   `available: true` with that row's `sha256`, so cases 4 and 5 do not pass vacuously.
+6. A control: an approved production row with the pinned publisher at the recommended version, with the
+   policy set after the registration, returns `available: true` with that row's `sha256` and a URL naming its
+   `artifact_version_id`, so cases 4 and 5 do not pass vacuously.
 
 A unit test of the predicate alone does not satisfy AC4: case 1 and 2 need the real CHECKs.
 
@@ -317,7 +334,7 @@ stops promotion". D-5 is **the same mechanism applied to one more target**, and 
 | --- | --- |
 | Promotion is a manual workflow with approval | The promotion workflow is `workflow_dispatch` only, in a protected environment with a required reviewer (the owner). |
 | Each promotion is recorded | The row records `approved_by`, `approved_at` and `promotion_run_url`, and writes `pos.release.registered` (§4.2). |
-| Nothing promotes automatically | Registering a release does not make it downloadable. It becomes downloadable only when a platform admin sets the `stable` `recommended_version` to it (RT-327), a second, separately audited action. |
+| Nothing promotes automatically | Registering a release does not make it downloadable. It becomes downloadable only after a platform admin's effective `stable` policy change made after the registration, with `recommended_version` set to it (RT-327, E7): a second, separately audited action, even when the version was recommended before it was registered. |
 | A failed stage stops promotion | A release is registered for customer download only after it has passed the RT-234 §10 exit criteria for `stable`. The workflow cannot check those criteria itself (they are Sentry, sync and soak signals); the reviewer attests them by approving. *The exact gate (a checklist in the approval, or a link to the RT-234 §12 drill result) is open for S2.* |
 | Withdrawal / halt (RT-234 §8) | `pos.release.withdrawn` sets `approved = false`; the resolver stops returning it at once. Recovery is a higher version (roll-forward, P-3). |
 
@@ -331,7 +348,7 @@ or two is open for S2; RT-322 and RT-324 own the feed.*
 
 - `POST /api/v1/platform/pos-releases`, `platformRegisterPosRelease`. Body: `tag`, `version`, `sha256`,
   `sizeBytes`, `publisher`, `signingClass`, `attestationRef`, `sourceSha`, `approvedBy`, `approvedAt`,
-  `promotionRunUrl`. `artifact_key` is derived on the server from the version. Requires `Idempotency-Key`
+  `promotionRunUrl`, `artifactVersionId`. `artifact_key` is derived on the server from the version. Requires `Idempotency-Key`
   (`x-idempotency: required`).
   - A body equal to an existing row (same `tag`, `version`, `sha256`, every field) is a 200 with that row and
     writes nothing (safe retry).
@@ -369,10 +386,10 @@ The resolver (§3) does not depend on D-5a.
 | Contract (`[GATED]`) | new `packages/contracts/openapi/pos-releases.openapi.yaml` (from Appendix A); `apps/api/test/console-rate-limit/classes/pos-releases.rate-limit.yaml`; a contract spec `apps/api/test/pos-releases/pos-releases.contract.spec.ts`; `changelog.d/RT-<n>-pos-releases-contract.md`. |
 | Migration (`[GATED]`) | `packages/db/drizzle/00NN_pos_release_registry.sql` + `.down.sql` (table, enum, CHECKs, trigger, RLS); the Drizzle schema in `packages/db/src/`. |
 | Runtime | `apps/api/src/pos-releases/` (module, console controller, platform controller, service, presigner port and S3 adapter, writer guard); `apps/api/src/app.module.ts`; config schema for `POS_RELEASE_*`; `apps/api/package.json` + `pnpm-lock.yaml` for `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` (`[GATED]`). |
-| Tests | `apps/api/test/pos-releases/pos-release-registry.lab-never-resolvable.spec.ts` (§6.3), resolver authz (401 / 404 matrix), eligibility E1–E6, register idempotency and conflicts, withdraw, audit rows, presign TTL bound and no URL in logs. |
+| Tests | `apps/api/test/pos-releases/pos-release-registry.lab-never-resolvable.spec.ts` (§6.3), resolver authz (401 / 404 matrix), eligibility E1–E7 (including a version recommended before registration staying unavailable until a later policy change), register idempotency and conflicts, withdraw, audit rows, presign TTL bound and no URL in logs. |
 | Release tooling (`[GATED .github]`) | `.github/release/manifest.py` + `test_manifest.py` (structured `signing`); `release-pos.yml` writes `signing: lab`; new `.github/workflows/promote-pos.yml`. |
 | Console | `apps/admin-console/src/` Devices → Download POS page and its API client; the Console contract PIN bump. |
-| Infrastructure (owner) | Private S3 bucket (block public access, SSE, versioning), a read-only IAM grant for the Backend-Core runtime on `pos/releases/*`, a write grant for the promotion workflow. |
+| Infrastructure (owner) | Private S3 bucket (block public access, SSE, **versioning required**: the resolver presigns a `VersionId`; S3 Object Lock is optional defence in depth), a read-only IAM grant for the Backend-Core runtime on `pos/releases/*`, a write grant for the promotion workflow. |
 
 ## 10. Proposed implementation split (AC5)
 
@@ -533,8 +550,8 @@ paths:
         the info description), with a presigned S3 GET URL valid until
         `expiresAt` (at most 900 seconds). Otherwise `available: false`. The
         route takes no query parameter. A role outside owner, tenant_admin,
-        store_manager, and a session with no active tenant, are the
-        non-disclosing 404. An issued link writes one
+        store_manager, and no active membership, are the non-disclosing
+        404; a session with no active tenant is 401 (`TenantContextGuard`). An issued link writes one
         `pos.release.download_link_issued` row; nothing else does.
       responses:
         "200":
@@ -758,6 +775,13 @@ components:
       maxLength: 39
       pattern: '^[A-Za-z0-9](-?[A-Za-z0-9])*$'
       description: A GitHub login, never an email.
+    S3VersionId:
+      type: string
+      minLength: 1
+      maxLength: 1024
+      description: >
+        The S3 `VersionId` of the uploaded object whose sha256 and publisher
+        the promotion workflow verified. Every presigned URL names it.
     PromotionRunUrl:
       type: string
       maxLength: 200
@@ -770,8 +794,6 @@ components:
       oneOf:
         - $ref: "#/components/schemas/PosReleaseDownload"
         - $ref: "#/components/schemas/PosReleaseUnavailable"
-      discriminator:
-        propertyName: available
     PosReleaseDownload:
       type: object
       additionalProperties: false
@@ -830,6 +852,7 @@ components:
         - approvedBy
         - approvedAt
         - promotionRunUrl
+        - artifactVersionId
       properties:
         tag:
           type: string
@@ -863,6 +886,8 @@ components:
           description: Not in the future and at most 24 hours old (422 `approval_invalid`).
         promotionRunUrl:
           $ref: "#/components/schemas/PromotionRunUrl"
+        artifactVersionId:
+          $ref: "#/components/schemas/S3VersionId"
 
     PosReleaseWithdrawal:
       type: object
@@ -891,6 +916,7 @@ components:
         - approvedBy
         - approvedAt
         - promotionRunUrl
+        - artifactVersionId
         - registeredAt
         - withdrawnAt
         - withdrawnBy
@@ -926,6 +952,8 @@ components:
           format: date-time
         promotionRunUrl:
           $ref: "#/components/schemas/PromotionRunUrl"
+        artifactVersionId:
+          $ref: "#/components/schemas/S3VersionId"
         registeredAt:
           type: string
           format: date-time
@@ -979,8 +1007,9 @@ components:
             $ref: "#/components/schemas/Error"
     Unauthorized:
       description: >
-        Unauthenticated (401): a missing or invalid session cookie, or a
-        non-cookie credential. Non-disclosing. No URL is issued.
+        Unauthenticated (401): a missing or invalid session cookie, a session
+        with no active tenant (`TenantContextGuard`), or a non-cookie
+        credential. Non-disclosing. No URL is issued.
       content:
         application/json:
           schema:
@@ -988,8 +1017,8 @@ components:
     NotFound:
       description: >
         not_found (404), non-disclosing: identical for a role outside
-        `owner` / `tenant_admin` / `store_manager` and for a session with no
-        active tenant. No URL is issued.
+        `owner` / `tenant_admin` / `store_manager` and for no active
+        membership in the active tenant. No URL is issued.
       content:
         application/json:
           schema:
