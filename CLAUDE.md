@@ -11,13 +11,13 @@ Repo skills in [.claude/skills/](.claude/skills/README.md) add the Retail Tower 
 | Official or shared skill | RT skill to add |
 |---|---|
 | `superpowers:*` for any RT Jira issue ("Execute RT-XX") | `executing-rt-issue` |
-| `safe-git-pr-workflow`, `pr-comments-triage`, CircleCI skills | `merging-rt-pull-requests` |
-| `pr-review`, CircleCI `write-config`, `api-design` on gated paths | `landing-gated-changes` |
+| `handling-git-and-prs-safely`, `triaging-pr-comments`, CircleCI skills | `merging-rt-pull-requests` |
+| `reviewing-pull-requests`, CircleCI `write-config`, `api-design` on gated paths | `landing-gated-changes` |
 | `aws-core:*`, Datadog or Sentry skills for the lab | `operating-rt-lab` |
 | Any local command or test failing on Windows | `troubleshooting-windows-dev` |
 | `twg-jira` for reconciling RT issues with merged work | `reconciling-rt-jira-with-github` |
 
-Domain skills that trigger on their own: `nestjs-drizzle-bullmq` (Backend-Core), `driving-electron-via-cdp` (POS Electron), `ux-pos-console` (POS and Admin Console UX). Catalog: [.claude/skills/README.md](.claude/skills/README.md).
+General review and git skills in this repo (copied from `Kemetra-Labs/claude-plugins`, owner decision 2026-11-08): `reviewing-pull-requests`, `triaging-pr-comments`, `requesting-external-review`, `handling-git-and-prs-safely`. Domain skills that trigger on their own: `nestjs-drizzle-bullmq` (Backend-Core), `driving-electron-via-cdp` (POS Electron), `ux-pos-console` (POS and Admin Console UX). Catalog: [.claude/skills/README.md](.claude/skills/README.md).
 
 Lessons learned while solving an RT problem go into the matching repo skill in the same PR, instead of a personal notes file (owner decision 2026-11-07).
 

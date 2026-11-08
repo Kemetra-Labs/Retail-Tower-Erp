@@ -71,4 +71,4 @@ Hard stops. Do not do these, and say so when asked:
 
 ## Related skills
 
-Use `impeccable` or `frontend-design` for generic visual critique that this skill does not cover, `driving-electron-via-cdp` to screenshot or drive the packaged POS, and `pr-review` for a full code review. This skill supplies the domain rules those skills lack; it does not replace them. `impeccable` reads POS `.impeccable/design.json`, which `DESIGN.md` Q-2 records as stale (still "Pharmacy Teal", mono money): where they differ, `DESIGN.md` and this skill win.
+Use `impeccable` or `frontend-design` for generic visual critique that this skill does not cover, `driving-electron-via-cdp` to screenshot or drive the packaged POS, and `reviewing-pull-requests` for a full code review. This skill supplies the domain rules those skills lack; it does not replace them. `impeccable` reads POS `.impeccable/design.json`, which `DESIGN.md` Q-2 records as stale (still "Pharmacy Teal", mono money): where they differ, `DESIGN.md` and this skill win.

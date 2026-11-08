@@ -12,8 +12,8 @@ suites on CircleCI, merge only on a completed green `required` on the exact head
 `--match-head-commit`, check `main` after the merge. Follow it; this skill does not restate it.
 It adds the RT facts those rules depend on, where agents go wrong.
 
-**Related:** `safe-git-pr-workflow` (signing, commit and merge mechanics on this machine),
-`pr-comments-triage` (review threads), the CircleCI server skill `debug-failing-run` (a red run),
+**Related:** `handling-git-and-prs-safely` (signing, commit and merge mechanics on this machine),
+`triaging-pr-comments` (review threads), the CircleCI server skill `debug-failing-run` (a red run),
 `reconciling-rt-jira-with-github` (its `scripts/rt_reconcile.py ci` does the post-merge checks below).
 
 ## Which remote_suite covers the change

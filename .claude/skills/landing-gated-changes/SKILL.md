@@ -16,7 +16,7 @@ file", "prove it before the PR"), stop and tell them which rule applies and the 
 for their choice. Do not quietly do something different.
 
 **Related:** CircleCI `write-config` (validate a config change), `nestjs-drizzle-bullmq`
-(Backend-Core patterns), `api-design`, `pr-review` (fresh subagent; offer the owner a deep review
+(Backend-Core patterns), `api-design`, `reviewing-pull-requests` (fresh subagent; offer the owner a deep review
 for migrations, contracts, auth or money).
 
 ## Before anything: how CI sees the paths
