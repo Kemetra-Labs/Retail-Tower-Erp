@@ -26,7 +26,7 @@ Do not duplicate standing-rules content here.
 
 ## Allowed observability egress (RT-629 OBS-1 §6, D9)
 
-> **Allowed observability egress.** This service may send telemetry only to Sentry (`*.ingest.de.sentry.io`, org `kemetra`) and Datadog (`*.us5.datadoghq.com`, or the internal Datadog Agent). It must follow the Observability contract (RT-629): allowlisted fields only, no PII, secrets or business payloads, default-inert without keys, and never blocking on vendor failure. Any new destination is a separate owner decision.
+> **Allowed observability egress.** This service may send telemetry only to Sentry (`*.ingest.de.sentry.io`, org `kemetra`) and Datadog (`*.datadoghq.eu`, the EU1 org, per the owner decision of 2026-10-19 that supersedes D5; `*.us5.datadoghq.com` stays allowed only until the RT-736 cutover is verified and as rollback; or the internal Datadog Agent). It must follow the Observability contract (RT-629): allowlisted fields only, no PII, secrets or business payloads, default-inert without keys, and never blocking on vendor failure. Any new destination is a separate owner decision.
 
 ## What this repo does NOT own
 

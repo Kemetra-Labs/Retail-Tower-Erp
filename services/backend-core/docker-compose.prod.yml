@@ -233,7 +233,7 @@ services:
       - api
     environment:
       DD_API_KEY: ${DD_API_KEY:-}
-      DD_SITE: ${DD_SITE:-us5.datadoghq.com}
+      DD_SITE: ${DD_SITE:-datadoghq.eu}
       # Without the Docker socket the agent has no reliable hostname source.
       # The real name belongs in private ops config (deploy/README.md).
       DD_HOSTNAME: ${DD_HOSTNAME:-}

@@ -7,7 +7,7 @@
 //
 // Env (never printed):
 //   DD_API_KEY, DD_APP_KEY   required unless --dry-run
-//   DD_SITE                  default us5.datadoghq.com
+//   DD_SITE                  default datadoghq.eu (EU1); an explicit value wins
 //   ALERT_RECIPIENTS         comma-separated email addresses; replaces the
 //                            __ALERT_RECIPIENTS__ placeholder in messages
 //
@@ -23,7 +23,7 @@ const KEY_TAG = "rt637-key";
 const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 const dryRun = process.argv.includes("--dry-run");
-const site = process.env.DD_SITE || "us5.datadoghq.com";
+const site = process.env.DD_SITE || "datadoghq.eu";
 
 // Log lines carry Datadog API text, so keep each on one line (no forged lines).
 function oneLine(text) {

@@ -953,7 +953,7 @@ Either value empty = inert.
 **Datadog (traces + metrics).** The Agent is an opt-in compose profile that only
 listens on the internal network (OTLP `datadog-agent:4318`) and scrapes the api's
 existing Prometheus listener. Set `DD_API_KEY`, `DD_SITE` (default
-`us5.datadoghq.com`), `DD_HOSTNAME` and
+`datadoghq.eu`, the EU1 org; an explicit value wins), `DD_HOSTNAME` and
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4318`, then:
 
 ```bash
