@@ -93,15 +93,3 @@ export class SaleTendersNotVisibleError extends Error {
   }
 }
 
-/**
- * RT-451 S3 (sales.yaml 1.21.0-draft, OD-T4): a first capture carries
- * `tracking` on a line while tracked selling is off for the tenant (the
- * deployment gate or the tenant switch) → 400 `validation_error`. The server
- * never stores tracking it cannot validate. Nothing is recorded.
- */
-export class SaleTrackingWhileOffError extends Error {
-  constructor() {
-    super("tracking is not accepted while tracked selling is off");
-    this.name = "SaleTrackingWhileOffError";
-  }
-}

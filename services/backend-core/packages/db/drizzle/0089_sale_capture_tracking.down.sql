@@ -107,7 +107,6 @@ ALTER TABLE sale_lines
   DROP CONSTRAINT IF EXISTS sale_lines_tracking_class_allowed,
   DROP CONSTRAINT IF EXISTS sale_lines_tracking_unresolved_reason_allowed,
   DROP CONSTRAINT IF EXISTS sale_lines_tracking_unresolved_reason_iff,
-  DROP CONSTRAINT IF EXISTS sale_lines_tracking_snapshot_classified,
   DROP CONSTRAINT IF EXISTS sale_lines_tracking_missing_has_no_snapshot;
 
 ALTER TABLE sale_lines

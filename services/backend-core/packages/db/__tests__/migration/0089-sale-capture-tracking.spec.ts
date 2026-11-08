@@ -6,8 +6,9 @@
  * Validates `packages/db/drizzle/0089_sale_capture_tracking.sql` (+ `.down.sql`):
  *   - `sale_lines` gains the frozen tracking snapshot and its G7-9 class: the
  *     snapshot is whole or absent, the closed selection / class / reason sets,
- *     a reason exactly on a row-4 line, stored tracking is always classified,
- *     and only `tracking_missing` has no snapshot. A legacy line (all NULL)
+ *     a reason exactly on a row-4 line, and only `tracking_missing` has no
+ *     snapshot among classified lines (tracking stored while off is
+ *     unclassified, comment 16269). A legacy line (all NULL)
  *     stays valid, and the new CHECKs are NOT VALID (no scan of old rows);
  *   - `sales` gains `safety_revision` (>= 0), `safety_synced_at` and
  *     `tracking_status` (closed set);
@@ -221,7 +222,6 @@ describe("0089: sale_lines tracking snapshot", () => {
       "sale_lines_tracking_expiry_in_range",
       "sale_lines_tracking_missing_has_no_snapshot",
       "sale_lines_tracking_selection_allowed",
-      "sale_lines_tracking_snapshot_classified",
       "sale_lines_tracking_snapshot_whole",
       "sale_lines_tracking_unresolved_reason_allowed",
       "sale_lines_tracking_unresolved_reason_iff",
@@ -238,6 +238,7 @@ describe("0089: sale_lines tracking snapshot", () => {
     ["a row-4 line with an unknown identity", { ...VALID_LINE, tracking_class: "unresolved", tracking_unresolved_reason: "identity_unknown" }],
     ["a row-4 line with another product's identity", { ...VALID_LINE, tracking_class: "unresolved", tracking_unresolved_reason: "identity_other_product" }],
     ["a row-4 line without tracking", { ...NO_TRACKING, tracking_class: "unresolved", tracking_unresolved_reason: "tracking_missing" }],
+    ["tracking stored while off (unclassified, comment 16269)", { ...VALID_LINE, tracking_class: null }],
   ])("accepts %s", async (_why, tracking) => {
     if (skip()) return;
     expect(await tryLine(tracking)).toBeNull();
@@ -257,7 +258,6 @@ describe("0089: sale_lines tracking snapshot", () => {
     ["a row-4 line without a reason", { ...VALID_LINE, tracking_class: "unresolved" }],
     ["an unknown reason", { ...VALID_LINE, tracking_class: "unresolved", tracking_unresolved_reason: "lost" }],
     ["a reason on an unclassified line", { ...NO_TRACKING, tracking_unresolved_reason: "tracking_missing" }],
-    ["an unclassified snapshot", { ...VALID_LINE, tracking_class: null }],
     ["tracking_missing with a snapshot", { ...VALID_LINE, tracking_class: "unresolved", tracking_unresolved_reason: "tracking_missing" }],
     ["identity_unknown without a snapshot", { ...NO_TRACKING, tracking_class: "unresolved", tracking_unresolved_reason: "identity_unknown" }],
     ["a valid line without a snapshot", { ...NO_TRACKING, tracking_class: "valid" }],
@@ -483,6 +483,11 @@ describe("0089: UP -> DOWN -> UP", () => {
       "a line's tracking class",
       `UPDATE sale_lines SET tracking_class = 'unresolved', tracking_unresolved_reason = 'tracking_missing' WHERE id = '${LINE_B}'`,
       `UPDATE sale_lines SET tracking_class = NULL, tracking_unresolved_reason = NULL WHERE id = '${LINE_B}'`,
+    ],
+    [
+      "a line's tracking stored while off (no class)",
+      `UPDATE sale_lines SET tracking_identity_id = '${IDENTITY_B}', tracking_code = 'LOT-B', tracking_selection = 'scanned' WHERE id = '${LINE_B}'`,
+      `UPDATE sale_lines SET tracking_identity_id = NULL, tracking_code = NULL, tracking_selection = NULL WHERE id = '${LINE_B}'`,
     ],
     ["a sale's safety revision", `UPDATE sales SET safety_revision = 3 WHERE id = '${SALE_B}'`, `UPDATE sales SET safety_revision = NULL WHERE id = '${SALE_B}'`],
     [

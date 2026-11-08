@@ -62,7 +62,6 @@ import {
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
-  SaleTrackingWhileOffError,
   TerminalEventProvenanceConflictError,
 } from "./sale-errors";
 import {
@@ -100,7 +99,6 @@ export {
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
-  SaleTrackingWhileOffError,
   TerminalEventProvenanceConflictError,
 } from "./sale-errors";
 
@@ -360,7 +358,6 @@ export class SalesService {
           body,
           tenders,
           responsibilities,
-          trackedSellingOn: tracking.on,
         });
         await insertCaptureRows(client, {
           saleId,
@@ -967,8 +964,9 @@ interface CaptureTracking {
  * capture/profile lock (SHARED, comment 11790) for every product the sale
  * names, then classify the lines while tracked selling is on. Runs before the
  * header insert, so a replay takes the same shared lock and reads, and writes
- * nothing. While off nothing is classified (OD-T4): a tracked product's line
- * without `tracking` is an ordinary line.
+ * nothing. While off nothing is classified (OD-T4; comment 16269): a tracked
+ * product's line, with or without `tracking`, is an ordinary line, and a sent
+ * `tracking` is stored as received (provenance), never refused.
  */
 async function prepareCaptureTracking(
   client: PoolClient,
@@ -1229,8 +1227,6 @@ async function emitSaleCaptured(
  * The refusals of a FIRST capture, in the contract's order (sales.yaml
  * 1.10.0 CaptureForbidden / CaptureUnprocessable), all after the replay
  * branch so a replay never answers with one of them:
- *   0. RT-451 S3 (1.21.0): a line carrying `tracking` while tracked selling is
- *      off is 400 `validation_error`;
  *   1. RT-418 credit: on the device path the offline 422; on the envelope
  *      path the role 403 (the operator's current standing);
  *   2. coverage, in Postgres numeric (never JS float): RT-77 (RT-10 D1)
@@ -1250,16 +1246,9 @@ async function assertFirstCaptureAccepted(
     readonly body: CaptureSaleRequestDto;
     readonly tenders: ReadonlyArray<SaleTenderDto>;
     readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
-    /** RT-451 S3: tracked selling (gate AND tenant switch) is on. */
-    readonly trackedSellingOn: boolean;
   },
 ): Promise<void> {
   const { scope, body, tenders, responsibilities } = capture;
-  // RT-451 S3 (OD-T4): tracking while tracked selling is off is a 400, before
-  // the role 403 and every 422.
-  if (!capture.trackedSellingOn && body.lines.some((l) => l.tracking !== undefined)) {
-    throw new SaleTrackingWhileOffError();
-  }
   const credit = responsibilities.length > 0;
   if (credit && capture.authPath === "device") throw new SaleResponsibilityOfflineRefusedError();
   if (credit) await assertCreditOperatorEligible(client, scope, capture.actorUserId);

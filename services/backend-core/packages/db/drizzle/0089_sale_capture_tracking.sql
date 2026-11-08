@@ -23,8 +23,10 @@
 --      tracking_class   the G7-9 row while tracked selling was on: 'valid'
 --                       (row 1), 'flagged' (rows 2 and 3, with sale-line
 --                       findings) or 'unresolved' (row 4); NULL for a line
---                       that was not classified (tracked selling off, or an
---                       untracked product's line without tracking)
+--                       that was not classified (tracked selling off — its
+--                       tracking, if sent, is stored as provenance only,
+--                       comment 16269 — or an untracked product's line
+--                       without tracking)
 --      tracking_unresolved_reason  row 4 only: tracking_missing |
 --                       identity_unknown | identity_other_product
 -- 2. `sales` — the till's safety provenance and the sale's tracking status:
@@ -40,6 +42,9 @@
 -- "captured before RT-451 S3" and nothing is backfilled. Their CHECKs are
 -- added NOT VALID: no existing row is scanned, every existing row has the
 -- columns NULL (which satisfies each CHECK), and every new row is checked.
+--
+-- Comment 16269 revises 16262 item 1: while tracked selling is off, tracking
+-- is accepted and stored unclassified, so a snapshot may have no class.
 --
 -- RLS: `sales` and `sale_lines` keep their 0012 policies. The new table is
 -- ENABLE + FORCE with tenant policies for SELECT and INSERT only: a finding is
@@ -109,10 +114,8 @@ ALTER TABLE sale_lines
   -- A reason exactly on a row-4 line.
   ADD CONSTRAINT sale_lines_tracking_unresolved_reason_iff
     CHECK ((tracking_unresolved_reason IS NOT NULL) = (tracking_class IS NOT DISTINCT FROM 'unresolved')) NOT VALID,
-  -- Stored tracking is always classified (tracking is refused while off), and
-  -- only `tracking_missing` has no snapshot.
-  ADD CONSTRAINT sale_lines_tracking_snapshot_classified
-    CHECK (tracking_identity_id IS NULL OR tracking_class IS NOT NULL) NOT VALID,
+  -- Only `tracking_missing` has no snapshot among classified lines. A
+  -- snapshot without a class is tracking stored while off (comment 16269).
   ADD CONSTRAINT sale_lines_tracking_missing_has_no_snapshot
     CHECK ((tracking_unresolved_reason IS NOT DISTINCT FROM 'tracking_missing')
          = (tracking_class IS NOT NULL AND tracking_identity_id IS NULL)) NOT VALID;

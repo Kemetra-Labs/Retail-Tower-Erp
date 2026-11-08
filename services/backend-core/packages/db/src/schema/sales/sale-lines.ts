@@ -70,7 +70,7 @@ export const saleLines = pgTable(
     trackingExpiryDate: date("tracking_expiry_date"),
     trackingSelection: text("tracking_selection"),
     trackingValidationId: uuid("tracking_validation_id"),
-    /** 'valid' (row 1) | 'flagged' (rows 2-3) | 'unresolved' (row 4); NULL when not classified. */
+    /** 'valid' (row 1) | 'flagged' (rows 2-3) | 'unresolved' (row 4); NULL when not classified (tracking sent while off is provenance only). */
     trackingClass: text("tracking_class"),
     /** Row 4 only: tracking_missing | identity_unknown | identity_other_product. */
     trackingUnresolvedReason: text("tracking_unresolved_reason"),
@@ -117,10 +117,6 @@ export const saleLines = pgTable(
     check(
       "sale_lines_tracking_unresolved_reason_iff",
       sql`(${t.trackingUnresolvedReason} IS NOT NULL) = (${t.trackingClass} IS NOT DISTINCT FROM 'unresolved')`,
-    ),
-    check(
-      "sale_lines_tracking_snapshot_classified",
-      sql`${t.trackingIdentityId} IS NULL OR ${t.trackingClass} IS NOT NULL`,
     ),
     check(
       "sale_lines_tracking_missing_has_no_snapshot",

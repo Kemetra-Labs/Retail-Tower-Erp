@@ -117,7 +117,6 @@ import {
   SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
-  SaleTrackingWhileOffError,
   TerminalEventProvenanceConflictError,
   type SaleProjection,
   type TerminalEventProjection,
@@ -136,10 +135,6 @@ const SALE_REPLAY_MISMATCH_AUDIT_ACTION = "sale.replay_payload_mismatch_rejected
 function toCaptureHttpError(err: unknown): unknown {
   const responsibility = toResponsibilityHttpError(err);
   if (responsibility !== null) return responsibility;
-  if (err instanceof SaleTrackingWhileOffError) {
-    // RT-451 S3 (sales.yaml 1.21.0, OD-T4): the existing 400, no new code.
-    return new BadRequestException({ code: "validation_error", message: err.message });
-  }
   if (err instanceof SaleTenderMismatchError) {
     return new UnprocessableEntityException({
       code: "sale_tender_mismatch",

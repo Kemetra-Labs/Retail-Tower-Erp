@@ -4,14 +4,16 @@
  * PG_POOL), through the real SalesController / SalesService and the
  * idempotency interceptor (the shared capture harness).
  *
- * Captain decision RT-451 comment 16262; `pos-sales/sales.yaml` 1.21.0-draft.
+ * Captain decisions RT-451 comments 16262 and 16269; `pos-sales/sales.yaml`
+ * 1.21.0-draft.
  *
  * What this proves:
- *   - OFF (the deployment gate, or the tenant switch): a line carrying
- *     `tracking` is 400 `validation_error` and nothing is recorded; a tracked
- *     product's line without `tracking` is an ordinary line (no class, no
- *     tracking status); `safetyRevision` / `safetySyncedAt` are accepted,
- *     stored and echoed, and kept out of `payload_hash`;
+ *   - OFF (the deployment gate, or the tenant switch; comment 16269): a
+ *     tracked product's line, with or without `tracking`, is an ordinary
+ *     line (no class, no finding, no tracking status) and is never refused;
+ *     a sent `tracking` is stored as received and echoed (provenance), and
+ *     stays in `payload_hash`; `safetyRevision` / `safetySyncedAt` are
+ *     accepted, stored and echoed, and kept out of `payload_hash`;
  *   - ON, the G7-9 classification with its precedence:
  *       row 1 valid (no finding), row 2 `unvalidated_tracked_line`
  *       (`validation_missing`, `validation_mismatch` for a refused or another
@@ -219,15 +221,26 @@ describe("RT-451 S3 — tracked selling OFF (OD-T4)", () => {
   it.each<[string, () => Promise<void>]>([
     ["the deployment gate is off", async () => tenantSwitch(true)],
     ["the tenant switch is off", async () => { process.env[TRACKED_SELLING_GATE] = "true"; }],
-  ])("a line carrying tracking is 400 validation_error and nothing is recorded when %s", async (_why, arrange) => {
+  ])("a line carrying tracking is accepted, stored as received and not classified when %s", async (_why, arrange) => {
     if (skip()) return;
     await arrange();
-    const b = body("off400", [trackedLine(P_BATCH, tracking(I_OK, { validationId: V_OK }))]);
+    // Held, expired-elsewhere or unknown: nothing is judged while off.
+    const t1 = tracking(I_HELD, { code: "LOT-HELD", expiryDate: "2027-12-31", validationId: V_REFUSED });
+    const t2 = tracking(randomUUID(), { selection: "operator_selected" });
+    const b = body("offtrack", [trackedLine(P_BATCH, t1), trackedLine(P_BATCH_2, t2)]);
     const res = await post(b);
-    expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe("validation_error");
-    const n = await admin().query(`SELECT count(*)::int AS n FROM sales WHERE external_id = $1`, [b["externalId"]]);
-    expect(n.rows[0].n).toBe(0);
+    expect(res.status).toBe(201);
+    expect(res.body.lines[0].tracking).toEqual({ ...t1, validationId: V_REFUSED });
+    expect(res.body.lines[1].tracking).toEqual({ ...t2, expiryDate: null, validationId: null });
+    const s = await stored(res.body.saleRef);
+    expect(s.status).toBeNull();
+    expect(s.lines).toEqual([
+      { tracking_identity_id: I_HELD, tracking_class: null, tracking_unresolved_reason: null },
+      { tracking_identity_id: t2["identityId"], tracking_class: null, tracking_unresolved_reason: null },
+    ]);
+    expect(s.findings).toEqual([]);
+    const row = await admin().query(`SELECT payload_hash FROM sales WHERE id = $1`, [res.body.saleRef]);
+    expect(row.rows[0].payload_hash).toBe(sha256CanonicalHex(b));
   });
 
   it("a tracked product's line without tracking is an ordinary line", async () => {

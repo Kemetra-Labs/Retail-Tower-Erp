@@ -6,8 +6,8 @@
  *
  *   - {@link readTrackedSellingOn}: tracked selling is on only while the
  *     deployment gate AND the tenant's switch (0086) are on (OD-T1). While it
- *     is off, a line carrying `tracking` is a 400 and no line is classified
- *     (OD-T4).
+ *     is off no line is classified and a sent `tracking` is stored as
+ *     provenance only (OD-T4; comment 16269).
  *   - {@link lockProductProfiles}: the per-product capture/profile lock
  *     (RT-451 comment 11790). Under READ COMMITTED the first sale line of a
  *     product and a Tracking Profile change could both commit without either

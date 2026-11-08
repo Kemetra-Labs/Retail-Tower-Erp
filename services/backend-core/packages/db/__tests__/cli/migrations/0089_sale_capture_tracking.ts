@@ -1,4 +1,4 @@
-/** 0089_sale_capture_tracking (RT-451 S3): [sale_lines' seven tracking columns, sales' three columns, the sale_line_findings table, its two policies, the eleven CHECKs]. */
+/** 0089_sale_capture_tracking (RT-451 S3): [sale_lines' seven tracking columns, sales' three columns, the sale_line_findings table, its two policies, the ten CHECKs]. */
 import { countColumns, countConstraints, countPolicies, countTables, type MigrationEntry } from "../migration-probes";
 
 const TABLES = ["sale_line_findings"];
@@ -27,13 +27,12 @@ export const MIGRATION: MigrationEntry = {
         "sale_lines_tracking_class_allowed",
         "sale_lines_tracking_unresolved_reason_allowed",
         "sale_lines_tracking_unresolved_reason_iff",
-        "sale_lines_tracking_snapshot_classified",
         "sale_lines_tracking_missing_has_no_snapshot",
         "sales_safety_revision_non_negative",
         "sales_tracking_status_allowed",
       ]),
     ],
-    applied: ["7", "3", "1", "2", "11"],
+    applied: ["7", "3", "1", "2", "10"],
     rolledBack: ["0", "0", "0", "0", "0"],
   },
 };

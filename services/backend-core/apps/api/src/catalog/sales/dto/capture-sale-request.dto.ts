@@ -101,8 +101,9 @@ const calendarDate = z
  * RT-451 S3 (contract `CaptureSaleLineTracking`, RT-450): the identity a line
  * of a batch-tracked product sold, as the till received it from the TLV. A
  * sale fact (hashed, frozen on the line). Its shape is a 400; what it names is
- * classified by the service (G7-9), never refused — except that while tracked
- * selling is off any `tracking` is refused (sales.yaml 1.21.0, OD-T4).
+ * classified by the service (G7-9) while tracked selling is on, and stored as
+ * received (provenance, unclassified) while it is off: never refused for what
+ * it names (sales.yaml 1.21.0; RT-451 comment 16269).
  */
 export const CaptureSaleLineTrackingSchema = z
   .object({
