@@ -11,8 +11,10 @@
  *   - `POS_TRACKED_SELLING_ENABLED` unset or anything but "1" / "true" / "yes"
  *     (case-insensitive, trimmed): OFF, the default. `posListTrackedLots`
  *     answers the contract's non-disclosing 404 and reads nothing.
- *   - The slice that adds the per-tenant flag ANDs it with this gate; this
- *     gate never turns tracked selling on for a tenant by itself in that slice.
+ *   - RT-451 S2 added the per-tenant switch (`tenant_inventory_settings.
+ *     tracked_selling_enabled`, 0086). Tracked selling is in effect only
+ *     while this gate is on AND the tenant has switched it on: this gate
+ *     never turns tracked selling on for a tenant by itself.
  *
  * Read per request (the `isPosReturnsEnabled` convention), so a test or a
  * restart-free toggle sees the current value. Deliberately NOT passed by

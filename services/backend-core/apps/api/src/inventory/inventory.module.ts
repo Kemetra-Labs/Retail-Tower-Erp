@@ -45,6 +45,9 @@ import { SafetyFindingsService } from "./safety/safety-findings.service";
 import { SafetyTtlService } from "./safety/safety-ttl.service";
 import { TrackingHoldsService } from "./safety/tracking-holds.service";
 import { SafetyHistoryService } from "./safety/safety-history.service";
+import { TrackedSellingSettingController } from "./tracked-selling/tracked-selling-setting.controller";
+import { TrackedSellingPreconditions } from "./tracked-selling/tracked-selling-preconditions";
+import { TrackedSellingSettingService } from "./tracked-selling/tracked-selling-setting.service";
 import { TrackingIdentitiesController } from "./tracking-identities.controller";
 import { TrackingIdentityReadsService } from "./tracking-identity-reads.service";
 
@@ -80,6 +83,9 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     InventoryPositionEventsController,
     InventorySafetyController,
     InventorySafetyFeedController,
+    // RT-451 S2: the tenant's tracked-selling switch (cookieAuth, RolesGuard;
+    // behind the deployment gate POS_TRACKED_SELLING_ENABLED).
+    TrackedSellingSettingController,
   ],
   providers: [
     InventoryService,
@@ -94,6 +100,8 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // history; one identity and its positions).
     SafetyHistoryService,
     TrackingIdentityReadsService,
+    TrackedSellingSettingService,
+    TrackedSellingPreconditions,
     RolesGuard,
     // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device
     // row: the device on the pre-tenant lookup pool, its tenant's status on

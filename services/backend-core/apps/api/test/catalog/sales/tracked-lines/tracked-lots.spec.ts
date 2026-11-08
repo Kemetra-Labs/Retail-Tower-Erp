@@ -11,6 +11,8 @@
  * What this proves:
  *   - the deployment gate: off (the default) is the non-disclosing 404 for
  *     both credentials and writes no audit row; no credential is still 401;
+ *   - RT-451 S2: the tenant's switch (0086) off is the same 404 with the gate
+ *     on; tracked selling needs both;
  *   - both credentials of the contract: the manager envelope and the device
  *     token alone see the same list of their store; a revoked device is 401;
  *   - G7-5: a lot is listed through its expiry date at the store's business
@@ -217,6 +219,21 @@ async function signInManager(): Promise<string> {
   return res.body.operator_session.envelope as string;
 }
 
+/**
+ * RT-451 S2: the tenant's tracked-selling switch (0086). Tracked selling is in
+ * effect only while the deployment gate is on AND this switch is on.
+ */
+async function tenantSwitch(tenantId: string, on: boolean): Promise<void> {
+  await E().admin.query(
+    `INSERT INTO tenant_inventory_settings
+       (tenant_id, updated_by, tracked_selling_enabled, tracked_selling_changed_at, tracked_selling_changed_by)
+     VALUES ($1, $2, $3, now(), $2)
+     ON CONFLICT (tenant_id) DO UPDATE
+       SET tracked_selling_enabled = $3, tracked_selling_changed_at = now(), tracked_selling_changed_by = $2`,
+    [tenantId, MANAGER, on],
+  );
+}
+
 const gateOn = (): void => {
   process.env[TRACKED_SELLING_GATE] = "true";
 };
@@ -332,6 +349,12 @@ afterAll(async () => {
 
 beforeEach(async () => {
   delete process.env[TRACKED_SELLING_GATE];
+  // Both tenants have switched tracked selling on (RT-451 S2); a test that
+  // proves the switch's 404 turns it off itself.
+  if (env) {
+    await tenantSwitch(TENANT, true);
+    await tenantSwitch(TENANT_OTHER, true);
+  }
   // One operator session per till: a second sign-in would be a takeover answer.
   if (env) await env.admin.query(`DELETE FROM auth_tokens WHERE scope = 'pos_operator'`);
   audit.payloads.length = 0;
@@ -369,6 +392,24 @@ describe("RT-451 S1 — the gate and the credentials", () => {
     expect([byDevice.status, byEnvelope.status, unknown.status]).toEqual([404, 404, 404]);
     expect(byDevice.body.error.code).toBe(unknown.body.error.code);
     expect(audit.payloads.filter((p) => p.action === "tracked_lots.listed")).toEqual([]);
+  });
+
+  it("RT-451 S2: with the gate on but the tenant's switch off, both credentials get the same non-disclosing 404 and nothing is audited", async () => {
+    if (skip()) return;
+    gateOn();
+    await tenantSwitch(TENANT, false);
+    await identity(P_SUGGEST, `SWITCH-${key()}`, await businessDate(5));
+    const envelope = await signInManager();
+    audit.payloads.length = 0;
+    const byDevice = await lots(P_SUGGEST, TOKEN);
+    const byEnvelope = await lots(P_SUGGEST, envelope);
+    const unknown = await lots(randomUUID(), TOKEN);
+    expect([byDevice.status, byEnvelope.status, unknown.status]).toEqual([404, 404, 404]);
+    expect({ ...byDevice.body.error, request_id: null }).toEqual({ ...unknown.body.error, request_id: null });
+    expect(audit.payloads.filter((p) => p.action === "tracked_lots.listed")).toEqual([]);
+    // Switching it back on serves the list again.
+    await tenantSwitch(TENANT, true);
+    expect((await lots(P_SUGGEST, TOKEN)).status).toBe(200);
   });
 
   it("the envelope and the device token alone get the same list of their store", async () => {
@@ -573,7 +614,12 @@ describe("RT-451 S1 — the advisory position (RT-427 activation, Q12)", () => {
       const s2Rows = s2.body.lots as Array<{ identityId: string; sellablePosition: string }>;
       expect(s2Rows[0]).toMatchObject({ identityId: elsewhere, sellablePosition: "9.0000" });
     } finally {
-      await E().admin.query(`DELETE FROM tenant_inventory_settings WHERE tenant_id = $1`, [TENANT]);
+      // Undo only the activation: the tenant's tracked-selling switch stays.
+      await E().admin.query(
+        `UPDATE tenant_inventory_settings SET sale_effects_activated_at = NULL, sale_effects_activated_by = NULL
+          WHERE tenant_id = $1`,
+        [TENANT],
+      );
     }
   });
 });
