@@ -569,8 +569,8 @@ These classes exist on `main` and new work reuses them until a migration slice r
   accept-invitation.
   - A form panel at the inline start holds the brand lockup, the language switch
     (`LocaleSwitch`, no user), the centred form and the audit note.
-  - A decorative brand panel at the inline end is `aria-hidden` and hidden below 900px. It is
-    deep teal in light and the teal wash in dark.
+  - The artwork panel at the inline end is `aria-hidden` and hidden below 900px. The whole
+    frame is the night scene of §12.1, dark in both themes (*amended 2026-11-08*).
   - No card and no shadow.
   - Passwords use `PasswordInput`: no placeholder, and a «إظهار كلمة المرور» toggle
     (`aria-pressed`, `aria-controls`) with the registry's `reveal` / `conceal` glyphs.
@@ -664,7 +664,7 @@ hex.
 
 | Target role | Light | Use |
 | --- | --- | --- |
-| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9); the brand panel of the public screens (sign-in, accept invitation), flat (PW-5). |
+| `--color-ink` | `#0a2125` | Sidebar surface; the hero receipt card; the one "ink" button style; the selected segment on light surfaces (D-V3); tooltip fill; list header bands and drawer headers (D-V9); the ground of the public night frame (sign-in, accept invitation) is derived from it, see §12.1. |
 | `--color-mint` | `#5fe0cf` | Highlight **on Ink only** (D-V2): the active nav signal line and icon, hero figures' accent, chart focus point, the selected segment on Ink, the `Ctrl K` key, and the primary fill on Ink (bands, drawer headers, dark theme). Never text **or fill** on a light surface (it measures 1.6:1 on white). In the dark theme it is also the primary fill and the selected segment, with Ink text, never text or a link colour (D-V10). |
 | `--color-ink-muted` | `#a9c2c5` | Secondary text on Ink (≥ 4.5:1 on `--color-ink`). |
 | `--color-canvas` | `#f2f5f6` | Page background (replaces `--color-background` as the work surface value). |
@@ -674,16 +674,27 @@ hex.
   the "no secondary accent" rule holds.
 - **The sidebar is Ink in both themes.** It is the one sanctioned dark surface; content
   surfaces stay light-first, and the dark theme remaps them as before.
-- **The public brand panel is flat Ink in both themes** (owner decision PW-5, RT-972
-  comment 14943; RT-807). It is the decorative panel beside the sign-in and
-  accept-invitation forms, `aria-hidden` and hidden below 900px. It is an Ink surface but
-  **not** an expressive one: no Tower grid, glow, gradient or watermark mark. Its text is
-  `--color-on-ink` and `--color-ink-muted`, and its flow card and chips are translucent
-  on-ink fills. The form side stays light, like every form aside (PC-5).
+- **The public screens are one night scene** (owner decision 2026-11-08, "board B"). It
+  supersedes PW-5 (flat Ink panel, RT-972 comment 14943, RT-807) and PC-5 (light form side)
+  **for sign-in and accept-invitation only**; every other form aside stays light.
+  - The frame (`src/auth/AuthLayout.tsx`) is dark in both themes. It sets
+    `data-theme="dark"` on its own wrapper, because the user's theme is not known before
+    sign-in, so the dark roles and the mint primary button with Ink text apply with no new
+    component styles.
+  - The ground is the artwork's near-black, derived from `--color-ink` in `signin.css`
+    (`--auth-night`); there is no new global token.
+  - The artwork is a 506px, 9:16, `aria-hidden` panel, hidden below 900px. The artwork and
+    the logo are real same-origin files imported with `?no-inline`: the Caddy CSP is
+    `default-src 'self'`, so a `data:` image (which Vite inlines under 4 KB) is blocked.
+  - The form side may carry a mint glow, a faint tower line drawing and a branch line
+    (`aria-hidden`, decoration). Mint is a fill, glow and stroke, never text (D-V10).
+  - The picture's own words (logo, English tagline) are baked in and are not localized.
+  - Still no card and no box-shadow, and no pipeline or ERP wording on a public screen.
 - **Expressive surfaces (D-V4 + D-V9).** Gradients, glows, textures and illustration appear
   **only** on: the hero receipt card, the Ink sidebar (Tower grid), the brand mark, chart area
   fills, hero bands on detail pages, the top band of entity cards (the store skyline), list
-  page header bands and drawer headers (§12.6). Still none on tables, forms, operational
+  page header bands and drawer headers (§12.6), and the public night frame (sign-in and
+  accept-invitation, above). Still none on tables, forms, operational
   buttons, banners or status surfaces. Pure ornament (skyline, storefront, Tower grid) is
   `aria-hidden`, at most 55% opacity, and hidden on narrow screens.
 - **Status colors are unchanged** (§3). Red, amber and green appear only on real states, and
@@ -810,6 +821,7 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
 | §3: no forced dark sidebar | The sidebar is Ink in both themes (§12.1). |
 | §2: identity not from ornament | Ornament only on the expressive surfaces in §12.1 (D-V4, D-V9). |
 | §3: no gradients | Only on the expressive surfaces in §12.1. |
+| §12.1 PW-5 (flat Ink public panel) and PC-5 (light form side) | The public screens are one dark night scene with artwork, a glow and a line drawing; other form asides stay light (§12.1, owner decision 2026-11-08). |
 | §4: Dubai only; nothing at page level larger than 24px | Display face for headings and figures (pending §12.8); Overview greeting and KPI sizes (§12.3). |
 | §5: panels shadowless; 8px controls, 12px objects | One resting elevation; panels and cards 20px, controls 10–12px, top-bar search 14px (§12.5). |
 | §9 nav: teal wash + Signal Line | Mint signal line on Ink (§12.2). |

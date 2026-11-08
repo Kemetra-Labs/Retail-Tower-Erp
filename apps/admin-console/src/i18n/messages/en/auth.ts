@@ -15,16 +15,10 @@ export const auth: MessagesOf<typeof ar> = {
     other: "Too many attempts. You can try again in {count}s.",
   },
   "auth.signIn.footer": "Protected platform · all activity is audited",
-  "auth.signIn.invitesOnly":
-    "Invitations arrive by email from your organization's admin. There is no self sign-up.",
+  "auth.signIn.welcome": "Welcome back",
 
   "auth.password.show": "Show password",
-  "auth.brand.flowTitle": "From the till to the books",
-  "auth.brand.flowPos": "POS",
-  "auth.brand.flowServer": "Server",
-  "auth.brand.headline": "All your stores in one place, with numbers you can trust.",
-  "auth.brand.body":
-    "Sales, stock, devices and ledger posting, from the same record the cashier sees.",
+  "auth.brand.tagline": "Every branch, under your eye",
 
   "auth.acceptInvitation.title": "Accept your invitation",
   "auth.acceptInvitation.titleInvalid": "Invitation",

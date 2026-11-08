@@ -34,16 +34,14 @@ export const auth = {
     other: "محاولات كثيرة جدًا. يمكنك المحاولة مرة أخرى بعد {count} ثانية.",
   },
   "auth.signIn.footer": "منصة محمية · يخضع كل نشاط للتدقيق",
-  "auth.signIn.invitesOnly": "تصل الدعوات بالبريد من مسؤول المؤسسة. لا يوجد تسجيل ذاتي.",
+  // Above the title on the sign-in screen only: a new invitee is not "back".
+  "auth.signIn.welcome": "مرحبًا بعودتك",
 
   // RT-971: the shared parts of the public screens (canvas «تسجيل الدخول»).
   "auth.password.show": "إظهار كلمة المرور",
-  "auth.brand.flowTitle": "من الكاشير إلى الدفاتر",
-  "auth.brand.flowPos": "نقاط البيع",
-  "auth.brand.flowServer": "الخادم",
-  "auth.brand.headline": "كل متاجرك في مكان واحد، بأرقام تثق فيها.",
-  "auth.brand.body":
-    "المبيعات والمخزون والأجهزة والترحيل المحاسبي، بنفس الحقيقة التي يراها الكاشير.",
+  // The line under the form (owner-approved board B, 2026-11-08). Owner wording;
+  // note UX-12 says a store is «المتجر», and this line says «الفروع».
+  "auth.brand.tagline": "كل الفروع تحت عينك",
 
   "auth.acceptInvitation.title": "قبول دعوتك",
   "auth.acceptInvitation.titleInvalid": "الدعوة",
