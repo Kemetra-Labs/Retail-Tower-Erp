@@ -156,7 +156,9 @@ describe('RT-117 SessionLockGate', () => {
     // RT-1095: the cashier unlocks on the sign-in PIN dock (dots, never a text field).
     const pin = await screen.findByTestId('pin-pad-dots');
     expect(screen.queryByLabelText('رمز PIN')).toBeNull();
-    expect(pin).toHaveFocus();
+    // The lock renders after getLockState resolves, outside act, so the
+    // dialog's focus effect can run after the dots are already in the DOM.
+    await waitFor(() => expect(pin).toHaveFocus());
     await userEvent.keyboard('1234');
     await userEvent.click(screen.getByRole('button', { name: 'فتح القفل' }));
 
