@@ -4,6 +4,23 @@
 
 Before creating, modifying, or reviewing any RT Jira issue, read and apply section 4A of the Retail Tower Project Operating System in Confluence. Do not proceed with issue changes that violate this contract.
 
+## Repo skills (skill map)
+
+Repo skills in [.claude/skills/](.claude/skills/README.md) add the Retail Tower facts that official and shared skills cannot know. When you use the official skill on the left, also use the RT skill on the right:
+
+| Official or shared skill | RT skill to add |
+|---|---|
+| `superpowers:*` for any RT Jira issue ("Execute RT-XX") | `executing-rt-issue` |
+| `safe-git-pr-workflow`, `pr-comments-triage`, CircleCI skills | `merging-rt-pull-requests` |
+| `pr-review`, CircleCI `write-config`, `api-design` on gated paths | `landing-gated-changes` |
+| `aws-core:*`, Datadog or Sentry skills for the lab | `operating-rt-lab` |
+| Any local command or test failing on Windows | `troubleshooting-windows-dev` |
+| `twg-jira` for reconciling RT issues with merged work | `reconciling-rt-jira-with-github` |
+
+Domain skills that trigger on their own: `nestjs-drizzle-bullmq` (Backend-Core), `driving-electron-via-cdp` (POS Electron), `ux-pos-console` (POS and Admin Console UX). Catalog: [.claude/skills/README.md](.claude/skills/README.md).
+
+Lessons learned while solving an RT problem go into the matching repo skill in the same PR, instead of a personal notes file (owner decision 2026-11-07).
+
 ## Monorepo rules
 
 This repository holds all four products (layout: [README.md](README.md)). The rules are MR-1…MR-9 ([ARCHITECTURE.md](ARCHITECTURE.md), [Confluence](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/55771138)). The program-wide operating instructions below still apply; where they speak of separate repositories, read them per product directory here.
