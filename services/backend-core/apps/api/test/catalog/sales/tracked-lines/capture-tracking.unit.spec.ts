@@ -38,6 +38,8 @@ describe("classifyCapturedLine", () => {
   it.each<[string, Partial<CapturedLineFacts>, string]>([
     ["an untracked product without tracking", { trackingMode: "none", hasTracking: false, identity: null }, "null"],
     ["an ad-hoc line without tracking", { productId: null, trackingMode: null, hasTracking: false, identity: null }, "null"],
+    ["an ad-hoc line with tracking (provenance only, comment 16275)", { productId: null, trackingMode: null }, "null"],
+    ["an ad-hoc line with an unknown identity", { productId: null, trackingMode: null, identity: null }, "null"],
   ])("not classified: %s", (_why, facts, expected) => {
     expect(causes(facts)).toEqual([expected]);
   });
@@ -47,7 +49,6 @@ describe("classifyCapturedLine", () => {
     ["a serial product without tracking", { trackingMode: "serial", hasTracking: false, identity: null }, "tracking_missing"],
     ["an unknown identity", { identity: null }, "identity_unknown"],
     ["another product's identity", { identity: { ...VALID.identity!, productId: OTHER } }, "identity_other_product"],
-    ["an ad-hoc line with tracking", { productId: null, trackingMode: null }, "identity_other_product"],
     [
       "another product's identity that is also held, expired and unvalidated",
       { identity: { productId: OTHER, expiryDate: "2020-01-01", hasEdgeMap: false }, qualityHoldId: "h", validationSent: false },

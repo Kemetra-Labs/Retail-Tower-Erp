@@ -2,7 +2,10 @@
  * Jira RT-451 slice S3 — the pure G7-9 ingest classification of one captured
  * line while tracked selling is on (`pos-sales/sales.yaml` `captureSale`,
  * "Tracked selling ON"; RT-50 G7-9, Q5). Capture never refuses a line for
- * tracking reasons: every line is accepted and classified.
+ * tracking reasons: every line is accepted, and every line of a tenant
+ * product is classified. An ad-hoc line (no `tenantProductRef`) is never
+ * classified: its `tracking`, if any, is provenance only, since the Tracking
+ * Resolution queue cannot bind a line without a product (comment 16275).
  *
  * When several rows match, the lower (more severe) row wins:
  *
@@ -79,6 +82,7 @@ export function isTrackedMode(mode: string | null): boolean {
 }
 
 export function classifyCapturedLine(line: CapturedLineFacts): LineClassification {
+  if (line.productId === null) return { trackingClass: null };
   if (!line.hasTracking) {
     return isTrackedMode(line.trackingMode)
       ? { trackingClass: "unresolved", reason: "tracking_missing" }
@@ -86,7 +90,7 @@ export function classifyCapturedLine(line: CapturedLineFacts): LineClassificatio
   }
   const { identity } = line;
   if (identity === null) return { trackingClass: "unresolved", reason: "identity_unknown" };
-  if (line.productId === null || identity.productId !== line.productId) {
+  if (identity.productId !== line.productId) {
     return { trackingClass: "unresolved", reason: "identity_other_product" };
   }
   const findings: LineFinding[] = [];

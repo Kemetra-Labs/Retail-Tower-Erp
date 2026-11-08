@@ -1,6 +1,6 @@
 ### Added
 - RT-451 S3 capture tracking `[GATED: migration]` (captain decisions under owner
-  delegation, RT-451 comments 16262 and 16269; migration M2 with the content of comment
+  delegation, RT-451 comments 16262, 16269 and 16275; migration M2 with the content of comment
   15288's S3 row):
   - Migration `0089_sale_capture_tracking`: the frozen tracking snapshot and
     G7-9 class on `sale_lines`, `sales.safety_revision` / `safety_synced_at` /
@@ -29,8 +29,12 @@
     `tracking`, is an ordinary line: nothing is classified or refused, and a
     sent `tracking` is stored as received (provenance, still hashed)
     (sales.yaml 1.21.0, OD-T4; RT-451 comment 16269).
-  - The Tracking Profile setter lifts `409 tracking_activation_pending` while
-    tracked selling is on.
+  - The Tracking Profile setter lifts `409 tracking_activation_pending` for
+    `batch` only, while tracked selling is on. `serial` stays refused (RT-50
+    Q11; comment 16275).
+  - An ad-hoc line (no tenant product) is never classified. A `tracking` on it
+    is stored as received (provenance), with no finding and no
+    `tracking_unresolved` (comment 16275).
   - A per-product capture/profile advisory lock is added (comment 11790):
     capture takes it shared and the setter exclusive. A first sale line and a
     profile change can therefore never both commit unseen by each other.

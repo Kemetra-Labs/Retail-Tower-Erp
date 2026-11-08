@@ -6,9 +6,11 @@
  * ERPNext Item never defines it.
  *
  * Activation (RT-451 S3, comment 11790, lifted with capture enforcement): a
- * `batch` or `serial` request is accepted only while tracked selling is on for
- * the tenant (the deployment gate `POS_TRACKED_SELLING_ENABLED` AND the
- * tenant's switch, 0086). While it is off it stays `activation_pending` (409
+ * `batch` request is accepted only while tracked selling is on for the tenant.
+ * A `serial` request stays `activation_pending` (RT-50 Q11, serial selling is
+ * fail-closed; comment 16275). Tracked selling is on while the deployment
+ * gate `POS_TRACKED_SELLING_ENABLED` AND the tenant's switch (0086) are both
+ * on. While it is off, `batch` also stays `activation_pending` (409
  * `tracking_activation_pending`, "while tracked selling is not enabled" in
  * `catalog/tracking-profile.yaml`), so no untracked sale can lock a tracked
  * profile that nothing enforces (owner decision on PR #749).
@@ -166,9 +168,12 @@ export class TrackingProfileService {
     );
     const row = current.rows[0];
     if (!row) return { kind: "not_found" };
-    // Owner decision on PR #749 (RT-448), lifted by RT-451 S3: a tracked
-    // profile is selectable only while tracked selling is on for the tenant.
-    if (input.trackingMode !== "none" && !(await readTrackedSellingOn(client, input.tenantId))) {
+    // Owner decision on PR #749 (RT-448), lifted by RT-451 S3 for `batch`
+    // only, and only while tracked selling is on for the tenant. `serial`
+    // stays refused: serial selling is fail-closed (RT-50 Q11; captain
+    // decision RT-451 comment 16275).
+    if (input.trackingMode === "serial") return { kind: "activation_pending" };
+    if (input.trackingMode === "batch" && !(await readTrackedSellingOn(client, input.tenantId))) {
       return { kind: "activation_pending" };
     }
 

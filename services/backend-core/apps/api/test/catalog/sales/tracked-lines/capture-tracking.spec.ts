@@ -32,7 +32,9 @@
  *     capture waits for an in-flight profile change and classifies against the
  *     profile it committed; a profile change waits for an in-flight capture
  *     and then sees its line (`locked`);
- *   - `tracking_activation_pending` is lifted only while tracked selling is on.
+ *   - `tracking_activation_pending` is lifted for `batch` only, and only while
+ *     tracked selling is on; `serial` stays refused (Q11, comment 16275);
+ *   - an ad-hoc line's `tracking` is provenance only (comment 16275).
  */
 import { randomUUID } from "node:crypto";
 
@@ -355,7 +357,6 @@ describe("RT-451 S3 — tracked selling ON: the G7-9 classification", () => {
     ["a tracked product's line without tracking", trackedLine(P_BATCH), "tracking_missing"],
     ["an unknown identity", trackedLine(P_BATCH, tracking(randomUUID())), "identity_unknown"],
     ["another product's identity", trackedLine(P_BATCH, tracking(I_OTHER, { validationId: V_OTHER_IDENTITY })), "identity_other_product"],
-    ["an ad-hoc line with tracking", { ...trackedLine(P_BATCH, tracking(I_OK)), tenantProductRef: undefined }, "identity_other_product"],
     ["a serial product's line with its serial identity (never a lot, Q11)", trackedLine(P_SERIAL, tracking(I_SERIAL)), "identity_unknown"],
     ["a serial product's line without tracking", trackedLine(P_SERIAL), "tracking_missing"],
   ])("row 4: %s makes the sale tracking_unresolved, with no finding", async (_why, line, reason) => {
@@ -375,6 +376,19 @@ describe("RT-451 S3 — tracked selling ON: the G7-9 classification", () => {
       ["flagged", null],
     ]);
     expect(s.findings.map((f) => f.tracking_identity_id)).toEqual([I_HELD, I_HELD]);
+  });
+
+  it("an ad-hoc line carrying tracking is ordinary: stored as received, not classified (comment 16275)", async () => {
+    if (skip()) return;
+    await on();
+    const { tenantProductRef: _p, ...adHoc } = trackedLine(P_BATCH, tracking(I_HELD));
+    const res = await post(body("adhoc", [adHoc]));
+    expect(res.status).toBe(201);
+    expect(res.body.lines[0].tracking.identityId).toBe(I_HELD);
+    const s = await stored(res.body.saleRef);
+    expect(s.status).toBeNull();
+    expect(s.lines).toEqual([{ tracking_identity_id: I_HELD, tracking_class: null, tracking_unresolved_reason: null }]);
+    expect(s.findings).toEqual([]);
   });
 
   it("row 4 wins over a hold: another product's held identity records no finding", async () => {
@@ -466,7 +480,20 @@ describe("RT-451 S3 — the Tracking Profile setter", () => {
     expect(await setBatch(P_FRESH)).toEqual({ kind: "activation_pending" });
   });
 
-  it("lifts it while tracked selling is on", async () => {
+  it("keeps a serial profile refused even while tracked selling is on (Q11, comment 16275)", async () => {
+    if (skip()) return;
+    await on();
+    const res = await setter().set({
+      tenantId: TENANT_A,
+      productId: P_FRESH,
+      trackingMode: "serial",
+      expiryRequired: false,
+      actorUserId: ACTOR,
+    });
+    expect(res).toEqual({ kind: "activation_pending" });
+  });
+
+  it("lifts it for batch while tracked selling is on", async () => {
     if (skip()) return;
     await on();
     const res = await setBatch(P_FRESH);
