@@ -476,16 +476,23 @@ mainSteps:
           # The agent is the opt-in compose profile `datadog`, so the plain `up -d` above never
           # touches it, and compose never recreates it for a config-only change (its check config
           # is inline in the compose file). Recreate it from the new wrapper only when it was
-          # running and the release's compose files changed. Telemetry never blocks or rolls back
-          # a deploy: this runs after the app is committed, never calls stop, never pulls the
-          # agent image and never renders compose config (that would log DD_API_KEY).
+          # running and either the release's compose files changed or the agent was created from
+          # neither release (an earlier failed recreate, or a deploy by an older document version).
+          # Telemetry never blocks or rolls back a deploy: this runs after the app is committed,
+          # never calls stop, never pulls the agent image and never renders compose config (that
+          # would log DD_API_KEY). `pass` means the agent container is running again, not that
+          # every check loads: confirm a new scrape in Datadog.
           datadog_agent_step() {
-            local name changed=no
+            local name files changed=no
             AGENT_RESULT=skip
             service_container datadog-agent >/dev/null || { echo "datadog-agent: not running, left as is"; return 0; }
             for name in docker-compose.prod.yml docker-compose.release.yml; do
               cmp -s "$CUR_DIR/$name" "$TGT_DIR/$name" || changed=yes
             done
+            # Only the agent's compose labels leave docker ps (JSON, not a Go template: SSM reads
+            # double braces as a parameter); unreadable labels count as stale.
+            files="$(docker ps --no-trunc --filter label=com.docker.compose.service=datadog-agent --filter status=running --format json </dev/null | python3 -c 'import json, sys; print(json.loads(sys.stdin.readline())["Labels"])')" || files=""
+            case "$files" in *"$CUR_DIR/"* | *"$TGT_DIR/"*) ;; *) changed=yes ;; esac
             [ "$changed" = yes ] || { echo "datadog-agent: compose files unchanged, left as is"; return 0; }
             AGENT_RESULT=fail
             "$DC" --profile datadog up -d --no-deps --force-recreate datadog-agent </dev/null || return 0

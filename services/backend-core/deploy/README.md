@@ -498,11 +498,13 @@ runs these steps and stops at the first failure:
    (Deploy step 4: what the previous release wrote while it still ran).
 8. `/health/ready` and `console-smoke.sh` on the origin.
 9. Cancel the auto-revert.
-10. Datadog Agent (RT-1282): if the `datadog` profile Agent is running and the
-    target release's compose files differ from the current release's, recreate it
-    from the new wrapper (`--profile datadog up -d --no-deps --force-recreate
-    datadog-agent`). It reports `RT_GATE datadog-agent pass|skip|fail` and never
-    stops or reverts the deploy; on `fail`, recreate it by hand with that command.
+10. Datadog Agent (RT-1282): if the `datadog` profile Agent is running, and either
+    the target release's compose files differ from the current release's or the
+    Agent was created from neither release, recreate it from the new wrapper
+    (`--profile datadog up -d --no-deps --force-recreate datadog-agent`). It reports
+    `RT_GATE datadog-agent pass|skip|fail` and never stops or reverts the deploy; on
+    `fail`, recreate it by hand with that command. `pass` means the Agent runs
+    again, not that every check loads: confirm a new scrape in Datadog.
 
 A same-release redeploy (`current_release` equal to `backend_release`) keeps the
 wrapper and `backend.env` unchanged and still runs every gate, so it proves the

@@ -29,13 +29,14 @@ const command = doc.mainSteps.map((s) => s.inputs.runCommand.join('\n')).join('\
 const body = /<<'RT_DEPLOY_SCRIPT'\n([\s\S]*?)\nRT_DEPLOY_SCRIPT\n/.exec(command)?.[1] ?? '';
 const step = /^datadog_agent_step\(\) \{\n[\s\S]*?\n\}$/m.exec(body)?.[0] ?? '';
 
+// The step reads docker ps JSON with python3, as the document's other docker helpers do.
 function bashWorks(): boolean {
-  const probe = spawnSync('bash', ['-c', 'printf ok'], { encoding: 'utf8' });
-  return probe.status === 0 && probe.stdout === 'ok';
+  const probe = spawnSync('bash', ['-c', 'python3 -c "print(1)"'], { encoding: 'utf8' });
+  return probe.status === 0 && probe.stdout.trim() === '1';
 }
 const haveBash = bashWorks();
 if (!haveBash && process.env['CI'])
-  throw new Error('bash is required in CI for the agent step checks');
+  throw new Error('bash and python3 are required in CI for the agent step checks');
 const itBash = haveBash ? it : it.skip;
 
 type Case = {
@@ -43,6 +44,8 @@ type Case = {
   changed: 'none' | 'prod' | 'release' | 'missing';
   upFails?: boolean;
   exitsAfterUp?: boolean;
+  /** Which release the running agent was created from (its compose config_files label). */
+  createdFrom?: 'current' | 'target' | 'older' | 'unreadable';
 };
 
 /** Runs the real step from the document with a stub wrapper and a stub service_container. */
@@ -65,11 +68,21 @@ function runStep(c: Case): {
     `printf '%s\\n' '#!/bin/bash' 'printf "%s\\n" "$*" >> "${'$'}{0%/*}/calls"' ${c.upFails ? "'exit 1'" : ''} ${c.exitsAfterUp ? '\'rm -f "${0%/*}/running"\'' : ''} > "$DC"`,
     'chmod +x "$DC"',
     'service_container() { [ -e "$W/running" ] && printf "cid-%s\\n" "$1"; }',
+    // docker ps answers one JSON line whose Labels name the compose files the agent came from.
+    {
+      current: 'LABEL="$CUR_DIR/docker-compose.prod.yml,$CUR_DIR/docker-compose.release.yml"',
+      target: 'LABEL="$TGT_DIR/docker-compose.prod.yml,$TGT_DIR/docker-compose.release.yml"',
+      older:
+        'LABEL="$W/release-cur0/docker-compose.prod.yml,$W/release-cur0/docker-compose.release.yml"',
+      unreadable: 'LABEL=""',
+    }[c.createdFrom ?? 'current'],
+    `docker() { printf '%s\\n' "docker $*" >> "$W/docker"; ${c.createdFrom === 'unreadable' ? 'return 1' : `printf '{"Labels":"com.docker.compose.project.config_files=%s,com.docker.compose.service=datadog-agent"}\\n' "$LABEL"`}; }`,
     'stop() { echo "STOP:$*"; exit 3; }',
     step,
     'datadog_agent_step >/dev/null',
     'printf "result=%s\\n" "$AGENT_RESULT"',
-    'printf "calls=%s\\n" "$(cat "$W/calls" 2>/dev/null || true)"',
+    // every wrapper call, joined, so a second call cannot hide on another line
+    'printf "calls=%s\\n" "$(paste -sd "|" "$W/calls" 2>/dev/null || true)"',
   ].join('\n');
   const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
   const line = (k: string): string => new RegExp(`^${k}=(.*)$`, 'm').exec(r.stdout)?.[1] ?? '';
@@ -155,6 +168,38 @@ describe('RT-BackendLabDeploy Datadog agent step (RT-1282)', () => {
       });
     },
   );
+
+  itBash.each(['older', 'unreadable'] as const)(
+    'compose unchanged but the agent was created from neither release (%s): one recreate, pass',
+    (createdFrom) => {
+      // an earlier failed recreate, or a deploy by an older document, must not hide behind skip
+      // unreadable JSON leaves a parse error on stderr, which the document sends to its root-only log
+      expect(runStep({ running: true, changed: 'none', createdFrom })).toMatchObject({
+        status: 0,
+        result: 'pass',
+        calls: RECREATE,
+      });
+    },
+  );
+
+  itBash('compose unchanged and the agent already runs the target release: skip', () => {
+    expect(runStep({ running: true, changed: 'none', createdFrom: 'target' })).toEqual({
+      status: 0,
+      result: 'skip',
+      calls: '',
+      stderr: '',
+    });
+  });
+
+  it('reads only the compose labels from docker ps JSON, with stdin closed and no {{ }}', () => {
+    const ps = step.split('\n').filter((l) => l.includes('docker ps') && !l.trim().startsWith('#'));
+    expect(ps).toHaveLength(1);
+    expect(ps[0]).toContain(
+      `--format json </dev/null | python3 -c 'import json, sys; print(json.loads(sys.stdin.readline())["Labels"])')" || files=""`,
+    );
+    // SSM reads {{ }} as a parameter placeholder anywhere in the document
+    expect(step).not.toContain('{{');
+  });
 
   itBash('recreate fails: fail, and the run carries on to RT_DONE', () => {
     expect(runStep({ running: true, changed: 'prod', upFails: true })).toEqual({
