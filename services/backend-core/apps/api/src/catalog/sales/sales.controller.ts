@@ -117,6 +117,7 @@ import {
   SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
+  SaleTrackingWhileOffError,
   TerminalEventProvenanceConflictError,
   type SaleProjection,
   type TerminalEventProjection,
@@ -135,6 +136,10 @@ const SALE_REPLAY_MISMATCH_AUDIT_ACTION = "sale.replay_payload_mismatch_rejected
 function toCaptureHttpError(err: unknown): unknown {
   const responsibility = toResponsibilityHttpError(err);
   if (responsibility !== null) return responsibility;
+  if (err instanceof SaleTrackingWhileOffError) {
+    // RT-451 S3 (sales.yaml 1.21.0, OD-T4): the existing 400, no new code.
+    return new BadRequestException({ code: "validation_error", message: err.message });
+  }
   if (err instanceof SaleTenderMismatchError) {
     return new UnprocessableEntityException({
       code: "sale_tender_mismatch",
@@ -374,12 +379,21 @@ export class SalesController {
     // stay in the idempotency fingerprint, which covers the raw body.)
     // RT-539: `receipt` is presentation, not a sale fact (sales.yaml 1.9.0):
     // dropped from the hashed body and stored on its own, first write wins.
+    // RT-451 S3: `safetyRevision` / `safetySyncedAt` are the till's safety
+    // provenance (RT-50 G7-7), not sale facts: dropped from the hashed body
+    // the same way and stored on their own, first write wins.
     const {
       operatorUserId: _attributionClaim,
       admissionCheckAt: _admissionCheckAt,
       receipt,
+      safetyRevision,
+      safetySyncedAt,
       ...saleBody
     } = body;
+    const safety = {
+      ...(safetyRevision === undefined ? {} : { safetyRevision }),
+      ...(safetySyncedAt === undefined ? {} : { safetySyncedAt }),
+    };
 
     let result;
     try {
@@ -393,6 +407,7 @@ export class SalesController {
         authPath: _attributionClaim === undefined ? "envelope" : "device",
         body: saleBody,
         ...(receipt === undefined ? {} : { receipt }),
+        safety,
       });
     } catch (err) {
       if (err instanceof SalePayloadReplayConflictError) this.recordReplayMismatch(request, err);

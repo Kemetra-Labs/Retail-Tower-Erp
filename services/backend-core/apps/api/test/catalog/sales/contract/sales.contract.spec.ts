@@ -121,13 +121,13 @@ const APPROVED_TENDER_FIELDS = [
 /**
  * Capture fields the contract declares before the server accepts them.
  * RT-539 added the RT-537 `receipt` to the capture DTO; RT-418 added the
- * RT-417 `responsibilities`. RT-450 declares the Inventory Safety Revision
- * pair ahead of the DTO until the RT-451 runtime (contract-only).
+ * RT-417 `responsibilities`; RT-451 S3 added the RT-450 Inventory Safety
+ * Revision pair. None is ahead now.
  */
-const CONTRACT_AHEAD_OF_CAPTURE_DTO: readonly string[] = ["safetyRevision", "safetySyncedAt"];
+const CONTRACT_AHEAD_OF_CAPTURE_DTO: readonly string[] = [];
 
-/** `CaptureSaleLine` fields the contract declares before the line DTO accepts them (RT-450, until RT-451). */
-const CONTRACT_AHEAD_OF_CAPTURE_LINE_DTO: readonly string[] = ["tracking"];
+/** `CaptureSaleLine` fields the contract declares before the line DTO accepts them (RT-451 S3 added `tracking`). */
+const CONTRACT_AHEAD_OF_CAPTURE_LINE_DTO: readonly string[] = [];
 
 /** A property's `maxLength` in a schema; NaN when the schema does not bound it. */
 function maxLengthOf(schemaObject: { properties?: Record<string, unknown> } | undefined, prop: string): number {

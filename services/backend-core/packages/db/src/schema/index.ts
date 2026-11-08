@@ -42,6 +42,7 @@ export * from "./sales/sale-responsibilities";
 export * from "./sales/sale-credit-reversals";
 export * from "./sales/refund-executions";
 export * from "./sales/sale-sync-deadletters";
+export * from "./sales/sale-line-findings";
 export * from "./settlement/payer-account";
 export * from "./settlement/receivable";
 export * from "./settlement/payment-application";

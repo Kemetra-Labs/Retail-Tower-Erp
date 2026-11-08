@@ -22,6 +22,7 @@ import { sql } from "drizzle-orm";
 import {
   char,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -61,6 +62,18 @@ export const saleLines = pgTable(
     // RT-538 (0047): the line's original receipt position (1-based); NULL for
     // lines captured before RT-539 stores it.
     lineSeq: integer("line_seq"),
+    // RT-451 S3 (0089): the frozen tracking snapshot as the till sent it
+    // (`CaptureSaleLineTracking`; no FK: an unknown identity is classified),
+    // and the line's G7-9 class while tracked selling was on.
+    trackingIdentityId: uuid("tracking_identity_id"),
+    trackingCode: text("tracking_code"),
+    trackingExpiryDate: date("tracking_expiry_date"),
+    trackingSelection: text("tracking_selection"),
+    trackingValidationId: uuid("tracking_validation_id"),
+    /** 'valid' (row 1) | 'flagged' (rows 2-3) | 'unresolved' (row 4); NULL when not classified. */
+    trackingClass: text("tracking_class"),
+    /** Row 4 only: tracking_missing | identity_unknown | identity_other_product. */
+    trackingUnresolvedReason: text("tracking_unresolved_reason"),
   },
   (t) => [
     check(
@@ -75,6 +88,44 @@ export const saleLines = pgTable(
       sql`${t.taxAmount} IS NULL OR ${t.taxAmount} >= 0`,
     ),
     check("sale_lines_line_seq_positive", sql`${t.lineSeq} IS NULL OR ${t.lineSeq} >= 1`),
+    // RT-451 S3 (0089, NOT VALID): the snapshot is whole or absent, and only
+    // a row-4 line carries a reason.
+    check(
+      "sale_lines_tracking_snapshot_whole",
+      sql`(${t.trackingIdentityId} IS NULL) = (${t.trackingCode} IS NULL) AND (${t.trackingIdentityId} IS NULL) = (${t.trackingSelection} IS NULL) AND (${t.trackingIdentityId} IS NOT NULL OR (${t.trackingExpiryDate} IS NULL AND ${t.trackingValidationId} IS NULL))`,
+    ),
+    check(
+      "sale_lines_tracking_code_shape",
+      sql`${t.trackingCode} IS NULL OR char_length(${t.trackingCode}) BETWEEN 1 AND 128`,
+    ),
+    check(
+      "sale_lines_tracking_expiry_in_range",
+      sql`${t.trackingExpiryDate} IS NULL OR ${t.trackingExpiryDate} BETWEEN DATE '0001-01-01' AND DATE '9999-12-31'`,
+    ),
+    check(
+      "sale_lines_tracking_selection_allowed",
+      sql`${t.trackingSelection} IS NULL OR ${t.trackingSelection} IN ('scanned', 'fefo_suggested', 'operator_selected')`,
+    ),
+    check(
+      "sale_lines_tracking_class_allowed",
+      sql`${t.trackingClass} IS NULL OR ${t.trackingClass} IN ('valid', 'flagged', 'unresolved')`,
+    ),
+    check(
+      "sale_lines_tracking_unresolved_reason_allowed",
+      sql`${t.trackingUnresolvedReason} IS NULL OR ${t.trackingUnresolvedReason} IN ('tracking_missing', 'identity_unknown', 'identity_other_product')`,
+    ),
+    check(
+      "sale_lines_tracking_unresolved_reason_iff",
+      sql`(${t.trackingUnresolvedReason} IS NOT NULL) = (${t.trackingClass} IS NOT DISTINCT FROM 'unresolved')`,
+    ),
+    check(
+      "sale_lines_tracking_snapshot_classified",
+      sql`${t.trackingIdentityId} IS NULL OR ${t.trackingClass} IS NOT NULL`,
+    ),
+    check(
+      "sale_lines_tracking_missing_has_no_snapshot",
+      sql`(${t.trackingUnresolvedReason} IS NOT DISTINCT FROM 'tracking_missing') = (${t.trackingClass} IS NOT NULL AND ${t.trackingIdentityId} IS NULL)`,
+    ),
     index("idx_sale_lines_sale").on(t.saleId),
     index("idx_sale_lines_tenant_store").on(t.tenantId, t.storeId),
     // RT-459 (0082, built CONCURRENTLY): the Tracking Profile lock probe

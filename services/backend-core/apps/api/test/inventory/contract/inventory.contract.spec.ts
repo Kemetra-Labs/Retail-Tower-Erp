@@ -88,7 +88,7 @@ const OPERATION_IDS = [
   "getTrackingIdentityPositions",
   "listTrackingIdentityExpiryCorrections",
   // RT-451 Step 0 (contract-only): the Tracking Resolution queue, its bind and
-  // the sale-line findings.
+  // the sale-line findings (served since RT-451 S3).
   "listTrackingResolutionQueue",
   "bindTrackingResolution",
   "listSaleLineFindings",
@@ -1057,7 +1057,6 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
   const STEP0: Array<[string, string, string]> = [
     [RESOLUTION_QUEUE_PATH, "get", "listTrackingResolutionQueue"],
     [RESOLUTION_BIND_PATH, "post", "bindTrackingResolution"],
-    [SALE_LINE_FINDINGS_PATH, "get", "listSaleLineFindings"],
   ];
 
   it("was introduced at 1.9.0-draft and its note cites the owner decisions (version moved on in RT-1081)", () => {
@@ -1074,8 +1073,17 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
     expect(o.responses?.["429"]).toEqual({ $ref: "#/components/responses/TooManyRequests" });
   });
 
+  it("serves listSaleLineFindings with the RT-451 S3 runtime (no contract-only marker)", () => {
+    const o = op(SALE_LINE_FINDINGS_PATH, "get");
+    expect(o.operationId).toBe("listSaleLineFindings");
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
+    expect(o.security).toEqual([{ cookieAuth: [] }]);
+    expect(o.responses?.["429"]).toEqual({ $ref: "#/components/responses/TooManyRequests" });
+  });
+
   it("pages both reads with an RT-731 keyset cursor, limit 1-200 and a required nullable nextCursor", () => {
-    for (const [path, , ] of STEP0.filter(([, m]) => m === "get")) {
+    for (const path of [RESOLUTION_QUEUE_PATH, SALE_LINE_FINDINGS_PATH]) {
       const params = (op(path, "get").parameters ?? []) as Array<{ name?: string; schema?: Record<string, unknown> }>;
       expect(params.find((p) => p.name === "cursor")?.schema).toMatchObject({ type: "string", maxLength: 1024 });
       expect(params.find((p) => p.name === "limit")?.schema).toMatchObject({ minimum: 1, maximum: 200, default: 50 });

@@ -87,6 +87,33 @@ export const CaptureSaleLineDiscountSchema = z
     }
   });
 
+/** A calendar date `YYYY-MM-DD` in years 0001-9999 that exists (the DB `date` range of 0089). */
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD date")
+  .refine((value) => {
+    if (value.startsWith("0000")) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "must be a real calendar date");
+
+/**
+ * RT-451 S3 (contract `CaptureSaleLineTracking`, RT-450): the identity a line
+ * of a batch-tracked product sold, as the till received it from the TLV. A
+ * sale fact (hashed, frozen on the line). Its shape is a 400; what it names is
+ * classified by the service (G7-9), never refused — except that while tracked
+ * selling is off any `tracking` is refused (sales.yaml 1.21.0, OD-T4).
+ */
+export const CaptureSaleLineTrackingSchema = z
+  .object({
+    identityId: z.string().uuid(),
+    code: z.string().min(1).max(128).refine(hasNoNul, NO_NUL_MESSAGE),
+    expiryDate: calendarDate.optional(),
+    selection: z.enum(["scanned", "fefo_suggested", "operator_selected"]),
+    validationId: z.string().uuid().optional(),
+  })
+  .strict();
+
 export const CaptureSaleLineSchema = z
   .object({
     lineName: z.string().min(1).max(500).refine(hasNoNul, NO_NUL_MESSAGE),
@@ -100,6 +127,8 @@ export const CaptureSaleLineSchema = z
     // RT-740: optional manual discount; when present, lineAmount is the net.
     // A sale fact (hashed), not stored in this version.
     discount: CaptureSaleLineDiscountSchema.optional(),
+    // RT-451 S3: the line's tracking identity (hashed; frozen on the line).
+    tracking: CaptureSaleLineTrackingSchema.optional(),
   })
   .strict();
 
@@ -275,6 +304,17 @@ const CaptureSaleRequestObject = z
     // (hashed); accepted on the operatorAuthorization path only (the service
     // refuses it on the device path, after a replay resolves).
     responsibilities: responsibilityList.optional(),
+    // RT-451 S3 (RT-50 G7-7): the Inventory Safety Revision the till held and
+    // when it last synced it. Provenance, never a sale fact: the controller
+    // drops both from payload_hash (they stay in the idempotency fingerprint)
+    // and they are stored first-write-wins whatever the switch state.
+    safetyRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+    // Year 0000 is not a Postgres timestamptz (22008): a 400, never a 500.
+    safetySyncedAt: z
+      .string()
+      .datetime()
+      .refine((value) => !value.startsWith("0000"), "must be a representable instant")
+      .optional(),
   })
   .strict();
 
@@ -374,5 +414,6 @@ export type CaptureSaleRequestDto = z.infer<typeof CaptureSaleRequestWithTenders
 export type SaleTenderDto = z.infer<typeof SaleTenderSchema>;
 export type CaptureSaleLineDto = z.infer<typeof CaptureSaleLineSchema>;
 export type CaptureSaleLineDiscountDto = z.infer<typeof CaptureSaleLineDiscountSchema>;
+export type CaptureSaleLineTrackingDto = z.infer<typeof CaptureSaleLineTrackingSchema>;
 export type CaptureSaleReceiptDto = z.infer<typeof CaptureSaleReceiptSchema>;
 export type SaleResponsibilityDto = z.infer<typeof SaleResponsibilitySchema>;

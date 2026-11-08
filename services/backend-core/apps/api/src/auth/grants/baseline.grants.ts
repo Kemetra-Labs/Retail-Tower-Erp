@@ -88,8 +88,9 @@ export const GRANTS: GrantFragment = {
     ["stock_locations", "INSERT"],
     // RT-448 (0045): the tracking-identity list reads identities. Read-only in
     // this release: nothing writes identities or the edge map yet (RT-453), so
-    // neither INSERT nor any erpnext_tracking_map privilege is required. No
-    // UPDATE / DELETE policy; never UPDATE, DELETE or TRUNCATE.
+    // INSERT is not required. RT-451 S3 adds SELECT on erpnext_tracking_map in
+    // sale-line-findings.grants.ts (capture reads it). No UPDATE / DELETE
+    // policy; never UPDATE, DELETE or TRUNCATE.
     ["tracking_identities", "SELECT"],
     // RT-435 (0056): a status move or relocation writes its event record, and a
     // replay reads it back. Append-only (no UPDATE / DELETE policy); never UPDATE,
