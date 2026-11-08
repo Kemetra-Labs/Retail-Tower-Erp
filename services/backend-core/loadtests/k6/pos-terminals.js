@@ -23,7 +23,7 @@
 //     -v "$PWD/loadtests/k6:/scripts" grafana/k6:0.50.0 run /scripts/pos-terminals.js \
 //     --summary-export /scripts/last-pos-terminals.json
 
-import { fail } from "k6";
+import { fail, sleep } from "k6";
 import exec from "k6/execution";
 
 import {
@@ -46,6 +46,7 @@ if (!Number.isInteger(SALES_PER_HOUR) || SALES_PER_HOUR < 1 || SALES_PER_HOUR > 
 }
 const DURATION = __ENV.LOAD_DURATION || "15m";
 const CATALOG_EVERY = __ENV.LOAD_CATALOG_EVERY || "5m";
+const CATALOG_EVERY_S = durationSeconds(CATALOG_EVERY, "LOAD_CATALOG_EVERY");
 const RUN_ID = requireEnv("LOAD_RUN_ID");
 const CURRENCY = requireEnv("LOAD_CURRENCY");
 
@@ -61,14 +62,13 @@ export const options = {
       preAllocatedVUs: TERMINALS,
       maxVUs: Math.min(TERMINALS, MAX_TERMINALS),
     },
+    // One long-lived VU per terminal, so each terminal keeps its own catalog
+    // cursor (k6 VUs share no mutable state): snapshot first, then deltas.
     catalog: {
-      executor: "constant-arrival-rate",
+      executor: "constant-vus",
       exec: "readCatalog",
-      rate: TERMINALS,
-      timeUnit: CATALOG_EVERY,
+      vus: TERMINALS,
       duration: DURATION,
-      preAllocatedVUs: TERMINALS,
-      maxVUs: Math.min(TERMINALS, MAX_TERMINALS),
     },
   },
   thresholds: abortThresholds("pos_sale"),
@@ -95,8 +95,19 @@ export function sell(data) {
   captureSale(t, saleBody(t, data.products, CURRENCY, new Date().toISOString(), RUN_ID), "pos_sale");
 }
 
-const cursors = {};
+// Each catalog VU claims one terminal on its first iteration and keeps it.
+// constant-vus starts exactly TERMINALS VUs together, so their first
+// iterations take scenario iteration numbers 0..TERMINALS-1: one terminal each.
+let catalogTerminal = null;
+let catalogCursor = null;
 export function readCatalog(data) {
-  const t = terminalFor(data);
-  cursors[t.index] = catalogDeltas(t, cursors[t.index]);
+  if (!catalogTerminal) catalogTerminal = terminalFor(data);
+  catalogCursor = catalogDeltas(catalogTerminal, catalogCursor);
+  sleep(CATALOG_EVERY_S);
+}
+
+function durationSeconds(value, name) {
+  const m = /^(\d+)(s|m|h)$/.exec(value);
+  if (!m || Number(m[1]) < 1) fail(`${name} must look like 30s, 5m or 1h`);
+  return Number(m[1]) * { s: 1, m: 60, h: 3600 }[m[2]];
 }

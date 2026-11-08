@@ -12,8 +12,10 @@
 -- sets the tenant context the way the API does). A role without access returns
 -- all-zero counts and no error, so a zero `sales_stored` means check the role first.
 --
--- k6 sales carry source_system = 'k6-perf' and an external_id that starts with
--- the run id (lib/pos.js saleBody), so nothing outside the run is counted.
+-- k6 sales carry source_system = 'k6-perf' and external_id
+-- '<run id>-t<terminal>-<uuid>' (lib/pos.js saleBody). The run id is taken
+-- back out of that shape and compared whole, so run `trial` never counts the
+-- sales of run `trial-repeat`.
 
 BEGIN TRANSACTION READ ONLY;
 
@@ -21,7 +23,7 @@ WITH run_sales AS (
   SELECT s.id, s.tenant_id, s.external_id, s.occurred_at, s.received_at, s.created_at
   FROM sales s
   WHERE s.source_system = 'k6-perf'
-    AND starts_with(s.external_id, :'run_id' || '-')
+    AND substring(s.external_id FROM '^(.+)-t[0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') = :'run_id'
 ),
 run_posts AS (
   SELECT p.sale_id, p.status, p.posted_at, p.created_at AS projected_at
@@ -39,16 +41,21 @@ SELECT
   (SELECT count(*) FROM run_posts WHERE status = 'failed_transient')    AS failed_transient,
   (SELECT count(*) FROM run_posts WHERE status = 'permanently_rejected') AS permanently_rejected,
   (SELECT count(*) FROM run_sales rs
-     WHERE NOT EXISTS (SELECT 1 FROM run_posts rp WHERE rp.sale_id = rs.id)) AS sales_without_posting_row;
-
--- ERP posting lag: from the sale reaching Backend-Core to the posted ack.
-SELECT
-  count(*)                                                                         AS posted_sales,
-  percentile_cont(0.50) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (rp.posted_at - rs.received_at))) AS lag_p50_s,
-  percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (rp.posted_at - rs.received_at))) AS lag_p95_s,
-  max(EXTRACT(EPOCH FROM (rp.posted_at - rs.received_at)))                         AS lag_max_s
-FROM run_posts rp
-JOIN run_sales rs ON rs.id = rp.sale_id
-WHERE rp.status = 'posted' AND rp.posted_at IS NOT NULL;
+     WHERE NOT EXISTS (SELECT 1 FROM run_posts rp WHERE rp.sale_id = rs.id)) AS sales_without_posting_row,
+  -- ERP posting lag: from the sale reaching Backend-Core to the posted ack.
+  lag.posted_sales,
+  lag.lag_p50_s,
+  lag.lag_p95_s,
+  lag.lag_max_s
+FROM (
+  SELECT
+    count(*)                                                                       AS posted_sales,
+    percentile_cont(0.50) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (rp.posted_at - rs.received_at))) AS lag_p50_s,
+    percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (rp.posted_at - rs.received_at))) AS lag_p95_s,
+    max(EXTRACT(EPOCH FROM (rp.posted_at - rs.received_at)))                       AS lag_max_s
+  FROM run_posts rp
+  JOIN run_sales rs ON rs.id = rp.sale_id
+  WHERE rp.status = 'posted' AND rp.posted_at IS NOT NULL
+) AS lag;
 
 ROLLBACK;

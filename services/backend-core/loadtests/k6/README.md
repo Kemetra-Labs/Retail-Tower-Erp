@@ -24,7 +24,7 @@ For the RT-317 capacity steps (1, 3 and 10 POS terminal-equivalents, RT-1279 pla
 
 | Script | What it models |
 | --- | --- |
-| `pos-terminals.js` | N terminals (`LOAD_TERMINALS`, max 10) offering N x the owner-set `LOAD_SALES_PER_HOUR` (constant arrival rate, round-robin) and reading catalog deltas every `LOAD_CATALOG_EVERY`; check `dropped_iterations` in the summary |
+| `pos-terminals.js` | N terminals (`LOAD_TERMINALS`, max 10) offering N x the owner-set `LOAD_SALES_PER_HOUR` (constant arrival rate, round-robin) and reading catalog deltas every `LOAD_CATALOG_EVERY` (one VU per terminal, so each keeps its own cursor); check `dropped_iterations` in the summary |
 | `offline-burst.js` | N terminals admit, go quiet for `LOAD_OFFLINE_MINUTES`, then reconnect together; each flushes `LOAD_BURST_SALES` sales dated inside that window |
 | `sales-capture.js` | SC-010 latency check; N terminals selling back to back |
 | `scripts/reconcile-run.sql` | Read-only, after the run drains: k6-accepted vs stored vs posted, duplicates, ERP posting lag p50/p95 |
