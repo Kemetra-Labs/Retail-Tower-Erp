@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Stock-View (Bin) Read API
-  version: "1.4.0-draft"
+  version: "1.5.0-draft"
   description: >
     Spec 019 ERPNext live stock-view (Bin) read contract — the DP2 ↔ connector
     boundary by which DP2 obtains the connector's point-in-time ERPNext-Bin
@@ -163,6 +163,17 @@ info:
     "untracked". The recorded response is unchanged. No operation, status
     code, security or pull-feed change; `BinViewRequest` is unchanged.
 
+    VERSION 1.5 (RT-1284; [GATED] captain decisions under owner delegation,
+    Jira RT-1284 comments 16231 and 16234), ADDITIVE: `binViewReportSnapshot`
+    may answer 503 `snapshot_busy` with `Retry-After` (seconds). Backend-Core
+    accepts a report body of up to 32 MiB on this operation (100 kB on every
+    other route) and reads at most 2 bodies above 100 kB at once; a further
+    one is refused before its body is read. Nothing is recorded; retry the
+    same window with the same `Idempotency-Key` after `Retry-After`. A body
+    above 32 MiB is refused with 413 `payload_too_large`, also before
+    validation and with nothing recorded. No schema, operation or security
+    change.
+
 servers:
   - url: https://api.example.com
 
@@ -319,6 +330,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "500":
           $ref: "#/components/responses/SystemFailure"
+        "503":
+          $ref: "#/components/responses/SnapshotBusy"
 
 components:
   securitySchemes:
@@ -400,6 +413,11 @@ components:
         `posting-feed` / `pos-sales` convention). Absent on a fresh 201 record.
       schema:
         type: boolean
+    RetryAfterBusy:
+      description: Seconds to wait before retrying a 503 `snapshot_busy`.
+      schema:
+        type: integer
+        minimum: 1
 
   schemas:
     # -----------------------------------------------------------------------
@@ -1048,6 +1066,20 @@ components:
       description: >
         `system_failure` (500) — an unexpected server error. The cause is recorded
         server-side keyed by `request_id` and is never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SnapshotBusy:
+      description: >
+        `snapshot_busy` (503, v1.5, RT-1284) — Backend-Core is already reading
+        its maximum number of large report bodies (above 100 kB) at once; this
+        one was refused before its body was read. Nothing is recorded. Retry
+        the same window with the same `Idempotency-Key` after `Retry-After`
+        seconds.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterBusy"
       content:
         application/json:
           schema:

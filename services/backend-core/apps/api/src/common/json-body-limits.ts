@@ -27,14 +27,32 @@
  * per-window byte or Batch budget in the contract, a separate gated issue.
  * 128 MiB was refused: the parser runs before authentication, so any caller of
  * the path could make the API buffer and parse that much.
+ *
+ * Concurrency bound (captain decision, RT-1284 comment 16234; CodeRabbit PR
+ * #435): because that parse happens before `ConnectorAuthGuard`, many
+ * concurrent 32 MiB bodies could exhaust memory. At most
+ * `BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES` (2) snapshot bodies above 100 kB are
+ * read at once; a further one gets 503 `snapshot_busy` with `Retry-After`
+ * before its body is read. Worst case is about 2 x 32 MiB x the parse
+ * overhead. Bodies of at most 100 kB are never bounded.
  */
 import { PayloadTooLargeException } from "@nestjs/common";
+import { errorEnvelope, newId } from "@data-pulse-2/shared";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import type { NextFunction, Request, Response } from "express";
 import type { IncomingMessage } from "node:http";
 
 /** 32 MiB, in bytes. */
 export const BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES = 32 * 1024 * 1024;
+
+/** body-parser's default JSON limit, "100kb" = 102,400 bytes. */
+const DEFAULT_JSON_LIMIT_BYTES = 100 * 1024;
+
+/** How many snapshot bodies above 100 kB may be read at once. */
+export const BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES = 2;
+
+/** `Retry-After` (seconds) on a 503 `snapshot_busy`. */
+const BIN_VIEW_SNAPSHOT_RETRY_AFTER_SECONDS = 5;
 
 /**
  * `binViewReportSnapshot`, case-insensitive with an optional trailing slash, as
@@ -101,8 +119,72 @@ function jsonBodyTooLargeAs413(err: unknown, _req: Request, _res: Response, next
 }
 
 /**
+ * A body above 100 kB, or of undeclared length (chunked). A declared
+ * `Content-Length` is binding: Node's HTTP parser never delivers more body
+ * bytes than it declares.
+ */
+function isLargeBody(req: IncomingMessage): boolean {
+  const declared = req.headers["content-length"];
+  if (declared === undefined) return req.headers["transfer-encoding"] !== undefined;
+  const bytes = Number(declared);
+  return !Number.isFinite(bytes) || bytes > DEFAULT_JSON_LIMIT_BYTES;
+}
+
+/** The concurrency gate for large `binViewReportSnapshot` bodies. */
+export interface SnapshotBodyGate {
+  (req: Request, res: Response, next: NextFunction): void;
+  /** Large snapshot bodies currently admitted (for tests and diagnostics). */
+  inFlight(): number;
+}
+
+/**
+ * Admits at most `max` large snapshot bodies at once. A further one is answered
+ * 503 `snapshot_busy` with `Retry-After` at once, before any parser reads its
+ * body. The 503 is written here, not thrown to the global filter: it is load
+ * shedding, not a server fault, so it must not be reported as a 5xx error.
+ * An admitted slot is released exactly once when the response finishes or the
+ * connection closes: on success, on a parse or validation error, on 413, and
+ * on a client abort.
+ */
+function createSnapshotBodyGate(max: number = BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES): SnapshotBodyGate {
+  let inFlight = 0;
+  const gate = (req: Request, res: Response, next: NextFunction): void => {
+    if (!isBinViewSnapshotJson(req) || !isLargeBody(req)) {
+      next();
+      return;
+    }
+    if (inFlight >= max) {
+      const requestId = newId();
+      res.setHeader("Retry-After", String(BIN_VIEW_SNAPSHOT_RETRY_AFTER_SECONDS));
+      res.setHeader("X-Request-Id", requestId);
+      res.setHeader("Connection", "close");
+      res.status(503).json(
+        errorEnvelope({
+          code: "snapshot_busy",
+          message: "Too many large snapshot reports are being received. Retry after Retry-After seconds.",
+          requestId,
+        }),
+      );
+      return;
+    }
+    inFlight += 1;
+    let released = false;
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      inFlight -= 1;
+    };
+    res.once("finish", release);
+    res.once("close", release);
+    next();
+  };
+  return Object.assign(gate, { inFlight: () => inFlight });
+}
+
+/**
  * Registers the JSON parsers. Call before `app.init()` / `app.listen()`.
  *
+ * 0. The concurrency gate for large `binViewReportSnapshot` bodies.
  * 1. The route-scoped 32 MiB parser for `binViewReportSnapshot`.
  * 2. The default parser (100 kB) for every other route. It must be registered
  *    here: Nest skips its own default JSON parser at init once any
@@ -112,11 +194,14 @@ function jsonBodyTooLargeAs413(err: unknown, _req: Request, _res: Response, next
  *
  * Nest still registers its default urlencoded parser at init, unchanged.
  */
-export function registerJsonBodyParsers(app: NestExpressApplication): void {
+export function registerJsonBodyParsers(app: NestExpressApplication): SnapshotBodyGate {
+  const gate = createSnapshotBodyGate();
+  app.use(gate);
   app.useBodyParser("json", {
     limit: BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES,
     type: isBinViewSnapshotJson,
   });
   app.useBodyParser("json");
   app.use(jsonBodyTooLargeAs413);
+  return gate;
 }
