@@ -199,6 +199,15 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       NODE_ENV: production
+      # RT-1280 invitation email (Amazon SES). No `:?` here on purpose: a missing value stops
+      # only the worker at boot (EmailConfigError), never the api or the rest of the stack.
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      SES_REGION: ${SES_REGION:-}
+      CONSOLE_BASE_URL: ${CONSOLE_BASE_URL:-}
+      # SECRET: the SES-send-only IAM key, given to this container only (deploy/README.md).
+      AWS_ACCESS_KEY_ID: ${EMAIL_SES_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${EMAIL_SES_SECRET_ACCESS_KEY:-}
       # Spec 037 observability — same default-inert posture as the api service.
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${DEPLOYMENT_ENVIRONMENT:-}

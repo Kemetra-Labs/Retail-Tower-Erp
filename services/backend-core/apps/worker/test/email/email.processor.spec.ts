@@ -388,6 +388,69 @@ describe("EmailProcessor — memberships.invitation", () => {
   });
 });
 
+describe("EmailProcessor — invitation accept link (RT-1280)", () => {
+  const BASE = "https://console.example.test";
+  const LINK = `${BASE}/accept-invitation?token=${RAW_TOKEN}`;
+
+  it("renders the Console accept link in the text and HTML bodies", async () => {
+    const linked = new EmailProcessor(adapter, BASE);
+    await linked.process(EMAIL_JOB_NAMES.invitation, {
+      email: EMAIL,
+      rawToken: RAW_TOKEN,
+      tenantId: TENANT_ID,
+    });
+    const message = adapter.sent[0]!;
+    expect(message.textBody).toContain(LINK);
+    expect(message.htmlBody).toContain(`<a href="${LINK}">`);
+    // Arabic and English, with the 7-day expiry hint in both.
+    expect(message.textBody).toContain("تمت دعوتك");
+    expect(message.textBody).toContain("7 days");
+    expect(message.textBody).toContain("7 أيام");
+    expect(message.htmlBody).toContain('dir="rtl"');
+  });
+
+  it("puts nothing but the link's token in the message (no tenantId)", async () => {
+    const linked = new EmailProcessor(adapter, BASE);
+    await linked.process(EMAIL_JOB_NAMES.invitation, {
+      email: EMAIL,
+      rawToken: RAW_TOKEN,
+      tenantId: TENANT_ID,
+    });
+    const message = adapter.sent[0]!;
+    for (const text of [message.subject, message.textBody, message.htmlBody ?? ""]) {
+      expect(text).not.toContain(TENANT_ID);
+    }
+    expect(message.subject).not.toContain(RAW_TOKEN);
+    // The token appears only inside the accept link.
+    expect(message.textBody.split(RAW_TOKEN)).toHaveLength(3);
+    expect(message.textBody.split(LINK)).toHaveLength(3);
+  });
+
+  it("URL-encodes and HTML-escapes the token", async () => {
+    const linked = new EmailProcessor(adapter, BASE);
+    await linked.process(EMAIL_JOB_NAMES.invitation, {
+      email: EMAIL,
+      rawToken: 'a&b"<c>',
+      tenantId: TENANT_ID,
+    });
+    const message = adapter.sent[0]!;
+    expect(message.textBody).toContain(`${BASE}/accept-invitation?token=a%26b%22%3Cc%3E`);
+    expect(message.htmlBody).not.toContain("<c>");
+    expect(message.htmlBody).not.toContain('a&b"');
+  });
+
+  it("falls back to the bare token only when no Console URL is configured", async () => {
+    await processor.process(EMAIL_JOB_NAMES.invitation, {
+      email: EMAIL,
+      rawToken: RAW_TOKEN,
+      tenantId: TENANT_ID,
+    });
+    const message = adapter.sent[0]!;
+    expect(message.textBody).not.toContain("accept-invitation");
+    expect(message.htmlBody).toContain(`<code>${RAW_TOKEN}</code>`);
+  });
+});
+
 describe("EmailProcessor — job name contract with EmailQueueProducer", () => {
   // The producer in `apps/api/src/auth/email-queue.producer.ts` writes
   // these exact string literals. If either side drifts, this test fails

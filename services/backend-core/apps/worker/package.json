@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --incremental false"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "3.1156.0",
     "@data-pulse-2/db": "workspace:*",
     "@data-pulse-2/shared": "workspace:*",
     "@nestjs/common": "11.1.19",

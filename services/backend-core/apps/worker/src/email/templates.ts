@@ -1,12 +1,10 @@
 /**
  * Email templates — slice 5 (T115).
  *
- * Pure functions. No I/O. No `process.env`. No URL construction from
- * env vars (no front-end origin is wired into the worker yet — PQ-1).
- * The rawToken is embedded into the body as the source of truth; a
- * future slice that introduces a UI will format it inside a clickable
- * link. Until then, the recipient sees the token directly, which is
- * perfectly functional for the auth flows in scope.
+ * Pure functions. No I/O. No `process.env`. The invitation template takes
+ * the Admin Console origin as an argument (RT-1280; resolved once at boot
+ * by `email.config.ts`) and renders an accept link. The password-reset and
+ * email-verification templates still embed the bare token.
  *
  * Why no userId in the body, subject, or tags?
  * --------------------------------------------
@@ -62,22 +60,75 @@ export function renderPasswordResetEmail(
   };
 }
 
+/** Minimal HTML escaping for text and attribute values we interpolate. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * The Admin Console accept link (RT-1280). `consoleBaseUrl` is an https
+ * origin already validated by `parseConsoleBaseUrl`; the route is the
+ * Console's `/accept-invitation?token=` (apps/admin-console `App.tsx`).
+ */
+function invitationAcceptUrl(consoleBaseUrl: string, rawToken: string): string {
+  return `${consoleBaseUrl}/accept-invitation?token=${encodeURIComponent(rawToken)}`;
+}
+
+/**
+ * Invitation email, Arabic first then English (RT-1280; wording is a draft
+ * pending owner approval). "7 days" mirrors `INVITATION_TTL_MS` in
+ * `apps/api/src/memberships/invitations.service.ts`; change both together.
+ *
+ * `consoleBaseUrl` is required in production (`resolveEmailConfig`). Only a
+ * non-production worker with no Console URL falls back to the bare token.
+ */
 export function renderInvitationEmail(
   job: RenderableInvitationJob,
+  consoleBaseUrl: string | null = null,
 ): EmailMessage {
   const { email, rawToken } = job;
+  const link = consoleBaseUrl === null ? null : invitationAcceptUrl(consoleBaseUrl, rawToken);
+  const action = link ?? rawToken;
+  const actionHtml =
+    link === null
+      ? `<code>${escapeHtml(rawToken)}</code>`
+      : `<a href="${escapeHtml(link)}">${escapeHtml(link)}</a>`;
+  const leadAr = link === null ? "استخدم هذا الرمز لقبول الدعوة:" : "افتح هذا الرابط لقبول الدعوة:";
+  const leadEn =
+    link === null ? "Use this token to accept the invitation:" : "Open this link to accept the invitation:";
+
   const textBody =
-    "You have been invited to join a tenant on Retail Tower OS.\n\n" +
-    `Use this token to accept the invitation: ${rawToken}\n\n` +
+    "تمت دعوتك للانضمام إلى فريق على Retail Tower OS.\n\n" +
+    `${leadAr}\n${action}\n\n` +
+    "يمكن استخدام الدعوة مرة واحدة فقط، وتنتهي صلاحيتها بعد 7 أيام من إرسالها.\n" +
+    "إذا لم تكن تتوقع هذه الدعوة، يمكنك تجاهل هذه الرسالة.\n\n" +
+    "----\n\n" +
+    "You have been invited to join a team on Retail Tower OS.\n\n" +
+    `${leadEn}\n${action}\n\n` +
+    "The invitation can be used once and expires 7 days after it was sent.\n" +
     "If you did not expect this invitation, you can ignore this email.";
   const htmlBody =
-    "<p>You have been invited to join a tenant on Retail Tower OS.</p>" +
-    `<p>Use this token to accept the invitation: <code>${rawToken}</code></p>` +
-    "<p>If you did not expect this invitation, you can ignore this email.</p>";
+    '<div dir="rtl" lang="ar">' +
+    "<p>تمت دعوتك للانضمام إلى فريق على Retail Tower OS.</p>" +
+    `<p>${leadAr}<br>${actionHtml}</p>` +
+    "<p>يمكن استخدام الدعوة مرة واحدة فقط، وتنتهي صلاحيتها بعد 7 أيام من إرسالها.</p>" +
+    "<p>إذا لم تكن تتوقع هذه الدعوة، يمكنك تجاهل هذه الرسالة.</p>" +
+    "</div><hr>" +
+    '<div dir="ltr" lang="en">' +
+    "<p>You have been invited to join a team on Retail Tower OS.</p>" +
+    `<p>${leadEn}<br>${actionHtml}</p>` +
+    "<p>The invitation can be used once and expires 7 days after it was sent.</p>" +
+    "<p>If you did not expect this invitation, you can ignore this email.</p>" +
+    "</div>";
 
   return {
     to: email,
-    subject: "You have been invited to Retail Tower OS",
+    subject: "You have been invited to Retail Tower OS | دعوة للانضمام إلى Retail Tower OS",
     textBody,
     htmlBody,
     tags: { template_id: "memberships.invitation" },
