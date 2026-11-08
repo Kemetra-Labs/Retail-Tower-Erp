@@ -313,6 +313,9 @@ describe("pos-sales/sales.yaml — RT-450 tracked capture (1.15.0-draft)", () =>
     expect(text).toContain("never `tracking_unresolved`");
     expect(text).toContain("a line that carries `tracking` is 400 `validation_error`");
     expect(text).toContain("That 400 is a first-capture refusal: it is decided after the replay branch");
+    expect(text).toContain("While tracked selling is on, capture NEVER rejects a real sale for tracking reasons");
+    expect(text).toContain("Known gap (a consequence of RT-451 comment 16262)");
+    expect(infoOf(doc)).toContain("Capture NEVER rejects a real sale for tracking reasons while tracked selling is on");
     const schemaText = (doc.components.schemas["CaptureSaleLineTracking"]?.description ?? "").replace(/\s+/g, " ");
     expect(schemaText).toContain("ANY `tracking` is a 400 `validation_error`");
     // No new response or error code: the 400 is the existing ValidationFailure.

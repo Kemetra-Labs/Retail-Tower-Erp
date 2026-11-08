@@ -447,8 +447,9 @@ info:
     and of the `Idempotency-Key` fingerprint; `safetyRevision` and
     `safetySyncedAt` are not part of the `payload_hash` (provenance of the
     till's state, not a sale fact) but are part of the fingerprint. Capture
-    NEVER rejects a real sale for tracking reasons: the G7-9 classification
-    is stated on `captureSale`. ROLLOUT ORDER: (1) this contract; (2) the
+    NEVER rejects a real sale for tracking reasons while tracked selling is
+    on (RT-451 S3, 1.21.0-draft, refuses `tracking` while it is off): the
+    G7-9 classification is stated on `captureSale`. ROLLOUT ORDER: (1) this contract; (2) the
     RT-451 runtime, which accepts the three request fields. Until it is
     deployed the strict capture DTO rejects them as unknown fields (400), so
     the POS MUST NOT send them before RT-451 is deployed and tracked selling
@@ -657,7 +658,10 @@ paths:
         `sale_responsibility_role_refused`) is decided after authentication and
         before every 422. Order of the 422s: the device-path offline refusal,
         then the coverage rule, then the line price invariant, then the payers
-        (as in `CaptureUnprocessable`). A replay of an
+        (as in `CaptureUnprocessable`). RT-451 S3: the 400 for `tracking`
+        while tracked selling is off comes after the replay branch and before
+        the role check and every 422 (see "Tracked selling OFF" below). A
+        replay of an
         already-captured sale answers after authentication and the RT-224
         cashier-claim check (403 `refused`), and before the role check (403
         `sale_responsibility_role_refused`) and every 422, so a payer suspended
@@ -678,14 +682,14 @@ paths:
         is the existing conflict (409 `idempotency_key_conflict`), and so is a
         provenance replay under another key with different tracking (RT-1206).
         Stored tracking is never rewritten, like every other line field.
-        Capture NEVER rejects a real sale for
+        While tracked selling is on, capture NEVER rejects a real sale for
         tracking reasons: a refusal would only strand the fact in the till's
         dead-letter.
 
         Tracked selling OFF (RT-451 S3, OD-T4): the classification below
         applies only while the deployment gate `POS_TRACKED_SELLING_ENABLED`
-        AND the tenant's tracked-selling switch are both on, read in the
-        capture transaction. While either is off, no line is classified: a
+        AND the tenant's tracked-selling switch are both on, evaluated at
+        capture (the tenant switch is read in the capture transaction). While either is off, no line is classified: a
         tracked product's line without `tracking` is an ordinary line (normal
         Inventory effects at the product grain, a normal ERP posting intent;
         never `tracking_unresolved`), and a line that carries `tracking` is
@@ -696,7 +700,11 @@ paths:
         recorded. A provenance replay of a stored sale is answered as before,
         whatever the switch state now: the same hashed body replays the
         stored sale, and a body whose tracking differs from the stored one is
-        409 `idempotency_key_conflict`.
+        409 `idempotency_key_conflict`. Known gap (a consequence of RT-451 comment
+        16262): a tracked sale the till validated while tracked selling was on
+        and sends after it was switched off is refused with this 400 and
+        stays in the till's dead-letter, so tills should send their queued
+        sales before the switch or the gate is turned off.
 
         Tracked selling ON: the server accepts the sale and classifies each
         tracked line. When several rows match, the lower (more severe) row wins:
@@ -3740,7 +3748,9 @@ components:
         FR-101 `validation-failure` — malformed body, unknown key (strict
         boundary, FR-062), bad money / currency, missing required field, or a
         body-supplied server-owned field (FR-061). Deterministic; no record
-        created.
+        created. On `captureSale` it is also the answer to a line carrying
+        `tracking` while tracked selling is off for the tenant (RT-451 S3),
+        which depends on the switch state at capture.
       content:
         application/json:
           schema:
