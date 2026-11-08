@@ -96,14 +96,20 @@ export function sell(data) {
 }
 
 // Each catalog VU claims one terminal on its first iteration and keeps it.
-// constant-vus starts exactly TERMINALS VUs together, so their first
-// iterations take scenario iteration numbers 0..TERMINALS-1: one terminal each.
+// constant-vus starts exactly TERMINALS VUs together, and every iteration
+// ends in a sleep of at least 1 s (even when the request throws), so no VU
+// takes a second scenario iteration number before all have taken their first:
+// the first numbers are 0..TERMINALS-1, one terminal each. (Not exec.vu.idInTest:
+// VU ids are test-wide and need not be consecutive within this scenario.)
 let catalogTerminal = null;
 let catalogCursor = null;
 export function readCatalog(data) {
   if (!catalogTerminal) catalogTerminal = terminalFor(data);
-  catalogCursor = catalogDeltas(catalogTerminal, catalogCursor);
-  sleep(CATALOG_EVERY_S);
+  try {
+    catalogCursor = catalogDeltas(catalogTerminal, catalogCursor);
+  } finally {
+    sleep(CATALOG_EVERY_S);
+  }
 }
 
 function durationSeconds(value, name) {
