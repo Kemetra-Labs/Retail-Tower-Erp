@@ -1,6 +1,6 @@
 ---
 name: landing-gated-changes
-description: Use when a Retail Tower change touches a gated or policy path — .github, .circleci, tools/project-graph, CODEOWNERS, an OpenAPI contract, a Backend-Core migration, package.json or a lockfile — or adds a new top-level folder, removes or renames a contract field, backfills a FORCE RLS table, or a PR needs a "[GATED: …]" title.
+description: 'Use when a Retail Tower change touches a gated or policy path — .github, .circleci, tools/project-graph, CODEOWNERS, an OpenAPI contract, a Backend-Core migration, package.json or a lockfile — or adds a new top-level folder, removes or renames a contract field, backfills a FORCE RLS table, or a PR needs a "[GATED: …]" title.'
 ---
 
 # Landing gated changes

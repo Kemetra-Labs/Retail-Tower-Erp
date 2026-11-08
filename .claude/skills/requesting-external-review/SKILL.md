@@ -22,7 +22,8 @@ WORK UNDER REVIEW contains:
   call sites itself. No summary of what you did or why.
 - **Decision, plan or document:** the exact claim, the full rationale, and every rejected
   alternative with its reason, as stated in the conversation, plus only the paths and facts the
-  user or the conversation actually named.
+  user or the conversation actually named. If the document exists only in the conversation, paste
+  its full text into the prompt: the judge cannot see the conversation.
 
 ## Judge prompt
 

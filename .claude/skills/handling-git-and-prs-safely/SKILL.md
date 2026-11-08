@@ -14,7 +14,7 @@ by reading state back, never by the exit code.
 | Before you… | Do this | Because |
 |---|---|---|
 | Merge a parent PR in a stack | Merge without `--delete-branch`; retarget the child (`gh pr edit N --base main`), confirm its `baseRefName`, then delete | Deleting the parent's branch can close the child PR permanently |
-| Replay a child after a squash merge | `git rebase --onto origin/main <old-parent-tip> <child>` | The child still carries the parent's pre-squash commits |
+| Replay a child after a squash merge | `git fetch origin`, confirm `origin/main` contains the parent's squash commit, then `git rebase --onto origin/main <old-parent-tip> <child>` | The child still carries the parent's pre-squash commits |
 | Decide a branch is unmerged | `gh pr list --head <b> --state all`, or grep its content on `origin/main` | Squash-merged branches look unmerged to `git cherry` and `--merged` |
 | Prune refs | `git fetch origin --prune`, never together with an explicit `src:dst` refspec | Refspec plus `--prune` can delete `origin/main` |
 | Remove a worktree | `git -C <wt> status --porcelain --ignored` first, run from outside it | Plain status hides ignored files such as `.env`; you cannot delete your own cwd |

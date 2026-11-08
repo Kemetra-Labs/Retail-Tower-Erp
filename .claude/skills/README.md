@@ -35,6 +35,9 @@ that official and shared skills cannot know. Jira: RT-1268 (first skill), RT-127
    and re-run. A rule that can contradict an explicit owner instruction must say "stop and ask".
 4. **No secrets.** No account credentials, tokens, emails, pairing codes or laptop-specific paths.
 5. **Names** follow the official style: verb-ing + object (`landing-gated-changes`).
+6. **Frontmatter is YAML.** Quote the `description` when it contains `: ` (for example
+   `"[GATED: …]"`); unquoted, the YAML breaks and the skill loses its description, so it stops
+   triggering.
 
 ## Where else skills live
 
