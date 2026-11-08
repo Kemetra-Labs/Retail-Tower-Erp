@@ -277,16 +277,20 @@ info:
     owner decisions OD-T1..OD-T5 and approval, RT-451 comments 16215 and
     16216, 2026-11-08).** Tracked selling (batch / expiry) is an optional
     feature per tenant: Retail Tower is a general retail product, so a
-    pharmacy turns it on and a shop that sells no tracked goods never sees
-    it. `getTrackedSellingSetting` / `setTrackedSellingSetting` read and
+    pharmacy turns it on and a shop that sells no tracked goods can leave it
+    off. `getTrackedSellingSetting` / `setTrackedSellingSetting` read and
     switch it, owner or tenant_admin only. It is off for every tenant until
     switched on. Switching on is accepted only while the six RT-50 Q13
     preconditions (`TrackedSellingPrecondition`) hold; switching off is
     always accepted. Tracked selling is in effect for a tenant only while the
     deployment gate `POS_TRACKED_SELLING_ENABLED` is on AND the tenant has
     switched it on; while the gate is off both operations answer the
-    non-disclosing 404. Both are `x-runtime-status: contract-only` until the
-    RT-451 S2 runtime (migration M1) ships. No other operation changes.
+    non-disclosing 404 to an authenticated owner or tenant_admin. Both are
+    `x-runtime-status: contract-only` until the RT-451 S2 runtime
+    (migration M1) ships. How the POS (RT-454) and a store_manager learn
+    whether the switch is on is not defined in this version; it is an open
+    owner decision (RT-451 comment 16216 allows an additive POS-facing
+    field). No other operation changes.
 
 servers:
   - url: https://api.datapulse.example
@@ -834,9 +838,10 @@ paths:
         (fail closed). `preconditionsMet` is true exactly when that list is
         empty. Tracked selling is in effect for the tenant only while the
         deployment gate `POS_TRACKED_SELLING_ENABLED` is on and `enabled` is
-        true. While the gate is off this operation answers the non-disclosing
-        404 to every caller and reads nothing. Owner or tenant_admin; any
-        other role is a 403.
+        true. Owner or tenant_admin; any other role is a 403. Authentication
+        (401) and role (403) are checked first, as for `posListTrackedLots`;
+        then, while the gate is off, this operation answers the non-disclosing
+        404 and reads nothing.
       security:
         - cookieAuth: []
       responses:
@@ -866,19 +871,26 @@ paths:
         `tracked_selling_preconditions_unmet` and nothing is written;
         `getTrackedSellingSetting` names the unmet ones. Switching back on
         after an off is the same check (OD-T5). `{"enabled": false}` is
-        always accepted (OD-T3). Setting the current value again writes
-        nothing, records no audit event and answers the same body. Every
+        always accepted (OD-T3). Setting the current value again, in either
+        direction, writes nothing, records no audit event and answers the
+        current setting: repeating `{"enabled": true}` while already on is
+        that no-op and does not re-check the preconditions, which are checked
+        only on a change from off to on. Every
         change is audited with the actor, the time and the new value; the
         history of the switch is kept in the audit trail. Switching off
         deletes and rewrites nothing: recorded tracking, sale-line findings,
         holds and recalls remain, and the sales already in the Tracking
         Resolution queue stay listed and can still be resolved with
         `bindTrackingResolution` (OD-T4). While it is off the tenant's tills
-        sell a tracked product as a normal line; the capture and POS wording
-        for that lands with the later RT-451 slices and RT-454, not in this
-        version. While the deployment gate `POS_TRACKED_SELLING_ENABLED` is
-        off this operation answers the non-disclosing 404 to every caller and
-        writes nothing. Owner or tenant_admin; any other role is a 403.
+        are to sell a tracked product as a normal line (OD-T4). That needs an
+        amendment of `pos-sales/sales.yaml` `captureSale` G7-9 row 4 in a
+        later RT-451 slice; until it lands, `captureSale` G7-9 governs, and
+        nothing captures a tracked line yet (every tracked-selling operation
+        is contract-only or behind the deployment gate). Owner or
+        tenant_admin; any other role is a 403. Authentication (401) and role
+        (403) are checked first, as for `posListTrackedLots`; then, while the
+        deployment gate `POS_TRACKED_SELLING_ENABLED` is off, this operation
+        answers the non-disclosing 404 and writes nothing.
       security:
         - cookieAuth: []
       requestBody:

@@ -12,9 +12,9 @@ getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
 getSafetyTtlSetting: cheapRead
+getTrackedSellingSetting: cheapRead
 getTrackingHold: cheapRead
 getTrackingIdentity: cheapRead
-getTrackedSellingSetting: cheapRead
 getTrackingIdentityPositions: expensiveRead
 listInventoryRecalls: cheapRead
 listInventorySafetyFindings: expensiveRead

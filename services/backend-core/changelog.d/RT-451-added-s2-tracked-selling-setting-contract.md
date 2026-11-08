@@ -13,4 +13,5 @@
   non-disclosing 404 while the deployment gate `POS_TRACKED_SELLING_ENABLED`
   is off. Additive only; rate-limit classes `cheapRead` / `write`. No runtime,
   route or migration: the runtime ships with migration M1 in the next RT-451
-  S2 PR.
+  S2 PR. How the POS and a store_manager learn the switch is an open owner
+  decision, not in this version.

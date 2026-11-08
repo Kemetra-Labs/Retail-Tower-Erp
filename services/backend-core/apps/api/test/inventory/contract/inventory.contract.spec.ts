@@ -1255,4 +1255,19 @@ describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () =>
   it("keeps the Tracking Resolution queue resolvable while switched off (OD-T4)", () => {
     expect(op("put").description).toMatch(/stay listed and can still be\s+resolved/);
   });
+
+  it("re-checks the preconditions only on a change from off to on; a repeat is a no-op", () => {
+    expect(op("put").description).toMatch(/checked\s+only on a change from off to on/);
+  });
+
+  it("checks authentication and role before the deployment gate, as S1 does", () => {
+    for (const [method] of S2) {
+      expect(op(method).description).toMatch(/Authentication\s+\(401\) and role \(403\) are checked first/);
+      expect(op(method).description).not.toContain("to every caller");
+    }
+  });
+
+  it("states that captureSale G7-9 still governs until its later amendment", () => {
+    expect(op("put").description).toMatch(/until it lands, `captureSale` G7-9 governs/);
+  });
 });
