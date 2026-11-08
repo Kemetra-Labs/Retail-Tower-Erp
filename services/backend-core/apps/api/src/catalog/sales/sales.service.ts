@@ -106,7 +106,7 @@ export {
  * RT-451 S3 (RT-50 G7-7): the till's safety provenance, as sent. Not hashed;
  * stored with a FIRST capture only (a provenance replay never rewrites it).
  */
-export interface CaptureSafetyProvenance {
+interface CaptureSafetyProvenance {
   readonly safetyRevision?: number;
   readonly safetySyncedAt?: string;
 }
@@ -198,7 +198,7 @@ export interface SaleLineProjection {
 }
 
 /** RT-451 S3: contract `SaleLineTracking`, echoed as recorded. */
-export interface SaleLineTrackingProjection {
+interface SaleLineTrackingProjection {
   readonly identityId: string;
   readonly code: string;
   readonly expiryDate: string | null;

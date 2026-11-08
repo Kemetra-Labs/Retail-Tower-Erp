@@ -105,7 +105,7 @@ const calendarDate = z
  * received (provenance, unclassified) while it is off: never refused for what
  * it names (sales.yaml 1.21.0; RT-451 comment 16269).
  */
-export const CaptureSaleLineTrackingSchema = z
+const CaptureSaleLineTrackingSchema = z
   .object({
     identityId: z.string().uuid(),
     code: z.string().min(1).max(128).refine(hasNoNul, NO_NUL_MESSAGE),
@@ -415,6 +415,5 @@ export type CaptureSaleRequestDto = z.infer<typeof CaptureSaleRequestWithTenders
 export type SaleTenderDto = z.infer<typeof SaleTenderSchema>;
 export type CaptureSaleLineDto = z.infer<typeof CaptureSaleLineSchema>;
 export type CaptureSaleLineDiscountDto = z.infer<typeof CaptureSaleLineDiscountSchema>;
-export type CaptureSaleLineTrackingDto = z.infer<typeof CaptureSaleLineTrackingSchema>;
 export type CaptureSaleReceiptDto = z.infer<typeof CaptureSaleReceiptSchema>;
 export type SaleResponsibilityDto = z.infer<typeof SaleResponsibilitySchema>;

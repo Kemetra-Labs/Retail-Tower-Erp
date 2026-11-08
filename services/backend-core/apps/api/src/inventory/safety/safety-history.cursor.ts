@@ -1,7 +1,8 @@
 /**
  * Opaque keyset cursors of the inventory safety history lists — Jira RT-1081
  * (`listTrackingHolds`, `listInventoryRecalls`,
- * `listTrackingIdentityExpiryCorrections`; inventory.yaml 1.10.0-draft).
+ * `listTrackingIdentityExpiryCorrections`; inventory.yaml 1.10.0-draft) and
+ * RT-451 S3 (`listSaleLineFindings`, filters `kind` then `storeId`).
  *
  * Each list is ordered newest first by `(<instant> DESC, id DESC)`. The repo
  * convention (`movement-list.cursor.ts`, RT-731): unsigned base64url JSON bound
@@ -13,6 +14,8 @@
  * the caller may already read.
  */
 import { createHash } from 'node:crypto';
+
+import { BadRequestException } from '@nestjs/common';
 
 import { z } from 'zod';
 
@@ -26,7 +29,7 @@ export class SafetyHistoryCursorError extends Error {
   }
 }
 
-export type SafetyHistoryOperation = 'tracking_holds' | 'inventory_recalls' | 'expiry_corrections';
+export type SafetyHistoryOperation = 'tracking_holds' | 'inventory_recalls' | 'expiry_corrections' | 'sale_line_findings';
 
 /** What a cursor is bound to: the tenant and the normalized filters, in a fixed order. */
 export interface SafetyHistoryCursorBinding {
@@ -48,7 +51,7 @@ export function instantKeySql(column: string): string {
 
 const CursorPayload = z
   .object({
-    op: z.enum(['tracking_holds', 'inventory_recalls', 'expiry_corrections']),
+    op: z.enum(['tracking_holds', 'inventory_recalls', 'expiry_corrections', 'sale_line_findings']),
     tenant: z.string().regex(LOWER_UUID),
     digest: z.string().min(1),
     at: z.string().regex(KEY_INSTANT).refine(namesRealInstant),
@@ -81,4 +84,18 @@ export function decodeSafetyHistoryCursor(binding: SafetyHistoryCursorBinding, c
     p.op === binding.op && p.tenant === binding.tenantId.toLowerCase() && p.digest === digestOf(binding);
   if (!boundHere) throw new SafetyHistoryCursorError();
   return { atKey: p.at, id: p.id };
+}
+
+/** A request's cursor position: none without a cursor; a foreign or malformed one is a 400, refused before any read. */
+export function decodeSafetyHistoryCursorOrReject(
+  binding: SafetyHistoryCursorBinding,
+  cursor: string | undefined,
+): SafetyHistoryKeyset | null {
+  if (cursor === undefined) return null;
+  try {
+    return decodeSafetyHistoryCursor(binding, cursor);
+  } catch (err: unknown) {
+    if (err instanceof SafetyHistoryCursorError) throw new BadRequestException(err.message);
+    throw err;
+  }
 }

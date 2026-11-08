@@ -33,7 +33,7 @@ import {
 } from "./capture-tracking.rules";
 
 /** The advisory-lock namespace of a product's Tracking Profile (capture SHARED, setter EXCLUSIVE). */
-export const TRACKING_PROFILE_LOCK_NAMESPACE = "tracking_profile";
+const TRACKING_PROFILE_LOCK_NAMESPACE = "tracking_profile";
 
 const LOCK_KEY_SQL = `hashtextextended($1 || ':' || $2::text || ':' || p::text, 0)`;
 

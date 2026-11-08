@@ -17,7 +17,7 @@
  * against the operation, the tenant and the filters before any read (400 on a
  * foreign token), and its position is ANDed with them.
  */
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { runWithTenantContext, type SaleLineFindingKind } from '@data-pulse-2/db';
 import type { Pool } from 'pg';
 
@@ -26,13 +26,11 @@ import { MembershipRepository } from '../../context/membership.repository';
 import { callerStoreScope, scopeStoreIds } from '../../context/operator-store-scope';
 import type { ResolvedContext } from '../../context/types';
 import {
-  SaleLineFindingsCursorError,
-  decodeSaleLineFindingsCursor,
-  encodeSaleLineFindingsCursor,
-  type SaleLineFindingsCursorBinding,
-  type SaleLineFindingsKeyset,
-} from './sale-line-findings.cursor';
-import { instantKeySql } from './safety-history.cursor';
+  decodeSafetyHistoryCursorOrReject,
+  encodeSafetyHistoryCursor,
+  instantKeySql,
+  type SafetyHistoryCursorBinding,
+} from './safety-history.cursor';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -47,7 +45,7 @@ export interface ListSaleLineFindingsInput {
 }
 
 /** Contract `SaleLineFinding`. */
-export interface SaleLineFindingBody {
+interface SaleLineFindingBody {
   readonly id: string;
   readonly kind: string;
   readonly severity: 'critical';
@@ -128,12 +126,16 @@ export class SaleLineFindingsService {
   ) {}
 
   listFindings(input: ListSaleLineFindingsInput): Promise<SaleLineFindingListBody> {
-    const binding: SaleLineFindingsCursorBinding = {
+    const kind = input.kind ?? null;
+    const storeId = input.storeId ?? null;
+    // The RT-731 cursor of the safety lists, bound to this operation, the
+    // tenant and the filters in a fixed order (`kind`, `storeId`).
+    const binding: SafetyHistoryCursorBinding = {
+      op: 'sale_line_findings',
       tenantId: input.tenantId,
-      kind: input.kind ?? null,
-      storeId: input.storeId ?? null,
+      filters: [kind, storeId],
     };
-    const after = decodeCursor(binding, input.cursor);
+    const after = decodeSafetyHistoryCursorOrReject(binding, input.cursor);
     const limit = Math.min(Math.max(input.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     return runWithTenantContext(
       this.pool,
@@ -142,8 +144,8 @@ export class SaleLineFindingsService {
         const scope = await callerStoreScope(client, this.memberships, input);
         const r = await client.query<FindingRow>(LIST_SQL, [
           input.tenantId,
-          binding.kind,
-          binding.storeId,
+          kind,
+          storeId,
           scopeStoreIds(scope),
           after?.atKey ?? null,
           after?.id ?? null,
@@ -155,7 +157,7 @@ export class SaleLineFindingsService {
           items: items.map(toBody),
           nextCursor:
             r.rows.length > limit && last
-              ? encodeSaleLineFindingsCursor(binding, { atKey: last.at_key, id: last.id })
+              ? encodeSafetyHistoryCursor(binding, { atKey: last.at_key, id: last.id })
               : null,
         };
       },
@@ -163,16 +165,3 @@ export class SaleLineFindingsService {
   }
 }
 
-/** A foreign or malformed cursor is a 400, refused before any read. */
-function decodeCursor(
-  binding: SaleLineFindingsCursorBinding,
-  cursor: string | undefined,
-): SaleLineFindingsKeyset | null {
-  if (cursor === undefined) return null;
-  try {
-    return decodeSaleLineFindingsCursor(binding, cursor);
-  } catch (err: unknown) {
-    if (err instanceof SaleLineFindingsCursorError) throw new BadRequestException(err.message);
-    throw err;
-  }
-}

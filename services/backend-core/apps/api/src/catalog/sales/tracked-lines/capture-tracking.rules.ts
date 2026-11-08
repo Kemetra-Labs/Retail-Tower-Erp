@@ -32,7 +32,7 @@
  */
 import type { SaleLineFindingCause, SaleLineFindingKind } from "@data-pulse-2/db/schema";
 
-export type TrackingUnresolvedReason = "tracking_missing" | "identity_unknown" | "identity_other_product";
+type TrackingUnresolvedReason = "tracking_missing" | "identity_unknown" | "identity_other_product";
 
 /** The identity the line's `identityId` names in the tenant (batch identities only, as the TLV). */
 export interface CapturedIdentityFacts {
@@ -77,7 +77,7 @@ export type LineClassification =
 
 const TRACKED_MODES = new Set(["batch", "serial"]);
 
-export function isTrackedMode(mode: string | null): boolean {
+function isTrackedMode(mode: string | null): boolean {
   return mode !== null && TRACKED_MODES.has(mode);
 }
 
