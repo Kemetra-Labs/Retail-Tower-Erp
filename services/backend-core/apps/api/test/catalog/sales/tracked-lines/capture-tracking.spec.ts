@@ -64,6 +64,8 @@ const P_PLAIN = id("00f03"); // not tracked
 const P_LATE = id("00f04"); // none; its profile changes during a capture
 const P_FRESH = id("00f05"); // none, no history: the setter's lift
 const P_RACE = id("00f06"); // none, no history: a capture commits during a profile change
+const P_SERIAL = id("00f07"); // serial: its identities are never lots (Q11)
+const I_SERIAL = id("00a09"); // P_SERIAL, a serial identity
 const I_OK = id("00a01"); // P_BATCH, expires 2026-05-01 (the business date: still sellable), edge map
 const I_EXPIRED = id("00a02"); // P_BATCH, expired 2026-04-30, edge map
 const I_NO_EDGE = id("00a03"); // P_BATCH, 2027-12-31, no edge map
@@ -169,8 +171,9 @@ beforeAll(async () => {
             ($3, $5, 'Plain', 'standard', $6, $6, 'none', false),
             ($4, $5, 'Late', 'standard', $6, $6, 'none', false),
             ($7, $5, 'Fresh', 'standard', $6, $6, 'none', false),
-            ($8, $5, 'Race', 'standard', $6, $6, 'none', false)`,
-    [P_BATCH, P_BATCH_2, P_PLAIN, P_LATE, TENANT_A, ACTOR, P_FRESH, P_RACE],
+            ($8, $5, 'Race', 'standard', $6, $6, 'none', false),
+            ($9, $5, 'Serial', 'standard', $6, $6, 'serial', false)`,
+    [P_BATCH, P_BATCH_2, P_PLAIN, P_LATE, TENANT_A, ACTOR, P_FRESH, P_RACE, P_SERIAL],
   );
   await a.query(
     `INSERT INTO tracking_identities (id, tenant_id, tenant_product_ref, kind, code, expiry_date)
@@ -179,6 +182,10 @@ beforeAll(async () => {
             ($5, $9, $10, 'batch', 'LOT-LATEHOLD', '2027-12-31'), ($6, $9, $10, 'batch', 'LOT-NOEXP', NULL),
             ($7, $9, $11, 'batch', 'LOT-OTHER', '2027-12-31'), ($8, $9, $12, 'batch', 'LOT-LATE', NULL)`,
     [I_OK, I_EXPIRED, I_NO_EDGE, I_HELD, I_LATE_HOLD, I_NO_EXPIRY, I_OTHER, I_LATE, TENANT_A, P_BATCH, P_BATCH_2, P_LATE],
+  );
+  await a.query(
+    `INSERT INTO tracking_identities (id, tenant_id, tenant_product_ref, kind, code) VALUES ($1, $2, $3, 'serial', 'SN-1')`,
+    [I_SERIAL, TENANT_A, P_SERIAL],
   );
   await a.query(
     `INSERT INTO erpnext_tracking_map (tenant_id, tracking_identity_id, kind, erpnext_ref)
@@ -349,6 +356,8 @@ describe("RT-451 S3 — tracked selling ON: the G7-9 classification", () => {
     ["an unknown identity", trackedLine(P_BATCH, tracking(randomUUID())), "identity_unknown"],
     ["another product's identity", trackedLine(P_BATCH, tracking(I_OTHER, { validationId: V_OTHER_IDENTITY })), "identity_other_product"],
     ["an ad-hoc line with tracking", { ...trackedLine(P_BATCH, tracking(I_OK)), tenantProductRef: undefined }, "identity_other_product"],
+    ["a serial product's line with its serial identity (never a lot, Q11)", trackedLine(P_SERIAL, tracking(I_SERIAL)), "identity_unknown"],
+    ["a serial product's line without tracking", trackedLine(P_SERIAL), "tracking_missing"],
   ])("row 4: %s makes the sale tracking_unresolved, with no finding", async (_why, line, reason) => {
     if (skip()) return;
     await on();

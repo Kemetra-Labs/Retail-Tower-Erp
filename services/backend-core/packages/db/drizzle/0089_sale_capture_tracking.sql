@@ -65,9 +65,12 @@
 -- AND the tenant switch of 0086); `safety_revision` / `safety_synced_at` are
 -- written whenever a till sends them, which no shipped till does yet.
 --
--- Lock impact: ONE transaction. `sales` and `sale_lines` take ACCESS EXCLUSIVE
--- for the nullable ADD COLUMNs (catalog-only, no rewrite) and the NOT VALID
--- CHECKs (no scan); captures wait for the commit. `sale_line_findings` is
+-- Lock impact: ONE transaction. `sales`, then `sale_lines` (the order capture
+-- writes them, so a live capture cannot deadlock with the migration) take
+-- ACCESS EXCLUSIVE for the nullable ADD COLUMNs (catalog-only, no rewrite) and
+-- the NOT VALID CHECKs (no scan); captures wait for the commit. lock_timeout
+-- 2s per request: worst case, sale traffic waits about 2 x 2s before the
+-- migration gives up. `sale_line_findings` is
 -- created empty; its FKs take SHARE ROW EXCLUSIVE on the referenced tables.
 -- Well under a second.
 --
@@ -77,8 +80,30 @@
 
 BEGIN;
 
+-- Per lock request (the 0047 precedent): if a lock cannot be taken in time,
+-- for example behind a long transaction on `sales`, the migration fails and
+-- rolls back instead of leaving a queued ACCESS EXCLUSIVE request that blocks
+-- all sale traffic behind it. `migrate up` then exits non-zero with nothing
+-- applied; the running release keeps serving; re-run it.
+SET LOCAL lock_timeout = '2s';
+
 -- =============================================================================
--- 1. sale_lines: the frozen tracking snapshot and its classification
+-- 1. sales: the till's safety provenance and the tracking status
+-- =============================================================================
+
+ALTER TABLE sales
+  ADD COLUMN IF NOT EXISTS safety_revision   BIGINT,
+  ADD COLUMN IF NOT EXISTS safety_synced_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS tracking_status   TEXT;
+
+ALTER TABLE sales
+  ADD CONSTRAINT sales_safety_revision_non_negative
+    CHECK (safety_revision IS NULL OR safety_revision >= 0) NOT VALID,
+  ADD CONSTRAINT sales_tracking_status_allowed
+    CHECK (tracking_status IS NULL OR tracking_status IN ('tracked', 'tracking_unresolved')) NOT VALID;
+
+-- =============================================================================
+-- 2. sale_lines: the frozen tracking snapshot and its classification
 -- =============================================================================
 
 ALTER TABLE sale_lines
@@ -119,21 +144,6 @@ ALTER TABLE sale_lines
   ADD CONSTRAINT sale_lines_tracking_missing_has_no_snapshot
     CHECK ((tracking_unresolved_reason IS NOT DISTINCT FROM 'tracking_missing')
          = (tracking_class IS NOT NULL AND tracking_identity_id IS NULL)) NOT VALID;
-
--- =============================================================================
--- 2. sales: the till's safety provenance and the tracking status
--- =============================================================================
-
-ALTER TABLE sales
-  ADD COLUMN IF NOT EXISTS safety_revision   BIGINT,
-  ADD COLUMN IF NOT EXISTS safety_synced_at  TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS tracking_status   TEXT;
-
-ALTER TABLE sales
-  ADD CONSTRAINT sales_safety_revision_non_negative
-    CHECK (safety_revision IS NULL OR safety_revision >= 0) NOT VALID,
-  ADD CONSTRAINT sales_tracking_status_allowed
-    CHECK (tracking_status IS NULL OR tracking_status IN ('tracked', 'tracking_unresolved')) NOT VALID;
 
 -- =============================================================================
 -- 3. sale_line_findings (G7-9 rows 2 and 3; RT-455 OD-2)

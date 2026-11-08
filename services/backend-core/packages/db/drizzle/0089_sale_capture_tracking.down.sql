@@ -16,14 +16,16 @@
 -- tenant's app.current_tenant; a bare SELECT would see no rows.
 --
 -- `sales`, `sale_lines` and `sale_line_findings` are locked ACCESS EXCLUSIVE
--- (the mode the DROPs below take anyway) before the counts, so no capture can
--- commit tracked data between the guard and the DROPs.
+-- (the mode the DROPs below take anyway, parent first) before the checks, so no
+-- capture can commit tracked data between the guard and the DROPs.
+-- lock_timeout 2s per request, as the up.
 --
 -- Rerunnable: each part is guarded only while its object still exists. The
 -- table is resolved with to_regclass and the columns are read from
 -- pg_attribute (information_schema hides columns by privilege), both through
 -- the search path as the DROPs below resolve them, and every count is a
 -- dynamic statement, so the guard is never planned against a dropped object.
+-- Each check is an EXISTS that stops at its first row.
 --
 -- Supports the UP -> DOWN -> UP round-trip exercised by
 -- packages/db/__tests__/migration/0089-sale-capture-tracking.spec.ts and the
@@ -31,10 +33,12 @@
 
 BEGIN;
 
+SET LOCAL lock_timeout = '2s';
+
 DO $$
 DECLARE
   t uuid;
-  n bigint;
+  found_in text := NULL;
   has_findings boolean := to_regclass('sale_line_findings') IS NOT NULL;
   has_line_cols boolean := EXISTS (
     SELECT 1 FROM pg_attribute
@@ -46,44 +50,43 @@ DECLARE
      WHERE attrelid = to_regclass('sales')
        AND attname = 'tracking_status'
        AND NOT attisdropped);
-  findings bigint := 0;
-  lines bigint := 0;
-  sales_found bigint := 0;
+  hit boolean;
 BEGIN
   IF NOT (has_findings OR has_line_cols OR has_sale_cols) THEN
     RETURN;
   END IF;
-  -- Hold the tables from the counts to the DROPs (parent first, as capture
-  -- writes them): a live API cannot commit tracked data after a count.
+  -- Hold the tables from the checks to the DROPs (parent first, as capture
+  -- writes them): a live API cannot commit tracked data after a check.
   LOCK TABLE sales, sale_lines IN ACCESS EXCLUSIVE MODE;
   IF has_findings THEN
     LOCK TABLE sale_line_findings IN ACCESS EXCLUSIVE MODE;
   END IF;
   PERFORM set_config('app.is_platform_admin', 'true', true);
   PERFORM set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true);
+  -- EXISTS, not count(*): each check stops at its first row.
   FOR t IN SELECT id FROM tenants LOOP
     PERFORM set_config('app.current_tenant', t::text, true);
     IF has_findings THEN
-      EXECUTE 'SELECT count(*) FROM sale_line_findings WHERE tenant_id = $1' INTO n USING t;
-      findings := findings + n;
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM sale_line_findings WHERE tenant_id = $1)' INTO hit USING t;
+      IF hit THEN found_in := 'sale_line_findings'; EXIT; END IF;
     END IF;
     IF has_line_cols THEN
-      EXECUTE 'SELECT count(*) FROM sale_lines WHERE tenant_id = $1
-                  AND (tracking_identity_id IS NOT NULL OR tracking_class IS NOT NULL)'
-        INTO n USING t;
-      lines := lines + n;
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM sale_lines WHERE tenant_id = $1
+                  AND (tracking_identity_id IS NOT NULL OR tracking_class IS NOT NULL))'
+        INTO hit USING t;
+      IF hit THEN found_in := 'sale_lines'; EXIT; END IF;
     END IF;
     IF has_sale_cols THEN
-      EXECUTE 'SELECT count(*) FROM sales WHERE tenant_id = $1
+      EXECUTE 'SELECT EXISTS (SELECT 1 FROM sales WHERE tenant_id = $1
                   AND (safety_revision IS NOT NULL OR safety_synced_at IS NOT NULL
-                       OR tracking_status IS NOT NULL)'
-        INTO n USING t;
-      sales_found := sales_found + n;
+                       OR tracking_status IS NOT NULL))'
+        INTO hit USING t;
+      IF hit THEN found_in := 'sales'; EXIT; END IF;
     END IF;
   END LOOP;
-  IF findings + lines + sales_found > 0 THEN
-    RAISE EXCEPTION '0089 down refused: % sale-line finding(s), % tracked sale line(s) and % sale(s) with safety provenance or tracking status exist; back up and remove them explicitly first',
-      findings, lines, sales_found;
+  IF found_in IS NOT NULL THEN
+    RAISE EXCEPTION '0089 down refused: tracked sale data exists (%: a finding, a line''s tracking, or a sale''s safety provenance or tracking status); back up and remove it explicitly first',
+      found_in;
   END IF;
 END
 $$;
