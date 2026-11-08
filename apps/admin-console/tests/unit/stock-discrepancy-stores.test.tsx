@@ -274,7 +274,7 @@ describe("StockDiscrepancyStores (RT-178)", () => {
     expect(within(band).getByRole("heading", { level: 1 }).textContent).toBe(
       "ERPNext stock discrepancies",
     );
-    expect(band.querySelector(".list-band__group")?.textContent).toBe("Operations");
+    expect(band.querySelector(".list-band__group")?.textContent).toBe("Stock and items");
     expect(band.querySelector(".list-band__sub")?.textContent).toMatch(/in Northstar Retail\.$/);
     // A paged list serves no whole-set figure: no facts, no total, no action.
     expect(band.querySelector("dl.list-band__facts")).toBeNull();

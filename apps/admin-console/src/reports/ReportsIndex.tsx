@@ -98,7 +98,7 @@ export function ReportsIndex(): React.JSX.Element {
   return (
     <div className="surface surface--v4 reports">
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.daily")}
         title={t("reports.nav.label")}
         subtitle={t.rich("reports.index.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
       />

@@ -311,7 +311,7 @@ function StoreView({
     <div className="surface surface--v4">
       <BackLink />
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={t("stock.title")}
         subtitle={t("stock.store.sub")}
         actions={

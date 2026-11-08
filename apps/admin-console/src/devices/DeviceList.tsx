@@ -303,7 +303,7 @@ export function DeviceList(): React.JSX.Element {
   return (
     <div className="surface device-surface">
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.daily")}
         title={t("devices.list.title")}
         subtitle={t.rich("devices.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={
