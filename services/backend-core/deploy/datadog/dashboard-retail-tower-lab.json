@@ -1,6 +1,6 @@
 {
   "title": "Retail Tower — lab",
-  "description": "RT-637 (OBS-8). Lab hosts, backend-api RED, backend-worker, DB, Connector <-> Backend-Core calls and release versions. env:staging only. Source of truth: deploy/datadog/ in Kemetra/Backend-Core.",
+  "description": "RT-637 (OBS-8). Lab hosts, backend-api RED, backend-worker, DB, Connector <-> Backend-Core calls and release versions. env:staging only. Source of truth: services/backend-core/deploy/datadog/ in Kemetra-Labs/Retail-Tower-Erp.",
   "layout_type": "ordered",
   "reflow_type": "auto",
   "tags": [],
