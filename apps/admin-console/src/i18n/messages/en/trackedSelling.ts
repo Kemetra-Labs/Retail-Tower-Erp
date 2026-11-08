@@ -65,7 +65,7 @@ export const trackedSelling: MessagesOf<typeof ar> = {
     "The server refused the command (status {status}). Nothing was recorded.",
   "trackedSelling.code": "Code: {code}",
   "trackedSelling.failed":
-    "No answer arrived, so whether the setting changed is unknown. The state below was read again from the server, and repeating the command is safe.",
+    "No answer arrived, so whether the setting changed is unknown. The state is being read again from the server, and repeating the command is safe.",
 
   "trackedSelling.pagesOff.title": "Holds and recalls is not available for this tenant now.",
   "trackedSelling.pagesOff.body": "It shows while batch selling is switched on for the tenant.",

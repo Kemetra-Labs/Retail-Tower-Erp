@@ -6,7 +6,8 @@
  * The read travels as a result (`TrackedSellingRead`), never a thrown error, so
  * a caller branches on data. A request that threw before any status is a failed
  * read (status 0). After a saved switch the answer replaces the cached read, so
- * the navigation follows at once; after a refusal the read is fetched again so
+ * the navigation in this tab follows at once (another tab or session sees the
+ * change on its next read); after a refusal the read is fetched again so
  * the screen shows the server's current state.
  */
 import {
@@ -24,7 +25,10 @@ import {
 } from "./trackedSellingLogic";
 
 const trackedSellingKeys = {
-  setting: (tenantId: string | null) => ["tracked-selling", tenantId] as const,
+  // The role is in the key: an owner's full read and a store_manager's on/off
+  // read are different answers and never stand in for each other.
+  setting: (tenantId: string | null, role: string | null | undefined) =>
+    ["tracked-selling", tenantId, role ?? null] as const,
 };
 
 async function readSetting(): Promise<TrackedSellingRead> {
@@ -45,7 +49,7 @@ export function useTrackedSellingQuery(
   enabled = true,
 ) {
   return useQuery({
-    queryKey: trackedSellingKeys.setting(tenantId),
+    queryKey: trackedSellingKeys.setting(tenantId, role),
     enabled: enabled && Boolean(tenantId) && canReadTrackedSelling(role),
     queryFn: readSetting,
     retry: false,
@@ -58,9 +62,9 @@ export interface TrackedSellingSwitch {
   pending: boolean;
 }
 
-export function useTrackedSellingSwitch(tenantId: string): TrackedSellingSwitch {
+export function useTrackedSellingSwitch(tenantId: string, role: string): TrackedSellingSwitch {
   const queryClient = useQueryClient();
-  const key = trackedSellingKeys.setting(tenantId);
+  const key = trackedSellingKeys.setting(tenantId, role);
   const mutation = useMutation({
     mutationFn: async (command: SetTrackedSellingCommand): Promise<SwitchOutcome> => {
       try {

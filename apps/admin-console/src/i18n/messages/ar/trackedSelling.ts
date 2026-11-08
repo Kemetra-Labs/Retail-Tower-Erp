@@ -12,7 +12,7 @@ export const trackedSelling = {
   "trackedSelling.title": "البيع بالدفعة",
   "trackedSelling.sub.manage":
     "يحدد إن كانت نقاط البيع في كل متاجر المؤسسة تطلب الدفعة للأصناف المتتبَّعة. الإيقاف متاح دائمًا، والتشغيل يتطلب استيفاء الشروط.",
-  "trackedSelling.sub.status": "للعرض فقط. يغيّره مالك المؤسسة أو مديرها.",
+  "trackedSelling.sub.status": "للعرض فقط. يغيّره مالك المؤسسة أو مسؤولها.",
   "trackedSelling.loadingNoun": "إعداد البيع بالدفعة",
   "trackedSelling.loadFailed": "تعذّر تحميل إعداد البيع بالدفعة.",
   "trackedSelling.sessionExpired": "انتهت جلستك. سجّل الدخول مرة أخرى.",
@@ -78,7 +78,7 @@ export const trackedSelling = {
   "trackedSelling.rejected": "رفض الخادم الأمر (الحالة {status}). لم يُسجَّل شيء.",
   "trackedSelling.code": "الرمز: {code}",
   "trackedSelling.failed":
-    "لم يصل أي رد، فلا يُعرف إن كان الإعداد قد تغيّر. الحالة أدناه مقروءة من الخادم من جديد، وتكرار الأمر آمن.",
+    "لم يصل أي رد، فلا يُعرف إن كان الإعداد قد تغيّر. تُعاد قراءة الحالة من الخادم، وتكرار الأمر آمن.",
 
   // --- Tracking pages while off (OD-T4) ------------------------------------------------------
   "trackedSelling.pagesOff.title": "قسم الحجز والاستدعاء غير متاح لهذه المؤسسة الآن.",

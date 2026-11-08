@@ -141,6 +141,7 @@ export type SwitchOutcome =
   | { kind: "saved"; setting: TrackedSellingSetting }
   | { kind: "unmet"; requestId?: string }
   | { kind: "unavailable" }
+  | { kind: "sessionExpired" }
   | { kind: "forbidden"; requestId?: string }
   | { kind: "rateLimited"; retryAfter?: number }
   | { kind: "rejected"; status: number; code?: string; requestId?: string }
@@ -158,6 +159,7 @@ export function classifyWrite(res: {
     return { kind: "unmet", requestId };
   }
   if (res.status === 404) return { kind: "unavailable" };
+  if (res.status === 401) return { kind: "sessionExpired" };
   if (res.status === 403) return { kind: "forbidden", requestId };
   if (res.status === 429) return { kind: "rateLimited", retryAfter: res.retryAfter };
   if (res.status >= 400 && res.status < 500) {

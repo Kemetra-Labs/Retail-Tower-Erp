@@ -175,6 +175,8 @@ function OutcomeNotice({ outcome }: Readonly<{ outcome: SwitchOutcome | undefine
           requestId={outcome.requestId}
         />
       );
+    case "sessionExpired":
+      return <Banner variant="danger" message={t("trackedSelling.sessionExpired")} />;
     case "failed":
       return <Banner variant="danger" message={t("trackedSelling.failed")} />;
   }
@@ -214,13 +216,17 @@ function ConfirmOff({
   );
 }
 
+interface SwitchControl {
+  submit: (enabled: boolean) => Promise<void>;
+  pending: boolean;
+  clearOutcome: () => void;
+}
+
 function ManageView({
-  tenantId,
   setting,
-}: Readonly<{ tenantId: string; setting: TrackedSellingSetting }>): React.JSX.Element {
+  control,
+}: Readonly<{ setting: TrackedSellingSetting; control: SwitchControl }>): React.JSX.Element {
   const t = useT();
-  const toggle = useTrackedSellingSwitch(tenantId);
-  const [outcome, setOutcome] = useState<SwitchOutcome | undefined>();
   const [confirming, setConfirming] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -230,10 +236,8 @@ function ManageView({
   }
 
   async function send(enabled: boolean): Promise<void> {
-    setOutcome(undefined);
-    const result = await toggle.submit({ enabled });
+    await control.submit(enabled);
     setConfirming(false);
-    setOutcome(result);
     focusAction();
   }
 
@@ -269,11 +273,9 @@ function ManageView({
 
       <Preconditions setting={setting} />
 
-      <OutcomeNotice outcome={outcome} />
-
       {confirming ? (
         <ConfirmOff
-          pending={toggle.pending}
+          pending={control.pending}
           onConfirm={() => void send(false)}
           onCancel={cancelConfirm}
         />
@@ -284,7 +286,7 @@ function ManageView({
               type="button"
               className="btn-danger-quiet"
               onClick={() => {
-                setOutcome(undefined);
+                control.clearOutcome();
                 setConfirming(true);
               }}
             >
@@ -294,7 +296,7 @@ function ManageView({
             <GatedButton
               type="button"
               className="btn-primary"
-              busy={toggle.pending}
+              busy={control.pending}
               onClick={() => void send(true)}
             >
               {t("trackedSelling.turnOn")}
@@ -308,6 +310,15 @@ function ManageView({
 
 // --- Section ---------------------------------------------------------------------------
 
+/**
+ * The manage view needs the full read. A read without the precondition fields
+ * (a store_manager's shape, or a server that sent null) is never "all met": it
+ * is shown as a failed read.
+ */
+function isFullSetting(setting: TrackedSellingSetting): boolean {
+  return setting.preconditionsMet !== null && setting.unmetPreconditions !== null;
+}
+
 function SectionBody({
   tenantId,
   role,
@@ -315,9 +326,30 @@ function SectionBody({
 }: Readonly<{ tenantId: string; role: string; view: TrackedSellingView }>) {
   const t = useT();
   const query = useTrackedSellingQuery(tenantId, role);
+  const toggle = useTrackedSellingSwitch(tenantId, role);
+  // The outcome lives here, above the read's states, so it survives a re-read
+  // that answers 404 or fails (the switch's answer is never lost).
+  const [outcome, setOutcome] = useState<SwitchOutcome | undefined>();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const read = query.data;
+
+  const control: SwitchControl = {
+    pending: toggle.pending,
+    clearOutcome: () => setOutcome(undefined),
+    submit: async (enabled) => {
+      setOutcome(undefined);
+      const result = await toggle.submit({ enabled });
+      setOutcome(result);
+      // The controls may be gone after the re-read: the heading keeps focus.
+      if (result.kind === "unavailable" || result.kind === "failed") {
+        requestAnimationFrame(() => headingRef.current?.focus());
+      }
+    },
+  };
+
   // The deployment gate is off: the setting does not exist for this tenant.
-  if (read?.kind === "unavailable") return null;
+  // Only the answer to a command the operator just sent is still shown.
+  if (read?.kind === "unavailable" && !outcome) return null;
 
   return (
     <section
@@ -326,7 +358,7 @@ function SectionBody({
       data-testid="tracked-selling-section"
     >
       <header>
-        <h2 id={TITLE_ID} className="surface__section-title">
+        <h2 id={TITLE_ID} ref={headingRef} tabIndex={-1} className="surface__section-title">
           {t("trackedSelling.title")}
         </h2>
         <p className="content__sub">
@@ -334,12 +366,17 @@ function SectionBody({
         </p>
       </header>
 
+      <OutcomeNotice outcome={outcome} />
+
       {!read ? <ListState state="loading" label={t("trackedSelling.loadingNoun")} /> : null}
       {read?.kind === "error" ? (
         <ReadFailed read={read} onRetry={() => void query.refetch()} />
       ) : null}
-      {read?.kind === "ok" && view === "manage" ? (
-        <ManageView tenantId={tenantId} setting={read.setting} />
+      {read?.kind === "ok" && view === "manage" && !isFullSetting(read.setting) ? (
+        <ReadFailed read={{ kind: "error", status: 0 }} onRetry={() => void query.refetch()} />
+      ) : null}
+      {read?.kind === "ok" && view === "manage" && isFullSetting(read.setting) ? (
+        <ManageView setting={read.setting} control={control} />
       ) : null}
       {read?.kind === "ok" && view === "status" ? (
         <dl className="surface__detail">

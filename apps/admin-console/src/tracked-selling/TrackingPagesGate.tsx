@@ -9,6 +9,7 @@
  * Nothing here decides who may read; each page still checks its roles first.
  */
 import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { useT } from "@/i18n";
@@ -50,9 +51,14 @@ export function TrackingPagesGate({
           )}
           requestId={read.requestId}
           action={
-            <button type="button" className="btn-secondary" onClick={() => void query.refetch()}>
+            <BusyButton
+              type="button"
+              className="btn-secondary"
+              busy={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
               {t("trackedSelling.retry")}
-            </button>
+            </BusyButton>
           }
         />
       </GateFrame>

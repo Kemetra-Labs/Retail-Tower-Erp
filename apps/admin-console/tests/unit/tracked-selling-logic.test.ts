@@ -114,6 +114,7 @@ describe("write", () => {
   test("404, 403 and 429", () => {
     expect(classifyWrite({ status: 404 })).toEqual({ kind: "unavailable" });
     expect(classifyWrite({ status: 403 }).kind).toBe("forbidden");
+    expect(classifyWrite({ status: 401 })).toEqual({ kind: "sessionExpired" });
     expect(classifyWrite({ status: 429, retryAfter: 12 })).toEqual({
       kind: "rateLimited",
       retryAfter: 12,

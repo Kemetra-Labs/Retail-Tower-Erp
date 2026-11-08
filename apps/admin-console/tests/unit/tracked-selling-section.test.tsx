@@ -241,13 +241,48 @@ describe("owner / tenant_admin view", () => {
     await waitFor(() => expect(getSetting).toHaveBeenCalledTimes(2));
   });
 
-  test("a 404 on the switch (gate went off) records nothing and the setting disappears", async () => {
+  test("a 404 on the switch (gate went off): the answer stays, nothing else of the setting", async () => {
     getSetting.mockResolvedValueOnce(ok(off));
     getSetting.mockResolvedValue({ status: 404 });
     putSetting.mockResolvedValue({ status: 404 });
     renderSection();
     fireEvent.click(await screen.findByRole("button", { name: "Switch batch selling on" }));
-    await waitFor(() => expect(screen.queryByTestId("tracked-selling-section")).toBeNull());
+    expect(
+      await screen.findByText(
+        "The batch selling setting is not available now. Nothing was recorded.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTestId("tracked-selling-state")).toBeNull());
+    expect(screen.queryByRole("button")).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Batch selling" })),
+    );
+  });
+
+  test("no answer and a failed re-read: the unknown outcome is kept above the read error", async () => {
+    getSetting.mockResolvedValueOnce(ok(off));
+    getSetting.mockResolvedValue({ status: 500 });
+    putSetting.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch batch selling on" }));
+    expect(await screen.findByText("The batch selling setting could not be loaded.")).toBeTruthy();
+    expect(screen.getByText(/No answer arrived, so whether the setting changed/)).toBeTruthy();
+  });
+
+  test("a 401 on the switch says the session ended", async () => {
+    getSetting.mockResolvedValue(ok(off));
+    putSetting.mockResolvedValue({ status: 401 });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch batch selling on" }));
+    expect(await screen.findByText("Your session has ended. Sign in again.")).toBeTruthy();
+  });
+
+  test("a manage read without the precondition fields is a failed read, never «all met»", async () => {
+    getSetting.mockResolvedValue(ok({ ...on, preconditionsMet: null, unmetPreconditions: null }));
+    renderSection();
+    expect(await screen.findByText("The batch selling setting could not be loaded.")).toBeTruthy();
+    expect(screen.queryByText("Every condition for switching on is met now.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Switch batch selling off" })).toBeNull();
   });
 });
 
