@@ -40,8 +40,9 @@ function entryLabels(nav: HTMLElement): string[] {
 }
 
 /**
- * RT-969: the heading of the canvas group a link sits in; "" for the first,
- * daily-operations group, which has none.
+ * RT-969: the heading of the canvas group a link sits in. RT-1291: the former
+ * unheaded first group is now "Daily" and "Stock and items"; "" is left for a
+ * group with no heading.
  */
 function groupOf(nav: HTMLElement, link: string): string {
   const group = within(nav).getByRole("link", { name: link }).closest(".nav-group");
@@ -67,13 +68,13 @@ describe("production navigation", () => {
     expect(entryLabels(nav)).toEqual([
       "Overview",
       "Sales",
+      "Shift closes",
+      "Reports",
+      "Devices",
       "Items",
       "Unknown items",
       "Stock movements",
       "Stock discrepancies",
-      "Shift closes",
-      "Reports",
-      "Devices",
       "Connection & sync",
       "Sales needing repair",
       "Product reconciliation",
@@ -85,6 +86,8 @@ describe("production navigation", () => {
       "Sign out",
     ]);
     expect(Array.from(nav.querySelectorAll(".nav-section"), (h) => h.textContent)).toEqual([
+      "Daily",
+      "Stock and items",
       "Integration",
       "Management",
     ]);
@@ -199,7 +202,7 @@ describe("production navigation", () => {
       expect(within(nav).getByRole("link", { name: "Devices" }).getAttribute("href")).toBe(
         "/devices",
       );
-      expect(groupOf(nav, "Devices")).toBe("");
+      expect(groupOf(nav, "Devices")).toBe("Daily");
     },
   );
 
@@ -215,7 +218,7 @@ describe("production navigation", () => {
     (role) => {
       const nav = renderShell(role);
       expect(within(nav).getByRole("link", { name: "Sales" }).getAttribute("href")).toBe("/sales");
-      expect(groupOf(nav, "Sales")).toBe("");
+      expect(groupOf(nav, "Sales")).toBe("Daily");
       expect(entryLabels(nav).indexOf("Sales")).toBe(1);
     },
   );
@@ -266,7 +269,7 @@ describe("production navigation", () => {
       expect(items.getAttribute("href")).toBe("/catalog/products");
       const labels = entryLabels(nav);
       expect(labels.indexOf("Items")).toBe(labels.indexOf("Unknown items") - 1);
-      expect(groupOf(nav, "Items")).toBe("");
+      expect(groupOf(nav, "Items")).toBe("Stock and items");
     },
   );
 
@@ -283,7 +286,7 @@ describe("production navigation", () => {
       expect(within(nav).getByRole("link", { name: "Unknown items" }).getAttribute("href")).toBe(
         "/unknown-items",
       );
-      expect(groupOf(nav, "Unknown items")).toBe("");
+      expect(groupOf(nav, "Unknown items")).toBe("Stock and items");
     },
   );
 

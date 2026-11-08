@@ -31,8 +31,10 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.status.reason.all_disabled": "All instances disabled",
   "shell.status.reason.never_seen": "No heartbeat yet",
   "shell.nav.overview": "Overview",
-  // RT-995 (D-V9): the label of the first, daily-operations nav group, shown in the list band.
-  "shell.nav.section.operations": "Operations",
+  // RT-1291: the labels of the first two nav groups (they replace the one unheaded group of
+  // RT-995 D-V9), shown in the sidebar and in the list band of each page.
+  "shell.nav.section.daily": "Daily",
+  "shell.nav.section.stock": "Stock and items",
   "shell.nav.section.management": "Management",
   "shell.nav.tenants": "Tenants",
   "shell.nav.stores": "Stores",

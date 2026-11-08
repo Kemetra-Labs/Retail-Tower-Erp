@@ -78,7 +78,7 @@ function Shell({
   return (
     <div className="surface catalog-v4">
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={t("catalog.list.title")}
         subtitle={t.rich("catalog.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
       />

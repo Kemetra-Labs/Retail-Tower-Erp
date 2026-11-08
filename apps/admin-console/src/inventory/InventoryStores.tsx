@@ -130,7 +130,7 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
           picker list is filtered on the client (scope menu rule, or the pinned
           store), so a count of it would not be a figure the server serves. */}
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={t("inventory.title")}
         subtitle={t.rich("inventory.stores.subTenant", {
           tenant: <bdi dir="auto">{context?.active_tenant?.name}</bdi>,

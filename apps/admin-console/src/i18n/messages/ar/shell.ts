@@ -32,8 +32,10 @@ export const shell = {
   "shell.status.reason.all_disabled": "كل النسخ معطّلة",
   "shell.status.reason.never_seen": "لا نبضة بعد",
   "shell.nav.overview": "نظرة عامة",
-  // RT-995 (D-V9): the label of the first, daily-operations nav group, shown in the list band.
-  "shell.nav.section.operations": "العمليات",
+  // RT-1291: the labels of the first two nav groups (they replace the one unheaded group of
+  // RT-995 D-V9), shown in the sidebar and in the list band of each page.
+  "shell.nav.section.daily": "اليومية",
+  "shell.nav.section.stock": "المخزون والأصناف",
   "shell.nav.section.management": "الإدارة",
   "shell.nav.tenants": "المؤسسات",
   "shell.nav.stores": "المتاجر",

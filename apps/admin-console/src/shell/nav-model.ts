@@ -65,11 +65,31 @@ interface GatedGroup {
 
 const TENANT_NAV: readonly GatedGroup[] = [
   {
-    id: "operations",
+    // RT-1291 (RT-1289 F1): the former unheaded first group, split in two. Entries
+    // keep their old relative order; only the grouping and the headings are new.
+    id: "daily",
+    heading: "shell.nav.section.daily",
     entries: [
       { label: "shell.nav.overview", to: "/", icon: "dashboard", end: true, canRead: always },
       // RT-587 (spec 012 FR-012, OD-556-3): sales search and sale detail.
       { label: "sales.nav.label", to: "/sales", icon: "sale", canRead: canReadSales },
+      {
+        label: "shell.nav.shiftCloses",
+        to: "/shift-closes",
+        icon: "cash",
+        canRead: canReadShiftCloses,
+      },
+      // RT-1020: the reports index (the daily report, the review screens and
+      // the proposed reports). Listed only for a role that can open one.
+      { label: "reports.nav.label", to: "/reports", icon: "audit", canRead: canOpenAnyReport },
+      // RT-371: the device registry, for the roles the RT-365 API lets read it.
+      { label: "devices.nav.label", to: "/devices", icon: "terminal", canRead: canReadDevices },
+    ],
+  },
+  {
+    id: "stock",
+    heading: "shell.nav.section.stock",
+    entries: [
       // RT-765 (RT-752 AC 2): the catalog items; their child routes keep it selected.
       {
         label: "catalog.nav.label",
@@ -104,17 +124,6 @@ const TENANT_NAV: readonly GatedGroup[] = [
         icon: "inventory",
         canRead: canReadStockDiscrepancies,
       },
-      {
-        label: "shell.nav.shiftCloses",
-        to: "/shift-closes",
-        icon: "cash",
-        canRead: canReadShiftCloses,
-      },
-      // RT-1020: the reports index (the daily report, the review screens and
-      // the proposed reports). Listed only for a role that can open one.
-      { label: "reports.nav.label", to: "/reports", icon: "audit", canRead: canOpenAnyReport },
-      // RT-371: the device registry, for the roles the RT-365 API lets read it.
-      { label: "devices.nav.label", to: "/devices", icon: "terminal", canRead: canReadDevices },
     ],
   },
   {
