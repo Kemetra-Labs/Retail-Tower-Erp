@@ -296,11 +296,27 @@ describe("pos-sales/sales.yaml — RT-450 tracked capture (1.15.0-draft)", () =>
   const withTracking = (value: unknown) => ({ ...line, tracking: value });
 
   it("bumps the version and the note cites the owner authorization and the rollout order", () => {
-    // RT-1206 bumped the document to 1.20.0-draft (RT-1051 follow-up was 1.19.0); the RT-450 note still stands.
-    expect(doc.info.version).toBe("1.20.0-draft");
+    // RT-451 S3 bumped the document to 1.21.0-draft (RT-1206 was 1.20.0); the RT-450 note still stands.
+    expect(doc.info.version).toBe("1.21.0-draft");
     const info = infoOf(doc);
     expect(info).toContain("RT-450 (1.15.0-draft; [GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21");
     expect(info).toContain("the POS MUST NOT send them before RT-451 is deployed and tracked selling is activated for the tenant");
+  });
+
+  it("RT-451 S3 (OD-T4): while tracked selling is off, an untracked line is ordinary and any tracking is a 400", () => {
+    const info = infoOf(doc);
+    expect(info).toContain("RT-451 S3 (1.21.0-draft; [GATED: contract] captain decision under owner delegation, Jira RT-451 comment 16262");
+    expect(info).toContain("wording only, no shape change, no new status or error code");
+    const text = (capture.description ?? "").replace(/\s+/g, " ");
+    expect(text).toContain("Tracked selling OFF (RT-451 S3, OD-T4)");
+    expect(text).toContain("a tracked product's line without `tracking` is an ordinary line");
+    expect(text).toContain("never `tracking_unresolved`");
+    expect(text).toContain("a line that carries `tracking` is 400 `validation_error`");
+    expect(text).toContain("That 400 is a first-capture refusal: it is decided after the replay branch");
+    const schemaText = (doc.components.schemas["CaptureSaleLineTracking"]?.description ?? "").replace(/\s+/g, " ");
+    expect(schemaText).toContain("ANY `tracking` is a 400 `validation_error`");
+    // No new response or error code: the 400 is the existing ValidationFailure.
+    expect(capture.responses?.["400"]?.$ref).toBe("#/components/responses/ValidationFailure");
   });
 
   it("the note states hash membership, never-reject and the Batch boundary", () => {
