@@ -6,7 +6,8 @@ writes three files to --out:
 
   release-manifest.json   source SHA, product tree hash (`git rev-parse <sha>:<product path>`),
                           artifact digests, contract snapshot, CI URL, mode/tag and, for
-                          Backend-Core, the compat guard verdict (MR-3);
+                          Backend-Core, the compat guard verdict (MR-3) and, for the pilot-signed POS installer
+                          (product pos-pilot, RT-1294), `signing: pilot`;
   provenance.intoto.json  an UNSIGNED in-toto Statement (SLSA provenance v1 predicate) over the
                           same artifacts. Signing and publication belong to the publish job (RT-717);
   SHA256SUMS              of the two files above.
@@ -31,6 +32,9 @@ SCHEMA = "retail-tower/release-manifest/v1"
 CONTRACTS = "services/backend-core/packages/contracts/openapi"
 PRODUCTS = {
     "pos": {"path": "apps/pos", "pin": "apps/pos/contracts/backend-core/PIN"},
+    # RT-1294: the pilot-signed installer is its own product of the same tree (tag pos-pilot/vX.Y.Z). Its manifest
+    # carries `signing: pilot`: the product sets it, never an input. The lab product has no such field.
+    "pos-pilot": {"path": "apps/pos", "pin": "apps/pos/contracts/backend-core/PIN", "manifest_fields": {"signing": "pilot"}},
     "admin-console": {"path": "apps/admin-console", "pin": "apps/admin-console/contracts/backend-core/PIN"},
     "backend-core": {"path": "services/backend-core"},
     "erpnext-connector": {
@@ -162,6 +166,8 @@ def build(args):
         "artifacts": collect_artifacts(args.artifact, args.artifact_digest),
         "contract_snapshot": contract_snapshot(repo, args.sha, args.product),
         "ci_url": args.ci_url,
+        # Product-level fields (RT-1294: `signing: pilot`): set by the product, never by an input.
+        **PRODUCTS[args.product].get("manifest_fields", {}),
     }
     if args.product == "backend-core":
         if args.compat_verdict not in COMPAT_VERDICTS:

@@ -1,0 +1,493 @@
+# RT-1294: the POS PILOT installer release. A pilot-signed, timestamped, attested per-user NSIS installer, built
+# from the same fused, smoke-tested win-unpacked package as the lab release, on its own tag (pos-pilot/vX.Y.Z)
+# so a pilot artifact and a lab artifact never share a release. Dry-run by default.
+#
+# The pilot certificate is a self-signed leaf (CN=Kemetra POS PILOT) that no machine trusts by default: this
+# workflow asks no device to trust anything. The installer ships no update configuration, so the pilot terminal
+# cannot update itself (the updater refuses a build without one). Admitting a device, uploading to S3 and
+# registering the release are separate, later steps.
+#
+# Triggers: a `pos-pilot/vX.Y.Z` tag push, or a manual dispatch whose default is a dry-run. No pull_request
+# trigger: PR code can never start this workflow with a release environment.
+#
+#   resolve       the release SHA (always github.sha) must be on main; a release needs a pos-pilot/vX.Y.Z tag
+#                 ref whose version equals apps/pos/package.json, a dry-run needs nothing else.
+#   build         the Windows package (win-unpacked), unsigned: the same steps as release-pos build, including
+#                 the fuse read-back and native-load smoke. No cache, no secrets, no environment.
+#   sign-dry-run  dry-run mode only. Builds the NSIS installer from the prebuilt win-unpacked with an ephemeral
+#                 self-signed pilot leaf (release-pilot-installer.ps1 -Mode dry-run) and runs the same checks
+#                 (signatures Valid, exact subject, timestamp, silent install and uninstall, no app-update.yml).
+#                 No environment and no signing material.
+#   sign-release  release mode only, behind the release-pos-pilot-sign environment (the only job that reads the
+#                 pilot signing PFX). Installs with --ignore-scripts, signs with the pilot leaf, verifies, and
+#                 always removes the certificates it added.
+#   manifest      release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py, product
+#                 pos-pilot: the manifest carries signing=pilot). Every run, dry-run included.
+#   publish       release mode only, behind the release-pos-pilot environment (tag-only deployment policy;
+#                 publish refuses unless it is protected that way and release-pos-pilot-sign has a required
+#                 reviewer and admits only pos-pilot/v* tags). Attests the signed installer's build provenance and creates the GitHub
+#                 release pos-pilot/vX.Y.Z with exactly: the installer, its .sha256 and the manifest. No rebuild,
+#                 no repository code. Never overwrites a release, never deploys.
+#
+# The token is read-only (workflow `permissions: {}`, contents: read per job). Only publish, admitted by the
+# environment, gets contents write, id-token write and attestations write (plus actions read to check the
+# environment's protection): the write scopes are repo-wide (a monorepo token is never confined to apps/pos);
+# the boundary is the tag-only environment and this job's steps.
+name: release-pos-pilot
+
+"on":
+  push:
+    tags: ["pos-pilot/v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Dry-run (build, sign with an ephemeral pilot certificate, manifest; publish nothing). false needs a pos-pilot/vX.Y.Z tag ref.
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: release-pos-pilot-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: pilot/resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - name: Checkout (history only, for the main-ancestry check)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          # Non-cone: cone mode takes directories, and apps/pos/package.json is a single file.
+          sparse-checkout: |
+            /.github/release/
+            /apps/pos/package.json
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve SHA, mode and tag
+        id: resolve
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          TAG_RE='^refs/tags/pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "unexpected SHA '$SHA'"
+          case "$EVENT" in
+            push) [[ "$REF" =~ $TAG_RE ]] || fail "tag $REF is not pos-pilot/vX.Y.Z"; mode=release ;;
+            workflow_dispatch)
+              if [ "$DRY_RUN" = "true" ]; then mode=dry-run
+              else [[ "$REF" =~ $TAG_RE ]] || fail "a non-dry-run dispatch must run on a pos-pilot/vX.Y.Z tag ref, not $REF"; mode=release
+              fi ;;
+            *) fail "unsupported event $EVENT" ;;
+          esac
+          # Read the version in both modes, so a dry-run proves the read before the first real tag. The installer's
+          # file name and the packaged app carry package.json's version: a release tag must be that version.
+          PKG_VERSION="$(jq -er .version apps/pos/package.json)" || fail "cannot read the version of apps/pos/package.json"
+          [[ "$PKG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "apps/pos/package.json version '$PKG_VERSION' is not X.Y.Z"
+          if [ "$mode" = release ]; then
+            [ "${REF#refs/tags/pos-pilot/v}" = "$PKG_VERSION" ] \
+              || fail "tag ${REF#refs/tags/} is version ${REF#refs/tags/pos-pilot/v} but apps/pos/package.json is version $PKG_VERSION"
+          fi
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || fail "$SHA is not on main"
+          tag=""
+          if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
+          { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+          echo "### release-pos-pilot: $mode ${tag:-(no tag)} at \`$SHA\` (apps/pos version $PKG_VERSION)" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: pilot/build (Windows package, unsigned)
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/pos
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      # Full install: postinstall runs electron-rebuild -f -w better-sqlite3.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild argon2 for Electron ABI (packaging)
+        run: npx electron-rebuild -f -w argon2
+
+      - name: Build (renderer + main + preload)
+        run: npm run build
+
+      # Unsigned: electron-builder finds no signing credential in this job. Signing is the sign-* jobs.
+      - name: Package (Windows --dir, unsigned)
+        run: npm run package:dir
+
+      - name: Fetch stock Electron binary (for the packaged-build checks)
+        run: node node_modules/electron/install.js
+
+      - name: Fuse readback (packaged exe vs electron-builder.yml)
+        run: npx tsx scripts/verify-packaged.ts fuses
+
+      - name: Native-load smoke (packaged better-sqlite3 + argon2)
+        run: npx tsx scripts/verify-packaged.ts native
+
+      # The signing jobs build the installer from exactly this fused, smoke-tested directory.
+      - name: Upload win-unpacked (for the signing jobs)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-pilot-unpacked-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: apps/pos/dist-electron/win-unpacked/
+          # upload-artifact skips dot-files unless told otherwise; the package must arrive whole.
+          include-hidden-files: true
+          if-no-files-found: error
+          # Long enough to outlast an owner approval delay on the signing environment.
+          retention-days: 7
+
+  sign-dry-run:
+    name: pilot/sign (dry-run, ephemeral pilot certificate)
+    needs: [resolve, build]
+    if: needs.resolve.outputs.mode == 'dry-run'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # No environment: this path never reads the pilot signing material.
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/pos
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      # Dependencies only, no lifecycle scripts: electron-builder is needed, no package script may run here.
+      - name: Install dependencies (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Download win-unpacked
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-pilot-unpacked-dry-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-unpacked
+
+      # -Version must equal package.json's version (the script checks it too). -Out must be empty or absent.
+      - name: Sign and verify the installer
+        shell: pwsh
+        env:
+          POS_PILOT_TSA_URL: https://timestamp.sectigo.com
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          & ./scripts/pilot/ci/release-pilot-installer.ps1 -Mode dry-run -Unpacked "$env:RUNNER_TEMP/pos-unpacked" -Version $version -Out "$env:RUNNER_TEMP/pos-installer"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Remove the pilot certificates
+        if: always()
+        shell: pwsh
+        run: ./scripts/pilot/ci/release-pilot-installer.ps1 -Cleanup
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-pilot-installer-dry-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-installer/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign-release:
+    name: pilot/sign (pilot certificate, release-pos-pilot-sign environment)
+    needs: [resolve, build]
+    if: needs.resolve.outputs.mode == 'release'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: release-pos-pilot-sign
+    # The only job that reads the pilot signing PFX; the environment admits pos-pilot/v* tags only and needs the
+    # owner's approval (a tag names a commit, and that commit's copy of this file is what runs).
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/pos
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      # Dependencies only, no lifecycle scripts: this job holds the signing key, so no package script may run.
+      - name: Install dependencies (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Download win-unpacked
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-pilot-unpacked-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-unpacked
+
+      # The signing material reaches this one step only. -Version must equal package.json's version (the script
+      # checks it too). -Out must be empty or absent.
+      - name: Sign and verify the installer
+        shell: pwsh
+        env:
+          POS_PILOT_SIGN_PFX_BASE64: ${{ secrets.POS_PILOT_SIGN_PFX_BASE64 }}
+          POS_PILOT_SIGN_PFX_PASSWORD: ${{ secrets.POS_PILOT_SIGN_PFX_PASSWORD }}
+          POS_PILOT_LEAF_SHA1: ${{ vars.POS_PILOT_LEAF_SHA1 }}
+          POS_PILOT_TSA_URL: https://timestamp.sectigo.com
+        run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          & ./scripts/pilot/ci/release-pilot-installer.ps1 -Mode release -Unpacked "$env:RUNNER_TEMP/pos-unpacked" -Version $version -Out "$env:RUNNER_TEMP/pos-installer"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Remove the pilot certificates
+        if: always()
+        shell: pwsh
+        run: ./scripts/pilot/ci/release-pilot-installer.ps1 -Cleanup
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-pilot-installer-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pos-installer/
+          if-no-files-found: error
+          # As long as the manifest: publish waits for the owner's approval, which may take days.
+          retention-days: 90
+
+  manifest:
+    name: pilot/manifest
+    needs: [resolve, build, sign-dry-run, sign-release]
+    # !cancelled(): sign-dry-run or sign-release is skipped in every run, and a skipped need would skip this
+    # job under the implicit success(); unlike always(), cancelling the run still stops it. The sign job of
+    # this run's mode must have succeeded.
+    if: >-
+      !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success'
+      && ((needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success')
+      || (needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the release SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download the installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-pilot-installer-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      - name: Write the release manifest
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          CI_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          fail() { echo "::error::$*"; exit 1; }
+          PKG="$RUNNER_TEMP/pkg"
+          exes=("$PKG"/POS-Pulse-Setup-*.exe)
+          [ "${#exes[@]}" -eq 1 ] || fail "expected one installer, found ${#exes[@]}"
+          EXE="$(basename "${exes[0]}")"
+          [ "$(ls "$PKG" | paste -sd ' ' -)" = "$EXE" ] \
+            || fail "the installer package must hold exactly $EXE (got: $(ls "$PKG" | paste -sd ' ' -))"
+          args=(--product pos-pilot --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
+                --artifact "pos-installer=$PKG/$EXE"
+                --note "certificate=self-signed pilot leaf (CN=Kemetra POS PILOT), privately trusted, not publicly trusted (RT-1290, RT-1294)"
+                --note "updater=none: the installer ships no update configuration"
+                --out "$RUNNER_TEMP/manifest")
+          if [ -n "$TAG" ]; then args+=(--tag "$TAG"); fi
+          python3 .github/release/manifest.py "${args[@]}"
+          { echo '```json'; cat "$RUNNER_TEMP/manifest/release-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pos-pilot-release-manifest-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: pilot/publish (attestation + GitHub release)
+    needs: [resolve, sign-release, manifest]
+    # !cancelled(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would
+    # skip this job under the implicit success(). Every need is checked explicitly instead. Unlike always(),
+    # cancelling the run stops an approved publish.
+    if: >-
+      !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
+      && needs.sign-release.result == 'success' && needs.manifest.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release-pos-pilot
+    # One publish at a time for the pilot installer.
+    concurrency:
+      group: release-pos-pilot-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # attestation signing (Sigstore)
+      attestations: write
+      actions: read # the environment and deployment-policy reads in the first step
+    env:
+      SHA: ${{ needs.resolve.outputs.sha }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      REPO: ${{ github.repository }}
+    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
+    steps:
+      # A job that names a missing environment creates it unprotected. Refuse unless release-pos-pilot has a
+      # required reviewer and admits only pos-pilot/v* tags, and release-pos-pilot-sign (the only holder of the
+      # pilot signing PFX) has a required reviewer and admits only pos-pilot/v* tags. This runs AFTER signing, so it
+      # is a misconfiguration alarm, not the control: the owner verifies both environments (and the pos-pilot/*
+      # tag ruleset) before the first tag, and the reviewer on the signing environment is what stops a rogue tag
+      # from reading the PFX (runbook section 2).
+      - name: Refuse unless the release environments are protected
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # check_env NAME REVIEWER: the environment must admit exactly the tag pattern pos-pilot/v*; with
+          # REVIEWER=required it must also have a required reviewer.
+          check_env() {
+            local name="$1" reviewer="$2" env_json policies
+            env_json="$(gh api "repos/$REPO/environments/$name")" || fail "cannot read the $name environment"
+            if [ "$reviewer" = required ]; then
+              jq -e '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length > 0' <<<"$env_json" >/dev/null \
+                || fail "$name has no required reviewer"
+            fi
+            jq -e '.deployment_branch_policy.custom_branch_policies == true' <<<"$env_json" >/dev/null \
+              || fail "$name has no custom deployment policy"
+            policies="$(gh api "repos/$REPO/environments/$name/deployment-branch-policies" \
+              --jq '[.branch_policies[] | {name, type}]')" || fail "cannot read the deployment policies of $name"
+            [ "$(jq -c . <<<"$policies")" = '[{"name":"pos-pilot/v*","type":"tag"}]' ] \
+              || fail "$name must admit exactly the tag pattern pos-pilot/v* (got $policies)"
+          }
+          check_env release-pos-pilot required
+          check_env release-pos-pilot-sign required
+
+      - name: Check the release inputs
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$TAG" =~ ^pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "release tag '$TAG' is not pos-pilot/vX.Y.Z"
+          [ "$SHA" = "$GITHUB_SHA" ] || fail "resolved SHA $SHA != workflow SHA $GITHUB_SHA"
+
+      - name: Download the installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-pilot-installer-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/pkg
+
+      - name: Download the release manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: pos-pilot-release-manifest-release-${{ github.run_id }}
+          path: ${{ runner.temp }}/manifest
+
+      # What is published must be exactly what the build and signing jobs produced and the manifest job
+      # recorded: no rebuild.
+      - name: Check the package against the manifest
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          VERSION="${TAG#pos-pilot/v}"
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          MANIFEST="$RUNNER_TEMP/manifest/release-manifest.json"
+          [ "$(ls "$PKG" | paste -sd ' ' -)" = "$EXE" ] \
+            || fail "the package must hold exactly $EXE (got: $(ls "$PKG" | paste -sd ' ' -))"
+          DIGEST="sha256:$(sha256sum "$PKG/$EXE" | cut -d' ' -f1)"
+          jq -e --arg tag "$TAG" --arg sha "$SHA" --arg exe "$EXE" --arg digest "$DIGEST" '
+              .product == "pos-pilot" and .signing == "pilot" and .mode == "release" and .tag == $tag and .source.sha == $sha
+              and ([.artifacts[] | select(.name == "pos-installer" and .file == $exe and .digest == $digest)] | length == 1)
+              and (.artifacts | length == 1)
+            ' "$MANIFEST" >/dev/null \
+            || fail "the manifest does not match the package: expected product pos-pilot, signing pilot, tag $TAG, sha $SHA and installer $EXE $DIGEST"
+          # The .sha256 asset has the `sha256sum -c` shape, like the other releases.
+          (cd "$PKG" && sha256sum "$EXE" > "$EXE.sha256")
+          cp "$MANIFEST" "$PKG/release-manifest.json"
+
+      # Re-run safe, never overwrites: a release that exists (even a draft) stops the job.
+      - name: Refuse if the release already exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if OUT="$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>&1)"; then
+            echo "::error::release $TAG already exists (draft: $OUT); refusing to overwrite. A draft left by a failed run must be deleted by the owner first."
+            exit 1
+          fi
+          grep -qi "release not found" <<<"$OUT" \
+            || { echo "::error::could not determine whether release $TAG exists: $OUT"; exit 1; }
+
+      # One subject: the signed installer. The attestation covers the bytes a pilot terminal installs.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: ${{ runner.temp }}/pkg/POS-Pulse-Setup-*.exe
+
+      - name: Create the GitHub release (never overwrites)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          VERSION="${TAG#pos-pilot/v}"
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          cd "$RUNNER_TEMP/pkg"
+          [ "$(ls | sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.sha256" release-manifest.json | sort | paste -sd ' ' -)" ] \
+            || fail "the release assets are not exactly $EXE, $EXE.sha256 and release-manifest.json"
+          # --verify-tag only proves the tag exists: it must still point at the SHA this run built.
+          TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
+          [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --verify-tag \
+            --title "POS Pulse $TAG (PILOT)" \
+            --notes "Built from $SHA by $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID. $EXE is the PILOT per-user installer: signed with a self-signed pilot certificate (CN=Kemetra POS PILOT) that Windows does not trust by default, so it validates only on a device that was explicitly admitted. It ships no update configuration. It is not a commercial release. Verify with the .sha256 file, release-manifest.json and gh attestation verify before use." \
+            "$EXE" "$EXE.sha256" release-manifest.json
+          {
+            echo "### Published $TAG"
+            echo
+            echo "- release: $GITHUB_SERVER_URL/$REPO/releases/tag/$TAG"
+            echo "- installer: \`$EXE\` ($(jq -r '.artifacts[] | select(.name == "pos-installer") | .digest' release-manifest.json))"
+          } >> "$GITHUB_STEP_SUMMARY"

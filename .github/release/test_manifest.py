@@ -113,6 +113,40 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(m["tag"], "pos/v1.2.3")
 
+    def test_pilot_product_records_signing_pilot_and_its_own_tag(self):
+        # RT-1294: the pilot installer is its own product of the same tree: its tag is pos-pilot/vX.Y.Z and its
+        # manifest says `signing: pilot`, set by the product, never by an input.
+        rc, m, _ = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}", "--tag", "pos-pilot/v1.2.3", mode="release")
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["product"], "pos-pilot")
+        self.assertEqual(m["tag"], "pos-pilot/v1.2.3")
+        self.assertEqual(m["signing"], "pilot")
+        self.assertEqual(m["source"]["product_path"], "apps/pos")
+        self.assertEqual(m["source"]["product_tree"], sh(self.repo, "rev-parse", f"{self.sha}:apps/pos"))
+        self.assertEqual(m["contract_snapshot"]["consumer_pin"]["commit"], "a" * 40)
+
+    def test_pilot_dry_run_also_says_pilot(self):
+        rc, m, _ = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}")
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["signing"], "pilot")
+        self.assertIsNone(m["tag"])
+
+    def test_pilot_tags_and_lab_tags_never_cross(self):
+        art = ["--artifact", f"a={self.art}"]
+        self.assertEqual(self.run_main("pos-pilot", *art, "--tag", "pos/v1.2.3", mode="release")[0], 2)
+        self.assertEqual(self.run_main("pos", *art, "--tag", "pos-pilot/v1.2.3", mode="release")[0], 2)
+        self.assertEqual(self.run_main("pos-pilot", *art, mode="release")[0], 2)  # release without a tag
+        self.assertEqual(self.run_main("pos-pilot", *art, "--tag", "pos-pilot/v1.2.3")[0], 2)  # dry-run with a tag
+        self.assertEqual(self.run_main("pos-pilot", *art, "--compat-verdict", "PASS")[0], 2)  # compat is BC only
+
+    def test_only_the_pilot_product_carries_a_signing_field(self):
+        art = ["--artifact", f"a={self.art}"]
+        for product in ("pos", "admin-console", "erpnext-connector"):
+            self.assertNotIn("signing", self.run_main(product, *art)[1], product)
+        rc, m, _ = self.run_main("backend-core", *art, "--compat-verdict", "PASS")
+        self.assertEqual(rc, 0)
+        self.assertNotIn("signing", m)
+
     def test_missing_product_path_refuses(self):
         bare = os.path.join(self.tmp.name, "empty")
         sh(self.tmp.name, "init", "-q", bare)
