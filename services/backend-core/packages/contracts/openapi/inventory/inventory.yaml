@@ -279,7 +279,7 @@ info:
     feature per tenant: Retail Tower is a general retail product, so a
     pharmacy turns it on and a shop that sells no tracked goods can leave it
     off. `getTrackedSellingSetting` / `setTrackedSellingSetting` read and
-    switch it, owner or tenant_admin only. It is off for every tenant until
+    switch it; only an owner or tenant_admin switches it. It is off for every tenant until
     switched on. Switching on is accepted only while the six RT-50 Q13
     preconditions (`TrackedSellingPrecondition`) hold; switching off is
     always accepted. Tracked selling is in effect for a tenant only while the
@@ -287,10 +287,13 @@ info:
     switched it on; while the gate is off both operations answer the
     non-disclosing 404 to an authenticated owner or tenant_admin. Both are
     `x-runtime-status: contract-only` until the RT-451 S2 runtime
-    (migration M1) ships. How the POS (RT-454) and a store_manager learn
-    whether the switch is on is not defined in this version; it is an open
-    owner decision (RT-451 comment 16216 allows an additive POS-facing
-    field). No other operation changes.
+    (migration M1) ships. Reading the switch (OD-T6, RT-451 comment 16217):
+    a store_manager reads its on/off value only, through
+    `getTrackedSellingSetting`; the POS reads `tracked_selling_enabled` on
+    every answer of the POS inventory safety feed
+    (`inventory/inventory-safety-feed.yaml` 1.1.0-draft). A switched-on
+    tenant whose preconditions later fail stays on, shown to the owner as a
+    warning (OD-T7). No other operation changes.
 
 servers:
   - url: https://api.datapulse.example
@@ -838,7 +841,14 @@ paths:
         (fail closed). `preconditionsMet` is true exactly when that list is
         empty. Tracked selling is in effect for the tenant only while the
         deployment gate `POS_TRACKED_SELLING_ENABLED` is on and `enabled` is
-        true. Owner or tenant_admin; any other role is a 403. Authentication
+        true. If a precondition stops holding after the switch is on, tracked
+        selling stays on (OD-T7, RT-451 comment 16217): `enabled: true` with
+        `preconditionsMet: false` is the state the Console shows the owner as a
+        warning. The switch never turns itself off; only an owner or
+        tenant_admin switches it off. Owner or tenant_admin read every field.
+        A store_manager reads on/off only (OD-T6): `enabled`, with
+        `changedAt`, `changedBy`, `preconditionsMet` and `unmetPreconditions`
+        null. Any other role is a 403. Authentication
         (401) and role (403) are checked first, as for `posListTrackedLots`;
         then, while the gate is off, this operation answers the non-disclosing
         404 and reads nothing.
@@ -2055,21 +2065,24 @@ components:
         changedAt:
           type: [string, "null"]
           format: date-time
-          description: When the switch last changed; null while it never changed.
+          description: When the switch last changed; null while it never changed, and for a store_manager.
         changedBy:
           type: [string, "null"]
           format: uuid
-          description: The user who last changed the switch; null while it never changed.
+          description: The user who last changed the switch; null while it never changed, and for a store_manager.
         preconditionsMet:
-          type: boolean
-          description: True exactly when `unmetPreconditions` is empty.
+          type: [boolean, "null"]
+          description: >
+            True exactly when `unmetPreconditions` is empty. Null only for a
+            store_manager, who reads on/off only (OD-T6).
         unmetPreconditions:
-          type: array
+          type: [array, "null"]
           uniqueItems: true
           maxItems: 6
           description: >
             The preconditions that do not hold now, in the enum's order; a
             precondition the server cannot confirm is listed (fail closed).
+            Null only for a store_manager (OD-T6).
           items:
             $ref: "#/components/schemas/TrackedSellingPrecondition"
     SetTrackedSellingSettingCommand:

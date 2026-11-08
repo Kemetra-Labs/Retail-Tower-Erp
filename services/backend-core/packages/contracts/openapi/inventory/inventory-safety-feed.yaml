@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — POS Inventory Safety Feed API
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     RT-449 PR 2 (RT-50 Gate 7 F2, G7-6 / G7-7; owner approval and rulings
     H1–H8 in RT-449 comment 13434). The READ-ONLY publication of a tenant's
@@ -86,6 +86,22 @@ info:
     is closed: `validation_error` (400), `unauthorized` (401, including the
     message `store_context_required` for a device with no resolved store),
     `not_found` (404), `snapshot_required` (409) and `internal_error` (500).
+
+
+    **1.1.0-draft (RT-451 S2, additive; [GATED: contract] owner approval
+    RT-451 comment 16216 and decision OD-T6, RT-451 comment 16217,
+    2026-11-08).** Both pages gain the optional `tracked_selling_enabled`:
+    true only while the deployment gate `POS_TRACKED_SELLING_ENABLED` is on
+    AND the tenant has switched tracked selling on
+    (`setTrackedSellingSetting`, `inventory/inventory.yaml` 1.12.0-draft).
+    Like `safety_ttl_seconds`, every answer carries the current value, so a
+    switch reaches the till at its next sync; it does not step the
+    revision. The RT-451 S2 runtime emits it; until then it is absent, and
+    a till treats a missing `tracked_selling_enabled` as false. While it is
+    false the till does not ask for a batch (OD-T4). The field is optional
+    and the pages stay `additionalProperties: false`, so a till that
+    validates strictly must pin 1.1.0 before the server emits it (ROLLOUT
+    above). No other change.
 
 servers:
   - url: https://api.example.com
@@ -281,6 +297,13 @@ components:
         The tenant's effective Safety TTL in seconds (H8): the configured
         value, or 900 when unset. The maximum age of the till's last
         successful sync from this feed before its safety data is stale.
+    TrackedSellingEnabled:
+      type: boolean
+      description: >
+        RT-451 S2 (OD-T6): whether tracked selling is in effect for the
+        tenant: the deployment gate `POS_TRACKED_SELLING_ENABLED` is on and
+        the tenant has switched it on. Absent until the RT-451 S2 runtime
+        emits it; a till treats absence as false.
     SafetyHold:
       type: object
       additionalProperties: false
@@ -343,6 +366,8 @@ components:
           description: The next page's token; null on the last page.
         safety_ttl_seconds:
           $ref: "#/components/schemas/SafetyTtlSeconds"
+        tracked_selling_enabled:
+          $ref: "#/components/schemas/TrackedSellingEnabled"
         served_at:
           type: string
           format: date-time
@@ -369,6 +394,8 @@ components:
           description: True when more revision steps follow `revision`; call again with `since` = `revision`.
         safety_ttl_seconds:
           $ref: "#/components/schemas/SafetyTtlSeconds"
+        tracked_selling_enabled:
+          $ref: "#/components/schemas/TrackedSellingEnabled"
         served_at:
           type: string
           format: date-time

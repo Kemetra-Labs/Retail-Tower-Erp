@@ -13,5 +13,9 @@
   non-disclosing 404 while the deployment gate `POS_TRACKED_SELLING_ENABLED`
   is off. Additive only; rate-limit classes `cheapRead` / `write`. No runtime,
   route or migration: the runtime ships with migration M1 in the next RT-451
-  S2 PR. How the POS and a store_manager learn the switch is an open owner
-  decision, not in this version.
+  S2 PR. Reading the switch (OD-T6, RT-451 comment 16217): a store_manager
+  reads its on/off value only; the POS reads the new optional
+  `tracked_selling_enabled` on every answer of the POS inventory safety feed
+  (`inventory/inventory-safety-feed.yaml` 1.1.0-draft; absent until the S2
+  runtime, and absence means false). A switched-on tenant whose
+  preconditions later fail stays on, shown to the owner as a warning (OD-T7).

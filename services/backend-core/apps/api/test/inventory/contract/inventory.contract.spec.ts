@@ -1207,6 +1207,23 @@ describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () =>
     }
   });
 
+  it("lets a store_manager read on/off only, with every other field null (OD-T6)", () => {
+    expect(op("get").description).toMatch(/A store_manager reads on\/off only/);
+    expect(op("put").description).not.toContain("store_manager reads");
+  });
+
+  it("keeps a switched-on tenant on when a precondition later fails, as a warning (OD-T7)", () => {
+    expect(op("get").description).toMatch(/stays on/);
+    expect(op("get").description).toMatch(/warning/);
+    expect(op("get").description).toContain("never turns itself off");
+  });
+
+  it("points the POS to the safety feed's tracked_selling_enabled and cites the decisions", () => {
+    expect(inventoryDoc.info?.description).toContain("`tracked_selling_enabled`");
+    expect(inventoryDoc.info?.description).toContain("RT-451 comment 16217");
+    expect(inventoryDoc.info?.description).not.toContain("open owner decision");
+  });
+
   it("projects a strict setting: on/off, last change, and the Q13 preconditions as evaluated now", () => {
     const setting = schema("TrackedSellingSetting");
     expect(setting.additionalProperties).toBe(false);
@@ -1214,9 +1231,10 @@ describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () =>
     expect(setting.properties?.["enabled"]?.type).toBe("boolean");
     expect(setting.properties?.["changedAt"]).toMatchObject({ type: ["string", "null"], format: "date-time" });
     expect(setting.properties?.["changedBy"]).toMatchObject({ type: ["string", "null"], format: "uuid" });
-    expect(setting.properties?.["preconditionsMet"]?.type).toBe("boolean");
+    // Null only for a store_manager, who reads on/off only (OD-T6).
+    expect(setting.properties?.["preconditionsMet"]?.type).toEqual(["boolean", "null"]);
     expect(setting.properties?.["unmetPreconditions"]).toMatchObject({
-      type: "array",
+      type: ["array", "null"],
       uniqueItems: true,
       maxItems: 6,
       items: { $ref: "#/components/schemas/TrackedSellingPrecondition" },
