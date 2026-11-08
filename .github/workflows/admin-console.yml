@@ -3,10 +3,10 @@
 # apps/admin-console/.github/workflows/ci.yml as imported at Admin-Console@a85e3e8,
 # inside apps/admin-console/. The import is now at the Admin-Console SHA in
 # tools/history/frozen.tsv; the one product ci.yml change since then (RT-831 parity manifest)
-# is carried below. Each job `name:` is the graph key, so it is a literal with no
-# expression and there is no matrix. The workflow `name:` must stay `admin-console`
-# (listed in gate.yml `workflow_run`). PR-reachable: read-only token, no
-# credentials, no environment.
+# is carried below. Each graph-key job `name:` is a literal with no expression and no matrix;
+# the RT-1278 E2E shards are a matrix whose expression names are not graph keys. The
+# workflow `name:` must stay `admin-console` (listed in gate.yml `workflow_run`).
+# PR-reachable: read-only token, no credentials, no environment.
 #
 # RT-889: the pinned Backend-Core contracts are read from this repository's own history (the
 # in-tree services/backend-core/packages/contracts/openapi at the commit in
@@ -18,8 +18,8 @@
 #  - the graph is the only selector, so there is no `paths:` filter. RT-867: the `plan` job
 #    runs the base-branch evaluator and the job runs only if the graph selects it. A selected
 #    job that is skipped fails the gate.
-#  - RT-872: the Playwright E2E steps run in their own job, admin/e2e, not inside build-test,
-#    and every retry is counted in its summary.
+#  - RT-872: the Playwright E2E steps run outside build-test (RT-1278: 4 shard jobs, merged and
+#    checked by the fan-in admin/e2e), and every retry is counted in the fan-in's summary.
 #  - RT-817: admin/e2e runs inside the official Playwright image (browsers and system deps
 #    baked in), pinned by digest, so it has no apt step and no browser cache. The image tag
 #    must equal the Playwright version in apps/admin-console/pnpm-lock.yaml; the job's first
@@ -366,12 +366,26 @@ jobs:
   # as root (Chromium only; Playwright's `--user 1001` advice is for Firefox), and --ipc=host keeps
   # Chromium off Docker's 64 MB /dev/shm. setup-node still puts the .nvmrc Node ahead of the
   # image's own Node.
-  admin-e2e:
-    name: admin/e2e
+  #
+  # RT-1278: the suite (968 tests) is sharded 4 ways with Playwright's own --shard. Each shard
+  # writes a blob report; the fan-in below, the only job named admin/e2e, merges them and fails
+  # unless every shard succeeded and the merged report holds every test of `playwright test --list`
+  # at this SHA exactly once, with none failed (.github/scripts/check-e2e-shards.mjs). The shard
+  # name is an expression, so it is not a graph job key. To change the shard count, change the
+  # matrix and E2E_SHARDS in both jobs together.
+  admin-e2e-shard:
+    name: ${{ format('admin/e2e shard {0}', matrix.shard) }}
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'admin/e2e')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      # Every shard reports, so one failure does not hide the others' results.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      E2E_SHARDS: "4"
     container:
       image: mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948
       options: --ipc=host
@@ -428,8 +442,112 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: E2E tests
-        run: pnpm test:e2e
+      # The CLI reporters replace the config's: blob for the fan-in to merge, line so a failure is
+      # readable in this shard's log. The fan-in merges into JSON (retry steps) and github
+      # (annotations on the PR).
+      - name: E2E tests (shard ${{ matrix.shard }} of 4)
+        run: pnpm exec playwright test --shard="${{ matrix.shard }}/$E2E_SHARDS" --reporter=blob,line
+
+      - name: Upload the shard's blob report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: admin-e2e-blob-${{ matrix.shard }}
+          path: apps/admin-console/blob-report
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+  # RT-1278: fail-closed fan-in, the single job named admin/e2e. `!cancelled()` keeps it
+  # reporting when a shard failed, so a red shard turns this check red instead of skipping it.
+  admin-e2e:
+    name: admin/e2e
+    needs: [plan, admin-e2e-shard]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.jobs), 'admin/e2e') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948
+      options: --ipc=host
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/admin-console
+    env:
+      E2E_SHARDS: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          package_json_file: apps/admin-console/package.json
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: apps/admin-console/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Self-test the fan-in check
+        run: node --test .github/scripts/check-e2e-shards.test.mjs
+
+      # A failed or missing download is not a verdict: the check below fails on any absent report.
+      - name: Download the shard blob reports
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: admin-e2e-blob-*
+          path: ${{ runner.temp }}/e2e-blobs
+
+      # Each artifact lands in its own folder; give every zip a unique name in one folder, since
+      # Playwright may name each shard's file alike.
+      - name: Gather the blob reports
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/e2e-all"
+          shopt -s nullglob
+          for z in "$RUNNER_TEMP"/e2e-blobs/admin-e2e-blob-*/*.zip; do
+            cp "$z" "$RUNNER_TEMP/e2e-all/$(basename "$(dirname "$z")")-$(basename "$z")"
+          done
+          ls -l "$RUNNER_TEMP/e2e-all"
+
+      - name: Merge the shard reports
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-report/e2e-results.json
+        run: |
+          set -euo pipefail
+          mkdir -p playwright-report
+          if compgen -G "$RUNNER_TEMP/e2e-all/*.zip" > /dev/null; then
+            pnpm exec playwright merge-reports --reporter=json,github "$RUNNER_TEMP/e2e-all"
+          else
+            echo "No shard blob report to merge."
+          fi
+
+      # Listing needs no browser and no web server.
+      - name: Fan-in (every shard green, every listed test exactly once, none failed)
+        if: ${{ !cancelled() }}
+        env:
+          SHARDS_RESULT: ${{ needs.admin-e2e-shard.result }}
+        run: |
+          set -euo pipefail
+          pnpm exec playwright test --list --reporter=json > "$RUNNER_TEMP/e2e-listed.json"
+          rc=0
+          node .github/scripts/check-e2e-shards.mjs "$RUNNER_TEMP/e2e-all" "$E2E_SHARDS" \
+            "$RUNNER_TEMP/e2e-listed.json" playwright-report/e2e-results.json || rc=1
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "::error title=admin/e2e fan-in::the shard jobs ended '$SHARDS_RESULT', not 'success'"
+            rc=1
+          fi
+          exit $rc
 
       # RT-584: Playwright retries (2) hide flakes. Warn per test that passed
       # only on retry and list them in the step summary. Warn-only by policy.
