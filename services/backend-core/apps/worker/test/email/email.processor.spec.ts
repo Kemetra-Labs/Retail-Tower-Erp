@@ -404,8 +404,13 @@ describe("EmailProcessor — invitation accept link (RT-1280)", () => {
     expect(message.htmlBody).toContain(`<a href="${LINK}">`);
     // Arabic and English, with the 7-day expiry hint in both.
     expect(message.textBody).toContain("تمت دعوتك");
-    expect(message.textBody).toContain("7 days");
-    expect(message.textBody).toContain("7 أيام");
+    // Expiry counts from invitation creation, not from sending (INVITATION_TTL_MS).
+    for (const body of [message.textBody, message.htmlBody ?? ""]) {
+      expect(body).toContain("expires 7 days after it was created");
+      expect(body).toContain("بعد 7 أيام من إنشاء الدعوة");
+      expect(body).not.toContain("after it was sent");
+      expect(body).not.toContain("من إرسالها");
+    }
     expect(message.htmlBody).toContain('dir="rtl"');
   });
 
