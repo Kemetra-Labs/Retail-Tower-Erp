@@ -92,3 +92,4 @@ export class SaleTendersNotVisibleError extends Error {
     this.name = "SaleTendersNotVisibleError";
   }
 }
+

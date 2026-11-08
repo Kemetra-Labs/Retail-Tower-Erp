@@ -18,19 +18,17 @@
  * foreign token), and its position is ANDed with them. A filter id of another
  * tenant matches nothing (RLS) and answers an empty page.
  */
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { runWithTenantContext, type TrackingHoldKind } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
 import { PG_POOL } from '../../auth/auth.module';
 import { HOLD_COLUMNS, toHoldBody, type HoldRow, type TrackingHoldBody } from './safety.common';
 import {
-  SafetyHistoryCursorError,
-  decodeSafetyHistoryCursor,
+  decodeSafetyHistoryCursorOrReject,
   encodeSafetyHistoryCursor,
   instantKeySql,
   type SafetyHistoryCursorBinding,
-  type SafetyHistoryKeyset,
 } from './safety-history.cursor';
 import {
   CORRECTION_COLUMNS,
@@ -136,7 +134,7 @@ export class SafetyHistoryService {
       input.trackingIdentityId ?? null,
       input.productId ?? null,
     ]);
-    const after = decodeCursor(binding, input.cursor);
+    const after = decodeSafetyHistoryCursorOrReject(binding, input.cursor);
     const limit = clampLimit(input.limit);
     return this.read(input.tenantId, async (client) => {
       const r = await client.query<HoldRow & Keyed>(
@@ -165,7 +163,7 @@ export class SafetyHistoryService {
 
   listRecalls(input: ListRecallsInput): Promise<InventoryRecallSummaryListBody> {
     const binding = bind('inventory_recalls', input.tenantId, [input.productId ?? null]);
-    const after = decodeCursor(binding, input.cursor);
+    const after = decodeSafetyHistoryCursorOrReject(binding, input.cursor);
     const limit = clampLimit(input.limit);
     return this.read(input.tenantId, async (client) => {
       const r = await client.query<RecallSummaryRow>(
@@ -190,7 +188,7 @@ export class SafetyHistoryService {
 
   listExpiryCorrections(input: ListExpiryCorrectionsInput): Promise<ExpiryCorrectionListBody> {
     const binding = bind('expiry_corrections', input.tenantId, [input.trackingIdentityId]);
-    const after = decodeCursor(binding, input.cursor);
+    const after = decodeSafetyHistoryCursorOrReject(binding, input.cursor);
     const limit = clampLimit(input.limit);
     return this.read(input.tenantId, async (client) => {
       const identity = await client.query(
@@ -224,16 +222,6 @@ function bind(
   return { op, tenantId, filters };
 }
 
-/** A foreign or malformed cursor is a 400, refused before any read. */
-function decodeCursor(binding: SafetyHistoryCursorBinding, cursor: string | undefined): SafetyHistoryKeyset | null {
-  if (cursor === undefined) return null;
-  try {
-    return decodeSafetyHistoryCursor(binding, cursor);
-  } catch (err: unknown) {
-    if (err instanceof SafetyHistoryCursorError) throw new BadRequestException(err.message);
-    throw err;
-  }
-}
 
 function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);

@@ -1393,10 +1393,6 @@ paths:
   /api/inventory/v1/safety/sale-line-findings:
     get:
       operationId: listSaleLineFindings
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-451 Step 0 (contract-first): the runtime that records these
-        findings at sale capture ships with RT-451. Remove both keys then.
       tags: [inventory]
       summary: List the recorded sale-line findings of tracked selling, newest first.
       description: >

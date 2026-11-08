@@ -591,6 +591,23 @@ A script without the marker, such as the owner-gated
   backfill) and needs no maintenance window. Its down migration refuses while
   any record is stored.
 
+- **Migration `0089_sale_capture_tracking` (RT-451 S3).** Run
+  [`sql/sale-line-findings-domain-grants.sql`](sql/sale-line-findings-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `sale_line_findings` (sale capture appends the G7-9 row-2 and row-3
+  findings; `GET /api/inventory/v1/safety/sale-line-findings` reads them) and
+  `SELECT` on `erpnext_tracking_map` (capture checks whether an identity has an
+  ERP edge-map row). No `UPDATE` or `DELETE` policy on the findings
+  (append-only), and nothing in the API writes the edge map: never grant
+  `UPDATE`, `DELETE` or `TRUNCATE`, nor `INSERT` on the edge map. Without the
+  grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup
+  role must hold no privilege on either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+  0089 adds nullable columns to `sales` and `sale_lines` (no rewrite, no
+  backfill) and creates one empty table; it needs no maintenance window. Its
+  down migration refuses while any tracked sale data is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

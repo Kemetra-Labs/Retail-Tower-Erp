@@ -5,11 +5,20 @@
  * none | batch | serial and `expiry_required` (decisions 852, 384, 386). The
  * ERPNext Item never defines it.
  *
- * Not yet activated: the API accepts only `tracking_mode: none`. Any `batch` or
- * `serial` request is `activation_pending` (409 `tracking_activation_pending`)
- * until tracked-line enforcement exists (RT-451): otherwise POS would keep
- * selling the product untracked and the first sale line would lock a tracked
+ * Activation (RT-451 S3, comment 11790, lifted with capture enforcement): a
+ * `batch` request is accepted only while tracked selling is on for the tenant.
+ * A `serial` request stays `activation_pending` (RT-50 Q11, serial selling is
+ * fail-closed; comment 16275). Tracked selling is on while the deployment
+ * gate `POS_TRACKED_SELLING_ENABLED` AND the tenant's switch (0086) are both
+ * on. While it is off, `batch` also stays `activation_pending` (409
+ * `tracking_activation_pending`, "while tracked selling is not enabled" in
+ * `catalog/tracking-profile.yaml`), so no untracked sale can lock a tracked
  * profile that nothing enforces (owner decision on PR #749).
+ *
+ * Capture/profile lock (RT-451 comment 11790): the setter takes the product's
+ * Tracking Profile key EXCLUSIVE before it probes the history, and sale
+ * capture takes it SHARED before it writes a line, so a first sale line and a
+ * profile change never both commit unseen by each other.
  *
  * The guard (387): once the product has an inventory effect or a captured sale
  * line, changing either field is refused. The service locks the product row
@@ -44,6 +53,7 @@ import {
   lockTenantSafety,
   recordSafetyChange,
 } from "../../inventory/safety/safety-revision";
+import { lockProductProfiles, readTrackedSellingOn } from "../sales/tracked-lines/capture-tracking";
 import type { TrackingProfileRow } from "./tracking-profile.dto";
 
 export type GetTrackingProfileResult =
@@ -90,8 +100,8 @@ export class TrackingProfileService {
 
   /**
    * RT-1081 (RT-455 TR-6, OD-5): true when a product of the tenant that is not
-   * retired is tracked (`batch` or `serial`). False until tracked selling lifts
-   * `tracking_activation_pending` (RT-451).
+   * retired is tracked (`batch` or `serial`). RT-451 S3 lifts
+   * `tracking_activation_pending` while tracked selling is on.
    */
   async hasTrackedProducts(tenantId: string): Promise<boolean> {
     return await runWithTenantContext(
@@ -148,6 +158,9 @@ export class TrackingProfileService {
     input: SetTrackingProfileInput,
   ): Promise<SetTrackingProfileResult> {
     await lockTenantSafety(client, input.tenantId);
+    // RT-451 S3: after the safety lock (the order every safety command uses),
+    // before the row lock and the history probe.
+    await lockProductProfiles(client, input.tenantId, [input.productId], "exclusive");
     const current = await client.query<ProfileDbRow>(
       `SELECT id, tracking_mode, expiry_required FROM tenant_products
         WHERE id = $1 FOR UPDATE`,
@@ -155,9 +168,14 @@ export class TrackingProfileService {
     );
     const row = current.rows[0];
     if (!row) return { kind: "not_found" };
-    // Owner decision on PR #749 (RT-448): a tracked profile stays unselectable
-    // until tracked-line enforcement ships, so no untracked sale can lock it.
-    if (input.trackingMode !== "none") return { kind: "activation_pending" };
+    // Owner decision on PR #749 (RT-448), lifted by RT-451 S3 for `batch`
+    // only, and only while tracked selling is on for the tenant. `serial`
+    // stays refused: serial selling is fail-closed (RT-50 Q11; captain
+    // decision RT-451 comment 16275).
+    if (input.trackingMode === "serial") return { kind: "activation_pending" };
+    if (input.trackingMode === "batch" && !(await readTrackedSellingOn(client, input.tenantId))) {
+      return { kind: "activation_pending" };
+    }
 
     const unchanged =
       row.tracking_mode === input.trackingMode && row.expiry_required === input.expiryRequired;

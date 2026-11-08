@@ -111,6 +111,13 @@ export const sales = pgTable(
     receiptBranchAddress: text("receipt_branch_address"),
     receiptTaxRegistrationId: text("receipt_tax_registration_id"),
     receiptChangeGiven: numeric("receipt_change_given", { precision: 19, scale: 4 }),
+    // RT-451 S3 (0089): the till's safety provenance (RT-50 G7-7), as sent;
+    // NULL when absent. Not part of payload_hash.
+    safetyRevision: bigint("safety_revision", { mode: "number" }),
+    safetySyncedAt: timestamp("safety_synced_at", { withTimezone: true }),
+    // RT-451 S3 (0089): 'tracked' | 'tracking_unresolved' once a line was
+    // classified under tracked selling (G7-9); NULL otherwise.
+    trackingStatus: text("tracking_status"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -129,6 +136,12 @@ export const sales = pgTable(
     check(
       "sales_receipt_change_given_non_negative",
       sql`${t.receiptChangeGiven} IS NULL OR ${t.receiptChangeGiven} >= 0`,
+    ),
+    // RT-451 S3 (0089, NOT VALID).
+    check("sales_safety_revision_non_negative", sql`${t.safetyRevision} IS NULL OR ${t.safetyRevision} >= 0`),
+    check(
+      "sales_tracking_status_allowed",
+      sql`${t.trackingStatus} IS NULL OR ${t.trackingStatus} IN ('tracked', 'tracking_unresolved')`,
     ),
     // Backs the composite FK from each child table (sale_lines / sale_voids /
     // sale_refunds reference (id, tenant_id, store_id) so a child can never

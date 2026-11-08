@@ -45,6 +45,8 @@ import { SafetyFindingsService } from "./safety/safety-findings.service";
 import { SafetyTtlService } from "./safety/safety-ttl.service";
 import { TrackingHoldsService } from "./safety/tracking-holds.service";
 import { SafetyHistoryService } from "./safety/safety-history.service";
+import { SaleLineFindingsController } from "./safety/sale-line-findings.controller";
+import { SaleLineFindingsService } from "./safety/sale-line-findings.service";
 import { TrackedSellingSettingController } from "./tracked-selling/tracked-selling-setting.controller";
 import { TrackedSellingPreconditions } from "./tracked-selling/tracked-selling-preconditions";
 import { TrackedSellingSettingService } from "./tracked-selling/tracked-selling-setting.service";
@@ -86,6 +88,8 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // RT-451 S2: the tenant's tracked-selling switch (cookieAuth, RolesGuard;
     // behind the deployment gate POS_TRACKED_SELLING_ENABLED).
     TrackedSellingSettingController,
+    // RT-451 S3: the recorded sale-line findings (cookieAuth, RolesGuard).
+    SaleLineFindingsController,
   ],
   providers: [
     InventoryService,
@@ -100,6 +104,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // history; one identity and its positions).
     SafetyHistoryService,
     TrackingIdentityReadsService,
+    SaleLineFindingsService,
     TrackedSellingSettingService,
     TrackedSellingPreconditions,
     RolesGuard,

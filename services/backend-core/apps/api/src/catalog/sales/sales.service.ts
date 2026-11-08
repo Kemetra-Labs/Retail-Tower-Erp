@@ -65,6 +65,13 @@ import {
   TerminalEventProvenanceConflictError,
 } from "./sale-errors";
 import {
+  classifyCaptureLines,
+  lockProductProfiles,
+  readTrackedSellingOn,
+  writeSaleLineFindings,
+} from "./tracked-lines/capture-tracking";
+import { saleTrackingStatus, type LineClassification } from "./tracked-lines/capture-tracking.rules";
+import {
   assertCreditOperatorEligible,
   assertResponsibilityCoverage,
   assertResponsibilityPayersEligible,
@@ -95,6 +102,15 @@ export {
   TerminalEventProvenanceConflictError,
 } from "./sale-errors";
 
+/**
+ * RT-451 S3 (RT-50 G7-7): the till's safety provenance, as sent. Not hashed;
+ * stored with a FIRST capture only (a provenance replay never rewrites it).
+ */
+interface CaptureSafetyProvenance {
+  readonly safetyRevision?: number;
+  readonly safetySyncedAt?: string;
+}
+
 export interface CaptureSaleInput {
   readonly tenantId: string;
   readonly storeId: string;
@@ -117,6 +133,8 @@ export interface CaptureSaleInput {
    * capture only (a provenance replay never rewrites it) and never hashed.
    */
   readonly receipt?: CaptureSaleReceiptDto;
+  /** RT-451 S3: `safetyRevision` / `safetySyncedAt`, dropped from the hashed body by the controller. */
+  readonly safety?: CaptureSafetyProvenance;
 }
 
 /** The `toBody` wire projection of a captured sale (snake-free, no secrets). */
@@ -142,6 +160,10 @@ export interface SaleProjection {
   readonly tenders: ReadonlyArray<SaleTenderProjection>;
   /** RT-418: who owes the part not paid at the till; omitted when there is none. */
   readonly responsibilities?: ReadonlyArray<SaleResponsibilityProjection>;
+  /** RT-451 S3 (RT-50 G7-7): the till's reported safety revision; null when not sent. */
+  readonly safetyRevision: number | null;
+  /** RT-451 S3: the till's reported last safety sync; null when not sent. */
+  readonly safetySyncedAt: string | null;
 }
 
 /**
@@ -171,6 +193,17 @@ export interface SaleLineProjection {
   readonly returnedQuantity: string;
   /** quantity − returnedQuantity, or 0 once the sale is voided. */
   readonly returnableQuantity: string;
+  /** RT-451 S3: the tracking snapshot the line was captured with; absent without one. */
+  readonly tracking?: SaleLineTrackingProjection;
+}
+
+/** RT-451 S3: contract `SaleLineTracking`, echoed as recorded. */
+interface SaleLineTrackingProjection {
+  readonly identityId: string;
+  readonly code: string;
+  readonly expiryDate: string | null;
+  readonly selection: "scanned" | "fefo_suggested" | "operator_selected";
+  readonly validationId: string | null;
 }
 
 export interface CaptureSaleResult {
@@ -244,6 +277,8 @@ interface SaleRow {
   voided: boolean;
   tender_count: number;
   responsibility_count: number;
+  safety_revision: string | null;
+  safety_synced_at: Date | null;
 }
 
 interface SaleTenderRow {
@@ -266,6 +301,11 @@ interface SaleLineRow {
   tenant_product_ref: string | null;
   returned_quantity: string;
   returnable_quantity: string;
+  tracking_identity_id: string | null;
+  tracking_code: string | null;
+  tracking_expiry_date: string | null;
+  tracking_selection: SaleLineTrackingProjection["selection"] | null;
+  tracking_validation_id: string | null;
 }
 
 @Injectable()
@@ -297,7 +337,11 @@ export class SalesService {
         // high-write, so v7 B-tree locality matters; matches reconciliation.
         const saleId = newId();
         const storeTimezone = await resolveStoreTimezone(client, storeId);
-        const header = { saleId, payloadHash, mismatchFlag, storeTimezone };
+        // RT-451 S3: tracked selling (gate AND tenant switch), the per-product
+        // capture/profile lock, and the G7-9 classification, all before the
+        // header so the sale's tracking status is written with it.
+        const tracking = await prepareCaptureTracking(client, { tenantId, storeId, storeTimezone, body });
+        const header = { saleId, payloadHash, mismatchFlag, storeTimezone, trackingStatus: tracking.status };
         const inserted = await insertSaleHeader(client, input, header);
 
         if (!inserted) {
@@ -315,7 +359,15 @@ export class SalesService {
           tenders,
           responsibilities,
         });
-        await insertCaptureRows(client, { saleId, tenantId, storeId, body, tenders, responsibilities });
+        await insertCaptureRows(client, {
+          saleId,
+          tenantId,
+          storeId,
+          body,
+          tenders,
+          responsibilities,
+          tracking,
+        });
         // ONLY the created path emits: a replay returned above, so a
         // re-delivery does NOT double-emit.
         await emitSaleCaptured(client, { saleId, tenantId, storeId });
@@ -353,7 +405,7 @@ export class SalesService {
                   received_at, business_date::text AS business_date,
                   processed_at, source_clock_at,
                   source_system, external_id, mismatch_flag, sync_status, tender_count,
-                  responsibility_count,
+                  responsibility_count, safety_revision::text AS safety_revision, safety_synced_at,
                   EXISTS (SELECT 1 FROM sale_voids v WHERE v.sale_id = sales.id) AS voided
              FROM sales WHERE id = $1 AND store_id = $2`,
           [saleId, storeId],
@@ -370,6 +422,9 @@ export class SalesService {
           `SELECT sl.id::text AS line_ref, sl.line_name, sl.unit_price,
                   sl.currency_code, sl.quantity, sl.line_amount, sl.tax_amount,
                   sl.unit, sl.tenant_product_ref,
+                  sl.tracking_identity_id::text AS tracking_identity_id, sl.tracking_code,
+                  sl.tracking_expiry_date::text AS tracking_expiry_date, sl.tracking_selection,
+                  sl.tracking_validation_id::text AS tracking_validation_id,
                   r.returned::text AS returned_quantity,
                   (CASE WHEN $2::boolean THEN 0 ELSE sl.quantity - r.returned END)
                     ::numeric(19,6)::text AS returnable_quantity
@@ -817,6 +872,7 @@ function toBody(
       tenantProductRef: l.tenant_product_ref,
       returnedQuantity: l.returned_quantity,
       returnableQuantity: l.returnable_quantity,
+      ...lineTrackingField(l),
     })),
     tenders: tenders.map((t) => ({
       method: t.method,
@@ -826,6 +882,26 @@ function toBody(
       ...(t.sequence === null ? {} : { sequence: t.sequence }),
     })),
     ...responsibilitiesField(responsibilities),
+    safetyRevision: (row.safety_revision ?? null) === null ? null : Number(row.safety_revision),
+    safetySyncedAt: row.safety_synced_at ? row.safety_synced_at.toISOString() : null,
+  };
+}
+
+/** RT-451 S3: a line's `tracking` echo, only when it was captured with a snapshot. */
+function lineTrackingField(l: SaleLineRow): { tracking?: SaleLineTrackingProjection } {
+  // `?? null`: a unit-test row double may omit the tracking keys.
+  const identityId = l.tracking_identity_id ?? null;
+  const code = l.tracking_code ?? null;
+  const selection = l.tracking_selection ?? null;
+  if (identityId === null || code === null || selection === null) return {};
+  return {
+    tracking: {
+      identityId,
+      code,
+      expiryDate: l.tracking_expiry_date ?? null,
+      selection,
+      validationId: l.tracking_validation_id ?? null,
+    },
   };
 }
 
@@ -869,6 +945,64 @@ async function validateSaleTotals(client: PoolClient, body: CaptureSaleRequestDt
     [body.posTotal, body.lines.map((l) => l.lineAmount)],
   );
   return compare.rows[0]?.mismatch ?? false;
+}
+
+/** RT-451 S3: what a capture knows about tracking before it writes the header. */
+interface CaptureTracking {
+  /** Tracked selling (gate AND tenant switch) is on. */
+  readonly on: boolean;
+  /** The sale's business date (`YYYY-MM-DD`), as the header stores it; "" while off (unused). */
+  readonly businessDate: string;
+  /** Each line's G7-9 class, in line order (all null while off). */
+  readonly classes: ReadonlyArray<LineClassification>;
+  /** The sale's `tracking_status`. */
+  readonly status: "tracked" | "tracking_unresolved" | null;
+}
+
+/**
+ * RT-451 S3: read the tracked-selling state, take the per-product
+ * capture/profile lock (SHARED, comment 11790) for every product the sale
+ * names, then classify the lines while tracked selling is on. Runs before the
+ * header insert, so a replay takes the same shared lock and reads, and writes
+ * nothing. While off nothing is classified (OD-T4; comment 16269): a tracked
+ * product's line, with or without `tracking`, is an ordinary line, and a sent
+ * `tracking` is stored as received (provenance), never refused.
+ */
+async function prepareCaptureTracking(
+  client: PoolClient,
+  capture: {
+    readonly tenantId: string;
+    readonly storeId: string;
+    readonly storeTimezone: string;
+    readonly body: CaptureSaleRequestDto;
+  },
+): Promise<CaptureTracking> {
+  const { tenantId, storeId, body } = capture;
+  await lockProductProfiles(
+    client,
+    tenantId,
+    body.lines.flatMap((l) => (l.tenantProductRef === undefined ? [] : [l.tenantProductRef])),
+    "shared",
+  );
+  const on = await readTrackedSellingOn(client, tenantId);
+  if (!on) {
+    // Off: no line is classified, so no business date or fact is read.
+    return { on, businessDate: "", classes: body.lines.map(() => ({ trackingClass: null })), status: null };
+  }
+  // The header's business date (the same expression `insertSaleHeader` stores).
+  const date = await client.query<{ business_date: string }>(
+    `SELECT ($1::timestamptz AT TIME ZONE $2)::date::text AS business_date`,
+    [body.occurredAt, capture.storeTimezone],
+  );
+  const businessDate = date.rows[0]!.business_date;
+  const classes = await classifyCaptureLines(client, {
+    tenantId,
+    storeId,
+    businessDate,
+    occurredAt: body.occurredAt,
+    lines: body.lines,
+  });
+  return { on, businessDate, classes, status: saleTrackingStatus(classes) };
 }
 
 /**
@@ -916,6 +1050,7 @@ async function insertSaleHeader(
     readonly payloadHash: string;
     readonly mismatchFlag: boolean;
     readonly storeTimezone: string;
+    readonly trackingStatus: "tracked" | "tracking_unresolved" | null;
   },
 ): Promise<boolean> {
   const { body } = input;
@@ -927,11 +1062,13 @@ async function insertSaleHeader(
         device_id, tender_count, responsibility_count,
         receipt_sale_number, receipt_number, receipt_terminal_label,
         receipt_operator_display_name, receipt_settled_at, receipt_branch_name,
-        receipt_branch_address, receipt_tax_registration_id, receipt_change_given)
+        receipt_branch_address, receipt_tax_registration_id, receipt_change_given,
+        safety_revision, safety_synced_at, tracking_status)
      VALUES ($1, $2, $3, $4, $5::numeric, $6::timestamptz,
              ($6::timestamptz AT TIME ZONE $13)::date, $7::timestamptz,
              $8, $9, $10, $11, $12, $14, $15, $16, $26,
-             $17, $18, $19, $20, $21::timestamptz, $22, $23, $24, $25::numeric)
+             $17, $18, $19, $20, $21::timestamptz, $22, $23, $24, $25::numeric,
+             $27::bigint, $28::timestamptz, $29)
      ON CONFLICT (tenant_id, source_system, external_id) DO NOTHING
      RETURNING id`,
     [
@@ -953,6 +1090,9 @@ async function insertSaleHeader(
       (body.tenders ?? []).length,
       ...receiptColumns(input.receipt),
       (body.responsibilities ?? []).length,
+      input.safety?.safetyRevision ?? null,
+      input.safety?.safetySyncedAt ?? null,
+      header.trackingStatus,
     ],
   );
   return inserted.rows.length > 0;
@@ -1025,10 +1165,27 @@ async function insertCaptureRows(
     readonly body: CaptureSaleRequestDto;
     readonly tenders: ReadonlyArray<SaleTenderDto>;
     readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
+    readonly tracking: CaptureTracking;
   },
 ): Promise<void> {
-  const { saleId, tenantId, storeId, body, tenders, responsibilities } = sale;
-  await insertSaleLines(client, { saleId, tenantId, storeId, lines: body.lines });
+  const { saleId, tenantId, storeId, body, tenders, responsibilities, tracking } = sale;
+  const lineIds = await insertSaleLines(client, {
+    saleId,
+    tenantId,
+    storeId,
+    lines: body.lines,
+    classes: tracking.classes,
+  });
+  // RT-451 S3: the row-2 and row-3 findings, in the capture transaction.
+  await writeSaleLineFindings(
+    client,
+    { tenantId, storeId, saleId, businessDate: tracking.businessDate, occurredAt: body.occurredAt },
+    body.lines.flatMap((line, i) => {
+      const c = tracking.classes[i];
+      if (c?.trackingClass !== "flagged" || line.tracking === undefined || line.tenantProductRef === undefined) return [];
+      return [{ saleLineId: lineIds[i]!, productId: line.tenantProductRef, identityId: line.tracking.identityId, findings: c.findings }];
+    }),
+  );
   if (tenders.length > 0) {
     await insertTenders(client, { saleId, tenantId, storeId, currencyCode: body.currencyCode, tenders });
   }
@@ -1129,19 +1286,29 @@ async function insertSaleLines(
     readonly tenantId: string;
     readonly storeId: string;
     readonly lines: CaptureSaleRequestDto["lines"];
+    /** RT-451 S3: each line's G7-9 class (null when not classified), in line order. */
+    readonly classes: ReadonlyArray<LineClassification>;
   },
-): Promise<void> {
+): Promise<string[]> {
+  const ids: string[] = [];
   // sequential: sale lines are inserted on the capture transaction; pg runs one PoolClient's queries one at a time.
   for (const [index, line] of sale.lines.entries()) {
+    const id = newId();
+    ids.push(id);
+    const c = sale.classes[index] ?? { trackingClass: null };
+    const t = line.tracking;
     await client.query(
       `INSERT INTO sale_lines
          (id, sale_id, tenant_id, store_id, line_name, unit_price,
           currency_code, quantity, line_amount, tax_amount, unit,
-          tenant_product_ref, line_seq)
+          tenant_product_ref, line_seq,
+          tracking_identity_id, tracking_code, tracking_expiry_date, tracking_selection,
+          tracking_validation_id, tracking_class, tracking_unresolved_reason)
        VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric,
-               $9::numeric, $10, $11, $12, $13)`,
+               $9::numeric, $10, $11, $12, $13,
+               $14, $15, $16::date, $17, $18, $19, $20)`,
       [
-        newId(),
+        id,
         sale.saleId,
         sale.tenantId,
         sale.storeId,
@@ -1154,9 +1321,17 @@ async function insertSaleLines(
         line.unit,
         line.tenantProductRef ?? null,
         index + 1,
+        t?.identityId ?? null,
+        t?.code ?? null,
+        t?.expiryDate ?? null,
+        t?.selection ?? null,
+        t?.validationId ?? null,
+        c.trackingClass,
+        c.trackingClass === "unresolved" ? c.reason : null,
       ],
     );
   }
+  return ids;
 }
 
 /** RT-77: write the sale's tenders in its capture transaction (one row per tender line). */

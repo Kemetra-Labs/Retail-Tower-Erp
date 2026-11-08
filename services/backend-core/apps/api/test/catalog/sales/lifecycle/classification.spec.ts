@@ -41,6 +41,7 @@ import {
   saleApprovalUses,
   saleCreditReversals,
   saleCreditReversalTenders,
+  saleLineFindings,
   saleLines,
   saleRefunds,
   saleReprints,
@@ -117,6 +118,12 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "receipt_branch_address",
       "receipt_tax_registration_id",
       "receipt_change_given",
+      // RT-451 S3 (0089) — reviewed under SI-012: the till's Inventory Safety
+      // Revision (a counter) and its last safety sync time, and the sale's
+      // tracking status (an enumerated code). No PII, no money.
+      "safety_revision",
+      "safety_synced_at",
+      "tracking_status",
     ],
   },
   {
@@ -137,6 +144,17 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "tenant_product_ref",
       // RT-538 (0047): the line's receipt position (an ordinal, no PII).
       "line_seq",
+      // RT-451 S3 (0089) — reviewed under SI-012: the frozen tracking
+      // snapshot (an opaque identity id, the printed lot code, its expiry
+      // date, an enumerated selection, an opaque validation id) and the
+      // line's G7-9 class and row-4 reason (enumerated codes). No PII.
+      "tracking_identity_id",
+      "tracking_code",
+      "tracking_expiry_date",
+      "tracking_selection",
+      "tracking_validation_id",
+      "tracking_class",
+      "tracking_unresolved_reason",
     ],
   },
   {
@@ -381,6 +399,27 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
     name: "sale_approval_uses",
     table: saleApprovalUses,
     columns: ["tenant_id", "approval_id", "source", "created_at"],
+  },
+  // RT-451 S3 (0089) — reviewed under SI-012: the append-only sale-line
+  // findings. Opaque ids, enumerated kind and cause, a date and timestamps.
+  {
+    name: "sale_line_findings",
+    table: saleLineFindings,
+    columns: [
+      "id",
+      "tenant_id",
+      "store_id",
+      "sale_id",
+      "sale_line_id",
+      "tenant_product_ref",
+      "tracking_identity_id",
+      "kind",
+      "cause",
+      "hold_id",
+      "business_date",
+      "occurred_at",
+      "recorded_at",
+    ],
   },
 ];
 

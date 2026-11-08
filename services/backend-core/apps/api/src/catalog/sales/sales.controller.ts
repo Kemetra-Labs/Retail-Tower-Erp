@@ -374,12 +374,21 @@ export class SalesController {
     // stay in the idempotency fingerprint, which covers the raw body.)
     // RT-539: `receipt` is presentation, not a sale fact (sales.yaml 1.9.0):
     // dropped from the hashed body and stored on its own, first write wins.
+    // RT-451 S3: `safetyRevision` / `safetySyncedAt` are the till's safety
+    // provenance (RT-50 G7-7), not sale facts: dropped from the hashed body
+    // the same way and stored on their own, first write wins.
     const {
       operatorUserId: _attributionClaim,
       admissionCheckAt: _admissionCheckAt,
       receipt,
+      safetyRevision,
+      safetySyncedAt,
       ...saleBody
     } = body;
+    const safety = {
+      ...(safetyRevision === undefined ? {} : { safetyRevision }),
+      ...(safetySyncedAt === undefined ? {} : { safetySyncedAt }),
+    };
 
     let result;
     try {
@@ -393,6 +402,7 @@ export class SalesController {
         authPath: _attributionClaim === undefined ? "envelope" : "device",
         body: saleBody,
         ...(receipt === undefined ? {} : { receipt }),
+        safety,
       });
     } catch (err) {
       if (err instanceof SalePayloadReplayConflictError) this.recordReplayMismatch(request, err);
