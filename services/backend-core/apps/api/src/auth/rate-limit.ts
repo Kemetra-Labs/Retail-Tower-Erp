@@ -133,6 +133,10 @@ export const POS_WRITE_RATE_LIMIT_BUCKETS = {
   // RT-451 S1: the till's lot lookup, read when a tracked product is added to
   // a sale (online, about once per tracked line), like the payer lookup.
   posReadTrackedLots: { limit: 1200, windowMs: 60 * 60 * 1000 },
+  // RT-451 S2: the Tracked Line Validation, called before each tracked line
+  // completes and again on a retry or a lot change (online, a few times per
+  // tracked line), so twice the lot lookup's budget.
+  posValidateTrackedLine: { limit: 2400, windowMs: 60 * 60 * 1000 },
   // RT-369: the device token rotation. A till rotates about once per 75 days
   // (plus a retry after a lost response), so this only bounds abuse by a
   // device that holds a live token.

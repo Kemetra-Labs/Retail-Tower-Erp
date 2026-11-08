@@ -577,6 +577,20 @@ A script without the marker, such as the owner-gated
   backfill) and needs no maintenance window. Its down migration refuses while
   any level is stored.
 
+- **Migration `0087_tracked_line_validations` (RT-451 S2).** Run
+  [`sql/tracked-line-validations-domain-grants.sql`](sql/tracked-line-validations-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `tracked_line_validations`: every POS Tracked Line Validation
+  (`POST /api/pos/v1/tracked-line-validations`) appends one record, accepted
+  or refused. No `UPDATE` or `DELETE` policy (append-only): never grant
+  `UPDATE`, `DELETE` or `TRUNCATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  it (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0087 creates a new, empty table (no
+  backfill) and needs no maintenance window. Its down migration refuses while
+  any record is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

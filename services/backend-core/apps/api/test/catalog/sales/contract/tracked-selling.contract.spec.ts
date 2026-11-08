@@ -128,12 +128,21 @@ describe("pos-sales/tracked-lines.yaml — RT-450 TLV and lot lookup", () => {
   const request = { productId: UUID, identity: { identityId: UUID }, quantity: "2", selection: "scanned", draftLineRef: "draft-1" };
   const withIdentity = (identity: unknown) => ({ ...request, identity });
 
-  it("is a 1.0.0-draft contract: the TLV is contract-only with a runtime note, the lot lookup is served (RT-451 S1)", () => {
+  it("is a 1.0.0-draft contract whose two operations are served (RT-451 S1 lot lookup, S2 TLV)", () => {
     expect(doc.info.version).toBe("1.0.0-draft");
     expect(ops.map((op) => op.operationId)).toEqual(["posValidateTrackedLine", "posListTrackedLots"]);
-    expect(ops.map((op) => op["x-runtime-status"])).toEqual(["contract-only", undefined]);
-    expect((ops[0]!["x-runtime-note"] as string).trim().length).toBeGreaterThan(0);
-    expect(ops[1]!["x-runtime-note"]).toBeUndefined();
+    expect(ops.map((op) => op["x-runtime-status"])).toEqual([undefined, undefined]);
+    expect(ops.map((op) => op["x-runtime-note"])).toEqual([undefined, undefined]);
+  });
+
+  it("names both 404 causes, the deployment gate and the tenant switch (RT-451 S2 wording amendment)", () => {
+    const notFound = (doc.components as { responses: Record<string, { description: string }> }).responses["NotFound"]!
+      .description;
+    for (const text of [notFound, doc.info.description as string]) {
+      expect(text).toContain("POS_TRACKED_SELLING_ENABLED");
+      expect(text).toContain("tenant_inventory_settings.tracked_selling_enabled");
+      expect(text).toContain("setTrackedSellingSetting");
+    }
   });
 
   it("accepts the envelope OR the device token as separate alternatives, never both in one requirement", () => {
