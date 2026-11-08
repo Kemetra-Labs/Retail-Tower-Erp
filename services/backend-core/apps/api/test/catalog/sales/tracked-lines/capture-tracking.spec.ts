@@ -340,6 +340,17 @@ describe("RT-451 S3 — tracked selling ON: the G7-9 classification", () => {
     expect(s.findings.every((f) => f.business_date === "2026-05-01")).toBe(true);
   });
 
+  it("matches identity, validation and product ids in any case (the wire accepts uppercase UUIDs)", async () => {
+    if (skip()) return;
+    await on();
+    const upper = { ...trackedLine(P_BATCH.toUpperCase(), tracking(I_OK.toUpperCase(), { validationId: V_OK.toUpperCase() })) };
+    const res = await post(body("upper", [upper]));
+    expect(res.status).toBe(201);
+    const s = await stored(res.body.saleRef);
+    expect(s.lines.map((l) => l.tracking_class)).toEqual(["valid"]);
+    expect(s.findings).toEqual([]);
+  });
+
   it("row 2: a lot held at occurredAt is sold_under_hold with its hold; a hold placed later is not", async () => {
     if (skip()) return;
     await on();

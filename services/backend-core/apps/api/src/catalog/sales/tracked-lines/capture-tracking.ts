@@ -103,9 +103,11 @@ export async function classifyCaptureLines(
   client: PoolClient,
   sale: ClassifiedSale,
 ): Promise<LineClassification[]> {
-  const productIds = uniq(sale.lines.map((l) => l.tenantProductRef));
-  const identityIds = uniq(sale.lines.map((l) => l.tracking?.identityId));
-  const validationIds = uniq(sale.lines.map((l) => l.tracking?.validationId));
+  // The wire accepts any UUID case; Postgres answers lowercase, so every key
+  // is compared lowercase (the stored snapshot keeps the value as sent).
+  const productIds = uniq(sale.lines.map((l) => lower(l.tenantProductRef)));
+  const identityIds = uniq(sale.lines.map((l) => lower(l.tracking?.identityId)));
+  const validationIds = uniq(sale.lines.map((l) => lower(l.tracking?.validationId)));
 
   const products = await byId<ProductRow>(
     client,
@@ -134,23 +136,26 @@ export async function classifyCaptureLines(
   const holds = await activeHoldsAt(client, sale.tenantId, identityIds, sale.occurredAt);
 
   return sale.lines.map((line) => {
-    const product = line.tenantProductRef === undefined ? undefined : products.get(line.tenantProductRef);
+    const productId = lower(line.tenantProductRef);
+    const product = productId === undefined ? undefined : products.get(productId);
     const tracking = line.tracking;
-    const identityRow = tracking === undefined ? undefined : identities.get(tracking.identityId);
+    const identityId = lower(tracking?.identityId);
+    const validationId = lower(tracking?.validationId);
+    const identityRow = identityId === undefined ? undefined : identities.get(identityId);
     const identity: CapturedIdentityFacts | null =
       identityRow === undefined
         ? null
         : { productId: identityRow.product_id, expiryDate: identityRow.expiry_date, hasEdgeMap: identityRow.has_edge_map };
-    const validation = tracking?.validationId === undefined ? undefined : validations.get(tracking.validationId);
-    const lineHolds = tracking === undefined ? undefined : holds.get(tracking.identityId);
+    const validation = validationId === undefined ? undefined : validations.get(validationId);
+    const lineHolds = identityId === undefined ? undefined : holds.get(identityId);
     return classifyCapturedLine({
-      productId: line.tenantProductRef ?? null,
+      productId: productId ?? null,
       trackingMode: product?.tracking_mode ?? null,
       expiryRequired: product?.expiry_required ?? false,
       hasTracking: tracking !== undefined,
       identity,
-      validationSent: tracking?.validationId !== undefined,
-      validationMatches: validation !== undefined && validation.identity_id === tracking?.identityId,
+      validationSent: validationId !== undefined,
+      validationMatches: validation !== undefined && validation.identity_id === identityId,
       qualityHoldId: lineHolds?.quality_hold ?? null,
       recallHoldId: lineHolds?.recall_hold ?? null,
       businessDate: sale.businessDate,
@@ -224,6 +229,10 @@ export async function writeSaleLineFindings(
       rows.map((r) => r.holdId),
     ],
   );
+}
+
+function lower(value: string | undefined): string | undefined {
+  return value?.toLowerCase();
 }
 
 function uniq(values: ReadonlyArray<string | undefined>): string[] {
