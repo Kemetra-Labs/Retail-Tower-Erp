@@ -51,7 +51,8 @@ const RUN_ID = requireEnv("LOAD_RUN_ID");
 const CURRENCY = requireEnv("LOAD_CURRENCY");
 
 export const options = {
-  scenarios: {
+  // Object.assign, not object spread: keep to syntax the pinned k6 0.50 parses.
+  scenarios: Object.assign({
     sales: {
       executor: "constant-arrival-rate",
       exec: "sell",
@@ -62,15 +63,7 @@ export const options = {
       preAllocatedVUs: TERMINALS,
       maxVUs: Math.min(TERMINALS, MAX_TERMINALS),
     },
-    // One long-lived VU per terminal, so each terminal keeps its own catalog
-    // cursor (k6 VUs share no mutable state): snapshot first, then deltas.
-    catalog: {
-      executor: "constant-vus",
-      exec: "readCatalog",
-      vus: TERMINALS,
-      duration: DURATION,
-    },
-  },
+  }, catalogScenarios()), // plus one single-VU catalog scenario per terminal
   thresholds: abortThresholds("pos_sale"),
   tags: { run_id: RUN_ID, terminals: String(TERMINALS) },
 };
@@ -95,18 +88,29 @@ export function sell(data) {
   captureSale(t, saleBody(t, data.products, CURRENCY, new Date().toISOString(), RUN_ID), "pos_sale");
 }
 
-// Each catalog VU claims one terminal on its first iteration and keeps it.
-// constant-vus starts exactly TERMINALS VUs together, and every iteration
-// ends in a sleep of at least 1 s (even when the request throws), so no VU
-// takes a second scenario iteration number before all have taken their first:
-// the first numbers are 0..TERMINALS-1, one terminal each. (Not exec.vu.idInTest:
-// VU ids are test-wide and need not be consecutive within this scenario.)
-let catalogTerminal = null;
+// One single-VU scenario per terminal, the terminal index fixed in the
+// scenario env: the assignment never depends on VU start timing, and the one
+// VU keeps that terminal's catalog cursor (k6 VUs share no mutable state):
+// snapshot first, then deltas every LOAD_CATALOG_EVERY.
+function catalogScenarios() {
+  const scenarios = {};
+  for (let i = 0; i < TERMINALS; i++) {
+    scenarios[`catalog_t${i + 1}`] = {
+      executor: "constant-vus",
+      exec: "readCatalog",
+      vus: 1,
+      duration: DURATION,
+      env: { CATALOG_TERMINAL: String(i) },
+    };
+  }
+  return scenarios;
+}
+
 let catalogCursor = null;
 export function readCatalog(data) {
-  if (!catalogTerminal) catalogTerminal = terminalFor(data);
+  const t = data.terminals[Number.parseInt(__ENV.CATALOG_TERMINAL, 10)];
   try {
-    catalogCursor = catalogDeltas(catalogTerminal, catalogCursor);
+    catalogCursor = catalogDeltas(t, catalogCursor);
   } finally {
     sleep(CATALOG_EVERY_S);
   }
