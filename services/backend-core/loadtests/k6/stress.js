@@ -35,7 +35,14 @@ import {
 } from "./lib/tenants.js";
 import { baseUrl, jsonHeaders, jsonPostHeaders, uuidv4 } from "./lib/util.js";
 
-const MAX_VUS = Number.parseInt(__ENV.LOAD_STRESS_MAX_VUS || "300", 10);
+// RT-1281: lab-safe default. Going above LAB_CAP needs LOAD_ALLOW_ABOVE_LAB_CAP=1,
+// an explicit choice for a sized environment, never the AWS lab by accident.
+const LAB_CAP = 20;
+const MAX_VUS = Number.parseInt(__ENV.LOAD_STRESS_MAX_VUS || String(LAB_CAP), 10);
+if (!Number.isInteger(MAX_VUS) || MAX_VUS < 1) throw new Error("LOAD_STRESS_MAX_VUS must be a positive integer");
+if (MAX_VUS > LAB_CAP && __ENV.LOAD_ALLOW_ABOVE_LAB_CAP !== "1") {
+  throw new Error(`LOAD_STRESS_MAX_VUS=${MAX_VUS} is above the lab cap ${LAB_CAP}; set LOAD_ALLOW_ABOVE_LAB_CAP=1 only for a sized environment`);
+}
 const RAMP = __ENV.LOAD_STRESS_RAMP || "10m";
 const PLATEAU = __ENV.LOAD_STRESS_PLATEAU || "5m";
 

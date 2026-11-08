@@ -1,0 +1,484 @@
+{
+  "title": "Retail Tower — load test",
+  "description": "RT-1281. One view for RT-317 capacity runs (1/3/10 POS terminal-equivalents): offered load, API latency and errors, worker queue lag and outbox backlog, DB pool and Postgres, host pressure. Set the time range to the run window; k6 percentiles come from its --summary-export. env:staging only. Source of truth: services/backend-core/deploy/datadog/.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "tags": [],
+  "template_variables": [],
+  "widgets": [
+    {
+      "definition": {
+        "type": "group",
+        "title": "Run notes",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "note",
+              "content": "Read with the k6 summary for the same window. API p95 here comes from 10%-sampled spans; k6 p95/p99 are exact client-side. ERP posting lag is computed after the run with loadtests/k6/scripts/reconcile-run.sql. Abort rules and thresholds are owner-set (RT-1279).",
+              "background_color": "yellow",
+              "font_size": "14",
+              "text_align": "left",
+              "show_tick": false,
+              "has_padding": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "Offered load and errors (backend-api)",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "POS sale captures by status class",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "req",
+                      "query": "sum:dp2.http_request_count.count{env:staging,service:backend-api,route:/api/pos/v1/sales} by {status_class}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "req",
+                      "alias": "requests"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "All requests by status class",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "req",
+                      "query": "sum:dp2.http_request_count.count{env:staging,service:backend-api} by {status_class}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "req",
+                      "alias": "requests"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Server span p95 (10% sampled)",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "p95",
+                      "query": "p95:trace.http.server.request{env:staging,service:backend-api}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "p50",
+                      "query": "p50:trace.http.server.request{env:staging,service:backend-api}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "p95",
+                      "alias": "p95"
+                    },
+                    {
+                      "formula": "p50",
+                      "alias": "p50"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "Worker: queue lag and outbox backlog",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Queue lag (seconds) by queue",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "lag",
+                      "query": "max:dp2.queue_lag_seconds{env:staging,service:backend-worker} by {queue}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "lag",
+                      "alias": "lag"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Outbox pending by event type",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "pending",
+                      "query": "max:dp2.outbox_pending_total{env:staging,service:backend-worker} by {event_type}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "pending",
+                      "alias": "pending"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Worker processing failures by job",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "fail",
+                      "query": "sum:dp2.worker_processing_failure.count{env:staging,service:backend-worker} by {job_name}.as_count()"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "fail",
+                      "alias": "failures"
+                    }
+                  ],
+                  "display_type": "bars"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "Database",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "DB pool in use and waiters (api, worker)",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "apiuse",
+                      "query": "max:dp2.db_pool_in_use{env:staging,service:backend-api}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "apiwait",
+                      "query": "max:dp2.db_pool_waiters{env:staging,service:backend-api}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "wuse",
+                      "query": "max:dp2.db_pool_in_use{env:staging,service:backend-worker}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "wwait",
+                      "query": "max:dp2.db_pool_waiters{env:staging,service:backend-worker}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "apiuse",
+                      "alias": "api in use"
+                    },
+                    {
+                      "formula": "apiwait",
+                      "alias": "api waiters"
+                    },
+                    {
+                      "formula": "wuse",
+                      "alias": "worker in use"
+                    },
+                    {
+                      "formula": "wwait",
+                      "alias": "worker waiters"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Postgres connection use (lab-02)",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "conn",
+                      "query": "max:postgresql.percent_usage_connections{host:retail-tower-lab-02}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "conn",
+                      "alias": "connections used"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "MariaDB threads connected (lab-03, ERP)",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "thr",
+                      "query": "max:mysql.performance.threads_connected{host:retail-tower-lab-03}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "thr",
+                      "alias": "threads"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "group",
+        "title": "Host pressure",
+        "layout_type": "ordered",
+        "widgets": [
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "CPU user + system by host",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "u",
+                      "query": "avg:system.cpu.user{host:retail-tower-lab-*} by {host}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "s",
+                      "query": "avg:system.cpu.system{host:retail-tower-lab-*} by {host}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "u",
+                      "alias": "user"
+                    },
+                    {
+                      "formula": "s",
+                      "alias": "system"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "CPU steal by host",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "st",
+                      "query": "avg:system.cpu.stolen{host:retail-tower-lab-*} by {host}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "st",
+                      "alias": "steal"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Usable memory by host",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "m",
+                      "query": "avg:system.mem.pct_usable{host:retail-tower-lab-*} by {host}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "m",
+                      "alias": "usable"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Disk utilization by host",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "io",
+                      "query": "max:system.io.util{host:retail-tower-lab-*} by {host}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "io",
+                      "alias": "io util"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          },
+          {
+            "definition": {
+              "type": "timeseries",
+              "title": "Network in/out by host (needs the RT-636 host-network check)",
+              "show_legend": true,
+              "requests": [
+                {
+                  "response_format": "timeseries",
+                  "queries": [
+                    {
+                      "data_source": "metrics",
+                      "name": "rx",
+                      "query": "avg:system.net.bytes_rcvd{host:retail-tower-lab-*} by {host}"
+                    },
+                    {
+                      "data_source": "metrics",
+                      "name": "tx",
+                      "query": "avg:system.net.bytes_sent{host:retail-tower-lab-*} by {host}"
+                    }
+                  ],
+                  "formulas": [
+                    {
+                      "formula": "rx",
+                      "alias": "rx"
+                    },
+                    {
+                      "formula": "tx",
+                      "alias": "tx"
+                    }
+                  ],
+                  "display_type": "line"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
