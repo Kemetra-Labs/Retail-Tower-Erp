@@ -467,6 +467,35 @@ mainSteps:
           ! systemctl is-active --quiet "$UNIT.timer" || { release_claim; stop "auto-revert-still-active"; }
           say "RT_REVERT cancelled unit=$UNIT"
           pass cancel-revert
+
+          # ---------------------------------------------------------------- Datadog agent (RT-1282)
+          GATE=datadog-agent
+          # The agent is an opt-in compose profile, so `up -d` above never recreates it, and compose
+          # does not recreate it for a config-only change either. Recreate it when the release's
+          # compose files differ from the current release's, and only if it is already running (an
+          # agent the owner stopped stays stopped). The app deploy is committed and the revert is
+          # cancelled, so this step never stops or reverts the deploy: telemetry never blocks one
+          # (RT-617). The recreate is time-bounded, because a hung daemon here would otherwise hold
+          # the run to the document timeout and lose RT_DONE. `--pull never`: no unplanned agent
+          # upgrade (a missing image reports fail). No `config` render (it would put DD_API_KEY in
+          # the log). A fail is not retried: the next deploy compares compose files again, so a
+          # stale agent after a fail needs the manual recreate in deploy/README.md.
+          DD_RESULT=skip
+          if service_container datadog-agent >/dev/null; then
+            DD_CHANGED=no
+            for DD_FILE in docker-compose.prod.yml docker-compose.release.yml; do
+              cmp -s "$CUR_DIR/$DD_FILE" "$TGT_DIR/$DD_FILE" || DD_CHANGED=yes
+            done
+            if [ "$DD_CHANGED" = yes ]; then
+              if timeout 120 "$DC" --profile datadog up -d --no-deps --force-recreate --pull never datadog-agent </dev/null; then
+                DD_RESULT=pass
+              else
+                DD_RESULT=fail
+                echo "datadog-agent recreate failed; the deploy continues"
+              fi
+            fi
+          fi
+          say "RT_GATE datadog-agent $DD_RESULT"
           say "RT_DONE release=$RELEASE_TAG"
           RT_DEPLOY_SCRIPT
           RC=0
