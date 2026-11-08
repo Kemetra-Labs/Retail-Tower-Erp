@@ -37,15 +37,18 @@ type Env = Readonly<Record<string, string | undefined>>;
 
 const INTEGER = /^[0-9]+$/;
 
+/** True when the pin carries either lab marker, in any case. */
 function carriesLabMarker(pin: string): boolean {
   const upper = pin.toUpperCase();
   return LAB_MARKERS.some((marker) => upper.includes(marker));
 }
 
+/** True when two certificate subjects are equal, ignoring case and surrounding spaces. */
 function sameSubject(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+/** The TTL in seconds: the default when unset, an integer 1 to 900, or null when invalid (never clamped). */
 function parseTtl(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === "") return DEFAULT_URL_TTL_SECONDS;
   const text = raw.trim();
@@ -54,6 +57,7 @@ function parseTtl(raw: string | undefined): number | null {
   return value >= 1 && value <= MAX_URL_TTL_SECONDS ? value : null;
 }
 
+/** Resolve the lane configuration from an environment object; any refusal disables the lane. */
 export function resolvePilotReleaseConfig(env: Env): PilotReleaseConfig {
   const pin = (env["POS_PILOT_RELEASE_PUBLISHER"] ?? "").trim();
   if (pin === "") return { enabled: false, reason: "pin_unset" };

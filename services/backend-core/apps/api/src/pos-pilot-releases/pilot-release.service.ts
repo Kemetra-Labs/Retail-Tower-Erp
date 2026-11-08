@@ -58,6 +58,7 @@ const STATE_SQL = `
     LEFT JOIN pos_pilot_release_registry r ON r.approved AND r.activated_at IS NOT NULL
    LIMIT 1`;
 
+/** Map the joined allowlist and registry row to the resolver's state. */
 function toState(row: StateRow | undefined): PilotReleaseState {
   if (row === undefined) return { allowlisted: false, release: null };
   const release: CurrentPilotRelease | null =
@@ -83,11 +84,13 @@ function toState(row: StateRow | undefined): PilotReleaseState {
   return { allowlisted: row.allowlisted, release };
 }
 
+/** Read the allowlist verdict and the current release in the caller's transaction. */
 async function readState(client: PoolClient, tenantId: string): Promise<PilotReleaseState> {
   const res = await client.query<StateRow>(STATE_SQL, [tenantId]);
   return toState(res.rows[0]);
 }
 
+/** Write the tenant-scoped audit row of an issued link: release id and version only. */
 async function insertIssuedAudit(
   client: PoolClient,
   input: ResolvePilotReleaseInput,
@@ -109,6 +112,7 @@ async function insertIssuedAudit(
   );
 }
 
+/** Binds the pure resolver to the database, the lane configuration and the presigner. */
 @Injectable()
 export class PilotReleaseService {
   constructor(

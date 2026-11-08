@@ -30,6 +30,7 @@ import { PilotReleasesController } from "./pilot-releases.controller";
 import { PilotTenantsController } from "./pilot-tenants.controller";
 import { PilotTenantsService } from "./pilot-tenants.service";
 
+/** Wires the pilot release resolver and the pilot allowlist routes; see the module comment above. */
 @Module({
   imports: [AuthModule, ContextModule],
   controllers: [PilotReleasesController, PilotTenantsController],

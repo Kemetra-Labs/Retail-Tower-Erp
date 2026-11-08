@@ -30,6 +30,7 @@ import { SessionOnlyAdminGuard } from "../auth/session-only-admin.guard";
 import { Roles } from "../auth/roles.decorator";
 import { RolesGuard } from "../auth/roles.guard";
 
+/** The console route that resolves the current pilot release for the session tenant. */
 @Controller()
 @UseGuards(SessionOnlyAdminGuard, TenantContextGuard)
 export class PilotReleasesController {

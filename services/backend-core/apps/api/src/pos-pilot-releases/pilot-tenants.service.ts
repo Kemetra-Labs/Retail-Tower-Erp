@@ -51,6 +51,7 @@ const COLUMNS = "tenant_id, added_by_user_id, added_at";
 const PLATFORM = { tenantId: null, isPlatformAdmin: true } as const;
 const FOREIGN_KEY_VIOLATION = "23503";
 
+/** Map an allowlist row to the contract body. */
 function toBody(row: AllowlistRow): PilotTenantBody {
   return { tenantId: row.tenant_id, addedAt: row.added_at.toISOString(), addedByUserId: row.added_by_user_id };
 }
@@ -65,6 +66,7 @@ function isForeignKeyViolation(err: unknown): boolean {
   return false;
 }
 
+/** Write one platform-scoped audit row for an effective allowlist change. */
 async function audit(client: PoolClient, input: PilotTenantChangeInput, action: string): Promise<void> {
   await client.query(
     `INSERT INTO audit_events (id, actor_user_id, tenant_id, store_id, action, target_type, target_id, request_id, metadata)
@@ -73,6 +75,7 @@ async function audit(client: PoolClient, input: PilotTenantChangeInput, action: 
   );
 }
 
+/** Adds and removes pilot allowlist tenants in platform scope, auditing each effective change. */
 @Injectable()
 export class PilotTenantsService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}

@@ -74,6 +74,7 @@ function pilotFileName(version: string): string {
   return `POS-Pulse-Setup-${version}.exe`;
 }
 
+/** Record the outcome and answer the one closed `available: false` body. */
 function none(deps: PilotReleaseDeps, outcome: PilotReleaseOutcome): LatestPilotRelease {
   deps.recordOutcome(outcome);
   return UNAVAILABLE;
@@ -87,6 +88,7 @@ function ineligibility(release: CurrentPilotRelease | null, publisher: string): 
   return null;
 }
 
+/** Decide whether the caller may download the current pilot release; the module comment gives the order of the checks. */
 export async function resolveLatestPilotRelease(deps: PilotReleaseDeps): Promise<LatestPilotRelease> {
   const { config, presigner } = deps;
   if (!config.enabled || presigner === null) return none(deps, "none_not_configured");

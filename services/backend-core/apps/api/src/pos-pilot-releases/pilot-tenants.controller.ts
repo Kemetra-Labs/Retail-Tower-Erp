@@ -38,6 +38,7 @@ import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decor
 import { TenantIdParamSchema } from "./dto";
 import { PilotTenantNotFoundError, PilotTenantsService, type PilotTenantBody } from "./pilot-tenants.service";
 
+/** The platform-admin routes that add and remove pilot allowlist tenants. */
 @Controller("api/v1/platform/pos-pilot-tenants")
 @UseGuards(SessionOnlyAdminGuard, PlatformAdminGuard)
 export class PilotTenantsController {
