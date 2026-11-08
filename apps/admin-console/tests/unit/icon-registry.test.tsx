@@ -293,6 +293,10 @@ describe("one icon grammar in product code", () => {
       .filter(({ file }) => !file.endsWith("/src/overview/TrendChart.tsx"))
       .filter(({ file }) => !file.endsWith("/src/overview/ReceiptRow.tsx"))
       .filter(({ file }) => !file.endsWith("/src/overview/PostingPanel.tsx"))
+      // 2026-11-08 (night frame, board B): the public frame's ornament, a tower
+      // line drawing and shield outlines, is decoration (aria-hidden), not icons.
+      // Only that file: a real icon elsewhere in src/auth/ still uses the registry.
+      .filter(({ file }) => !file.endsWith("/src/auth/AuthOrnament.tsx"))
       .filter(({ file }) => !file.includes("/src/generated/"))
       .filter(({ src }) => /<svg\b/.test(src))
       .map(({ file }) => file);

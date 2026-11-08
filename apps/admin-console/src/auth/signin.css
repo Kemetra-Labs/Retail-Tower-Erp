@@ -1,22 +1,60 @@
-/* RT-971 public screens (canvas «تسجيل الدخول»): a form panel at the inline
- * start and a brand panel at the inline end. No card, no shadow. Tokens only;
- * logical properties (RTL by structure). */
+/* The public screens: sign-in and accept-invitation. RT-971 (canvas «تسجيل
+ * الدخول») set the split; the night frame (owner decision 2026-11-08, board B,
+ * DESIGN.md §12.1) makes it one dark scene with its artwork.
+ *
+ * The page sets data-theme="dark" on itself (AuthLayout), so every role token
+ * below is the dark value in both themes. Tokens only, no raw colours; logical
+ * properties (RTL by structure). No card and no box-shadow. */
 
 .auth-page {
+  /* The artwork's near-black, from the Ink token (no new global token). */
+  --auth-night: color-mix(in oklab, var(--color-ink) 58%, black);
   min-height: 100dvh;
   display: flex;
-  background: var(--color-surface);
-  color: var(--color-text);
+  background: var(--auth-night);
+  color: var(--color-on-ink);
 }
 
 .auth-main {
-  flex: 1 1 32rem;
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-6) var(--space-7);
+  padding: var(--space-6) calc(var(--space-7) + var(--space-4));
+  /* A mint glow rises from the foot, toward the artwork's lit road. */
+  background: radial-gradient(
+      ellipse 70% 45% at 50% 108%,
+      color-mix(in oklab, var(--color-mint) 22%, transparent),
+      transparent 70%
+    ), var(--auth-night);
 }
+.auth-top,
+.auth-center,
+.auth-foot {
+  position: relative;
+  z-index: 1;
+}
+
+/* The tower line drawing: ornament behind the form, at 16%. */
+.auth-tower {
+  position: absolute;
+  z-index: 0;
+  inset-inline-end: var(--space-4);
+  inset-block-end: 0;
+  inline-size: 17.5rem;
+  block-size: auto;
+  fill: none;
+  stroke: var(--color-mint);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.16;
+  pointer-events: none;
+}
+
 .auth-top {
   display: flex;
   align-items: center;
@@ -31,18 +69,25 @@
   gap: var(--space-3);
 }
 .auth-lockup__tile {
-  display: grid;
-  place-items: center;
-  inline-size: var(--control-h);
-  block-size: var(--control-h);
-  border-radius: var(--radius-control);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
+  display: block;
+  overflow: hidden;
+  inline-size: 4rem;
+  block-size: 4rem;
+  border: 1px solid color-mix(in oklab, var(--color-mint) 35%, transparent);
+  border-radius: var(--radius-overlay);
+  background: var(--auth-night);
 }
-.auth-lockup__tile .tower-mark {
-  inline-size: var(--space-5);
-  block-size: var(--space-5);
-  color: currentColor;
+.auth-lockup__logo {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.auth-lockup__word {
+  font-weight: var(--weight-strong);
+  font-size: 1.1875rem;
+  text-transform: uppercase;
+  direction: ltr;
 }
 
 .auth-center {
@@ -52,15 +97,25 @@
 }
 .auth-form {
   inline-size: 100%;
-  max-inline-size: 24rem;
+  max-inline-size: 26.25rem;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: calc(var(--space-5) + var(--space-1));
 }
 .auth-head {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
+}
+/* A small greeting, white on a faint mint wash: mint is never text (D-V10). */
+.auth-head__eyebrow {
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklab, var(--color-mint) 14%, transparent);
+  color: var(--color-on-ink);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-strong);
 }
 .auth-head__title {
   margin: 0;
@@ -68,38 +123,54 @@
 }
 .auth-head__sub {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--color-ink-muted);
+  font-size: 1rem;
 }
 .auth-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: calc(var(--space-4) + var(--space-1));
 }
 .auth-fields .field > label {
-  color: var(--color-text);
+  color: var(--color-on-ink);
+  font-weight: var(--weight-medium);
 }
 .auth-fields .field__hint {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
-/* The one action of the screen: full width, the touch target height. */
-.auth-submit {
+/* On the public screens the fields are the touch height, like the button. */
+.auth-fields .input {
+  block-size: var(--target-touch);
+  padding-inline: var(--space-4);
+  border-radius: var(--radius-field);
+  background-color: var(--color-surface-sunken);
+}
+/* The one action of the screen: full width, the mint fill with Ink text (the
+ * dark primary). Two classes, because controls.css loads later and its shared
+ * button rule sets the same min-height at one class. */
+.auth-fields .auth-submit {
   inline-size: 100%;
-  min-block-size: var(--target-touch);
+  min-block-size: calc(var(--target-touch) + var(--space-1));
+  border-radius: var(--radius-field);
+  font-size: 1rem;
 }
 .auth-note {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
 .auth-foot {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
 
-/* Password with its show toggle inside the field's end. */
+/* Password with its show toggle inside the field's end. These rules are shared:
+ * the signed-in Account page uses PasswordInput on a light surface, so they read
+ * the remapping roles (never the Ink-only ones) and the 36px control size. Under
+ * data-theme="dark" the same roles resolve to their dark values. */
 .password-input {
   position: relative;
   display: flex;
@@ -139,70 +210,96 @@
   color: var(--color-text-muted);
   cursor: not-allowed;
 }
+/* On the public screens the field is the touch height, so the toggle is too.
+ * These come after `.auth-fields .input` at the same specificity, so the room
+ * reserved for the toggle wins over that rule's inline padding. */
+.auth-fields .password-input__control {
+  padding-right: calc(var(--target-touch) + var(--space-1));
+}
+[dir="rtl"] .auth-fields .password-input__control {
+  padding-right: var(--space-4);
+  padding-left: calc(var(--target-touch) + var(--space-1));
+}
+.auth-fields .password-input__toggle {
+  inline-size: var(--target-touch);
+  border-radius: var(--radius-field);
+}
 
-/* RT-807 (PW-5, DESIGN.md §12.1): flat Ink in both themes, as Ink is dark in
- * both. The public screens are not an expressive surface: no mark, grid or
- * glow. Translucent on-ink fills keep the flow card and chips on the panel. */
-.auth-brand-panel {
-  --brand-bg: var(--color-ink);
-  --brand-fg: var(--color-on-ink);
-  position: relative;
-  overflow: hidden;
-  flex: 1 1 32rem;
+/* The line under the form: every branch, one tower. Decoration, aria-hidden. */
+.auth-branch {
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  gap: var(--space-6);
-  padding: var(--space-7);
-  background: var(--brand-bg);
-  color: var(--brand-fg);
+  align-items: center;
+  gap: var(--space-3);
+  padding-block-start: var(--space-1);
 }
-.auth-brand-panel__flow,
-.auth-brand-panel__copy {
-  position: relative;
-  max-inline-size: 28rem;
+.auth-branch__row {
+  inline-size: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.auth-branch__node {
+  flex: 0 0 4rem;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-mint);
 }
-.auth-brand-panel__flow {
-  padding: var(--space-4) var(--space-5);
-  border: 1px solid color-mix(in oklab, var(--color-ink-muted) 25%, transparent);
-  border-radius: var(--radius-object);
-  background: color-mix(in oklab, var(--brand-fg) 6%, var(--brand-bg));
+.auth-branch__node svg,
+.auth-branch__hub svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
-.auth-brand-panel__flow-title {
+.auth-branch__hub svg {
+  stroke-width: 1.4;
+}
+.auth-branch__dot {
+  fill: currentColor;
+  stroke: none;
+}
+.auth-branch__label {
   color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
-.auth-brand-panel__flow-steps {
+.auth-branch__hub {
+  flex: 0 0 3.5rem;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  color: var(--color-mint);
+  filter: drop-shadow(0 0 8px color-mix(in oklab, var(--color-mint) 55%, transparent));
+}
+.auth-branch__link {
+  flex: 1;
+  border-block-start: 2px dotted color-mix(in oklab, var(--color-mint) 45%, var(--auth-night));
+}
+.auth-branch__tagline {
+  color: var(--color-on-ink);
+  font-size: 1rem;
   font-weight: var(--weight-strong);
 }
-.auth-brand-panel__step {
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-control);
-  background: color-mix(in oklab, var(--brand-fg) 10%, var(--brand-bg));
+
+/* The artwork: 9:16 at the page height, so none of it is cropped at 1920x1080
+ * and the tagline in the picture stays in view. Decoration only. */
+.auth-art {
+  position: relative;
+  overflow: hidden;
+  flex: 0 0 31.625rem;
+  background: var(--auth-night);
 }
-.auth-brand-panel__arrow {
-  display: inline-block;
-  color: var(--color-ink-muted);
-}
-[dir="rtl"] .auth-brand-panel__arrow {
-  transform: scaleX(-1);
-}
-.auth-brand-panel__headline {
-  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
-}
-.auth-brand-panel__body {
-  color: var(--color-ink-muted);
+.auth-art__img {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
 }
 
 @media (max-width: 900px) {
-  .auth-brand-panel {
+  .auth-art {
     display: none;
   }
 }
@@ -210,11 +307,18 @@
   .auth-main {
     padding: var(--space-5) var(--space-4);
   }
+  .auth-tower {
+    display: none;
+  }
 }
 
 @media (forced-colors: active) {
   .auth-lockup__tile {
     border: 1px solid CanvasText;
+  }
+  .auth-art,
+  .auth-tower {
+    display: none;
   }
 }
 

@@ -60,6 +60,7 @@ Lazy cart creation; the F-key map (D-K1); OD-3 validation of grouped money again
 ## Later owner decisions
 
 - **2026-10-30, Admin Console "Ink & Receipt" (canvas board v9): approved, partly shipped.** `apps/admin-console/DESIGN.md` v4.0 §12 records it as the visual target. `src/styles/tokens.css` is the shipped truth: the Ink roles and primary fill, `--shadow-resting`, receipt cards and the Overview (RT-993) are on `main`; the rest lands through its Jira slices. Call a part shipped only when the component, style and route code on `main` render it; a token in `tokens.css` alone does not prove use.
+- **2026-11-08, Admin Console public "night frame" (sign-in board B): owner-approved, in PR.** `apps/admin-console/DESIGN.md` §12.1 records it. It supersedes **PW-5** (flat Ink public panel) and **PC-5** (light form side) for sign-in and accept-invitation only: the frame is dark in both themes (`data-theme="dark"` on its own wrapper), carries the artwork, a mint glow and a faint tower drawing, and never shows pipeline or ERP wording. Mint is still never text (D-V10). Other form asides stay light. Do not cite PW-5 as current for the public screens; do not reuse this look on any other screen. Open: the tagline «كل الفروع تحت عينك» uses «الفروع» where UX-12 says store = «المتجر» (owner wording, not yet reconciled).
 
 ## Non-authoritative material
 

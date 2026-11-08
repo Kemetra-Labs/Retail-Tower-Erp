@@ -89,7 +89,11 @@ export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element
 
   return (
     <AuthLayout>
-      <AuthHead title={t("auth.signIn.title")} subtitle={t("auth.signIn.subtitle")} />
+      <AuthHead
+        eyebrow={t("auth.signIn.welcome")}
+        title={t("auth.signIn.title")}
+        subtitle={t("auth.signIn.subtitle")}
+      />
 
       {phase.status === "error" ? (
         <Banner variant="danger" message={t(phase.messageKey)} requestId={phase.requestId} />
@@ -138,8 +142,6 @@ export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element
           <SubmitLabel phase={phase} />
         </BusyButton>
       </form>
-
-      <p className="auth-note">{t("auth.signIn.invitesOnly")}</p>
     </AuthLayout>
   );
 }

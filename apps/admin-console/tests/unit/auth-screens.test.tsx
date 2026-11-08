@@ -72,32 +72,62 @@ describe("sign-in screen", () => {
     expect(screen.getByRole("button", { name: "إظهار كلمة المرور" })).toBeDefined();
   });
 
-  test("the brand panel is decoration, the form is the main landmark, and there is no card", () => {
+  test("the art panel is decoration, the form is the main landmark, and there is no card", () => {
     const { container } = render(<SignIn onResolved={vi.fn()} />);
-    const brand = container.querySelector(".auth-brand-panel") as HTMLElement;
-    expect(brand.getAttribute("aria-hidden")).toBe("true");
+    const art = container.querySelector(".auth-art") as HTMLElement;
+    expect(art.getAttribute("aria-hidden")).toBe("true");
+    // Decorative: the wordmark beside the form already names the product.
+    expect(art.querySelector("img")?.getAttribute("alt")).toBe("");
     expect(screen.getByRole("main").querySelector("form")).not.toBeNull();
     expect(container.querySelector(".signin-card")).toBeNull();
-    expect(screen.getByText(/There is no self sign-up/)).toBeDefined();
   });
 
-  test("RT-807 (PW-5): the brand panel is flat Ink in both themes, with no mark, grid or glow", () => {
+  test("the public frame is always dark: it sets the dark theme on its own wrapper", () => {
     const { container } = render(<SignIn onResolved={vi.fn()} />);
-    const brand = container.querySelector(".auth-brand-panel") as HTMLElement;
-    expect(brand.querySelector("svg")).toBeNull();
-    const css = readSource("src/auth/signin.css");
-    const panel = css.match(/\.auth-brand-panel \{[^}]*\}/)?.[0] ?? "";
-    expect(panel).toMatch(/--brand-bg: var\(--color-ink\)/);
-    expect(panel).toMatch(/--brand-fg: var\(--color-on-ink\)/);
-    expect(css).not.toMatch(/\[data-theme="dark"\] \.auth-brand-panel/);
-    expect(css).not.toMatch(/gradient|auth-brand-panel__mark/);
+    // `[data-theme="dark"]` is an attribute selector, so the wrapper alone remaps
+    // every role token (and the mint primary button) in both themes. The user's
+    // theme is not known before sign-in.
+    const page = container.querySelector(".auth-page") as HTMLElement;
+    expect(page.getAttribute("data-theme")).toBe("dark");
   });
 
-  test("the stylesheet keeps the canvas grammar: no card shadow, no spelled control sizes", () => {
+  test("the sign-in screen greets the user and shows the branch line, without internals", () => {
+    const { container } = render(<SignIn onResolved={vi.fn()} />);
+    expect(screen.getByText("Welcome back")).toBeDefined();
+    expect(screen.getByText("Every branch, under your eye")).toBeDefined();
+    // What happens behind the till is not told to the client on a public screen.
+    expect(container.textContent ?? "").not.toMatch(/ERPNext|pipeline/i);
+    // The logo and the artwork are real same-origin files, never `data:` URIs
+    // (the Caddy CSP is `default-src 'self'`, so a `data:` image is blocked).
+    const layout = readSource("src/auth/AuthLayout.tsx");
+    expect(layout).toMatch(/signin-art\.webp\?no-inline/);
+    expect(layout).toMatch(/logo-shield\.webp\?no-inline/);
+  });
+
+  test("the stylesheet uses tokens only: no card shadow, no raw colours", () => {
     const css = readSource("src/auth/signin.css");
     expect(css).not.toMatch(/box-shadow/);
     expect(css).not.toMatch(/--shadow-overlay/);
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    // The night ground comes from the Ink token (no new global token), and a
+    // wordmark carries no tracking (RT-397).
+    expect(css).toMatch(/--auth-night: color-mix\(in oklab, var\(--color-ink\)/);
+    expect(css).not.toMatch(/letter-spacing/);
+  });
+
+  test("the shared password toggle stays readable on a light surface", () => {
+    // PasswordInput is also used by the signed-in Account page (light, no dark
+    // wrapper), and its rules live in signin.css. They must read the remapping
+    // roles; the Ink-only roles are near-invisible on white.
+    const css = readSource("src/auth/signin.css");
+    const toggle = css.match(/\.password-input__toggle \{[^}]*\}/)?.[0] ?? "";
+    expect(toggle).toMatch(/color: var\(--color-text-muted\)/);
+    expect(css).not.toMatch(/\.password-input__toggle[^{]*\{[^}]*--color-(ink-muted|on-ink)/);
+    // The public screens' touch-height variant must come after the field rule it
+    // has to beat, or the field's inline padding runs the text under the toggle.
+    expect(css.indexOf(".auth-fields .password-input__control")).toBeGreaterThan(
+      css.indexOf(".auth-fields .input {"),
+    );
   });
 });
 
