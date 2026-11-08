@@ -54,6 +54,22 @@ Do not build a polling loop. In the desktop app, use the `ccd_pr` status tools a
 terminal session, check once later or ask the owner to ping. A head pushed seconds ago has no
 `required` yet; `gh pr checks` can still show the previous head's results.
 
+## Red checks from GitHub release downloads
+
+Many jobs download a pinned tool from `github.com/<org>/<repo>/releases/download/...` (gitleaks,
+osv-scanner for `dependency-review`, the CodeQL bundle, the oasdiff and contracts binaries,
+Electron for the POS jobs). When GitHub's release downloads fail, all of them go red with
+`curl: (22) ... error: 504` or `HTTPError: Response code 504` before testing anything, and
+`required` turns red with them (seen 2026-11-08 on #420, #421, #422 and `main`).
+- Read each failing job to its first error (`gh run view --job <id> --log-failed`); do not assume
+  every red job has the same cause.
+- Confirm it is external: the same 504 on `main` or an unrelated branch, or reproduce it with
+  `curl -s -o /dev/null -L -r 0-1023 -w '%{http_code}' <release-url>`. The GitHub status page can
+  still say "operational".
+- Change nothing in the PR. Re-run only the failed jobs (`gh run rerun <run-id> --failed`) once the
+  `curl` check returns 200; a push or a re-run during the outage just fails again.
+- Never merge past the red `required` because "it is only infra": the bypass is the owner's.
+
 ## After the merge
 
 1. `gh pr view <n> --json headRefOid,mergeCommit`: the merged head must equal the last SHA you
