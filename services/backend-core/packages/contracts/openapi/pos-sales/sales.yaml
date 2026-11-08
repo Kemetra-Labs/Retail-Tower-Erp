@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.20.0-draft"
+  version: "1.21.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -532,6 +532,23 @@ info:
     now dead-letters it instead of receiving 200 (POS follow-up, linked from
     RT-1206).
 
+    RT-451 S3 (1.21.0-draft; [GATED: contract] captain decision under owner
+    delegation, Jira RT-451 comment 16262 as revised by comment 16269, with
+    comment 16275 (b), applying owner decision OD-T4 of comment 16215):
+    wording only, no shape change, no new status or error code. The G7-9
+    classification on `captureSale` applies only while tracked selling is ON
+    for the tenant: the deployment gate `POS_TRACKED_SELLING_ENABLED` AND the
+    tenant's switch (`inventory/inventory.yaml` `setTrackedSellingSetting`).
+    While either is OFF, a tracked product's line, with or without
+    `tracking`, is accepted as an ordinary line (normal Inventory effects at
+    the product grain and a normal ERP posting intent), never
+    `tracking_unresolved` and never a finding; a `tracking` it carries is
+    stored as received (provenance only), not validated and not classified,
+    and stays in the `payload_hash`. There is no 400 for tracking reasons. An
+    ad-hoc line (no tenant product) is an ordinary line in the same way
+    whatever the switch state. `safetyRevision` and `safetySyncedAt` are
+    provenance and are accepted and recorded whatever the switch state.
+
 servers:
   - url: https://api.example.com
 
@@ -661,10 +678,31 @@ paths:
         is the existing conflict (409 `idempotency_key_conflict`), and so is a
         provenance replay under another key with different tracking (RT-1206).
         Stored tracking is never rewritten, like every other line field.
-        Capture NEVER rejects a real sale for
-        tracking reasons: a refusal would only strand the fact in the till's
-        dead-letter. The server accepts the sale and classifies each tracked
-        line. When several rows match, the lower (more severe) row wins:
+        Capture NEVER rejects a real sale for tracking reasons, whatever the
+        switch state: a refusal would only strand the fact in the till's
+        dead-letter.
+
+        Tracked selling OFF (RT-451 S3, OD-T4; comment 16269): the
+        classification below applies only while the deployment gate
+        `POS_TRACKED_SELLING_ENABLED` AND the tenant's tracked-selling switch
+        are both on, evaluated at capture (the tenant switch is read in the
+        capture transaction). While either is off, no line is classified: a
+        tracked product's line, with or without `tracking`, is accepted as an
+        ordinary line (normal Inventory effects at the product grain, a normal
+        ERP posting intent; never `tracking_unresolved` and never a finding).
+        A `tracking` it carries is stored as received (provenance only), not
+        validated and not classified; it stays in the `payload_hash`, so the
+        replay and conflict rules above are unchanged. There is no 400 for
+        tracking reasons, so a sale the till validated while tracked selling
+        was on and sends after it was switched off is still accepted.
+
+        Ad-hoc lines (RT-451 S3, comment 16275 (b)): a line without a tenant
+        product is never classified, even while tracked selling is on. A
+        `tracking` it carries is stored as received (provenance only), with
+        no finding, and it never makes the sale `tracking_unresolved`.
+
+        Tracked selling ON: the server accepts the sale and classifies each
+        tracked line. When several rows match, the lower (more severe) row wins:
 
           1. Valid: a known identity of this product, a `validationId` that
              matches an accepted validation of that identity (same tenant,
@@ -2493,6 +2531,10 @@ components:
         unknown key, a `selection` outside the enum, a non-UUID id) is a 400
         `validation_error`, as for any body field; a well-formed `tracking`
         that names an unknown or wrong identity is accepted and classified.
+        While tracked selling is off for the tenant (the deployment gate or
+        the tenant's switch, RT-451 S3), and on an ad-hoc line, a well-formed
+        `tracking` is stored as received and not classified, never refused
+        (see `captureSale`).
       properties:
         identityId:
           type: string

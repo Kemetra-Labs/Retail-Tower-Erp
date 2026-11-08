@@ -296,11 +296,33 @@ describe("pos-sales/sales.yaml — RT-450 tracked capture (1.15.0-draft)", () =>
   const withTracking = (value: unknown) => ({ ...line, tracking: value });
 
   it("bumps the version and the note cites the owner authorization and the rollout order", () => {
-    // RT-1206 bumped the document to 1.20.0-draft (RT-1051 follow-up was 1.19.0); the RT-450 note still stands.
-    expect(doc.info.version).toBe("1.20.0-draft");
+    // RT-451 S3 bumped the document to 1.21.0-draft (RT-1206 was 1.20.0); the RT-450 note still stands.
+    expect(doc.info.version).toBe("1.21.0-draft");
     const info = infoOf(doc);
     expect(info).toContain("RT-450 (1.15.0-draft; [GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21");
     expect(info).toContain("the POS MUST NOT send them before RT-451 is deployed and tracked selling is activated for the tenant");
+  });
+
+  it("RT-451 S3 (OD-T4, 16269): while tracked selling is off, every line is ordinary and tracking is provenance, never a 400", () => {
+    const info = infoOf(doc).replace(/\s+/g, " ");
+    expect(info).toContain("RT-451 S3 (1.21.0-draft; [GATED: contract] captain decision under owner delegation, Jira RT-451 comment 16262 as revised by comment 16269");
+    expect(info).toContain("wording only, no shape change, no new status or error code");
+    expect(info).toContain("There is no 400 for tracking reasons");
+    const text = (capture.description ?? "").replace(/\s+/g, " ");
+    expect(text).toContain("Tracked selling OFF (RT-451 S3, OD-T4; comment 16269)");
+    expect(text).toContain("a tracked product's line, with or without `tracking`, is accepted as an ordinary line");
+    expect(text).toContain("never `tracking_unresolved` and never a finding");
+    expect(text).toContain("A `tracking` it carries is stored as received (provenance only), not validated and not classified");
+    expect(text).toContain("Capture NEVER rejects a real sale for tracking reasons, whatever the switch state");
+    expect(text).toContain("Ad-hoc lines (RT-451 S3, comment 16275 (b)): a line without a tenant product is never classified");
+    expect(text).not.toMatch(/tracking` is 400|refused with this 400|Known gap \(a consequence of RT-451 comment 16262\)/);
+    const schemaText = (doc.components.schemas["CaptureSaleLineTracking"]?.description ?? "").replace(/\s+/g, " ");
+    expect(schemaText).toContain("a well-formed `tracking` is stored as received and not classified, never refused");
+    expect(schemaText).not.toContain("ANY `tracking` is a 400");
+    // The 400 is still only the existing ValidationFailure, and it names no switch state.
+    expect(capture.responses?.["400"]?.$ref).toBe("#/components/responses/ValidationFailure");
+    const vf = (doc.components as { responses?: Record<string, { description?: string }> }).responses?.["ValidationFailure"]?.description ?? "";
+    expect(vf).not.toContain("tracked selling");
   });
 
   it("the note states hash membership, never-reject and the Batch boundary", () => {
