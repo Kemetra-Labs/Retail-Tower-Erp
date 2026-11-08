@@ -28,13 +28,13 @@ test("production sidebar shows no RF-* placeholder entries", async ({ page, t })
   await expect(nav.locator(".nav-entry__label")).toHaveText([
     t("shell.nav.overview"),
     t("sales.nav.label"),
+    t("shell.nav.shiftCloses"),
+    t("reports.nav.label"),
+    t("devices.nav.label"),
     t("catalog.nav.label"),
     t("shell.nav.unknownItems"),
     t("inventory.nav.label"),
     t("shell.nav.stockDiscrepancies"),
-    t("shell.nav.shiftCloses"),
-    t("reports.nav.label"),
-    t("devices.nav.label"),
     t("erp.nav.label"),
     t("saleSync.nav.label"),
     t("productRecon.nav.label"),
@@ -45,7 +45,10 @@ test("production sidebar shows no RF-* placeholder entries", async ({ page, t })
     t("payers.nav.label"),
     t("shell.signOut"),
   ]);
+  // RT-1291: the former unheaded first group is "Daily" and "Stock and items".
   await expect(nav.locator(".nav-section")).toHaveText([
+    t("shell.nav.section.daily"),
+    t("shell.nav.section.stock"),
     t("erp.nav.section"),
     t("shell.nav.section.management"),
   ]);
