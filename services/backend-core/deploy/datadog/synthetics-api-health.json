@@ -26,6 +26,6 @@
     "monitor_priority": 1,
     "monitor_options": { "renotify_interval": 60 }
   },
-  "message": "{{#is_alert}}https://lab.kemetralabs.com/api/v1/health/ready failed (status, content type or response time). The lab API is down or not ready.{{/is_alert}}\n{{#is_recovery}}The lab API /health/ready check passes again.{{/is_recovery}}\n\nThe content-type assertion catches a Cloudflare HTML page served in place of the API.\nRunbook: deploy/datadog/README.md in Kemetra/Backend-Core (RT-637).\n__ALERT_RECIPIENTS__",
+  "message": "{{#is_alert}}https://lab.kemetralabs.com/api/v1/health/ready failed (status, content type or response time). The lab API is down or not ready.{{/is_alert}}\n{{#is_recovery}}The lab API /health/ready check passes again.{{/is_recovery}}\n\nThe content-type assertion catches a Cloudflare HTML page served in place of the API.\nRunbook: services/backend-core/deploy/datadog/README.md in Kemetra-Labs/Retail-Tower-Erp (RT-637).\n__ALERT_RECIPIENTS__",
   "tags": ["env:staging", "service:backend-api", "rt:rt-637", "priority:p1", "managed-by:deploy-datadog"]
 }
