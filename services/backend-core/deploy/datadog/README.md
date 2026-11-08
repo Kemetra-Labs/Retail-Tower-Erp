@@ -1,6 +1,6 @@
 # Datadog monitors and dashboard (RT-637, OBS-8)
 
-These are the Datadog us5 definitions for the AWS lab (`env:staging`), kept as code. Datadog is the target. This directory is the source of truth, so change the JSON here and re-apply. Don't edit in the Datadog UI.
+These are the Datadog EU1 (`datadoghq.eu`) definitions for the AWS lab (`env:staging`), kept as code. Datadog is the target. This directory is the source of truth, so change the JSON here and re-apply. Don't edit in the Datadog UI.
 
 | File | What |
 | --- | --- |

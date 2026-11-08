@@ -62,9 +62,10 @@ of that product or by the owner (README steps 1a and 7).
 
 ## Datadog "No Data" is not "lab down"
 
-The lab agent sends to the **EU** site (`datadoghq.eu`). Older connector setups, monitors and repo
-defaults (`DD_SITE` default `us5.datadoghq.com` in `docker-compose.prod.yml`) still point at the old
-us5 org, which receives nothing. Before concluding anything, confirm the reader is on the EU org
+The lab agent sends to the **EU** site (`datadoghq.eu`), and since RT-1276 so do the repo defaults
+(`DD_SITE` in `docker-compose.prod.yml`, `prod.env.example` and `deploy/datadog/apply.mjs`); an
+explicit `DD_SITE` still wins. Older connector setups and monitors may still point at the old us5
+org, which receives nothing. Before concluding anything, confirm the reader is on the EU org
 (hosts include `retail-tower-lab-01`) and, with the owner's yes, read the agent's `DD_SITE` only.
 
 ## GitHub OIDC trust for an AWS role
