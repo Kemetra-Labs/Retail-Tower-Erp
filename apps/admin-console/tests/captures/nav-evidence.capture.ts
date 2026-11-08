@@ -203,6 +203,8 @@ test.describe(`${TICKET} Audit and Operators by role`, () => {
         if (route === "/audit") {
           // The audit query only runs once a search is applied, so apply it to make the request.
           const apply = page.getByRole("button", { name: t("filter.apply"), exact: true });
+          // Wait a bounded time first: isVisible() answers at once, so a late render would read as "not applied".
+          await apply.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
           appliedAuditSearch = await apply.isVisible();
           if (appliedAuditSearch) {
             await apply.click();
