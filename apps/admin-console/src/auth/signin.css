@@ -167,7 +167,10 @@
   font-size: var(--text-meta);
 }
 
-/* Password with its show toggle inside the field's end. */
+/* Password with its show toggle inside the field's end. These rules are shared:
+ * the signed-in Account page uses PasswordInput on a light surface, so they read
+ * the remapping roles (never the Ink-only ones) and the 36px control size. Under
+ * data-theme="dark" the same roles resolve to their dark values. */
 .password-input {
   position: relative;
   display: flex;
@@ -177,11 +180,11 @@
 .password-input__control {
   flex: 1;
   min-width: 0;
-  padding-right: calc(var(--target-touch) + var(--space-1));
+  padding-right: calc(var(--control-h) + var(--space-1));
 }
 [dir="rtl"] .password-input__control {
-  padding-right: var(--space-4);
-  padding-left: calc(var(--target-touch) + var(--space-1));
+  padding-right: var(--space-3);
+  padding-left: calc(var(--control-h) + var(--space-1));
 }
 .password-input__toggle {
   position: absolute;
@@ -189,23 +192,37 @@
   inset-inline-end: 0;
   display: grid;
   place-items: center;
-  inline-size: var(--target-touch);
+  inline-size: var(--control-h);
   padding: 0;
   border: 0;
-  border-radius: var(--radius-field);
+  border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-ink-muted);
+  color: var(--color-text-muted);
   cursor: pointer;
 }
 .password-input__toggle:hover {
-  color: var(--color-on-ink);
+  color: var(--color-text);
 }
 .password-input__toggle[aria-pressed="true"] {
-  color: var(--color-on-ink);
+  color: var(--color-primary-emphasis);
 }
 .password-input__toggle:disabled {
-  color: var(--color-ink-muted);
+  color: var(--color-text-muted);
   cursor: not-allowed;
+}
+/* On the public screens the field is the touch height, so the toggle is too.
+ * These come after `.auth-fields .input` at the same specificity, so the room
+ * reserved for the toggle wins over that rule's inline padding. */
+.auth-fields .password-input__control {
+  padding-right: calc(var(--target-touch) + var(--space-1));
+}
+[dir="rtl"] .auth-fields .password-input__control {
+  padding-right: var(--space-4);
+  padding-left: calc(var(--target-touch) + var(--space-1));
+}
+.auth-fields .password-input__toggle {
+  inline-size: var(--target-touch);
+  border-radius: var(--radius-field);
 }
 
 /* The line under the form: every branch, one tower. Decoration, aria-hidden. */

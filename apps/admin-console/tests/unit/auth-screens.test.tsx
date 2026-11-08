@@ -114,6 +114,21 @@ describe("sign-in screen", () => {
     expect(css).toMatch(/--auth-night: color-mix\(in oklab, var\(--color-ink\)/);
     expect(css).not.toMatch(/letter-spacing/);
   });
+
+  test("the shared password toggle stays readable on a light surface", () => {
+    // PasswordInput is also used by the signed-in Account page (light, no dark
+    // wrapper), and its rules live in signin.css. They must read the remapping
+    // roles; the Ink-only roles are near-invisible on white.
+    const css = readSource("src/auth/signin.css");
+    const toggle = css.match(/\.password-input__toggle \{[^}]*\}/)?.[0] ?? "";
+    expect(toggle).toMatch(/color: var\(--color-text-muted\)/);
+    expect(css).not.toMatch(/\.password-input__toggle[^{]*\{[^}]*--color-(ink-muted|on-ink)/);
+    // The public screens' touch-height variant must come after the field rule it
+    // has to beat, or the field's inline padding runs the text under the toggle.
+    expect(css.indexOf(".auth-fields .password-input__control")).toBeGreaterThan(
+      css.indexOf(".auth-fields .input {"),
+    );
+  });
 });
 
 describe("accept-invitation screen", () => {

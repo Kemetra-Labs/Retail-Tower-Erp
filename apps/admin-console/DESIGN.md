@@ -571,7 +571,8 @@ These classes exist on `main` and new work reuses them until a migration slice r
     (`LocaleSwitch`, no user), the centred form and the audit note.
   - The artwork panel at the inline end is `aria-hidden` and hidden below 900px. The whole
     frame is the night scene of §12.1, dark in both themes (*amended 2026-11-08*).
-  - No card and no shadow.
+  - No card and no `box-shadow`. The only glow is the mint one allowed in §12.1 (the form
+    side's radial glow and a `drop-shadow` on the branch line's centre shield).
   - Passwords use `PasswordInput`: no placeholder, and a «إظهار كلمة المرور» toggle
     (`aria-pressed`, `aria-controls`) with the registry's `reveal` / `conceal` glyphs.
 
