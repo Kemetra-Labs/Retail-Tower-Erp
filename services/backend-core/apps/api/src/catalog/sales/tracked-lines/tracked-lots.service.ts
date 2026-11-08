@@ -19,8 +19,10 @@
  *
  * Read only: nothing is written, nothing is reserved, quantity never filters a
  * lot (Q12). A product that is not in the tenant is the non-disclosing 404
- * (`null` here). A product that cannot be sold as a lot (tracking mode not
- * `batch`, retired or inactive) has no lots: a 200 with an empty list.
+ * (`null` here), and so is every product while the tenant has not switched
+ * tracked selling on (RT-451 S2, `tenant_inventory_settings`, 0086). A
+ * product that cannot be sold as a lot (tracking mode not `batch`, retired or
+ * inactive) has no lots: a 200 with an empty list.
  *
  * Everything runs in ONE tenant-context transaction (RLS, FORCE on every table
  * read), so a cross-tenant id resolves to nothing.
@@ -59,6 +61,11 @@ interface ContextRow {
   readonly safety_revision: string;
   readonly positions_live: boolean;
 }
+
+/** RT-451 S2 (0086): the tenant's tracked-selling switch; no settings row reads OFF. */
+const TENANT_SWITCH_SQL = `
+  SELECT COALESCE((SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1), false)
+           AS enabled`;
 
 const PRODUCT_SQL = `
   SELECT tracking_mode, expiry_required, (is_active AND retired_at IS NULL) AS sellable
@@ -116,6 +123,10 @@ export class TrackedLotsService {
     client: PoolClient,
     input: { readonly tenantId: string; readonly storeId: string; readonly productId: string },
   ): Promise<TrackedLotList | null> {
+    // RT-451 S2: tracked selling is in effect only when the tenant has switched
+    // it on (the deployment gate is the controller's); off is the same 404.
+    const tenantSwitch = await client.query<{ enabled: boolean }>(TENANT_SWITCH_SQL, [input.tenantId]);
+    if (tenantSwitch.rows[0]?.enabled !== true) return null;
     const product = (await client.query<ProductRow>(PRODUCT_SQL, [input.productId, input.tenantId])).rows[0];
     if (!product) return null;
     const context = (await client.query<ContextRow>(CONTEXT_SQL, [input.tenantId, input.storeId])).rows[0];

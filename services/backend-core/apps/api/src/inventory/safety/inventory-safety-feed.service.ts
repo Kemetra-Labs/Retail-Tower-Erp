@@ -21,12 +21,19 @@
  * upsert, released → removal. Applying a page is idempotent, so a hold that
  * changed again after the page's last step converges on a later page. The
  * last page answers the tenant's current revision.
+ *
+ * Tracked selling (RT-451 S2, OD-T6, feed 1.1.0-draft). Every answer carries
+ * `tracked_selling_enabled`: the deployment gate POS_TRACKED_SELLING_ENABLED
+ * AND the tenant's switch (`tenant_inventory_settings`, 0086), read in the
+ * same statement. A switch does not step the revision; the till sees it at
+ * its next sync, like the Safety TTL.
  */
 import { Inject, Injectable } from '@nestjs/common';
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool } from 'pg';
 
 import { PG_POOL } from '../../auth/auth.module';
+import { isTrackedSellingEnabled } from '../../catalog/sales/tracked-lines/tracked-selling-gate';
 import { decodePageToken, encodePageToken } from './inventory-safety-feed.cursor';
 import { EFFECTIVE_SAFETY_TTL_SQL } from './safety-ttl.service';
 
@@ -58,6 +65,8 @@ export interface InventorySafetySnapshotPage {
   readonly holds: SafetyHoldRow[];
   readonly next_page_token: string | null;
   readonly safety_ttl_seconds: number;
+  /** RT-451 S2 (OD-T6): the deployment gate AND the tenant's switch. */
+  readonly tracked_selling_enabled: boolean;
   readonly served_at: string;
 }
 
@@ -69,6 +78,8 @@ export interface InventorySafetyDeltaPage {
   readonly removals: SafetyHoldRemoval[];
   readonly has_more: boolean;
   readonly safety_ttl_seconds: number;
+  /** RT-451 S2 (OD-T6): the deployment gate AND the tenant's switch. */
+  readonly tracked_selling_enabled: boolean;
   readonly served_at: string;
 }
 
@@ -94,11 +105,13 @@ interface HoldColumns {
 interface SnapshotRow extends HoldColumns {
   readonly revision: string;
   readonly ttl: number;
+  readonly tracked_selling: boolean;
 }
 
 interface DeltaRow extends HoldColumns {
   readonly current_revision: string;
   readonly ttl: number;
+  readonly tracked_selling: boolean;
   readonly step_count: number;
   readonly last_step: string | null;
 }
@@ -111,6 +124,10 @@ const HOLD_SELECT = `h.id AS hold_id, h.kind, h.tracking_identity_id,
 
 const CURRENT_REVISION_SQL = `COALESCE(
   (SELECT revision FROM tenant_inventory_safety_revisions WHERE tenant_id = $1), 0)`;
+
+/** RT-451 S2 (0086): the tenant's tracked-selling switch; no settings row reads OFF. */
+const TRACKED_SELLING_SWITCH_SQL = `COALESCE(
+  (SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1), false)`;
 
 /**
  * Active holds after `$2` (null = from the start), at most `$3` rows, with the
@@ -125,7 +142,8 @@ const SNAPSHOT_SQL = `
      ORDER BY h.id
      LIMIT $3
   )
-  SELECT ${CURRENT_REVISION_SQL}::text AS revision, ${EFFECTIVE_SAFETY_TTL_SQL} AS ttl, page.*
+  SELECT ${CURRENT_REVISION_SQL}::text AS revision, ${EFFECTIVE_SAFETY_TTL_SQL} AS ttl,
+         ${TRACKED_SELLING_SWITCH_SQL} AS tracked_selling, page.*
     FROM (SELECT 1) one
     LEFT JOIN page ON true
    ORDER BY page.hold_id`;
@@ -162,6 +180,7 @@ const DELTA_SQL = `
   )
   SELECT ${CURRENT_REVISION_SQL}::text AS current_revision,
          ${EFFECTIVE_SAFETY_TTL_SQL} AS ttl,
+         ${TRACKED_SELLING_SWITCH_SQL} AS tracked_selling,
          (SELECT count(*) FROM steps)::int AS step_count,
          (SELECT max(revision) FROM batch)::text AS last_step,
          holds.*
@@ -219,6 +238,7 @@ export class InventorySafetyFeedService {
             ? encodePageToken({ tenantId, storeId, revision, afterHoldId: last.hold_id })
             : null,
         safety_ttl_seconds: first.ttl,
+        tracked_selling_enabled: isTrackedSellingEnabled() && first.tracked_selling === true,
         served_at: new Date().toISOString(),
       };
     });
@@ -252,6 +272,7 @@ export class InventorySafetyFeedService {
             })),
           has_more: hasMore,
           safety_ttl_seconds: first.ttl,
+          tracked_selling_enabled: isTrackedSellingEnabled() && first.tracked_selling === true,
           served_at: new Date().toISOString(),
         },
       };

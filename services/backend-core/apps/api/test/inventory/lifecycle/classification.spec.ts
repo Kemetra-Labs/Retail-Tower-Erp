@@ -188,6 +188,7 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
     // RT-435 (0056): the per-tenant return landing status and its actor.
     // RT-427 (0063): the sale-effects activation time and its actor.
     // RT-449 (0072): the POS Safety TTL in seconds.
+    // RT-451 S2 (0086): the tracked-selling switch, its change time and actor.
     name: 'tenant_inventory_settings',
     table: tenantInventorySettings,
     columns: [
@@ -196,6 +197,9 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       'sale_effects_activated_at',
       'sale_effects_activated_by',
       'safety_ttl_seconds',
+      'tracked_selling_enabled',
+      'tracked_selling_changed_at',
+      'tracked_selling_changed_by',
       'updated_by',
       'created_at',
       'updated_at',

@@ -825,10 +825,6 @@ paths:
   /api/inventory/v1/settings/tracked-selling:
     get:
       operationId: getTrackedSellingSetting
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-451 S2 (contract-first): the runtime ships with migration M1 and
-        the per-tenant flag. Remove both keys then.
       tags: [inventory]
       summary: Read the tenant's tracked-selling switch and its preconditions.
       description: >
@@ -868,10 +864,6 @@ paths:
         "5XX": { $ref: "#/components/responses/SystemFailure" }
     put:
       operationId: setTrackedSellingSetting
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-451 S2 (contract-first): the runtime ships with migration M1 and
-        the per-tenant flag. Remove both keys then.
       tags: [inventory]
       summary: Switch tracked selling on or off for the tenant.
       description: >

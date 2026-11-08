@@ -32,6 +32,7 @@ import request from 'supertest';
 
 import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from '../../../src/auth/auth.module';
 import { PosDeviceAuthGuard } from '../../../src/auth/pos-device-auth.guard';
+import { TRACKED_SELLING_GATE } from '../../../src/catalog/sales/tracked-lines/tracked-selling-gate';
 import { TrackingProfileService } from '../../../src/catalog/tracking-profile/tracking-profile.service';
 import { encodePageToken } from '../../../src/inventory/safety/inventory-safety-feed.cursor';
 import { InventorySafetyFeedController } from '../../../src/inventory/safety/inventory-safety-feed.controller';
@@ -439,6 +440,38 @@ describe('delta', () => {
     );
     expect((await delta(await currentRevision())).safety_ttl_seconds).toBe(300);
     expect((await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 1, pageToken: null })).safety_ttl_seconds).toBe(300);
+  });
+
+  it('RT-451 S2: answers tracked_selling_enabled only while the gate AND the tenant switch are on', async () => {
+    if (skipped()) return;
+    const answered = async (): Promise<[boolean, boolean]> => [
+      (await feed.getSnapshot(TENANT_A, STORE_A_X, { limit: 1, pageToken: null })).tracked_selling_enabled,
+      (await delta(await currentRevision())).tracked_selling_enabled,
+    ];
+    const setSwitch = (on: boolean) =>
+      admin.query(
+        `INSERT INTO tenant_inventory_settings
+           (tenant_id, updated_by, tracked_selling_enabled, tracked_selling_changed_at, tracked_selling_changed_by)
+         VALUES ($1, $2, $3, now(), $2)
+         ON CONFLICT (tenant_id) DO UPDATE
+           SET tracked_selling_enabled = $3, tracked_selling_changed_at = now(), tracked_selling_changed_by = $2`,
+        [TENANT_A, ACTOR_A, on],
+      );
+    const revisionBefore = await currentRevision();
+    try {
+      delete process.env[TRACKED_SELLING_GATE];
+      await setSwitch(true);
+      expect(await answered()).toEqual([false, false]);
+      process.env[TRACKED_SELLING_GATE] = 'true';
+      expect(await answered()).toEqual([true, true]);
+      await setSwitch(false);
+      expect(await answered()).toEqual([false, false]);
+      // A switch never steps the Safety Revision.
+      expect(await currentRevision()).toBe(revisionBefore);
+    } finally {
+      delete process.env[TRACKED_SELLING_GATE];
+      await setSwitch(false);
+    }
   });
 });
 

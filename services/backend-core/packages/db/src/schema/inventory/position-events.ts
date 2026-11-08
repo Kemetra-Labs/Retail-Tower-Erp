@@ -17,7 +17,9 @@
  * `tenant_inventory_settings` holds the per-tenant return landing status
  * (Q6, 849): `sellable` (the default; no row reads as it) or
  * `return_inspection`. 0063 (RT-427) adds the sale-effects activation flag
- * (`sale_effects_activated_at` / `_by`, NULL = OFF).
+ * (`sale_effects_activated_at` / `_by`, NULL = OFF). 0086 (RT-451 S2) adds the
+ * tracked-selling switch (`tracked_selling_enabled`, OFF by default, with
+ * `tracked_selling_changed_at` / `_by`).
  *
  * RLS: ENABLE + FORCE on both. Events: SELECT + INSERT, NO UPDATE / DELETE
  * (append-only). Settings: SELECT + INSERT + UPDATE, NO DELETE. The composite
@@ -28,6 +30,7 @@
  */
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   integer,
@@ -155,6 +158,12 @@ export const tenantInventorySettings = pgTable(
     // 0072 (RT-449, Q8 / H8): the POS Safety TTL in seconds. NULL = the
     // 900-second default; configurable downwards only (60–900).
     safetyTtlSeconds: integer("safety_ttl_seconds"),
+    // 0086 (RT-451 S2, OD-T1..OD-T7): the tenant's tracked-selling switch,
+    // OFF by default; ON only with a recorded change. In effect only while
+    // the deployment gate POS_TRACKED_SELLING_ENABLED is also on.
+    trackedSellingEnabled: boolean("tracked_selling_enabled").notNull().default(false),
+    trackedSellingChangedAt: timestamp("tracked_selling_changed_at", { withTimezone: true }),
+    trackedSellingChangedBy: uuid("tracked_selling_changed_by"),
     updatedBy: uuid("updated_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -171,6 +180,14 @@ export const tenantInventorySettings = pgTable(
     check(
       "tenant_inventory_settings_safety_ttl_range",
       sql`${t.safetyTtlSeconds} IS NULL OR ${t.safetyTtlSeconds} BETWEEN 60 AND 900`,
+    ),
+    check(
+      "tenant_inventory_settings_tracked_selling_change_pair",
+      sql`(${t.trackedSellingChangedAt} IS NULL) = (${t.trackedSellingChangedBy} IS NULL)`,
+    ),
+    check(
+      "tenant_inventory_settings_tracked_selling_on_changed",
+      sql`NOT ${t.trackedSellingEnabled} OR ${t.trackedSellingChangedAt} IS NOT NULL`,
     ),
   ],
 );

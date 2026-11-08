@@ -1189,11 +1189,11 @@ describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () =>
     expect(inventoryDoc.info?.description).toContain("RT-451 comments 16215 and 16216");
   });
 
-  it.each(S2)("maps %s to %s, marked contract-only for RT-451", (method, operationId) => {
+  it.each(S2)("maps %s to %s, served by the RT-451 S2 runtime (no contract-only marker)", (method, operationId) => {
     const o = op(method);
     expect(o.operationId).toBe(operationId);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toContain("RT-451");
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(o.security).toEqual([{ cookieAuth: [] }]);
     expect(o.responses?.["403"]).toEqual({ $ref: "#/components/responses/ForbiddenOrOriginRejected" });
     expect(o.responses?.["404"]).toEqual({ $ref: "#/components/responses/NotFoundOrCrossTenant" });
