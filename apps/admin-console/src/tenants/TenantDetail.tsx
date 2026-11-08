@@ -8,6 +8,7 @@ import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
+import { TenantTrackedSellingSection } from "@/tracked-selling/TenantTrackedSellingSection";
 /**
  * SF-T2 — Tenant detail (T017). Read-first: labeled field rows, a display-only
  * status badge, and a quiet action cluster (edit + soft-delete) rendered for
@@ -19,6 +20,10 @@ import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
  *
  * RT-389: the shift variance policy section sits under the fields; it shows
  * only to an owner / tenant_admin of this (the active) tenant.
+ *
+ * RT-455 part 1: the tracked-selling switch section sits last; owner /
+ * tenant_admin manage it, a store_manager sees on/off only, and it is absent
+ * while the deployment gate answers 404.
  */
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -140,6 +145,7 @@ export function TenantDetail(): React.JSX.Element {
       <TenantBrandingLink tenantId={tenant.id} />
       <TenantPolicySection tenantId={tenant.id} />
       <TenantAiPlanSection tenantId={tenant.id} />
+      <TenantTrackedSellingSection tenantId={tenant.id} />
     </div>
   );
 }

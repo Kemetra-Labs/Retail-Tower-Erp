@@ -89,6 +89,18 @@ const statuses = [
 
 async function mock(page: Page, role: string, tracked = true): Promise<void> {
   await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
+  // RT-455 part 1 (OD-T4): the tracking pages show only while the switch is on.
+  await page.route(`**${INV}/settings/tracked-selling`, (r) =>
+    r.fulfill(
+      json({
+        enabled: true,
+        changedAt: "2026-11-08T18:00:00Z",
+        changedBy: OMAR,
+        preconditionsMet: true,
+        unmetPreconditions: [],
+      }),
+    ),
+  );
   await page.route("**/api/v1/context/me", (r) => r.fulfill(json(ctx(role))));
   await page.route("**/api/v1/stores", (r) =>
     r.fulfill(

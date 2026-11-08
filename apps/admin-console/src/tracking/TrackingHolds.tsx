@@ -16,8 +16,10 @@
  * - A store_manager sees findings for its own stores, rows without «عرض», and
  *   the OD-9 count line as «قريبًا».
  *
- * The screen is hidden for a tenant with no tracked products (TR-6): the nav
- * never lists it, and a deep link says so instead of showing empty tables.
+ * The screen is hidden for a tenant with no tracked products (TR-6), and while
+ * the tenant's tracked-selling switch is off or its deployment gate answers
+ * 404 (RT-455 part 1, OD-T4): the nav never lists it, and a deep link says so
+ * instead of showing empty tables.
  * Every rule stays in Backend-Core; this screen reads.
  */
 import { NoAccess } from "@/auth/NoAccess";
@@ -31,6 +33,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { formatDateTime, useLocale, useT } from "@/i18n";
 import type { SafetyFindingList } from "@/lib/tracking-queries";
 import { useSignOut } from "@/shell/useSignOut";
+import { TrackingPagesGate } from "@/tracked-selling/TrackingPagesGate";
 import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { ReadError } from "../inventory/parts";
@@ -366,6 +369,21 @@ function NotTracked(): React.JSX.Element {
   );
 }
 
+/** TR-6, inside the OD-T4 gate. */
+function TrackedHoldsBody({
+  scope,
+  summary,
+}: Readonly<{
+  scope: InventoryScope;
+  summary: ReturnType<typeof useTrackingSummaryQuery>;
+}>): React.JSX.Element {
+  const t = useT();
+  if (summary.isLoading) return <ListState state="loading" label={t("tracking.loadingNoun")} />;
+  if (summary.data === false) return <NotTracked />;
+  // A failed summary does not hide a screen reached by link: its own reads say what failed.
+  return <HoldsView scope={scope} />;
+}
+
 export function TrackingHolds(): React.JSX.Element {
   const t = useT();
   const scope = useInventoryScope();
@@ -379,8 +397,11 @@ export function TrackingHolds(): React.JSX.Element {
       </div>
     );
   }
-  if (summary.isLoading) return <ListState state="loading" label={t("tracking.loadingNoun")} />;
-  if (summary.data === false) return <NotTracked />;
-  // A failed summary does not hide a screen reached by link: its own reads say what failed.
-  return <HoldsView scope={scope} />;
+  // RT-455 part 1 (OD-T4): nothing below shows while tracked selling is off.
+  const body = <TrackedHoldsBody scope={scope} summary={summary} />;
+  return (
+    <TrackingPagesGate tenantId={scope.tenantId} role={scope.role}>
+      {body}
+    </TrackingPagesGate>
+  );
 }

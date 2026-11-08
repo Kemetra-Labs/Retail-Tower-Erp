@@ -35,6 +35,7 @@ import type {
   TrackingHold,
   TrackingIdentityPositions,
 } from "@/lib/tracking-queries";
+import { TrackingPagesGate } from "@/tracked-selling/TrackingPagesGate";
 import { useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 import { inventoryStatusKey, isUuid, trackingKindKey } from "../inventory/inventoryLogic";
@@ -634,5 +635,10 @@ export function TrackingIdentityDetail(): React.JSX.Element {
   if (!canReadHolds(scope.role) || !isUuid(identityId)) return <NotAvailable back="/tracking" />;
   // Keyed by the identity: moving to another batch remounts the page, so no form
   // state or held Idempotency-Key carries over to the new identity's commands.
-  return <IdentityView key={identityId} scope={scope} identityId={identityId} storeId={storeId} />;
+  return (
+    // RT-455 part 1 (OD-T4): hidden while tracked selling is off.
+    <TrackingPagesGate tenantId={scope.tenantId} role={scope.role}>
+      <IdentityView key={identityId} scope={scope} identityId={identityId} storeId={storeId} />
+    </TrackingPagesGate>
+  );
 }

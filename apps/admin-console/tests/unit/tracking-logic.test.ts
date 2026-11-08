@@ -74,26 +74,34 @@ describe("tracking roles (RT-455)", () => {
     expect(canReleaseHold(role)).toBe(release);
   });
 
-  test("the nav entry needs the role AND a summary that answered true (TR-6)", () => {
-    expect(showTrackingNav("owner", true)).toBe(true);
-    expect(showTrackingNav("store_manager", true)).toBe(true);
-    expect(showTrackingNav("owner", false)).toBe(false);
-    expect(showTrackingNav("owner", undefined)).toBe(false);
-    expect(showTrackingNav("cashier", true)).toBe(false);
+  test("the nav entry needs the role AND a summary that answered true (TR-6) AND the switch on (OD-T4)", () => {
+    expect(showTrackingNav("owner", true, true)).toBe(true);
+    expect(showTrackingNav("store_manager", true, true)).toBe(true);
+    expect(showTrackingNav("owner", false, true)).toBe(false);
+    expect(showTrackingNav("owner", undefined, true)).toBe(false);
+    expect(showTrackingNav("cashier", true, true)).toBe(false);
+    // RT-455 part 1: off, unknown (loading, failed, the gate's 404) all hide it.
+    expect(showTrackingNav("owner", true, false)).toBe(false);
+    expect(showTrackingNav("owner", true, undefined)).toBe(false);
   });
 
-  test("tenantNav lists «tracking» after inventory only with the signal", () => {
-    const entries = (signal?: boolean) =>
-      tenantNav("owner", false, { hasTrackedProducts: signal }).flatMap((g) =>
-        g.entries.map((e) => e.to),
-      );
+  test("tenantNav lists «tracking» after inventory only with both signals", () => {
+    const entries = (signal?: boolean, ...rest: [on?: boolean]) =>
+      tenantNav("owner", false, {
+        hasTrackedProducts: signal,
+        trackedSellingOn: rest.length === 0 ? true : rest[0],
+      }).flatMap((g) => g.entries.map((e) => e.to));
     expect(entries()).not.toContain("/tracking");
     expect(entries(false)).not.toContain("/tracking");
+    expect(entries(true, false)).not.toContain("/tracking");
+    expect(entries(true, undefined)).not.toContain("/tracking");
     const shown = entries(true);
     expect(shown.indexOf("/tracking")).toBe(shown.indexOf("/inventory") + 1);
     // A support session lists no tenant destination at all.
     expect(
-      tenantNav("owner", true, { hasTrackedProducts: true }).flatMap((g) => g.entries),
+      tenantNav("owner", true, { hasTrackedProducts: true, trackedSellingOn: true }).flatMap(
+        (g) => g.entries,
+      ),
     ).not.toContainEqual(expect.objectContaining({ to: "/tracking" }));
   });
 });

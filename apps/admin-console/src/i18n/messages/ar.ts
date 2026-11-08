@@ -30,6 +30,7 @@ import { shell } from "./ar/shell";
 import { shift } from "./ar/shift";
 import { stock } from "./ar/stock";
 import { tenants } from "./ar/tenants";
+import { trackedSelling } from "./ar/trackedSelling";
 import { tracking } from "./ar/tracking";
 
 export const AR_MODULES = {
@@ -59,6 +60,7 @@ export const AR_MODULES = {
   salesDaily,
   salesByStore,
   tracking,
+  trackedSelling,
 };
 
 export const ar = {
@@ -88,4 +90,5 @@ export const ar = {
   ...salesDaily,
   ...salesByStore,
   ...tracking,
+  ...trackedSelling,
 };

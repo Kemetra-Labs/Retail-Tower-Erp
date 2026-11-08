@@ -14,6 +14,9 @@ import { AppShell } from "@/shell/AppShell";
 vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
 // RT-455: the tracking summary is its own read (tracking-logic tests cover the entry).
 vi.mock("@/tracking/useTracking", () => ({ useTrackingSummary: () => undefined }));
+vi.mock("@/tracked-selling/useTrackedSelling", () => ({
+  useTrackedSellingQuery: () => ({ data: undefined }),
+}));
 
 /**
  * RT-825 (RT-785 SHELL-M1, decisions D1/D2): at ≤768px the sidebar is hidden,

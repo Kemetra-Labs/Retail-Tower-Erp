@@ -48,6 +48,8 @@ export interface NavGroup {
 export interface NavSignals {
   /** `getTenantTrackingSummary`; undefined while unknown (TR-6). */
   readonly hasTrackedProducts?: boolean;
+  /** `getTrackedSellingSetting` answered on; undefined or false hides tracking (OD-T4). */
+  readonly trackedSellingOn?: boolean;
 }
 
 type Gate = (role: string | null | undefined, signals: NavSignals) => boolean;
@@ -91,12 +93,14 @@ const TENANT_NAV: readonly GatedGroup[] = [
         canRead: canReadInventory,
       },
       // RT-455 (TR-1, TR-6): tracking holds and recalls, listed only once the
-      // tenant's tracking summary says it has tracked products (967, 968).
+      // tenant's tracking summary says it has tracked products (967, 968) and
+      // its tracked-selling switch is on (part 1, OD-T4).
       {
         label: "tracking.nav.label",
         to: "/tracking",
         icon: "inventory",
-        canRead: (role, signals) => showTrackingNav(role, signals.hasTrackedProducts),
+        canRead: (role, signals) =>
+          showTrackingNav(role, signals.hasTrackedProducts, signals.trackedSellingOn),
       },
       {
         label: "shell.nav.stockDiscrepancies",

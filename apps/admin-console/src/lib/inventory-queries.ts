@@ -54,7 +54,8 @@ function retryAfterOf(response: Response): number | undefined {
   })?.retryAfterSeconds;
 }
 
-function resultOf<D, E>(res: { data?: D; error?: E; response: Response }) {
+/** The shared `{ status, data?, error?, retryAfter? }` shape (also `tracked-selling-queries.ts`). */
+export function resultOf<D, E>(res: { data?: D; error?: E; response: Response }) {
   return {
     status: res.response.status,
     data: res.data,

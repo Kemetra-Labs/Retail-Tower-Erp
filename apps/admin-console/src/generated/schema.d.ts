@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ ff7c40b6bc4996aae8569358fd5780087636702d
+// Source: Kemetra-Labs/Retail-Tower-Erp @ bd733fdb8bb653bfef0e2e394ce908bd959f9a6d
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -11532,6 +11532,30 @@ export namespace InventorySchema {
             patch?: never;
             trace?: never;
         };
+        "/api/inventory/v1/settings/tracked-selling": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's tracked-selling switch and its preconditions.
+             * @description RT-451 S2 (OD-T1, OD-T2): whether tracked selling (batch / expiry) is switched on for the tenant. `enabled` is false for every tenant until switched on; `changedAt` and `changedBy` are null while it was never changed. `unmetPreconditions` lists the RT-50 Q13 preconditions (`TrackedSellingPrecondition`) that do not hold now, evaluated on each read; a precondition the server cannot confirm is listed as unmet (fail closed). `preconditionsMet` is true exactly when that list is empty. Tracked selling is in effect for the tenant only while the deployment gate `POS_TRACKED_SELLING_ENABLED` is on and `enabled` is true. If a precondition stops holding after the switch is on, tracked selling stays on (OD-T7, RT-451 comment 16217): `enabled: true` with `preconditionsMet: false` is the state the Console shows the owner as a warning. The switch never turns itself off; only an owner or tenant_admin switches it off. Owner or tenant_admin read every field. A store_manager reads on/off only (OD-T6): `enabled`, with `changedAt`, `changedBy`, `preconditionsMet` and `unmetPreconditions` null. Any other role is a 403. Authentication (401) and role (403) are checked first, as for `posListTrackedLots`; then, while the gate is off, this operation answers the non-disclosing 404 and reads nothing.
+             */
+            get: operations["getTrackedSellingSetting"];
+            /**
+             * Switch tracked selling on or off for the tenant.
+             * @description RT-451 S2 (OD-T2..OD-T5). `{"enabled": true}` checks the RT-50 Q13 preconditions in the same transaction as the write: while any is unmet the switch is refused with 409 `tracked_selling_preconditions_unmet` and nothing is written; `getTrackedSellingSetting` names the unmet ones. Switching back on after an off is the same check (OD-T5). `{"enabled": false}` is always accepted (OD-T3). Setting the current value again, in either direction, writes nothing, records no audit event and answers the current setting: repeating `{"enabled": true}` while already on is that no-op and does not re-check the preconditions, which are checked only on a change from off to on. Every change is audited with the actor, the time and the new value; the history of the switch is kept in the audit trail. Switching off deletes and rewrites nothing: recorded tracking, sale-line findings, holds and recalls remain, and the sales already in the Tracking Resolution queue stay listed and can still be resolved with `bindTrackingResolution` (OD-T4). While it is off the tenant's tills are to sell a tracked product as a normal line (OD-T4). That needs an amendment of `pos-sales/sales.yaml` `captureSale` G7-9 row 4 in a later RT-451 slice; until it lands, `captureSale` G7-9 governs, and nothing captures a tracked line yet (every tracked-selling operation is contract-only or behind the deployment gate). Owner or tenant_admin; any other role is a 403. Authentication (401) and role (403) are checked first, as for `posListTrackedLots`; then, while the deployment gate `POS_TRACKED_SELLING_ENABLED` is off, this operation answers the non-disclosing 404 and writes nothing.
+             */
+            put: operations["setTrackedSellingSetting"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/inventory/v1/safety/findings": {
             parameters: {
                 query?: never;
@@ -12030,6 +12054,34 @@ export namespace InventorySchema {
             SetSafetyTtlSettingCommand: {
                 /** @description 60–900 seconds, or null for the default of 900. */
                 safetyTtlSeconds: number | null;
+            };
+            /**
+             * @description RT-451 S2: the six RT-50 Q13 preconditions of switching tracked selling on. `sale_effects_active`: sale, void and return Inventory effects are active for the tenant (RT-427). `status_moves_available`: status moves and the return-inspection landing are available (RT-435). `erp_tracking_import`: ERP-origin stock import with tracking is in place, so newly received lots exist (RT-293). `erp_batch_posting_verified`: the ERPNext-Connector posts batch-tracked lines with the batch ref (G7-11, RT-452). `identity_anchor`: the per-identity anchor is set (G7-12, RT-453). `tracking_grain_reconciliation`: tracking-grain reconciliation is in place (RT-428).
+             * @enum {string}
+             */
+            TrackedSellingPrecondition: "sale_effects_active" | "status_moves_available" | "erp_tracking_import" | "erp_batch_posting_verified" | "identity_anchor" | "tracking_grain_reconciliation";
+            /** @description RT-451 S2 — the tenant's tracked-selling switch and its preconditions. */
+            TrackedSellingSetting: {
+                /** @description Whether the tenant switched tracked selling on; false until it does. */
+                enabled: boolean;
+                /**
+                 * Format: date-time
+                 * @description When the switch last changed; null while it never changed, and for a store_manager.
+                 */
+                changedAt: string | null;
+                /**
+                 * Format: uuid
+                 * @description The user who last changed the switch; null while it never changed, and for a store_manager.
+                 */
+                changedBy: string | null;
+                /** @description True exactly when `unmetPreconditions` is empty. Null only for a store_manager, who reads on/off only (OD-T6). */
+                preconditionsMet: boolean | null;
+                /** @description The preconditions that do not hold now, in the enum's order; a precondition the server cannot confirm is listed (fail closed). Null only for a store_manager (OD-T6). */
+                unmetPreconditions: components["schemas"]["TrackedSellingPrecondition"][] | null;
+            };
+            SetTrackedSellingSettingCommand: {
+                /** @description true to switch tracked selling on, false to switch it off. */
+                enabled: boolean;
             };
             InventorySafetyFindingList: {
                 findings: components["schemas"]["InventorySafetyFinding"][];
@@ -12701,6 +12753,15 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 409 — RT-451 S2. `tracked_selling_preconditions_unmet`: switching tracked selling on was refused because at least one RT-50 Q13 precondition does not hold now; `getTrackedSellingSetting` lists which. Nothing is written. Switching off never answers 409. */
+            TrackedSellingConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description 5xx — internal failure; the cause is recorded server-side under `request_id`. */
             SystemFailure: {
                 headers: {
@@ -13161,6 +13222,62 @@ export namespace InventorySchema {
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getTrackedSellingSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's tracked-selling switch and its preconditions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TrackedSellingSetting"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setTrackedSellingSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetTrackedSellingSettingCommand"];
+                };
+            };
+            responses: {
+                /** @description The tenant's tracked-selling switch after the command. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TrackedSellingSetting"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["TrackedSellingConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };

@@ -50,6 +50,21 @@ vi.mock("@/lib/tracking-queries", () => ({
   createInventoryRecall: (...a: unknown[]) => api.createInventoryRecall(...a),
   correctTrackingIdentityExpiry: (...a: unknown[]) => api.correctTrackingIdentityExpiry(...a),
 }));
+// RT-455 part 1 (OD-T4): the tracking pages show only while the switch is on.
+const getTrackedSelling = vi.fn();
+vi.mock("@/lib/tracked-selling-queries", () => ({
+  getTrackedSellingSetting: (...a: unknown[]) => getTrackedSelling(...a),
+}));
+const SWITCH_ON = {
+  status: 200,
+  data: {
+    enabled: true,
+    changedAt: "2026-11-08T18:00:00Z",
+    changedBy: null,
+    preconditionsMet: true,
+    unmetPreconditions: [],
+  },
+};
 const catalog = { getProduct: vi.fn(), listProducts: vi.fn() };
 vi.mock("@/lib/catalog-queries", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/catalog-queries")>();
@@ -164,6 +179,8 @@ beforeEach(() => {
   activeContext.mockReset();
   resetRateLimit();
   activeContext.mockReturnValue(ctx("owner"));
+  getTrackedSelling.mockReset();
+  getTrackedSelling.mockResolvedValue(SWITCH_ON);
   api.getTenantTrackingSummary.mockResolvedValue(ok({ hasTrackedProducts: true }));
   api.listSafetyFindings.mockResolvedValue(
     ok({ findings: [], generatedAt: "2026-11-03T12:32:00Z" }),
