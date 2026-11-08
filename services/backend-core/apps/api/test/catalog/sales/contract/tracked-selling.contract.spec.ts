@@ -513,7 +513,8 @@ describe("erpnext-connector/stock-view.yaml — RT-450 tracking evidence (1.4.0-
   const withBatches = (batches: unknown[]) => withTracking({ ...flags, batches });
 
   it("bumps the version and the note says evidence only", () => {
-    expect(doc.info.version).toBe("1.4.0-draft");
+    // 1.5.0-draft (RT-1284) is additive: a 503 `snapshot_busy` on the report.
+    expect(doc.info.version).toBe("1.5.0-draft");
     const info = infoOf(doc);
     expect(info).toContain("VERSION 1.4 (RT-450; [GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21");
     expect(info).toContain("THIS IS EVIDENCE ONLY");
