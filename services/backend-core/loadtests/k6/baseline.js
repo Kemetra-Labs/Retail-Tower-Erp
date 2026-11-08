@@ -51,6 +51,7 @@ const DURATION = __ENV.LOAD_DURATION || "10m";
 // RT-1281: lab-safe default. Going above LAB_CAP needs LOAD_ALLOW_ABOVE_LAB_CAP=1.
 const LAB_CAP = 5;
 const VUS = Number.parseInt(__ENV.LOAD_VUS || String(LAB_CAP), 10);
+if (!Number.isInteger(VUS) || VUS < 1) throw new Error("LOAD_VUS must be a positive integer");
 if (VUS > LAB_CAP && __ENV.LOAD_ALLOW_ABOVE_LAB_CAP !== "1") {
   throw new Error(`LOAD_VUS=${VUS} is above the lab cap ${LAB_CAP}; set LOAD_ALLOW_ABOVE_LAB_CAP=1 only for a sized environment`);
 }

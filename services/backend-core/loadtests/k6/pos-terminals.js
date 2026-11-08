@@ -1,9 +1,12 @@
 // RT-1281 — N POS terminal-equivalents (TE) selling at a fixed, owner-set rate.
 //
-// One TE is one paired terminal with one admitted cashier. Each TE captures
-// LOAD_SALES_PER_HOUR sales per hour (a constant arrival rate, so slow responses
-// do not lower the offered load) and reads catalog deltas every
-// LOAD_CATALOG_EVERY (default 5m), the way a terminal does between sales.
+// One TE is one paired terminal with one admitted cashier. The run offers
+// LOAD_TERMINALS x LOAD_SALES_PER_HOUR sales per hour (constant arrival rate),
+// spread round-robin across the terminals, and reads catalog deltas every
+// LOAD_CATALOG_EVERY (default 5m) per terminal. At most LOAD_TERMINALS sales are
+// in flight at once (one per terminal); if responses get slow enough that the
+// rate cannot be met, k6 reports `dropped_iterations` — check it in every run
+// report, because a non-zero value means the offered load was not reached.
 // Runs only against an isolated lab with synthetic data (RT-1279 boundaries);
 // RT-317 owns when and where it runs.
 //
@@ -21,6 +24,7 @@
 //     --summary-export /scripts/last-pos-terminals.json
 
 import { fail } from "k6";
+import exec from "k6/execution";
 
 import {
   MAX_TERMINALS,
@@ -80,9 +84,10 @@ export function setup() {
   return { terminals, products };
 }
 
-// VU ids are global across scenarios; map each to one terminal deterministically.
+// Round-robin by the scenario's iteration number, so every terminal gets an
+// equal share of the arrivals regardless of which pooled VU runs them.
 function terminalFor(data) {
-  return data.terminals[(__VU - 1) % data.terminals.length];
+  return data.terminals[exec.scenario.iterationInTest % data.terminals.length];
 }
 
 export function sell(data) {

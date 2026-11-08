@@ -39,6 +39,7 @@ import { baseUrl, jsonHeaders, jsonPostHeaders, uuidv4 } from "./lib/util.js";
 // an explicit choice for a sized environment, never the AWS lab by accident.
 const LAB_CAP = 20;
 const MAX_VUS = Number.parseInt(__ENV.LOAD_STRESS_MAX_VUS || String(LAB_CAP), 10);
+if (!Number.isInteger(MAX_VUS) || MAX_VUS < 1) throw new Error("LOAD_STRESS_MAX_VUS must be a positive integer");
 if (MAX_VUS > LAB_CAP && __ENV.LOAD_ALLOW_ABOVE_LAB_CAP !== "1") {
   throw new Error(`LOAD_STRESS_MAX_VUS=${MAX_VUS} is above the lab cap ${LAB_CAP}; set LOAD_ALLOW_ABOVE_LAB_CAP=1 only for a sized environment`);
 }

@@ -22,9 +22,11 @@ that device, store and user covering the sale's `occurredAt`. No provider
 | ERP mapping for those products | Connector item map on the lab ERP company | all seeded products |
 
 A cashier is admitted per run in each script's `setup()`
-(`POST /api/pos/v1/cashier-admissions`, `mode: online`, or `reconcile_offline`
-for the burst). Give each terminal its own cashier: one cashier on two
-terminals gets `active_elsewhere`.
+(`POST /api/pos/v1/cashier-admissions`, `mode: online`). A device-path sale
+must not be older than about 120 s before its admission was created, so
+`offline-burst.js` admits first, waits `LOAD_OFFLINE_MINUTES` with no traffic,
+then flushes sales dated inside that window. Give each terminal its own
+cashier: one cashier on two terminals gets `active_elsewhere`.
 
 ## Environment (inject with `op run`; never commit)
 

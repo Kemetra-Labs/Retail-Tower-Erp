@@ -4,8 +4,13 @@
 -- after the run has drained (outbox pending = 0), as an operator role that can
 -- read the run's tenant. It writes nothing.
 --
---   psql "$LAB_READONLY_DATABASE_URL" -v run_id="'<LOAD_RUN_ID>'" \
+--   psql "$LAB_READONLY_DATABASE_URL" -v run_id=<LOAD_RUN_ID> \
 --        -v k6_accepted=<k6 "capture 201" passes> -f reconcile-run.sql
+--
+-- `sales` and `erpnext_posting_status` are tenant-scoped (RLS). Use a role that
+-- can read the run's tenant (the lab owner/migration role, or a session that
+-- sets the tenant context the way the API does). A role without access returns
+-- all-zero counts and no error, so a zero `sales_stored` means check the role first.
 --
 -- k6 sales carry source_system = 'k6-perf' and an external_id that starts with
 -- the run id (lib/pos.js saleBody), so nothing outside the run is counted.
@@ -16,7 +21,7 @@ WITH run_sales AS (
   SELECT s.id, s.tenant_id, s.external_id, s.occurred_at, s.received_at, s.created_at
   FROM sales s
   WHERE s.source_system = 'k6-perf'
-    AND s.external_id LIKE :run_id || '-%'
+    AND starts_with(s.external_id, :'run_id' || '-')
 ),
 run_posts AS (
   SELECT p.sale_id, p.status, p.posted_at, p.created_at AS projected_at

@@ -79,25 +79,28 @@ function deviceHeaders(token, extra) {
 }
 
 /**
- * Admit the terminal's cashier (online), or reconcile an offline admission that
- * started at `offlineAdmittedAt` (an ISO timestamp in the past). Returns true
- * when the server answers `admitted`.
+ * Admit the terminal's cashier online. Returns the admission's `server_time`
+ * (ISO string) when the server answers `admitted`, otherwise null. A device-path
+ * sale is accepted only when its `occurredAt` is no earlier than about 120 s
+ * before the admission was created (sales.yaml `operatorUserId`), so backdated
+ * sales must lie after this time.
  */
-export function admitCashier(terminal, offlineAdmittedAt) {
-  const body = offlineAdmittedAt
-    ? { mode: "reconcile_offline", user_id: terminal.cashierId, offline_admitted_at: offlineAdmittedAt, idempotency_key: uuidv4() }
-    : { mode: "online", user_id: terminal.cashierId, idempotency_key: uuidv4() };
+export function admitCashier(terminal) {
+  const body = { mode: "online", user_id: terminal.cashierId, idempotency_key: uuidv4() };
   const res = http.post(`${baseUrl()}/api/pos/v1/cashier-admissions`, JSON.stringify(body), {
     headers: deviceHeaders(terminal.token),
     tags: { flow: "cashier_admission" },
   });
   let kind = null;
+  let serverTime = null;
   try {
     kind = res.json("kind");
+    serverTime = res.json("server_time");
   } catch (_) {
     kind = null;
   }
-  return check(res, { "admission admitted": (r) => r.status === 200 && kind === "admitted" });
+  const ok = check(res, { "admission admitted": (r) => r.status === 200 && kind === "admitted" });
+  return ok ? serverTime || new Date().toISOString() : null;
 }
 
 /** Cents arithmetic on 2-decimal strings, so totals stay exact (no float drift). */
@@ -109,10 +112,14 @@ function fromCents(cents) {
   return `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, "0")}`;
 }
 
+const LINES_MIN = Number.parseInt(__ENV.LOAD_LINES_MIN || "2", 10);
+const LINES_MAX = Number.parseInt(__ENV.LOAD_LINES_MAX || "5", 10);
+if (!Number.isInteger(LINES_MIN) || !Number.isInteger(LINES_MAX) || LINES_MIN < 1 || LINES_MIN > LINES_MAX || LINES_MAX > 500) {
+  fail("LOAD_LINES_MIN and LOAD_LINES_MAX must be integers with 1 <= min <= max <= 500");
+}
+
 function linesPerSale() {
-  const min = Number.parseInt(__ENV.LOAD_LINES_MIN || "2", 10);
-  const max = Number.parseInt(__ENV.LOAD_LINES_MAX || "5", 10);
-  return min + Math.floor(Math.random() * (Math.max(max, min) - min + 1));
+  return LINES_MIN + Math.floor(Math.random() * (LINES_MAX - LINES_MIN + 1));
 }
 
 /**
@@ -124,7 +131,8 @@ function linesPerSale() {
 export function saleBody(terminal, products, currency, occurredAt, runId) {
   const lines = [];
   let total = 0;
-  for (let i = 0; i < linesPerSale(); i++) {
+  const lineCount = linesPerSale();
+  for (let i = 0; i < lineCount; i++) {
     const p = products[Math.floor(Math.random() * products.length)];
     const qty = 1 + Math.floor(Math.random() * 3);
     const amount = toCents(p.price) * qty;
@@ -162,7 +170,11 @@ export function captureSale(terminal, body, flow) {
   return res;
 }
 
-/** Catalog read-down as a terminal does between sales (snapshot once, then deltas). */
+/**
+ * Catalog read-down as a terminal does between sales (snapshot once, then
+ * deltas). Only the first snapshot page is read; with about 200 seeded products
+ * that is the whole catalog, but it is not a full paged read-down.
+ */
 export function catalogDeltas(terminal, cursor) {
   const headers = deviceHeaders(terminal.token);
   if (!cursor) {

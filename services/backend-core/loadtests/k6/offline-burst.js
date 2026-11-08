@@ -1,11 +1,20 @@
 // RT-1281 — offline-sale burst: N terminals come back online together and each
 // flushes K sales it took while offline.
 //
-// Each terminal first reconciles an offline admission that started
-// LOAD_OFFLINE_MINUTES ago (`mode: reconcile_offline`), so every backdated
-// `occurredAt` lies inside an admission window, as with a real offline shift.
-// Each terminal then sends its K sales one after another (a terminal's outbox
-// drains in order), all terminals at once. Run only after the steady-state
+// A device-path sale is accepted only when its `occurredAt` is no earlier than
+// about 120 s before the cashier admission was created (sales.yaml
+// `operatorUserId`); the server creates an admission at its own "now", and a
+// `reconcile_offline` admission does not cover earlier sales. So the run models
+// the offline window forward in time:
+//   1. setup(): admit each terminal's cashier online and keep the admission's
+//      `server_time` (the start of the offline window);
+//   2. the flush scenario starts LOAD_OFFLINE_MINUTES later (`startTime`), with
+//      no traffic in between (the terminals are "offline");
+//   3. each terminal sends its K sales one after another (a terminal's outbox
+//      drains in order), all terminals at once, with `occurredAt` spread across
+//      [admission time, flush start].
+// LOAD_OFFLINE_MINUTES must stay inside the admission TTL (CASHIER_ADMISSION_TTL_SECONDS,
+// default 12 h); the cap below is 240 min. Run only after the steady-state
 // pos-terminals.js step for the same TE count has passed (RT-1279 plan).
 //
 // Required env: BASE_URL, LOAD_TERMINALS (1..10), LOAD_BURST_SALES (K, 1..500),
@@ -41,6 +50,7 @@ export const options = {
       executor: "per-vu-iterations",
       vus: TERMINALS,
       iterations: BURST,
+      startTime: `${OFFLINE_MINUTES}m`,
       maxDuration: "30m",
     },
   },
@@ -49,20 +59,22 @@ export const options = {
 };
 
 export function setup() {
-  const offlineStart = Date.now() - OFFLINE_MINUTES * 60 * 1000;
   const terminals = loadTerminals(TERMINALS);
   for (const t of terminals) {
-    if (!admitCashier(t, new Date(offlineStart).toISOString())) {
-      fail(`terminal ${t.index}: offline admission reconcile refused; check fixtures/pos-terminals.md`);
-    }
+    const admittedAt = admitCashier(t);
+    if (!admittedAt) fail(`terminal ${t.index}: cashier admission refused; check fixtures/pos-terminals.md`);
+    t.admittedAtMs = Date.parse(admittedAt);
   }
-  return { terminals, products: loadProducts(), offlineStart };
+  return { terminals, products: loadProducts() };
 }
 
+const flushStart = {};
 export default function flush(data) {
   const t = data.terminals[__VU - 1];
-  // Spread the K sales evenly across the offline window, oldest first.
-  const step = (Date.now() - data.offlineStart) / (BURST + 1);
-  const occurredAt = new Date(data.offlineStart + step * (__ITER + 1)).toISOString();
+  // Fix this terminal's offline window at its first flushed sale, then spread the
+  // K sales evenly across it, oldest first, all after the admission time.
+  flushStart[t.index] = flushStart[t.index] || Date.now();
+  const step = (flushStart[t.index] - t.admittedAtMs) / (BURST + 1);
+  const occurredAt = new Date(t.admittedAtMs + step * (__ITER + 1)).toISOString();
   captureSale(t, saleBody(t, data.products, CURRENCY, occurredAt, RUN_ID), "pos_offline_flush");
 }
