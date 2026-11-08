@@ -196,6 +196,8 @@ describe("isBinViewSnapshotJson", () => {
     ["POST", SNAPSHOT_PATH, "application/json"],
     ["POST", `${SNAPSHOT_PATH}/`, "application/json; charset=utf-8"],
     ["POST", SNAPSHOT_PATH.toUpperCase(), "Application/JSON"],
+    // Looser than type-is by design (documented on isBinViewSnapshotJson).
+    ["POST", SNAPSHOT_PATH, "application/json;"],
   ])("takes %s %s (%s)", (method, path, contentType) => {
     expect(isBinViewSnapshotJson(req(method, path, contentType))).toBe(true);
   });

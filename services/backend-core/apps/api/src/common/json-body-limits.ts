@@ -55,7 +55,11 @@ function mediaType(req: IncomingMessage): string {
 /**
  * True for a JSON body on `POST binViewReportSnapshot`. Used as the
  * body-parser `type` test, so the 32 MiB parser parses that route only, and
- * only the media type the default parser would take (`application/json`).
+ * only the `application/json` media type. The check reads the media type
+ * before any `;` and does not validate the parameters, so it is slightly
+ * looser than the default parser's type-is test (for example it takes
+ * `application/json;`). That only affects this route: the body is then parsed
+ * and the DTO still validates it.
  */
 export function isBinViewSnapshotJson(req: RoutedRequest): boolean {
   return (

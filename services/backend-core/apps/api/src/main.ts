@@ -84,10 +84,13 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
   app.use(helmet());
   // RT-473 S2: the logo upload routes take raw bytes under any Content-Type;
-  // this runs before Nest's JSON / urlencoded parsers (registered at init).
+  // this must run before every body parser: the JSON parsers registered on
+  // the next line and Nest's urlencoded parser (registered at init).
   app.use(logoUploadPassthrough);
   // RT-1284: a 32 MiB JSON limit for binViewReportSnapshot only; every other
   // route keeps the 100 kB default (sizing in common/json-body-limits.ts).
+  // Keep this AFTER logoUploadPassthrough, or a logo upload sent as
+  // application/json is consumed by the JSON parser.
   registerJsonBodyParsers(app);
 
   // Global interceptors — RequestIdInterceptor must run first so the others
