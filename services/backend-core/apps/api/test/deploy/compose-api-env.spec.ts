@@ -53,6 +53,14 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-451: unmapped, so production stays off, until the owner approves activating tracked selling (per-tenant flag, Q13 preconditions)",
   TRUST_PROXY_DIRECT_DEPLOYMENT:
     "RT-625: only for a deployment with no proxy in front of the API; this compose runs behind Caddy and pins TRUST_PROXY to 1",
+  POS_PILOT_RELEASE_PUBLISHER:
+    "RT-1292: unmapped, so the pilot release lane stays off in production (fail closed), until the S3 presigner slice and the owner's pilot publisher pin are approved",
+  POS_PILOT_RELEASE_BUCKET:
+    "RT-1292: unmapped with the pin above; the private pilot bucket does not exist yet (the S3 slice provisions it)",
+  POS_PILOT_RELEASE_URL_TTL_SECONDS:
+    "RT-1292: unmapped with the pin above; the code default of 300 seconds applies when the lane is later switched on",
+  POS_RELEASE_PRODUCTION_PUBLISHER:
+    "RT-1292: read only to refuse a pilot pin equal to the production pin; the production lane (RT-1260) is not implemented, so there is no value to pass yet",
 };
 
 /** Mapped, but deliberately not from the host variable of the same name. */

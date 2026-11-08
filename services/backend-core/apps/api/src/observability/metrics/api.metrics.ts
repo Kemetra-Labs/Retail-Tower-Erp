@@ -173,6 +173,10 @@ assertMetricLabels("pos_device_heartbeat_total", ["outcome"]);
 // POS build identity report — RT-719. `outcome` is a closed set; the device,
 // tenant, commit, version and pin live on devices, never here.
 assertMetricLabels("pos_build_identity_report_total", ["outcome"]);
+// POS pilot release resolver — RT-1292. `outcome` is a closed set; the version,
+// tenant, user and release live on the registry, the allowlist and the audit
+// log, never here.
+assertMetricLabels("pos_pilot_release_resolve_total", ["outcome"]);
 // ERPNext product-master reconciliation/repair — 021-POLISH (spec §VII). UNLABELED
 // — the (tenant, product, item, outcome) lives on the
 // erpnext_product_reconciliation_repair_attempt / _result rows + audit_events.
@@ -319,6 +323,11 @@ const _connectorLifecycle: Counter = meter.createCounter(
 const _posDeviceHeartbeat: Counter = meter.createCounter("pos_device_heartbeat_total", {
   description:
     "POS device heartbeats by outcome (RT-327, AD-DEVICE-001 D-1): stored, throttled (inside the 60-second window, nothing written) or refused (a store that failed and was swallowed). The device, tenant, version and channel are on device_health, never labels.",
+});
+
+const _posPilotReleaseResolve: Counter = meter.createCounter("pos_pilot_release_resolve_total", {
+  description:
+    "POS pilot release resolver calls by outcome (RT-1292): issued (a download link was presigned) or one of the none_* outcomes (not_configured, not_allowlisted, no_current_release, class_mismatch, pin_mismatch) that the caller never sees. Never a version, tenant, user or release label.",
 });
 
 const _posBuildIdentityReport: Counter = meter.createCounter("pos_build_identity_report_total", {
@@ -671,6 +680,24 @@ export type PosBuildIdentityReportOutcome = "recorded" | "unknown" | "failed";
  */
 export function recordPosBuildIdentityReport(outcome: PosBuildIdentityReportOutcome): void {
   _posBuildIdentityReport.add(1, { outcome });
+}
+
+/** The closed outcomes of `pos_pilot_release_resolve_total` (RT-1292). */
+export type PosPilotReleaseResolveOutcome =
+  | "issued"
+  | "none_not_configured"
+  | "none_not_allowlisted"
+  | "none_no_current_release"
+  | "none_class_mismatch"
+  | "none_pin_mismatch";
+
+/**
+ * Increment pos_pilot_release_resolve_total{outcome} (RT-1292). Emission site:
+ * `resolveLatestPilotRelease`, once per call that reaches the lane. A SIGNAL:
+ * emission MUST NOT alter the reply.
+ */
+export function recordPosPilotReleaseResolve(outcome: PosPilotReleaseResolveOutcome): void {
+  _posPilotReleaseResolve.add(1, { outcome });
 }
 
 /** The closed outcomes of `pos_device_heartbeat_total` (RT-327). */

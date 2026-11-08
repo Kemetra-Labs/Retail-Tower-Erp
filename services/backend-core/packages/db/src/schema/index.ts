@@ -61,6 +61,7 @@ export * from "./inventory/tracked-line-validations";
 export * from "./connector-health";
 export * from "./device-health";
 export * from "./pos-version-policy";
+export * from "./pos-pilot-releases";
 export * from "./ai-entitlements";
 export * from "./platform-support-sessions";
 export * from "./tenant-branding";

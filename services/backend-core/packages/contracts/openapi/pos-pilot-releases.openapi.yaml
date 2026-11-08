@@ -1,0 +1,767 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — POS Pilot Release Registry and Latest-Pilot-Release Resolver API
+  version: "0.1.0"
+  description: >
+    Jira RT-1292 (Implementation, `[GATED: contract, migration]`), from the
+    RT-1290 planning note (slice P1). The PILOT lane of POS distribution: a
+    signed-in, allowlisted tenant may download the one current pilot release
+    through a short-lived presigned URL. It is separate from, and never shares
+    a table, a pin or a resolver with, the production lane designed in RT-1260.
+
+    Operations and principals:
+
+      1. `consolePilotGetLatestPosRelease` — a signed-in Console user whose role
+         can pair devices (owner, tenant_admin, store_manager) in an allowlisted
+         tenant gets the current pilot release and a presigned download URL, or
+         `available: false`. Served.
+      2. `platformAddPilotTenant` / `platformRemovePilotTenant` — a platform
+         admin adds a tenant to, or removes it from, the pilot allowlist.
+         Served, audited, platform-scoped.
+      3. `platformRegisterPilotRelease` / `platformWithdrawPilotRelease` /
+         `platformActivatePilotRelease` — `x-runtime-status: contract-only`. The
+         runtime waits for the promotion workflow and its credential
+         (RT-1260 D-5a) and a later slice.
+
+
+    **Eligibility.** A release is returned only if the pilot lane is configured
+    (publisher pin, bucket, presigner), the caller's tenant is on the
+    allowlist, one release is current (approved and activated), its stored
+    signing class is `pilot`, and its publisher equals the configured pilot
+    pin. Otherwise the reply is exactly `{ "available": false }`: no reason and
+    no other key, identical for every cause. There is no fallback to another
+    version.
+
+
+    **By construction.** The pilot registry admits only signing class `pilot`
+    and refuses the lab markers (`LAB TEST`, `NOT FOR PRODUCTION`) in the
+    publisher, so a lab or production release cannot be stored in it. The pilot
+    pin may not equal the production pin or carry a lab marker: such a
+    configuration disables the lane. At most one release is current at a time.
+
+
+    **The URL.** A presigned GET naming the verified object version
+    (`artifact_version_id`), valid for at most 900 seconds (default 300),
+    `Cache-Control: no-store`. It is a bearer capability: never logged, stored
+    or written to an audit row.
+
+
+    **Audit (RT-135).** `pos.pilot_release.download_link_issued`
+    (tenant-scoped, metadata `releaseId` and `version` only) per issued link;
+    `pos.pilot_tenant.added` and `pos.pilot_tenant.removed` (platform-scoped,
+    metadata `tenantId`) per effective allowlist change, in the same
+    transaction. No URL, key, token or email in any row.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id } }`
+    shape. Closed codes per operation are listed on each response.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: pos-pilot-releases
+    description: Console read of the current pilot POS release (RT-1292).
+  - name: pos-pilot-allowlist
+    description: Platform-admin management of the pilot tenant allowlist (RT-1292).
+  - name: pos-pilot-release-registry
+    description: Contract-only writes to the pilot release registry (RT-1292).
+
+paths:
+  /api/v1/pos-pilot-releases/latest:
+    get:
+      summary: Get the current pilot POS release and a short-lived download URL.
+      operationId: consolePilotGetLatestPosRelease
+      x-audit-action: pos.pilot_release.download_link_issued
+      tags: [pos-pilot-releases]
+      security:
+        - cookieAuth: []
+      description: >
+        The current pilot release when it is eligible (see the info
+        description), with a presigned S3 GET URL valid until `expiresAt` (at
+        most 900 seconds). Otherwise `{ "available": false }`. The route takes
+        no query parameter. A role outside owner, tenant_admin, store_manager,
+        and no active membership, are the non-disclosing 404; a session with no
+        active tenant is 401 (`TenantContextGuard`); a platform admin without a
+        membership or a live support session is 403. An issued link writes one
+        `pos.pilot_release.download_link_issued` row; nothing else does.
+      responses:
+        "200":
+          description: The eligible release, or `available:false`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LatestPilotRelease"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/SupportSessionRefused"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/pos-pilot-tenants/{tenantId}:
+    put:
+      summary: Add a tenant to the pilot allowlist (platform admins only).
+      operationId: platformAddPilotTenant
+      x-audit-action: pos.pilot_tenant.added
+      tags: [pos-pilot-allowlist]
+      security:
+        - cookieAuth: []
+      description: >
+        Idempotent. Adding a tenant that is already on the allowlist is a 200
+        that changes nothing and writes no audit row; a new entry is a 201 and
+        writes `pos.pilot_tenant.added` (platform-scoped, actor the platform
+        admin, metadata `tenantId`). An unknown tenant is 404 `tenant_not_found`.
+        No body.
+      parameters:
+        - $ref: "#/components/parameters/TenantIdPath"
+      responses:
+        "200":
+          description: The tenant was already on the allowlist; nothing was written.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotTenant"
+        "201":
+          description: The tenant was added and `pos.pilot_tenant.added` recorded.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotTenant"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "404":
+          $ref: "#/components/responses/TenantNotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    delete:
+      summary: Remove a tenant from the pilot allowlist (platform admins only).
+      operationId: platformRemovePilotTenant
+      x-audit-action: pos.pilot_tenant.removed
+      tags: [pos-pilot-allowlist]
+      security:
+        - cookieAuth: []
+      description: >
+        Idempotent. Removing a tenant that is not on the allowlist is a 204 that
+        changes nothing and writes no audit row; removing a listed tenant is a
+        204 and writes `pos.pilot_tenant.removed`. The tenant's next resolver
+        call answers `available:false`.
+      parameters:
+        - $ref: "#/components/parameters/TenantIdPath"
+      responses:
+        "204":
+          description: The tenant is not on the allowlist (now, or already).
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/pos-pilot-releases:
+    post:
+      summary: Register an approved pilot POS release (promotion workflow only).
+      operationId: platformRegisterPilotRelease
+      x-audit-action: pos.pilot_release.registered
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Blocked on the promotion workflow's credential (RT-1260 D-5a) and a
+        later slice. Not served in RT-1292.
+      tags: [pos-pilot-release-registry]
+      security:
+        - promotionWriter: []
+      description: >
+        Writes one immutable registry row. The workflow has already verified the
+        attestation and the digests; Backend-Core checks the shape, the pilot
+        rules and conflicts. A body equal to an existing row is a 200 that
+        writes nothing. The same version, sha256 or object key with any other
+        value is 409. A lab or production class, or a lab-marked publisher, is
+        422 `release_not_pilot`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PilotReleaseRegistration"
+      responses:
+        "200":
+          description: The row already existed with exactly these values; nothing was written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotRelease"
+        "201":
+          description: The row was written and `pos.pilot_release.registered` recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotRelease"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "409":
+          $ref: "#/components/responses/ReleaseConflict"
+        "422":
+          $ref: "#/components/responses/ReleaseRefused"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/pos-pilot-releases/{releaseId}/withdraw:
+    post:
+      summary: Withdraw a registered pilot POS release (promotion workflow only).
+      operationId: platformWithdrawPilotRelease
+      x-audit-action: pos.pilot_release.withdrawn
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Blocked on the promotion workflow's credential (RT-1260 D-5a) and a
+        later slice. Not served in RT-1292.
+      tags: [pos-pilot-release-registry]
+      security:
+        - promotionWriter: []
+      description: >
+        Sets `approved` to false for good; the resolver stops returning the
+        release at once and a new release may then be activated. A withdrawn
+        release is never re-approved: a fix ships a higher version. Withdrawing
+        a withdrawn release is a 200 that writes nothing.
+      parameters:
+        - $ref: "#/components/parameters/ReleaseIdPath"
+      responses:
+        "200":
+          description: The release is withdrawn (now, or already).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotRelease"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "404":
+          $ref: "#/components/responses/ReleaseNotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/pos-pilot-releases/{releaseId}/activate:
+    post:
+      summary: Activate a registered pilot POS release (platform admins only).
+      operationId: platformActivatePilotRelease
+      x-audit-action: pos.pilot_release.activated
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with the other registry writes in a later slice. Not
+        served in RT-1292.
+      tags: [pos-pilot-release-registry]
+      security:
+        - cookieAuth: []
+      description: >
+        Makes one registered, approved release the current pilot release. At
+        most one release is current: activating while another is current is 409
+        `release_current_exists` until that one is withdrawn. A withdrawn
+        release is 409 `release_withdrawn`; an absent id is 404. Activating the
+        current release again is a 200 that writes nothing. No body.
+      parameters:
+        - $ref: "#/components/parameters/ReleaseIdPath"
+      responses:
+        "200":
+          description: The release is current (now, or already).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotRelease"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "404":
+          $ref: "#/components/responses/ReleaseNotFound"
+        "409":
+          $ref: "#/components/responses/ReleaseActivationRefused"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`). On the
+        console read it is verified by `SessionOnlyAdminGuard` →
+        `TenantContextGuard` → `RolesGuard` with `@Roles("owner",
+        "tenant_admin", "store_manager")`, as the pairing-code routes. A
+        platform admin passes the role check; without a membership it needs an
+        RT-414 support session (403 otherwise). On the platform routes the
+        session user must be a platform admin (`users.is_platform_admin`) and an
+        unsafe request needs a trusted `Origin` (RT-430). A machine bearer, a
+        POS `device` token or an `operatorAuthorization` envelope is 401.
+        401 semantics are owned by 028 (G10).
+    promotionWriter:
+      type: http
+      scheme: bearer
+      description: >
+        OPEN (RT-1260 D-5a). The credential of the owner-run promotion
+        workflow, usable only from its protected approval environment. A
+        Console session cookie is never accepted here. Not served in RT-1292.
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 2xx with a body: it carries a presigned URL or
+        allowlist state, so no shared or browser cache keeps it.
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5), 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    TenantIdPath:
+      name: tenantId
+      in: path
+      required: true
+      description: The tenant to add to, or remove from, the pilot allowlist.
+      schema:
+        type: string
+        format: uuid
+    ReleaseIdPath:
+      name: releaseId
+      in: path
+      required: true
+      description: The pilot registry row id.
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: A client-chosen key per registration attempt; a retry of the same attempt reuses it.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:-]+$'
+
+  schemas:
+    AppVersion:
+      type: string
+      minLength: 5
+      maxLength: 32
+      pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+      description: >
+        A semantic version without build metadata, at most 32 characters; the
+        same schema as `AppVersion` in `pos-device-health.openapi.yaml`.
+    Sha256Hex:
+      type: string
+      pattern: '^[0-9a-f]{64}$'
+      description: A SHA-256 digest, 64 lower-case hexadecimal characters.
+    Publisher:
+      type: string
+      minLength: 1
+      maxLength: 200
+      description: An Authenticode certificate subject (the publisher Windows shows).
+    GitHubLogin:
+      type: string
+      minLength: 1
+      maxLength: 39
+      pattern: '^[A-Za-z0-9](-?[A-Za-z0-9])*$'
+      description: A GitHub login, never an email.
+    S3VersionId:
+      type: string
+      minLength: 1
+      maxLength: 1024
+      description: >
+        The S3 `VersionId` of the uploaded object whose sha256 and publisher
+        the promotion workflow verified. Every presigned URL names it.
+    PromotionRunUrl:
+      type: string
+      maxLength: 200
+      pattern: '^https://github\.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/[0-9]+(/attempts/[0-9]+)?$'
+    PilotSigningClass:
+      type: string
+      enum: [lab, pilot, production]
+      description: >
+        The release manifest's structured `signing` field. Only `pilot` is ever
+        accepted or stored; `lab` and `production` are listed so that such a
+        manifest is refused as 422 `release_not_pilot`, not as 400.
+
+    LatestPilotRelease:
+      description: >
+        Either the eligible release with its download URL, or `available:false`
+        with no other key and no reason.
+      oneOf:
+        - $ref: "#/components/schemas/PilotReleaseDownload"
+        - $ref: "#/components/schemas/PilotReleaseUnavailable"
+    PilotReleaseDownload:
+      type: object
+      additionalProperties: false
+      required: [available, version, sha256, sizeBytes, fileName, expectedPublisher, downloadUrl, expiresAt]
+      properties:
+        available:
+          type: boolean
+          const: true
+        version:
+          $ref: "#/components/schemas/AppVersion"
+        sha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 2147483648
+        fileName:
+          type: string
+          maxLength: 80
+          pattern: '^POS-Pulse-Setup-[0-9A-Za-z.-]{5,32}\.exe$'
+          description: The name to save the installer under, derived from the version.
+        expectedPublisher:
+          $ref: "#/components/schemas/Publisher"
+        downloadUrl:
+          type: string
+          format: uri
+          maxLength: 4096
+          description: >
+            A presigned S3 GET URL. A bearer capability until `expiresAt`: never
+            log, store or forward it.
+        expiresAt:
+          type: string
+          format: date-time
+          description: Server clock; at most 900 seconds after the response.
+    PilotReleaseUnavailable:
+      type: object
+      additionalProperties: false
+      required: [available]
+      properties:
+        available:
+          type: boolean
+          const: false
+
+    PilotTenant:
+      type: object
+      additionalProperties: false
+      required: [tenantId, addedAt, addedByUserId]
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        addedAt:
+          type: string
+          format: date-time
+        addedByUserId:
+          type: string
+          format: uuid
+          description: A user id, never an email.
+
+    PilotReleaseRegistration:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - sha256
+        - sizeBytes
+        - publisher
+        - signingClass
+        - attestationRef
+        - sourceSha
+        - approvedBy
+        - approvedAt
+        - promotionRunUrl
+        - artifactVersionId
+      properties:
+        version:
+          $ref: "#/components/schemas/AppVersion"
+        sha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 2147483648
+        publisher:
+          $ref: "#/components/schemas/Publisher"
+        signingClass:
+          $ref: "#/components/schemas/PilotSigningClass"
+        attestationRef:
+          type: string
+          maxLength: 200
+          pattern: '^https://github\.com/Kemetra-Labs/Retail-Tower-Erp/attestations/[0-9]+$'
+        sourceSha:
+          type: string
+          pattern: '^[0-9a-f]{40}$'
+        approvedBy:
+          $ref: "#/components/schemas/GitHubLogin"
+        approvedAt:
+          type: string
+          format: date-time
+        promotionRunUrl:
+          $ref: "#/components/schemas/PromotionRunUrl"
+        artifactVersionId:
+          $ref: "#/components/schemas/S3VersionId"
+
+    PilotRelease:
+      type: object
+      additionalProperties: false
+      required:
+        - releaseId
+        - version
+        - sha256
+        - sizeBytes
+        - publisher
+        - signingClass
+        - attestationRef
+        - sourceSha
+        - approved
+        - approvedBy
+        - approvedAt
+        - promotionRunUrl
+        - artifactVersionId
+        - registeredAt
+        - withdrawnAt
+        - withdrawnBy
+        - activatedAt
+        - activatedByUserId
+      properties:
+        releaseId:
+          type: string
+          format: uuid
+        version:
+          $ref: "#/components/schemas/AppVersion"
+        sha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        sizeBytes:
+          type: integer
+        publisher:
+          $ref: "#/components/schemas/Publisher"
+        signingClass:
+          type: string
+          const: pilot
+        attestationRef:
+          type: string
+        sourceSha:
+          type: string
+        approved:
+          type: boolean
+        approvedBy:
+          $ref: "#/components/schemas/GitHubLogin"
+        approvedAt:
+          type: string
+          format: date-time
+        promotionRunUrl:
+          $ref: "#/components/schemas/PromotionRunUrl"
+        artifactVersionId:
+          $ref: "#/components/schemas/S3VersionId"
+        registeredAt:
+          type: string
+          format: date-time
+        withdrawnAt:
+          type: [string, "null"]
+          format: date-time
+        withdrawnBy:
+          oneOf:
+            - $ref: "#/components/schemas/GitHubLogin"
+            - type: "null"
+        activatedAt:
+          type: [string, "null"]
+          format: date-time
+        activatedByUserId:
+          type: [string, "null"]
+          format: uuid
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII): they never name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+
+  responses:
+    ReadValidationFailure:
+      description: >
+        validation_error (400): any query parameter is present (the route takes
+        none). Checked after the guards and before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        validation_error (400): a malformed path id, a body that is not a JSON
+        object, an unknown or missing key, or a value outside its pattern.
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, a
+        non-cookie credential, or (console read) a session with no active
+        tenant. Non-disclosing; nothing is presigned and no audit row is
+        written. Owned by 028 (G10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside `owner` /
+        `tenant_admin` / `store_manager` and for no active membership in the
+        tenant. No URL and no audit row.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SupportSessionRefused:
+      description: >
+        403, `error.code` one of `support_session_required` or
+        `support_session_expired` (RT-414): a platform admin without a
+        membership in the active tenant and without a live support session for
+        it. Refused by the reused guard before the role check. No URL and no
+        audit row of this route.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PlatformWriteForbidden:
+      description: >
+        403, `error.code` one of: `forbidden` (a signed-in user who is not a
+        platform admin) or `origin_rejected` (RT-430: the `Origin` header is
+        missing, or is neither the API's own origin nor listed in
+        `ALLOWED_ORIGINS`). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TenantNotFound:
+      description: >
+        tenant_not_found (404): no tenant has this id. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReleaseNotFound:
+      description: >
+        not_found (404): no pilot release has this id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReleaseConflict:
+      description: >
+        release_conflict (409): the same version, sha256 or object key already
+        exists with any other value. A release is never overwritten.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReleaseRefused:
+      description: >
+        release_not_pilot (422): the signing class is not `pilot`, or the
+        publisher carries a lab marker. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReleaseActivationRefused:
+      description: >
+        409, `error.code` one of: `release_withdrawn` (the release was
+        withdrawn, even if it was activated before) or `release_current_exists`
+        (another release is current; withdraw it first). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error, including a presign
+        failure. A presign failure is never `available:false`: that would hide
+        a broken bucket or credential as "no release". The cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error envelope
+        with a non-disclosing message; its `request_id` equals the
+        `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a
+        mutation. The console limit is server-configured and may not be
+        enforced, so a client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
