@@ -67,7 +67,7 @@ Electron for the POS jobs). When GitHub's release downloads fail, all of them go
   `curl -s -o /dev/null -L -r 0-1023 -w '%{http_code}' <release-url>`. The GitHub status page can
   still say "operational".
 - Change nothing in the PR. Re-run only the failed jobs (`gh run rerun <run-id> --failed`) once the
-  `curl` check returns 200; a push or a re-run during the outage just fails again.
+  `curl` check succeeds (200, or 206 because it asks for a byte range); a push or a re-run during the outage just fails again.
 - Never merge past the red `required` because "it is only infra": the bypass is the owner's.
 
 ## After the merge
