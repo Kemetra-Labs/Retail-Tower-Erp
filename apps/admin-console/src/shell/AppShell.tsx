@@ -47,11 +47,12 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
     roleCode,
     !inSession,
   );
-  // RT-455 part 1 (OD-T4): and only while the tenant's tracked-selling switch is on.
+  // RT-455 part 1 (OD-T4): and only while the tenant's tracked-selling switch is
+  // on. Asked only once the summary has tracked products, as the entry needs both.
   const trackedSelling = useTrackedSellingQuery(
     context?.active_tenant?.id ?? null,
     roleCode,
-    !inSession,
+    !inSession && hasTrackedProducts === true,
   );
   const groups = tenantNav(roleCode, inSession, {
     hasTrackedProducts,

@@ -16,7 +16,7 @@
  */
 import { apiClient } from "@/generated/client";
 import type { InventorySchema } from "@/generated/schema";
-import { resultOf } from "@/lib/inventory-queries";
+import { classifyRateLimit } from "@/lib/rate-limit";
 
 type Schemas = InventorySchema.components["schemas"];
 
@@ -24,12 +24,25 @@ export type TrackedSellingSetting = Schemas["TrackedSellingSetting"];
 export type TrackedSellingPrecondition = Schemas["TrackedSellingPrecondition"];
 export type SetTrackedSellingCommand = Schemas["SetTrackedSellingSettingCommand"];
 
+/** Await a generated-client call and give it the `{ status, data?, error?, retryAfter? }` shape. */
+async function settled<D, E>(call: Promise<{ data?: D; error?: E; response: Response }>) {
+  const { data, error, response } = await call;
+  const status = response.status;
+  const retryAfter = response.headers.get("Retry-After");
+  return {
+    status,
+    data,
+    error,
+    retryAfter: classifyRateLimit({ status, retryAfter })?.retryAfterSeconds,
+  };
+}
+
 /** GET /api/inventory/v1/settings/tracked-selling */
 export async function getTrackedSellingSetting() {
-  return resultOf(await apiClient.GET("/api/inventory/v1/settings/tracked-selling"));
+  return settled(apiClient.GET("/api/inventory/v1/settings/tracked-selling"));
 }
 
 /** PUT /api/inventory/v1/settings/tracked-selling */
 export async function setTrackedSellingSetting(body: SetTrackedSellingCommand) {
-  return resultOf(await apiClient.PUT("/api/inventory/v1/settings/tracked-selling", { body }));
+  return settled(apiClient.PUT("/api/inventory/v1/settings/tracked-selling", { body }));
 }
