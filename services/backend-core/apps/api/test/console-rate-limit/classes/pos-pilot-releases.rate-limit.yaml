@@ -1,0 +1,10 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/pos-pilot-releases.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1292: issues a short-lived download link and writes an audit row, so it is a write-class budget.
+consolePilotGetLatestPosRelease: write
+# RT-1292: the platform pilot allowlist changes, audited.
+platformAddPilotTenant: write
+platformRemovePilotTenant: write
+# RT-1292: contract-only; the platform admin's explicit activation.
+platformActivatePilotRelease: write
