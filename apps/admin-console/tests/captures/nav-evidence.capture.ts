@@ -147,6 +147,18 @@ test.describe(`${TICKET} header bands`, () => {
   }
 });
 
+/** Statuses of the audit and members responses the page really received on one route. */
+type SeenApi = { audit: number[]; members: number[] };
+const emptySeen = (): SeenApi => ({ audit: [], members: [] });
+
+function watchApi(page: Page, current: () => SeenApi): void {
+  page.on("response", (res) => {
+    const url = res.url();
+    if (url.includes("/api/v1/audit/events")) current().audit.push(res.status());
+    else if (/\/api\/v1\/tenants\/[^/]+\/members/.test(url)) current().members.push(res.status());
+  });
+}
+
 const ROLES = [
   { role: "owner", denied: false },
   { role: "store_manager", denied: true },
@@ -155,9 +167,11 @@ const ROLES = [
 
 test.describe(`${TICKET} Audit and Operators by role`, () => {
   for (const { role, denied } of ROLES) {
-    test(`${role}: sidebar, /audit and /operators`, async ({ page, appLocale }) => {
+    test(`${role}: sidebar, /audit and /operators`, async ({ page, t, appLocale }) => {
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(e.message));
+      let seen = emptySeen();
+      watchApi(page, () => seen);
       await mockRealisticApi(page, roleContext(role));
       // As Backend-Core answers on main: GET /audit/events denies with 403, GET /tenants/:id/members with 404.
       await page.route("**/api/v1/audit/events**", (r) =>
@@ -173,24 +187,41 @@ test.describe(`${TICKET} Audit and Operators by role`, () => {
         ),
       );
       const result: Record<string, Awaited<ReturnType<typeof snapshot>>> = {};
+      const observedApiStatus: Record<string, SeenApi> = {};
+      let appliedAuditSearch: boolean | null = null;
+      seen = emptySeen();
       await open(page, "/", 1280, FULL_SIDEBAR_HEIGHT);
       await page.screenshot({
         path: file(`role-${role}-sidebar`, appLocale, "1280.png"),
         animations: "disabled",
       });
       result["/"] = await snapshot(page);
+      observedApiStatus["/"] = seen;
       for (const route of ["/audit", "/operators"]) {
+        seen = emptySeen();
         await open(page, route, 1280);
+        if (route === "/audit") {
+          // The audit query only runs once a search is applied, so apply it to make the request.
+          const apply = page.getByRole("button", { name: t("filter.apply"), exact: true });
+          appliedAuditSearch = await apply.isVisible();
+          if (appliedAuditSearch) {
+            await apply.click();
+            await settle(page);
+          }
+        }
         await page.screenshot({
           path: file(`role-${role}${route.replace("/", "-")}`, appLocale, "1280.png"),
           fullPage: true,
           animations: "disabled",
         });
         result[route] = await snapshot(page);
+        observedApiStatus[route] = seen;
       }
+      // Statuses are what the page received; an empty list means it made no such request.
       write(file(`role-${role}`, appLocale, "findings.json"), {
         role,
-        apiStatus: denied ? { audit: 403, members: 404 } : { audit: 200, members: 200 },
+        observedApiStatus,
+        appliedAuditSearch,
         errors,
         result,
       });
