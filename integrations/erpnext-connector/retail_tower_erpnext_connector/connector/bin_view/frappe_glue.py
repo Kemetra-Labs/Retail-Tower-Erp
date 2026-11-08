@@ -63,7 +63,8 @@ TRACKING_SWITCH = "rt_connector_bin_view_send_tracking"
 def tracking_enabled() -> bool:
 	"""True when the site config turns the RT-918 ``tracking`` evidence on (default off).
 
-	Parsed like Frappe's ``cint`` (``1``, ``"1"``, ``true``); anything else is off. Never raises.
+	On only for ``1`` / ``"1"`` (or a float string truncating to 1, as Frappe's ``cint`` does),
+	``True`` or ``"true"``; anything else, including absent, is off. Never raises.
 	"""
 	conf = getattr(frappe, "conf", None) or {}
 	value = conf.get(TRACKING_SWITCH)
@@ -246,6 +247,10 @@ def _raw_batch(item_code: str, batch_no: str, qty: float, master: dict | None) -
 		raise TrackingReadError(
 			f"Batch {batch_no!r} of Item {item_code!r} has ledger rows but no Batch master"
 		)
+	if master.get("item") and str(master["item"]) != item_code:
+		raise TrackingReadError(
+			f"Batch {batch_no!r} has ledger rows for Item {item_code!r} but its master names another Item"
+		)
 	return RawBatch(
 		item_code=item_code,
 		batch_no=batch_no,
@@ -263,4 +268,5 @@ def _iso_date(value) -> str | None:
 		return value.date().isoformat()
 	if isinstance(value, date):
 		return value.isoformat()
-	return str(value)[:10]
+	# A string from the DB: re-render it as a strict calendar date (malformed -> ValueError, retried).
+	return date.fromisoformat(str(value)[:10]).isoformat()

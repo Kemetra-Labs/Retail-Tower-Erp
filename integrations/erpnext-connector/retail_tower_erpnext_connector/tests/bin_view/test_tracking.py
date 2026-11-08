@@ -248,7 +248,13 @@ def _run(request, reader, tracking_reader=None):
 
 def test_v1_report_without_a_tracking_reader_is_unchanged():
 	(body,) = _run(_request(), _Reader(["A", "B"]))
-	assert all(set(entry) == {"erpnextItemRef", "quantity", "stockUom"} for entry in body["entries"])
+	assert body == {
+		"entries": [
+			{"erpnextItemRef": {"doctype": "Item", "name": "A"}, "quantity": "2.000000", "stockUom": "Nos"},
+			{"erpnextItemRef": {"doctype": "Item", "name": "B"}, "quantity": "2.000000", "stockUom": "Nos"},
+		],
+		"readAt": _READ_AT,
+	}
 
 
 def test_v1_report_with_a_tracking_reader_puts_tracking_on_every_entry():

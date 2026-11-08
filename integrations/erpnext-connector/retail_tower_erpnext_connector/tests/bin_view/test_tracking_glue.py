@@ -134,6 +134,24 @@ def test_reader_of_no_items_reads_nothing(frappe_stub):
 	assert read.items == () and read.batches == () and masters.calls == []
 
 
+def test_reader_refuses_a_batch_whose_master_names_another_item(frappe_stub):
+	masters = _Masters(
+		items=[{"name": "MED", "has_batch_no": 1}],
+		batches=[{"name": "B1", "item": "OTHER", "expiry_date": None, "disabled": 0}],
+	)
+	glue, _ = _reader(frappe_stub, masters, bundle=[{"item_code": "MED", "batch_no": "B1", "qty": 1.0}])
+	from retail_tower_erpnext_connector.connector.bin_view.worker import TrackingReadError
+
+	with pytest.raises(TrackingReadError):
+		glue.FrappeTrackingReader().read_tracking(erpnext_warehouse_ref="ERP-WH-1", item_codes=["MED"])
+
+
+def test_iso_date_refuses_a_malformed_string(frappe_stub):
+	glue = importlib.import_module(_GLUE)
+	with pytest.raises(ValueError):
+		glue._iso_date("2027-13-45")
+
+
 def test_reader_refuses_a_batch_without_a_master_row(frappe_stub):
 	masters = _Masters(items=[{"name": "MED", "has_batch_no": 1}], batches=[])
 	glue, _ = _reader(frappe_stub, masters, bundle=[{"item_code": "MED", "batch_no": "GHOST", "qty": 1.0}])
