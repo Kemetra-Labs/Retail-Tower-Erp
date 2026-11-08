@@ -255,6 +255,11 @@ def quantize_qty(actual_qty: float) -> str:
 	return f"{d:f}"
 
 
+def is_zero_qty(qty: float) -> bool:
+	"""True when ``qty`` is zero at the contract precision (6 fractional digits, half-even)."""
+	return Decimal(quantize_qty(qty)) == 0
+
+
 def build_report(
 	bins: list[RawBin],
 	*,
@@ -293,6 +298,9 @@ def build_tracking(item_codes: list[str], read: RawTrackingRead) -> dict[str, Bi
 
 	* Every Item of ``item_codes`` must have its flags in ``read`` (else :class:`TrackingReadError`).
 	* Only a ``has_batch_no`` Item lists Batches; a Batch row of another Item is ignored.
+	* A Batch whose book quantity quantizes to zero is omitted (captain decision, RT-918; RT-1283
+	  comment 16225): a used-up Batch has no presence in the warehouse in the 1.4 sense, and keeping
+	  every lifetime Batch would push a fast-batched Item over the 200 cap. Negative stays listed.
 	* Batches are listed once each, ordered by Batch name, so a re-read of the same ledger gives the
 	  same body (the report's idempotency fingerprint).
 	* More than :data:`MAX_BATCHES_PER_ENTRY` Batches for one Item → :class:`BatchLimitExceeded`.
@@ -305,6 +313,8 @@ def build_tracking(item_codes: list[str], read: RawTrackingRead) -> dict[str, Bi
 		)
 	batches_by_item: dict[str, dict[str, RawBatch]] = {}
 	for batch in read.batches:
+		if is_zero_qty(batch.qty):
+			continue
 		if batch.item_code in flags and flags[batch.item_code].has_batch_no:
 			batches_by_item.setdefault(batch.item_code, {})[batch.batch_no] = batch
 	return {code: _entry_tracking(flags[code], batches_by_item.get(code, {})) for code in item_codes}

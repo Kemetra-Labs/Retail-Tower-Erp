@@ -32,10 +32,12 @@ RT-918 tracking read (stock-view 1.4) — :class:`FrappeTrackingReader`, BENCH-V
     - legacy rows (pre-bundle ledgers): ``Stock Ledger Entry.batch_no`` with NO bundle,
       ``actual_qty`` summed per (Item, Batch). A row is counted by exactly one of the two, so
       nothing is double-counted.
-  A Batch with any ledger presence in the warehouse is listed, even at zero or negative book
-  quantity (the contract allows both). Expired and disabled Batches are listed too (evidence,
-  never filtered) — which is why ERPNext's ``get_batch_qty`` (it drops expired/disabled/empty
-  Batches for selling) is not used.
+  A Batch with a non-zero book quantity in the warehouse is listed, negative included (the
+  contract allows it). A Batch whose summed quantity is zero at the contract precision is omitted
+  before its master is read (captain decision on RT-918: a used-up Batch has no presence, and every
+  lifetime Batch would exceed the 200 cap). Expired and disabled Batches are listed (evidence, never
+  filtered) — which is why ERPNext's ``get_batch_qty`` (it drops expired/disabled Batches for
+  selling) is not used.
 * Batch master: ``Batch.expiry_date`` and ``Batch.disabled``.
 Quantity only — no valuation field is read. Off unless the site config key
 :data:`TRACKING_SWITCH` is truthy (:func:`tracking_enabled`): the Connector must not send
@@ -48,7 +50,7 @@ from datetime import UTC, date, datetime
 
 import frappe
 
-from .worker import RawBatch, RawBin, RawItemTracking, RawTrackingRead, TrackingReadError
+from .worker import RawBatch, RawBin, RawItemTracking, RawTrackingRead, TrackingReadError, is_zero_qty
 
 _BIN_FIELDS = ["item_code", "actual_qty", "stock_uom"]
 _ITEM_TRACKING_FIELDS = ["name", "has_batch_no", "has_serial_no", "has_expiry_date"]
@@ -185,6 +187,7 @@ class FrappeTrackingReader:
 		]:
 			key = (str(row["item_code"]), str(row["batch_no"]))
 			qty[key] = qty.get(key, 0.0) + float(row["qty"] or 0.0)
+		qty = {key: total for key, total in qty.items() if not is_zero_qty(total)}
 		masters = _batch_masters(sorted({batch for _item, batch in qty}))
 		batches = tuple(
 			_raw_batch(item, batch, total, masters.get(batch)) for (item, batch), total in sorted(qty.items())

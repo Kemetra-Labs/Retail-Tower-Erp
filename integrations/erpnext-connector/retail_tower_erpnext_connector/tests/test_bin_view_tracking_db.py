@@ -126,7 +126,7 @@ class TestBinViewTrackingRead(unittest.TestCase):
 		self._bundle_entry(elsewhere, batch_no=self.b1, qty=7, warehouse=self.other_wh)
 		# B2: a legacy (pre-bundle) ledger row with batch_no and no bundle -> -1.5.
 		self._sle(warehouse=self.wh, qty=-1.5, batch_no=self.b2)
-		# B3: in and out to zero (bundle-backed) -> listed at 0.
+		# B3: in and out to zero (bundle-backed) -> omitted (a used-up Batch has no presence).
 		zero_in, zero_out = f"RT918-SBB-Z1-{self.tag}", f"RT918-SBB-Z2-{self.tag}"
 		self._sle(warehouse=self.wh, qty=2, bundle=zero_in)
 		self._bundle_entry(zero_in, batch_no=self.b3, qty=2, warehouse=self.wh)
@@ -153,7 +153,6 @@ class TestBinViewTrackingRead(unittest.TestCase):
 			{
 				(self.med, self.b1): (6.0, "2027-03-31", False),
 				(self.med, self.b2): (-1.5, None, True),
-				(self.med, self.b3): (0.0, "2026-01-01", False),
 			},
 		)
 

@@ -74,7 +74,9 @@ def test_batch_item_lists_its_batches_by_name_with_book_qty_expiry_and_disabled(
 		batches=(
 			_batch("MED", "B2", -1.0, expiry=None, disabled=True),
 			_batch("MED", "B1", 12.5, expiry="2027-03-31"),
-			_batch("MED", "B0", 0.0, expiry="2026-01-01"),  # expired, empty: still evidence
+			_batch("MED", "B0", 0.0, expiry="2026-01-01"),  # used up: omitted
+			_batch("MED", "B9", 1e-9, expiry="2026-01-01"),  # zero at 6 dp: omitted
+			_batch("MED", "BX", 1.0, expiry="2020-01-01", disabled=True),  # expired + disabled: listed
 		),
 	)
 	(tracking,) = w.build_tracking(["MED"], read).values()
@@ -83,12 +85,6 @@ def test_batch_item_lists_its_batches_by_name_with_book_qty_expiry_and_disabled(
 		"hasSerialNo": False,
 		"hasExpiryDate": True,
 		"batches": [
-			{
-				"batchRef": {"doctype": "Batch", "name": "B0"},
-				"quantity": "0.000000",
-				"expiryDate": "2026-01-01",
-				"disabled": False,
-			},
 			{
 				"batchRef": {"doctype": "Batch", "name": "B1"},
 				"quantity": "12.500000",
@@ -101,8 +97,32 @@ def test_batch_item_lists_its_batches_by_name_with_book_qty_expiry_and_disabled(
 				"expiryDate": None,
 				"disabled": True,
 			},
+			{
+				"batchRef": {"doctype": "Batch", "name": "BX"},
+				"quantity": "1.000000",
+				"expiryDate": "2020-01-01",
+				"disabled": True,
+			},
 		],
 	}
+
+
+def test_zero_batches_do_not_count_toward_the_200_cap():
+	read = w.RawTrackingRead(
+		items=(_flags("BREAD", batch=True),),
+		batches=(
+			*(_batch("BREAD", f"Z{i:03d}", 0.0) for i in range(250)),
+			_batch("BREAD", "N1", 3.0),
+			_batch("BREAD", "N2", -1.0),
+			_batch("BREAD", "N3", 0.5),
+		),
+	)
+	assert [b.batch_ref for b in w.build_tracking(["BREAD"], read)["BREAD"].batches] == ["N1", "N2", "N3"]
+
+
+def test_a_batch_item_whose_batches_are_all_used_up_omits_batches():
+	read = w.RawTrackingRead(items=(_flags("MED", batch=True),), batches=(_batch("MED", "B1", 0.0),))
+	assert "batches" not in w.build_tracking(["MED"], read)["MED"].to_wire()
 
 
 def test_untracked_item_carries_three_false_flags_and_no_batches():

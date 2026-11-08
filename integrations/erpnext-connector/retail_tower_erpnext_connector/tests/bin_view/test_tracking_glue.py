@@ -112,9 +112,10 @@ def test_reader_merges_bundle_and_legacy_sums_and_reads_the_batch_master(frappe_
 		("SOAP", False, False),
 	}
 	assert [(b.batch_no, b.qty, b.expiry_date, b.disabled) for b in read.batches] == [
-		("B1", 12.5, "2027-03-31", False),
-		("B2", 0.0, None, True),  # zero book quantity is still listed
+		("B1", 12.5, "2027-03-31", False),  # B2 sums to zero: omitted
 	]
+	# The zero Batch's master is never read.
+	assert [n for d, n in masters.calls if d == "Batch"] == [["B1"]]
 	# Ledger rows are read for the batch Items only, in the request's warehouse.
 	assert ledger_calls == [("ERP-WH-1", ["MED"]), ("ERP-WH-1", ["MED"])]
 
