@@ -573,6 +573,63 @@ describe("RT-451 S1 — the lots (G7-5, G7-13, RT-449)", () => {
   });
 });
 
+describe("RT-451 comment 16246 — aligned with the TLV", () => {
+  it("lists no lots for a product inactive at the caller's store by its Store Override, and lists them at another store", async () => {
+    if (skip()) return;
+    gateOn();
+    const product = randomUUID();
+    await E().admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by, tracking_mode, expiry_required)
+       VALUES ($1, $2, 'Store off', 'standard', $3, $3, 'batch', false)`,
+      [product, TENANT, MANAGER],
+    );
+    await E().admin.query(
+      `INSERT INTO store_product_overrides (id, tenant_id, store_id, product_id, is_active, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, false, $5, $5)`,
+      [randomUUID(), TENANT, STORE, product, MANAGER],
+    );
+    const lot = await identity(product, "STORE-OFF-1", await businessDate(5));
+    const here = await lots(product, TOKEN);
+    expect(here.status).toBe(200);
+    expect(here.body.lots).toEqual([]);
+    conforms(here.body);
+    const there = await lots(product, TOKEN_S2);
+    expect(there.body.lots.map((l: { identityId: string }) => l.identityId)).toEqual([lot]);
+  });
+
+  it("lists the lots of a product inactive in the catalog but active at the caller's store by its Store Override", async () => {
+    if (skip()) return;
+    gateOn();
+    const product = randomUUID();
+    await E().admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by, tracking_mode, expiry_required, is_active)
+       VALUES ($1, $2, 'Store on', 'standard', $3, $3, 'batch', false, false)`,
+      [product, TENANT, MANAGER],
+    );
+    await E().admin.query(
+      `INSERT INTO store_product_overrides (id, tenant_id, store_id, product_id, is_active, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, true, $5, $5)`,
+      [randomUUID(), TENANT, STORE, product, MANAGER],
+    );
+    const lot = await identity(product, "STORE-ON-1", await businessDate(5));
+    expect((await lots(product, TOKEN)).body.lots.map((l: { identityId: string }) => l.identityId)).toEqual([lot]);
+    expect((await lots(product, TOKEN_S2)).body.lots).toEqual([]);
+  });
+
+  it("never lists a lot without an expiry for a product that requires one (fail closed); lists it when none is required", async () => {
+    if (skip()) return;
+    gateOn();
+    const missing = await identity(P_SUGGEST, `NO-EXP-${key()}`, null);
+    const dated = await identity(P_SUGGEST, `DATED-${key()}`, await businessDate(7));
+    const required = (await lots(P_SUGGEST, TOKEN)).body.lots.map((l: { identityId: string }) => l.identityId);
+    expect(required).not.toContain(missing);
+    expect(required).toContain(dated);
+    const optional = await identity(P_OFF, `NO-EXP-OFF-${key()}`, null);
+    const off = (await lots(P_OFF, TOKEN)).body.lots.map((l: { identityId: string }) => l.identityId);
+    expect(off).toContain(optional);
+  });
+});
+
 describe("RT-451 S1 — the advisory position (RT-427 activation, Q12)", () => {
   it("is the identity's sellable quantity at the caller's store once positions are live; positive lots rank first", async () => {
     if (skip()) return;

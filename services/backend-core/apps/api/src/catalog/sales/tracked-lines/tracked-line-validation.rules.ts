@@ -16,7 +16,10 @@
  *   5. recalled          an active `recall_hold`
  *   6. held              an active `quality_hold`
  *   7. expired           its `expiryDate` is before the store's business date
- *                        (G7-5: sellable through the expiry date, inclusive)
+ *                        (G7-5: sellable through the expiry date, inclusive),
+ *                        or the product requires an expiry and the identity
+ *                        has none (RT-451 comment 16246: fail closed; it cannot
+ *                        be shown to be unexpired)
  *
  * Nothing else is checked: quantity never refuses and nothing is reserved
  * (Q12). A scanned `expiryDate` never changes the identity or the result.
@@ -50,6 +53,8 @@ export function identityRefusal(input: {
   readonly productId: string;
   readonly identity: TrackedLineIdentityFacts | null;
   readonly businessDate: string;
+  /** The product requires an expiry (`expiry_required`). */
+  readonly expiryRequired: boolean;
 }): TrackedLineRefusalReason | null {
   const { identity } = input;
   if (identity === null) return "unknown_identity";
@@ -57,6 +62,7 @@ export function identityRefusal(input: {
   if (identity.recallHold) return "recalled";
   if (identity.qualityHold) return "held";
   // ISO `YYYY-MM-DD` strings compare in calendar order.
-  if (identity.expiryDate !== null && identity.expiryDate < input.businessDate) return "expired";
+  if (identity.expiryDate === null) return input.expiryRequired ? "expired" : null;
+  if (identity.expiryDate < input.businessDate) return "expired";
   return null;
 }

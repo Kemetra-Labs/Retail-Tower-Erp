@@ -32,9 +32,13 @@ import type { TrackedLineRefusalReason, TrackedLineSelection } from "@data-pulse
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../../auth/auth.module";
-import { pinOverrideStore, storeOverrideJoinSql } from "../../store-resolution/store-product-resolution";
 import { effectiveFefoPolicy, type OrderedLotRow } from "./tracked-lots.ranking";
-import { LOTS_SQL, readStoreContext, tenantSwitchedOn, type ContextRow } from "./tracked-lots.service";
+import {
+  LOTS_SQL,
+  readTrackedProductContext,
+  type ContextRow,
+  type ProductRow,
+} from "./tracked-lots.service";
 import { identityRefusal, productRefusal, type TrackedLineIdentityFacts } from "./tracked-line-validation.rules";
 
 /** Contract `TrackedLot`. */
@@ -79,12 +83,6 @@ export interface ValidateTrackedLineInput {
   readonly draftLineRef: string;
 }
 
-interface ProductRow {
-  readonly tracking_mode: string;
-  readonly expiry_required: boolean;
-  readonly sellable_at_store: boolean;
-}
-
 interface Evaluation {
   readonly reason: TrackedLineRefusalReason | null;
   readonly identity: IdentityRow | null;
@@ -99,14 +97,6 @@ interface IdentityRow {
   readonly recall_hold: boolean;
   readonly quality_hold: boolean;
 }
-
-/** `$1` product, `$2` tenant, `$3` store. Retired or inactive at the store is not sellable. */
-const PRODUCT_SQL = `
-  SELECT tp.tracking_mode, tp.expiry_required,
-         (tp.retired_at IS NULL AND COALESCE(spo.is_active, tp.is_active)) AS sellable_at_store
-    FROM tenant_products tp
-    ${storeOverrideJoinSql("$3::uuid")}
-   WHERE tp.id = $1 AND tp.tenant_id = $2`;
 
 const IDENTITY_COLUMNS = `
   SELECT i.id::text AS id, i.tenant_product_ref::text AS product_id, i.code, i.expiry_date::text AS expiry_date,
@@ -156,13 +146,9 @@ export class TrackedLineValidationService {
   }
 
   private async run(client: PoolClient, input: ValidateTrackedLineInput): Promise<TrackedLineValidation | null> {
-    if (!(await tenantSwitchedOn(client, input.tenantId))) return null;
-    await pinOverrideStore(client, input.storeId);
-    const product = (await client.query<ProductRow>(PRODUCT_SQL, [input.productId, input.tenantId, input.storeId]))
-      .rows[0];
-    if (!product) return null;
-    const context = await readStoreContext(client, input.tenantId, input.storeId);
-    if (context === null) return null;
+    const found = await readTrackedProductContext(client, input);
+    if (found === null) return null;
+    const { product, context } = found;
 
     const evaluation = await this.evaluate(client, input, product, context);
     const record = await this.record(client, input, evaluation, Number(context.safety_revision));
@@ -187,6 +173,7 @@ export class TrackedLineValidationService {
         productId: input.productId,
         identity: identity === null ? null : toFacts(identity),
         businessDate: context.business_date,
+        expiryRequired: product.expiry_required,
       }),
       identity,
       suggestion: await this.suggest(client, input, product, context),
@@ -248,6 +235,7 @@ export class TrackedLineValidationService {
       context.positions_live,
       true,
       1,
+      product.expiry_required,
     ]);
     const first = rows.rows[0];
     return first === undefined ? null : { identityId: first.identity_id, code: first.code, expiryDate: first.expiry_date };

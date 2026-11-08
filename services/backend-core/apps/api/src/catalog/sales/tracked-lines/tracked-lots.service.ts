@@ -21,8 +21,10 @@
  * lot (Q12). A product that is not in the tenant is the non-disclosing 404
  * (`null` here), and so is every product while the tenant has not switched
  * tracked selling on (RT-451 S2, `tenant_inventory_settings`, 0086). A
- * product that cannot be sold as a lot (tracking mode not `batch`, retired or
- * inactive) has no lots: a 200 with an empty list.
+ * product that cannot be sold as a lot (tracking mode not `batch`, retired, or
+ * inactive at the store by its Store Override or itself) has no lots: a 200
+ * with an empty list. A product that requires an expiry never lists a lot
+ * without one (RT-451 comment 16246, fail closed).
  *
  * Everything runs in ONE tenant-context transaction (RLS, FORCE on every table
  * read), so a cross-tenant id resolves to nothing.
@@ -32,6 +34,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../../auth/auth.module";
+import { pinOverrideStore, storeOverrideJoinSql } from "../../store-resolution/store-product-resolution";
 import {
   effectiveFefoPolicy,
   MAX_TRACKED_LOTS,
@@ -50,10 +53,11 @@ export interface TrackedLotList {
   readonly lots: TrackedLotRow[];
 }
 
-interface ProductRow {
+export interface ProductRow {
   readonly tracking_mode: string;
   readonly expiry_required: boolean;
-  readonly sellable: boolean;
+  /** Not retired and active at the store: the Store Override's `is_active`, else the product's. */
+  readonly sellable_at_store: boolean;
 }
 
 export interface ContextRow {
@@ -67,10 +71,18 @@ const TENANT_SWITCH_SQL = `
   SELECT COALESCE((SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1), false)
            AS enabled`;
 
+/**
+ * `$1` product, `$2` tenant, `$3` store: the product as the store resolves it
+ * (`store-product-resolution.ts`). RT-451 (comment 16246): the lot lookup and
+ * the TLV share it, so a product inactive at the store by its Store Override
+ * lists no lots, as the TLV refuses them (`not_sellable`).
+ */
 const PRODUCT_SQL = `
-  SELECT tracking_mode, expiry_required, (is_active AND retired_at IS NULL) AS sellable
-    FROM tenant_products
-   WHERE id = $1 AND tenant_id = $2`;
+  SELECT tp.tracking_mode, tp.expiry_required,
+         (tp.retired_at IS NULL AND COALESCE(spo.is_active, tp.is_active)) AS sellable_at_store
+    FROM tenant_products tp
+    ${storeOverrideJoinSql("$3::uuid")}
+   WHERE tp.id = $1 AND tp.tenant_id = $2`;
 
 const CONTEXT_SQL = `
   SELECT (SELECT (now() AT TIME ZONE s.timezone)::date::text
@@ -82,7 +94,9 @@ const CONTEXT_SQL = `
 
 /**
  * `$1` tenant, `$2` product, `$3` store, `$4` business date, `$5` positions
- * live, `$6` positive-position-first (policy `suggest`), `$7` limit.
+ * live, `$6` positive-position-first (policy `suggest`), `$7` limit, `$8` the
+ * product requires an expiry: then a lot without one is never listed (RT-451
+ * comment 16246: fail closed; the TLV refuses it as `expired`).
  */
 export const LOTS_SQL = `
   SELECT i.id::text AS identity_id, i.code, i.expiry_date::text AS expiry_date,
@@ -97,6 +111,7 @@ export const LOTS_SQL = `
     ) pos ON true
    WHERE i.tenant_id = $1 AND i.tenant_product_ref = $2 AND i.kind = 'batch'
      AND (i.expiry_date IS NULL OR i.expiry_date >= $4::date)
+     AND (NOT $8::boolean OR i.expiry_date IS NOT NULL)
      AND NOT EXISTS (
        SELECT 1 FROM tracking_holds h
         WHERE h.tenant_id = i.tenant_id AND h.tracking_identity_id = i.id AND h.released_at IS NULL)
@@ -104,8 +119,22 @@ export const LOTS_SQL = `
             i.expiry_date ASC NULLS LAST, i.code COLLATE "C" ASC, i.id
    LIMIT $7`;
 
+/**
+ * The product as the caller's store resolves it, or null when it is not in the
+ * tenant. Pins `app.current_store` (transaction-local) so the store's override
+ * rows are visible to the join; only the catalog override policies read it.
+ */
+async function readStoreProduct(
+  client: PoolClient,
+  input: { readonly tenantId: string; readonly storeId: string; readonly productId: string },
+): Promise<ProductRow | null> {
+  await pinOverrideStore(client, input.storeId);
+  const rows = await client.query<ProductRow>(PRODUCT_SQL, [input.productId, input.tenantId, input.storeId]);
+  return rows.rows[0] ?? null;
+}
+
 /** RT-451 S2: whether the tenant has switched tracked selling on (no settings row reads OFF). */
-export async function tenantSwitchedOn(client: PoolClient, tenantId: string): Promise<boolean> {
+async function tenantSwitchedOn(client: PoolClient, tenantId: string): Promise<boolean> {
   const tenantSwitch = await client.query<{ enabled: boolean }>(TENANT_SWITCH_SQL, [tenantId]);
   return tenantSwitch.rows[0]?.enabled === true;
 }
@@ -115,12 +144,29 @@ export async function tenantSwitchedOn(client: PoolClient, tenantId: string): Pr
  * positions are live; null when the store does not resolve in the tenant (the
  * store comes from the credential, so that is the same 404).
  */
-export async function readStoreContext(client: PoolClient, tenantId: string, storeId: string): Promise<ContextRow | null> {
+async function readStoreContext(client: PoolClient, tenantId: string, storeId: string): Promise<ContextRow | null> {
   const row = (await client.query<Omit<ContextRow, "business_date"> & { business_date: string | null }>(CONTEXT_SQL, [
     tenantId,
     storeId,
   ])).rows[0];
   return row && row.business_date !== null ? { ...row, business_date: row.business_date } : null;
+}
+
+/**
+ * What both tracked-selling operations read first, or null for their
+ * non-disclosing 404: the tenant's switch (RT-451 S2; off is the 404, the
+ * deployment gate is the controller's), the product as the store resolves it
+ * (absent from the tenant is the 404) and the store's context.
+ */
+export async function readTrackedProductContext(
+  client: PoolClient,
+  input: { readonly tenantId: string; readonly storeId: string; readonly productId: string },
+): Promise<{ readonly product: ProductRow; readonly context: ContextRow } | null> {
+  if (!(await tenantSwitchedOn(client, input.tenantId))) return null;
+  const product = await readStoreProduct(client, input);
+  if (!product) return null;
+  const context = await readStoreContext(client, input.tenantId, input.storeId);
+  return context === null ? null : { product, context };
 }
 
 @Injectable()
@@ -142,13 +188,9 @@ export class TrackedLotsService {
     client: PoolClient,
     input: { readonly tenantId: string; readonly storeId: string; readonly productId: string },
   ): Promise<TrackedLotList | null> {
-    // RT-451 S2: tracked selling is in effect only when the tenant has switched
-    // it on (the deployment gate is the controller's); off is the same 404.
-    if (!(await tenantSwitchedOn(client, input.tenantId))) return null;
-    const product = (await client.query<ProductRow>(PRODUCT_SQL, [input.productId, input.tenantId])).rows[0];
-    if (!product) return null;
-    const context = await readStoreContext(client, input.tenantId, input.storeId);
-    if (context === null) return null;
+    const found = await readTrackedProductContext(client, input);
+    if (found === null) return null;
+    const { product, context } = found;
 
     const policy = effectiveFefoPolicy({ expiryRequired: product.expiry_required });
     const base = {
@@ -157,7 +199,7 @@ export class TrackedLotsService {
       fefoPolicy: policy,
       safetyRevision: Number(context.safety_revision),
     };
-    if (product.tracking_mode !== "batch" || !product.sellable) return { ...base, lots: [] };
+    if (product.tracking_mode !== "batch" || !product.sellable_at_store) return { ...base, lots: [] };
 
     const rows = await client.query<OrderedLotRow>(LOTS_SQL, [
       input.tenantId,
@@ -167,6 +209,7 @@ export class TrackedLotsService {
       context.positions_live,
       policy === "suggest",
       MAX_TRACKED_LOTS,
+      product.expiry_required,
     ]);
     return { ...base, lots: toTrackedLotRows(rows.rows, policy) };
   }
