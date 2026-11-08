@@ -28,6 +28,17 @@ DECLARE
   t uuid;
   switched_on bigint := 0;
 BEGIN
+  -- Rerunnable: once the column is gone there is nothing to guard (a plpgsql
+  -- statement is planned on first execution, so the loop below is never
+  -- planned against a dropped column).
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'tenant_inventory_settings'
+       AND column_name = 'tracked_selling_enabled'
+  ) THEN
+    RETURN;
+  END IF;
   PERFORM set_config('app.is_platform_admin', 'true', true);
   PERFORM set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true);
   FOR t IN SELECT id FROM tenants LOOP
