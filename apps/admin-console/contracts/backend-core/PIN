@@ -2,7 +2,7 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 9ed13ee33c49f7c95e7e334af2950d7ab6c7fb88
+commit: 2332846dd84dd380c6fbfb2b814da991cc3f3d7d
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
