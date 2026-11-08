@@ -29,9 +29,12 @@ beforeAll(() => {
   contract = readContract("pos-pilot-releases.openapi");
 });
 
+/** The contract's info description text. */
 const info = (): string => String((contract.document["info"] as JsonObject)["description"]);
+/** The sorted property names of a contract schema. */
 const keysOf = (name: Capitalize<string>): string[] =>
   Object.keys((contract.schema(name)["properties"] ?? {}) as JsonObject).sort();
+/** The sorted response status codes of an operation. */
 const statuses = (method: "get" | "post" | "put" | "delete", path: `/${string}`): string[] =>
   Object.keys(contract.operation(method, path)["responses"] as JsonObject).sort();
 

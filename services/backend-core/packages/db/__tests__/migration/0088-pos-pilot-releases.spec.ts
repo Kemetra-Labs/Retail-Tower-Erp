@@ -40,8 +40,10 @@ let dockerSkipReason: string | null = null;
 let upSql = "";
 let downSql = "";
 
+/** True when Docker is unavailable and skipping is explicitly allowed. */
 const skip = (): boolean => dockerSkipReason !== null && process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1";
 
+/** The started Postgres environment; throws when Docker was unavailable. */
 function guard(): PgTestEnv {
   if (!env) throw new Error(`Docker unavailable: ${dockerSkipReason}`);
   return env;
@@ -58,6 +60,7 @@ async function applyPreMigrations(pgEnv: PgTestEnv): Promise<void> {
   await ensureAppRole(pgEnv);
 }
 
+/** Insert the tenants and the user the specs reference. */
 async function seedParents(pgEnv: PgTestEnv): Promise<void> {
   const a = pgEnv.admin;
   await a.query(`INSERT INTO tenants (id, slug, name, default_currency_code) VALUES ($1, 'pp-a', 'Pilot A', 'USD'), ($2, 'pp-b', 'Pilot B', 'USD')`, [TENANT_A, TENANT_B]);
@@ -78,6 +81,7 @@ async function withApp<T>(ctx: { tenant?: string; platformAdmin?: boolean }, wor
   }
 }
 
+/** An INSERT of one registry row with the given class and publisher, and its parameters. */
 const insertSql = (signingClass: string, publisher: string): [string, unknown[]] => [
   `INSERT INTO pos_pilot_release_registry
      (id, version, sha256, size_bytes, publisher, signing_class, attestation_ref, source_sha, artifact_key,
@@ -198,7 +202,9 @@ describe("0088: reversal", () => {
   it("round-trips UP -> DOWN -> UP and the down drops only its own objects", async () => {
     if (skip()) return;
     const a = guard().admin;
+    /** How many of the two tables exist. */
     const exists = async (): Promise<number> => (await a.query(`SELECT 1 FROM pg_tables WHERE tablename = ANY($1)`, [TABLES])).rowCount ?? 0;
+    /** Whether the registry guard trigger function exists. */
     const hasFunction = async (): Promise<number> =>
       (await a.query(`SELECT 1 FROM pg_proc WHERE proname = 'pos_pilot_release_registry_guard'`)).rowCount ?? 0;
     expect(await exists()).toBe(2);

@@ -99,6 +99,7 @@ const h = scopedHttpHarness({
 });
 
 const LATEST = "/api/v1/pos-pilot-releases/latest";
+/** The allowlist path of one tenant. */
 const tenantPath = (tenantId: string): string => `/api/v1/platform/pos-pilot-tenants/${tenantId}`;
 const ISSUED = "pos.pilot_release.download_link_issued";
 const ADDED = "pos.pilot_tenant.added";
@@ -126,6 +127,7 @@ const RELEASE: ReleaseSeed = {
   approved: true,
 };
 
+/** Insert a release row as the superuser (RLS-exempt); the CHECKs and the trigger still apply. */
 async function insertRelease(admin: Pool, seed: ReleaseSeed): Promise<void> {
   await admin.query(
     `INSERT INTO pos_pilot_release_registry
@@ -141,6 +143,7 @@ async function insertRelease(admin: Pool, seed: ReleaseSeed): Promise<void> {
   );
 }
 
+/** Mark a release activated by the platform admin (superuser, bypasses RLS). */
 async function activate(admin: Pool, id: string): Promise<void> {
   await admin.query(`UPDATE pos_pilot_release_registry SET activated_at = now(), activated_by_user_id = $2 WHERE id = $1`, [
     id,
@@ -148,6 +151,7 @@ async function activate(admin: Pool, id: string): Promise<void> {
   ]);
 }
 
+/** Put a tenant on the pilot allowlist (superuser, bypasses RLS). */
 async function allowlist(admin: Pool, tenantId: string): Promise<void> {
   await admin.query(`INSERT INTO pos_pilot_tenant_allowlist (tenant_id, added_by_user_id) VALUES ($1, $2)`, [tenantId, PLATFORM_ADMIN.id]);
 }
@@ -163,11 +167,13 @@ interface AuditRow {
 /** audit_events is append-only: rows written before the current test are skipped. */
 const baselines = new Map<string, number>();
 
+/** The audit rows of one action written since the current test's baseline. */
 async function audits(admin: Pool, action: string): Promise<AuditRow[]> {
   const r = await admin.query<AuditRow>(`SELECT * FROM audit_events WHERE action = $1 ORDER BY occurred_at, id`, [action]);
   return r.rows.slice(baselines.get(action) ?? 0);
 }
 
+/** Record how many audit rows each action already has, so a test reads only its own. */
 async function markBaselines(admin: Pool): Promise<void> {
   for (const action of [ISSUED, ADDED, REMOVED]) {
     baselines.set(action, 0);
@@ -185,6 +191,7 @@ beforeEach(async () => {
   presigner.failing = false;
 });
 
+/** Run a statement that must fail and return its SQLSTATE code, constraint and message. */
 async function sqlError(work: Promise<unknown>): Promise<{ code?: string; constraint?: string; message: string }> {
   try {
     await work;
@@ -307,6 +314,7 @@ describe("RT-1292 the resolver: who may call it", () => {
 
 describe("RT-1292 configuration refusals: a pin that could admit a lab or production release disables the lane", () => {
   const ENV = { POS_PILOT_RELEASE_BUCKET: "pilot-bucket" };
+  /** Resolver dependencies for an otherwise eligible release, under the given configuration. */
   const eligibleDeps = (config: PilotReleaseConfig): Parameters<typeof resolveLatestPilotRelease>[0] => ({
     config,
     presigner: presigner.impl,
@@ -348,6 +356,7 @@ describe("RT-1292 configuration refusals: a pin that could admit a lab or produc
 });
 
 describe("RT-1292 the resolver: every ineligible case is the same { available: false }", () => {
+  /** Assert the caller gets the bare unavailable answer, with no presign and no audit row. */
   async function expectUnavailable(session: string): Promise<void> {
     const res = await h.get(LATEST, session);
     expect(res.status).toBe(200);
@@ -409,6 +418,7 @@ describe("RT-1292 the resolver: every ineligible case is the same { available: f
 });
 
 describe("RT-1292 the resolver: the control case (so the refusals above do not pass vacuously)", () => {
+  /** Seed an approved, activated release and put tenant A on the allowlist. */
   async function eligible(): Promise<void> {
     const admin = h.env().admin;
     await insertRelease(admin, RELEASE);

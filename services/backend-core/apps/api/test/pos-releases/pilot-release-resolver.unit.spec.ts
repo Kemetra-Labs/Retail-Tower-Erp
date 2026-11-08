@@ -31,6 +31,7 @@ interface Harness {
   readonly calls: { read: number; presign: unknown[]; issued: CurrentPilotRelease[]; outcomes: PilotReleaseOutcome[] };
 }
 
+/** Build the resolver's fake dependencies and the record of every call made through them. */
 function harness(overrides: {
   config?: PilotReleaseConfig;
   presigner?: "none" | "ok" | "throws";
