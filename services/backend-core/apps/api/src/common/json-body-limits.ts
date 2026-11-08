@@ -31,8 +31,8 @@
  * Concurrency bound (captain decision, RT-1284 comment 16234; CodeRabbit PR
  * #435): because that parse happens before `ConnectorAuthGuard`, many
  * concurrent 32 MiB bodies could exhaust memory. At most
- * `BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES` (2) snapshot bodies above 100 kB are
- * read at once; a further one gets 503 `snapshot_busy` with `Retry-After`
+ * `BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES` (2) snapshot bodies above 100 kB (or
+ * chunked, or compressed) are read at once; a further one gets 503 `snapshot_busy` with `Retry-After`
  * before its body is read. Worst case is about 2 x 32 MiB x the parse
  * overhead. Bodies of at most 100 kB are never bounded.
  */
@@ -119,11 +119,15 @@ function jsonBodyTooLargeAs413(err: unknown, _req: Request, _res: Response, next
 }
 
 /**
- * A body above 100 kB, or of undeclared length (chunked). A declared
- * `Content-Length` is binding: Node's HTTP parser never delivers more body
- * bytes than it declares.
+ * A body above 100 kB, of undeclared length (chunked), or compressed. A
+ * declared `Content-Length` binds the wire bytes (Node's HTTP parser never
+ * delivers more), but body-parser inflates gzip / deflate / br and applies the
+ * limit to the inflated size, so any non-identity `Content-Encoding` counts as
+ * large whatever its length.
  */
 function isLargeBody(req: IncomingMessage): boolean {
+  const encoding = (req.headers["content-encoding"] ?? "identity").trim().toLowerCase();
+  if (encoding !== "" && encoding !== "identity") return true;
   const declared = req.headers["content-length"];
   if (declared === undefined) return req.headers["transfer-encoding"] !== undefined;
   const bytes = Number(declared);

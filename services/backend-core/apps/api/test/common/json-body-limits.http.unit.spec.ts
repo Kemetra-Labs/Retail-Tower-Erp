@@ -19,6 +19,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { Test } from "@nestjs/testing";
 import { readFileSync } from "node:fs";
 import http from "node:http";
+import { gzipSync } from "node:zlib";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 
@@ -199,7 +200,12 @@ interface RawResponse {
 }
 
 /** A raw POST with a declared Content-Length; the body is written by the caller. */
-function openPost(port: number, path: string, contentLength: number): {
+function openPost(
+  port: number,
+  path: string,
+  contentLength: number,
+  extraHeaders: Record<string, string> = {},
+): {
   req: http.ClientRequest;
   response: Promise<RawResponse>;
 } {
@@ -208,7 +214,7 @@ function openPost(port: number, path: string, contentLength: number): {
     port,
     method: "POST",
     path,
-    headers: { "content-type": "application/json", "content-length": String(contentLength) },
+    headers: { "content-type": "application/json", "content-length": String(contentLength), ...extraHeaders },
   });
   req.on("error", () => undefined); // aborts and early closes are part of these tests
   const response = new Promise<RawResponse>((resolve) => {
@@ -309,6 +315,36 @@ describe("RT-1284 concurrency bound on large snapshot bodies", () => {
     for (const req of held) req.destroy();
   });
 
+  it("bounds a compressed body even when its Content-Length is small (it inflates past 100 kB)", async () => {
+    const gz = gzipSync(Buffer.from(largeValidWindow()));
+    expect(gz.length).toBeLessThan(DEFAULT_LIMIT_BYTES);
+
+    const held = await holdAllSlots();
+    const compressed = openPost(port, SNAPSHOT_PATH, gz.length, { "content-encoding": "gzip" });
+    compressed.req.end(gz);
+    let busy: RawResponse;
+    try {
+      busy = await Promise.race([
+        compressed.response,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no answer to the compressed body")), 5000)),
+      ]);
+    } finally {
+      compressed.req.destroy();
+      for (const req of held) req.destroy();
+    }
+    expect(busy.status).toBe(503);
+    expect((JSON.parse(busy.body) as { error: { code: string } }).error.code).toBe("snapshot_busy");
+    await waitFor(() => gate.inFlight() === 0);
+
+    // With a free slot it is admitted, inflated, validated and released.
+    const admitted = openPost(port, SNAPSHOT_PATH, gz.length, { "content-encoding": "gzip" });
+    admitted.req.end(gz);
+    const ok = await admitted.response;
+    expect(ok.status).toBe(200);
+    expect(JSON.parse(ok.body)).toEqual({ entries: 500 });
+    await waitFor(() => gate.inFlight() === 0);
+  });
+
   it("does not bound another route", async () => {
     const held = await holdAllSlots();
     const other = await request(app.getHttpServer())
@@ -347,7 +383,7 @@ describe("RT-1284 concurrency bound on large snapshot bodies", () => {
   });
 });
 
-describe("stock-view.yaml 1.5.0-draft — 503 snapshot_busy (additive)", () => {
+describe("stock-view.yaml 1.5.0-draft — 413 payload_too_large and 503 snapshot_busy (additive)", () => {
   type Doc = {
     info: { version: string; description: string };
     paths: Record<string, Record<string, { operationId?: string; responses: Record<string, { $ref?: string }> }>>;
@@ -359,10 +395,12 @@ describe("stock-view.yaml 1.5.0-draft — 503 snapshot_busy (additive)", () => {
   const doc = parseYaml(readFileSync(join(CONTRACTS_DIR, "erpnext-connector/stock-view.yaml"), "utf8")) as Doc;
   const op = doc.paths["/api/connector/v1/erpnext/bin-view-requests/{requestRef}/snapshot"]?.["post"];
 
-  it("lists 503 SnapshotBusy with Retry-After on binViewReportSnapshot", () => {
+  it("lists 413 PayloadTooLarge and 503 SnapshotBusy with Retry-After on binViewReportSnapshot", () => {
     expect(doc.info.version).toBe("1.5.0-draft");
     expect(op?.operationId).toBe("binViewReportSnapshot");
     expect(op?.responses["503"]).toEqual({ $ref: "#/components/responses/SnapshotBusy" });
+    expect(op?.responses["413"]).toEqual({ $ref: "#/components/responses/PayloadTooLarge" });
+    expect(doc.components.responses["PayloadTooLarge"]?.description).toContain("payload_too_large");
     const busy = doc.components.responses["SnapshotBusy"];
     expect(busy?.description).toContain("snapshot_busy");
     expect(busy?.headers?.["Retry-After"]).toEqual({ $ref: "#/components/headers/RetryAfterBusy" });

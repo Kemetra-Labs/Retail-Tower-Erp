@@ -61,8 +61,10 @@ info:
     (non-disclosing 404 for a cross-tenant / out-of-scope `requestRef` or
     foreign-scope cursor — no existence leak, §II/§XII), the generic bearer-auth
     refusal (401), `forbidden` (generic 403 for a connector registration whose
-    environment does not match this deployment, RT-134), and `system_failure`
-    (500).
+    environment does not match this deployment, RT-134), `system_failure`
+    (500), and on `binViewReportSnapshot` only (v1.5, RT-1284)
+    `payload_too_large` (413, body above 32 MiB) and `snapshot_busy` (503,
+    with `Retry-After`).
 
     This contract is consumed by
     `apps/api/test/erpnext-connector/contract/stock-view.contract.spec.ts`, loaded
@@ -165,7 +167,8 @@ info:
 
     VERSION 1.5 (RT-1284; [GATED] captain decisions under owner delegation,
     Jira RT-1284 comments 16231 and 16234), ADDITIVE: `binViewReportSnapshot`
-    may answer 503 `snapshot_busy` with `Retry-After` (seconds). Backend-Core
+    may answer 413 `payload_too_large` and 503 `snapshot_busy` with
+    `Retry-After` (seconds). Backend-Core
     accepts a report body of up to 32 MiB on this operation (100 kB on every
     other route) and reads at most 2 bodies above 100 kB at once; a further
     one is refused before its body is read. Nothing is recorded; retry the
@@ -328,6 +331,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "500":
           $ref: "#/components/responses/SystemFailure"
         "503":
@@ -968,7 +973,8 @@ components:
                 Stable machine-readable error code. Closed set on this surface:
                 validation_error | snapshot_required | idempotency_key_conflict |
                 window_sequence_conflict | not_found | forbidden |
-                system_failure (plus the generic 401 refusal).
+                system_failure | payload_too_large | snapshot_busy (plus the
+                generic 401 refusal).
             message:
               type: string
               description: Human-readable summary. No sensitive data, no cause enumeration.
@@ -1066,6 +1072,16 @@ components:
       description: >
         `system_failure` (500) — an unexpected server error. The cause is recorded
         server-side keyed by `request_id` and is never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: >
+        `payload_too_large` (413, v1.5, RT-1284) — the report body is above
+        32 MiB. Refused before validation; nothing is recorded. The window
+        must be reported smaller (a per-window byte budget is a later
+        contract extension).
       content:
         application/json:
           schema:
