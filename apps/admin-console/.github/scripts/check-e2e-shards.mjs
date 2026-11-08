@@ -27,6 +27,7 @@ export function testKeys(report) {
   return keys;
 }
 
+/** How many tests ended `unexpected` (failed after all retries) anywhere in the report. */
 function failedCount(report) {
   let n = 0;
   const visit = (suite) => {
@@ -74,6 +75,10 @@ export function checkShards({ blobFiles, shards, listed, merged }) {
   return errors;
 }
 
+/**
+ * CLI entry: reads the blob folder and both JSON reports, prints one `::error` per problem.
+ * Returns the exit code: 0 complete and green, 1 incomplete or red, 2 bad arguments.
+ */
 function main(argv) {
   const [blobDir, shardArg, listedPath, mergedPath] = argv;
   if (!blobDir || !shardArg || !listedPath || !mergedPath) {
