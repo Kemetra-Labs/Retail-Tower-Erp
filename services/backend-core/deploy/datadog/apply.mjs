@@ -120,16 +120,20 @@ async function upsertDashboard(body) {
   return `created dashboard ${created.id} ${created.url}`;
 }
 
+// Each dashboard is matched by its title (upsertDashboard). RT-1281 adds the
+// load-test view used during RT-317 capacity runs.
+const DASHBOARD_FILES = ["dashboard-retail-tower-lab.json", "dashboard-retail-tower-load-test.json"];
+
 async function main() {
   const handles = dryRun ? "@alerts@example.invalid" : recipientHandles();
   const monitors = readJson("monitors.json").map((m) => prepare(m, handles));
   const synthetic = prepare(readJson("synthetics-api-health.json"), handles);
-  const dashboard = readJson("dashboard-retail-tower-lab.json");
+  const dashboards = DASHBOARD_FILES.map(readJson);
 
   if (dryRun) {
     for (const m of monitors) ok(`[DRY] monitor ${m.key}: ${m.body.name}`);
     ok(`[DRY] synthetics ${synthetic.key}: ${synthetic.body.name}`);
-    ok(`[DRY] dashboard: ${dashboard.title} (${dashboard.widgets.length} groups)`);
+    for (const d of dashboards) ok(`[DRY] dashboard: ${d.title} (${d.widgets.length} groups)`);
     return;
   }
   if (!process.env.DD_API_KEY || !process.env.DD_APP_KEY) fail("DD_API_KEY and DD_APP_KEY are required");
@@ -143,7 +147,7 @@ async function main() {
     }),
   );
   ok(`[OK] ${synthetic.key}: ${await upsertSynthetic(synthetic)}`);
-  ok(`[OK] dashboard: ${await upsertDashboard(dashboard)}`);
+  for (const d of dashboards) ok(`[OK] dashboard: ${await upsertDashboard(d)}`);
 }
 
 try {

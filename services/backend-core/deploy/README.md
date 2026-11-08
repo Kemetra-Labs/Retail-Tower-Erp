@@ -952,7 +952,9 @@ Either value empty = inert.
 
 **Datadog (traces + metrics).** The Agent is an opt-in compose profile that only
 listens on the internal network (OTLP `datadog-agent:4318`) and scrapes the api's
-existing Prometheus listener. Set `DD_API_KEY`, `DD_SITE` (default
+Prometheus listener and, since RT-1281, the worker's (`worker:9091`, internal
+network only, no published port; queue lag, job duration and failures, outbox
+backlog and drain, DB pool). Set `DD_API_KEY`, `DD_SITE` (default
 `datadoghq.eu`, the EU1 org; an explicit value wins), `DD_HOSTNAME` and
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4318`, then:
 
@@ -962,8 +964,7 @@ op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml -
 
 Traces are sampled at 10% by default (`OTEL_TRACES_SAMPLER_ARG`). Not covered yet:
 container logs and Docker/container metrics (they need the Docker socket mounted
-into the Agent, which is a separate approval), worker metrics (the worker listener
-binds `127.0.0.1`), and BullMQ failed-job events in Sentry.
+into the Agent, which is a separate approval) and BullMQ failed-job events in Sentry.
 
 **Host network and Redis metrics (optional, RT-636).** Out of the box the Agent
 reports CPU, memory, disk and I/O but no `system.net.*`, because it sits in its own

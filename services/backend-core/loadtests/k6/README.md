@@ -18,6 +18,31 @@ deliberately scoped to a documented harness only.
 
 ---
 
+## 0. POS terminal-equivalent scenarios (RT-1281)
+
+For the RT-317 capacity steps (1, 3 and 10 POS terminal-equivalents, RT-1279 plan):
+
+| Script | What it models |
+| --- | --- |
+| `pos-terminals.js` | N terminals (`LOAD_TERMINALS`, max 10), each selling at the owner-set `LOAD_SALES_PER_HOUR` (constant arrival rate) and reading catalog deltas every `LOAD_CATALOG_EVERY` |
+| `offline-burst.js` | N terminals reconnect together; each flushes `LOAD_BURST_SALES` backdated sales from an offline admission of `LOAD_OFFLINE_MINUTES` |
+| `sales-capture.js` | SC-010 latency check; N terminals selling back to back |
+| `scripts/reconcile-run.sql` | Read-only, after the run drains: k6-accepted vs stored vs posted, duplicates, ERP posting lag p50/p95 |
+
+Sales authenticate as a paired terminal (device token, `operatorUserId`, a
+cashier admission made in `setup()`), with seeded products, a cash tender and
+the tenant currency (`lib/pos.js`). Provisioning and env:
+[`fixtures/pos-terminals.md`](fixtures/pos-terminals.md). The abort thresholds
+(`LOAD_ABORT_ERROR_RATE`, `LOAD_ABORT_P95_MS`) and the rate are required and have
+no defaults, so a run never starts on a guess.
+
+**Lab caps.** `stress.js` defaults to 20 VUs and `baseline.js` to 5; going above
+needs `LOAD_ALLOW_ABOVE_LAB_CAP=1`, which is for a sized environment only. Run
+only inside an RT-317-authorized window: one run at a time, then drain and
+reconcile before the next step.
+
+---
+
 ## 1. Execution mode
 
 ### 1.1 Recommended — Docker image `grafana/k6:0.50.0` (T420)
@@ -47,7 +72,7 @@ docker run --rm \
   -e LOAD_USER_A_EMAIL=... -e LOAD_USER_A_PASSWORD=... \
   -e LOAD_USER_B_EMAIL=... -e LOAD_USER_B_PASSWORD=... \
   -e LOAD_USER_C_EMAIL=... -e LOAD_USER_C_PASSWORD=... \
-  -e LOAD_DURATION=10m -e LOAD_VUS=20 \
+  -e LOAD_DURATION=10m -e LOAD_VUS=5 \
   grafana/k6:0.50.0 run /scripts/baseline.js \
   --summary-export /scripts/last-baseline.json
 ```
@@ -58,7 +83,7 @@ docker run --rm \
 docker run --rm \
   -v "$PWD/loadtests/k6:/scripts" \
   -e BASE_URL=https://load.example.invalid \
-  -e LOAD_STRESS_MAX_VUS=300 -e LOAD_STRESS_RAMP=10m -e LOAD_STRESS_PLATEAU=5m \
+  -e LOAD_STRESS_MAX_VUS=20 -e LOAD_STRESS_RAMP=10m -e LOAD_STRESS_PLATEAU=5m \
   -e LOAD_USER_A_EMAIL=... -e LOAD_USER_A_PASSWORD=... \
   -e LOAD_USER_B_EMAIL=... -e LOAD_USER_B_PASSWORD=... \
   -e LOAD_USER_C_EMAIL=... -e LOAD_USER_C_PASSWORD=... \

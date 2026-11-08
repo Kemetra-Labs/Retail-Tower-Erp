@@ -48,7 +48,12 @@ import {
 import { baseUrl, jsonHeaders, jsonPostHeaders, sleepJitter, uuidv4 } from "./lib/util.js";
 
 const DURATION = __ENV.LOAD_DURATION || "10m";
-const VUS = Number.parseInt(__ENV.LOAD_VUS || "20", 10);
+// RT-1281: lab-safe default. Going above LAB_CAP needs LOAD_ALLOW_ABOVE_LAB_CAP=1.
+const LAB_CAP = 5;
+const VUS = Number.parseInt(__ENV.LOAD_VUS || String(LAB_CAP), 10);
+if (VUS > LAB_CAP && __ENV.LOAD_ALLOW_ABOVE_LAB_CAP !== "1") {
+  throw new Error(`LOAD_VUS=${VUS} is above the lab cap ${LAB_CAP}; set LOAD_ALLOW_ABOVE_LAB_CAP=1 only for a sized environment`);
+}
 const SKIP_ACCEPT = __ENV.LOAD_SKIP_ACCEPT === "1";
 
 export const options = {

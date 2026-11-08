@@ -206,7 +206,14 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
+      # RT-1281: the worker's Prometheus listener binds every interface of the
+      # container, so the datadog-agent profile can scrape it over the internal
+      # dp2 network (queue lag, outbox backlog). No host port is published.
+      WORKER_METRICS_BIND_HOST: 0.0.0.0
+      WORKER_METRICS_PORT: "9091"
     networks: [dp2]
+    expose:
+      - "9091"
     healthcheck:
       # Authenticate with the configured URL and require an application-level
       # Redis PING. Errors stay silent so credentials embedded in REDIS_URL are
@@ -231,6 +238,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     depends_on:
       - api
+      - worker
     environment:
       DD_API_KEY: ${DD_API_KEY:-}
       DD_SITE: ${DD_SITE:-datadoghq.eu}
@@ -241,7 +249,7 @@ services:
       DD_APM_ENABLED: "true"
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
       DD_LOGS_ENABLED: "false"
-    # Prometheus scrape of the api metrics listener (METRICS_PORT 9464); the
+    # Prometheus scrape of the api (METRICS_PORT 9464) and worker (9091, RT-1281) listeners; the
     # check config is inline below so the release bundle needs no extra file.
     configs:
       - source: dd_openmetrics
@@ -293,7 +301,11 @@ volumes:
 # added (spec 037 FR-008). The allowlist is the signal families documented in
 # docs/observability/signals.md: Datadog bills each metric name as a custom
 # metric, so this never uses `.*`. Add a prefix only with a signals.md entry.
-# The worker's listener binds 127.0.0.1, so the agent cannot reach it yet.
+# RT-1281: the worker instance scrapes only the load-diagnosis signals listed in
+# signals.md §3 (queue lag, job duration and failures, outbox backlog and drain,
+# DB pool). The pattern is anchored at the start only, so a counter's `_total`
+# and a histogram's `_bucket`/`_sum`/`_count` series still match; each family
+# has a bounded label set.
 configs:
   dd_openmetrics:
     content: |
@@ -305,3 +317,9 @@ configs:
             - "^(http|auth|tenant|validation|suspicious|cross_tenant|idempotency|db|redis|queue|worker|outbox|sale|erpnext|shift|unknown_item|catalog|settlement)_.*"
           tags:
             - service:backend-api
+        - openmetrics_endpoint: http://worker:9091/metrics
+          namespace: dp2
+          metrics:
+            - "^(queue_lag_seconds|worker_job_duration_seconds|worker_processing_failure|outbox_pending_total|outbox_drain_duration_seconds|db_pool_in_use|db_pool_waiters)"
+          tags:
+            - service:backend-worker
