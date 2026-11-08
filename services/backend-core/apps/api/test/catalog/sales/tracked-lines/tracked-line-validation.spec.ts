@@ -763,6 +763,17 @@ describe("RT-451 S2 TLV — the check order and the single reason", () => {
     conforms(expired.body);
   });
 
+  it("RT-451 comment 16246: a lot without an expiry is expired for a product that requires one, accepted otherwise", async () => {
+    if (skip()) return;
+    gateOn();
+    const required = await identity(P_SUGGEST, `NOEXP-${key()}`, null);
+    const res = await validate(TOKEN, line(P_SUGGEST, { identityId: required }));
+    expect(res.body).toMatchObject({ outcome: "refused", reason: "expired" });
+    conforms(res.body);
+    const optional = await identity(P_OFF, `NOEXP-OFF-${key()}`, null);
+    expect((await validate(TOKEN, line(P_OFF, { identityId: optional }))).body.outcome).toBe("accepted");
+  });
+
   it("Q12: quantity never refuses, and nothing is reserved", async () => {
     if (skip()) return;
     gateOn();
@@ -817,6 +828,45 @@ describe("RT-451 S2 TLV — the FEFO suggestion (G7-13)", () => {
     await qualityHold(earliest);
     const next = await validate(TOKEN, line(P_SUGGEST, { identityId: later }));
     expect(next.body.fefoSuggestion?.identityId).not.toBe(earliest);
+  });
+
+  it("never suggests a lot without an expiry for an expiry_required product, even with the only positive position", async () => {
+    if (skip()) return;
+    gateOn();
+    const product = randomUUID();
+    await E().admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by, tracking_mode, expiry_required)
+       VALUES ($1, $2, 'FEFO no expiry', 'standard', $3, $3, 'batch', true)`,
+      [product, TENANT, MANAGER],
+    );
+    const undated = await identity(product, `UNDATED-${key()}`, null);
+    const dated = await identity(product, `DATED-${key()}`, await businessDate(10));
+    const target = await identity(product, `TARGET-${key()}`, await businessDate(20));
+    const location = (
+      await E().admin.query<{ id: string }>(`SELECT id::text AS id FROM stock_locations WHERE store_id = $1 AND kind = 'primary'`, [STORE])
+    ).rows[0]!.id;
+    await E().admin.query(
+      `INSERT INTO stock_movements
+         (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason,
+          occurred_at, created_by, stock_location_id, inventory_status, tracking_identity_id)
+       VALUES (gen_random_uuid(), $1, $2, 'adjustment', 5, 'ea', $3, 'rt451 fixture', now(), $4, $5, 'sellable', $6)`,
+      [TENANT, STORE, product, MANAGER, location, undated],
+    );
+    await E().admin.query(
+      `UPDATE tenant_inventory_settings SET sale_effects_activated_at = now(), sale_effects_activated_by = $2 WHERE tenant_id = $1`,
+      [TENANT, MANAGER],
+    );
+    try {
+      const res = await validate(TOKEN, line(product, { identityId: target }));
+      expect(res.body.outcome).toBe("accepted");
+      // Positive-position-first would rank the undated lot first; fail closed leaves it out.
+      expect(res.body.fefoSuggestion).toMatchObject({ identityId: dated });
+    } finally {
+      await E().admin.query(
+        `UPDATE tenant_inventory_settings SET sale_effects_activated_at = NULL, sale_effects_activated_by = NULL WHERE tenant_id = $1`,
+        [TENANT],
+      );
+    }
   });
 
   it("under off (no expiry required): no suggestion", async () => {

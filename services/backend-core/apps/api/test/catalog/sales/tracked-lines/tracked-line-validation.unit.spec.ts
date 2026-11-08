@@ -51,7 +51,7 @@ describe("identityRefusal (checks 3 to 7, first failure wins)", () => {
     ...over,
   });
   const decide = (identity: TrackedLineIdentityFacts | null) =>
-    identityRefusal({ productId: PRODUCT, identity, businessDate: TODAY });
+    identityRefusal({ productId: PRODUCT, identity, businessDate: TODAY, expiryRequired: false });
 
   it.each<[string, TrackedLineIdentityFacts | null, string | null]>([
     ["no identity", null, "unknown_identity"],
@@ -64,6 +64,15 @@ describe("identityRefusal (checks 3 to 7, first failure wins)", () => {
     ["without an expiry", lot(), null],
   ])("%s → %s", (_why, identity, reason) => {
     expect(decide(identity)).toBe(reason);
+  });
+
+  it("RT-451 comment 16246: without an expiry on a product that requires one → expired (fail closed), after the holds", () => {
+    const required = (identity: TrackedLineIdentityFacts) =>
+      identityRefusal({ productId: PRODUCT, identity, businessDate: TODAY, expiryRequired: true });
+    expect(required(lot())).toBe("expired");
+    expect(required(lot({ qualityHold: true }))).toBe("held");
+    expect(required(lot({ expiryDate: TODAY }))).toBeNull();
+    expect(required(lot({ expiryDate: "2026-11-07" }))).toBe("expired");
   });
 });
 

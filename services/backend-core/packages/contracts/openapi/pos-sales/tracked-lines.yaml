@@ -69,7 +69,13 @@ info:
     `expiryDate`, inclusive, at the selling store's business date in the
     store's time zone, resolved by the SERVER at `validatedAt`. The till's
     clock is never used. A lot is `expired` from the first business day after
-    its `expiryDate`, with no event required.
+    its `expiryDate`, with no event required. For a product that requires an
+    expiry (`expiry_required`), an identity WITHOUT an `expiryDate` is treated
+    as expired, fail closed (RT-451 comment 16246): it is never listed by
+    `posListTrackedLots` and the TLV refuses it as `expired`. Such a lot comes
+    from ERP data without an expiry, or from `expiry_required` being switched
+    on after the identity existed (a required expiry is never cleared by a
+    correction); either way it surfaces as a refusal, not a sale.
 
     FEFO (RT-50 Q10, G7-13) is suggest-only. The tenant policy is `off` or
     `suggest`. Where the tenant has set none, the effective policy is
@@ -158,8 +164,9 @@ paths:
         code exists in the tenant); then `wrong_product` (the identity belongs
         to another product of the tenant); then `recalled` (an active
         `recall_hold`); then `held` (an active `quality_hold`); then
-        `expired` (its `expiryDate` is before the store's business date).
-        Nothing else is checked: a TLV never refuses on quantity and never
+        `expired` (its `expiryDate` is before the store's business date, or
+        the product requires an expiry and the identity has none, fail
+        closed). Nothing else is checked: a TLV never refuses on quantity and never
         reserves stock (RT-50 Q12).
 
         Identity. `identity` names the lot by `identityId`, or by the scanned
@@ -232,8 +239,9 @@ paths:
         - device: []
       description: >
         For `productId` at the caller's store, returns the identities that are
-        sellable and not held: not expired at the store's business date (G7-5),
-        with no active `quality_hold` or `recall_hold`. Each carries its expiry,
+        sellable and not held: not expired at the store's business date (G7-5;
+        for an `expiry_required` product, a lot without an expiry counts as
+        expired), with no active `quality_hold` or `recall_hold`. Each carries its expiry,
         the server-computed FEFO rank (G7-13) and the advisory sellable
         position. The list is a hint for choosing a lot; the TLV
         (`posValidateTrackedLine`) is the check, and a lot offered here can
@@ -251,7 +259,9 @@ paths:
         non-expired lot (every lot listed here is already non-held). When the policy is `off`,
         `fefoRank` is null on every lot and the array is ordered by `expiryDate`
         (a lot without one last), then `code`. A product that is not
-        batch-tracked has no lots: the answer is a 200 with an empty `lots`.
+        batch-tracked, or that the TLV would refuse as `not_sellable`
+        (retired, or inactive at the caller's store by its Store Override or
+        itself), has no lots: the answer is a 200 with an empty `lots`.
         A product that is not in the tenant, or not visible to the caller, is
         a non-disclosing 404.
 
@@ -546,7 +556,8 @@ components:
             stated on `posValidateTrackedLine`, so a refusal carries exactly one
             code. `unknown_identity`: no such identity in the
             tenant. `wrong_product`: the identity belongs to another product.
-            `expired`: its expiry is before the store's business date.
+            `expired`: its expiry is before the store's business date, or the
+            product requires an expiry and the identity has none.
             `held`: an active quality hold. `recalled`: an active recall hold.
             `profile_mismatch`: the product's Tracking Profile does not allow
             lot selling (`mode` `none`), a product-level check.
@@ -648,8 +659,8 @@ components:
             $ref: "#/components/schemas/TrackedLotRow"
           description: >
             Sellable, non-held lots in rank order (or, with the policy `off`, by
-            expiry then code). Empty for a product that is not batch-tracked or
-            has no sellable lot.
+            expiry then code). Empty for a product that is not batch-tracked,
+            not sellable at the caller's store, or has no sellable lot.
 
     Error:
       type: object
