@@ -141,7 +141,7 @@ function Shell({
     <div className="surface surface--v4">
       {/* RT-821: the daily report is reached from here, not from the sidebar (UX-09). */}
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.daily")}
         title={t("sales.list.title")}
         subtitle={t.rich("sales.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         facts={facts ? { label: t("sales.band.label"), items: facts } : undefined}

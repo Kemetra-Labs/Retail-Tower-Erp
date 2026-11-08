@@ -54,6 +54,7 @@ import {
   trackingHolds,
   trackingIdentities,
   trackingIdentityExpiryCorrections,
+  trackedLineValidations,
 } from '@data-pulse-2/db/schema';
 
 function persistedColumns(table: unknown): string[] {
@@ -307,6 +308,35 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       'command_fingerprint',
       'created_by',
       'created_at',
+    ],
+  },
+  {
+    // RT-451 S2 (0087): the Tracked Line Validation record — opaque ids, an
+    // operator UUID (an operational actor), a lot code, dates, an exact
+    // quantity, enumerated codes, a till-local draft line ref (never PII), a
+    // revision counter and a timestamp.
+    name: 'tracked_line_validations',
+    table: trackedLineValidations,
+    columns: [
+      'id',
+      'tenant_id',
+      'store_id',
+      'device_id',
+      'operator_user_id',
+      'auth_path',
+      'tenant_product_ref',
+      'requested_identity_id',
+      'requested_code',
+      'scanned_expiry_date',
+      'resolved_identity_id',
+      'suggested_identity_id',
+      'selection',
+      'quantity',
+      'draft_line_ref',
+      'outcome',
+      'refusal_reason',
+      'safety_revision',
+      'validated_at',
     ],
   },
   {

@@ -353,7 +353,7 @@ function StoreView({
     <div className="surface inventory--v4">
       <BackLink to="/inventory" label={t("inventory.store.back")} />
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={name ? <bdi dir="auto">{name}</bdi> : t("inventory.store.title")}
         subtitle={t("inventory.store.sub")}
         facts={facts ? { label: t("inventory.band.store.label"), items: facts } : undefined}

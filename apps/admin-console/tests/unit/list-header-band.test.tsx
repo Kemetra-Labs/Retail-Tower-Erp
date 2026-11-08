@@ -276,11 +276,11 @@ describe("Ink drawer header", () => {
 describe("applied to the existing list pages", () => {
   // Navigation-group heading of each list route (nav-model.ts).
   const PAGES: Record<string, string> = {
-    "src/sales/SaleList.tsx": "shell.nav.section.operations",
-    "src/catalog/CatalogProductList.tsx": "shell.nav.section.operations",
-    "src/devices/DeviceList.tsx": "shell.nav.section.operations",
-    "src/shift-closes/ShiftCloseList.tsx": "shell.nav.section.operations",
-    "src/inventory/InventoryStores.tsx": "shell.nav.section.operations",
+    "src/sales/SaleList.tsx": "shell.nav.section.daily",
+    "src/catalog/CatalogProductList.tsx": "shell.nav.section.stock",
+    "src/devices/DeviceList.tsx": "shell.nav.section.daily",
+    "src/shift-closes/ShiftCloseList.tsx": "shell.nav.section.daily",
+    "src/inventory/InventoryStores.tsx": "shell.nav.section.stock",
     "src/erp-status/ErpStatus.tsx": "erp.nav.section",
     "src/audit/AuditSearch.tsx": "erp.nav.section",
     "src/stores/StoreList.tsx": "shell.nav.section.management",
@@ -295,6 +295,30 @@ describe("applied to the existing list pages", () => {
     expect(src).not.toMatch(/<PageHeader\b/);
     expect(src.match(/<ListHeaderBand\b/g)).toHaveLength(1);
   });
+
+  // RT-1291: every page of the old "Operations" group names the group that now holds it.
+  const SPLIT_PAGES: Record<string, string> = {
+    ...PAGES,
+    "src/reports/ReportsIndex.tsx": "shell.nav.section.daily",
+    "src/unknown-items/UnknownItemList.tsx": "shell.nav.section.stock",
+    "src/inventory/InventoryStore.tsx": "shell.nav.section.stock",
+    "src/inventory/InventoryProduct.tsx": "shell.nav.section.stock",
+    "src/stock-discrepancies/StockDiscrepancyStores.tsx": "shell.nav.section.stock",
+    "src/stock-discrepancies/StockDiscrepancyStore.tsx": "shell.nav.section.stock",
+    "src/tracking/TrackingHolds.tsx": "shell.nav.section.stock",
+    "src/tracking/TrackingIdentityDetail.tsx": "shell.nav.section.stock",
+  };
+
+  test.each(Object.entries(SPLIT_PAGES))(
+    "%s uses the heading of its new navigation group",
+    (file, key) => {
+      const src = read(file);
+      expect(src).not.toContain("shell.nav.section.operations");
+      if (key.endsWith(".daily") || key.endsWith(".stock")) {
+        expect(src).toContain(`group={t("${key}")}`);
+      }
+    },
+  );
 
   test("the band takes no children: notes and banners sit below it", () => {
     // Always self-closing: a closing tag would mean children inside the band.

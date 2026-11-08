@@ -56,8 +56,8 @@ interface ProductRow {
   readonly sellable: boolean;
 }
 
-interface ContextRow {
-  readonly business_date: string | null;
+export interface ContextRow {
+  readonly business_date: string;
   readonly safety_revision: string;
   readonly positions_live: boolean;
 }
@@ -84,7 +84,7 @@ const CONTEXT_SQL = `
  * `$1` tenant, `$2` product, `$3` store, `$4` business date, `$5` positions
  * live, `$6` positive-position-first (policy `suggest`), `$7` limit.
  */
-const LOTS_SQL = `
+export const LOTS_SQL = `
   SELECT i.id::text AS identity_id, i.code, i.expiry_date::text AS expiry_date,
          CASE WHEN $5::boolean THEN COALESCE(pos.quantity, 0)::text END AS sellable_position
     FROM tracking_identities i
@@ -103,6 +103,25 @@ const LOTS_SQL = `
    ORDER BY CASE WHEN $6::boolean AND $5::boolean AND COALESCE(pos.quantity, 0) > 0 THEN 0 ELSE 1 END,
             i.expiry_date ASC NULLS LAST, i.code COLLATE "C" ASC, i.id
    LIMIT $7`;
+
+/** RT-451 S2: whether the tenant has switched tracked selling on (no settings row reads OFF). */
+export async function tenantSwitchedOn(client: PoolClient, tenantId: string): Promise<boolean> {
+  const tenantSwitch = await client.query<{ enabled: boolean }>(TENANT_SWITCH_SQL, [tenantId]);
+  return tenantSwitch.rows[0]?.enabled === true;
+}
+
+/**
+ * The store's business date, the tenant's Safety Revision and whether
+ * positions are live; null when the store does not resolve in the tenant (the
+ * store comes from the credential, so that is the same 404).
+ */
+export async function readStoreContext(client: PoolClient, tenantId: string, storeId: string): Promise<ContextRow | null> {
+  const row = (await client.query<Omit<ContextRow, "business_date"> & { business_date: string | null }>(CONTEXT_SQL, [
+    tenantId,
+    storeId,
+  ])).rows[0];
+  return row && row.business_date !== null ? { ...row, business_date: row.business_date } : null;
+}
 
 @Injectable()
 export class TrackedLotsService {
@@ -125,13 +144,11 @@ export class TrackedLotsService {
   ): Promise<TrackedLotList | null> {
     // RT-451 S2: tracked selling is in effect only when the tenant has switched
     // it on (the deployment gate is the controller's); off is the same 404.
-    const tenantSwitch = await client.query<{ enabled: boolean }>(TENANT_SWITCH_SQL, [input.tenantId]);
-    if (tenantSwitch.rows[0]?.enabled !== true) return null;
+    if (!(await tenantSwitchedOn(client, input.tenantId))) return null;
     const product = (await client.query<ProductRow>(PRODUCT_SQL, [input.productId, input.tenantId])).rows[0];
     if (!product) return null;
-    const context = (await client.query<ContextRow>(CONTEXT_SQL, [input.tenantId, input.storeId])).rows[0];
-    // The store comes from the credential; a store outside the tenant is the same 404.
-    if (!context || context.business_date === null) return null;
+    const context = await readStoreContext(client, input.tenantId, input.storeId);
+    if (context === null) return null;
 
     const policy = effectiveFefoPolicy({ expiryRequired: product.expiry_required });
     const base = {

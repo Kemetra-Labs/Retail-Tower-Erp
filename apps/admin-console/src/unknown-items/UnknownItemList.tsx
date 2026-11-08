@@ -275,7 +275,7 @@ export function UnknownItemList(): React.JSX.Element {
   return (
     <div className="surface surface--v4">
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={t("unknownItems.title")}
         subtitle={
           activeTenantName

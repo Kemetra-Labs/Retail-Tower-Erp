@@ -6,12 +6,19 @@ info:
     RT-450 ([GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21;
     RT-50 Gate 7 follow-up F3; rules G7-8 and G7-13 in RT-50 comments 11763 and
     11764; owner decisions RT-50 comment 11765: Q4, Q5, Q10, Q11 and Q12).
-    RUNTIME STATUS: `posValidateTrackedLine` carries `x-runtime-status:
-    contract-only` until its RT-451 runtime. `posListTrackedLots` is served
-    since RT-451 slice S1, behind a deployment gate that is off by default
-    (while off it answers the non-disclosing 404). The POS MUST NOT call
-    either operation before RT-451 is deployed and tracked selling is
-    activated for the tenant (a per-tenant flag, default off).
+    RUNTIME STATUS: `posListTrackedLots` is served since RT-451 slice S1 and
+    `posValidateTrackedLine` since RT-451 slice S2. Both answer only while
+    tracked selling is on for the caller's tenant, which needs TWO switches:
+    the deployment gate `POS_TRACKED_SELLING_ENABLED` (off by default) AND the
+    tenant's own switch (`tenant_inventory_settings.tracked_selling_enabled`,
+    off by default, changed through `setTrackedSellingSetting` in
+    `inventory/inventory.yaml`). While either is off, both operations answer
+    an authenticated, well-formed request with the non-disclosing 404 (see
+    `NotFound`) and record nothing; a missing or refused credential is still
+    its 401 or 403, and a malformed request its 400. The POS reads
+    the combined state from the safety feed's `tracked_selling_enabled`
+    (`inventory/inventory-safety-feed.yaml`) and MUST NOT call either
+    operation while it is false.
 
     Two POS-facing operations that let a till sell a lot-tracked product
     online:
@@ -130,10 +137,6 @@ paths:
     post:
       summary: Validate one lot for one line before the till lets it complete (TLV).
       operationId: posValidateTrackedLine
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-450 is contract-only. The runtime ships in RT-451 (RT-50 F4) behind
-        a default-off per-tenant activation flag.
       tags: [pos-tracked-lines]
       security:
         - operatorAuthorization: []
@@ -709,8 +712,15 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: >
-        `not_found` (404): the product does not resolve within the caller's
-        tenant. Non-disclosing: identical for a cross-tenant, out-of-scope and
+        `not_found` (404), on either of two causes, with one body: (1) tracked
+        selling is off for the caller's tenant, because the deployment gate
+        `POS_TRACKED_SELLING_ENABLED` is off or the tenant's switch
+        (`tenant_inventory_settings.tracked_selling_enabled`,
+        `setTrackedSellingSetting`) is off; or (2) the product does not
+        resolve within the caller's tenant. It is answered after
+        authentication and request validation (401, 403 and 400 come first).
+        Nothing is recorded. Non-disclosing:
+        identical for every cause, and for a cross-tenant, out-of-scope and
         genuinely absent id (§II/§XII). A refused LOT is never a 404: it is a
         200 `refused` on `posValidateTrackedLine`.
       content:

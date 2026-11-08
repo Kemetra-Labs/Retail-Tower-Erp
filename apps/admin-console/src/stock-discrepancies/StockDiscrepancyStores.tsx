@@ -206,7 +206,7 @@ export function StockDiscrepancyStores(): React.JSX.Element {
   return (
     <div className="surface surface--v4">
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={t("stock.title")}
         subtitle={t.rich("stock.stores.bandSub", { tenant: <bdi>{tenantName ?? ""}</bdi> })}
       />

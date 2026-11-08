@@ -583,7 +583,7 @@ function IdentityView({
       <div className="surface inventory--v4 tracking">
         <BackLink to={back} label={t("tracking.identity.back")} />
         <ListHeaderBand
-          group={t("shell.nav.section.operations")}
+          group={t("shell.nav.section.stock")}
           title={data ? <Machine value={data.code} /> : t("tracking.identity.titleLoading")}
           subtitle={
             data

@@ -291,7 +291,7 @@ function HoldsView({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.El
     <TrackingNamesProvider value={names}>
       <div className="surface inventory--v4 tracking">
         <ListHeaderBand
-          group={t("shell.nav.section.operations")}
+          group={t("shell.nav.section.stock")}
           title={t("tracking.title")}
           subtitle={
             holdsRole ? t.rich("tracking.sub.tenant", { tenant }) : t("tracking.sub.manager")
@@ -357,7 +357,7 @@ function NotTracked(): React.JSX.Element {
   const t = useT();
   return (
     <div className="surface">
-      <ListHeaderBand group={t("shell.nav.section.operations")} title={t("tracking.title")} />
+      <ListHeaderBand group={t("shell.nav.section.stock")} title={t("tracking.title")} />
       <div
         className="inventory__panel-body inventory__panel-body--solo"
         data-testid="tracking-not-tracked"

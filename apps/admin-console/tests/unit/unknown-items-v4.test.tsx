@@ -59,7 +59,7 @@ describe("Unknown items v4.0 band and drawer header", () => {
     const band = container.querySelector(".list-band") as HTMLElement;
     expect(band).not.toBeNull();
     expect(within(band).getByRole("heading", { level: 1 }).textContent).toBe("Unknown items");
-    expect(band.textContent).toContain("Operations");
+    expect(band.textContent).toContain("Stock and items");
     expect(band.textContent).toContain("POS item references awaiting review in Northstar Retail.");
     // A cursor-paged queue serves no whole-set count: nothing is claimed.
     expect(band.querySelector(".list-band__facts")).toBeNull();

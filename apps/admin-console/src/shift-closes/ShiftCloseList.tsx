@@ -262,7 +262,7 @@ export function ShiftCloseList(): React.JSX.Element {
   return (
     <div className="surface surface--shifts">
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.daily")}
         title={t("shift.list.title")}
         subtitle={t.rich("shift.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         facts={showFacts && facts ? { label: t("shift.band.label"), items: facts } : undefined}

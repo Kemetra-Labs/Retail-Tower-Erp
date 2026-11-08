@@ -365,7 +365,7 @@ function ProductView({
     <div className="surface inventory--v4">
       <BackLink to={`/inventory/stores/${target.storeId}`} label={t("inventory.product.back")} />
       <ListHeaderBand
-        group={t("shell.nav.section.operations")}
+        group={t("shell.nav.section.stock")}
         title={t("inventory.product.title")}
         subtitle={t.rich("inventory.product.sub", { ref: <Machine value={target.productId} /> })}
         facts={facts ? { label: t("inventory.band.onHand.label"), items: facts } : undefined}

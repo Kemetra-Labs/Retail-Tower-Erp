@@ -75,6 +75,14 @@ import { PosPayersService } from "./payers/pos-payers.service";
 import { TrackedLotsAuthGuard } from "./tracked-lines/tracked-lots-auth.guard";
 import { TrackedLotsController } from "./tracked-lines/tracked-lots.controller";
 import { TrackedLotsService } from "./tracked-lines/tracked-lots.service";
+import {
+  PgTrackedLineCashierVerifier,
+  TRACKED_LINE_CASHIER_VERIFIER,
+  type TrackedLineCashierVerifier,
+} from "./tracked-lines/tracked-line-cashier";
+import { TrackedLineValidationAuthGuard } from "./tracked-lines/tracked-line-validation-auth.guard";
+import { TrackedLineValidationController } from "./tracked-lines/tracked-line-validation.controller";
+import { TrackedLineValidationService } from "./tracked-lines/tracked-line-validation.service";
 
 /**
  * 008 Option Y wiring (its PosOperatorSaleAuthGuard is retired; 031 replaced
@@ -101,6 +109,9 @@ import { TrackedLotsService } from "./tracked-lines/tracked-lots.service";
     // RT-451 S1: the POS lot lookup (envelope or device token alone; behind
     // the default-off tracked-selling gate).
     TrackedLotsController,
+    // RT-451 S2: the Tracked Line Validation (envelope, or the device token
+    // with a live cashier claim; behind the gate AND the tenant switch).
+    TrackedLineValidationController,
   ],
   providers: [
     SalesService,
@@ -110,6 +121,7 @@ import { TrackedLotsService } from "./tracked-lines/tracked-lots.service";
     RefundExecutionsService,
     SaleHistoryService,
     TrackedLotsService,
+    TrackedLineValidationService,
     {
       provide: IDENTITY_PROVIDER_PORT,
       useFactory: (pool: Pool): IdentityProviderPort =>
@@ -185,6 +197,15 @@ import { TrackedLotsService } from "./tracked-lines/tracked-lots.service";
     // RT-451 S1: the lot lookup's credential gate (the envelope guard above,
     // or PosDeviceAuthGuard alone). Class-referenced, so reflection-instantiated.
     TrackedLotsAuthGuard,
+    // RT-451 S2: the TLV's credential gate and its live cashier claim check
+    // (a cashier admission live at the server's now, plus live eligibility).
+    {
+      provide: TRACKED_LINE_CASHIER_VERIFIER,
+      useFactory: (pool: Pool, lookupPool: Pool): TrackedLineCashierVerifier =>
+        new PgTrackedLineCashierVerifier(pool, new CashierEligibilityRepository(lookupPool)),
+      inject: [PG_POOL, AUTH_LOOKUP_POOL],
+    },
+    TrackedLineValidationAuthGuard,
     // ADR 0009 (audit M-2): per-device write rate limit, layered AFTER the
     // envelope guard. A class-referenced @UseGuards enhancer is reflection-
     // instantiated, so it must use plain reflectable DI (no factory): RateLimiter

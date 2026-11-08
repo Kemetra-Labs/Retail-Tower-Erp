@@ -21,7 +21,7 @@ function GateFrame({ children }: Readonly<{ children: React.ReactNode }>): React
   const t = useT();
   return (
     <div className="surface">
-      <ListHeaderBand group={t("shell.nav.section.operations")} title={t("tracking.title")} />
+      <ListHeaderBand group={t("shell.nav.section.stock")} title={t("tracking.title")} />
       {children}
     </div>
   );
