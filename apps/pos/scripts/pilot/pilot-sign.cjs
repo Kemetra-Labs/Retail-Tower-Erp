@@ -34,6 +34,10 @@ const POWERSHELL = path.join(
   'powershell.exe',
 );
 
+/**
+ * The signtool.exe to run: POS_PILOT_SIGNTOOL when set, else the newest Windows SDK x64 one.
+ * @returns {string} the path of signtool.exe
+ */
 function findSigntool() {
   const fromEnv = process.env.POS_PILOT_SIGNTOOL;
   if (fromEnv) {
@@ -55,9 +59,13 @@ function findSigntool() {
 
 let verifiedThumbprint;
 
-// Reads the subject through the .NET store API rather than the `Cert:` drive: electron-builder runs this
-// hook with a cleared PSModulePath, under which the certificate provider (and so `Cert:`) does not load.
-// The thumbprint is validated as 40 hex characters before it reaches the command line.
+/**
+ * Reads the subject through the .NET store API rather than the `Cert:` drive: electron-builder runs this
+ * hook with a cleared PSModulePath, under which the certificate provider (and so `Cert:`) does not load.
+ * The thumbprint is validated as 40 hex characters before it reaches the command line.
+ * @param {string} thumbprint a normalized 40-hex thumbprint
+ * @returns {string} the subject of the certificate in CurrentUser\My
+ */
 function certificateSubject(thumbprint) {
   const script =
     "$s = New-Object System.Security.Cryptography.X509Certificates.X509Store('My','CurrentUser'); " +

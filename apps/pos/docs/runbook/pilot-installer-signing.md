@@ -32,8 +32,9 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
    It asks for a PFX password (never written to disk), creates a **leaf only** (CA false, Code Signing only,
    RSA 3072, SHA-256, 365 days by default), writes the password-protected PFX and the public `.cer`, and prints
    the SHA-1 thumbprint. It imports nothing into any trust store. The key is created exportable so that you can
-   make the PFX: once the PFX is safely stored (a password manager) and the secrets are set, **delete the leaf and
-   its key** from your machine and delete the working copy of the PFX:
+   make the PFX (AES-256 encrypted, read back before the script ends): once the PFX is safely stored (a password
+   manager), the secrets are set **and the first real release has succeeded** (section 6 says why), **delete the
+   leaf and its key** from your machine and delete the working copy of the PFX:
 
    ```powershell
    Remove-Item Cert:\CurrentUser\My\<thumbprint> -DeleteKey
@@ -126,3 +127,10 @@ and the lockfile; a leaked key is handled by the revocation steps above. The sam
 **Needs verification on the first dry run (not assumed):** that the signing hook also signs the uninstaller for
 the pilot config as it does for the lab config, and that `signtool` accepts the Sectigo https endpoint with
 SHA-256.
+
+**Needs verification on the first real release (the dry run reads no PFX):** the release path imports the PFX
+twice on the runner, once in memory and once with a persisted key. The PFX is AES-256 / SHA-256 encrypted (not the
+legacy TripleDES default) and the certificate script reads it back with `Get-PfxData` before it finishes, but the
+runner's own .NET import of an AES PFX is first exercised by the first release. If it fails there, nothing was
+signed or published: re-export the PFX with `Export-PfxCertificate` without `-CryptoAlgorithmOption` while the key
+still exists on your machine (so do not delete it before the first successful release), or create a new leaf.

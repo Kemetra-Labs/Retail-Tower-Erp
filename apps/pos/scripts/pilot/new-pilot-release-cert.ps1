@@ -64,7 +64,14 @@ $leaf = New-SelfSignedCertificate -Type Custom -Subject $subject `
   -NotAfter (Get-Date).AddDays($LeafDays) `
   -TextExtension @('2.5.29.19={critical}{text}CA=false', '2.5.29.37={critical}{text}1.3.6.1.5.5.7.3.3')
 
-Export-PfxCertificate -Cert $leaf -FilePath $PfxPath -Password $password | Out-Null
+# AES-256 / SHA-256 PFX encryption instead of the legacy TripleDES-SHA1 default (CWE-327): the PFX is stored as a
+# CI secret. Read it back before anything is deleted: a PFX this machine cannot read, or that holds another
+# certificate, must fail here, while the key still exists.
+Export-PfxCertificate -Cert $leaf -FilePath $PfxPath -Password $password -CryptoAlgorithmOption AES256_SHA256 | Out-Null
+$readBack = @((Get-PfxData -FilePath $PfxPath -Password $password).EndEntityCertificates)
+if ($readBack.Count -ne 1 -or $readBack[0].Thumbprint -ne $leaf.Thumbprint) {
+  throw "The exported PFX does not hold exactly the new leaf ($($leaf.Thumbprint)): do not use $PfxPath."
+}
 Export-Certificate -Cert $leaf -FilePath $CerPath -Type CERT | Out-Null
 
 Write-Host ''

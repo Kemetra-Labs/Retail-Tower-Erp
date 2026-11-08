@@ -18,6 +18,10 @@ const REFUSED_MARKERS = ['LAB TEST', 'NOT FOR PRODUCTION'];
 
 const THUMBPRINT_PATTERN = /^[0-9A-F]{40}$/;
 
+/**
+ * Refuses every certificate subject that is not exactly the pilot subject (lab markers first).
+ * @param {unknown} subject the subject read from the certificate store
+ */
 function assertPilotSubject(subject) {
   if (typeof subject !== 'string') {
     throw new Error('refusing to sign: the certificate subject is unknown');
@@ -37,6 +41,11 @@ function assertPilotSubject(subject) {
   }
 }
 
+/**
+ * Upper-cases a thumbprint and strips whitespace; it must be 40 hex characters.
+ * @param {string | undefined} value the raw POS_PILOT_CERT_SHA1 value
+ * @returns {string} the normalized thumbprint
+ */
 function normalizeThumbprint(value) {
   const normalized = (value ?? '').replaceAll(/\s+/g, '').toUpperCase();
   if (!THUMBPRINT_PATTERN.test(normalized)) {
@@ -45,6 +54,11 @@ function normalizeThumbprint(value) {
   return normalized;
 }
 
+/**
+ * A pilot signature is always timestamped: the URL must be https.
+ * @param {string | undefined} url the raw POS_PILOT_TSA_URL value
+ * @returns {string} the trimmed URL
+ */
 function assertTimestampUrl(url) {
   const text = (url ?? '').trim();
   if (!text.startsWith('https://') || /\s/.test(text) || text.length <= 'https://'.length) {
@@ -55,6 +69,11 @@ function assertTimestampUrl(url) {
   return text;
 }
 
+/**
+ * The signtool arguments: SHA-256 signature from the CurrentUser\My leaf, RFC 3161 SHA-256 timestamp, file last.
+ * @param {{ thumbprint: string, file: string, tsaUrl?: string }} options
+ * @returns {string[]} the argument list
+ */
 function buildSigntoolArgs({ thumbprint, file, tsaUrl }) {
   const tsa = assertTimestampUrl(tsaUrl);
   return [

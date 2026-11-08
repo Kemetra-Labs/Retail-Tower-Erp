@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
  */
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-// Line endings are normalised: a Windows checkout with `core.autocrlf=true` writes CRLF.
+/** Reads a file of the POS product root with its line endings normalised: `core.autocrlf=true` writes CRLF. */
 const read = (rel: string): string =>
   readFileSync(path.join(REPO_ROOT, rel), 'utf8').replaceAll('\r\n', '\n');
 const nodeRequire = createRequire(import.meta.url);
@@ -226,6 +226,11 @@ describe('RT-1294 owner certificate script', () => {
     );
   });
 
+  it('encrypts the PFX with AES-256 and reads it back before anything is deleted', () => {
+    expect(cert).toMatch(/Export-PfxCertificate [^\n]*-CryptoAlgorithmOption AES256_SHA256/);
+    expect(cert).toMatch(/Get-PfxData -FilePath \$PfxPath -Password \$password/);
+  });
+
   it('is not the lab script: no lab marker', () => {
     expect(cert).not.toMatch(/LAB TEST|NOT FOR PRODUCTION/);
   });
@@ -304,10 +309,27 @@ describe('RT-1294 CI release script', () => {
     );
   });
 
-  it('requires a Basic Constraints extension on the leaf and clears publish tokens', () => {
+  it('requires a Basic Constraints extension on the leaf', () => {
     expect(script).toMatch(/has no Basic Constraints extension/);
-    for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'BT_TOKEN']) {
-      expect(script).toContain(`'${name}'`);
-    }
+  });
+
+  it('removes the signing secrets and the publish tokens from the environment, list by list', () => {
+    // Only the names in a `foreach` list that feeds `Remove-Item "Env:$name"` count: a name that stays
+    // elsewhere in the script cannot make this pass.
+    const lists = [
+      ...script.matchAll(/foreach \(\$name in ([^)]+)\) \{\s*Remove-Item "Env:\$name"/g),
+    ].map((match) => (match[1] ?? '').split(',').map((name) => name.trim().replaceAll("'", '')));
+    expect(lists).toContainEqual(['POS_PILOT_SIGN_PFX_BASE64', 'POS_PILOT_SIGN_PFX_PASSWORD']);
+    const stray = lists.find((names) => names.includes('CSC_LINK'));
+    expect(stray).toEqual(
+      expect.arrayContaining([
+        'CSC_KEY_PASSWORD',
+        'WIN_CSC_LINK',
+        'WIN_CSC_KEY_PASSWORD',
+        'GH_TOKEN',
+        'GITHUB_TOKEN',
+        'BT_TOKEN',
+      ]),
+    );
   });
 });

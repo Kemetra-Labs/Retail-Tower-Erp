@@ -167,6 +167,7 @@ class ReleasePosPilot(unittest.TestCase):
             summary, output = repo / "summary.md", repo / "output.txt"
 
             def run(event: str, ref: str, dry_run: str, at: str = sha) -> subprocess.CompletedProcess:
+                """Runs the resolve step for an event, ref and dry-run input, at a commit (default: main's)."""
                 output.unlink(missing_ok=True)
                 summary.unlink(missing_ok=True)
                 env = {"EVENT": event, "REF": ref, "SHA": at, "DRY_RUN": dry_run,
@@ -204,6 +205,7 @@ class ReleasePosPilot(unittest.TestCase):
 
     def test_every_job_has_exactly_the_permissions_it_needs(self):
         def permissions(name: str) -> list[str]:
+            """The job-level `permissions:` entries of a job, without trailing comments."""
             block = re.search(r"^    permissions:\n((?:      .*\n)+)", job(self.text, name) + "\n", re.M)
             self.assertIsNotNone(block, name)
             return [re.sub(r"\s+#.*$", "", line.strip()) for line in block.group(1).splitlines()]
@@ -222,6 +224,7 @@ class ReleasePosPilot(unittest.TestCase):
 
     def test_manifest_and_publish_run_only_when_every_gate_succeeded(self):
         def words(text: str) -> str:
+            """The text on one line: a folded `if:` may wrap anywhere."""
             return " ".join(text.split())
 
         manifest_if = words(job_if(job(self.text, "manifest")))
@@ -250,10 +253,12 @@ class ReleasePosPilot(unittest.TestCase):
         digest = "sha256:" + hashlib.sha256(payload).hexdigest()
 
         def good() -> dict:
+            """A fresh manifest that the publish check must accept."""
             return {"product": "pos-pilot", "signing": "pilot", "mode": "release", "tag": tag, "source": {"sha": sha},
                     "artifacts": [{"name": "pos-installer", "file": exe, "digest": digest}]}
 
         def run(manifest: dict) -> subprocess.CompletedProcess:
+            """Runs the publish step's check on a package holding the installer and this manifest."""
             with tempfile.TemporaryDirectory() as tmp:
                 temp = Path(tmp)
                 (temp / "pkg").mkdir()
