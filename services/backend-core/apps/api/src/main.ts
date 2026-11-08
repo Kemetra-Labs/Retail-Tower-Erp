@@ -4,12 +4,14 @@ import "./instrumentation";
 import "reflect-metadata";
 
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { type Logger } from "@data-pulse-2/shared";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 
 import { AppModule } from "./app.module";
 import { GlobalExceptionFilter } from "./common/exception.filter";
+import { registerJsonBodyParsers } from "./common/json-body-limits";
 import { checkTrustProxyConfig, resolveTrustProxySetting } from "./common/trust-proxy";
 import { LoggingInterceptor } from "./common/logging.interceptor";
 import { getRootLogger } from "./common/root-logger.module";
@@ -46,7 +48,7 @@ async function bootstrap(): Promise<void> {
     "openapi contracts loaded",
   );
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app: NestExpressApplication = await NestFactory.create(AppModule, { bufferLogs: true });
 
   // Trust the first reverse-proxy hop (Caddy / LB) so req.ip reflects the
   // real client IP. Without this, rate-limit buckets and audit events all
@@ -84,6 +86,9 @@ async function bootstrap(): Promise<void> {
   // RT-473 S2: the logo upload routes take raw bytes under any Content-Type;
   // this runs before Nest's JSON / urlencoded parsers (registered at init).
   app.use(logoUploadPassthrough);
+  // RT-1284: a 32 MiB JSON limit for binViewReportSnapshot only; every other
+  // route keeps the 100 kB default (sizing in common/json-body-limits.ts).
+  registerJsonBodyParsers(app);
 
   // Global interceptors — RequestIdInterceptor must run first so the others
   // can read request.requestId.
