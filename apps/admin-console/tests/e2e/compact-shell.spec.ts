@@ -305,6 +305,10 @@ test.describe("compact shell checks at 390px", () => {
         await page.reload();
         await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
       }
+      // RT-1275: wait for the rendered page before scanning. data-theme is set by index.html's
+      // pre-paint script, before React renders, so it is no readiness signal; scanning early gave
+      // axe a near-empty page (5 passing rules, the vacuous-pass guard failed in CI).
+      await expect(page.locator(".content h1")).toBeVisible();
       await expectNoAxeViolations(page, `${theme} closed`);
       await menuButton(page, t).tap();
       await expect(drawer(page, t)).toBeVisible();
