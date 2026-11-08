@@ -48,9 +48,9 @@
 -- DATA-LIFECYCLE CLASSIFICATION (§XIV): BUSINESS-CLASS. A boolean, a timestamp
 -- and an operator UUID per tenant. No PII, no money.
 --
--- Reversal: 0086_tracked_selling_tenant_switch.down.sql drops ONLY these three
--- columns and their two constraints, and so DISCARDS every tenant's switch
--- state (every tenant reads OFF again). The audit rows stay.
+-- Reversal: 0086_tracked_selling_tenant_switch.down.sql REFUSES while any
+-- tenant has tracked selling switched on; otherwise it drops ONLY these three
+-- columns and their two constraints (the audit rows stay).
 
 BEGIN;
 

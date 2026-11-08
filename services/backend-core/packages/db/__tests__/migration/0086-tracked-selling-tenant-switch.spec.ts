@@ -11,8 +11,11 @@
  *     with a recorded change;
  *   - the existing tenant RLS still isolates the new columns, and an app-role
  *     write to another tenant's row changes nothing;
- *   - UP -> DOWN -> UP round-trips, also run by a NOSUPERUSER migration owner
- *     under FORCE RLS; the down drops ONLY the three columns and two CHECKs.
+ *   - the down REFUSES while any tenant is switched on (OD-T7: the switch
+ *     never turns itself off), also as a NOSUPERUSER migration owner under
+ *     FORCE RLS, where a bare SELECT would see no rows;
+ *   - UP -> DOWN -> UP round-trips once every tenant is off, also run by that
+ *     owner; the down drops ONLY the three columns and two CHECKs.
  *
  * Docker policy: missing Docker is a HARD failure unless
  * MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it).
@@ -184,10 +187,29 @@ describe("0086: UP -> DOWN -> UP", () => {
       )
     ).rows.map((r) => r.column_name);
 
-  it("drops ONLY the three columns and two CHECKs, keeps every row, and comes back OFF", async () => {
+  it("refuses while a tenant is switched on, also as a NOSUPERUSER migration owner, and changes nothing", async () => {
     if (skip()) return;
     const e = guard();
     await e.admin.query(SET_SWITCH, [TENANT_A, true, new Date(), ACTOR]);
+    try {
+      expect(await runSqlFile(e, DOWN_PATH)).toBe("P0001");
+      const owner = { role: "rt451_m1_refuse_owner", tables: ["tenants", "tenant_inventory_settings"], functions: [] };
+      await asMigrationOwner(e, owner, async () => {
+        expect(await runSqlFile(e, DOWN_PATH, owner.role)).toBe("P0001");
+      });
+      expect(await columnNames()).toEqual(expect.arrayContaining(COLUMNS));
+      const kept = await e.admin.query(`SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1`, [TENANT_A]);
+      expect(kept.rows).toEqual([{ tracked_selling_enabled: true }]);
+    } finally {
+      await e.admin.query(SET_SWITCH, [TENANT_A, false, new Date(), ACTOR]);
+    }
+  });
+
+  it("drops ONLY the three columns and two CHECKs once every tenant is off, keeps every row, and comes back OFF", async () => {
+    if (skip()) return;
+    const e = guard();
+    // Switched off after a change: the down discards the change time and actor.
+    await e.admin.query(SET_SWITCH, [TENANT_A, false, new Date(), ACTOR]);
     const before = await columnNames();
     await e.admin.query(downSql);
     const after = await columnNames();
@@ -205,7 +227,7 @@ describe("0086: UP -> DOWN -> UP", () => {
 
   it("runs DOWN and UP as a NOSUPERUSER migration owner under FORCE RLS", async () => {
     if (skip()) return;
-    const owner = { role: "rt451_m1_owner", tables: ["tenant_inventory_settings"], functions: [] };
+    const owner = { role: "rt451_m1_owner", tables: ["tenants", "tenant_inventory_settings"], functions: [] };
     await asMigrationOwner(guard(), owner, async () => {
       expect(await runSqlFile(guard(), DOWN_PATH, owner.role)).toBeNull();
       expect(await runSqlFile(guard(), UP_PATH, owner.role)).toBeNull();

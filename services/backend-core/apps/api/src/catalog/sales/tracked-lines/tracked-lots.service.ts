@@ -20,8 +20,9 @@
  * Read only: nothing is written, nothing is reserved, quantity never filters a
  * lot (Q12). A product that is not in the tenant is the non-disclosing 404
  * (`null` here), and so is every product while the tenant has not switched
- * tracked selling on (RT-451 S2, `tenant_inventory_settings`, 0086). A product that cannot be sold as a lot (tracking mode not
- * `batch`, retired or inactive) has no lots: a 200 with an empty list.
+ * tracked selling on (RT-451 S2, `tenant_inventory_settings`, 0086). A
+ * product that cannot be sold as a lot (tracking mode not `batch`, retired or
+ * inactive) has no lots: a 200 with an empty list.
  *
  * Everything runs in ONE tenant-context transaction (RLS, FORCE on every table
  * read), so a cross-tenant id resolves to nothing.

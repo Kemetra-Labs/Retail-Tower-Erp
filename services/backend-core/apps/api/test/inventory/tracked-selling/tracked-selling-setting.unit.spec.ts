@@ -12,6 +12,7 @@ import 'reflect-metadata';
 import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 
+import { ROLES_METADATA_KEY, type RolesMetadata } from '../../../src/auth/roles.decorator';
 import { TRACKED_SELLING_GATE } from '../../../src/catalog/sales/tracked-lines/tracked-selling-gate';
 import type { TenantContextRequest } from '../../../src/context/types';
 import {
@@ -84,18 +85,14 @@ describe('TrackedSellingSettingController', () => {
     ]);
   });
 
-  it('declares the contract roles on both routes', () => {
-    const roles = (name: 'getTrackedSellingSetting' | 'setTrackedSellingSetting') => {
-      const keys = Reflect.getMetadataKeys(TrackedSellingSettingController.prototype[name]);
-      const values = keys.map((k) => Reflect.getMetadata(k, TrackedSellingSettingController.prototype[name]));
-      return JSON.stringify(values);
-    };
-    expect(roles('getTrackedSellingSetting')).toContain('store_manager');
-    expect(roles('setTrackedSellingSetting')).not.toContain('store_manager');
-    for (const name of ['getTrackedSellingSetting', 'setTrackedSellingSetting'] as const) {
-      expect(roles(name)).toContain('owner');
-      expect(roles(name)).toContain('tenant_admin');
-    }
+  it('declares the contract roles on both routes, denied as 403', () => {
+    const meta = (name: 'getTrackedSellingSetting' | 'setTrackedSellingSetting') =>
+      Reflect.getMetadata(ROLES_METADATA_KEY, TrackedSellingSettingController.prototype[name]) as RolesMetadata;
+    expect(meta('getTrackedSellingSetting')).toMatchObject({
+      any: ['owner', 'tenant_admin', 'store_manager'],
+      denyAs: 403,
+    });
+    expect(meta('setTrackedSellingSetting')).toMatchObject({ any: ['owner', 'tenant_admin'], denyAs: 403 });
   });
 });
 
