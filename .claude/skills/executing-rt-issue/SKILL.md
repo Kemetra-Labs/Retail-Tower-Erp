@@ -19,9 +19,9 @@ Read the issue's Work Mode field (`customfield_10135`) first. Then:
 | Work Mode | Chain |
 |---|---|
 | Planning | `superpowers:brainstorming` (options) → evidence from `main`, CI and Jira → `superpowers:writing-plans` when the output is a plan → decision record (see "Where output goes") |
-| Implementation | `superpowers:test-driven-development` → **`landing-gated-changes`** if any gated path is touched → `pr-review` in a fresh subagent before the PR → **`merging-rt-pull-requests`** for push, CI and merge |
+| Implementation | `superpowers:test-driven-development` → **`landing-gated-changes`** if any gated path is touched → `reviewing-pull-requests` in a fresh subagent before the PR → **`merging-rt-pull-requests`** for push, CI and merge |
 | Verification | `superpowers:verification-before-completion` throughout; `superpowers:systematic-debugging` to locate a first failing boundary (diagnosis only, no fix); **`operating-rt-lab`** for lab runs |
-| Docs | The document is the deliverable; `pr-review` (it reviews docs too) before the PR |
+| Docs | The document is the deliverable; `reviewing-pull-requests` (it reviews docs too) before the PR |
 
 Any mode: **`troubleshooting-windows-dev`** when a local command or test fails for environment reasons.
 

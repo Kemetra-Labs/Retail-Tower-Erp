@@ -12,8 +12,8 @@ suites on CircleCI, merge only on a completed green `required` on the exact head
 `--match-head-commit`, check `main` after the merge. Follow it; this skill does not restate it.
 It adds the RT facts those rules depend on, where agents go wrong.
 
-**Related:** `safe-git-pr-workflow` (signing, commit and merge mechanics on this machine),
-`pr-comments-triage` (review threads), the CircleCI server skill `debug-failing-run` (a red run),
+**Related:** `handling-git-and-prs-safely` (signing, commit and merge mechanics on this machine),
+`triaging-pr-comments` (review threads), the CircleCI server skill `debug-failing-run` (a red run),
 `reconciling-rt-jira-with-github` (its `scripts/rt_reconcile.py ci` does the post-merge checks below).
 
 ## Which remote_suite covers the change
@@ -53,6 +53,22 @@ has no skip warning, not the green job.
 Do not build a polling loop. In the desktop app, use the `ccd_pr` status tools and Auto-fix; in a
 terminal session, check once later or ask the owner to ping. A head pushed seconds ago has no
 `required` yet; `gh pr checks` can still show the previous head's results.
+
+## Red checks from GitHub release downloads
+
+Many jobs download a pinned tool from `github.com/<org>/<repo>/releases/download/...` (gitleaks,
+osv-scanner for `dependency-review`, the CodeQL bundle, the oasdiff and contracts binaries,
+Electron for the POS jobs). When GitHub's release downloads fail, all of them go red with
+`curl: (22) ... error: 504` or `HTTPError: Response code 504` before testing anything, and
+`required` turns red with them (seen 2026-11-08 on #420, #421, #422 and `main`).
+- Read each failing job to its first error (`gh run view --job <id> --log-failed`); do not assume
+  every red job has the same cause.
+- Confirm it is external: the same 504 on `main` or an unrelated branch, or reproduce it with
+  `curl -s -o /dev/null -L -r 0-1023 -w '%{http_code}' <release-url>`. The GitHub status page can
+  still say "operational".
+- Change nothing in the PR. Re-run only the failed jobs (`gh run rerun <run-id> --failed`) once the
+  `curl` check succeeds (200, or 206 because it asks for a byte range); a push or a re-run during the outage just fails again.
+- Never merge past the red `required` because "it is only infra": the bypass is the owner's.
 
 ## After the merge
 
