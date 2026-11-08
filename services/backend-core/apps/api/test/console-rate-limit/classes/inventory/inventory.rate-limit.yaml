@@ -12,6 +12,7 @@ getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
 getSafetyTtlSetting: cheapRead
+getTrackedSellingSetting: cheapRead
 getTrackingHold: cheapRead
 getTrackingIdentity: cheapRead
 getTrackingIdentityPositions: expensiveRead
@@ -29,3 +30,4 @@ recordStockCount: write
 releaseTrackingHold: write
 setReturnLandingPolicy: write
 setSafetyTtlSetting: write
+setTrackedSellingSetting: write

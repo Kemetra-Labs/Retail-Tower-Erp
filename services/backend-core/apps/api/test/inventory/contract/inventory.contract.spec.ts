@@ -92,6 +92,9 @@ const OPERATION_IDS = [
   "listTrackingResolutionQueue",
   "bindTrackingResolution",
   "listSaleLineFindings",
+  // RT-451 S2 (contract-only): the tenant's tracked-selling on/off setting.
+  "getTrackedSellingSetting",
+  "setTrackedSellingSetting",
 ] as const;
 
 // Operator-surface ops use cookieAuth.
@@ -125,6 +128,8 @@ const OPERATOR_OPERATION_IDS = [
   "listTrackingResolutionQueue",
   "bindTrackingResolution",
   "listSaleLineFindings",
+  "getTrackedSellingSetting",
+  "setTrackedSellingSetting",
 ];
 
 // Write ops that MUST carry a required Idempotency-Key.
@@ -141,9 +146,9 @@ const WRITE_OPERATION_IDS = [
 ];
 // releaseTrackingHold is naturally idempotent (a released hold is final; a
 // second release writes nothing), so it carries no Idempotency-Key.
-// setReturnLandingPolicy and setSafetyTtlSetting are PUTs of the whole value:
-// repeating one is naturally idempotent, so it carries no Idempotency-Key (and
-// is in neither list).
+// setReturnLandingPolicy, setSafetyTtlSetting and setTrackedSellingSetting are
+// PUTs of the whole value: repeating one is naturally idempotent, so it carries
+// no Idempotency-Key (and is in neither list).
 const READ_OPERATION_IDS = [
   "getOnHand",
   "listStockMovements",
@@ -163,6 +168,7 @@ const READ_OPERATION_IDS = [
   "listTrackingIdentityExpiryCorrections",
   "listTrackingResolutionQueue",
   "listSaleLineFindings",
+  "getTrackedSellingSetting",
 ];
 
 const MOVEMENTS_PATH = "/api/inventory/v1/stores/{storeId}/movements";
@@ -187,6 +193,7 @@ const IDENTITY_POSITIONS_PATH = "/api/inventory/v1/tracking-identities/{identity
 const SALE_LINE_FINDINGS_PATH = "/api/inventory/v1/safety/sale-line-findings";
 const RESOLUTION_QUEUE_PATH = "/api/inventory/v1/tracking-resolutions";
 const RESOLUTION_BIND_PATH = "/api/inventory/v1/tracking-resolutions/{saleId}/bind";
+const TRACKED_SELLING_PATH = "/api/inventory/v1/settings/tracked-selling";
 
 // Field-name substrings forbidden anywhere in the contract (§XIV — no PII /
 // money / payment / tender on the inventory ledger in v1).
@@ -359,7 +366,7 @@ describe("inventory/inventory.yaml — loadability", () => {
 // 2. Operations present, uniquely named, correctly secured
 // ===========================================================================
 describe("inventory/inventory.yaml — operations", () => {
-  it("declares exactly the six 009 operationIds, RT-432's listStockLocations, RT-448's listTrackingIdentities, RT-435's four, RT-449's nine, RT-451's three and RT-1081's five", () => {
+  it("declares exactly the six 009 operationIds, RT-432's listStockLocations, RT-448's listTrackingIdentities, RT-435's four, RT-449's nine, RT-451's five and RT-1081's five", () => {
     const ids = inventoryOperations()
       .map((o) => o.op.operationId)
       .filter((id): id is string => typeof id === "string")
@@ -518,6 +525,7 @@ describe("inventory/inventory.yaml — projections + envelope", () => {
       "CreateRelocationCommand",
       "SetReturnLandingPolicyCommand",
       "SetSafetyTtlSettingCommand",
+      "SetTrackedSellingSettingCommand",
       "PlaceQualityHoldCommand",
       "ReleaseTrackingHoldCommand",
       "CreateInventoryRecallCommand",
@@ -1148,8 +1156,136 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
 // RT-1099 — the retired sale-linked backfill removed (1.11.0-draft)
 // ===========================================================================
 describe("inventory/inventory.yaml — RT-1099 sale-linked backfill removal", () => {
-  it("is the 1.11.0 draft, with a version note citing RT-1099", () => {
-    expect(inventoryDoc.info?.version).toBe("1.11.0-draft");
+  it("records 1.11.0-draft in the version history (version moved on in RT-451 S2)", () => {
     expect(inventoryDoc.info?.description).toContain("**1.11.0-draft (RT-1099;");
+  });
+});
+
+// ===========================================================================
+// RT-451 S2 — the tenant's tracked-selling on/off setting (1.12.0-draft,
+// contract-only; owner decisions OD-T1..OD-T5, RT-451 comments 16215, 16216)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () => {
+  type Prop = {
+    type?: unknown;
+    enum?: unknown[];
+    format?: string;
+    uniqueItems?: boolean;
+    maxItems?: number;
+    items?: { $ref?: string };
+  };
+  type Schema = { properties?: Record<string, Prop>; required?: string[]; additionalProperties?: unknown; enum?: unknown[] };
+  type Op = OperationObject & { "x-runtime-status"?: string; "x-runtime-note"?: string; description?: string };
+  const schema = (name: string): Schema => (inventoryDoc.components?.schemas?.[name] ?? {}) as Schema;
+  const op = (method: string): Op => (inventoryDoc.paths?.[TRACKED_SELLING_PATH]?.[method] ?? {}) as Op;
+  const S2: Array<[string, string]> = [
+    ["get", "getTrackedSellingSetting"],
+    ["put", "setTrackedSellingSetting"],
+  ];
+
+  it("is the 1.12.0 draft, with a version note citing the owner decisions", () => {
+    expect(inventoryDoc.info?.version).toBe("1.12.0-draft");
+    expect(inventoryDoc.info?.description).toContain("**1.12.0-draft (RT-451 S2, additive, contract-only;");
+    expect(inventoryDoc.info?.description).toContain("RT-451 comments 16215 and 16216");
+  });
+
+  it.each(S2)("maps %s to %s, marked contract-only for RT-451", (method, operationId) => {
+    const o = op(method);
+    expect(o.operationId).toBe(operationId);
+    expect(o["x-runtime-status"]).toBe("contract-only");
+    expect(o["x-runtime-note"]).toContain("RT-451");
+    expect(o.security).toEqual([{ cookieAuth: [] }]);
+    expect(o.responses?.["403"]).toEqual({ $ref: "#/components/responses/ForbiddenOrOriginRejected" });
+    expect(o.responses?.["404"]).toEqual({ $ref: "#/components/responses/NotFoundOrCrossTenant" });
+    expect(o.responses?.["429"]).toEqual({ $ref: "#/components/responses/TooManyRequests" });
+  });
+
+  it("restricts both operations to the owner or tenant_admin and hides them behind the deployment gate", () => {
+    for (const [method] of S2) {
+      expect(op(method).description).toContain("Owner or tenant_admin");
+      expect(op(method).description).toContain("POS_TRACKED_SELLING_ENABLED");
+    }
+  });
+
+  it("lets a store_manager read on/off only, with every other field null (OD-T6)", () => {
+    expect(op("get").description).toMatch(/A store_manager reads on\/off only/);
+    expect(op("put").description).not.toContain("store_manager reads");
+  });
+
+  it("keeps a switched-on tenant on when a precondition later fails, as a warning (OD-T7)", () => {
+    expect(op("get").description).toMatch(/stays on/);
+    expect(op("get").description).toMatch(/warning/);
+    expect(op("get").description).toContain("never turns itself off");
+  });
+
+  it("points the POS to the safety feed's tracked_selling_enabled and cites the decisions", () => {
+    expect(inventoryDoc.info?.description).toContain("`tracked_selling_enabled`");
+    expect(inventoryDoc.info?.description).toContain("RT-451 comment 16217");
+    expect(inventoryDoc.info?.description).not.toContain("open owner decision");
+  });
+
+  it("projects a strict setting: on/off, last change, and the Q13 preconditions as evaluated now", () => {
+    const setting = schema("TrackedSellingSetting");
+    expect(setting.additionalProperties).toBe(false);
+    expect(setting.required).toEqual(["enabled", "changedAt", "changedBy", "preconditionsMet", "unmetPreconditions"]);
+    expect(setting.properties?.["enabled"]?.type).toBe("boolean");
+    expect(setting.properties?.["changedAt"]).toMatchObject({ type: ["string", "null"], format: "date-time" });
+    expect(setting.properties?.["changedBy"]).toMatchObject({ type: ["string", "null"], format: "uuid" });
+    // Null only for a store_manager, who reads on/off only (OD-T6).
+    expect(setting.properties?.["preconditionsMet"]?.type).toEqual(["boolean", "null"]);
+    expect(setting.properties?.["unmetPreconditions"]).toMatchObject({
+      type: ["array", "null"],
+      uniqueItems: true,
+      maxItems: 6,
+      items: { $ref: "#/components/schemas/TrackedSellingPrecondition" },
+    });
+  });
+
+  it("names exactly the six RT-50 Q13 preconditions", () => {
+    expect(schema("TrackedSellingPrecondition").enum).toEqual([
+      "sale_effects_active",
+      "status_moves_available",
+      "erp_tracking_import",
+      "erp_batch_posting_verified",
+      "identity_anchor",
+      "tracking_grain_reconciliation",
+    ]);
+  });
+
+  it("takes only the on/off value on write", () => {
+    const cmd = schema("SetTrackedSellingSettingCommand");
+    expect(cmd.additionalProperties).toBe(false);
+    expect(cmd.required).toEqual(["enabled"]);
+    expect(Object.keys(cmd.properties ?? {})).toEqual(["enabled"]);
+    expect(cmd.properties?.["enabled"]?.type).toBe("boolean");
+  });
+
+  it("refuses switching on with a fixed 409 code while a precondition is unmet; switching off is always accepted", () => {
+    const put = op("put");
+    expect(put.responses?.["400"]).toEqual({ $ref: "#/components/responses/ValidationFailure" });
+    expect(put.responses?.["409"]).toEqual({ $ref: "#/components/responses/TrackedSellingConflict" });
+    const conflict = inventoryDoc.components?.responses?.["TrackedSellingConflict"] as { description?: string };
+    expect(conflict.description).toContain("tracked_selling_preconditions_unmet");
+    expect(put.description).toContain("always accepted");
+    expect(op("get").responses?.["409"]).toBeUndefined();
+  });
+
+  it("keeps the Tracking Resolution queue resolvable while switched off (OD-T4)", () => {
+    expect(op("put").description).toMatch(/stay listed and can still be\s+resolved/);
+  });
+
+  it("re-checks the preconditions only on a change from off to on; a repeat is a no-op", () => {
+    expect(op("put").description).toMatch(/checked\s+only on a change from off to on/);
+  });
+
+  it("checks authentication and role before the deployment gate, as S1 does", () => {
+    for (const [method] of S2) {
+      expect(op(method).description).toMatch(/Authentication\s+\(401\) and role \(403\) are checked first/);
+      expect(op(method).description).not.toContain("to every caller");
+    }
+  });
+
+  it("states that captureSale G7-9 still governs until its later amendment", () => {
+    expect(op("put").description).toMatch(/until it lands, `captureSale` G7-9 governs/);
   });
 });

@@ -94,7 +94,7 @@ const DELTA = {
 
 describe("inventory-safety-feed — document and operations", () => {
   it("is an OpenAPI 3.1 draft with exactly two GET operations", () => {
-    expect([doc.openapi, doc.info?.version]).toEqual(["3.1.0", "1.0.0-draft"]);
+    expect([doc.openapi, doc.info?.version]).toEqual(["3.1.0", "1.1.0-draft"]);
     expect(Object.keys(doc.paths ?? {}).sort()).toEqual([DELTAS_PATH, SNAPSHOT_PATH]);
     for (const [path, operationId] of OPERATIONS) {
       expect(Object.keys(doc.paths![path]!)).toEqual(["get"]);
@@ -212,5 +212,40 @@ describe("inventory-safety-feed — schemas", () => {
 
   it("accepts the canonical error envelope", () => {
     expect(validator("Error")({ error: { code: "snapshot_required", message: "snapshot_required" } })).toBe(true);
+  });
+});
+
+// RT-451 S2, OD-T6 (RT-451 comment 16217): the till reads the tenant's
+// tracked-selling switch from every feed answer (1.1.0-draft, additive).
+describe("inventory-safety-feed — RT-451 S2 tracked_selling_enabled (1.1.0-draft)", () => {
+  type Prop = { type?: unknown; $ref?: string };
+  const page = (name: string) =>
+    contractReader(doc).schema(name) as { properties?: Record<string, Prop>; required?: string[] };
+
+  it.each(["InventorySafetySnapshotPage", "InventorySafetyDeltaPage"])(
+    "%s carries an optional boolean tracked_selling_enabled",
+    (name) => {
+      expect(page(name).properties?.["tracked_selling_enabled"]?.$ref).toBe(
+        "#/components/schemas/TrackedSellingEnabled",
+      );
+      expect(page(name).required).not.toContain("tracked_selling_enabled");
+      expect((contractReader(doc).schema("TrackedSellingEnabled") as Prop).type).toBe("boolean");
+    },
+  );
+
+  it("accepts both pages with the field true, false or absent; refuses a non-boolean", () => {
+    for (const value of [true, false]) {
+      expect(validator("InventorySafetySnapshotPage")({ ...SNAPSHOT, tracked_selling_enabled: value })).toBe(true);
+      expect(validator("InventorySafetyDeltaPage")({ ...DELTA, tracked_selling_enabled: value })).toBe(true);
+    }
+    expect(validator("InventorySafetySnapshotPage")(SNAPSHOT)).toBe(true);
+    expect(validator("InventorySafetySnapshotPage")({ ...SNAPSHOT, tracked_selling_enabled: "true" })).toBe(false);
+  });
+
+  it("documents the gate AND tenant switch, absent-means-false, and the version note", () => {
+    expect(doc.info?.description).toContain("**1.1.0-draft (RT-451 S2, additive;");
+    expect(doc.info?.description).toContain("RT-451 comment 16217");
+    expect(doc.info?.description).toMatch(/treats a missing\s+`tracked_selling_enabled` as false/);
+    expect(doc.info?.description).toContain("POS_TRACKED_SELLING_ENABLED");
   });
 });

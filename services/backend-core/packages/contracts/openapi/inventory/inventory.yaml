@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.11.0-draft"
+  version: "1.12.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -24,7 +24,7 @@ info:
     binding supplies `tenant_id` and `store_id`; body-supplied tenant / store / actor / derived-balance fields
     are NEVER accepted (Constitution §III/§XII, FR-052).
 
-    Twenty-eight operations:
+    Thirty operations:
 
       1. `createStockMovement` — append an inbound / outbound / adjustment
          movement (write-off = a reason-coded outbound). Exact-decimal quantity
@@ -78,6 +78,8 @@ info:
          identity and its positions per store (RT-1081).
      28. `listTrackingIdentityExpiryCorrections` — an identity's expiry
          history in keyset pages (RT-1081).
+     29. `getTrackedSellingSetting` / 30. `setTrackedSellingSetting` — the
+         tenant's tracked-selling on/off switch (RT-451 S2; contract-only).
 
     Quantity: every quantity is an exact-decimal STRING (`numeric(p,s)` at
     rest); no float appears on the wire. There is NO money / tender / payment
@@ -270,6 +272,28 @@ info:
     `SaleLinkedBackfillResult` schemas, the `RateLimited` response, the
     `platformAdmin` security scheme and the `inventory-admin` tag. No other
     operation changes.
+
+    **1.12.0-draft (RT-451 S2, additive, contract-only; [GATED: contract]
+    owner decisions OD-T1..OD-T5 and approval, RT-451 comments 16215 and
+    16216, 2026-11-08).** Tracked selling (batch / expiry) is an optional
+    feature per tenant: Retail Tower is a general retail product, so a
+    pharmacy turns it on and a shop that sells no tracked goods can leave it
+    off. `getTrackedSellingSetting` / `setTrackedSellingSetting` read and
+    switch it; only an owner or tenant_admin switches it. It is off for every tenant until
+    switched on. Switching on is accepted only while the six RT-50 Q13
+    preconditions (`TrackedSellingPrecondition`) hold; switching off is
+    always accepted. Tracked selling is in effect for a tenant only while the
+    deployment gate `POS_TRACKED_SELLING_ENABLED` is on AND the tenant has
+    switched it on; while the gate is off both operations answer the
+    non-disclosing 404 to an authenticated owner or tenant_admin. Both are
+    `x-runtime-status: contract-only` until the RT-451 S2 runtime
+    (migration M1) ships. Reading the switch (OD-T6, RT-451 comment 16217):
+    a store_manager reads its on/off value only, through
+    `getTrackedSellingSetting`; the POS reads `tracked_selling_enabled` on
+    every answer of the POS inventory safety feed
+    (`inventory/inventory-safety-feed.yaml` 1.1.0-draft). A switched-on
+    tenant whose preconditions later fail stays on, shown to the owner as a
+    warning (OD-T7). No other operation changes.
 
 servers:
   - url: https://api.datapulse.example
@@ -795,6 +819,108 @@ paths:
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/settings/tracked-selling:
+    get:
+      operationId: getTrackedSellingSetting
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-451 S2 (contract-first): the runtime ships with migration M1 and
+        the per-tenant flag. Remove both keys then.
+      tags: [inventory]
+      summary: Read the tenant's tracked-selling switch and its preconditions.
+      description: >
+        RT-451 S2 (OD-T1, OD-T2): whether tracked selling (batch / expiry) is
+        switched on for the tenant. `enabled` is false for every tenant until
+        switched on; `changedAt` and `changedBy` are null while it was never
+        changed. `unmetPreconditions` lists the RT-50 Q13 preconditions
+        (`TrackedSellingPrecondition`) that do not hold now, evaluated on each
+        read; a precondition the server cannot confirm is listed as unmet
+        (fail closed). `preconditionsMet` is true exactly when that list is
+        empty. Tracked selling is in effect for the tenant only while the
+        deployment gate `POS_TRACKED_SELLING_ENABLED` is on and `enabled` is
+        true. If a precondition stops holding after the switch is on, tracked
+        selling stays on (OD-T7, RT-451 comment 16217): `enabled: true` with
+        `preconditionsMet: false` is the state the Console shows the owner as a
+        warning. The switch never turns itself off; only an owner or
+        tenant_admin switches it off. Owner or tenant_admin read every field.
+        A store_manager reads on/off only (OD-T6): `enabled`, with
+        `changedAt`, `changedBy`, `preconditionsMet` and `unmetPreconditions`
+        null. Any other role is a 403. Authentication
+        (401) and role (403) are checked first, as for `posListTrackedLots`;
+        then, while the gate is off, this operation answers the non-disclosing
+        404 and reads nothing.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The tenant's tracked-selling switch and its preconditions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackedSellingSetting"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    put:
+      operationId: setTrackedSellingSetting
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-451 S2 (contract-first): the runtime ships with migration M1 and
+        the per-tenant flag. Remove both keys then.
+      tags: [inventory]
+      summary: Switch tracked selling on or off for the tenant.
+      description: >
+        RT-451 S2 (OD-T2..OD-T5). `{"enabled": true}` checks the RT-50 Q13
+        preconditions in the same transaction as the write: while any is
+        unmet the switch is refused with 409
+        `tracked_selling_preconditions_unmet` and nothing is written;
+        `getTrackedSellingSetting` names the unmet ones. Switching back on
+        after an off is the same check (OD-T5). `{"enabled": false}` is
+        always accepted (OD-T3). Setting the current value again, in either
+        direction, writes nothing, records no audit event and answers the
+        current setting: repeating `{"enabled": true}` while already on is
+        that no-op and does not re-check the preconditions, which are checked
+        only on a change from off to on. Every
+        change is audited with the actor, the time and the new value; the
+        history of the switch is kept in the audit trail. Switching off
+        deletes and rewrites nothing: recorded tracking, sale-line findings,
+        holds and recalls remain, and the sales already in the Tracking
+        Resolution queue stay listed and can still be resolved with
+        `bindTrackingResolution` (OD-T4). While it is off the tenant's tills
+        are to sell a tracked product as a normal line (OD-T4). That needs an
+        amendment of `pos-sales/sales.yaml` `captureSale` G7-9 row 4 in a
+        later RT-451 slice; until it lands, `captureSale` G7-9 governs, and
+        nothing captures a tracked line yet (every tracked-selling operation
+        is contract-only or behind the deployment gate). Owner or
+        tenant_admin; any other role is a 403. Authentication (401) and role
+        (403) are checked first, as for `posListTrackedLots`; then, while the
+        deployment gate `POS_TRACKED_SELLING_ENABLED` is off, this operation
+        answers the non-disclosing 404 and writes nothing.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetTrackedSellingSettingCommand"
+      responses:
+        "200":
+          description: The tenant's tracked-selling switch after the command.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrackedSellingSetting"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/TrackedSellingConflict" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
@@ -1907,6 +2033,66 @@ components:
           minimum: 60
           maximum: 900
           description: 60–900 seconds, or null for the default of 900.
+    TrackedSellingPrecondition:
+      type: string
+      enum:
+        - sale_effects_active
+        - status_moves_available
+        - erp_tracking_import
+        - erp_batch_posting_verified
+        - identity_anchor
+        - tracking_grain_reconciliation
+      description: >
+        RT-451 S2: the six RT-50 Q13 preconditions of switching tracked
+        selling on. `sale_effects_active`: sale, void and return Inventory
+        effects are active for the tenant (RT-427). `status_moves_available`:
+        status moves and the return-inspection landing are available (RT-435).
+        `erp_tracking_import`: ERP-origin stock import with tracking is in
+        place, so newly received lots exist (RT-293). `erp_batch_posting_verified`:
+        the ERPNext-Connector posts batch-tracked lines with the batch ref
+        (G7-11, RT-452). `identity_anchor`: the per-identity anchor is set
+        (G7-12, RT-453). `tracking_grain_reconciliation`: tracking-grain
+        reconciliation is in place (RT-428).
+    TrackedSellingSetting:
+      type: object
+      additionalProperties: false
+      required: [enabled, changedAt, changedBy, preconditionsMet, unmetPreconditions]
+      description: RT-451 S2 — the tenant's tracked-selling switch and its preconditions.
+      properties:
+        enabled:
+          type: boolean
+          description: Whether the tenant switched tracked selling on; false until it does.
+        changedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the switch last changed; null while it never changed, and for a store_manager.
+        changedBy:
+          type: [string, "null"]
+          format: uuid
+          description: The user who last changed the switch; null while it never changed, and for a store_manager.
+        preconditionsMet:
+          type: [boolean, "null"]
+          description: >
+            True exactly when `unmetPreconditions` is empty. Null only for a
+            store_manager, who reads on/off only (OD-T6).
+        unmetPreconditions:
+          type: [array, "null"]
+          uniqueItems: true
+          maxItems: 6
+          description: >
+            The preconditions that do not hold now, in the enum's order; a
+            precondition the server cannot confirm is listed (fail closed).
+            Null only for a store_manager (OD-T6).
+          items:
+            $ref: "#/components/schemas/TrackedSellingPrecondition"
+    SetTrackedSellingSettingCommand:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          description: true to switch tracked selling on, false to switch it off.
     InventorySafetyFindingList:
       type: object
       additionalProperties: false
@@ -2880,6 +3066,16 @@ components:
         `tracking_resolution_already_resolved`: the sale is already resolved.
         `idempotency_key_conflict`: the `Idempotency-Key` was already used for
         a different command. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TrackedSellingConflict:
+      description: >
+        409 — RT-451 S2. `tracked_selling_preconditions_unmet`: switching
+        tracked selling on was refused because at least one RT-50 Q13
+        precondition does not hold now; `getTrackedSellingSetting` lists
+        which. Nothing is written. Switching off never answers 409.
       content:
         application/json:
           schema:
