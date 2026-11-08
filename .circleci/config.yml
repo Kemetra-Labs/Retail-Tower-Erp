@@ -41,6 +41,8 @@
 # RT-1036 adds remote-dev-backend-fast, remote-dev-admin, remote-dev-admin-e2e and remote-dev-pos
 # with the same guard.
 # Not covered remotely: POS Windows packaging and Electron e2e, and the ERPNext Connector.
+# RT-1275: admin-e2e-repeat, a main-only flaky-test measurement (Admin Console E2E specs repeated
+# with retries off), off unless admin_e2e_repeat is set on a manual or scheduled pipeline.
 
 version: 2.1
 
@@ -149,6 +151,27 @@ parameters:
   admin_vitest_gate_enabled:
     type: boolean
     default: true
+  # RT-1275: the Admin Console E2E repeatability run (workflow admin-e2e-repeat, job
+  # admin-e2e-repeat). Default false: no push, PR or other pipeline runs it. Set true only on a
+  # manual or scheduled pipeline on main, with the owner's approval for that run or schedule. It
+  # measures flaky tests and is never a gate. Kill switch: leave this false or delete the schedule.
+  # Credit bound, ESTIMATE (RT-1275 comment 16185): about 10 minutes on a large machine, about 200
+  # credits a normal run. Worst case, the step timeouts (install, build and image pull 11 minutes
+  # each, the E2E run 28) stop it at about 60 minutes, about 1,200 credits.
+  admin_e2e_repeat:
+    type: boolean
+    default: false
+  # RT-1275: the spec files (or file:line filters) under apps/admin-console/tests/e2e to repeat,
+  # space separated. Default: the two specs that passed only on retry in admin/e2e (RT-1275 c16185).
+  # A :line must be a test() line: a describe line runs tests reported at their own lines, so the
+  # completeness check would say "no result" (it fails closed).
+  admin_e2e_repeat_specs:
+    type: string
+    default: "tests/e2e/compact-shell.spec.ts tests/e2e/tenant-logo.spec.ts"
+  # RT-1275: --repeat-each for those specs, 1 to 30 (checked by e2e-repeat-report.cjs validate).
+  admin_e2e_repeat_count:
+    type: integer
+    default: 10
 
 commands:
   backend-setup:
@@ -224,6 +247,29 @@ commands:
               exit 1
             fi
             echo "Guard passed: $head on $CIRCLE_BRANCH; .circleci/ equals origin/main $(git rev-parse --short refs/remotes/origin/main)."
+
+  # RT-1275: the admin-e2e-repeat guard. The job runs main's own code only: the checked-out commit
+  # must be the pipeline's revision on the main branch and already on origin/main (a scheduled or
+  # manual pipeline on main). Runs before anything is installed.
+  main-guard:
+    description: Stop unless HEAD is the pipeline's commit on main and is on origin/main.
+    steps:
+      - run:
+          name: "Main guard: main branch, pipeline commit, on origin/main"
+          environment:
+            PIPELINE_REVISION: "<< pipeline.git.revision >>"
+          command: |
+            head="$(git rev-parse HEAD)"
+            if [ "${CIRCLE_BRANCH:-}" != "main" ] || [ "$head" != "$PIPELINE_REVISION" ] \
+              || [ "${CIRCLE_SHA1:-}" != "$head" ]; then
+              echo "Expected the pipeline commit on main; got $head on '${CIRCLE_BRANCH:-}' (revision '$PIPELINE_REVISION', CIRCLE_SHA1 '${CIRCLE_SHA1:-}'); refusing to run."
+              exit 1
+            fi
+            git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main \
+              || { echo "Could not fetch origin/main; refusing to run."; exit 1; }
+            git merge-base --is-ancestor "$head" refs/remotes/origin/main \
+              || { echo "$head is not on origin/main; refusing to run."; exit 1; }
+            echo "Guard passed: $head is on main (origin/main $(git rev-parse --short refs/remotes/origin/main))."
 
   # RT-1256: runs before anything is installed. Uses no pull_request pipeline value (those fail
   # config compilation in non-PR pipelines); the workflow's `when` already limits the job to pull
@@ -468,6 +514,48 @@ commands:
             fi
             echo "nproc=$(nproc)"
             node --version
+
+  # RT-1275: the install, build and Playwright image steps shared by remote-admin-e2e and
+  # admin-e2e-repeat (moved here unchanged from remote-admin-e2e), so the two cannot drift.
+  admin-e2e-prepare:
+    description: Admin Console install and build, and admin/e2e's digest-pinned Playwright image.
+    steps:
+        - run:
+            name: Install (Admin Console)
+            working_directory: ~/project/apps/admin-console
+            command: timeout -k 1m 10m pnpm install --frozen-lockfile --ignore-scripts
+        - run:
+            name: Build
+            working_directory: ~/project/apps/admin-console
+            command: timeout -k 1m 10m pnpm build
+        - run:
+            name: Pull admin/e2e's Playwright image (checked against the lockfile)
+            working_directory: ~/project
+            no_output_timeout: 10m
+            command: |
+              # The same pin check as admin/e2e's first step: one digest-pinned image, at the
+              # Playwright version the lockfile resolves.
+              wf=.github/workflows/admin-console.yml
+              lock=apps/admin-console/pnpm-lock.yaml
+              mapfile -t images < <(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+-noble@sha256:[0-9a-f]{64}' "$wf" | sort -u)
+              if [ "${#images[@]}" -ne 1 ]; then
+                echo "Expected one digest-pinned mcr.microsoft.com/playwright:vX.Y.Z-noble image in $wf, found ${#images[@]}."
+                exit 1
+              fi
+              # No bash here-string: CircleCI 2.1 reads a double "less than" as a parameter tag and
+              # refuses to compile the job (RT-1275 found remote_suite=admin-e2e failing on it).
+              image_version=$(printf '%s\n' "${images[0]}" | sed -E 's/^[^:]+:v([0-9.]+)-noble@.*$/\1/')
+              mapfile -t locked < <(grep -oE "^  '@playwright/test@[0-9]+\.[0-9]+\.[0-9]+':" "$lock" | sed -E "s/^.*@([0-9.]+)':$/\1/" | sort -u)
+              if [ "${#locked[@]}" -ne 1 ] || [ "${locked[0]}" != "$image_version" ]; then
+                echo "$lock resolves @playwright/test to '${locked[*]:-none}' but $wf pins the image for $image_version."
+                exit 1
+              fi
+              timeout -k 1m 10m docker pull --quiet "${images[0]}"
+              printf '%s\n' "${images[0]}" > /tmp/playwright-image
+              # Font evidence: what the console's system-ui / sans-serif fallback resolves to.
+              fonts='echo "system-ui: $(fc-match system-ui)"; echo "sans-serif: $(fc-match sans-serif)"; echo "sans-serif:lang=ar: $(fc-match sans-serif:lang=ar)"; echo "font files: $(fc-list | wc -l)"'
+              echo "VM:"; bash -c "$fonts" || true
+              echo "Image ${images[0]}:"; docker run --rm "${images[0]}" bash -c "$fonts" || true
 
   # RT-1188: the TIA shadow before the pre-push full run: the risk guard, then doctor and the
   # specs list-tests would select. Runs only after remote-guard, so it executes main's
@@ -1342,40 +1430,7 @@ jobs:
       - remote-guard
       - node-toolchain:
           app_dir: apps/admin-console
-      - run:
-          name: Install (Admin Console)
-          working_directory: ~/project/apps/admin-console
-          command: timeout -k 1m 10m pnpm install --frozen-lockfile --ignore-scripts
-      - run:
-          name: Build
-          working_directory: ~/project/apps/admin-console
-          command: timeout -k 1m 10m pnpm build
-      - run:
-          name: Pull admin/e2e's Playwright image (checked against the lockfile)
-          working_directory: ~/project
-          no_output_timeout: 10m
-          command: |
-            # The same pin check as admin/e2e's first step: one digest-pinned image, at the
-            # Playwright version the lockfile resolves.
-            wf=.github/workflows/admin-console.yml
-            lock=apps/admin-console/pnpm-lock.yaml
-            mapfile -t images < <(grep -oE 'mcr\.microsoft\.com/playwright:v[0-9]+\.[0-9]+\.[0-9]+-noble@sha256:[0-9a-f]{64}' "$wf" | sort -u)
-            if [ "${#images[@]}" -ne 1 ]; then
-              echo "Expected one digest-pinned mcr.microsoft.com/playwright:vX.Y.Z-noble image in $wf, found ${#images[@]}."
-              exit 1
-            fi
-            image_version=$(sed -E 's/^[^:]+:v([0-9.]+)-noble@.*$/\1/' <<< "${images[0]}")
-            mapfile -t locked < <(grep -oE "^  '@playwright/test@[0-9]+\.[0-9]+\.[0-9]+':" "$lock" | sed -E "s/^.*@([0-9.]+)':$/\1/" | sort -u)
-            if [ "${#locked[@]}" -ne 1 ] || [ "${locked[0]}" != "$image_version" ]; then
-              echo "$lock resolves @playwright/test to '${locked[*]:-none}' but $wf pins the image for $image_version."
-              exit 1
-            fi
-            timeout -k 1m 10m docker pull --quiet "${images[0]}"
-            printf '%s\n' "${images[0]}" > /tmp/playwright-image
-            # Font evidence: what the console's system-ui / sans-serif fallback resolves to.
-            fonts='echo "system-ui: $(fc-match system-ui)"; echo "sans-serif: $(fc-match sans-serif)"; echo "sans-serif:lang=ar: $(fc-match sans-serif:lang=ar)"; echo "font files: $(fc-list | wc -l)"'
-            echo "VM:"; bash -c "$fonts" || true
-            echo "Image ${images[0]}:"; docker run --rm "${images[0]}" bash -c "$fonts" || true
+      - admin-e2e-prepare
       - run:
           name: Admin Console Playwright E2E (remote, advisory)
           working_directory: ~/project/apps/admin-console
@@ -1415,6 +1470,75 @@ jobs:
               const retries = tests.reduce((n, t) => n + Math.max(0, (t.results ?? []).length - 1), 0);
               console.log(`tests ${tests.length}: expected ${by.expected ?? 0}, flaky ${by.flaky ?? 0}, unexpected ${by.unexpected ?? 0}, skipped ${by.skipped ?? 0}; retry attempts ${retries}`);
             '
+
+  # RT-1275: Admin Console E2E repeatability, main only and never a gate. admin/e2e on GitHub retries
+  # a failed test twice (playwright.config.ts), so a flaky test passes there and is only warned about.
+  # This job runs the chosen spec files admin_e2e_repeat_count times each, in both locale projects,
+  # with retries OFF, in the same digest-pinned Playwright image, and uploads JUnit to CircleCI
+  # Test Insights. e2e-repeat-report.cjs prints the failure rate per test and fails the job if the
+  # run is empty or a requested spec file has no result (a renamed file must not look clean).
+  # Failed attempts also fail the job: that red run is the finding. No step posts a GitHub status
+  # (CircleCI's own GitHub check for the workflow may show on the main commit; it is not in
+  # `required`, and no gate or graph job reads it). It stores no artifacts (public builds) and
+  # reads no secrets.
+  admin-e2e-repeat:
+    machine:
+      image: ubuntu-2404:2026.05.1
+    resource_class: large
+    steps:
+      - checkout
+      - main-guard
+      - node-toolchain:
+          app_dir: apps/admin-console
+      - run:
+          name: Check the spec list and the repeat count
+          working_directory: ~/project
+          environment:
+            REPEAT_SPECS: "<< pipeline.parameters.admin_e2e_repeat_specs >>"
+            REPEAT_COUNT: "<< pipeline.parameters.admin_e2e_repeat_count >>"
+          command: |
+            node .circleci/scripts/e2e-repeat-report.cjs validate "$REPEAT_SPECS" "$REPEAT_COUNT"
+      - admin-e2e-prepare
+      - run:
+          name: Admin Console Playwright E2E, repeated with retries off
+          working_directory: ~/project/apps/admin-console
+          no_output_timeout: 10m
+          environment:
+            REPEAT_SPECS: "<< pipeline.parameters.admin_e2e_repeat_specs >>"
+            REPEAT_COUNT: "<< pipeline.parameters.admin_e2e_repeat_count >>"
+          command: |
+            touch /tmp/e2e-started
+            mkdir -p playwright-report/junit
+            node_dir="$(dirname "$(dirname "$(command -v node)")")"
+            corepack_home="${COREPACK_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/node/corepack}"
+            # REPEAT_SPECS passed the validate step (paths under tests/e2e, no shell characters), so
+            # word splitting it inside the container is safe. The inner timeout stops the suite; the
+            # outer one is a backstop for the container.
+            timeout -k 1m 27m docker run --rm --init --ipc=host \
+              --user "$(id -u):$(id -g)" -e HOME=/tmp -e CI -e REPEAT_SPECS -e REPEAT_COUNT \
+              -e PLAYWRIGHT_JSON_OUTPUT_NAME="$PWD/playwright-report/e2e-repeat.json" \
+              -e PLAYWRIGHT_JUNIT_OUTPUT_NAME="$PWD/playwright-report/junit/admin-e2e-repeat.xml" \
+              -e COREPACK_HOME="$corepack_home" -e COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+              -v "$node_dir:$node_dir:ro" -v "$corepack_home:$corepack_home" \
+              -v "$HOME/project:$HOME/project" -w "$PWD" \
+              "$(cat /tmp/playwright-image)" \
+              bash -c "export PATH=\"$node_dir/bin:\$PATH\"; node --version; timeout -k 1m 25m pnpm exec playwright test \$REPEAT_SPECS --retries=0 --repeat-each=\"\$REPEAT_COUNT\" --reporter=line,json,junit"
+      - run:
+          name: Failure rate per test
+          when: always
+          working_directory: ~/project/apps/admin-console
+          environment:
+            REPEAT_SPECS: "<< pipeline.parameters.admin_e2e_repeat_specs >>"
+          command: |
+            if [ ! -f /tmp/e2e-started ] || [ ! -f playwright-report/e2e-repeat.json ]; then
+              echo "The E2E tests did not run or wrote no JSON report (see the earlier steps)."
+              exit 1
+            fi
+            # shellcheck disable=SC2086 # validated spec list, one argument per spec
+            node ~/project/.circleci/scripts/e2e-repeat-report.cjs report \
+              playwright-report/e2e-repeat.json /tmp/e2e-repeat.md $REPEAT_SPECS
+      - store_test_results:
+          path: ~/project/apps/admin-console/playwright-report/junit
 
   # RT-1036: the POS static checks and vitest suite for a pushed feature branch, as pos/static and
   # pos/test. One unsharded run with the unmodified vitest.config.ts, so the coverage thresholds
@@ -1496,6 +1620,7 @@ workflows:
         - not: << pipeline.parameters.full_tia_analysis >>
         - not: << pipeline.parameters.tia_probe >>
         - equal: [none, << pipeline.parameters.remote_suite >>]
+        - not: << pipeline.parameters.admin_e2e_repeat >>
     jobs:
       - backend-api-jest-analysis:
           serial-group: << pipeline.project.slug >>/tia-main-analysis
@@ -1667,3 +1792,17 @@ workflows:
     jobs:
       - remote-pos:
           serial-group: << pipeline.project.slug >>/remote-dev
+
+  # RT-1275: manual or scheduled, main only, never with another manual route. One run at a time.
+  admin-e2e-repeat:
+    when:
+      and:
+        - << pipeline.parameters.admin_e2e_repeat >>
+        - equal: [main, << pipeline.git.branch >>]
+        - equal: [none, << pipeline.parameters.remote_suite >>]
+        - not: << pipeline.parameters.advisory_enabled >>
+        - not: << pipeline.parameters.full_tia_analysis >>
+        - not: << pipeline.parameters.tia_probe >>
+    jobs:
+      - admin-e2e-repeat:
+          serial-group: << pipeline.project.slug >>/admin-e2e-repeat
