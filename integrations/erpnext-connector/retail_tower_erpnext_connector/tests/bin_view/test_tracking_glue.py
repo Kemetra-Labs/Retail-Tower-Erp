@@ -119,6 +119,20 @@ def test_reader_merges_bundle_and_legacy_sums_and_reads_the_batch_master(frappe_
 	assert ledger_calls == [("ERP-WH-1", ["MED"]), ("ERP-WH-1", ["MED"])]
 
 
+def test_batch_master_read_is_chunked(frappe_stub):
+	names = [f"B{i:05d}" for i in range(2500)]
+	masters = _Masters(
+		items=[{"name": "MED", "has_batch_no": 1}],
+		batches=[{"name": n, "item": "MED", "expiry_date": None, "disabled": 0} for n in names],
+	)
+	glue, _ = _reader(
+		frappe_stub, masters, bundle=[{"item_code": "MED", "batch_no": n, "qty": 1.0} for n in names]
+	)
+	read = glue.FrappeTrackingReader().read_tracking(erpnext_warehouse_ref="ERP-WH-1", item_codes=["MED"])
+	assert len(read.batches) == 2500
+	assert [len(n) for d, n in masters.calls if d == "Batch"] == [1000, 1000, 500]
+
+
 def test_reader_skips_the_ledger_when_no_item_is_batch_tracked(frappe_stub):
 	masters = _Masters(items=[{"name": "SOAP", "has_batch_no": 0, "has_serial_no": 1}], batches=[])
 	glue, ledger_calls = _reader(frappe_stub, masters)

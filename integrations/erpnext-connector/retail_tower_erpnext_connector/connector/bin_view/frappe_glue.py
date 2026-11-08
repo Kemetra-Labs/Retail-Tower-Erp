@@ -53,6 +53,9 @@ from .worker import RawBatch, RawBin, RawItemTracking, RawTrackingRead, Tracking
 _BIN_FIELDS = ["item_code", "actual_qty", "stock_uom"]
 _ITEM_TRACKING_FIELDS = ["name", "has_batch_no", "has_serial_no", "has_expiry_date"]
 _BATCH_MASTER_FIELDS = ["name", "item", "expiry_date", "disabled"]
+# Batch names per master query: one read can see up to 500 Items x 200+ Batches, so the ``in``
+# filter is chunked to stay bounded.
+_MASTER_CHUNK = 1000
 
 # RT-918 release switch (site config, ``bench --site <site> set-config``). Absent or falsy → the
 # Connector reports the pre-1.4 shape (no ``tracking``). Turn it on for a site only once that
@@ -154,8 +157,9 @@ class FrappeTrackingReader:
 	"""Reads the ERPNext tracking master + batch-wise book quantity (RT-918). ⏳ BENCH-VALIDATION.
 
 	See the module docstring for the sources. One call covers at most one report window of Items
-	(the worker chunks), so every ``in`` filter is bounded (≤500 Items; Batches are capped at 200
-	per Item by the worker's refusal, read here before that check).
+	(the worker chunks), so the Item and ledger ``in`` filters hold at most 500 Items; the Batch
+	master read is chunked by :data:`_MASTER_CHUNK` names (it runs before the worker's 200-Batch
+	refusal, so it can see more).
 	"""
 
 	def read_tracking(self, *, erpnext_warehouse_ref: str, item_codes: list[str]) -> RawTrackingRead:
@@ -236,10 +240,13 @@ def _legacy_batch_qty(warehouse: str, item_codes: list[str]) -> list[dict]:
 
 
 def _batch_masters(names: list[str]) -> dict[str, dict]:
-	if not names:
-		return {}
-	rows = frappe.get_all("Batch", filters={"name": ["in", names]}, fields=_BATCH_MASTER_FIELDS)
-	return {str(r["name"]): r for r in rows}
+	"""The Batch master rows of ``names``, read in chunks of :data:`_MASTER_CHUNK` names."""
+	masters: dict[str, dict] = {}
+	for i in range(0, len(names), _MASTER_CHUNK):
+		chunk = names[i : i + _MASTER_CHUNK]
+		rows = frappe.get_all("Batch", filters={"name": ["in", chunk]}, fields=_BATCH_MASTER_FIELDS)
+		masters.update({str(r["name"]): r for r in rows})
+	return masters
 
 
 def _raw_batch(item_code: str, batch_no: str, qty: float, master: dict | None) -> RawBatch:
