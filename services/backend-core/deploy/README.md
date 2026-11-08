@@ -869,6 +869,42 @@ the root-only `backend.env`). Leave it out of git and out of logs.
 - **Copies:** the lab deploy document backs up `backend.env` before each live run (see the
   runbook, step 6). A rotation must purge those copies too.
 
+### Invitation email through Amazon SES (RT-1280)
+
+The worker sends membership invitations through Amazon SES. Each email carries an
+accept link, `<CONSOLE_BASE_URL>/accept-invitation?token=…`. The api only queues
+the email. This change does not alter memberships or Descope.
+
+| Variable (host env file) | Passed to the worker as | Notes |
+|---|---|---|
+| `EMAIL_TRANSPORT` | same | `ses` in production. `noop` or unset is accepted only outside production. |
+| `EMAIL_FROM` | same | One address on the verified SES domain, for example `no-reply@<domain>`. It must match the IAM user's `ses:FromAddress` condition. |
+| `SES_REGION` | same | The region of the verified SES identity (`us-east-1` for the lab). |
+| `CONSOLE_BASE_URL` | same | The Admin Console origin over https, with no path, query or credentials. |
+| `EMAIL_SES_ACCESS_KEY_ID`, `EMAIL_SES_SECRET_ACCESS_KEY` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | **Secret.** The key of an IAM user allowed only `ses:SendEmail` on the domain identity, pinned to `EMAIL_FROM`. Only the worker container receives it. |
+
+- **Fail closed:** with `NODE_ENV=production`, the worker refuses to boot (`EmailConfigError`
+  naming the variable, never its value) unless all four settings are valid and both key values
+  are present. The key is passed to the SDK explicitly, so the worker never falls back to another
+  AWS credential source. Compose passes them
+  without `:?`, so a missing value stops only the worker, never the api.
+- **Order:** add these values to the host env file (on the lab, the root-only `backend.env`)
+  **before** the first deploy that includes RT-1280. Otherwise the worker does not start, and the
+  deploy health checks fail.
+- **Credentials:** the key is created by the owner in the AWS console, where only they see the
+  secret, and written straight into the host env file. It is never typed into chat, Jira, a PR or
+  an SSM Run Command parameter, because those keep their content. Rotate it by creating a second
+  key, updating the file, recreating the worker, then deleting the old key. The lab deploy backs up
+  `backend.env` before each live run (runbook step 6), so a rotation must purge those copies too.
+- **IAM scope:** the policy allows `ses:SendEmail` on the domain identity only. No SES
+  configuration set is used. If one is later made the identity's default, SES also checks
+  `ses:SendEmail` on the configuration-set ARN, so add that ARN to the policy first.
+- **SES sandbox:** while the account is in the SES sandbox, mail is delivered only to verified
+  identities. An address on the verified domain itself counts as verified. Leaving the sandbox is a
+  separate owner request to AWS.
+- **Logs:** a failed send is re-thrown as `EmailDeliveryError` with the SES error name and HTTP
+  status only. The recipient, the token and the SES message text are not logged.
+
 ### `PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET` (RT-1043, RT-625 D4)
 
 An HMAC key, **secret**. The public-auth rate-limit buckets (`signin_pair`,

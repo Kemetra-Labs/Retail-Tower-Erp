@@ -5,7 +5,8 @@
  *
  *   EmailWorker
  *     ├─ EmailProcessor                           (PR #15)
- *     │    └─ EMAIL_ADAPTER                       (NoOpEmailAdapter — PR #15)
+ *     │    ├─ EMAIL_ADAPTER                       (SesEmailAdapter; NoOp outside production — RT-1280)
+ *     │    └─ EMAIL_CONSOLE_BASE_URL              (invitation accept links — RT-1280)
  *     └─ WORKER_FACTORY                           (shared with AuditWorker)
  *
  *   AuditWorker                                   (PR-D)
@@ -68,7 +69,7 @@
  *   - Retry / backoff / DLQ defaults — T092 (queue.config.ts).
  *   - Session-revoke worker — T302.
  *   - OTel propagation from API → worker — T303.
- *   - Real provider SDK — PQ-1.
+ *   - Email transport selection — `email/email.providers.ts` (RT-1280).
  */
 import {
   Injectable,
@@ -88,12 +89,8 @@ import { poolOrNoOp } from "./observability/pool-or-noop";
 import { InstrumentedRedis } from "./observability/instrumented-redis";
 import { InstrumentedPool } from "./observability/instrumented-pool";
 
-import {
-  EMAIL_ADAPTER,
-  type EmailAdapter,
-  NoOpEmailAdapter,
-} from "./email/email.adapter";
 import { EmailProcessor } from "./email/email.processor";
+import { emailTransportProviders } from "./email/email.providers";
 import {
   type EmailJobHandler,
   EmailWorker,
@@ -634,11 +631,9 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
 @Module({
   imports: [OutboxModule],
   providers: [
-    // ── Email pipeline (existing) ─────────────────────────────────────
-    {
-      provide: EMAIL_ADAPTER,
-      useFactory: (): EmailAdapter => new NoOpEmailAdapter(),
-    },
+    // ── Email pipeline ────────────────────────────────────────────────
+    // RT-1280: SES in production (fail closed at boot), NoOp only outside it.
+    ...emailTransportProviders,
     EmailProcessor,
     {
       provide: WORKER_FACTORY,

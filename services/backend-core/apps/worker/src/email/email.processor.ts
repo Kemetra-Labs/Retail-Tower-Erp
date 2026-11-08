@@ -114,12 +114,21 @@ export class UnknownEmailJobError extends Error {
   }
 }
 
+/**
+ * DI token for the Admin Console origin used in invitation links (RT-1280).
+ * Bound to `EmailConfig.consoleBaseUrl` (null only outside production).
+ */
+export const EMAIL_CONSOLE_BASE_URL = "EMAIL_CONSOLE_BASE_URL";
+
 @Injectable()
 export class EmailProcessor {
   constructor(
     @Optional()
     @Inject(EMAIL_ADAPTER)
     private readonly adapter: EmailAdapter,
+    @Optional()
+    @Inject(EMAIL_CONSOLE_BASE_URL)
+    private readonly consoleBaseUrl: string | null = null,
   ) {}
 
   async process(jobName: string, data: unknown): Promise<void> {
@@ -151,7 +160,7 @@ export class EmailProcessor {
           }
           case EMAIL_JOB_NAMES.invitation: {
             const parsed = parseInvitationJobData(jobName, data);
-            await this.adapter.send(renderInvitationEmail(parsed));
+            await this.adapter.send(renderInvitationEmail(parsed, this.consoleBaseUrl ?? null));
             return;
           }
           default:
