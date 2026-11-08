@@ -47,14 +47,17 @@ export function canReleaseHold(role: string | null | undefined): boolean {
 
 /**
  * The nav entry (TR-1, TR-6): listed only for a role that can open the screen
- * AND once the summary has answered that the tenant has tracked products.
- * Loading, failed or false all hide it (decisions 967, 968).
+ * AND once the summary has answered that the tenant has tracked products AND
+ * (RT-455 part 1, OD-T4) once the tenant's tracked-selling switch has answered
+ * that it is on. Loading, failed, the gate's 404 or false all hide it
+ * (decisions 967, 968).
  */
 export function showTrackingNav(
   role: string | null | undefined,
   hasTrackedProducts: boolean | undefined,
+  trackedSellingOn: boolean | undefined,
 ): boolean {
-  return canOpenTracking(role) && hasTrackedProducts === true;
+  return canOpenTracking(role) && hasTrackedProducts === true && trackedSellingOn === true;
 }
 
 // --- Codes --------------------------------------------------------------------

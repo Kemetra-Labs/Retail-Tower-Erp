@@ -16,6 +16,8 @@ import {
   SupportSessionBoundary,
 } from "@/platform/session/SupportSessionBoundary";
 import { useSupportSession } from "@/platform/session/useSupportSession";
+import { trackedSellingOn } from "@/tracked-selling/trackedSellingLogic";
+import { useTrackedSellingQuery } from "@/tracked-selling/useTrackedSelling";
 import { useTrackingSummary } from "@/tracking/useTracking";
 import { useShellNavigator } from "./Navigator";
 import { ScopeHeader } from "./ScopeHeader";
@@ -45,7 +47,17 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
     roleCode,
     !inSession,
   );
-  const groups = tenantNav(roleCode, inSession, { hasTrackedProducts });
+  // RT-455 part 1 (OD-T4): and only while the tenant's tracked-selling switch is
+  // on. Asked only once the summary has tracked products, as the entry needs both.
+  const trackedSelling = useTrackedSellingQuery(
+    context?.active_tenant?.id ?? null,
+    roleCode,
+    !inSession && hasTrackedProducts === true,
+  );
+  const groups = tenantNav(roleCode, inSession, {
+    hasTrackedProducts,
+    trackedSellingOn: trackedSellingOn(trackedSelling.data),
+  });
   const menu = useShellMenu();
   const menuId = useShellMenuId();
   const navigator = useShellNavigator();

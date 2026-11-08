@@ -13,6 +13,9 @@ import { AppShell } from "@/shell/AppShell";
 vi.mock("@/shell/SystemStatus", () => ({ SystemStatus: () => null }));
 // RT-455: the tracking summary is its own read (tracking-logic tests cover the entry).
 vi.mock("@/tracking/useTracking", () => ({ useTrackingSummary: () => undefined }));
+vi.mock("@/tracked-selling/useTrackedSelling", () => ({
+  useTrackedSellingQuery: () => ({ data: undefined }),
+}));
 
 function renderShell(role: string | null): void {
   activeContext.mockReturnValue({

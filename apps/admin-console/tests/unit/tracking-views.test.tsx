@@ -32,6 +32,21 @@ vi.mock("@/lib/tracking-queries", () => ({
   getTrackingIdentityPositions: (...a: unknown[]) => api.getTrackingIdentityPositions(...a),
   listExpiryCorrections: (...a: unknown[]) => api.listExpiryCorrections(...a),
 }));
+// RT-455 part 1 (OD-T4): the tracking pages show only while the switch is on.
+const getTrackedSelling = vi.fn();
+vi.mock("@/lib/tracked-selling-queries", () => ({
+  getTrackedSellingSetting: (...a: unknown[]) => getTrackedSelling(...a),
+}));
+const SWITCH_ON = {
+  status: 200,
+  data: {
+    enabled: true,
+    changedAt: "2026-11-08T18:00:00Z",
+    changedBy: null,
+    preconditionsMet: true,
+    unmetPreconditions: [],
+  },
+};
 const getProduct = vi.fn();
 vi.mock("@/lib/catalog-queries", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/catalog-queries")>();
@@ -184,6 +199,8 @@ beforeEach(() => {
   activeContext.mockReset();
   resetRateLimit();
   activeContext.mockReturnValue(ctx("owner"));
+  getTrackedSelling.mockReset();
+  getTrackedSelling.mockResolvedValue(SWITCH_ON);
   api.getTenantTrackingSummary.mockResolvedValue(ok({ hasTrackedProducts: true }));
   api.listSafetyFindings.mockResolvedValue(
     ok({ findings: [activeHold, expiredRow], generatedAt: "2026-11-03T12:32:00Z" }),
@@ -246,6 +263,56 @@ describe("holds screen gate (RT-455)", () => {
     expect(await screen.findByTestId("tracking-not-tracked")).toBeTruthy();
     expect(screen.getByText("This tenant has no tracked products.")).toBeTruthy();
     expect(api.listSafetyFindings).not.toHaveBeenCalled();
+  });
+});
+
+describe("tracked-selling switch gate (RT-455 part 1, OD-T4)", () => {
+  test.each([
+    ["off", { ...SWITCH_ON, data: { ...SWITCH_ON.data, enabled: false } }],
+    ["the deployment gate's 404", { status: 404, error: { error: { code: "not_found" } } }],
+  ])("%s: the holds screen says it is not available and reads nothing", async (_, answer) => {
+    getTrackedSelling.mockResolvedValue(answer);
+    renderAt("/tracking");
+    expect(await screen.findByTestId("tracking-selling-off")).toBeTruthy();
+    expect(
+      screen.getByText("Holds and recalls is not available for this tenant now."),
+    ).toBeTruthy();
+    expect(api.listSafetyFindings).not.toHaveBeenCalled();
+    expect(api.listTrackingHolds).not.toHaveBeenCalled();
+  });
+
+  test("off: the identity detail is hidden too and reads nothing", async () => {
+    getTrackedSelling.mockResolvedValue({
+      ...SWITCH_ON,
+      data: { ...SWITCH_ON.data, enabled: false },
+    });
+    renderAt(`/tracking/identities/${IDENTITY}`);
+    expect(await screen.findByTestId("tracking-selling-off")).toBeTruthy();
+    expect(api.getTrackingIdentity).not.toHaveBeenCalled();
+  });
+
+  test("a failed switch read fails closed with a retry and the request id", async () => {
+    getTrackedSelling.mockResolvedValueOnce({
+      status: 500,
+      error: { error: { code: "internal", request_id: "req_ts_1" } },
+    });
+    renderAt("/tracking");
+    expect(
+      await screen.findByText(
+        "Whether batch selling is on could not be confirmed, so Holds and recalls is not shown.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("req_ts_1")).toBeTruthy();
+    expect(api.listSafetyFindings).not.toHaveBeenCalled();
+    getTrackedSelling.mockResolvedValue(SWITCH_ON);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByTestId("tracking-active-table")).toBeTruthy();
+  });
+
+  test("on: the holds screen renders", async () => {
+    renderAt("/tracking");
+    expect(await screen.findByTestId("tracking-active-table")).toBeTruthy();
+    expect(getTrackedSelling).toHaveBeenCalled();
   });
 });
 

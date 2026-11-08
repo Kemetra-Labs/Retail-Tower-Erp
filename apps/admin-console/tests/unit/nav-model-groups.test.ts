@@ -7,9 +7,12 @@ import { describe, expect, test } from "vitest";
  * grouping changes: every role sees the same entries, in the same relative order.
  */
 
-const SIGNALS = { hasTrackedProducts: true } as const;
-const paths = (role: string, signals: { hasTrackedProducts?: boolean } = SIGNALS) =>
-  tenantNav(role, false, signals).flatMap((g) => g.entries.map((e) => e.to));
+// RT-455 part 1: the tracking entry needs the tracked-selling switch on too.
+const SIGNALS = { hasTrackedProducts: true, trackedSellingOn: true } as const;
+const paths = (
+  role: string,
+  signals: { hasTrackedProducts?: boolean; trackedSellingOn?: boolean } = SIGNALS,
+) => tenantNav(role, false, signals).flatMap((g) => g.entries.map((e) => e.to));
 
 describe("tenant navigation groups (RT-1291)", () => {
   test("an owner sees four groups, the first two with the new headings", () => {
@@ -58,6 +61,9 @@ describe("tenant navigation groups (RT-1291)", () => {
   test("tracking stays hidden until the tenant has tracked products", () => {
     expect(paths("owner", {})).not.toContain("/tracking");
     expect(paths("owner", { hasTrackedProducts: false })).not.toContain("/tracking");
+    expect(paths("owner", { hasTrackedProducts: true, trackedSellingOn: false })).not.toContain(
+      "/tracking",
+    );
     expect(paths("owner", {})).toHaveLength(17);
   });
 
