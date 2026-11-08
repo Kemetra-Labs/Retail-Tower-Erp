@@ -341,12 +341,12 @@
                     {
                       "data_source": "metrics",
                       "name": "u",
-                      "query": "avg:system.cpu.user{*} by {host}"
+                      "query": "avg:system.cpu.user{host:retail-tower-lab-*} by {host}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "s",
-                      "query": "avg:system.cpu.system{*} by {host}"
+                      "query": "avg:system.cpu.system{host:retail-tower-lab-*} by {host}"
                     }
                   ],
                   "formulas": [
@@ -376,7 +376,7 @@
                     {
                       "data_source": "metrics",
                       "name": "st",
-                      "query": "avg:system.cpu.stolen{*} by {host}"
+                      "query": "avg:system.cpu.stolen{host:retail-tower-lab-*} by {host}"
                     }
                   ],
                   "formulas": [
@@ -402,7 +402,7 @@
                     {
                       "data_source": "metrics",
                       "name": "m",
-                      "query": "avg:system.mem.pct_usable{*} by {host}"
+                      "query": "avg:system.mem.pct_usable{host:retail-tower-lab-*} by {host}"
                     }
                   ],
                   "formulas": [
@@ -428,7 +428,7 @@
                     {
                       "data_source": "metrics",
                       "name": "io",
-                      "query": "max:system.io.util{*} by {host}"
+                      "query": "max:system.io.util{host:retail-tower-lab-*} by {host}"
                     }
                   ],
                   "formulas": [
@@ -445,7 +445,7 @@
           {
             "definition": {
               "type": "timeseries",
-              "title": "Network in/out by host",
+              "title": "Network in/out by host (needs the RT-636 host-network check)",
               "show_legend": true,
               "requests": [
                 {
@@ -454,12 +454,12 @@
                     {
                       "data_source": "metrics",
                       "name": "rx",
-                      "query": "avg:system.net.bytes_rcvd{*} by {host}"
+                      "query": "avg:system.net.bytes_rcvd{host:retail-tower-lab-*} by {host}"
                     },
                     {
                       "data_source": "metrics",
                       "name": "tx",
-                      "query": "avg:system.net.bytes_sent{*} by {host}"
+                      "query": "avg:system.net.bytes_sent{host:retail-tower-lab-*} by {host}"
                     }
                   ],
                   "formulas": [
