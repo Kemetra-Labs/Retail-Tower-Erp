@@ -16,10 +16,10 @@ that official and shared skills cannot know. Jira: RT-1268 (first skill), RT-127
 | `nestjs-drizzle-bullmq` | Backend-Core NestJS, Drizzle + RLS, BullMQ/outbox, Jest db-integration | — |
 | `driving-electron-via-cdp` | Screenshotting or smoke-testing the POS Electron app without the owner | — |
 | `ux-pos-console` | Any POS or Admin Console screen, flow, copy, token or accessibility decision | `references/` in the skill |
-| `reviewing-pull-requests` | Reviewing a branch, diff or PR before push, PR or merge | `requesting-external-review` |
-| `triaging-pr-comments` | Addressing or resolving review threads from any reviewer | — |
-| `requesting-external-review` | An independent second opinion on code, a plan or a decision | `superpowers:*` |
-| `handling-git-and-prs-safely` | Stacked or squash-merged PRs, branch or worktree cleanup, stash, revert | `superpowers:*` |
+| `reviewing-pull-requests` (general, copied) | Reviewing a branch, diff or PR before push, PR or merge | `requesting-external-review` |
+| `triaging-pr-comments` (general, copied) | Addressing or resolving review threads from any reviewer | — |
+| `requesting-external-review` (general, copied) | An independent second opinion on code, a plan or a decision | `superpowers:*` |
+| `handling-git-and-prs-safely` (general, copied) | Stacked or squash-merged PRs, branch or worktree cleanup, stash, revert | `superpowers:*` |
 
 ## Rules for these skills
 
