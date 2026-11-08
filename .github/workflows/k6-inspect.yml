@@ -1,0 +1,76 @@
+# RT-1281: static check of the Backend-Core k6 load scripts on a GitHub runner.
+#
+# Runs `k6 inspect` (options) and `k6 inspect --execution-requirements` (max VUs,
+# duration) on the RT-1281 scripts. inspect only parses each script and computes
+# its options; it never runs setup() or a scenario. The k6 container runs with
+# --network none and every input is a dummy value, so k6 cannot reach the AWS lab
+# or any host. (The runner itself still uses the network for the checkout and the
+# image pull.)
+#
+# Manual only (workflow_dispatch): no PR or push trigger, read-only token, no
+# secrets, no environment, no AWS role. Owner-approved 2026-11-08 (RT-1281).
+
+name: k6 inspect
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: k6 inspect (no network, dummy inputs)
+        env:
+          # grafana/k6:0.50.0, the version the scripts and README pin.
+          K6_IMAGE: grafana/k6@sha256:0a1289901ecf46819c50a7dd00e1be3e85d2b26dea175dc72f3cd730317cd584
+        run: |
+          set -euo pipefail
+          mkdir -p inspect
+          # k6 -e flags, not docker -e: inspect does not expose container env to __ENV.
+          dummy=(
+            -e BASE_URL=http://127.0.0.1:9
+            -e LOAD_TERMINALS=3
+            -e LOAD_SALES_PER_HOUR=60
+            -e LOAD_BURST_SALES=20
+            -e LOAD_OFFLINE_MINUTES=2
+            -e LOAD_RUN_ID=ci-inspect
+            -e LOAD_CURRENCY=EGP
+            -e LOAD_ABORT_ERROR_RATE=0.01
+            -e LOAD_ABORT_P95_MS=1000
+          )
+          k6inspect() {
+            local script="$1"; shift
+            docker run --rm --network none --read-only --cap-drop ALL \
+              --security-opt no-new-privileges --pids-limit 256 --memory 512m \
+              -v "$PWD/services/backend-core/loadtests/k6:/scripts:ro" \
+              "$K6_IMAGE" inspect "$@" "${dummy[@]}" "/scripts/$script.js"
+          }
+          status=0
+          echo "## k6 inspect (RT-1281)" >> "$GITHUB_STEP_SUMMARY"
+          for s in pos-terminals offline-burst sales-capture baseline stress; do
+            if k6inspect "$s" > "inspect/$s.options.json" 2> "inspect/$s.err" &&
+               k6inspect "$s" --execution-requirements > "inspect/$s.requirements.json" 2>> "inspect/$s.err"; then
+              summary=$(jq -c -s '{scenarios: (.[0].scenarios // {} | keys), maxVUs: .[1].maxVUs, totalDuration: .[1].totalDuration}' \
+                "inspect/$s.options.json" "inspect/$s.requirements.json")
+              echo "- ${s}.js: OK ${summary}" >> "$GITHUB_STEP_SUMMARY"
+            else
+              status=1
+              echo "- ${s}.js: FAILED $(tail -c 400 "inspect/$s.err" | tr -s '[:space:]' ' ')" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          exit "$status"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: k6-inspect
+          path: inspect/
+          retention-days: 30
