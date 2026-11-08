@@ -9,7 +9,8 @@ description: Use when a local command, install, lint or test fails on a Windows 
 
 Most local failures on this Windows setup are environment, not code. Before you call anything a
 regression: compare against a clean `origin/main` (a detached `git worktree`, never a stash; the
-stash is shared across sessions). If it fails there too, it predates your change: call it an
+stash is shared across sessions). If it fails there too at the same first failing boundary with the same error, it predates your
+change (a different boundary or error means the branch failure is new): call it an
 **environment failure** only when the evidence supports it (a symptom in the table below, or the
 same check passing on CI), otherwise report it as a pre-existing failure with the first failing
 boundary; if it passes there, report the comparison and the first failing

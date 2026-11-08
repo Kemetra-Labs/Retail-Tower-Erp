@@ -59,7 +59,7 @@ Lazy cart creation; the F-key map (D-K1); OD-3 validation of grouped money again
 
 ## Later owner decisions
 
-- **2026-10-30, Admin Console "Ink & Receipt" (canvas board v9): approved, partly shipped.** `apps/admin-console/DESIGN.md` v4.0 §12 records it as the visual target. `src/styles/tokens.css` is the shipped truth: the Ink roles and primary fill, `--shadow-resting`, receipt cards and the Overview (RT-993) are on `main`; the rest lands through its Jira slices. Call a part shipped only when the CSS has it.
+- **2026-10-30, Admin Console "Ink & Receipt" (canvas board v9): approved, partly shipped.** `apps/admin-console/DESIGN.md` v4.0 §12 records it as the visual target. `src/styles/tokens.css` is the shipped truth: the Ink roles and primary fill, `--shadow-resting`, receipt cards and the Overview (RT-993) are on `main`; the rest lands through its Jira slices. Call a part shipped only when the component, style and route code on `main` render it; a token in `tokens.css` alone does not prove use.
 
 ## Non-authoritative material
 

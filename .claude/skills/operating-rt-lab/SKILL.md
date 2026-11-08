@@ -85,8 +85,9 @@ applies IAM changes.
   var; unset, the app uses `https://example.invalid` and cannot pair.
 - Launch with process-scope env vars only (never `setx`) and a fresh `--user-data-dir` under a
   short root such as `C:\rt\<name>` (a Windows absolute path; do not rely on 8.3 conversion, which
-  returns the long path when no 8.3 name exists). Create the directory and check the final path's
-  length before launch; stop and do not launch if either fails. A path Electron cannot create (too
+  returns the long path when no 8.3 name exists). Create the directory, confirm the launch user can
+  write to it, and keep the whole path under 60 characters (a conservative bound below the
+  260-character Windows limit, not a measured Chromium limit); stop and do not launch if any fails. A path Electron cannot create (too
   long or denied) is silently ignored and the app opens the owner's real `%APPDATA%\pos-pulse`
   profile, running migrations on it at startup, before any later check can catch it.
 - Before any interaction, verify isolation: the scratch dir gains `pos-pulse.db`, and the real
