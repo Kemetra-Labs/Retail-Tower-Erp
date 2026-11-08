@@ -25,7 +25,7 @@ Scan in order. Cite the rule ID. Mark anything you cannot prove from code or a c
 - [ ] Colour is the only carrier of meaning; status colours used as decoration or chart series (UX-02.9, UX-13.12).
 - [ ] Physical left/right CSS, missing `dir`/`lang`, unisolated machine data in RTL (UX-11.12-.15).
 - [ ] Non-Western digits or ungrouped/oddly formatted money in system output; device-locale dependent formatting (UX-12.20, .25, .26).
-- [ ] English copy on POS other than source data, standard abbreviations and IDs (EGP, SKU, ERPNext; POS DESIGN.md One-Locale Rule) (Admin's separate English locale is allowed); bilingual duplicate copy on either surface; raw codes/keys/backend text shown; generic "Retry" or "OK" (UX-12.2-.3, .6, .33-.34).
+- [ ] English copy on POS other than source data, standard abbreviations and IDs (EGP, SKU, ERPNext; POS DESIGN.md One-Locale Rule) (Admin's separate English locale is allowed); bilingual duplicate copy on either surface; raw error codes, translation keys or backend text shown (a scanned barcode inside the unknown-barcode notice M-S3 is expected); generic "Retry" or "OK" (UX-12.2-.3, .6, .33-.34).
 - [ ] Wrong terminology (الفرع for Store, leaking `tenant_product`, receipt called invoice) (UX-12.14, .16-.19).
 - [ ] «طُبع» without print proof; blanket «تمت العملية بنجاح» (UX-12.12-.13).
 - [ ] Table inside a card, nested cards, gradient or glass surfaces (UX-04.16, UX-01.28-.29, UX-02.13).
