@@ -30,12 +30,14 @@ DECLARE
 BEGIN
   -- Rerunnable: once the column is gone there is nothing to guard (a plpgsql
   -- statement is planned on first execution, so the loop below is never
-  -- planned against a dropped column).
+  -- planned against a dropped column). The table is resolved through the
+  -- search path as the ALTER TABLE below resolves it, and the column is read
+  -- from pg_attribute (information_schema hides columns by privilege).
   IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = current_schema()
-       AND table_name = 'tenant_inventory_settings'
-       AND column_name = 'tracked_selling_enabled'
+    SELECT 1 FROM pg_attribute
+     WHERE attrelid = to_regclass('tenant_inventory_settings')
+       AND attname = 'tracked_selling_enabled'
+       AND NOT attisdropped
   ) THEN
     RETURN;
   END IF;
