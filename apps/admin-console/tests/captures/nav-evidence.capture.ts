@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { context, mockRealisticApi } from "../e2e/compact-shell-data";
+import { STORE, context, mockRealisticApi } from "../e2e/compact-shell-data";
 import { type Page, expect, test } from "../e2e/fixtures";
 import { FIXED_NOW, MEMBERS, json, member, rows } from "./screen-data";
 
@@ -131,6 +131,32 @@ test.describe(`${TICKET} header bands`, () => {
       await page.route("**/api/v1/catalog/tracking-summary", (r) =>
         r.fulfill(json({ hasTrackedProducts: true })),
       );
+      // The Stock discrepancies page needs its own read, as tests/e2e/stock-discrepancies*.spec.ts
+      // provide; the generic mock's shape made it show the route-error screen (RT-1293 run 42526959154).
+      await page.route("**/api/v1/catalog/erpnext-reconciliation/negative-on-hand/stores**", (r) =>
+        r.fulfill(
+          json({
+            items: [
+              {
+                storeId: STORE,
+                storeName: "فرع كايرو فستيفال سيتي",
+                snapshot: {
+                  status: "fresh",
+                  erpnextWarehouseRef: "Stores - NSR",
+                  runId: "0190f000-0000-7000-8000-0000000000b1",
+                  readAt: "2026-10-04T07:58:12.000Z",
+                  recordedAt: "2026-10-04T08:00:03.000Z",
+                  staleAfterSeconds: 86400,
+                  reportedEntryCount: 312,
+                  pendingRequest: null,
+                },
+                negativeItemCount: 2,
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      );
       const found: Record<number, Awaited<ReturnType<typeof snapshot>>> = {};
       for (const width of [1280, 390]) {
         await open(page, p.route, width);
@@ -157,6 +183,32 @@ function watchApi(page: Page, current: () => SeenApi): void {
     if (url.includes("/api/v1/audit/events")) current().audit.push(res.status());
     else if (/\/api\/v1\/tenants\/[^/]+\/members/.test(url)) current().members.push(res.status());
   });
+}
+
+/**
+ * The audit query only runs once a search is applied, so apply it to make the request. Returns
+ * false when no Apply button shows. isVisible() answers at once, so wait a bounded time first: a
+ * late render must not read as "not applied".
+ */
+async function applyAuditSearch(page: Page, applyName: string): Promise<boolean> {
+  const apply = page.getByRole("button", { name: applyName, exact: true });
+  await apply.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
+  const visible = await apply.isVisible();
+  if (visible) {
+    await apply.click();
+    await settle(page);
+  }
+  return visible;
+}
+
+/** Waits for a refusal banner, so the screenshot is the final state and not the loading frame. */
+async function waitForRefusal(page: Page): Promise<void> {
+  await page
+    .locator("main .rtc-alert")
+    .first()
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .catch(() => undefined);
+  await settle(page);
 }
 
 const ROLES = [
@@ -200,17 +252,9 @@ test.describe(`${TICKET} Audit and Operators by role`, () => {
       for (const route of ["/audit", "/operators"]) {
         seen = emptySeen();
         await open(page, route, 1280);
-        if (route === "/audit") {
-          // The audit query only runs once a search is applied, so apply it to make the request.
-          const apply = page.getByRole("button", { name: t("filter.apply"), exact: true });
-          // Wait a bounded time first: isVisible() answers at once, so a late render would read as "not applied".
-          await apply.waitFor({ state: "visible", timeout: 10_000 }).catch(() => undefined);
-          appliedAuditSearch = await apply.isVisible();
-          if (appliedAuditSearch) {
-            await apply.click();
-            await settle(page);
-          }
-        }
+        if (route === "/audit")
+          appliedAuditSearch = await applyAuditSearch(page, t("filter.apply"));
+        if (denied) await waitForRefusal(page);
         await page.screenshot({
           path: file(`role-${role}${route.replace("/", "-")}`, appLocale, "1280.png"),
           fullPage: true,
