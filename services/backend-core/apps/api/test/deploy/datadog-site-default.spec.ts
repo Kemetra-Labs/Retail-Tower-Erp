@@ -1,16 +1,16 @@
 /**
  * RT-1276 — the Datadog site default is EU1 everywhere, and a recreated agent
- * or a monitoring-as-code apply cannot silently fall back to US5.
+ * or a monitoring-as-code apply cannot silently fall back to another site.
  *
  * Lab telemetry lives in the Datadog EU1 org (`datadoghq.eu`). A default that
- * still named `us5.datadoghq.com` would send an agent recreated without an
- * explicit `DD_SITE`, or an `apply.mjs` run, to the old org, which receives
- * nothing. This spec pins the three places that carry the default:
+ * named any other site would send an agent recreated without an explicit
+ * `DD_SITE`, or an `apply.mjs` run, to an org that receives nothing. This spec
+ * pins the three places that carry the default:
  *   - `deploy/datadog/apply.mjs`: the `process.env.DD_SITE ||` fallback;
  *   - `docker-compose.prod.yml`: the `${DD_SITE:-...}` default of the agent;
  *   - `deploy/prod.env.example`: the documented value;
- * and that an explicit `DD_SITE` still wins (the override and the rollback
- * path to US5 stay a deliberate, per-environment choice).
+ * and that an explicit `DD_SITE` still wins (the override stays a deliberate,
+ * per-environment choice).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -22,7 +22,7 @@ function read(...segments: string[]): string {
   return readFileSync(resolve(serviceRoot, ...segments), "utf8");
 }
 
-/** Every line that assigns a `DD_SITE` default or value, so no `us5` can hide in a comment-free line. */
+/** Every line that assigns a `DD_SITE` default or value, so a stray site value cannot hide on a line the other tests skip. */
 function ddSiteLines(text: string): string[] {
   return text.split(/\r?\n/).filter((line) => /DD_SITE/.test(line) && !/^\s*(#|\/\/)/.test(line));
 }
@@ -44,7 +44,7 @@ describe("RT-1276 Datadog site default is EU1", () => {
     });
 
     it("keeps the explicit override: the env value is read before the fallback", () => {
-      // `||` (not a hard-coded assignment) is what lets DD_SITE=us5... still roll back.
+      // `||` (not a hard-coded assignment) is what lets an explicit DD_SITE keep winning.
       expect(source).toMatch(/process\.env\.DD_SITE \|\|/);
     });
   });
@@ -73,16 +73,18 @@ describe("RT-1276 Datadog site default is EU1", () => {
     });
   });
 
-  describe("no implicit US5 fallback remains", () => {
+  describe("no other site is the default", () => {
     const files: Array<[string, string[]]> = [
       ["deploy/datadog/apply.mjs", ["deploy", "datadog", "apply.mjs"]],
       ["docker-compose.prod.yml", ["docker-compose.prod.yml"]],
       ["deploy/prod.env.example", ["deploy", "prod.env.example"]],
     ];
 
-    it.each(files)("%s has no us5 default", (_name, segments) => {
+    it.each(files)("%s names no site other than datadoghq.eu", (_name, segments) => {
       for (const line of ddSiteLines(read(...segments))) {
-        expect(line).not.toMatch(/us5/i);
+        for (const site of line.match(/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.datadoghq\.[a-z]+|datadoghq\.[a-z]+/gi) ?? []) {
+          expect(site).toBe(EU_SITE);
+        }
       }
     });
   });
