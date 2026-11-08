@@ -57,6 +57,7 @@ export * from "./inventory/position-events";
 export * from "./inventory/anchors";
 export * from "./inventory/safety";
 export * from "./inventory/stock-levels";
+export * from "./inventory/tracked-line-validations";
 export * from "./connector-health";
 export * from "./device-health";
 export * from "./pos-version-policy";
