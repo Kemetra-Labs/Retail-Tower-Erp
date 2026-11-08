@@ -69,7 +69,7 @@ function runStep(s: Scenario): { status: number | null; out: string; calls: stri
 }
 
 const compose = { "docker-compose.prod.yml": "services: {}\n", "docker-compose.release.yml": "x: 1\n" };
-const RECREATE = "--profile datadog up -d --no-deps --force-recreate datadog-agent";
+const RECREATE = "--profile datadog up -d --no-deps --force-recreate --pull never datadog-agent";
 
 describe("RT-BackendLabDeploy: Datadog agent recreate (RT-1282)", () => {
   it("has the step, after cancel-revert and before RT_DONE, and reports through the RT_GATE prefix", () => {
@@ -86,7 +86,19 @@ describe("RT-BackendLabDeploy: Datadog agent recreate (RT-1282)", () => {
   });
 
   it("never pulls an image and never renders compose config (DD_API_KEY would reach the log)", () => {
-    expect(code).not.toMatch(/\bpull\b|--pull|docker image|\bconfig\b|--build/);
+    expect(code).toContain("--pull never");
+    expect(code).not.toMatch(/--pull (always|missing)|docker pull|docker image|\bconfig\b|--build/);
+  });
+
+  it("bounds the recreate in time, so a hung daemon cannot hold the run past RT_DONE", () => {
+    expect(code).toMatch(/timeout [0-9]+ "\$DC" --profile datadog up /);
+    const seconds = Number(/timeout ([0-9]+) "\$DC" --profile datadog/.exec(code)?.[1]);
+    expect(seconds).toBeGreaterThan(0);
+    expect(seconds).toBeLessThanOrEqual(300);
+  });
+
+  it("does not name its loop variable COMPOSE_FILE, a Docker Compose environment variable", () => {
+    expect(code).not.toMatch(/\bCOMPOSE_FILE\b/);
   });
 
   it("keeps stdin off the compose call", () => {

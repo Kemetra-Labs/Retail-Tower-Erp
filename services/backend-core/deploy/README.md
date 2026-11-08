@@ -504,7 +504,11 @@ runs these steps and stops at the first failure:
     profile alone, so without this the agent keeps its old inlined check config.
     The step runs after the revert is cancelled and never stops or reverts the
     deploy; it reports `RT_GATE datadog-agent pass`, `skip` or `fail`. A stopped
-    agent stays stopped, and it never pulls an image.
+    agent stays stopped, the recreate is bounded to 120 s, and it runs with
+    `--pull never`, so a missing agent image reports `fail` instead of upgrading.
+    A `fail` is not retried: the next deploy compares compose files again (a
+    same-release redeploy always reports `skip`), so recreate the agent by hand
+    (see the Datadog section below) to repair it.
 
 A same-release redeploy (`current_release` equal to `backend_release`) keeps the
 wrapper and `backend.env` unchanged and still runs every gate, so it proves the

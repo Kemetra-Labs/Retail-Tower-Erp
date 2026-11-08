@@ -475,16 +475,19 @@ mainSteps:
           # compose files differ from the current release's, and only if it is already running (an
           # agent the owner stopped stays stopped). The app deploy is committed and the revert is
           # cancelled, so this step never stops or reverts the deploy: telemetry never blocks one
-          # (RT-617). No image pull (no unplanned agent upgrade) and no `config` render (it would
-          # put DD_API_KEY in the log).
+          # (RT-617). The recreate is time-bounded, because a hung daemon here would otherwise hold
+          # the run to the document timeout and lose RT_DONE. `--pull never`: no unplanned agent
+          # upgrade (a missing image reports fail). No `config` render (it would put DD_API_KEY in
+          # the log). A fail is not retried: the next deploy compares compose files again, so a
+          # stale agent after a fail needs the manual recreate in deploy/README.md.
           DD_RESULT=skip
           if service_container datadog-agent >/dev/null; then
             DD_CHANGED=no
-            for COMPOSE_FILE in docker-compose.prod.yml docker-compose.release.yml; do
-              cmp -s "$CUR_DIR/$COMPOSE_FILE" "$TGT_DIR/$COMPOSE_FILE" || DD_CHANGED=yes
+            for DD_FILE in docker-compose.prod.yml docker-compose.release.yml; do
+              cmp -s "$CUR_DIR/$DD_FILE" "$TGT_DIR/$DD_FILE" || DD_CHANGED=yes
             done
             if [ "$DD_CHANGED" = yes ]; then
-              if "$DC" --profile datadog up -d --no-deps --force-recreate datadog-agent </dev/null; then
+              if timeout 120 "$DC" --profile datadog up -d --no-deps --force-recreate --pull never datadog-agent </dev/null; then
                 DD_RESULT=pass
               else
                 DD_RESULT=fail
