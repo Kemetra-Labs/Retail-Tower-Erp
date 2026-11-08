@@ -498,6 +498,11 @@ runs these steps and stops at the first failure:
    (Deploy step 4: what the previous release wrote while it still ran).
 8. `/health/ready` and `console-smoke.sh` on the origin.
 9. Cancel the auto-revert.
+10. Datadog Agent (RT-1282): if the `datadog` profile Agent is running and the
+    target release's compose files differ from the current release's, recreate it
+    from the new wrapper (`--profile datadog up -d --no-deps --force-recreate
+    datadog-agent`). It reports `RT_GATE datadog-agent pass|skip|fail` and never
+    stops or reverts the deploy; on `fail`, recreate it by hand with that command.
 
 A same-release redeploy (`current_release` equal to `backend_release`) keeps the
 wrapper and `backend.env` unchanged and still runs every gate, so it proves the
@@ -1038,7 +1043,8 @@ services:
   `command_stats: false` and `collect_client_metrics: false`. It holds a secret,
   so keep it root-only (0600).
 - A config-only change does not recreate the Agent. Apply it with
-  `up -d --no-deps --force-recreate datadog-agent`.
+  `up -d --no-deps --force-recreate datadog-agent`. The lab deploy does this itself
+  when the release's compose files change (RT-1282), but not for a private override.
 
 **Rollback.** Unset `SENTRY_DSN`, `CONSOLE_SENTRY_DSN` and `POS_SENTRY_DSN` and recreate `api`/`worker` to stop Sentry egress;
 stop the Agent with `docker compose -f docker-compose.prod.yml --profile datadog stop datadog-agent`

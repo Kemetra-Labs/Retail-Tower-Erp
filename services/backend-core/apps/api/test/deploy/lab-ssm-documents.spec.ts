@@ -476,7 +476,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
   it("keeps stdin off every docker and compose call, and reads only the image field from docker inspect", () => {
     // continuation lines joined, so a redirect on the last line of a command counts
     const joined = b.replace(/\\\n\s*/g, " ");
-    for (const line of joined.split("\n").filter((l) => /(^|\s)(docker (run|inspect|image inspect|ps)|"\$DC" (run|up))\b/.test(l) && !l.trim().startsWith("#"))) {
+    for (const line of joined.split("\n").filter((l) => /(^|\s)(docker (run|inspect|image inspect|ps)|"\$DC" (--profile \S+ )?(run|up))\b/.test(l) && !l.trim().startsWith("#"))) {
       expect(line).toMatch(/<\/dev\/null/);
     }
     for (const line of b.split("\n").filter((l) => /docker (image )?inspect/.test(l) && !l.trim().startsWith("#"))) {

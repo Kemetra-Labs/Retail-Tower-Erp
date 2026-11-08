@@ -22,6 +22,9 @@
 #   G-Ready    /health/ready on the origin, then deploy/console-smoke.sh
 #   cancel     the auto-revert, only after readiness passed and only if it
 #              never fired; the target images must still be running
+#   agent      RT-1282: recreate the Datadog agent (opt-in profile `datadog`)
+#              only if it was running and the release's compose files changed;
+#              it reports pass/skip/fail and never stops or reverts the deploy
 #
 # No automatic database downgrade. The auto-revert restores the previous
 # backend.env and wrapper (app-only rollback) only when RollbackAllowed=true,
@@ -467,6 +470,30 @@ mainSteps:
           ! systemctl is-active --quiet "$UNIT.timer" || { release_claim; stop "auto-revert-still-active"; }
           say "RT_REVERT cancelled unit=$UNIT"
           pass cancel-revert
+
+          # ---------------------------------------------------------------- Datadog agent (RT-1282)
+          GATE=datadog-agent
+          # The agent is the opt-in compose profile `datadog`, so the plain `up -d` above never
+          # touches it, and compose never recreates it for a config-only change (its check config
+          # is inline in the compose file). Recreate it from the new wrapper only when it was
+          # running and the release's compose files changed. Telemetry never blocks or rolls back
+          # a deploy: this runs after the app is committed, never calls stop, never pulls the
+          # agent image and never renders compose config (that would log DD_API_KEY).
+          datadog_agent_step() {
+            local name changed=no
+            AGENT_RESULT=skip
+            service_container datadog-agent >/dev/null || { echo "datadog-agent: not running, left as is"; return 0; }
+            for name in docker-compose.prod.yml docker-compose.release.yml; do
+              cmp -s "$CUR_DIR/$name" "$TGT_DIR/$name" || changed=yes
+            done
+            [ "$changed" = yes ] || { echo "datadog-agent: compose files unchanged, left as is"; return 0; }
+            AGENT_RESULT=fail
+            "$DC" --profile datadog up -d --no-deps --force-recreate datadog-agent </dev/null || return 0
+            service_container datadog-agent >/dev/null || return 0
+            AGENT_RESULT=pass
+          }
+          datadog_agent_step
+          say "RT_GATE datadog-agent $AGENT_RESULT"
           say "RT_DONE release=$RELEASE_TAG"
           RT_DEPLOY_SCRIPT
           RC=0
