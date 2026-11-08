@@ -9,12 +9,14 @@ description: Use when a local command, install, lint or test fails on a Windows 
 
 Most local failures on this Windows setup are environment, not code. Before you call anything a
 regression: compare against a clean `origin/main` (a detached `git worktree`, never a stash; the
-stash is shared across sessions). If it fails there too at the same first failing boundary with the same error, it predates your
-change (a different boundary or error means the branch failure is new): call it an
-**environment failure** only when the evidence supports it (a symptom in the table below, or the
-same check passing on CI), otherwise report it as a pre-existing failure with the first failing
-boundary; if it passes there, report the comparison and the first failing
-boundary, not an environment failure. Heavy suites run on CI (`merging-rt-pull-requests`), not here.
+stash is shared across sessions). Compare the underlying cause, not only the boundary or the
+error text: both can match for different reasons (an HTTP 500 from a missing database on `main`,
+from a bug on the branch). If clean `main` fails with the same cause, it predates your change: call
+it an **environment failure** only when the evidence supports it (a symptom in the table below, or
+the same check passing on CI), otherwise report it as pre-existing. If the branch fails at a
+different point, or the causes cannot be told apart, report it as inconclusive and check that
+failure on clean `main` too (an earlier failure there may mask it). If clean `main` passes, report
+the comparison and the first failing boundary, not an environment failure. Heavy suites run on CI (`merging-rt-pull-requests`), not here.
 
 Docker lives only in WSL Ubuntu. Git Bash rewrites any argument that starts with `/`
 (`/rt/lab/x`, `/mnt/c/...`, `origin/main:path`) into a Windows path.

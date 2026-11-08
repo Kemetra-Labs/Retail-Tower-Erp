@@ -58,7 +58,7 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
 
 1. `gh pr view <n> --json headRefOid,mergeCommit`: the merged head must equal the last SHA you
    pushed. PRs land as squash commits, so never test `<sha>` against `origin/main` ancestry. If
-   the heads differ, `git fetch origin pull/<n>/head` (the branch may be deleted) and compare `git diff <sha> <headRefOid>` for the PR's
+   the heads differ, `git fetch origin` and `git fetch origin pull/<n>/head` (the branch may be deleted; the first refreshes `origin/main` for any follow-up branch) and compare `git diff <sha> <headRefOid>` for the PR's
    paths (a later commit can undo your work even when `<sha>` is an ancestor). Only changes
    really missing go in a small follow-up PR (cherry-pick onto a fresh branch from `origin/main`).
 2. `gh run list --commit <merge-sha> --event push --limit 100`. Without `--event push` and the
