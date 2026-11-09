@@ -327,6 +327,12 @@ class Cli(unittest.TestCase):
 
     data = Draft.make(Draft())
 
+    @staticmethod
+    def fake_stdout(buffer):
+        # Python 3.14's argparse asks sys.stdout whether it is a terminal (colour); a bare Mock cannot answer.
+        return mock.Mock(buffer=buffer, fileno=mock.Mock(side_effect=io.UnsupportedOperation),
+                         isatty=mock.Mock(return_value=False))
+
     def run_main(self, out, *argv, draft=None, gate_code=0):
         (pathlib.Path(out) / "lab-2026.11.2.json").write_text(LIVE.read_text(encoding="utf-8"), encoding="utf-8")
         gate = subprocess.CompletedProcess([], gate_code, "", "")
@@ -334,7 +340,7 @@ class Cli(unittest.TestCase):
         with mock.patch.object(draft_manifest, "draft", **(draft or {"return_value": self.data})), \
                 mock.patch.object(draft_manifest, "pinned_base", return_value=BASE), \
                 mock.patch.object(draft_manifest.subprocess, "run", return_value=gate), \
-                mock.patch.object(draft_manifest.sys, "stdout", mock.Mock(buffer=stdout)), \
+                mock.patch.object(draft_manifest.sys, "stdout", self.fake_stdout(stdout)), \
                 contextlib.redirect_stderr(io.StringIO()):
             code = draft_manifest.main(["--out-dir", str(out), *argv])
         return code, sorted(p.name for p in pathlib.Path(out).iterdir()), stdout.getvalue().decode("utf-8")
