@@ -34,6 +34,8 @@ import { readConsoleRateLimitConfig } from "../../src/console-rate-limit/console
 import { resolveForwardTarget } from "../../src/console-telemetry/console-telemetry.forwarder";
 import { resolvePosTelemetryTarget } from "../../src/pos-telemetry/pos-telemetry.forwarder";
 import { resolveRefKey } from "../../src/pos-telemetry/pos-telemetry.refs";
+import { resolvePilotReleaseConfig } from "../../src/pos-pilot-releases/pilot-release.config";
+import { createPilotReleasePresigner } from "../../src/pos-pilot-releases/pilot-release.s3-presigner";
 import {
   readCashierAdmissionPolicy,
   readTakeoverLimiterTimeoutMs,
@@ -53,12 +55,6 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-451: unmapped, so production stays off, until the owner approves activating tracked selling (per-tenant flag, Q13 preconditions)",
   TRUST_PROXY_DIRECT_DEPLOYMENT:
     "RT-625: only for a deployment with no proxy in front of the API; this compose runs behind Caddy and pins TRUST_PROXY to 1",
-  POS_PILOT_RELEASE_PUBLISHER:
-    "RT-1292: unmapped, so the pilot release lane stays off in production (fail closed), until the S3 presigner slice and the owner's pilot publisher pin are approved",
-  POS_PILOT_RELEASE_BUCKET:
-    "RT-1292: unmapped with the pin above; the private pilot bucket does not exist yet (the S3 slice provisions it)",
-  POS_PILOT_RELEASE_URL_TTL_SECONDS:
-    "RT-1292: unmapped with the pin above; the code default of 300 seconds applies when the lane is later switched on",
   POS_RELEASE_PRODUCTION_PUBLISHER:
     "RT-1292: read only to refuse a pilot pin equal to the production pin; the production lane (RT-1260) is not implemented, so there is no value to pass yet",
 };
@@ -247,6 +243,12 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["CONSOLE_SENTRY_DSN", () => resolveForwardTarget(process.env)],
       ["POS_SENTRY_DSN", () => resolvePosTelemetryTarget(process.env)],
       ["POS_TELEMETRY_REF_KEY", () => resolveRefKey(process.env)],
+      ["POS_PILOT_RELEASE_PUBLISHER", () => resolvePilotReleaseConfig(process.env)],
+      ["POS_PILOT_RELEASE_BUCKET", () => resolvePilotReleaseConfig(process.env)],
+      ["POS_PILOT_RELEASE_URL_TTL_SECONDS", () => resolvePilotReleaseConfig(process.env)],
+      ["POS_PILOT_RELEASE_S3_REGION", () => createPilotReleasePresigner(process.env)],
+      ["POS_PILOT_RELEASE_S3_ACCESS_KEY_ID", () => createPilotReleasePresigner(process.env)],
+      ["POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY", () => createPilotReleasePresigner(process.env)],
     ];
 
     it.each(probes)("%s", (name, read) => {
@@ -271,5 +273,46 @@ describe("RT-984 production compose passes every API env setting", () => {
       expect(composeDefault("OUTBOX_AUDIT_ENABLED")).toBe("");
       expect(under({ OUTBOX_AUDIT_ENABLED: "" }, isOutboxAuditEnabled)).toBe(true);
     });
+  });
+});
+
+describe("RT-1297 the pilot S3 key reaches the api container only", () => {
+  const PILOT_S3_NAMES = [
+    "POS_PILOT_RELEASE_S3_REGION",
+    "POS_PILOT_RELEASE_S3_ACCESS_KEY_ID",
+    "POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY",
+  ];
+  const allServices = (
+    load(readFileSync(join(serviceRoot, "docker-compose.prod.yml"), "utf8")) as {
+      services: Record<string, { environment?: Record<string, string | number> }>;
+    }
+  ).services;
+
+  it("maps the key into the api service, without `:?`, so a missing value never stops it", () => {
+    for (const name of PILOT_S3_NAMES) expect(String(apiEnvironment[name])).toBe(`\${${name}:-}`);
+  });
+
+  it("does not hand the key to any other service", () => {
+    for (const [service, definition] of Object.entries(allServices)) {
+      if (service === "api") continue;
+      const leaked = Object.keys(definition.environment ?? {}).filter((name) => name.startsWith("POS_PILOT_RELEASE_"));
+      expect([service, leaked]).toEqual([service, []]);
+    }
+  });
+
+  it("does not pass the key to the api under an ambient AWS name", () => {
+    const ambient = [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "AWS_REGION",
+      "AWS_DEFAULT_REGION",
+      "AWS_PROFILE",
+      "AWS_ENDPOINT_URL",
+      "AWS_ENDPOINT_URL_S3",
+    ];
+    for (const name of ambient) {
+      expect(name in apiEnvironment).toBe(false);
+    }
   });
 });

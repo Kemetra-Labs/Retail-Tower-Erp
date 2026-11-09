@@ -916,6 +916,38 @@ the email. This change does not alter memberships or Descope.
 - **Logs:** a failed send is re-thrown as `EmailDeliveryError` with the SES error name and HTTP
   status only. The recipient, the token and the SES message text are not logged.
 
+### POS pilot release downloads from a private S3 bucket (RT-1297)
+
+For an allowlisted pilot tenant, the api answers the Console's "Download POS" request with a
+short-lived presigned S3 URL (RT-1292 resolver, RT-1297 presigner). The URL is signed inside the
+api: no request goes to S3 to build it, and the browser then downloads straight from S3. The lane is
+**off** while any value below is empty, and the Console then gets `{ "available": false }`.
+
+| Variable (host env file) | Passed to the api as | Notes |
+|---|---|---|
+| `POS_PILOT_RELEASE_PUBLISHER` | same | The pilot installer's Authenticode subject. Never a lab subject (`LAB TEST`, `NOT FOR PRODUCTION`) and never the production pin. |
+| `POS_PILOT_RELEASE_BUCKET` | same | The private pilot bucket. |
+| `POS_PILOT_RELEASE_URL_TTL_SECONDS` | same | Integer 1 to 900. Blank means 300. Any other value turns the lane off; it is never clamped. |
+| `POS_PILOT_RELEASE_S3_REGION` | same | The bucket's region (`us-east-1` for the lab). |
+| `POS_PILOT_RELEASE_S3_ACCESS_KEY_ID`, `POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY` | same | **Secret.** The key of an IAM user allowed only `s3:GetObject` and `s3:GetObjectVersion` on `pos/pilot/*`. Only the api container receives it. |
+
+- **Why the lab uses a key:** lab-01 is an SSM *hybrid* managed node (`mi-…`), not an EC2 instance,
+  so no instance role exists for the api to use (RT-1290, owner decision 2026-11-09).
+- **No ambient credential:** the key is passed to the SDK explicitly, under its own names, so no
+  `AWS_ACCESS_KEY_ID`, `AWS_PROFILE`, instance role or shared credentials file can sign a pilot
+  download. The api container is given no `AWS_*` variable at all (the SDK would still honour
+  non-credential ones such as `AWS_ENDPOINT_URL_S3`). The worker's SES key (`EMAIL_SES_*`) is a different
+  identity and a different container.
+- **Fail closed:** compose passes the values without `:?`, so a missing value never stops the api. A
+  fully blank lane is silent. A half-configured one leaves the lane off and logs one warning at boot with
+  a closed reason, never a value: `pilot release presigner not bound: credentials_partial` or
+  `region_invalid`; `pilot release lane is configured but the presigner is not bound: not_configured`
+  (pin and bucket set, S3 key blank); `pilot release presigner is bound but the lane is off: <reason>`
+  (S3 key set, pin or bucket blank or invalid).
+- **Setup, rotation and the bucket and IAM settings:**
+  [`docs/operations/pos-pilot-release-bucket.md`](../docs/operations/pos-pilot-release-bucket.md).
+  The key is created by the owner in the AWS console and written straight into the host env file:
+  never typed into chat, Jira, a PR or an SSM Run Command parameter.
 ### `PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET` (RT-1043, RT-625 D4)
 
 An HMAC key, **secret**. The public-auth rate-limit buckets (`signin_pair`,

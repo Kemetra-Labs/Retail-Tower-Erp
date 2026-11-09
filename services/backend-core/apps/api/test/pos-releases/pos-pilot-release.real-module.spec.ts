@@ -4,12 +4,13 @@
  * never-cross spec builds its own module around a fake presigner; this one boots
  * what production boots, so the wiring is tested rather than assumed.
  *
- * The pilot pin and the bucket are set (the lane is configured) but the S3
- * presigner is a later slice, so the shipped binding is `null`. An otherwise
- * eligible, allowlisted tenant must therefore get exactly `{ "available": false }`
- * and no audit row: an unconfigured lane fails closed, never with an error and
- * never with a URL. (Pin unset and bucket unset are pinned by the config unit
- * spec.)
+ * The pilot pin and the bucket are set (the lane is configured) but the pilot S3
+ * key (`POS_PILOT_RELEASE_S3_*`, RT-1297) is not, so the shipped binding is
+ * `null`. An otherwise eligible, allowlisted tenant must therefore get exactly
+ * `{ "available": false }` and no audit row: an unconfigured lane fails closed,
+ * never with an error and never with a URL. (Pin unset and bucket unset are
+ * pinned by the config unit spec; the bound presigner by
+ * `pos-pilot-release.real-module-s3.spec.ts`.)
  *
  * Docker policy: HARD failure unless MIGRATION_TEST_ALLOW_SKIP=1.
  */
@@ -19,6 +20,9 @@ process.env["POS_PILOT_RELEASE_PUBLISHER"] = "CN=Kemetra POS PILOT, O=Kemetra La
 process.env["POS_PILOT_RELEASE_BUCKET"] = "pilot-bucket";
 delete process.env["POS_PILOT_RELEASE_URL_TTL_SECONDS"];
 delete process.env["POS_RELEASE_PRODUCTION_PUBLISHER"];
+delete process.env["POS_PILOT_RELEASE_S3_REGION"];
+delete process.env["POS_PILOT_RELEASE_S3_ACCESS_KEY_ID"];
+delete process.env["POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY"];
 
 import { PosPilotReleasesModule } from "../../src/pos-pilot-releases/pos-pilot-releases.module";
 import { scopedHttpHarness } from "../_helpers/scoped-http-harness";
@@ -33,7 +37,7 @@ const h = scopedHttpHarness({
 
 const RELEASE_ID = "0190f5a2-3b4c-7d8e-9f01-000000002929";
 
-it("fails closed with the shipped null presigner: an eligible, allowlisted tenant gets { available: false }", async () => {
+it("fails closed with the null presigner (no S3 key set): an eligible, allowlisted tenant gets { available: false }", async () => {
   if (h.skipped()) return;
   const admin = h.env().admin;
   await admin.query(`DELETE FROM pos_pilot_release_registry`);
