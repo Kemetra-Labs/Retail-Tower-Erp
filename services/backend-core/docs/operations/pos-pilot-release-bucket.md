@@ -206,3 +206,48 @@ checked for shape: replay detection is by content. A retry of a withdrawn releas
 | Register answers 403 | A pin differs from the token's claim, or the body's `promotionRunUrl` names another run or repository. The api never says which. |
 | Activate answers 409 `release_current_exists` | Another release is current: withdraw it first. |
 | The tenant still gets `{ "available": false }` after activation | The tenant is not on the allowlist, the pin, bucket or S3 key (section 3) is blank, or the release was withdrawn. |
+
+## 8. Verifying a pilot release before promotion: the dry-run (RT-1300)
+
+`.github/workflows/promote-pos-pilot.yml` is, for now, **verify-only**. It cannot upload, register or
+activate: it holds no environment, secret, AWS credential or id-token, its token is read-only, and it never
+calls Backend-Core. Use it before the real promotion exists, and again before each live one.
+
+**Run it** (Actions → promote-pos-pilot → Run workflow, any ref, it is read-only) with two inputs. A
+manually started workflow can be dispatched only once its file is on the default branch, so the first run is
+after the change that adds it is merged:
+
+- `tag`: the published pilot release, `pos-pilot/vX.Y.Z`. The tag must exist and its commit must be on `main`.
+- `leaf_sha1`: the SHA-1 thumbprint (40 hex) of the pilot signing leaf, as the `release-pos-pilot` signing step
+  printed it (the same value as the `POS_PILOT_LEAF_SHA1` variable of the signing environment).
+
+**What it checks, in order** (the first failure stops the run; no repository, release, S3 or registry state is
+changed either way, and the output is informational: the workflow can be run from any ref):
+
+1. The tag is `pos-pilot/vX.Y.Z` exactly (a lab tag or a look-alike is refused), its commit is on `main`, and the
+   tag still points at that commit when the release is read.
+2. The release is published (not a draft or a prerelease) and holds exactly the installer, its `.sha256` and
+   `release-manifest.json`.
+3. The manifest says product `pos-pilot`, signing `pilot`, mode `release`, this tag, this commit and this
+   repository, with one artifact whose digest is the installer's; the `.sha256` matches the bytes; the size is 1
+   byte to 2 GiB (the registry's limit).
+4. `gh attestation verify` passes, bound to this repository, the `release-pos-pilot.yml` workflow (at this
+   commit), this commit and this tag.
+5. The installer's signer is the pinned leaf, subject `CN=Kemetra POS PILOT`, self-signed. Only then is that
+   public leaf trusted, on the hosted runner only, so Windows can answer `Valid`; the status must be `Valid` and
+   timestamped, and the trust is removed again whatever happens.
+
+The run summary then states what a live promotion would do with these bytes (the object key
+`pos/pilot/<version>/POS-Pulse-Setup-<version>.exe`, the SHA-256, the size and the registration fields) and that
+nothing was uploaded, registered or activated.
+
+**Not built yet** (a later, separately approved change to the same file, after the owner sets up the bucket, the
+upload role and the protected promotion environment): the S3 upload, the second OIDC token and the register call.
+That version must run on `main` only, because the Backend-Core `ref` pin is one exact value (section 7).
+
+| Symptom | Likely cause |
+|---|---|
+| `tag ... is not on main` | The release was tagged on a commit that never reached `main`. |
+| `the release assets are not exactly ...` | An asset was added to or removed from the release after it was published. Never edit a pilot release: ship a higher version. |
+| `gh attestation verify` fails | The installer was not attested by `release-pos-pilot.yml` for this commit and tag, or the bytes differ from the attested ones. |
+| `the installer is signed by another certificate` | `leaf_sha1` is wrong, or the installer was not signed with the pinned pilot leaf. |
