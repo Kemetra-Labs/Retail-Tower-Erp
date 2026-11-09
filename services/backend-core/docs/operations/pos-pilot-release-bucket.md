@@ -7,9 +7,10 @@ owner decision of 2026-11-09 recorded on RT-1290: the api reads with a **scoped 
 the lab hosts are SSM hybrid managed nodes (`mi-…`), not EC2, so no instance role exists. If this page and
 `main` disagree, `main` wins and this page is corrected. No key, secret or account id belongs in this file.
 
-Not covered here (later slices): putting a release into the bucket (the promotion workflow and its upload
-role), registering, activating or withdrawing a release, and the Console page. Until those exist, nothing
-is in the bucket and the lane answers `{ "available": false }` whatever is set below.
+Registering, activating and withdrawing a release are in section 7 (RT-1298). Not covered here (later
+slices): putting a release into the bucket (the promotion workflow and its upload role) and the Console
+page. Until a release is in the bucket, registered and activated, the lane answers
+`{ "available": false }` whatever is set below.
 
 ## 1. What each piece may do
 
@@ -95,12 +96,12 @@ Check, without printing a value:
 - the api log has **no** `pilot release …` warning at boot (`presigner not bound: credentials_partial`
   or `region_invalid`, `lane is configured but the presigner is not bound`, or `presigner is bound but
   the lane is off`: each means a value is missing or malformed and the lane is still off);
-- only the `api` container has the `POS_PILOT_RELEASE_*` names. List **names only** (a bare
-  `docker inspect` prints values): `docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' dp2-api | cut -d= -f1 | grep POS_PILOT_RELEASE`.
+- only the `api` container has the `POS_PILOT_RELEASE_*` and `POS_PILOT_PROMOTION_*` names. List **names
+  only** (a bare `docker inspect` prints values): `docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' dp2-api | cut -d= -f1 | grep 'POS_PILOT_'`.
   The same command on `dp2-worker` must print nothing.
 
-An end-to-end download from the lab is proven only after a release can be registered (a later slice,
-RT-1290 check V-7); this change alone cannot register one.
+An end-to-end download from the lab is proven only after a release has been put into the bucket by the
+promotion workflow (a later slice) and registered and activated (section 7): RT-1290 check V-7.
 
 ## 4. Rotate the key
 
@@ -136,3 +137,70 @@ with it at once.
 | `SignatureDoesNotMatch` | The secret was copied with a stray space or line break, or the key id and secret belong to different keys. |
 | `Request has expired` right after a URL is issued | The host clock is more than the lifetime (300 s by default) away from AWS time. Fix the host's time sync; do not raise the lifetime. |
 | A bucket in another region than `POS_PILOT_RELEASE_S3_REGION` | S3 answers with a redirect or `AuthorizationQueryParametersError`, not a working download: set the region to the bucket's own. |
+
+## 7. Registering, activating and withdrawing a release (RT-1298)
+
+A release reaches the Console in three separate, audited steps. Registering never makes it downloadable.
+
+| Step | Who | How it is authenticated | Audit action |
+|---|---|---|---|
+| Register | The owner-run promotion workflow | Its GitHub OIDC token (no stored secret) | `pos.pilot_release.registered` |
+| Activate | A platform admin | The Console session cookie and a trusted `Origin` | `pos.pilot_release.activated` |
+| Withdraw | The promotion workflow | Its GitHub OIDC token | `pos.pilot_release.withdrawn` |
+
+**Pins.** Set the five `POS_PILOT_PROMOTION_OIDC_*` values on the host (section 3 shows where; none is a
+secret). They must equal what GitHub puts in the token of the promotion job: the audience the workflow
+requests, the repository, the protected approval environment of the job, the ref, and the
+`job_workflow_ref`. The promotion workflow (a later slice) fixes the real environment and workflow names;
+until it exists leave them blank, and every workflow write is 401. Check the api log at boot: there must be
+no `pilot release promotion writes are off` line once you mean them to be on.
+
+**Answers.** A token that cannot be authenticated is 401. A genuine token whose claims differ from the pins is
+403, and so is a register body whose `promotionRunUrl` names another run than the token's. Nothing is written in
+either case. A lab or production class, or a lab-marked publisher, is 422; the same version or digest with other
+values is 409; an equal replay is a 200 that writes nothing.
+
+**One current release.** At most one release is current. Activating while another is current is 409
+`release_current_exists`; withdraw the current one first. A withdrawn release is never re-approved (409
+`release_withdrawn` on activation): a fix ships as a higher version. Withdrawing stops the resolver at once.
+
+**Activating.** There is no Console page yet. A platform admin calls
+`POST /api/v1/platform/pos-pilot-releases/{releaseId}/activate` with their Console session; the response is the
+release with `activatedAt` set. The tenants that may download it are the allowlist
+(`PUT /api/v1/platform/pos-pilot-tenants/{tenantId}`, also a platform admin).
+
+**What the pins do and do not prove.** GitHub's issuer is shared by every repository, so the pins are what make a
+token yours: the exact `repository`, the `environment` the job runs in, the `ref`, and the `job_workflow_ref`
+(the workflow file at that ref). Each is an exact, case-sensitive match against the claim as GitHub writes it
+(the environment name too); a case mismatch is a 403 and the api never says why. They are sufficient only with
+the GitHub-side settings that this code cannot check, so before the first registration confirm:
+
+- the promotion environment has a **required reviewer** (you) and **deployment branches limited to `main`**;
+- `main` is protected, and the promotion workflow is changed only through reviewed pull requests (CODEOWNERS
+  already covers `.github/**`);
+- the workflow is started only by `workflow_dispatch`, and no other trigger is added to that file (the pins
+  cannot see the event name);
+- the person who runs it is a **plain GitHub user account**: the token's `actor` and the body's `approvedBy` must
+  be a GitHub login (letters, digits and single hyphens, at most 39 characters), so a bot account or an
+  Enterprise Managed User login with an underscore is refused (403, or 400 for `approvedBy`);
+- the workflow file name has no spaces (a pin with a space is refused at boot as `invalid`).
+
+The `repository` is matched by name. If the organisation or repository were ever deleted or renamed and the
+name re-registered by someone else, their repository would satisfy the pin: keep the names reserved. Pinning
+the immutable `repository_id` and `repository_owner_id` claims as well is a cheap hardening the owner can ask for.
+
+**Key rotation.** GitHub rotates its signing keys; the api fetches the key set on first use, caches it for 10
+minutes, and refetches an unknown key at most every 30 seconds. A genuine token signed by a brand-new key that
+arrives inside that window gets 401: the workflow's retry succeeds. While GitHub's key set cannot be fetched and
+the cache has expired, every write is 401 (fail closed).
+
+**Retry.** A register retry (same body, any `Idempotency-Key`) is a 200 with the stored release. The key is only
+checked for shape: replay detection is by content. A retry of a withdrawn release is also a 200 and its
+`approved` is `false`: read it, a release is never re-approved.
+
+| Symptom | Likely cause |
+|---|---|
+| Register answers 401 | The token is missing, expired, for another audience or issuer, or GitHub's key set cannot be fetched from the host; or a pin is blank (see the boot warning). |
+| Register answers 403 | A pin differs from the token's claim, or the body's `promotionRunUrl` names another run or repository. The api never says which. |
+| Activate answers 409 `release_current_exists` | Another release is current: withdraw it first. |
+| The tenant still gets `{ "available": false }` after activation | The tenant is not on the allowlist, the pin, bucket or S3 key (section 3) is blank, or the release was withdrawn. |

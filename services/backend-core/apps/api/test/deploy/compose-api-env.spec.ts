@@ -35,6 +35,7 @@ import { resolveForwardTarget } from "../../src/console-telemetry/console-teleme
 import { resolvePosTelemetryTarget } from "../../src/pos-telemetry/pos-telemetry.forwarder";
 import { resolveRefKey } from "../../src/pos-telemetry/pos-telemetry.refs";
 import { resolvePilotReleaseConfig } from "../../src/pos-pilot-releases/pilot-release.config";
+import { resolvePromotionOidcConfig } from "../../src/pos-pilot-releases/promotion-oidc.config";
 import { createPilotReleasePresigner } from "../../src/pos-pilot-releases/pilot-release.s3-presigner";
 import {
   readCashierAdmissionPolicy,
@@ -249,6 +250,11 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["POS_PILOT_RELEASE_S3_REGION", () => createPilotReleasePresigner(process.env)],
       ["POS_PILOT_RELEASE_S3_ACCESS_KEY_ID", () => createPilotReleasePresigner(process.env)],
       ["POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY", () => createPilotReleasePresigner(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_AUDIENCE", () => resolvePromotionOidcConfig(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_REPOSITORY", () => resolvePromotionOidcConfig(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_ENVIRONMENT", () => resolvePromotionOidcConfig(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_REF", () => resolvePromotionOidcConfig(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF", () => resolvePromotionOidcConfig(process.env)],
     ];
 
     it.each(probes)("%s", (name, read) => {
@@ -295,9 +301,22 @@ describe("RT-1297 the pilot S3 key reaches the api container only", () => {
   it("does not hand the key to any other service", () => {
     for (const [service, definition] of Object.entries(allServices)) {
       if (service === "api") continue;
-      const leaked = Object.keys(definition.environment ?? {}).filter((name) => name.startsWith("POS_PILOT_RELEASE_"));
+      const leaked = Object.keys(definition.environment ?? {}).filter(
+        (name) => name.startsWith("POS_PILOT_RELEASE_") || name.startsWith("POS_PILOT_PROMOTION_"),
+      );
       expect([service, leaked]).toEqual([service, []]);
     }
+  });
+
+  it("maps the five promotion pins into the api service, without `:?`, so a missing value never stops it (RT-1298)", () => {
+    const pins = [
+      "POS_PILOT_PROMOTION_OIDC_AUDIENCE",
+      "POS_PILOT_PROMOTION_OIDC_REPOSITORY",
+      "POS_PILOT_PROMOTION_OIDC_ENVIRONMENT",
+      "POS_PILOT_PROMOTION_OIDC_REF",
+      "POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF",
+    ];
+    for (const name of pins) expect(String(apiEnvironment[name])).toBe(`\${${name}:-}`);
   });
 
   it("does not pass the key to the api under an ambient AWS name", () => {

@@ -5,9 +5,9 @@
  * load-only, plus AJV fixtures against the contract schemas. No app boot and
  * no HTTP. Pinned here:
  *
- *   1. The six operations: paths, methods, one operationId each, the served
- *      ones carry no contract-only marker, and the three registry writes carry
- *      exactly that marker with a note.
+ *   1. The six operations: paths, methods, one operationId each, none carries
+ *      a contract-only marker (RT-1298 lifted it from the three registry
+ *      writes), their audit actions, and their closed statuses.
  *   2. The resolver answer is one of two closed shapes: `available:false` has
  *      no other key; the download has exactly the documented keys.
  *   3. The registry accepts only signing class `pilot` on the wire it will
@@ -61,17 +61,19 @@ describe("RT-1292 pilot releases contract: operations", () => {
     expect(contract.operation(method, path)["operationId"]).toBe(operationId);
   });
 
-  it("serves the resolver and the allowlist routes: no contract-only marker", () => {
-    for (const [method, path] of [["get", LATEST], ["put", TENANT], ["delete", TENANT]] as const) {
-      expect(contract.operation(method, path)["x-runtime-status"]).toBeUndefined();
-    }
-  });
-
-  it("marks register, withdraw and activate contract-only, each with a runtime note", () => {
-    for (const path of [REGISTER, WITHDRAW, ACTIVATE] as const) {
-      const operation = contract.operation("post", path);
-      expect(operation["x-runtime-status"]).toBe("contract-only");
-      expect(String(operation["x-runtime-note"]).length).toBeGreaterThan(10);
+  it("serves all six operations: no contract-only marker (RT-1298 lifted the three registry writes)", () => {
+    const all = [
+      ["get", LATEST],
+      ["put", TENANT],
+      ["delete", TENANT],
+      ["post", REGISTER],
+      ["post", WITHDRAW],
+      ["post", ACTIVATE],
+    ] as const;
+    for (const [method, path] of all) {
+      const operation = contract.operation(method, path);
+      expect(operation["x-runtime-status"]).toBeUndefined();
+      expect(operation["x-runtime-note"]).toBeUndefined();
     }
   });
 
@@ -79,12 +81,70 @@ describe("RT-1292 pilot releases contract: operations", () => {
     expect(contract.operation("get", LATEST)["x-audit-action"]).toBe("pos.pilot_release.download_link_issued");
     expect(contract.operation("put", TENANT)["x-audit-action"]).toBe("pos.pilot_tenant.added");
     expect(contract.operation("delete", TENANT)["x-audit-action"]).toBe("pos.pilot_tenant.removed");
+    expect(contract.operation("post", REGISTER)["x-audit-action"]).toBe("pos.pilot_release.registered");
+    expect(contract.operation("post", WITHDRAW)["x-audit-action"]).toBe("pos.pilot_release.withdrawn");
+    expect(contract.operation("post", ACTIVATE)["x-audit-action"]).toBe("pos.pilot_release.activated");
   });
 
   it("lists the closed statuses of each served operation", () => {
     expect(statuses("get", LATEST)).toEqual(["200", "400", "401", "403", "404", "429", "500"]);
     expect(statuses("put", TENANT)).toEqual(["200", "201", "400", "401", "403", "404", "429", "500"]);
     expect(statuses("delete", TENANT)).toEqual(["204", "400", "401", "403", "429", "500"]);
+    expect(statuses("post", REGISTER)).toEqual(["200", "201", "400", "401", "403", "409", "422", "500"]);
+    expect(statuses("post", WITHDRAW)).toEqual(["200", "400", "401", "403", "404", "500"]);
+    expect(statuses("post", ACTIVATE)).toEqual(["200", "400", "401", "403", "404", "409", "429", "500"]);
+  });
+});
+
+describe("RT-1298 pilot releases contract: the promotion credential", () => {
+  /** The security scheme names of an operation. */
+  const schemes = (path: `/${string}`): string[] =>
+    (contract.operation("post", path)["security"] as JsonObject[]).flatMap((requirement) => Object.keys(requirement));
+
+  it("authenticates register and withdraw by the promotion workflow's GitHub OIDC token, activate by the session cookie", () => {
+    expect(schemes(REGISTER)).toEqual(["promotionWriter"]);
+    expect(schemes(WITHDRAW)).toEqual(["promotionWriter"]);
+    expect(schemes(ACTIVATE)).toEqual(["cookieAuth"]);
+  });
+
+  it("describes promotionWriter as a bearer JWT with the pins and the 401 / 403 split", () => {
+    const schemesDoc = (contract.document["components"] as JsonObject)["securitySchemes"] as JsonObject;
+    const scheme = schemesDoc["promotionWriter"] as JsonObject;
+    expect(scheme["type"]).toBe("http");
+    expect(scheme["scheme"]).toBe("bearer");
+    expect(scheme["bearerFormat"]).toBe("JWT");
+    const text = String(scheme["description"]);
+    for (const part of ["GitHub OIDC", "token.actions.githubusercontent.com", "repository", "environment", "job_workflow_ref", "401", "403"]) {
+      expect(text).toContain(part);
+    }
+    expect(text).not.toContain("OPEN");
+    expect(text).not.toContain("Not served");
+  });
+
+  it("accepts a stored pilot release and refuses an extra key or another class", () => {
+    const release = {
+      releaseId: "0190f5a2-3b4c-7d8e-9f01-000000002929",
+      version: "1.4.0",
+      sha256: "b".repeat(64),
+      sizeBytes: 133865024,
+      publisher: "CN=Kemetra POS PILOT",
+      signingClass: "pilot",
+      attestationRef: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/attestations/123456",
+      sourceSha: "c".repeat(40),
+      approved: true,
+      approvedBy: "kemetra-owner",
+      approvedAt: "2026-11-08T12:00:00.000Z",
+      promotionRunUrl: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/987654321",
+      artifactVersionId: "verid",
+      registeredAt: "2026-11-08T12:00:01.000Z",
+      withdrawnAt: null,
+      withdrawnBy: null,
+      activatedAt: null,
+      activatedByUserId: null,
+    };
+    expect(contract.accepts("PilotRelease", release)).toBe(true);
+    expect(contract.accepts("PilotRelease", { ...release, artifactKey: "k" })).toBe(false);
+    expect(contract.accepts("PilotRelease", { ...release, signingClass: "lab" })).toBe(false);
   });
 });
 

@@ -156,6 +156,13 @@ services:
       # SECRET: the access key of the read-only pilot-bucket IAM user.
       POS_PILOT_RELEASE_S3_ACCESS_KEY_ID: ${POS_PILOT_RELEASE_S3_ACCESS_KEY_ID:-}
       POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY: ${POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY:-}
+      # RT-1298: the pins of the promotion workflow's GitHub OIDC token (register and withdraw a
+      # pilot release). Not secrets: all five must be set or every workflow write is 401. No `:?`.
+      POS_PILOT_PROMOTION_OIDC_AUDIENCE: ${POS_PILOT_PROMOTION_OIDC_AUDIENCE:-}
+      POS_PILOT_PROMOTION_OIDC_REPOSITORY: ${POS_PILOT_PROMOTION_OIDC_REPOSITORY:-}
+      POS_PILOT_PROMOTION_OIDC_ENVIRONMENT: ${POS_PILOT_PROMOTION_OIDC_ENVIRONMENT:-}
+      POS_PILOT_PROMOTION_OIDC_REF: ${POS_PILOT_PROMOTION_OIDC_REF:-}
+      POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF: ${POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF:-}
       # Spec 037 observability. All default-inert: an empty SENTRY_DSN sends no
       # Sentry events; traces go to OTEL_EXPORTER_OTLP_ENDPOINT (the SDK default
       # until pointed at the datadog-agent profile, see deploy/README.md).
