@@ -212,7 +212,11 @@ function reportGrew(grew, files, ok) {
     );
   }
   for (const { file, current: now } of files.added) {
-    console.error(`code-health: FAIL ${file} went over max-lines (${now} lines).`);
+    console.error(
+      `code-health: FAIL ${file} went over max-lines (${now} lines). If it is an oversized ` +
+        "file that was only renamed or moved, rename its key in baseline.oversizedFiles by hand " +
+        "(same count or lower); --update cannot, because it never records a new oversized file.",
+    );
   }
   if (ok) {
     console.log("code-health: OK, no count grew.");

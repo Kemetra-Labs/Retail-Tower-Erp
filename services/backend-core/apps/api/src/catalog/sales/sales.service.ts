@@ -46,6 +46,15 @@ import type {
 import type { RecordVoidRequestDto } from "./dto/record-void-request.dto";
 import type { RecordRefundRequestDto } from "./dto/record-refund-request.dto";
 import { SALE_SYNC_STATUS, type SaleSyncStatus } from "./sale-sync-status";
+import {
+  findVoidByProvenance,
+  mapApprovalReuseViolation,
+  replayRefundByProvenance,
+  replayVoid,
+  toTerminalEvent,
+  type TerminalEventResult,
+} from "./sale-terminal-provenance";
+import { assertSameTenders, assertTendersMatchTotal, insertTenders } from "./sale-tender-writes";
 import { sha256CanonicalHex } from "./payload-hash";
 import { findLinePricingViolation } from "./sale-line-pricing";
 import {
@@ -53,14 +62,11 @@ import {
   assertRequesterIsStoreUser,
   checkVoidApprovalClaims,
   readVoidSaleFacts,
-  VoidApprovalInvalidError,
 } from "./void-approval";
 import {
   SaleLinePricingInvalidError,
   SaleNotFoundError,
   SalePayloadReplayConflictError,
-  SaleTenderMismatchError,
-  SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
   TerminalEventProvenanceConflictError,
 } from "./sale-errors";
@@ -228,36 +234,7 @@ export interface RecordRefundInput {
 }
 
 /** Wire projection of a void/refund terminal event (contract `SaleTerminalEvent`). */
-export interface TerminalEventProjection {
-  readonly eventRef: string;
-  readonly saleRef: string;
-  readonly kind: "void" | "refund";
-  readonly recordedAt: string;
-  /** Present (non-null) only for refunds. */
-  readonly posRefundAmount: string | null;
-  /** Present (non-null) only for refunds. */
-  readonly currencyCode: string | null;
-}
-
-export interface TerminalEventResult {
-  readonly projection: TerminalEventProjection;
-  /** false when a re-delivery resolved to an existing terminal event. */
-  readonly created: boolean;
-  /**
-   * RT-530: the approval a void was recorded under, for its `sale.voided` audit
-   * (ids and a policy label only; never a PIN or a payload). Absent for a
-   * refund and for a pre-RT-530 void.
-   */
-  readonly audit?: VoidAuditMetadata;
-}
-
-/** The approver and approval of a void, as the audit event carries them. */
-export interface VoidAuditMetadata {
-  readonly approver_user_id: string;
-  readonly requester_user_id: string;
-  readonly approval_id: string;
-  readonly policy_version: string;
-}
+export type { TerminalEventProjection, TerminalEventResult } from "./sale-terminal-provenance";
 
 interface SaleRow {
   id: string;
@@ -717,124 +694,6 @@ export class SalesService {
   }
 }
 
-/**
- * A refund provenance already recorded: a deterministic replay only if it
- * points at the SAME sale (FR-013); otherwise a conflict (never echo the
- * caller's ref). Null when the provenance is unused.
- */
-async function replayRefundByProvenance(
-  client: PoolClient,
-  tenantId: string,
-  body: RecordRefundRequestDto,
-  saleRef: string,
-): Promise<TerminalEventResult | null> {
-  const existing = await client.query<{
-    id: string;
-    sale_id: string;
-    refunded_at: Date;
-    pos_refund_amount: string;
-    currency_code: string;
-  }>(
-    `SELECT id, sale_id, refunded_at, pos_refund_amount, currency_code
-       FROM sale_refunds
-      WHERE tenant_id = $1 AND source_system = $2 AND external_id = $3
-      LIMIT 1`,
-    [tenantId, body.sourceSystem, body.externalId],
-  );
-  const row = existing.rows[0];
-  if (!row) return null;
-  if (row.sale_id !== saleRef) {
-    throw new TerminalEventProvenanceConflictError();
-  }
-  return {
-    projection: toTerminalEvent("refund", row.id, row.sale_id, row.refunded_at, row.pos_refund_amount, row.currency_code),
-    created: false,
-  };
-}
-
-interface VoidProvenanceRow {
-  id: string;
-  sale_id: string;
-  /** RT-577: the void a credit reversal created (never replayed by recordVoid). */
-  credit_linked: boolean;
-  voided_at: Date;
-  approval_id: string | null;
-  approved_by_user_id: string | null;
-  requested_by_user_id: string | null;
-  approval_policy_version: string | null;
-}
-
-/**
- * RT-530: an approval id reused for another void (the single-use index) -> 422.
- * RT-577: also one a credit return consumed (the shared ledger, filled for a
- * void by the 0054 sale_voids trigger).
- */
-export function mapApprovalReuseViolation(err: unknown): unknown {
-  const pg = err as { code?: string; constraint?: string };
-  if (
-    pg.code === "23505" &&
-    (pg.constraint === "uq_sale_voids_tenant_approval" || pg.constraint === "sale_approval_uses_pkey")
-  ) {
-    return new VoidApprovalInvalidError();
-  }
-  return err;
-}
-
-async function findVoidByProvenance(
-  client: PoolClient,
-  tenantId: string,
-  body: RecordVoidRequestDto,
-): Promise<VoidProvenanceRow | null> {
-  const r = await client.query<VoidProvenanceRow>(
-    `SELECT v.id, v.sale_id, v.voided_at, v.approval_id::text AS approval_id,
-            v.approved_by_user_id::text AS approved_by_user_id,
-            v.requested_by_user_id::text AS requested_by_user_id,
-            v.approval_policy_version,
-            EXISTS (SELECT 1 FROM sale_credit_reversals c WHERE c.void_id = v.id) AS credit_linked
-       FROM sale_voids v
-      WHERE v.tenant_id = $1 AND v.source_system = $2 AND v.external_id = $3
-      LIMIT 1`,
-    [tenantId, body.sourceSystem, body.externalId],
-  );
-  return r.rows[0] ?? null;
-}
-
-/**
- * A void provenance is a deterministic REPLAY only if it points at the SAME
- * sale (FR-013). The unique index is (tenant, source_system, external_id) —
- * NOT scoped by sale — so the existing row may belong to a different sale;
- * that is a conflict and never discloses the other sale.
- */
-function replayVoid(row: VoidProvenanceRow, saleRef: string): TerminalEventResult {
-  if (row.sale_id !== saleRef) {
-    throw new TerminalEventProvenanceConflictError();
-  }
-  const audit = voidAuditOf(row);
-  return {
-    projection: toTerminalEvent("void", row.id, row.sale_id, row.voided_at, null, null),
-    created: false,
-    ...(audit === undefined ? {} : { audit }),
-  };
-}
-
-/** The approval a stored void carries, or undefined for a pre-RT-530 void. */
-function voidAuditOf(row: VoidProvenanceRow): VoidAuditMetadata | undefined {
-  if (
-    row.approval_id === null ||
-    row.approved_by_user_id === null ||
-    row.requested_by_user_id === null ||
-    row.approval_policy_version === null
-  ) {
-    return undefined;
-  }
-  return {
-    approver_user_id: row.approved_by_user_id,
-    requester_user_id: row.requested_by_user_id,
-    approval_id: row.approval_id,
-    policy_version: row.approval_policy_version,
-  };
-}
-
 function toBody(
   row: SaleRow,
   lines: ReadonlyArray<SaleLineRow>,
@@ -922,11 +781,6 @@ function receiptColumns(receipt: CaptureSaleReceiptDto | undefined): ReadonlyArr
     receipt.taxRegistrationId,
     receipt.changeGiven ?? null,
   ];
-}
-
-/** A tender's reference, or null — only card_external carries one. */
-function tenderReference(t: SaleTenderDto): string | null {
-  return t.method === "card_external" ? (t.reference ?? null) : null;
 }
 
 /**
@@ -1202,19 +1056,6 @@ async function assertFirstCaptureAccepted(
   if (credit) await assertResponsibilityPayersEligible(client, scope, responsibilities);
 }
 
-/** RT-77: Σ tender amounts = posTotal exactly, in Postgres numeric; else 422. */
-async function assertTendersMatchTotal(
-  client: PoolClient,
-  tenders: ReadonlyArray<SaleTenderDto>,
-  posTotal: string,
-): Promise<void> {
-  const r = await client.query<{ matches: boolean }>(
-    `SELECT (SELECT SUM(a) FROM unnest($1::numeric[]) a) = $2::numeric AS matches`,
-    [tenders.map((t) => t.amount), posTotal],
-  );
-  if (r.rows[0]?.matches !== true) throw new SaleTenderMismatchError();
-}
-
 /**
  * Write the frozen line snapshot in the capture transaction. RT-539
  * (sales.yaml 1.9.0): each line's 1-based position in lines[] is stored as its
@@ -1275,101 +1116,4 @@ async function insertSaleLines(
   return ids;
 }
 
-/** RT-77: write the sale's tenders in its capture transaction (one row per tender line). */
-async function insertTenders(
-  client: PoolClient,
-  sale: {
-    readonly saleId: string;
-    readonly tenantId: string;
-    readonly storeId: string;
-    readonly currencyCode: string;
-    readonly tenders: ReadonlyArray<SaleTenderDto>;
-  },
-): Promise<void> {
-  const { tenders } = sale;
-  await client.query(
-    `INSERT INTO sale_tenders
-       (id, sale_id, tenant_id, store_id, method, amount, currency_code, reference,
-        tender_ref, sequence)
-     SELECT t.id, $1, $2, $3, t.method, t.amount, $4, t.reference, t.tender_ref, t.sequence
-       FROM unnest($5::uuid[], $6::text[], $7::numeric[], $8::text[], $9::uuid[], $10::smallint[])
-            AS t(id, method, amount, reference, tender_ref, sequence)`,
-    [
-      sale.saleId,
-      sale.tenantId,
-      sale.storeId,
-      sale.currencyCode,
-      tenders.map(() => newId()),
-      tenders.map((t) => t.method),
-      tenders.map((t) => t.amount),
-      tenders.map(tenderReference),
-      tenders.map((t) => t.tenderRef ?? null),
-      tenders.map((t) => t.sequence ?? null),
-    ],
-  );
-}
-
-/**
- * RT-77: a provenance replay must carry the tenders that were recorded —
- * compared by (method, numeric amount, reference, tenderRef, sequence), so
- * "10.5" and "10.5000" are the same tender. RT-360: compared as a MULTISET
- * (`EXCEPT ALL`) with the line identity included, so tenders that share a
- * method can neither swap amounts nor collapse into one another unnoticed.
- * A difference is a different payload (409).
- * The stored `tender_count` settles the common cases without reading
- * sale_tenders: both empty (every legacy replay) is the same payload, and a
- * different count is a conflict.
- */
-async function assertSameTenders(
-  client: PoolClient,
-  winner: { readonly id: string; readonly tender_count: number },
-  tenders: ReadonlyArray<SaleTenderDto>,
-): Promise<void> {
-  if (winner.tender_count !== tenders.length) throw new SaleTenderReplayConflictError();
-  if (tenders.length === 0) return;
-  const saleId = winner.id;
-  const r = await client.query<{ same: boolean }>(
-    `WITH req AS (
-       SELECT * FROM unnest($2::text[], $3::numeric[], $4::text[], $5::uuid[], $6::smallint[])
-              AS r(method, amount, reference, tender_ref, sequence)
-     ), stored AS (
-       SELECT method, amount::numeric AS amount, reference, tender_ref, sequence
-         FROM sale_tenders WHERE sale_id = $1
-     )
-     SELECT NOT EXISTS (
-       (SELECT method, amount, reference, tender_ref, sequence FROM req
-        EXCEPT ALL SELECT method, amount, reference, tender_ref, sequence FROM stored)
-       UNION ALL
-       (SELECT method, amount, reference, tender_ref, sequence FROM stored
-        EXCEPT ALL SELECT method, amount, reference, tender_ref, sequence FROM req)
-     ) AS same`,
-    [
-      saleId,
-      tenders.map((t) => t.method),
-      tenders.map((t) => t.amount),
-      tenders.map(tenderReference),
-      tenders.map((t) => t.tenderRef ?? null),
-      tenders.map((t) => t.sequence ?? null),
-    ],
-  );
-  if (r.rows[0]?.same !== true) throw new SaleTenderReplayConflictError();
-}
-
 /** Build the `SaleTerminalEvent` wire projection for a void/refund event. */
-function toTerminalEvent(
-  kind: "void" | "refund",
-  eventRef: string,
-  saleRef: string,
-  recordedAt: Date,
-  posRefundAmount: string | null,
-  currencyCode: string | null,
-): TerminalEventProjection {
-  return {
-    eventRef,
-    saleRef,
-    kind,
-    recordedAt: recordedAt.toISOString(),
-    posRefundAmount,
-    currencyCode,
-  };
-}

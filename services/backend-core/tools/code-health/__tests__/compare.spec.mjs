@@ -96,12 +96,12 @@ test("parseBaseline requires oversizedFiles, so the per-file ratchet cannot be d
   });
 });
 
-test("the committed baseline records sales.service.ts as an oversized file", () => {
+test("the committed baseline lists one over-limit file per eslintMaxLines warning", () => {
   const committed = parseBaseline(
     JSON.parse(readFileSync(path.join(here, "..", "baseline.json"), "utf8")),
   );
-  assert.ok(committed.oversizedFiles["apps/api/src/catalog/sales/sales.service.ts"] > 800);
   assert.equal(Object.keys(committed.oversizedFiles).length, committed.eslintMaxLines);
+  for (const lines of Object.values(committed.oversizedFiles)) assert.ok(lines > 800);
 });
 
 test("an over-limit file that gains lines fails, even though the eslintMaxLines count is unchanged", () => {
