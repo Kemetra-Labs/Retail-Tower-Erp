@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { useSupportSession } from "@/platform/session/useSupportSession";
+import { useRef } from "react";
 import { Link } from "react-router";
 import {
   BeforeInstallPanel,
@@ -34,18 +35,16 @@ import "./downloadPos.css";
 /** The banner for every outcome that is not success; success has its own status line. */
 function Outcome({
   state,
-  secondsLeft,
   onRetry,
 }: Readonly<{
   state: DownloadState;
-  secondsLeft: number;
   onRetry: () => void;
 }>): React.JSX.Element | null {
   const t = useT();
   const retry = (
-    <button type="button" className="btn-secondary" onClick={onRetry}>
+    <GatedButton type="button" className="btn-secondary" onClick={onRetry}>
       {t("devices.download.retry")}
-    </button>
+    </GatedButton>
   );
   switch (state.kind) {
     case "unavailable":
@@ -70,14 +69,11 @@ function Outcome({
         />
       );
     case "rate-limited":
-      return (
-        <Banner
-          variant="warning"
-          message={t("devices.download.rateLimited", {
-            wait: t("devices.download.seconds", { count: secondsLeft }),
-          })}
-        />
-      );
+      // RT-621: the shell's RateLimitBanner already says it once, with the plural countdown
+      // (the middleware fed the shared clock); a second banner would repeat it (AccountPage).
+      return null;
+    case "not-started":
+      return <Banner variant="danger" message={t("devices.download.notStarted")} action={retry} />;
     case "failure":
       return (
         <Banner
@@ -111,7 +107,13 @@ export function DownloadPos(): React.JSX.Element {
   const scope = useDeviceScope();
   const { context } = useActiveContextValue();
   const inSession = useSupportSession() !== null;
-  const { state, secondsLeft, allowed, activate } = useDownloadPos(scope, inSession);
+  const { state, allowed, activate } = useDownloadPos(scope, inSession);
+  const primary = useRef<HTMLButtonElement>(null);
+  // The retry button vanishes with its banner, so focus goes back to the page's action.
+  const retry = () => {
+    primary.current?.focus();
+    void activate();
+  };
 
   if (inSession) return <NotAvailable />;
   if (!scope.tenantId) {
@@ -146,6 +148,7 @@ export function DownloadPos(): React.JSX.Element {
           <ProductFacts />
           <div className="download-pos__action">
             <GatedButton
+              ref={primary}
               type="button"
               className="btn-primary"
               busy={busy}
@@ -160,7 +163,7 @@ export function DownloadPos(): React.JSX.Element {
             {state.kind === "issued" ? t("devices.download.issued") : ""}
           </output>
           {state.kind === "issued" ? <ReleaseLedger facts={state.facts} /> : null}
-          <Outcome state={state} secondsLeft={secondsLeft} onRetry={() => void activate()} />
+          <Outcome state={state} onRetry={retry} />
         </PanelBody>
       </DetailPanel>
       <DetailGrid>

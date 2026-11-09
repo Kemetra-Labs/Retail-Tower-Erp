@@ -52,7 +52,7 @@ describe("mapOutcome (RT-1304 spec 6)", () => {
     });
   });
 
-  test("a 200 that is neither shape never reads as success or as unavailable (S8)", () => {
+  test("a 200 that is neither shape never reads as success or as unavailable", () => {
     for (const bad of [
       { available: true, version: "1" },
       { ...available, sha256: "short" },
@@ -62,7 +62,7 @@ describe("mapOutcome (RT-1304 spec 6)", () => {
       null,
       "nope",
     ]) {
-      expect(mapOutcome(res(200, bad)).state.kind).toBe("failure");
+      expect(mapOutcome(res(200, bad))).toEqual({ state: { kind: "not-started" } });
     }
   });
 

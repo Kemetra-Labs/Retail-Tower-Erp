@@ -7,7 +7,7 @@
  */
 import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { useT } from "@/i18n";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { type ReleaseFacts, formatSizeMb, groupSha } from "./downloadPosLogic";
 import "./downloadPos.css";
@@ -17,34 +17,52 @@ const PRODUCT = "POS Pulse";
 const PLATFORM = "Windows 10 22H2 x64 / Windows 11 x64";
 const VERIFY_COMMAND = "Get-FileHash -Algorithm SHA256 .\\POS-Pulse-Setup-*.exe";
 
+/** How long the polite "copied" line stays before it clears, so the next copy is announced again. */
+const ANNOUNCE_MS = 3000;
+
+type CopyNotice = "copied" | "manual" | null;
+
+function selectContents(node: HTMLElement | null): void {
+  const selection = window.getSelection();
+  if (!node || !selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 function CopySha({
   sha,
   codeRef,
 }: Readonly<{ sha: string; codeRef: React.RefObject<HTMLElement | null> }>): React.JSX.Element {
   const t = useT();
-  const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState<CopyNotice>(null);
+  useEffect(() => {
+    if (notice === null) return undefined;
+    const id = setTimeout(() => setNotice(null), ANNOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [notice]);
   const copy = async (): Promise<void> => {
+    setNotice(null);
     try {
       await navigator.clipboard.writeText(sha);
-      setCopied(true);
+      setNotice("copied");
     } catch {
-      // The clipboard refused: select the text so the operator can copy it.
-      const node = codeRef.current;
-      const selection = window.getSelection();
-      if (node && selection) {
-        const range = document.createRange();
-        range.selectNodeContents(node);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
+      // The clipboard refused: select the text so the operator can copy it, and say so.
+      selectContents(codeRef.current);
+      setNotice("manual");
     }
+  };
+  const message = {
+    copied: t("devices.download.copied"),
+    manual: t("devices.download.copyManual"),
   };
   return (
     <>
       <button type="button" className="btn-secondary" onClick={() => void copy()}>
         {t("devices.download.copy")}
       </button>
-      <output className="sr-only">{copied ? t("devices.download.copied") : ""}</output>
+      <output className="sr-only">{notice ? message[notice] : ""}</output>
     </>
   );
 }

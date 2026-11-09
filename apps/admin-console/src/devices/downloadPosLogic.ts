@@ -33,6 +33,8 @@ export type DownloadState =
   | { kind: "support-session"; requestId?: string }
   | { kind: "rate-limited"; seconds: number }
   | { kind: "failure"; requestId?: string }
+  /** A 200 the page cannot trust, or a hand-off that failed: a link MAY have been issued. */
+  | { kind: "not-started" }
   | { kind: "network" };
 
 export interface Outcome {
@@ -77,7 +79,7 @@ function fromOk(data: unknown): Outcome {
       url: body.downloadUrl,
     };
   }
-  return { state: { kind: "failure" } };
+  return { state: { kind: "not-started" } };
 }
 
 export function mapOutcome(res: LatestResult): Outcome {

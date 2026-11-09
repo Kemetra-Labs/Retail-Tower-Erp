@@ -26,23 +26,17 @@ export const downloadPos = {
   "devices.download.busy": "جارٍ تجهيز الرابط…",
   "devices.download.copy": "نسخ SHA-256",
   "devices.download.copied": "تم النسخ",
+  "devices.download.copyManual": "حُدّدت القيمة. انسخها يدويًا.",
 
   "devices.download.issued":
     "تم تجهيز رابط التنزيل. يبدأ التنزيل عادةً في متصفحك خلال لحظات. إن لم يبدأ أو انتهت صلاحية الرابط، اضغط «تنزيل نقطة البيع» مرة أخرى للحصول على رابط جديد.",
   "devices.download.unavailable":
     "لا يتوفر تنزيل لنقطة البيع لمؤسستك الآن. إن كانت مؤسستك مشاركة في التجربة، تواصل مع دعم Kemetra.",
   "devices.download.notAllowed": "تنزيل نقطة البيع غير متاح لك.",
-  "devices.download.rateLimited": "طلبات كثيرة في وقت قصير. يمكنك المحاولة بعد {wait}.",
-  "devices.download.seconds": {
-    zero: "{count} ثانية",
-    one: "ثانية واحدة",
-    two: "ثانيتين",
-    few: "{count} ثوانٍ",
-    many: "{count} ثانية",
-    other: "{count} ثانية",
-  },
   "devices.download.failed":
     "تعذّر تجهيز رابط التنزيل. لم يُنشأ أي رابط. حاول مرة أخرى. إن تكرر الخطأ، أرسل رقم الطلب إلى الدعم.",
+  "devices.download.notStarted":
+    "تعذّر بدء التنزيل. اضغط «تنزيل نقطة البيع» مرة أخرى للحصول على رابط جديد. إن تكرر ذلك، تواصل مع الدعم.",
   "devices.download.network": "تعذّر الوصول إلى الخادم. تحقّق من اتصالك ثم حاول مرة أخرى.",
   "devices.download.retry": "طلب رابط جديد",
 

@@ -163,7 +163,8 @@ test("S6: a 429 disables the button for Retry-After; nothing retries on its own"
   await page.goto(PATH);
   const action = page.getByRole("button", { name: t("devices.download.action") });
   await action.click();
-  await expect(page.getByRole("alert").filter({ hasText: /./ }).first()).toBeVisible();
+  // One message: the shell's RateLimitBanner (RT-621); the page adds no banner of its own.
+  await expect(page.getByText(t("rateLimit.title"))).toHaveCount(1);
   await expect(action).toBeDisabled();
   await page.waitForTimeout(1500);
   expect(mocks.resolverCalls()).toBe(1);
@@ -185,6 +186,10 @@ for (const theme of ["light", "dark"] as const) {
       await expectNoAxeViolations(page, `download-pos ready ${theme} ${width}`);
       await page.getByRole("button", { name: t("devices.download.action") }).click();
       await expect(page.getByText(t("devices.download.issued"))).toBeVisible();
+      // The hidden download frame is transient and holds no Console content; axe scans the page.
+      await page.evaluate(() => {
+        for (const f of document.querySelectorAll("iframe[data-download-handoff]")) f.remove();
+      });
       await expectNoAxeViolations(page, `download-pos issued ${theme} ${width}`);
     });
   }

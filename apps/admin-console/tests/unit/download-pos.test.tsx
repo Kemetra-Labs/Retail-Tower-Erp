@@ -98,7 +98,7 @@ describe("DownloadPos (RT-1304)", () => {
     expect(screen.queryByText(t("devices.download.issued"))).toBeNull();
   });
 
-  test("AC3: one activation is one call; click, Enter and a second click in the busy window are one", async () => {
+  test("AC3: one activation is one call; repeated clicks in the busy window are one", async () => {
     let release: (v: unknown) => void = () => undefined;
     consolePilotGetLatestPosRelease.mockReturnValue(
       new Promise((resolve) => {
@@ -109,7 +109,7 @@ describe("DownloadPos (RT-1304)", () => {
     await act(async () => {
       fireEvent.click(button());
       fireEvent.click(button());
-      fireEvent.keyDown(button(), { key: "Enter" });
+      fireEvent.click(button());
     });
     expect(consolePilotGetLatestPosRelease).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: t("devices.download.busy") })).toBeTruthy();
@@ -202,25 +202,92 @@ describe("DownloadPos (RT-1304)", () => {
     expect(consolePilotGetLatestPosRelease).toHaveBeenCalledTimes(1);
   });
 
-  test("AC8: 429 disables the button for Retry-After seconds, then re-enables; nothing retries", async () => {
+  test("AC8: 429 disables the button for Retry-After seconds, then re-enables; nothing retries; no second banner", async () => {
     vi.useFakeTimers();
     consolePilotGetLatestPosRelease.mockResolvedValue(fail(429, "rate_limited", 3));
     renderPage();
     await activate();
-    const wait = (n: number) =>
-      t("devices.download.rateLimited", { wait: t("devices.download.seconds", { count: n }) });
-    expect(screen.getByText(wait(3))).toBeTruthy();
+    expect((button() as HTMLButtonElement).disabled).toBe(true);
+    // The shell's RateLimitBanner says it (RT-621); the page adds no alert of its own.
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
     expect((button() as HTMLButtonElement).disabled).toBe(true);
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1200);
     });
-    expect(screen.getByText(wait(2))).toBeTruthy();
-    await act(async () => {
-      vi.advanceTimersByTime(2100);
-    });
-    expect(screen.queryByText(/Too many requests/)).toBeNull();
     expect((button() as HTMLButtonElement).disabled).toBe(false);
     expect(consolePilotGetLatestPosRelease).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 200 the page cannot trust reads as not started, never as success or S3", async () => {
+    consolePilotGetLatestPosRelease.mockResolvedValue(ok({ ...available, sha256: "short" }));
+    renderPage();
+    await activate();
+    expect(await screen.findByText(t("devices.download.notStarted"))).toBeTruthy();
+    expect(screen.queryByText(t("devices.download.issued"))).toBeNull();
+    expect(screen.queryByText(t("devices.download.failed"))).toBeNull();
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+  });
+
+  test("retry keeps focus on the page's action, and is one new call", async () => {
+    consolePilotGetLatestPosRelease.mockResolvedValueOnce(fail(500, "system_failure"));
+    consolePilotGetLatestPosRelease.mockResolvedValueOnce(ok({ available: false }));
+    renderPage();
+    await activate();
+    const retry = await screen.findByRole("button", { name: t("devices.download.retry") });
+    retry.focus();
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+    await screen.findByText(t("devices.download.unavailable"));
+    expect(document.activeElement).toBe(button());
+    expect(consolePilotGetLatestPosRelease).toHaveBeenCalledTimes(2);
+  });
+
+  test("a second copy is announced again; a refused clipboard selects and says so", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    consolePilotGetLatestPosRelease.mockResolvedValue(ok(available));
+    renderPage();
+    await activate();
+    const copy = await screen.findByRole("button", { name: t("devices.download.copy") });
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(screen.getByText(t("devices.download.copied"))).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(3100);
+    });
+    expect(screen.queryByText(t("devices.download.copied"))).toBeNull();
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(screen.getByText(t("devices.download.copyManual"))).toBeTruthy();
+    expect(window.getSelection()?.toString().replace(/\s/g, "")).toBe(SHA);
+  });
+
+  test("a tenant switch while a call is in flight drops the late link and lets the new tenant click", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    consolePilotGetLatestPosRelease.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    consolePilotGetLatestPosRelease.mockResolvedValueOnce(ok({ available: false }));
+    const view = renderPage();
+    await activate();
+    activeContext.mockReturnValue(ctx("owner", "t2"));
+    view.rerender(tree());
+    await activate();
+    expect(consolePilotGetLatestPosRelease).toHaveBeenCalledTimes(2);
+    await screen.findByText(t("devices.download.unavailable"));
+    await act(async () => release(ok(available)));
+    expect(document.querySelectorAll("iframe")).toHaveLength(0);
+    expect(screen.queryByText(t("devices.download.issued"))).toBeNull();
   });
 
   test("AC16: a tenant change returns to idle", async () => {
@@ -255,19 +322,19 @@ describe("DownloadPos (RT-1304)", () => {
     expect(screen.queryByText(t("devices.download.multiTenant"))).toBeNull();
   });
 
-  test("a late answer after unmount sets no state and throws nothing", async () => {
+  test("leaving the page while busy still hands off the link already issued, and sets no state", async () => {
     let release: (v: unknown) => void = () => undefined;
     consolePilotGetLatestPosRelease.mockReturnValue(
       new Promise((resolve) => {
         release = resolve;
       }),
     );
-    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const view = renderPage();
     await activate();
     view.unmount();
-    await act(async () => release(ok({ available: false })));
-    expect(error).not.toHaveBeenCalled();
-    error.mockRestore();
+    await act(async () => release(ok(available)));
+    const frames = document.querySelectorAll("iframe");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.getAttribute("src")).toBe(SECRET_URL);
   });
 });

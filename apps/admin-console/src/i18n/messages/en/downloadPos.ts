@@ -22,19 +22,17 @@ export const downloadPos: MessagesOf<typeof ar> = {
   "devices.download.busy": "Preparing the link…",
   "devices.download.copy": "Copy SHA-256",
   "devices.download.copied": "Copied",
+  "devices.download.copyManual": "The value is selected. Copy it manually.",
 
   "devices.download.issued":
     "The download link is ready. Your browser usually starts the download within moments. If it doesn't start or the link expired, select Download POS again to get a new link.",
   "devices.download.unavailable":
     "No POS download is available for your organization right now. If your organization is in the pilot, contact Kemetra support.",
   "devices.download.notAllowed": "Download POS is not available to you.",
-  "devices.download.rateLimited": "Too many requests in a short time. You can try again in {wait}.",
-  "devices.download.seconds": {
-    one: "{count} second",
-    other: "{count} seconds",
-  },
   "devices.download.failed":
     "The download link could not be prepared. No link was created. Try again. If it repeats, send the request ID to support.",
+  "devices.download.notStarted":
+    "The download could not be started. Select Download POS again to get a new link. If it repeats, contact support.",
   "devices.download.network":
     "The server could not be reached. Check your connection, then try again.",
   "devices.download.retry": "Get a new link",

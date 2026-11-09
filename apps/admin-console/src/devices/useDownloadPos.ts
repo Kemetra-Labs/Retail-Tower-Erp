@@ -4,7 +4,7 @@
  * and nothing runs for a role the page does not serve or in a support session (O-2).
  *
  * Not a query: a mutation-style call with no retry and no cache, because every eligible
- * call issues a new link and writes an audit row. `useSingleFlight` drops a second
+ * call issues a new link and writes an audit row. A per-tenant in-flight guard drops a second
  * activation before React re-renders the button as busy.
  *
  * The presigned link never enters React state. `mapOutcome` returns it beside the
@@ -17,7 +17,6 @@ import { useEffect, useRef, useState } from "react";
 import { canReadDevices } from "./deviceLogic";
 import { type DownloadState, mapNetworkFailure, mapOutcome } from "./downloadPosLogic";
 import { handOffDownload } from "./handOffDownload";
-import { useSingleFlight } from "./useSingleFlight";
 
 export interface DownloadPosScope {
   tenantId: string | null;
@@ -59,10 +58,28 @@ async function resolve(): Promise<ReturnType<typeof mapOutcome>> {
   }
 }
 
+/**
+ * Hands an issued link to the browser and returns the state to show. The link is already
+ * issued and audited, so it is handed off even if the user has left the page; the frame
+ * outlives the page, so leaving does not cancel a download.
+ */
+function settle(outcome: ReturnType<typeof mapOutcome>): DownloadState {
+  if (!outcome.url) return outcome.state;
+  try {
+    handOffDownload(outcome.url);
+    return outcome.state;
+  } catch {
+    return { kind: "not-started" };
+  }
+}
+
 export function useDownloadPos(scope: DownloadPosScope, inSession: boolean): DownloadPosController {
   const [state, setState] = useState<DownloadState>(IDLE);
   const [until, setUntil] = useState(0);
-  const singleFlight = useSingleFlight();
+  // Single flight per tenant: the generation that has a call in flight, or null. A tenant
+  // switch bumps the generation, so the new tenant's first click is never swallowed by an
+  // old tenant's call that has not settled yet.
+  const inFlight = useRef<number | null>(null);
   const generation = useRef(0);
   const mounted = useRef(true);
   const allowed = !inSession && Boolean(scope.tenantId) && canReadDevices(scope.role);
@@ -86,23 +103,21 @@ export function useDownloadPos(scope: DownloadPosScope, inSession: boolean): Dow
 
   const activate = async (): Promise<void> => {
     if (!allowed) return;
-    await singleFlight(async () => {
-      const started = generation.current;
+    const started = generation.current;
+    if (inFlight.current === started) return;
+    inFlight.current = started;
+    try {
       setState(BUSY);
       const outcome = await resolve();
-      if (!mounted.current || generation.current !== started) return;
-      let next = outcome.state;
-      if (outcome.url) {
-        try {
-          // The frame outlives this page on purpose: leaving must not cancel a download.
-          handOffDownload(outcome.url);
-        } catch {
-          next = { kind: "failure" };
-        }
-      }
+      // A late answer for another tenant is dropped, link and all.
+      if (generation.current !== started) return;
+      const next = settle(outcome);
+      if (!mounted.current) return;
       if (next.kind === "rate-limited") setUntil(Date.now() + next.seconds * 1000);
       setState(next);
-    });
+    } finally {
+      if (inFlight.current === started) inFlight.current = null;
+    }
   };
 
   const secondsLeft = Math.max(0, Math.ceil((until - Date.now()) / 1000));
