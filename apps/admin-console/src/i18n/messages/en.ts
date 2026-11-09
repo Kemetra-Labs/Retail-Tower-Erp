@@ -12,6 +12,7 @@ import { cashPolicy } from "./en/cashPolicy";
 import { catalog } from "./en/catalog";
 import { common } from "./en/common";
 import { devices } from "./en/devices";
+import { downloadPos } from "./en/downloadPos";
 import { erp } from "./en/erp";
 import { inventory } from "./en/inventory";
 import { metrics } from "./en/metrics";
@@ -48,6 +49,7 @@ export const EN_MODULES = {
   erp,
   productRecon,
   devices,
+  downloadPos,
   sales,
   saleSync,
   postingRepair,
@@ -78,6 +80,7 @@ export const en: MessagesOf<typeof ar> = {
   ...erp,
   ...productRecon,
   ...devices,
+  ...downloadPos,
   ...sales,
   ...saleSync,
   ...postingRepair,

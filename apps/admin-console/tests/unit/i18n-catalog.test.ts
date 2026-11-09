@@ -22,7 +22,7 @@ const PLACEHOLDER = /\{(\w+)\}/g;
  * logo copy writes them.
  */
 const MACHINE_TERMS =
-  /\b(Retail Tower|ERPNext|Frappe|EGP|SKU|API|UTC|ID|IDs|request_id|Idempotency-Key|Connector|POS|Clerk|PNG|SVG|KB)\b/g;
+  /\b(Retail Tower|ERPNext|Frappe|EGP|SKU|API|UTC|ID|IDs|request_id|Idempotency-Key|Connector|POS|Clerk|PNG|SVG|KB|SHA-256|PowerShell|Windows|Kemetra)\b/g;
 
 function branches(m: Message): string[] {
   return typeof m === "string" ? [m] : Object.values(m).filter((v): v is string => !!v);
