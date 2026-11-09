@@ -18,6 +18,9 @@ import { getRootLogger } from "./common/root-logger.module";
 import { RequestIdInterceptor } from "./common/request-id.interceptor";
 import { ZodValidationPipe } from "./common/zod-validation.pipe";
 import { assertPublicAuthKeySecretConfigured } from "./auth/public-auth-key-secret";
+import { AuthTokenRepository } from "./auth/auth-token.repository";
+import { connectorSnapshotCallerAuthorizer } from "./auth/connector-snapshot-preauth";
+import { SessionRepository } from "./auth/session.repository";
 import { assertDeploymentEnvironmentConfigured } from "./connector/deployment-environment";
 import { loadOpenApiContracts } from "./openapi/loader";
 import { logoUploadPassthrough } from "./tenant-branding/logo-body";
@@ -91,7 +94,15 @@ async function bootstrap(): Promise<void> {
   // route keeps the 100 kB default (sizing in common/json-body-limits.ts).
   // Keep this AFTER logoUploadPassthrough, or a logo upload sent as
   // application/json is consumed by the JSON parser.
-  registerJsonBodyParsers(app);
+  // RT-1295: a large snapshot body is read only after its caller passes the
+  // route's connector guards on its headers alone.
+  registerJsonBodyParsers(
+    app,
+    connectorSnapshotCallerAuthorizer(
+      app.get(SessionRepository, { strict: false }),
+      app.get(AuthTokenRepository, { strict: false }),
+    ),
+  );
 
   // Global interceptors — RequestIdInterceptor must run first so the others
   // can read request.requestId.

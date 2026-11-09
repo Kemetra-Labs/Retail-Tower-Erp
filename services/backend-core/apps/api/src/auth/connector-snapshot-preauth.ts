@@ -1,0 +1,75 @@
+/**
+ * Pre-authentication of `binViewReportSnapshot` callers (RT-1295).
+ *
+ * `registerJsonBodyParsers` reads a large snapshot body (up to 32 MiB) before
+ * Nest runs the route's guards. This authorizer runs those same guards on the
+ * request headers first, so only an authorized connector can make the API
+ * buffer a large body or hold one of the two large-body slots
+ * (`common/json-body-limits.ts`).
+ *
+ * It reuses the route's own guards, in the route's order, so the rules cannot
+ * drift: `ConnectorAuthGuard` (opaque bearer, `connector` scope, linked to an
+ * active registration; non-disclosing 401) then `ConnectorEnvironmentGuard`
+ * (registration environment equals `DEPLOYMENT_ENVIRONMENT`; 403). The route's
+ * guards still run again after parsing; this is an early gate, not a
+ * replacement.
+ *
+ * A request carrying the dashboard session cookie is refused 401 here without
+ * a lookup: `AuthGuard` prefers the cookie, and `ConnectorAuthGuard` refuses
+ * every session principal, so the route would refuse it too. Short-circuiting
+ * also keeps the cookie-only RT-430 / RT-414 origin path (which needs a route
+ * handler) out of this pre-routing context.
+ */
+import { type ExecutionContext, UnauthorizedException } from "@nestjs/common";
+import type { Request, Response } from "express";
+
+import type { SnapshotCallerAuthorizer } from "../common/json-body-limits";
+import type { AuthTokenRepository } from "./auth-token.repository";
+import { readSessionCookie, type AuthedRequest } from "./auth.guard";
+import { ConnectorAuthGuard } from "./connector-auth.guard";
+import { ConnectorEnvironmentGuard } from "./connector-environment.guard";
+import type { SessionRepository } from "./session.repository";
+
+/**
+ * A minimal HTTP `ExecutionContext` for running guards from Express middleware.
+ * The connector guards only call `switchToHttp().getRequest()`; there is no
+ * route handler or class yet, so those accessors throw if a guard ever needs
+ * them (fails closed as a refusal, never as an admit).
+ */
+function httpContext(req: Request, res: Response): ExecutionContext {
+  const noRoute = (): never => {
+    throw new UnauthorizedException("Unauthorized");
+  };
+  const http = {
+    getRequest: <T>() => req as unknown as T,
+    getResponse: <T>() => res as unknown as T,
+    getNext: <T>() => (() => undefined) as unknown as T,
+  };
+  return {
+    getType: <T extends string>() => "http" as T,
+    getArgs: <T extends unknown[]>() => [req, res] as unknown as T,
+    getArgByIndex: <T>(index: number) => [req, res][index] as unknown as T,
+    switchToHttp: () => http,
+    switchToRpc: noRoute,
+    switchToWs: noRoute,
+    getHandler: noRoute,
+    getClass: noRoute,
+  } as ExecutionContext;
+}
+
+/** The production authorizer for `registerJsonBodyParsers` (main.ts). */
+export function connectorSnapshotCallerAuthorizer(
+  sessions: SessionRepository,
+  authTokens: AuthTokenRepository,
+): SnapshotCallerAuthorizer {
+  const authGuard = new ConnectorAuthGuard(sessions, authTokens);
+  const environmentGuard = new ConnectorEnvironmentGuard();
+  return async (req, res) => {
+    if (readSessionCookie(req as AuthedRequest) !== null) {
+      throw new UnauthorizedException("Unauthorized");
+    }
+    const context = httpContext(req, res);
+    await authGuard.canActivate(context);
+    environmentGuard.canActivate(context);
+  };
+}
