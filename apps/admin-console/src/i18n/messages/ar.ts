@@ -13,6 +13,7 @@ import { cashPolicy } from "./ar/cashPolicy";
 import { catalog } from "./ar/catalog";
 import { common } from "./ar/common";
 import { devices } from "./ar/devices";
+import { downloadPos } from "./ar/downloadPos";
 import { erp } from "./ar/erp";
 import { inventory } from "./ar/inventory";
 import { metrics } from "./ar/metrics";
@@ -48,6 +49,7 @@ export const AR_MODULES = {
   erp,
   productRecon,
   devices,
+  downloadPos,
   sales,
   saleSync,
   postingRepair,
@@ -78,6 +80,7 @@ export const ar = {
   ...erp,
   ...productRecon,
   ...devices,
+  ...downloadPos,
   ...sales,
   ...saleSync,
   ...postingRepair,

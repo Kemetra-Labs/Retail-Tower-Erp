@@ -498,6 +498,15 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "LowStock",
     path: "services/backend-core/packages/contracts/openapi/inventory/low-stock.yaml",
   },
+  // POS pilot release resolver (RT-1292 contract, RT-1304): only the Console read
+  // `consolePilotGetLatestPosRelease` is wrapped (src/lib/pilot-release-queries.ts); the
+  // platform allowlist and registry operations in the same document are composed, not
+  // called. Consume-only; no YAML authored here. Composed at the repin to the merge
+  // commit of RT-1305 (the first `main` commit after the resolver, RT-1298 and the CSP).
+  {
+    name: "PosPilotReleases",
+    path: "services/backend-core/packages/contracts/openapi/pos-pilot-releases.openapi.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */

@@ -307,9 +307,15 @@ export function DeviceList(): React.JSX.Element {
         title={t("devices.list.title")}
         subtitle={t.rich("devices.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={
-          <Link to="/devices/pairing-codes" className="btn-secondary">
-            {t("devices.list.pairingCodes")}
-          </Link>
+          <>
+            <Link to="/devices/pairing-codes" className="btn-secondary">
+              {t("devices.list.pairingCodes")}
+            </Link>
+            {/* RT-1304 D-2: an action of this page, not a destination: no nav-model entry. */}
+            <Link to="/devices/download-pos" className="btn-secondary">
+              {t("devices.download.title")}
+            </Link>
+          </>
         }
       />
       <p className="content__sub">{t("devices.list.orderNote")}</p>

@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 2332846dd84dd380c6fbfb2b814da991cc3f3d7d
+// Source: Kemetra-Labs/Retail-Tower-Erp @ a4d5982b3c942d797a3ea3d2d6564b6c867a08f5
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -38,6 +38,7 @@
 // - services/backend-core/packages/contracts/openapi/console-system-status.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/catalog/stock-levels.yaml
 // - services/backend-core/packages/contracts/openapi/inventory/low-stock.yaml
+// - services/backend-core/packages/contracts/openapi/pos-pilot-releases.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -17264,6 +17265,564 @@ export namespace LowStockSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations;
+export namespace PosPilotReleasesSchema {
+    export interface paths {
+        "/api/v1/pos-pilot-releases/latest": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Get the current pilot POS release and a short-lived download URL.
+             * @description The current pilot release when it is eligible (see the info description), with a presigned S3 GET URL valid until `expiresAt` (at most 900 seconds). Otherwise `{ "available": false }`. The route takes no query parameter. A role outside owner, tenant_admin, store_manager, and no active membership, are the non-disclosing 404; a session with no active tenant is 401 (`TenantContextGuard`); a platform admin without a membership or a live support session is 403. An issued link writes one `pos.pilot_release.download_link_issued` row; nothing else does.
+             */
+            get: operations["consolePilotGetLatestPosRelease"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/pos-pilot-tenants/{tenantId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Add a tenant to the pilot allowlist (platform admins only).
+             * @description Idempotent. Adding a tenant that is already on the allowlist is a 200 that changes nothing and writes no audit row; a new entry is a 201 and writes `pos.pilot_tenant.added` (platform-scoped, actor the platform admin, metadata `tenantId`). An unknown tenant is 404 `tenant_not_found`. No body.
+             */
+            put: operations["platformAddPilotTenant"];
+            post?: never;
+            /**
+             * Remove a tenant from the pilot allowlist (platform admins only).
+             * @description Idempotent. Removing a tenant that is not on the allowlist is a 204 that changes nothing and writes no audit row; removing a listed tenant is a 204 and writes `pos.pilot_tenant.removed`. The tenant's next resolver call answers `available:false`.
+             */
+            delete: operations["platformRemovePilotTenant"];
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/pos-pilot-releases": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Register an approved pilot POS release (promotion workflow only).
+             * @description Writes one immutable registry row. The workflow has already verified the attestation and the digests; Backend-Core checks the shape, the pilot rules and conflicts. A body equal to an existing row is a 200 that writes nothing. The same version, sha256 or object key with any other value is 409. A lab or production class, or a lab-marked publisher, is 422 `release_not_pilot`. The object key is derived from the version on the server. The body's `promotionRunUrl` must name the run that holds the token (its `run_id` claim): another run is 403 `forbidden` and nothing is written. A missing or malformed `Idempotency-Key` is 400. The key is validated only: a replay is recognised by content (the version, sha256 and object key, and every field of the body), so a retry with any key and an equal body is the 200 above, and a different body for the same release is 409 whatever the key. A retry of a withdrawn release is also a 200, and its `approved` is `false`: a release is never re-approved.
+             */
+            post: operations["platformRegisterPilotRelease"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/pos-pilot-releases/{releaseId}/withdraw": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Withdraw a registered pilot POS release (promotion workflow only).
+             * @description Sets `approved` to false for good; the resolver stops returning the release at once and a new release may then be activated. A withdrawn release is never re-approved: a fix ships a higher version. Withdrawing a withdrawn release is a 200 that writes nothing. No body: `withdrawnBy` is the token's `actor` claim (a GitHub login) and the audit row names the token's run.
+             */
+            post: operations["platformWithdrawPilotRelease"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/pos-pilot-releases/{releaseId}/activate": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Activate a registered pilot POS release (platform admins only).
+             * @description Makes one registered, approved release the current pilot release. At most one release is current: activating while another is current is 409 `release_current_exists` until that one is withdrawn. A withdrawn release is 409 `release_withdrawn`; an absent id is 404. Activating the current release again is a 200 that writes nothing. No body.
+             */
+            post: operations["platformActivatePilotRelease"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description A semantic version without build metadata, at most 32 characters; the same schema as `AppVersion` in `pos-device-health.openapi.yaml`. */
+            AppVersion: string;
+            /** @description A SHA-256 digest, 64 lower-case hexadecimal characters. */
+            Sha256Hex: string;
+            /** @description An Authenticode certificate subject (the publisher Windows shows). */
+            Publisher: string;
+            /** @description A GitHub login, never an email. */
+            GitHubLogin: string;
+            /** @description The S3 `VersionId` of the uploaded object whose sha256 and publisher the promotion workflow verified. Every presigned URL names it. */
+            S3VersionId: string;
+            PromotionRunUrl: string;
+            /**
+             * @description The release manifest's structured `signing` field. Only `pilot` is ever accepted or stored; `lab` and `production` are listed so that such a manifest is refused as 422 `release_not_pilot`, not as 400.
+             * @enum {string}
+             */
+            PilotSigningClass: "lab" | "pilot" | "production";
+            /** @description Either the eligible release with its download URL, or `available:false` with no other key and no reason. */
+            LatestPilotRelease: components["schemas"]["PilotReleaseDownload"] | components["schemas"]["PilotReleaseUnavailable"];
+            PilotReleaseDownload: {
+                /** @constant */
+                available: true;
+                version: components["schemas"]["AppVersion"];
+                sha256: components["schemas"]["Sha256Hex"];
+                sizeBytes: number;
+                /** @description The name to save the installer under, derived from the version. */
+                fileName: string;
+                expectedPublisher: components["schemas"]["Publisher"];
+                /**
+                 * Format: uri
+                 * @description A presigned S3 GET URL. A bearer capability until `expiresAt`: never log, store or forward it.
+                 */
+                downloadUrl: string;
+                /**
+                 * Format: date-time
+                 * @description Server clock; at most 900 seconds after the response.
+                 */
+                expiresAt: string;
+            };
+            PilotReleaseUnavailable: {
+                /** @constant */
+                available: false;
+            };
+            PilotTenant: {
+                /** Format: uuid */
+                tenantId: string;
+                /** Format: date-time */
+                addedAt: string;
+                /**
+                 * Format: uuid
+                 * @description A user id, never an email.
+                 */
+                addedByUserId: string;
+            };
+            PilotReleaseRegistration: {
+                version: components["schemas"]["AppVersion"];
+                sha256: components["schemas"]["Sha256Hex"];
+                sizeBytes: number;
+                publisher: components["schemas"]["Publisher"];
+                signingClass: components["schemas"]["PilotSigningClass"];
+                attestationRef: string;
+                sourceSha: string;
+                approvedBy: components["schemas"]["GitHubLogin"];
+                /** Format: date-time */
+                approvedAt: string;
+                promotionRunUrl: components["schemas"]["PromotionRunUrl"];
+                artifactVersionId: components["schemas"]["S3VersionId"];
+            };
+            PilotRelease: {
+                /** Format: uuid */
+                releaseId: string;
+                version: components["schemas"]["AppVersion"];
+                sha256: components["schemas"]["Sha256Hex"];
+                sizeBytes: number;
+                publisher: components["schemas"]["Publisher"];
+                /** @constant */
+                signingClass: "pilot";
+                attestationRef: string;
+                sourceSha: string;
+                approved: boolean;
+                approvedBy: components["schemas"]["GitHubLogin"];
+                /** Format: date-time */
+                approvedAt: string;
+                promotionRunUrl: components["schemas"]["PromotionRunUrl"];
+                artifactVersionId: components["schemas"]["S3VersionId"];
+                /** Format: date-time */
+                registeredAt: string;
+                /** Format: date-time */
+                withdrawnAt: string | null;
+                withdrawnBy: components["schemas"]["GitHubLogin"] | null;
+                /** Format: date-time */
+                activatedAt: string | null;
+                /** Format: uuid */
+                activatedByUserId: string | null;
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description validation_error (400): any query parameter is present (the route takes none). Checked after the guards and before any database read. */
+            ReadValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description validation_error (400): a malformed path id, a body that is not a JSON object, an unknown or missing key, a value outside its pattern, or (on register) a missing or malformed `Idempotency-Key`. Checked after the guards, so an unauthenticated caller gets 401, not 400. Nothing is written. */
+            WriteValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, a non-cookie credential, or (console read) a session with no active tenant; on register and withdraw, a missing, malformed, expired, badly signed or wrong-issuer or wrong-audience promotion token, a key set that cannot be fetched, or any credential at all while the promotion pins are unset. Non-disclosing; nothing is presigned or written and no audit row is written. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside `owner` / `tenant_admin` / `store_manager` and for no active membership in the tenant. No URL and no audit row. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403, `error.code` one of `support_session_required` or `support_session_expired` (RT-414): a platform admin without a membership in the active tenant and without a live support session for it. Refused by the reused guard before the role check. No URL and no audit row of this route. */
+            SupportSessionRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403, `error.code` one of: `forbidden` (a signed-in user who is not a platform admin; or, on register and withdraw, a genuine promotion token whose claims do not match the configured pins, or whose run is not the run the body names) or `origin_rejected` (RT-430: the `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`; cookie routes only). Nothing is written. */
+            PlatformWriteForbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description tenant_not_found (404): no tenant has this id. Nothing is written. */
+            TenantNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404): no pilot release has this id. */
+            ReleaseNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description release_conflict (409): the same version, sha256 or object key already exists with any other value. A release is never overwritten. */
+            ReleaseConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description release_not_pilot (422): the signing class is not `pilot`, or the publisher carries a lab marker. Nothing is written. */
+            ReleaseRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `release_withdrawn` (the release was withdrawn, even if it was activated before) or `release_current_exists` (another release is current; withdraw it first). Nothing is written. */
+            ReleaseActivationRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error, including a presign failure. A presign failure is never `available:false`: that would hide a broken bucket or credential as "no release". The cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message; its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description The tenant to add to, or remove from, the pilot allowlist. */
+            TenantIdPath: string;
+            /** @description The pilot registry row id. */
+            ReleaseIdPath: string;
+            /** @description A client-chosen key per registration attempt; a retry of the same attempt reuses it. */
+            IdempotencyKey: string;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 2xx with a body: it carries a presigned URL or allowlist state, so no shared or browser cache keeps it. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5), 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consolePilotGetLatestPosRelease: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The eligible release, or `available:false`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LatestPilotRelease"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["SupportSessionRefused"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformAddPilotTenant: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant to add to, or remove from, the pilot allowlist. */
+                    tenantId: components["parameters"]["TenantIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant was already on the allowlist; nothing was written. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotTenant"];
+                    };
+                };
+                /** @description The tenant was added and `pos.pilot_tenant.added` recorded. */
+                201: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotTenant"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                404: components["responses"]["TenantNotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformRemovePilotTenant: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant to add to, or remove from, the pilot allowlist. */
+                    tenantId: components["parameters"]["TenantIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant is not on the allowlist (now, or already). */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformRegisterPilotRelease: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description A client-chosen key per registration attempt; a retry of the same attempt reuses it. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PilotReleaseRegistration"];
+                };
+            };
+            responses: {
+                /** @description The row already existed with exactly these values; nothing was written. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotRelease"];
+                    };
+                };
+                /** @description The row was written and `pos.pilot_release.registered` recorded. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotRelease"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                409: components["responses"]["ReleaseConflict"];
+                422: components["responses"]["ReleaseRefused"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformWithdrawPilotRelease: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The pilot registry row id. */
+                    releaseId: components["parameters"]["ReleaseIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The release is withdrawn (now, or already). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotRelease"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                404: components["responses"]["ReleaseNotFound"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformActivatePilotRelease: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The pilot registry row id. */
+                    releaseId: components["parameters"]["ReleaseIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The release is current (now, or already). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotRelease"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                404: components["responses"]["ReleaseNotFound"];
+                409: components["responses"]["ReleaseActivationRefused"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations;

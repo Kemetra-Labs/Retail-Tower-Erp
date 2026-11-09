@@ -9,12 +9,14 @@ import { Route } from "react-router";
 
 const DeviceDetail = lazyPage(() => import("@/devices/DeviceDetail"), "DeviceDetail");
 const DeviceList = lazyPage(() => import("@/devices/DeviceList"), "DeviceList");
+const DownloadPos = lazyPage(() => import("@/devices/DownloadPos"), "DownloadPos");
 const PairingCodes = lazyPage(() => import("@/devices/PairingCodes"), "PairingCodes");
 
 export const deviceRoutes = (
   <>
     <Route path="devices" element={<DeviceList />} />
     <Route path="devices/pairing-codes" element={<PairingCodes />} />
+    <Route path="devices/download-pos" element={<DownloadPos />} />
     <Route path="devices/:deviceId" element={<DeviceDetail />} />
   </>
 );
