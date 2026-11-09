@@ -103,8 +103,9 @@ test("RT-1304 S5: not available to a staff role and in a support session", async
     }),
   });
   await page.goto(PATH);
-  await expect(page.getByText(t("devices.download.notAllowed"))).toBeVisible();
-  await shot(page, "S5-not-available-support-session", appLocale);
+  // The tenant shell replaces every tenant route with its read-only body in a session.
+  await expect(page.getByText(t("platform.session.readOnlyBody.title"))).toBeVisible();
+  await shot(page, "S5-support-session-shell", appLocale);
 });
 
 test("RT-1304 S10 and S11: no tenant, and the multi-tenant hint", async ({
@@ -112,9 +113,15 @@ test("RT-1304 S10 and S11: no tenant, and the multi-tenant hint", async ({
   t,
   appLocale,
 }) => {
-  await mockDownloadPos(page, { ctx: { ...context("owner"), active_tenant: null } });
+  const noTenant = await mockDownloadPos(page, {
+    ctx: { ...context("owner"), active_tenant: null },
+  });
   await page.goto(PATH);
-  await expect(page.getByText(t("devices.list.scopePrompt"))).toBeVisible();
+  // With no active tenant the shell takes over before the page renders; whatever it shows,
+  // there is no Download action and no resolver call.
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByRole("button", { name: t("devices.download.action") })).toHaveCount(0);
+  expect(noTenant.resolverCalls()).toBe(0);
   await shot(page, "S10-no-tenant", appLocale);
 
   await mockDownloadPos(page, {
