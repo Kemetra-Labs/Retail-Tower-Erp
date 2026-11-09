@@ -9,28 +9,36 @@ import { describe, expect, test } from "vitest";
  * bundle so a stored dark theme or English locale applies before first paint.
  */
 const page = readFileSync(join(process.cwd(), "index.html"), "utf8");
-const scriptTags = [...page.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+// Parse with the HTML parser instead of a regex, so every script tag form counts.
+const doc = new DOMParser().parseFromString(page, "text/html");
+const scripts = [...doc.querySelectorAll("script")];
 
 describe("index.html under a self-only CSP", () => {
   test("has no inline executable script: every script loads from a file", () => {
-    expect(scriptTags.length).toBeGreaterThan(0);
-    for (const [, attributes, body] of scriptTags) {
-      expect(attributes).toMatch(/\bsrc="\//);
-      expect(body.trim()).toBe("");
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const script of scripts) {
+      expect(script.getAttribute("src") ?? "").toMatch(/^\//);
+      expect(script.textContent?.trim()).toBe("");
     }
   });
 
   test("has no inline event handler attribute", () => {
-    expect(page).not.toMatch(/\son[a-z]+\s*=/i);
+    for (const element of doc.querySelectorAll("*")) {
+      for (const attribute of element.getAttributeNames()) {
+        expect(attribute.startsWith("on")).toBe(false);
+      }
+    }
   });
 
   test("loads the pre-paint file as a blocking classic script before the app bundle", () => {
-    const sources = scriptTags.map(([, attributes]) => attributes);
-    const prePaint = sources.findIndex((a) => a.includes('src="/pre-paint.js"'));
-    const bundle = sources.findIndex((a) => a.includes('type="module"'));
+    const prePaint = scripts.findIndex((s) => s.getAttribute("src") === "/pre-paint.js");
+    const bundle = scripts.findIndex((s) => s.getAttribute("type") === "module");
     expect(prePaint).toBeGreaterThanOrEqual(0);
     expect(prePaint).toBeLessThan(bundle);
-    expect(sources[prePaint]).not.toMatch(/\b(async|defer|type=)/);
-    expect(page.indexOf('src="/pre-paint.js"')).toBeLessThan(page.indexOf("</head>"));
+    const prePaintScript = scripts[prePaint];
+    for (const attribute of ["async", "defer", "type"]) {
+      expect(prePaintScript?.hasAttribute(attribute)).toBe(false);
+    }
+    expect(prePaintScript?.parentElement?.tagName).toBe("HEAD");
   });
 });
