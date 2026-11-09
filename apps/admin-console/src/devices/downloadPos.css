@@ -22,8 +22,8 @@
 .download-pos__sha code {
   font-family: var(--font-mono);
   font-size: var(--text-machine);
+  /* Wraps only between the eight-character groups (spaces); a group never splits. */
   overflow-wrap: anywhere;
-  word-break: break-all;
 }
 .download-pos__command {
   display: block;
@@ -44,6 +44,10 @@
 }
 .download-pos__badge {
   margin-inline-start: var(--space-3);
+}
+/* DESIGN.md: Tower Teal is the link colour on light surfaces (emphasis tone for text contrast). */
+.download-pos__link {
+  color: var(--color-primary-emphasis);
 }
 @media (max-width: 768px) {
   .download-pos__action > button,

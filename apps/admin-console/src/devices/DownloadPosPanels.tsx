@@ -148,7 +148,11 @@ export function InstallPanel(): React.JSX.Element {
       <PanelBody>
         <p>
           {t.rich("devices.download.install.step", {
-            pairing: <Link to="/devices/pairing-codes">{t("devices.list.pairingCodes")}</Link>,
+            pairing: (
+              <Link to="/devices/pairing-codes" className="download-pos__link">
+                {t("devices.list.pairingCodes")}
+              </Link>
+            ),
           })}
         </p>
         <p className="content__sub">{t("devices.download.support")}</p>
