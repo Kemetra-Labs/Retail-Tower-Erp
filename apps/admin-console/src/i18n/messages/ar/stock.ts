@@ -13,7 +13,6 @@ import type { Messages } from "../types";
  */
 export const stock = {
   // --- Stock discrepancies: shared ----------------------------------------
-  "stock.title": "فروقات مخزون ERPNext",
   "stock.tenantPrompt": "اختر مؤسسة لعرض فروقات مخزون ERPNext.",
   "stock.loadFailed": "تعذّر تحميل فروقات مخزون ERPNext.",
   "stock.inlineError": "تعذّر تحميل بعض الصفوف. الصفوف المعروضة من آخر تحميل ناجح.",
@@ -51,7 +50,7 @@ export const stock = {
   // exists; «غير معروف» when it does not — never 0.
   "stock.stores.count": "{count}",
   "stock.stores.countUnknown": "غير معروف",
-  "stock.stores.pending": "طُلبت، بانتظار Connector",
+  "stock.stores.pending": "طُلبت، بانتظار الموصّل",
   "stock.stores.noPending": "لا يوجد",
   "stock.stores.loadingNoun": "المتاجر",
   "stock.stores.empty": "لا توجد متاجر متاحة لك في هذه المؤسسة.",
@@ -93,7 +92,7 @@ export const stock = {
   "stock.panel.warehouse": "مستودع ERPNext",
   "stock.panel.recordedAt": "تاريخ التسجيل في Retail Tower",
   "stock.panel.entryCount": "سجلات أرصدة ERPNext في اللقطة",
-  "stock.pending.badge": "طُلبت لقطة، بانتظار Connector",
+  "stock.pending.badge": "طُلبت لقطة، بانتظار الموصّل",
   "stock.pending.requestedAt": "طُلبت في {time}.",
   "stock.pending.overdue":
     "طُلبت اللقطة ولكن لم يُبلَّغ عنها بعد. قد يكون ERPNext Connector غير متصل، أو قد يضم المستودع أكثر من 500 صنف، وهو ما لا يبلّغ عنه Connector بعد.",

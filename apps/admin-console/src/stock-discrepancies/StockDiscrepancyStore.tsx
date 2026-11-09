@@ -312,7 +312,7 @@ function StoreView({
       <BackLink />
       <ListHeaderBand
         group={t("shell.nav.section.stock")}
-        title={t("stock.title")}
+        title={t("shell.nav.stockDiscrepancies")}
         subtitle={t("stock.store.sub")}
         actions={
           showRefresh ? (

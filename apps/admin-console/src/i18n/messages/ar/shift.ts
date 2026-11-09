@@ -55,6 +55,9 @@ export const shift = {
   "shift.filter.allStores": "كل المتاجر",
   "shift.filter.from": "من تاريخ",
   "shift.filter.to": "إلى تاريخ",
+  // RT-1299 3a: the date fields name the zone their days are read in.
+  "shift.filter.fromIn": "من تاريخ (بتوقيت {zone})",
+  "shift.filter.toIn": "إلى تاريخ (بتوقيت {zone})",
   "shift.filter.zoneNote": "التواريخ بتوقيت {zone}.",
   "shift.filter.kind": "نوع الإقفال",
   "shift.filter.kindAny": "كل الأنواع",

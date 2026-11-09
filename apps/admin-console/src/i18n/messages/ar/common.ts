@@ -153,6 +153,7 @@ export const common = {
   "role.platform_admin": "مسؤول المنصة",
   "role.manager": "المدير",
   "role.cashier": "الكاشير",
+  "role.store_staff": "موظف المتجر",
   "role.unknown": "دور غير معروف",
 
   // RT-992: the pipeline rail (POS → server → ERPNext), DESIGN.md §12.2.

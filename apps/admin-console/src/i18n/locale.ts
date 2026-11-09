@@ -13,7 +13,7 @@
  *  - `rt.locale.v1:user:<id>` holds each user's own choice, so a shared admin PC
  *    keeps one operator's language from carrying over to the next;
  *  - `rt.locale.v1:last` mirrors the most recent choice on this browser. The
- *    inline pre-paint script in index.html reads it before the bundle loads, so
+ *    pre-paint script (public/pre-paint.js) reads it before the bundle loads, so
  *    an English user never sees an Arabic RTL flash on reload. Keep
  *    LOCALE_LAST_KEY in step with that script (tests/unit/i18n-locale.test.tsx
  *    checks it).

@@ -15,7 +15,6 @@ export const inventory = {
   "inventory.nav.label": "حركات المخزون",
 
   // --- Shared states ----------------------------------------------------------
-  "inventory.title": "المخزون",
   "inventory.scopePrompt": "اختر مستأجرًا من شريط النطاق لعرض المخزون.",
   "inventory.retry": "إعادة المحاولة",
   "inventory.inlineError": "تعذّر تحديث هذا القسم. المعروض من آخر قراءة ناجحة.",

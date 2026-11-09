@@ -119,6 +119,12 @@ describe("TenantList state matrix", () => {
     expect(screen.queryByText("Tenants")).toBeNull();
     expect(screen.queryByRole("link", { name: /new tenant/i })).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Slug" })).toBeNull();
+    // RT-1299 2c (D-V9): the list header band carries its nav group's label.
+    const band = document.querySelector("header.list-band") as HTMLElement;
+    expect(band).not.toBeNull();
+    expect(band.querySelector(".list-band__group")?.textContent).toBe("الإدارة");
+    expect(band.querySelector("h1")?.textContent).toBe("المؤسسات");
+    expect(band.querySelector("dl.list-band__facts")).toBeNull();
   });
 
   test("Arabic: empty state renders in Arabic", async () => {

@@ -48,6 +48,8 @@ export const shift: MessagesOf<typeof ar> = {
   "shift.filter.allStores": "All stores",
   "shift.filter.from": "From date",
   "shift.filter.to": "To date",
+  "shift.filter.fromIn": "From date ({zone})",
+  "shift.filter.toIn": "To date ({zone})",
   "shift.filter.zoneNote": "Dates are in {zone}.",
   "shift.filter.kind": "Close kind",
   "shift.filter.kindAny": "All kinds",

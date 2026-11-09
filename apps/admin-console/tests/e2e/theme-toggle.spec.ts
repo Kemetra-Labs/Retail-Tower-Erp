@@ -49,7 +49,7 @@ test("toggle on, reload: still dark, restored before the app bundle runs", async
   expect(await theme(page)).toBe("dark");
   expect(await bodyBackground(page)).toBe("rgb(14, 22, 31)"); // dark canvas #0e161f
 
-  // With every script bundle blocked, only the inline pre-paint script can set it.
+  // With every script bundle blocked, only the pre-paint file (/pre-paint.js) can set it.
   await page.route("**/assets/*.js", (r) => r.abort());
   await page.reload();
   expect(await theme(page)).toBe("dark");

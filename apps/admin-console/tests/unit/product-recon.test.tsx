@@ -38,6 +38,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
   useActiveContextValue: () => activeContext(),
 }));
 
+import { translate } from "@/i18n";
 import { createQueryClient } from "@/lib/query";
 import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
 import { ProductReconciliation } from "@/product-reconciliation/ProductReconciliation";
@@ -106,6 +107,20 @@ describe("RT-727 gate mirrors the API's roles", () => {
     renderAt("/product-reconciliation");
     expect(screen.getByText("Select a tenant to view product reconciliation.")).toBeDefined();
     expect(api.listProductReconciliationBacklog).not.toHaveBeenCalled();
+  });
+});
+
+describe("RT-1299 2c: list header band", () => {
+  test("the page opens with the band under the Integration group, with no facts", async () => {
+    renderAt("/product-reconciliation");
+    await screen.findByRole("region", { name: "Products without a confirmed mapping" });
+    // RT-1299 2c (D-V9): the list header band carries its nav group's label.
+    const band = document.querySelector("header.list-band") as HTMLElement;
+    expect(band).not.toBeNull();
+    expect(band.querySelector(".list-band__group")?.textContent).toBe("Integration");
+    expect(band.querySelector("h1")?.textContent).toBe(translate("en", "productRecon.title"));
+    expect(band.querySelector("dl.list-band__facts")).toBeNull();
+    expect(translate("ar", "erp.nav.section")).toBe("التكامل");
   });
 });
 

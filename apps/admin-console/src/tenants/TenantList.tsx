@@ -1,7 +1,7 @@
 import { Banner } from "@/components/Banner";
 import { DataTable } from "@/components/DataTable";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { type T, useT } from "@/i18n";
 /**
  * SF-T1 — Tenant roster (T016). The backend-scoped set rendered as a table
@@ -43,7 +43,8 @@ export function TenantList(): React.JSX.Element {
     <div className="surface">
       {/* Single-primary rule (DESIGN.md 6): the header primary shows only when
           there is a roster to act on; the empty state carries its own primary. */}
-      <PageHeader
+      <ListHeaderBand
+        group={t("shell.nav.section.management")}
         title={t("tenants.list.title")}
         subtitle={t("tenants.list.sub")}
         actions={

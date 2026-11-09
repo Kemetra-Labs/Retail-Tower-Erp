@@ -95,6 +95,7 @@ export const common: MessagesOf<typeof ar> = {
   "role.platform_admin": "Platform admin",
   "role.manager": "Manager",
   "role.cashier": "Cashier",
+  "role.store_staff": "Store staff",
   "role.unknown": "Unknown role",
 
   "pipelineRail.label": "Sale pipeline",

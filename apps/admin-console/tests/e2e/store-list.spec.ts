@@ -330,3 +330,36 @@ test("RT-757: the sort button is a 36px target without a taller header", async (
   }, 17);
   expect(hits).toEqual([true, true]);
 });
+
+/**
+ * RT-1299 3b — the whole header cell is the sort target (owner decision
+ * 2026-11-09), not only the text line: every corner of the cell, padding
+ * included, hit-tests to the button, and a click there sorts.
+ */
+test("RT-1299: the whole sortable header cell is the sort button's hit area", async ({
+  page,
+  t,
+}) => {
+  await openSortableRoster(page);
+  const header = page.getByRole("columnheader", { name: t("stores.list.col.store") });
+  const cell = await header.boundingBox();
+  if (!cell) throw new Error("header cell not laid out");
+  expect(cell.height).toBeGreaterThanOrEqual(36);
+  const corners = await header.evaluate((th) => {
+    const r = th.getBoundingClientRect();
+    const button = th.querySelector("button");
+    const inset = 3;
+    return [
+      [r.left + inset, r.top + inset],
+      [r.right - inset, r.top + inset],
+      [r.left + inset, r.bottom - inset],
+      [r.right - inset, r.bottom - inset],
+    ].map(([x, y]) => button?.contains(document.elementFromPoint(x, y)) ?? false);
+  });
+  expect(corners).toEqual([true, true, true, true]);
+
+  // A click in the cell's top-right padding (start edge in RTL, end in LTR) sorts.
+  await header.click({ position: { x: cell.width - 4, y: 4 } });
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  expect(await storeNames(page)).toEqual(["Mall 2", "Mall 10", "Zamalek"]);
+});

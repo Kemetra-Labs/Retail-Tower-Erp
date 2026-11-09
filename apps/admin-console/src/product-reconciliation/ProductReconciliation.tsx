@@ -10,7 +10,7 @@ import { NoAccess } from "@/auth/NoAccess";
  * requested; the API is the authority (a non-disclosing 404 otherwise) and the
  * gate mirrors its roles. The backlog class filter lives in the URL (`?class=`).
  */
-import { PageHeader } from "@/components/PageHeader";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useT } from "@/i18n";
 import type { BacklogClass } from "@/lib/product-reconciliation-queries";
 import { useSignOut } from "@/shell/useSignOut";
@@ -40,7 +40,10 @@ function Content({ scope }: Readonly<{ scope: ReconScope }>): React.JSX.Element 
 
   return (
     <div className="surface erp-surface">
-      <PageHeader
+      {/* RT-1299 2c (D-V9): the Integration group's list band. The backlog and runs are
+          paged, so the band serves no whole-set fact. */}
+      <ListHeaderBand
+        group={t("erp.nav.section")}
         title={t("productRecon.title")}
         subtitle={t.rich("productRecon.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={

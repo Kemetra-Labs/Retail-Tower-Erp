@@ -119,7 +119,7 @@ describe("MemberList", () => {
         {
           membership_id: "m3",
           user: { id: "u3", email: "sara@northstar.eg", display_name: "Sara Fathy" },
-          role_code: "store_staff",
+          role_code: "auditor_x",
           store_access_kind: "specific",
           accessible_store_ids: ["s1"],
           revoked_at: null,
@@ -128,7 +128,7 @@ describe("MemberList", () => {
     });
     renderList();
     expect(await screen.findByRole("cell", { name: "Unknown role" })).toBeDefined();
-    expect(screen.queryByText("store_staff")).toBeNull();
+    expect(screen.queryByText("auditor_x")).toBeNull();
     expect(screen.getByText("1 store")).toBeDefined();
   });
 

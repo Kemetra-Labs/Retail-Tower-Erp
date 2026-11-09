@@ -523,8 +523,9 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     );
     renderStore();
     const title = await screen.findByRole("heading", { level: 1 });
-    expect(title.textContent).toBe(translate("ar", "stock.title"));
-    expect(title.textContent).toBe("فروقات مخزون ERPNext");
+    // RT-1299 2b: the h1 is the nav label; "ERPNext" lives in the subtitle.
+    expect(title.textContent).toBe(translate("ar", "shell.nav.stockDiscrepancies"));
+    expect(title.textContent).toBe("فروقات المخزون");
     const button = screen.getByRole("button", { name: "طلب لقطة حديثة" });
     expect(button.textContent).not.toMatch(/request|snapshot/i);
     // RT-963: the as-of sentence is a paragraph, not a heading.
@@ -560,7 +561,8 @@ describe("StockDiscrepancyStore (RT-178)", () => {
 
     const band = document.querySelector("header.list-band") as HTMLElement;
     expect(band).not.toBeNull();
-    expect(band.querySelector("h1")?.textContent).toBe("ERPNext stock discrepancies");
+    expect(band.querySelector("h1")?.textContent).toBe("Stock discrepancies");
+    expect(band.querySelector(".list-band__sub")?.textContent).toMatch(/ERPNext/);
     expect(band.querySelector("dl.list-band__facts")).toBeNull();
     // The one primary is "Request fresh snapshot", inside the band.
     const primary = band.querySelector("button.btn-primary") as HTMLButtonElement;

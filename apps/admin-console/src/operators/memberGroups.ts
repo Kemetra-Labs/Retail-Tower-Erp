@@ -31,6 +31,7 @@ const GROUP_ORDER: readonly MessageKey[] = [
   "role.store_manager",
   "role.manager",
   "role.cashier",
+  "role.store_staff",
   "role.unknown",
 ];
 

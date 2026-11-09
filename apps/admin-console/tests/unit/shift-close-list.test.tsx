@@ -32,6 +32,8 @@ vi.mock("@/context/ActiveContextProvider", () => ({
   useActiveContextValue: () => activeContext(),
 }));
 
+import { ltr } from "@/components/FilterBar";
+import { translate } from "@/i18n";
 import { createQueryClient } from "@/lib/query";
 import { ShiftCloseList } from "@/shift-closes/ShiftCloseList";
 
@@ -338,8 +340,8 @@ describe("ShiftCloseList (RT-18)", () => {
   test("an end date before the start date is explained and nothing is sent", async () => {
     renderList();
     await tableReady();
-    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-10-07" } });
-    fireEvent.change(screen.getByLabelText("To date"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText(/^From date/), { target: { value: "2026-10-07" } });
+    fireEvent.change(screen.getByLabelText(/^To date/), { target: { value: "2026-10-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByText("The end date can't be before the start date.")).toBeDefined();
     expect(consoleListShiftCloses).toHaveBeenCalledTimes(1);
@@ -354,6 +356,9 @@ describe("ShiftCloseList (RT-18)", () => {
       closed_to: "2026-10-07T20:00:00.000Z",
     });
     expect(paragraph("Dates are in Asia/Dubai.")).toBeDefined();
+    // RT-1299 3a: the date fields themselves name the zone they are read in.
+    expect(screen.getByLabelText(`From date (${ltr("Asia/Dubai")})`)).toBeDefined();
+    expect(screen.getByLabelText(`To date (${ltr("Asia/Dubai")})`)).toBeDefined();
   });
 
   test("with no store selected, dates are UTC and labelled so", async () => {
@@ -363,6 +368,18 @@ describe("ShiftCloseList (RT-18)", () => {
       closed_from: "2026-10-01T00:00:00.000Z",
     });
     expect(paragraph("Dates are in UTC.")).toBeDefined();
+    // RT-1299 3a: the date fields are labelled UTC, not only the note under the bar.
+    expect(screen.getByLabelText(`From date (${ltr("UTC")})`)).toBeDefined();
+    expect(screen.getByLabelText(`To date (${ltr("UTC")})`)).toBeDefined();
+  });
+
+  test("RT-1299 3a: in Arabic the date fields read «بتوقيت UTC»", () => {
+    expect(translate("ar", "shift.filter.fromIn", { zone: ltr("UTC") })).toBe(
+      `من تاريخ (بتوقيت ${ltr("UTC")})`,
+    );
+    expect(translate("ar", "shift.filter.toIn", { zone: ltr("UTC") })).toBe(
+      `إلى تاريخ (بتوقيت ${ltr("UTC")})`,
+    );
   });
 
   test("Clear drops every filter back to the default exception view", async () => {

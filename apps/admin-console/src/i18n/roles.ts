@@ -13,6 +13,7 @@ const ROLE_KEYS: Record<string, MessageKey> = {
   platform_admin: "role.platform_admin",
   manager: "role.manager",
   cashier: "role.cashier",
+  store_staff: "role.store_staff",
 };
 
 /** The message key for a role code (`role.unknown` when unrecognised). */

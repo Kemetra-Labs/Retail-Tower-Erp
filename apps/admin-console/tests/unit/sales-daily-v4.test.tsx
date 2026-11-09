@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ctx, stores } from "./sale-fixtures";
 import {
+  AS_OF,
   CAIRO,
   EGP_USD_DAY,
   NEW_YORK,
@@ -30,6 +31,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
   useActiveContextValue: () => activeContext(),
 }));
 
+import { formatDateTime } from "@/i18n";
 import { createQueryClient } from "@/lib/query";
 import { SalesDaily } from "@/sales-daily/SalesDaily";
 
@@ -125,6 +127,33 @@ describe("SalesDaily v4 band and day panel (RT-1020)", () => {
     const band = screen.getByRole("heading", { level: 1 }).closest(".list-band") as HTMLElement;
     expect(band.textContent).toContain("All stores in scope · Northstar Retail");
     expect(factOf("Time zone")).toBe("Africa/Cairo, America/New_York");
+    // Several zones: no single report zone, so the read time stays labelled UTC.
+    expect(factOf("Read at")).toBe(formatDateTime(AS_OF, { locale: "en" }));
+    expect(factOf("Read at")).toMatch(/UTC$/);
+  });
+
+  test("RT-1299 3a: a whole-scope read in one zone shows its read time in that zone", async () => {
+    activeContext.mockReturnValue(ctx("owner", "t1"));
+    consoleGetSalesSummary.mockResolvedValue(
+      ok(
+        scopeSummary(
+          [{ ref: CAIRO, timeZone: "Africa/Cairo", currentBusinessDate: "2026-10-24" }],
+          { range: { from: "2026-10-17", to: "2026-10-24" } },
+        ),
+      ),
+    );
+    renderReport();
+    await dayPanel();
+    expect(factOf("Time zone")).toBe("Africa/Cairo");
+    expect(factOf("Read at")).toBe(
+      formatDateTime(AS_OF, { locale: "en", timeZone: "Africa/Cairo" }),
+    );
+    expect(factOf("Read at")).not.toMatch(/UTC/);
+    // UTC stays only as secondary evidence: the exact served instant on the <time>.
+    const time = screen
+      .getByText("Read at", { selector: "dt" })
+      .parentElement?.querySelector("time");
+    expect(time?.getAttribute("dateTime")).toBe(AS_OF);
   });
 
   test("a read that covers only the first page of stores says the zone list is partial", async () => {

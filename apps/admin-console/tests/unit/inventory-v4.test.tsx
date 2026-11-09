@@ -33,6 +33,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
   useActiveContextValue: () => activeContext(),
 }));
 
+import { translate } from "@/i18n";
 import { InventoryProduct } from "@/inventory/InventoryProduct";
 import { InventoryStore } from "@/inventory/InventoryStore";
 import { InventoryStores } from "@/inventory/InventoryStores";
@@ -137,6 +138,15 @@ describe("stores list band (RT-1016)", () => {
     expect(document.querySelector(".list-band__facts")).toBeNull();
     // The read-only note stays unchanged under the band.
     expect(screen.getByText(/Read only\. No movement/)).toBeDefined();
+  });
+
+  test("RT-1299 2b: the page h1 is the nav label's own words (one source key)", async () => {
+    renderAt("/inventory");
+    await screen.findByRole("link", { name: "Cairo Festival" });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      translate("en", "inventory.nav.label"),
+    );
+    expect(translate("ar", "inventory.nav.label")).toBe("حركات المخزون");
   });
 });
 

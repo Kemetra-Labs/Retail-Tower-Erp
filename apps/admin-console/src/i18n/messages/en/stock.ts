@@ -3,7 +3,6 @@ import type { MessagesOf } from "../types";
 
 export const stock: MessagesOf<typeof ar> = {
   // --- Stock discrepancies: shared ----------------------------------------
-  "stock.title": "ERPNext stock discrepancies",
   "stock.tenantPrompt": "Select a tenant to view ERPNext stock discrepancies.",
   "stock.loadFailed": "ERPNext stock discrepancies could not be loaded.",
   "stock.inlineError":
