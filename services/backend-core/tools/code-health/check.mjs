@@ -7,6 +7,9 @@
 // with a hint when a count shrinks so the PR that cleans up lowers the baseline (--update).
 // --update refuses when any count grew, so a rise needs a hand edit of the baseline in the PR,
 // with owner approval.
+// RT-1295: it also fails when a file already over `max-lines` gains lines, or a new file goes
+// over the limit (baseline `oversizedFiles`), so an oversized file cannot keep growing while
+// the eslintMaxLines count stays the same.
 //
 // Usage: node tools/code-health/check.mjs [--update]   (from services/backend-core)
 // Exit codes: 0 pass, 1 a count grew past the baseline, 2 a tool or the baseline failed.
@@ -18,7 +21,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BaselineError, METRICS, compare, parseBaseline } from "./compare.mjs";
+import {
+  BaselineError,
+  METRICS,
+  compare,
+  compareOversizedFiles,
+  maxLinesActual,
+  parseBaseline,
+} from "./compare.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..");
@@ -104,14 +114,27 @@ function measureJscpd() {
   }
 }
 
+/** A path relative to services/backend-core, with forward slashes on every OS. */
+function relativeToRoot(filePath) {
+  return path.relative(root, filePath).split(path.sep).join("/");
+}
+
 function countRuleMessages(results) {
   const counts = { complexity: 0, "max-lines-per-function": 0, "max-lines": 0 };
+  const oversizedFiles = {};
   const messages = results.flatMap((file) => file.messages.map((message) => ({ file, message })));
   for (const { file, message } of messages) {
     if (message.fatal) throw new ToolError(`eslint could not parse ${file.filePath}`);
     if (Object.hasOwn(counts, message.ruleId ?? "")) counts[message.ruleId] += 1;
+    if (message.ruleId === "max-lines") {
+      const lines = maxLinesActual(message.message);
+      if (lines === null) {
+        throw new ToolError(`unexpected max-lines message for ${file.filePath}: ${message.message}`);
+      }
+      oversizedFiles[relativeToRoot(file.filePath)] = lines;
+    }
   }
-  return counts;
+  return { counts, oversizedFiles };
 }
 
 async function measureEslint() {
@@ -128,11 +151,12 @@ async function measureEslint() {
       rules: SIZE_RULES,
     },
   });
-  const counts = countRuleMessages(await eslint.lintFiles(SIZE_RULE_FILES));
+  const { counts, oversizedFiles } = countRuleMessages(await eslint.lintFiles(SIZE_RULE_FILES));
   return {
     eslintComplexity: counts.complexity,
     eslintMaxLinesPerFunction: counts["max-lines-per-function"],
     eslintMaxLines: counts["max-lines"],
+    oversizedFiles,
   };
 }
 
@@ -156,23 +180,39 @@ function writeBaseline(current) {
     $comment: "RT-1199 code-health ratchet. Lower is better; counts may only go down.",
   };
   for (const metric of METRICS) body[metric] = current[metric];
+  body.oversizedFiles = Object.fromEntries(
+    Object.entries(current.oversizedFiles).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  );
   writeFileSync(baselineFile, `${JSON.stringify(body, null, 2)}\n`);
 }
 
-function reportShrank(shrank) {
+function reportShrank(shrank, files) {
   for (const { metric, current: now, baseline } of shrank) {
     console.log(`code-health: hint: ${metric} dropped to ${now} (baseline ${baseline}).`);
   }
-  if (shrank.length > 0) {
+  for (const { file, current: now, baseline } of files.shrank) {
+    const state = now === 0 ? "is no longer over max-lines" : `dropped to ${now} lines`;
+    console.log(`code-health: hint: ${file} ${state} (baseline ${baseline}).`);
+  }
+  if (shrank.length > 0 || files.shrank.length > 0) {
     console.log("code-health: hint: run `pnpm code-health:update` in this PR.");
   }
 }
 
-function reportGrew(grew, ok) {
+function reportGrew(grew, files, ok) {
   for (const { metric, current: now, baseline } of grew) {
     console.error(
       `code-health: FAIL ${metric} is ${now}, baseline is ${baseline} (+${now - baseline}).`,
     );
+  }
+  for (const { file, current: now, baseline } of files.grew) {
+    console.error(
+      `code-health: FAIL ${file} is over max-lines and grew to ${now} lines, baseline is ` +
+        `${baseline} (+${now - baseline}). Move code out instead of adding to it.`,
+    );
+  }
+  for (const { file, current: now } of files.added) {
+    console.error(`code-health: FAIL ${file} went over max-lines (${now} lines).`);
   }
   if (ok) {
     console.log("code-health: OK, no count grew.");
@@ -192,17 +232,21 @@ async function measureAll() {
 
 async function main(args) {
   const current = await measureAll();
-  console.table(current);
-  const { grew, shrank, ok } = compare(current, readBaseline());
-  // --update only lowers the baseline: a count that grew fails here as in a normal run, so a drop
-  // in one metric can never carry a rise in another into the baseline.
+  const { oversizedFiles, ...counts } = current;
+  console.table(counts);
+  const baseline = readBaseline();
+  const { grew, shrank, ok: countsOk } = compare(counts, baseline);
+  const files = compareOversizedFiles(oversizedFiles, baseline.oversizedFiles);
+  const ok = countsOk && files.ok;
+  // --update only lowers the baseline: a count or file that grew fails here as in a normal run,
+  // so a drop in one metric or file can never carry a rise in another into the baseline.
   if (args.includes("--update") && ok) {
     writeBaseline(current);
     console.log("code-health: baseline written.");
     return 0;
   }
-  if (!args.includes("--update")) reportShrank(shrank);
-  return reportGrew(grew, ok);
+  if (!args.includes("--update")) reportShrank(shrank, files);
+  return reportGrew(grew, files, ok);
 }
 
 try {

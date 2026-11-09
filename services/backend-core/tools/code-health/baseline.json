@@ -10,5 +10,9 @@
   "jscpdDuplicatedLines": 3682,
   "eslintComplexity": 5,
   "eslintMaxLinesPerFunction": 2,
-  "eslintMaxLines": 2
+  "eslintMaxLines": 2,
+  "oversizedFiles": {
+    "apps/api/src/catalog/sales/sales.service.ts": 987,
+    "apps/api/src/pos-operators/pos-operators.service.ts": 857
+  }
 }
