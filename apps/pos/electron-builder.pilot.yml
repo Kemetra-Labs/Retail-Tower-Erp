@@ -1,0 +1,34 @@
+# RT-1294 — the PILOT per-user NSIS installer, signed with the pilot leaf (CN=Kemetra POS PILOT).
+#
+# Used only as `electron-builder --win nsis --config electron-builder.pilot.yml --prepackaged <win-unpacked>`
+# by scripts/pilot/ci/release-pilot-installer.ps1. It extends the shipped config, so the frozen update
+# identity (appId / productName) and the RT-164 Electron fuses are inherited, not restated.
+#
+# What this file deliberately does NOT do (guarded by scripts/__tests__/pilot-signing.test.ts):
+#   - it configures no update feed at all: there is no provider, no address and no channel here, so no
+#     update configuration can be written for this build. The pilot terminal cannot update itself
+#     (UpdateService refuses a build without an update configuration), by construction;
+#   - it holds no key material, no certificate path and no switch that weakens a signature check;
+#   - it does not override the identity or the fuses.
+extends: ./electron-builder.yml
+win:
+  target:
+    - target: nsis
+      arch: x64
+  signtoolOptions:
+    publisherName: Kemetra POS PILOT
+    signingHashAlgorithms:
+      - sha256
+    # Signs through signtool from the CurrentUser\My store, refuses any certificate whose subject is not
+    # exactly the pilot subject, and always adds an RFC 3161 timestamp.
+    sign: ./scripts/pilot/pilot-sign.cjs
+nsis:
+  # Per-user install, no UAC (ADR-0006 P-6). Keeps userData, the DB and DPAPI secrets under the installing
+  # Windows user.
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  # An uninstall must never delete the SQLite DB, outbox or DPAPI secrets.
+  deleteAppDataOnUninstall: false
+  # The name the pilot release registry expects (pos/pilot/<version>/POS-Pulse-Setup-<version>.exe).
+  artifactName: POS-Pulse-Setup-${version}.${ext}

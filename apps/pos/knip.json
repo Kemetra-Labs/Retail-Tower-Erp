@@ -1,6 +1,11 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/main/index.ts", "scripts/*.{ts,mjs,cjs}", "scripts/lab/**/*.{ts,mjs,cjs}"],
+  "entry": [
+    "src/main/index.ts",
+    "scripts/*.{ts,mjs,cjs}",
+    "scripts/lab/**/*.{ts,mjs,cjs}",
+    "scripts/pilot/**/*.{ts,mjs,cjs}"
+  ],
   "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs,cjs}"],
   "ignore": ["src/shared/api-types.ts", "**/*.d.ts"],
   "ignoreDependencies": ["jscpd"]
