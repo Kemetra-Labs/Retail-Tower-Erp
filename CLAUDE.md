@@ -43,7 +43,7 @@ While `tools/project-graph/graph.yaml` has `policy_approval: observe` (owner dec
 
 ### `pgraph` commands
 
-From `tools/project-graph/` (Python 3.12):
+From `tools/project-graph/` (Python 3.14):
 
 ```bash
 python -m pip install --require-hashes --no-deps -r requirements.txt
