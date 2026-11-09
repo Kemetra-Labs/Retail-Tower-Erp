@@ -6,7 +6,6 @@ export const inventory: MessagesOf<typeof ar> = {
   "inventory.nav.label": "Stock movements",
 
   // --- Shared states ----------------------------------------------------------
-  "inventory.title": "Inventory",
   "inventory.scopePrompt": "Choose a tenant from the scope bar to see inventory.",
   "inventory.retry": "Retry",
   "inventory.inlineError": "This section could not be refreshed. Showing the last successful read.",

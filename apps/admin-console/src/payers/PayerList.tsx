@@ -2,8 +2,8 @@ import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 import { BusyButton } from "@/components/BusyButton";
 import { TableScrollRegion } from "@/components/DataTableScroll";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type MessageKey, useT } from "@/i18n";
 import { useSignOut } from "@/shell/useSignOut";
@@ -191,7 +191,9 @@ export function PayerList(): React.JSX.Element {
 
   return (
     <div className="surface">
-      <PageHeader
+      {/* RT-1299 2c (D-V9): the Management group's list band; the list is paged, so no fact. */}
+      <ListHeaderBand
+        group={t("shell.nav.section.management")}
         title={t("payers.list.title")}
         subtitle={t.rich("payers.list.subtitle", { tenant: <bdi>{tenantName}</bdi> })}
         actions={showHeaderCreate ? createButton : null}

@@ -170,6 +170,12 @@ describe("PayerList", () => {
     expect(screen.getByText("Northstar Retail").tagName).toBe("BDI");
     expect(screen.queryByText("Payer accounts")).toBeNull();
     expect(screen.queryByRole("button", { name: /create payer/i })).toBeNull();
+    // RT-1299 2c (D-V9): the list header band carries its nav group's label.
+    const band = document.querySelector("header.list-band") as HTMLElement;
+    expect(band).not.toBeNull();
+    expect(band.querySelector(".list-band__group")?.textContent).toBe("الإدارة");
+    expect(band.querySelector("h1")?.textContent).toBe("حسابات جهات الدفع");
+    expect(band.querySelector("dl.list-band__facts")).toBeNull();
   });
 
   test("scope column: a tenant-wide payer (storeId null) and a store-scoped payer read differently", async () => {

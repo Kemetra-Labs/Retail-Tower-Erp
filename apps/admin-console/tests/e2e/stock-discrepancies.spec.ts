@@ -125,7 +125,9 @@ test("S1: tenant_admin → summary → store items verbatim → request fresh sn
 
   await page.goto("/");
   await page.getByRole("link", { name: t("shell.nav.stockDiscrepancies") }).click();
-  await expect(page.getByRole("heading", { name: t("stock.title") })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: t("shell.nav.stockDiscrepancies") }),
+  ).toBeVisible();
   const zamalek = page.getByRole("row", { name: /Zamalek/ });
   // UNKNOWN is its own localized state, never 0.
   await expect(

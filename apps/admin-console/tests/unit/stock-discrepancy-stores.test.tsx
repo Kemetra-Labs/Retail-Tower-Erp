@@ -142,7 +142,8 @@ describe("StockDiscrepancyStores (RT-178)", () => {
     });
     renderStores();
     await screen.findByRole("link", { name: "Cairo Festival City" });
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("فروقات مخزون ERPNext");
+    // RT-1299 2b: the h1 is the nav label «فروقات المخزون»; "ERPNext" is in the subtitle.
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("فروقات المخزون");
     expect(screen.getByRole("columnheader", { name: "الأصناف السالبة" })).toBeDefined();
     expect(screen.getByRole("button", { name: "تحميل مزيد من المتاجر" })).toBeDefined();
 
@@ -271,9 +272,8 @@ describe("StockDiscrepancyStores (RT-178)", () => {
 
     const band = document.querySelector("header.list-band") as HTMLElement;
     expect(band).not.toBeNull();
-    expect(within(band).getByRole("heading", { level: 1 }).textContent).toBe(
-      "ERPNext stock discrepancies",
-    );
+    expect(within(band).getByRole("heading", { level: 1 }).textContent).toBe("Stock discrepancies");
+    expect(band.querySelector(".list-band__sub")?.textContent).toMatch(/ERPNext/);
     expect(band.querySelector(".list-band__group")?.textContent).toBe("Stock and items");
     expect(band.querySelector(".list-band__sub")?.textContent).toMatch(/in Northstar Retail\.$/);
     // A paged list serves no whole-set figure: no facts, no total, no action.

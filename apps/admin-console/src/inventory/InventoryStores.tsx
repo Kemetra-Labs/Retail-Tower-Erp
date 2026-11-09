@@ -131,7 +131,7 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
           store), so a count of it would not be a figure the server serves. */}
       <ListHeaderBand
         group={t("shell.nav.section.stock")}
-        title={t("inventory.title")}
+        title={t("inventory.nav.label")}
         subtitle={t.rich("inventory.stores.subTenant", {
           tenant: <bdi dir="auto">{context?.active_tenant?.name}</bdi>,
         })}

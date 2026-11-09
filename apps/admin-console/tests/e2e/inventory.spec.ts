@@ -145,7 +145,7 @@ test("S1: owner → store ledger → product on-hand, read-only", async ({ page:
   p.on("request", (r) => requested.push(new URL(r.url())));
 
   await p.getByRole("link", { name: t("inventory.nav.label") }).click();
-  await expect(p.getByRole("heading", { level: 1, name: t("inventory.title") })).toBeVisible();
+  await expect(p.getByRole("heading", { level: 1, name: t("inventory.nav.label") })).toBeVisible();
   await p.getByRole("link", { name: "Cairo Festival" }).click();
 
   await expect(p.getByRole("heading", { level: 1, name: "Cairo Festival" })).toBeVisible();
