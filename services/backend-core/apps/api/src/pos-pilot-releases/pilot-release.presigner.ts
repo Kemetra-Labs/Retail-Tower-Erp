@@ -1,7 +1,7 @@
 /**
  * RT-1292: the port through which the pilot resolver obtains a short-lived
- * download URL. The S3 adapter (and its `@aws-sdk/*` dependency) is a later,
- * separately gated slice; until it is bound, the module provides `null` and
+ * download URL. RT-1297 binds the S3 adapter (`pilot-release.s3-presigner.ts`)
+ * when the pilot S3 key is complete; otherwise the module provides `null` and
  * the resolver answers `available:false`.
  *
  * A presigned URL is a bearer capability: callers never log it, store it or
@@ -29,7 +29,7 @@ export interface PilotReleasePresigner {
   presignGet(request: PilotReleasePresignRequest): Promise<PilotReleasePresigned>;
 }
 
-/** DI token of the presigner; `null` until the S3 adapter is bound. */
+/** DI token of the presigner; `null` unless the pilot S3 key is complete (RT-1297). */
 export const PILOT_RELEASE_PRESIGNER = Symbol("PILOT_RELEASE_PRESIGNER");
 /** DI token of the resolved lane configuration. */
 export const PILOT_RELEASE_CONFIG = Symbol("PILOT_RELEASE_CONFIG");

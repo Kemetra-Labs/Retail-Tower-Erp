@@ -145,6 +145,17 @@ services:
       CASHIER_TAKEOVER_RATE_LIMIT: ${CASHIER_TAKEOVER_RATE_LIMIT:-}
       CASHIER_TAKEOVER_RATE_WINDOW_SECONDS: ${CASHIER_TAKEOVER_RATE_WINDOW_SECONDS:-}
       CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS: ${CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS:-}
+      # RT-1292 / RT-1297 POS pilot release lane. Off while any of the pin, the bucket or the
+      # S3 key below is empty: the Console then gets { available: false }. No `:?` on purpose:
+      # a missing value never stops the api. The three S3 values go to THIS service only, under
+      # their own names, so no ambient AWS_* variable can sign a pilot download (deploy/README.md).
+      POS_PILOT_RELEASE_PUBLISHER: ${POS_PILOT_RELEASE_PUBLISHER:-}
+      POS_PILOT_RELEASE_BUCKET: ${POS_PILOT_RELEASE_BUCKET:-}
+      POS_PILOT_RELEASE_URL_TTL_SECONDS: ${POS_PILOT_RELEASE_URL_TTL_SECONDS:-}
+      POS_PILOT_RELEASE_S3_REGION: ${POS_PILOT_RELEASE_S3_REGION:-}
+      # SECRET: the access key of the read-only pilot-bucket IAM user.
+      POS_PILOT_RELEASE_S3_ACCESS_KEY_ID: ${POS_PILOT_RELEASE_S3_ACCESS_KEY_ID:-}
+      POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY: ${POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY:-}
       # Spec 037 observability. All default-inert: an empty SENTRY_DSN sends no
       # Sentry events; traces go to OTEL_EXPORTER_OTLP_ENDPOINT (the SDK default
       # until pointed at the datadog-agent profile, see deploy/README.md).
