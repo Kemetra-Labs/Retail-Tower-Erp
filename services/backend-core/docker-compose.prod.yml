@@ -300,6 +300,10 @@ services:
       CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-api.example.test}
       # RT-1115: the POS lab feed route is on only when this is set (deploy/README.md).
       POS_FEED_DIR: ${POS_FEED_DIR:-}
+      # RT-1305: the Console CSP allows one frame-src, this pilot bucket's S3 origin, only when
+      # both are set and valid. Not secrets; the S3 key never reaches Caddy.
+      POS_PILOT_RELEASE_BUCKET: ${POS_PILOT_RELEASE_BUCKET:-}
+      POS_PILOT_RELEASE_S3_REGION: ${POS_PILOT_RELEASE_S3_REGION:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # RT-336: Admin Console on the same origin as the API. The directory holds

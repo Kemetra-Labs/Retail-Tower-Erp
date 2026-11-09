@@ -926,11 +926,19 @@ api: no request goes to S3 to build it, and the browser then downloads straight 
 | Variable (host env file) | Passed to the api as | Notes |
 |---|---|---|
 | `POS_PILOT_RELEASE_PUBLISHER` | same | The pilot installer's Authenticode subject. Never a lab subject (`LAB TEST`, `NOT FOR PRODUCTION`) and never the production pin. |
-| `POS_PILOT_RELEASE_BUCKET` | same | The private pilot bucket. |
+| `POS_PILOT_RELEASE_BUCKET` | same, and to caddy | The private pilot bucket. Lower-case letters, digits and hyphens, no dots (see the CSP note below). |
 | `POS_PILOT_RELEASE_URL_TTL_SECONDS` | same | Integer 1 to 900. Blank means 300. Any other value turns the lane off; it is never clamped. |
-| `POS_PILOT_RELEASE_S3_REGION` | same | The bucket's region (`us-east-1` for the lab). |
+| `POS_PILOT_RELEASE_S3_REGION` | same, and to caddy | The bucket's region (`us-east-1` for the lab). |
 | `POS_PILOT_RELEASE_S3_ACCESS_KEY_ID`, `POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY` | same | **Secret.** The key of an IAM user allowed only `s3:GetObject` and `s3:GetObjectVersion` on `pos/pilot/*`. Only the api container receives it. |
 
+- **Console CSP `frame-src` (RT-1305):** the Console hands the presigned URL to a hidden iframe so it
+  never reaches the address bar (RT-1304). Caddy reads the bucket and region (never the S3 key) and,
+  only when both are valid, adds one directive to the Console CSP:
+  `frame-src https://<bucket>.s3.<region>.amazonaws.com`, the host the api presigner signs for. Unset,
+  partial or malformed (a dotted bucket name included), the CSP stays the base policy with no
+  `frame-src`. Caddy reads the values at start, so restart the caddy container after changing them.
+  `deploy/console-smoke.sh` accepts exactly either form. Check after a deploy:
+  `curl -sI https://<site>/ | grep -i content-security-policy`.
 - **Why the lab uses a key:** lab-01 is an SSM *hybrid* managed node (`mi-…`), not an EC2 instance,
   so no instance role exists for the api to use (RT-1290, owner decision 2026-11-09).
 - **No ambient credential:** the key is passed to the SDK explicitly, under its own names, so no

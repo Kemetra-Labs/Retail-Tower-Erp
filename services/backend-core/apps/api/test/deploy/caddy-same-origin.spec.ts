@@ -11,6 +11,11 @@ import { resolve } from "node:path";
 const repoRoot = resolve(__dirname, "..", "..", "..", "..");
 const caddyfile = readFileSync(resolve(repoRoot, "Caddyfile"), "utf8");
 const compose = readFileSync(resolve(repoRoot, "docker-compose.prod.yml"), "utf8");
+const smoke = readFileSync(resolve(repoRoot, "deploy", "console-smoke.sh"), "utf8");
+
+/** The Console CSP before RT-1305; the pilot variant may only append a frame-src to it. */
+const BASE_CSP =
+  "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
 /** The `{ ... }` body that follows the first occurrence of `opener`. */
 function blockAfter(source: string, opener: string): string {
@@ -90,11 +95,45 @@ describe("Caddyfile same-origin gateway", () => {
     expect(site.indexOf("handle @pos_feed {")).toBeLessThan(site.indexOf("handle {"));
   });
 
-  it("sends security headers on Console responses only", () => {
+  it("sends the exact Console CSP, with frame-src only for a valid pilot bucket and region (RT-1305)", () => {
     const consoleBlock = blockAfter(site, "handle {");
-    expect(consoleBlock).toMatch(/Content-Security-Policy ".*default-src 'self'.*"/);
-    expect(consoleBlock).toMatch(/Content-Security-Policy ".*connect-src 'self'.*"/);
-    expect(consoleBlock).toMatch(/Content-Security-Policy ".*frame-ancestors 'none'.*"/);
+    const pilotFrameSrc =
+      "https://{env.POS_PILOT_RELEASE_BUCKET}.s3.{env.POS_PILOT_RELEASE_S3_REGION}.amazonaws.com";
+    const valid =
+      '{env.POS_PILOT_RELEASE_BUCKET}.matches("^[a-z0-9][a-z0-9-]*[a-z0-9]$") && ' +
+      '{env.POS_PILOT_RELEASE_S3_REGION}.matches("^[a-z][a-z](-[a-z]+)+-[0-9]+$")';
+
+    // Two mutually exclusive matchers on the same check, so exactly one CSP is ever sent.
+    expect(consoleBlock).toContain(`@pilot_frame expression \`${valid}\``);
+    expect(consoleBlock).toContain(`@no_pilot_frame not expression \`${valid}\``);
+
+    const csps = [...consoleBlock.matchAll(/^\s*header (@\w+ )?Content-Security-Policy "([^"]*)"\s*$/gm)].map(
+      (m) => [m[1]?.trim(), m[2]],
+    );
+    expect(csps).toEqual([
+      ["@pilot_frame", `${BASE_CSP}; frame-src ${pilotFrameSrc}`],
+      ["@no_pilot_frame", BASE_CSP],
+    ]);
+    // No other line sets a CSP, and no real bucket hostname is committed.
+    expect(consoleBlock.match(/Content-Security-Policy/g)).toHaveLength(2);
+    const directives = caddyfile
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"))
+      .join("\n");
+    expect(directives.match(/frame-src/g)).toHaveLength(1);
+    expect(caddyfile).not.toMatch(/https:\/\/[a-z0-9-]+\.s3\./);
+  });
+
+  it("smoke-checks the live CSP as the exact base string or the base plus one pilot S3 frame-src (RT-1305)", () => {
+    expect(smoke).toContain(`csp_base="${BASE_CSP}"`);
+    expect(smoke).toContain(
+      "csp_pilot_re='^; frame-src https://[a-z0-9][a-z0-9-]*[a-z0-9]\\.s3\\.[a-z][a-z](-[a-z]+)+-[0-9]+\\.amazonaws\\.com$'",
+    );
+    expect(smoke).toContain(`check "/ sends the exact Console CSP" csp_ok "$(header root content-security-policy)"`);
+  });
+
+  it("sends the other security headers on Console responses only", () => {
+    const consoleBlock = blockAfter(site, "handle {");
     expect(consoleBlock).toContain('Strict-Transport-Security "max-age=31536000"');
     expect(consoleBlock).toContain('X-Content-Type-Options "nosniff"');
     expect(consoleBlock).toContain('Referrer-Policy "strict-origin-when-cross-origin"');
@@ -128,6 +167,13 @@ describe("production compose for the same-origin gateway", () => {
     expect(caddy).toContain("${POS_FEED_DIR:-dp2_pos_feed_off}:/srv/pos-feed/lab:ro");
     const volumes = compose.slice(compose.indexOf("\nvolumes:"));
     expect(volumes).toMatch(/^ {2}dp2_pos_feed_off:\s*$/m);
+  });
+
+  it("passes the pilot bucket and region to Caddy for the CSP frame-src, optional and never the S3 key (RT-1305)", () => {
+    expect(caddy).toContain("POS_PILOT_RELEASE_BUCKET: ${POS_PILOT_RELEASE_BUCKET:-}");
+    expect(caddy).toContain("POS_PILOT_RELEASE_S3_REGION: ${POS_PILOT_RELEASE_S3_REGION:-}");
+    expect(caddy).not.toContain("POS_PILOT_RELEASE_S3_ACCESS_KEY_ID");
+    expect(caddy).not.toContain("POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY");
   });
 
   it("passes the public hostname to Caddy without hard-coding a real domain", () => {

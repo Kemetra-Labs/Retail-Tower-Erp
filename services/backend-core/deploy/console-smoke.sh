@@ -61,6 +61,15 @@ has() {
   local needle="$2"
   case "$haystack" in *"$needle"*) return 0 ;; *) return 1 ;; esac
 }
+# RT-1305: the Console CSP is exactly the base policy, or the base policy plus one frame-src for
+# the pilot bucket's virtual-hosted S3 origin (Caddyfile, when the host sets bucket and region).
+csp_base="default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+csp_pilot_re='^; frame-src https://[a-z0-9][a-z0-9-]*[a-z0-9]\.s3\.[a-z][a-z](-[a-z]+)+-[0-9]+\.amazonaws\.com$'
+csp_ok() {
+  local csp="$1"
+  [[ "$csp" == "$csp_base" ]] && return 0
+  [[ "${csp:0:${#csp_base}}" == "$csp_base" && "${csp:${#csp_base}}" =~ $csp_pilot_re ]]
+}
 not_html() {
   local content_type="$1"
   if has "$content_type" "text/html"; then
@@ -74,7 +83,7 @@ status="$(get / root)"
 check "/ returns 200" is "$status" 200
 check "/ is HTML" has "$(header root content-type)" "text/html"
 check "/ is Cache-Control: no-cache" is "$(header root cache-control)" "no-cache"
-check "/ sends CSP with frame-ancestors 'none'" has "$(header root content-security-policy)" "frame-ancestors 'none'"
+check "/ sends the exact Console CSP" csp_ok "$(header root content-security-policy)"
 check "/ sends X-Content-Type-Options: nosniff" is "$(header root x-content-type-options)" "nosniff"
 check "/ sends Strict-Transport-Security" has "$(header root strict-transport-security)" "max-age="
 check "/ sends Referrer-Policy" has "$(header root referrer-policy)" "strict-origin"
