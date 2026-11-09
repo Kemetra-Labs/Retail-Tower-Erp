@@ -15,4 +15,12 @@ describe("stock snapshot pending status copy", () => {
       expect(translate("ar", key)).not.toMatch(/[A-Za-z]/);
     }
   });
+
+  test("the overdue notes name the connector «موصّل ERPNext», never the Latin word", () => {
+    for (const key of ["stock.pending.overdue", "stock.pending.overdueWithPrevious"] as const) {
+      const text = translate("ar", key);
+      expect(text).not.toMatch(/Connector/);
+      expect(text).toContain("موصّل ERPNext");
+    }
+  });
 });
