@@ -170,7 +170,7 @@ Two pins, one rule (RT-1295):
 - `integrations/erpnext-connector/.python-version` (3.14) is for the Connector and anything that runs Frappe. Frappe v16, the only supported line, requires Python 3.14.
 - The root `.python-version` (3.12) is for repository tooling that never imports Frappe: `tools/project-graph`, `tools/contracts-check`, the release and mirror scripts under `tools/release/`, and the helper steps that the product workflows run with it.
 
-A workflow step that runs Connector code reads the Connector pin; every other Python step reads the root pin. Moving the root pin is a separate change that checks each of those tools on the new version.
+A workflow step that runs the Connector's tests or installs it reads the Connector pin, and a step that sets up Python for repository tooling reads the root pin. Some steps select no pin and run a standard-library-only script with the runner's own `python3`: for example `.github/release/manifest.py` and `live_state.py`, and the lab rollback classifier `integrations/erpnext-connector/deploy/lab/rollback_class.py`, which reads the repository and never imports Frappe. Those scripts must stay standard-library-only. A script that gains a dependency, or starts to need a specific Python version, needs a `setup-python` step that reads the matching pin. Moving the root pin is a separate change that checks each tool on the new version.
 
 ### Repository checks
 
