@@ -9,6 +9,9 @@
 .auth-page {
   /* The artwork's near-black, from the Ink token (no new global token). */
   --auth-night: color-mix(in oklab, var(--color-ink) 58%, black);
+  /* The form's designed width and the form panel's side padding (RT-1301). */
+  --auth-form-max: 26.25rem;
+  --auth-gutter: calc(var(--space-7) + var(--space-4));
   min-height: 100dvh;
   display: flex;
   background: var(--auth-night);
@@ -23,7 +26,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-6) calc(var(--space-7) + var(--space-4));
+  padding: var(--space-6) var(--auth-gutter);
+  /* The tower outline sizes itself to the room beside the form (RT-1301). */
+  container-type: inline-size;
   /* A mint glow rises from the foot, toward the artwork's lit road. */
   background: radial-gradient(
       ellipse 70% 45% at 50% 108%,
@@ -38,13 +43,20 @@
   z-index: 1;
 }
 
-/* The tower line drawing: ornament behind the form, at 16%. */
+/* The tower line drawing: ornament behind the form, at 16%. RT-1301: it stays in the
+ * room beside the form column, so its width is that room (half of the panel's content
+ * box, less half the form, plus the side padding, less its offset and an 8px gap), up
+ * to its drawn size. Where that room is under 110px it is not drawn at all. */
 .auth-tower {
   position: absolute;
   z-index: 0;
   inset-inline-end: var(--space-4);
   inset-block-end: 0;
-  inline-size: 17.5rem;
+  inline-size: clamp(
+    0px,
+    calc(50cqi - var(--auth-form-max) / 2 + var(--auth-gutter) - var(--space-4) - var(--space-2)),
+    17.5rem
+  );
   block-size: auto;
   fill: none;
   stroke: var(--color-mint);
@@ -53,6 +65,12 @@
   stroke-linecap: round;
   opacity: 0.16;
   pointer-events: none;
+}
+
+@container (inline-size < 35rem) {
+  .auth-tower {
+    display: none;
+  }
 }
 
 .auth-top {
@@ -70,6 +88,8 @@
 }
 .auth-lockup__tile {
   display: block;
+  /* Never squeezed by a narrow row: the logo stays 64 x 64 (RT-1301). */
+  flex-shrink: 0;
   overflow: hidden;
   inline-size: 4rem;
   block-size: 4rem;
@@ -97,7 +117,7 @@
 }
 .auth-form {
   inline-size: 100%;
-  max-inline-size: 26.25rem;
+  max-inline-size: var(--auth-form-max);
   display: flex;
   flex-direction: column;
   gap: calc(var(--space-5) + var(--space-1));
@@ -287,7 +307,7 @@
 .auth-art {
   position: relative;
   overflow: hidden;
-  flex: 0 0 31.625rem;
+  flex: 0 1 31.625rem;
   background: var(--auth-night);
 }
 .auth-art__img {
@@ -298,6 +318,14 @@
   object-fit: cover;
 }
 
+/* UX-04.4: shrink the decoration before the content. With the picture shown (901px and
+ * up) the form panel keeps the width its form needs (the form and its side padding) and the
+ * picture takes what is left, down to 353px at 901px (RT-1301). */
+@media (min-width: 901px) {
+  .auth-main {
+    flex: 1 0 calc(var(--auth-form-max) + 2 * var(--auth-gutter));
+  }
+}
 @media (max-width: 900px) {
   .auth-art {
     display: none;
@@ -308,6 +336,27 @@
     padding: var(--space-5) var(--space-4);
   }
   .auth-tower {
+    display: none;
+  }
+}
+
+/* Short screens (a 1366 x 768 laptop shows about 657px): tighter padding and gaps so the
+ * frame fits without a scroll down to about 590px; under 620px the decorative branch line
+ * goes too (RT-1301). Placed after the width rules so it also wins at 600px and under. */
+@media (max-height: 720px) {
+  .auth-main {
+    gap: var(--space-3);
+    padding-block: var(--space-3);
+  }
+  .auth-form {
+    gap: var(--space-4);
+  }
+  .auth-fields {
+    gap: var(--space-4);
+  }
+}
+@media (max-height: 620px) {
+  .auth-branch {
     display: none;
   }
 }
