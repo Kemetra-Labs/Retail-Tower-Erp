@@ -138,6 +138,13 @@ class DeployErpLab(PinnedActions, unittest.TestCase):
         self.assertIn("merge-base --is-ancestor", pre)
         self.assertTrue((CONNECTOR_DEPLOY / "lab" / "rollback_class.py").is_file())
 
+    def test_preflight_sets_up_the_repository_python_before_the_rollback_class(self):
+        # rollback_class.py runs on the repository's Python (3.14); the runner's own python3 is older.
+        pre = job(self.text, "preflight")
+        pin = "python-version-file: .python-version"
+        self.assertIn(pin, pre)
+        self.assertLess(pre.index(pin), pre.index("deploy/lab/rollback_class.py --repo"))
+
     def test_target_labels_are_checked_against_main(self):
         pre = job(self.text, "preflight")
         self.assertIn("skopeo inspect --config", pre)

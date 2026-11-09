@@ -15,6 +15,8 @@ The repo-root `.nvmrc` is the Node major. Every rule below compares against it o
       (ELECTRON_NODE_MAJOR), and an Electron major missing from that table is a violation
   (d) every pyproject.toml with a `.python-version` beside it has `requires-python = ">=X.Y"`
       where X.Y is that file's version
+  (e) every `.python-version` in the repository has the same content as the root one (RT-1296:
+      one Python for the whole repository), and the root file exists
 
 Stdlib plus PyYAML (hash-pinned in tools/project-graph/requirements.txt, which boundary-check
 installs first); workflows are parsed, not pattern-matched. Every unclear case is a violation.
@@ -32,7 +34,7 @@ import yaml
 # POS moves to a new Electron major; the guard fails until it is there.
 ELECTRON_NODE_MAJOR = {44: 24}
 
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "out", ".pnpm-store"}
+SKIP_DIRS = {".git", ".claude", "node_modules", ".venv", "venv", "dist", "build", "out", ".pnpm-store"}
 INLINE_KEYS = {"node-version", "python-version"}
 FILE_KEYS = {"node-version-file", "python-version-file"}
 # `node`, `node:24-slim`, `docker.io/library/node:24@sha256:...`; group 1 is the tag (None if absent).
@@ -198,11 +200,27 @@ def check_python_projects(repo, files):
     return problems
 
 
+def check_python_pins(repo, files):
+    root = os.path.join(repo, ".python-version")
+    if not os.path.isfile(root):
+        return ["(e) root .python-version is missing"]
+    want = read(root).strip()
+    problems = []
+    for path in files:
+        if os.path.basename(path) != ".python-version" or path == root:
+            continue
+        got = read(path).strip()
+        if got != want:
+            problems.append(f"(e) {rel(repo, path)} is {got}, the root pin is {want}")
+    return problems
+
+
 def check(repo):
     major = node_major(repo)
     files = list(walk(repo))
     return (check_workflows(repo, files) + check_images(repo, files, major)
-            + check_packages(repo, files, major) + check_python_projects(repo, files))
+            + check_packages(repo, files, major) + check_python_projects(repo, files)
+            + check_python_pins(repo, files))
 
 
 def main(argv=None):
@@ -218,7 +236,7 @@ def main(argv=None):
     for problem in problems:
         print(f"::error::toolchain versions {problem}")
     if not problems:
-        print("toolchain versions: OK (one Node from .nvmrc, Python from .python-version files)")
+        print("toolchain versions: OK (one Node from .nvmrc, one Python from the root .python-version)")
     return 1 if problems else 0
 
 

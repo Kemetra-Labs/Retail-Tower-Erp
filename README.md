@@ -165,12 +165,13 @@ python -m pytest -q retail_tower_erpnext_connector/tests \
 
 ### Python versions
 
-Two pins, one rule (RT-1295):
+One Python for the whole repository, 3.14 (RT-1296). Frappe v16, the only supported line, requires Python 3.14, so the Connector, `tools/project-graph`, `tools/contracts-check`, the release and mirror scripts under `tools/release/`, and every workflow step that sets up Python run on it.
 
-- `integrations/erpnext-connector/.python-version` (3.14) is for the Connector and anything that runs Frappe. Frappe v16, the only supported line, requires Python 3.14.
-- The root `.python-version` (3.12) is for repository tooling that never imports Frappe: `tools/project-graph`, `tools/contracts-check`, the release and mirror scripts under `tools/release/`, and the helper steps that the product workflows run with it.
+The root `.python-version` is the pin, and `integrations/erpnext-connector/.python-version` carries the same version. `.github/scripts/toolchain_versions.py` fails the build when any `.python-version` differs from the root one, or when the Connector's `requires-python` lower bound differs from its pin. A workflow step reads a pin file with `python-version-file`, never a literal version.
 
-A workflow step that runs the Connector's tests or installs it reads the Connector pin, and a step that sets up Python for repository tooling reads the root pin. Some steps select no pin and run a standard-library-only script with the runner's own `python3`: for example `.github/release/manifest.py` and `live_state.py`, and the lab rollback classifier `integrations/erpnext-connector/deploy/lab/rollback_class.py`, which reads the repository and never imports Frappe. Those scripts must stay standard-library-only. A script that gains a dependency, or starts to need a specific Python version, needs a `setup-python` step that reads the matching pin. Moving the root pin is a separate change that checks each tool on the new version.
+Some steps select no pin and run a standard-library-only script with the runner's own `python3`: for example `.github/release/manifest.py` and `live_state.py`, which read the repository and never import Frappe. Those scripts must stay standard-library-only and must parse on the runner's Python. The lab rollback classifier `integrations/erpnext-connector/deploy/lab/rollback_class.py` is formatted for Python 3.14 with the rest of the Connector, so the workflows that run it set up the pin first. A script that gains a dependency, or starts to need a specific Python version, needs a `setup-python` step that reads the pin. Moving the pin means checking each tool on the new version and regenerating the CPython wheel hash in `tools/project-graph/requirements.txt`.
+
+`tools/history/incremental/` is outside this rule. It is part of the frozen import record (see "Monorepo rules") and still pins Python 3.12.x for its WSL reproduction toolchain; it is not edited.
 
 ### Repository checks
 
@@ -188,7 +189,7 @@ E2E_BASE_URL=http://127.0.0.1:23100 E2E_ENVELOPE_FILE="$FUZZ_OUT/envelope-operat
 </details>
 
 <details>
-<summary><b>Consumer contracts</b> — <code>tools/contracts-check/</code>, Python 3.12, full git history, and the <code>oasdiff</code> 1.32.1 binary that <code>bc/oasdiff</code> pins</summary>
+<summary><b>Consumer contracts</b> — <code>tools/contracts-check/</code>, Python 3.14, full git history, and the <code>oasdiff</code> 1.32.1 binary that <code>bc/oasdiff</code> pins</summary>
 
 ```bash
 python -m pip install --require-hashes --only-binary=:all: --no-deps -r ../project-graph/requirements.txt
@@ -199,7 +200,7 @@ python -m contracts_check --repo ../.. --oasdiff /path/to/oasdiff
 </details>
 
 <details>
-<summary><b>Project graph</b> — <code>tools/project-graph/</code>, Python 3.12</summary>
+<summary><b>Project graph</b> — <code>tools/project-graph/</code>, Python 3.14</summary>
 
 ```bash
 python -m pip install --require-hashes --no-deps -r requirements.txt

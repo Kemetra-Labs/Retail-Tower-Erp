@@ -31,7 +31,7 @@ class ToolchainVersionsTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.repo = self._tmp.name
         self.write(".nvmrc", "24\n")
-        self.write(".python-version", "3.12\n")
+        self.write(".python-version", "3.14\n")
         self.write(".github/workflows/ci.yml", WORKFLOW)
         self.write("svc/Dockerfile", "FROM node:24-bookworm-slim@sha256:abc AS base\nFROM base AS api\n")
         self.package("svc/package.json", engines=">=24", types="24.19.2")
@@ -163,8 +163,26 @@ class ToolchainVersionsTests(unittest.TestCase):
         self.assert_one("d", "'>=3.10'")
 
     def test_d_python_version_file_changed(self):
+        self.write(".python-version", "3.15\n")
         self.write("connector/.python-version", "3.15\n")
         self.assert_one("d", "is not 3.15")
+
+    def test_e_root_pin_differs_from_project_pin(self):
+        self.write(".python-version", "3.12\n")
+        self.assert_one("e", "connector/.python-version is 3.14, the root pin is 3.12")
+
+    def test_e_extra_pin_file_differs_from_root(self):
+        self.write("tools/x/.python-version", "3.12\n")
+        self.assert_one("e", "tools/x/.python-version is 3.12, the root pin is 3.14")
+
+    def test_e_missing_root_pin(self):
+        os.remove(os.path.join(self.repo, ".python-version"))
+        self.assert_one("e", "root .python-version is missing")
+
+    def test_e_ignores_pins_in_skipped_dirs(self):
+        self.write("svc/node_modules/x/.python-version", "3.8\n")
+        self.write(".claude/worktrees/old/.python-version", "3.12\n")
+        self.assertEqual(self.problems(), [])
 
     def test_unreadable_nvmrc_exits_2(self):
         self.write(".nvmrc", "lts/*\n")

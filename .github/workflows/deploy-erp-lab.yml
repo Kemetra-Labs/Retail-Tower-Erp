@@ -117,6 +117,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      # rollback_class.py below needs the repository's Python (3.14, RT-1296); the runner's own python3 is older.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+
       - name: Both commits are on main
         env:
           TARGET_SHA: ${{ inputs.target_sha }}
