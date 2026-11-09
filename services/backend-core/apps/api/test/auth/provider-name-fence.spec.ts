@@ -47,6 +47,9 @@ const ADAPTER_FILES: readonly AllowEntry[] = [
   "apps/api/src/auth/identity-provider-kind.ts",
   "apps/api/src/auth/identity-provider.factory.ts",
   "apps/api/src/pos-operators/descope-verifier.ts",
+  // RT-1309 lab-fixtures CLI: its Descope Test User adapter and the entry that wires it.
+  "apps/api/src/cli/lab-fixtures/descope-test-users.ts",
+  "apps/api/src/cli/lab-fixtures.ts",
 ].map((path) => ({ path, owner: "adapter" as const }));
 
 /** Known leftovers, each owned by a later phase of the programme. */

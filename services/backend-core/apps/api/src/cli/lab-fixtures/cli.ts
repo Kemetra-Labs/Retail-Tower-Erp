@@ -3,7 +3,7 @@
  *
  * `runCli` takes its environment, its factories and its output sink as
  * arguments so every path, including each guard refusal, is unit-tested
- * without a database or Descope. Output is JSON lines with fixture indexes,
+ * without a database or the identity provider. Output is JSON lines with fixture indexes,
  * synthetic loginIds and outcomes only: never a key, token, password or email.
  */
 import { GuardRefusedError, assertStaticGuards } from "./guards";
@@ -23,6 +23,8 @@ export interface ParsedArgs {
 export interface CliIo {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly out: (line: string) => void;
+  /** The identity-provider project the target is configured for (checked against the allowlist). */
+  readonly providerProjectId: string;
   /** Builds the real dependencies; called only after the static guards pass and never for `--dry-run`. */
   readonly connect: (args: ParsedArgs) => Promise<{ deps: ProvisionerDeps; close: () => Promise<void> }>;
 }
@@ -69,7 +71,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   try {
     assertStaticGuards({
       env: io.env,
-      descopeProjectId: (io.env["DESCOPE_PROJECT_ID"] ?? "").trim(),
+      providerProjectId: io.providerProjectId,
       tenantId: args.tenantId,
       storeId: args.storeId,
       count: args.count,

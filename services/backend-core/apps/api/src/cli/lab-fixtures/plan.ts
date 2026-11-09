@@ -80,11 +80,11 @@ export function planFixture(state: FixtureDbState, s: ProviderSubject): FixtureP
 }
 
 /**
- * Before any Descope write: a user that already holds an active link while
- * Descope has no test user for it is not ours to complete.
+ * Before any provider write: a user that already holds an active link while
+ * the provider has no test user for it is not ours to complete.
  */
 export function preCreateRefusal(state: FixtureDbState): string | null {
   const userId = state.user?.id;
   if (userId === undefined) return null;
-  return state.links.some((l) => l.userId === userId) ? "db_linked_but_descope_user_absent" : null;
+  return state.links.some((l) => l.userId === userId) ? "db_linked_but_provider_user_absent" : null;
 }

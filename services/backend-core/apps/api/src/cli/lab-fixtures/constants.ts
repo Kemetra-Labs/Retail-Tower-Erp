@@ -17,8 +17,8 @@ export const ENABLE_VALUE = "enabled";
  */
 export const LAB_DATABASE_NAMES: readonly string[] = ["rtlab"];
 
-/** The Descope project the lab's `DESCOPE_PROJECT_ID` names. */
-export const LAB_DESCOPE_PROJECT_IDS: readonly string[] = ["P3KyErdApJFbv0HMlZF6Vyagz2vo"];
+/** The identity-provider project the lab is configured for. */
+export const LAB_IDENTITY_PROJECT_IDS: readonly string[] = ["P3KyErdApJFbv0HMlZF6Vyagz2vo"];
 
 /**
  * Synthetic tenants fixtures may be written into. Each must also carry

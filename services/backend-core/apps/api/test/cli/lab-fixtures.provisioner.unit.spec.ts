@@ -2,7 +2,7 @@
  * RT-1309 — provisioner orchestration with a fake Descope port and a fake
  * store: idempotent re-runs, partial-failure recovery, refusals and outages.
  */
-import type { FixtureCreate, FixtureIdentityProvider, FixtureLookup } from "../../src/cli/lab-fixtures/descope-test-users";
+import type { FixtureCreate, FixtureIdentityProvider, FixtureLookup } from "../../src/cli/lab-fixtures/provider-port";
 import type { FixtureStore } from "../../src/cli/lab-fixtures/fixture-store";
 import { fixtureIdentities, type FixtureIdentity } from "../../src/cli/lab-fixtures/identity";
 import type { FixtureAction, FixtureDbState, ProviderSubject } from "../../src/cli/lab-fixtures/plan";
@@ -75,7 +75,7 @@ describe("Provisioner", () => {
   it("provisions fresh fixtures, then a second run writes nothing", async () => {
     const { descope, store, p } = setup();
     const first = await p.run("provision", fixtureIdentities(2));
-    expect(first.map((r) => [r.outcome, r.descope])).toEqual([
+    expect(first.map((r) => [r.outcome, r.provider])).toEqual([
       ["provisioned", "created"],
       ["provisioned", "created"],
     ]);
@@ -90,7 +90,7 @@ describe("Provisioner", () => {
   it("status never writes: missing fixtures are reported, not created", async () => {
     const { descope, store, p } = setup();
     const reports = await p.run("status", fixtureIdentities(1));
-    expect(reports[0]).toMatchObject({ outcome: "missing", descope: "absent" });
+    expect(reports[0]).toMatchObject({ outcome: "missing", provider: "absent" });
     expect(descope.creates).toBe(0);
     expect(store.applied).toHaveLength(0);
   });
@@ -99,7 +99,7 @@ describe("Provisioner", () => {
     const { descope, p } = setup();
     descope.users.set("rtfx-cashier-001", { userId: "U1", test: true });
     const [r] = await p.run("status", fixtureIdentities(1));
-    expect(r).toMatchObject({ outcome: "missing", descope: "test_user" });
+    expect(r).toMatchObject({ outcome: "missing", provider: "test_user" });
     expect(r?.actions).toEqual(["create_user", "create_link", "create_membership"]);
   });
 
@@ -110,7 +110,7 @@ describe("Provisioner", () => {
     expect(descope.creates).toBe(1);
 
     const [r] = await p.run("provision", fixtureIdentities(1));
-    expect(r).toMatchObject({ outcome: "provisioned", descope: "test_user" });
+    expect(r).toMatchObject({ outcome: "provisioned", provider: "test_user" });
     expect(descope.creates).toBe(1);
   });
 
@@ -118,7 +118,7 @@ describe("Provisioner", () => {
     const { descope, store, p } = setup();
     descope.users.set("rtfx-cashier-001", { userId: "U-real", test: false });
     const reports = await p.run("provision", fixtureIdentities(2));
-    expect(reports[0]).toMatchObject({ outcome: "refused", reason: "descope_not_test_user" });
+    expect(reports[0]).toMatchObject({ outcome: "refused", reason: "provider_not_test_user" });
     expect(reports[1]).toMatchObject({ outcome: "provisioned" });
     expect(store.applied.map((a) => a.index)).toEqual([2]);
   });
@@ -132,7 +132,7 @@ describe("Provisioner", () => {
       membership: null,
     });
     const [r] = await p.run("provision", [id]);
-    expect(r).toMatchObject({ outcome: "refused", reason: "db_linked_but_descope_user_absent" });
+    expect(r).toMatchObject({ outcome: "refused", reason: "db_linked_but_provider_user_absent" });
     expect(descope.creates).toBe(0);
   });
 
@@ -155,13 +155,13 @@ describe("Provisioner", () => {
     descope.outage = true;
     const reports = await p.run("provision", fixtureIdentities(3));
     expect(reports).toHaveLength(1);
-    expect(reports[0]).toMatchObject({ outcome: "stopped", reason: "descope_unavailable" });
+    expect(reports[0]).toMatchObject({ outcome: "stopped", reason: "provider_unavailable" });
     expect(store.applied).toHaveLength(0);
   });
 
   it.each([
-    [{ kind: "unavailable" } as FixtureCreate, "stopped", "descope_unavailable"],
-    [{ kind: "rejected" } as FixtureCreate, "refused", "descope_create_rejected"],
+    [{ kind: "unavailable" } as FixtureCreate, "stopped", "provider_unavailable"],
+    [{ kind: "rejected" } as FixtureCreate, "refused", "provider_create_rejected"],
   ])("maps a failed create to %#", async (answer, outcome, reason) => {
     const { descope, p } = setup();
     descope.createAnswer = answer;
@@ -186,7 +186,7 @@ describe("Provisioner", () => {
       return created;
     };
     const [r] = await p.run("provision", fixtureIdentities(1));
-    expect(r).toMatchObject({ outcome: "stopped", reason: "descope_unavailable", descope: "created" });
+    expect(r).toMatchObject({ outcome: "stopped", reason: "provider_unavailable", provider: "created" });
   });
 
   it("runs the database guards first and writes nothing when they refuse", async () => {
@@ -200,8 +200,8 @@ describe("Provisioner", () => {
 describe("dryRunReports", () => {
   it("plans every index without any Descope or database call", () => {
     expect(dryRunReports(fixtureIdentities(2))).toEqual([
-      { index: 1, loginId: "rtfx-cashier-001", outcome: "would_provision", actions: [], descope: "not_checked", reason: "dry_run_no_io" },
-      { index: 2, loginId: "rtfx-cashier-002", outcome: "would_provision", actions: [], descope: "not_checked", reason: "dry_run_no_io" },
+      { index: 1, loginId: "rtfx-cashier-001", outcome: "would_provision", actions: [], provider: "not_checked", reason: "dry_run_no_io" },
+      { index: 2, loginId: "rtfx-cashier-002", outcome: "would_provision", actions: [], provider: "not_checked", reason: "dry_run_no_io" },
     ]);
   });
 });

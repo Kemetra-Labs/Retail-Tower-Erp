@@ -5,12 +5,12 @@
  *   - environment: the opt-in flag AND the database server's own name;
  *   - tenant/store: code allowlist AND a synthetic tenant name AND the store
  *     belonging to that tenant;
- *   - identity: the Descope project allowlist (the test flag is checked per
+ *   - identity: the identity-provider project allowlist (the test flag is checked per
  *     identity by the provisioner);
  *   - permission: the connected role is neither a superuser nor BYPASSRLS.
  *
  * Static guards need no I/O, so `--dry-run` runs them without touching the
- * database or Descope.
+ * database or the identity provider.
  */
 import type { PoolClient } from "pg";
 
@@ -18,7 +18,7 @@ import {
   ENABLE_ENV,
   ENABLE_VALUE,
   LAB_DATABASE_NAMES,
-  LAB_DESCOPE_PROJECT_IDS,
+  LAB_IDENTITY_PROJECT_IDS,
   LAB_FIXTURE_TENANT_IDS,
   MAX_FIXTURES,
   SYNTHETIC_TENANT_MARKER,
@@ -38,7 +38,7 @@ export class GuardRefusedError extends Error {
 
 export interface StaticGuardInput {
   readonly env: Readonly<Record<string, string | undefined>>;
-  readonly descopeProjectId: string;
+  readonly providerProjectId: string;
   readonly tenantId: string;
   readonly storeId: string;
   readonly count: number;
@@ -51,8 +51,8 @@ export function assertStaticGuards(input: StaticGuardInput): void {
   if (input.env[ENABLE_ENV] !== ENABLE_VALUE) {
     throw new GuardRefusedError("environment", `${ENABLE_ENV} is not '${ENABLE_VALUE}'`);
   }
-  if (!LAB_DESCOPE_PROJECT_IDS.includes(input.descopeProjectId)) {
-    throw new GuardRefusedError("identity", "the Descope project is not an allowlisted lab project");
+  if (!LAB_IDENTITY_PROJECT_IDS.includes(input.providerProjectId)) {
+    throw new GuardRefusedError("identity", "the identity-provider project is not an allowlisted lab project");
   }
   if (!UUID_RE.test(input.tenantId) || !UUID_RE.test(input.storeId)) {
     throw new GuardRefusedError("input", "tenant and store must be lowercase UUIDs");

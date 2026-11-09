@@ -5,7 +5,7 @@
  */
 import {
   ENABLE_ENV,
-  LAB_DESCOPE_PROJECT_IDS,
+  LAB_IDENTITY_PROJECT_IDS,
   LAB_FIXTURE_TENANT_IDS,
   MAX_FIXTURES,
 } from "../../src/cli/lab-fixtures/constants";
@@ -22,7 +22,7 @@ const STORE = "fa76847c-8a5a-4c2c-92a5-a91551f394d5";
 function valid(overrides: Partial<StaticGuardInput> = {}): StaticGuardInput {
   return {
     env: { [ENABLE_ENV]: "enabled" },
-    descopeProjectId: LAB_DESCOPE_PROJECT_IDS[0] ?? "",
+    providerProjectId: LAB_IDENTITY_PROJECT_IDS[0] ?? "",
     tenantId: LAB_FIXTURE_TENANT_IDS[0] ?? "",
     storeId: STORE,
     count: 1,
@@ -49,8 +49,8 @@ describe("lab-fixtures static guards", () => {
     ["flag missing", { env: {} }, "environment"],
     ["flag with another value", { env: { [ENABLE_ENV]: "true" } }, "environment"],
     ["NODE_ENV=development is not enough", { env: { NODE_ENV: "development" } }, "environment"],
-    ["unknown Descope project", { descopeProjectId: "Pother" }, "identity"],
-    ["empty Descope project", { descopeProjectId: "" }, "identity"],
+    ["unknown Descope project", { providerProjectId: "Pother" }, "identity"],
+    ["empty Descope project", { providerProjectId: "" }, "identity"],
     ["tenant not allowlisted", { tenantId: "00000000-0000-4000-8000-000000000001" }, "tenant"],
     ["malformed tenant", { tenantId: "not-a-uuid" }, "input"],
     ["malformed store", { storeId: "FA76847C" }, "input"],

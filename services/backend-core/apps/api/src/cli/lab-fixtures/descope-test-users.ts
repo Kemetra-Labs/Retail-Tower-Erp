@@ -14,26 +14,9 @@
  * in a result, a thrown error or output.
  */
 import { assertProjectId, DESCOPE_API_BASE } from "../../pos-operators/descope-verifier";
+import type { FixtureCreate, FixtureIdentityProvider, FixtureLookup } from "./provider-port";
 
 export type DescopeFetch = (input: string, init?: RequestInit) => Promise<Response>;
-
-export type FixtureLookup =
-  | { readonly kind: "test_user"; readonly userId: string }
-  | { readonly kind: "absent" }
-  | { readonly kind: "not_test_user" }
-  | { readonly kind: "ambiguous" }
-  | { readonly kind: "unavailable" };
-
-export type FixtureCreate =
-  | { readonly kind: "created"; readonly userId: string }
-  | { readonly kind: "rejected" }
-  | { readonly kind: "unavailable" };
-
-/** The seam the provisioner depends on (faked in unit tests). */
-export interface FixtureIdentityProvider {
-  findFixtureUser(loginId: string): Promise<FixtureLookup>;
-  createTestUser(loginId: string, name: string): Promise<FixtureCreate>;
-}
 
 export interface DescopeTestUsersOptions {
   readonly projectId: string;

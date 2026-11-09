@@ -7,9 +7,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { EXIT, parseArgs, runCli, type CliIo } from "../../src/cli/lab-fixtures/cli";
-import { ENABLE_ENV, LAB_DESCOPE_PROJECT_IDS, LAB_FIXTURE_TENANT_IDS } from "../../src/cli/lab-fixtures/constants";
+import { ENABLE_ENV, LAB_IDENTITY_PROJECT_IDS, LAB_FIXTURE_TENANT_IDS } from "../../src/cli/lab-fixtures/constants";
 import { GuardRefusedError } from "../../src/cli/lab-fixtures/guards";
-import { connectFromEnv } from "../../src/cli/lab-fixtures";
+import { connectFromEnv, providerProjectIdFrom } from "../../src/cli/lab-fixtures";
 import type { ProvisionerDeps } from "../../src/cli/lab-fixtures/provisioner";
 
 const TENANT = LAB_FIXTURE_TENANT_IDS[0] ?? "";
@@ -17,11 +17,11 @@ const STORE = "fa76847c-8a5a-4c2c-92a5-a91551f394d5";
 const KEY = "K-should-never-be-printed";
 const LAB_ENV = {
   [ENABLE_ENV]: "enabled",
-  DESCOPE_PROJECT_ID: LAB_DESCOPE_PROJECT_IDS[0],
+  DESCOPE_PROJECT_ID: LAB_IDENTITY_PROJECT_IDS[0],
   DESCOPE_MANAGEMENT_KEY: KEY,
 };
 
-function io(env: Record<string, string | undefined>, deps?: Partial<ProvisionerDeps>) {
+function io(env: Record<string, string | undefined>, deps?: Partial<ProvisionerDeps>, projectId = LAB_ENV.DESCOPE_PROJECT_ID ?? "") {
   const lines: string[] = [];
   const connect = jest.fn(async () => ({
     deps: {
@@ -44,7 +44,7 @@ function io(env: Record<string, string | undefined>, deps?: Partial<ProvisionerD
     } as ProvisionerDeps,
     close: jest.fn(async () => undefined),
   }));
-  const cli: CliIo = { env, out: (l) => lines.push(l), connect };
+  const cli: CliIo = { env, out: (l) => lines.push(l), providerProjectId: projectId, connect };
   return { cli, lines, connect };
 }
 
@@ -86,7 +86,7 @@ describe("runCli", () => {
   });
 
   it("refuses another Descope project before connecting", async () => {
-    const { cli, lines, connect } = io({ ...LAB_ENV, DESCOPE_PROJECT_ID: "Pprod" });
+    const { cli, lines, connect } = io(LAB_ENV, undefined, "Pprod");
     await expect(runCli(["provision", ...ARGS], cli)).resolves.toBe(EXIT.guard);
     expect(JSON.parse(lines[0] ?? "{}")).toMatchObject({ family: "identity" });
     expect(connect).not.toHaveBeenCalled();
@@ -141,6 +141,13 @@ describe("runCli", () => {
     const store = { assertGuards: jest.fn(async () => { throw new Error("boom"); }), readState: jest.fn(), apply: jest.fn() };
     const { cli } = io(LAB_ENV, { store });
     await expect(runCli(["provision", ...ARGS], cli)).rejects.toThrow("boom");
+  });
+});
+
+describe("providerProjectIdFrom", () => {
+  it("reads and trims the configured project, empty when unset", () => {
+    expect(providerProjectIdFrom({ DESCOPE_PROJECT_ID: " PLAB " } as NodeJS.ProcessEnv)).toBe("PLAB");
+    expect(providerProjectIdFrom({} as NodeJS.ProcessEnv)).toBe("");
   });
 });
 

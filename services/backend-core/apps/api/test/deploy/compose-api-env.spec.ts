@@ -56,6 +56,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-451: unmapped, so production stays off, until the owner approves activating tracked selling (per-tenant flag, Q13 preconditions)",
   TRUST_PROXY_DIRECT_DEPLOYMENT:
     "RT-625: only for a deployment with no proxy in front of the API; this compose runs behind Caddy and pins TRUST_PROXY to 1",
+  RT_LAB_FIXTURES:
+    "RT-1309: read only by the lab-fixtures CLI, passed per invocation (`docker exec -e`); never set in compose, so no deployment carries it",
   POS_RELEASE_PRODUCTION_PUBLISHER:
     "RT-1292: read only to refuse a pilot pin equal to the production pin; the production lane (RT-1260) is not implemented, so there is no value to pass yet",
 };

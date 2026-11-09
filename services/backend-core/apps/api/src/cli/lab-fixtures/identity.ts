@@ -1,7 +1,7 @@
 /**
  * Deterministic fixture identities — RT-1309.
  *
- * Index N always maps to the same Descope loginId, Backend-Core email and
+ * Index N always maps to the same provider loginId, Backend-Core email and
  * display name, so a re-run finds what an earlier run created.
  */
 import {
@@ -13,7 +13,7 @@ import {
 
 export interface FixtureIdentity {
   readonly index: number;
-  /** Descope loginId; not an email, so Descope never mails it. */
+  /** Provider loginId; not an email, so the provider never mails it. */
   readonly loginId: string;
   /** Backend-Core `users.email`, under the reserved `.invalid` TLD. */
   readonly email: string;

@@ -73,6 +73,6 @@ describe("preCreateRefusal", () => {
   });
 
   it("refuses a linked user whose Descope test user is absent", () => {
-    expect(preCreateRefusal(state({ user: USER, links: [link()] }))).toBe("db_linked_but_descope_user_absent");
+    expect(preCreateRefusal(state({ user: USER, links: [link()] }))).toBe("db_linked_but_provider_user_absent");
   });
 });
