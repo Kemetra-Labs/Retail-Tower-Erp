@@ -1,0 +1,224 @@
+# RT-1300: VERIFY-ONLY (dry-run) promotion of a POS PILOT release. It reads a published pos-pilot/vX.Y.Z release
+# and proves it is the release the pilot lane may promote, then says what a live promotion would do. It cannot
+# upload, sign, register or activate: it holds no environment, no secret, no AWS credential and no id-token, its
+# token is read-only, and it never calls Backend-Core. The live promotion (the S3 upload role, the OIDC register
+# call) is a later, separately approved change to this file; until then nothing here reaches S3 or the registry.
+#
+# Trigger: workflow_dispatch only, with the tag and the pinned pilot leaf thumbprint. No push and no
+# pull_request trigger: PR code can never start it.
+#
+#   resolve  the tag must be pos-pilot/vX.Y.Z (anchored at both ends: a lab tag or a look-alike is refused), the
+#            tag must exist and its commit must be an ancestor of origin/main, and the leaf pin must be a 40-hex
+#            SHA-1. The commit is the one the release was built from.
+#   verify   reads the published release (not a draft; exactly the installer, its .sha256 and the manifest),
+#            checks the manifest (product pos-pilot, signing pilot, mode release, this tag, this commit, this
+#            repository, one artifact whose digest is the installer's), the .sha256 and the size (the registry
+#            refuses over 2 GiB), checks the build provenance with `gh attestation verify` bound to the
+#            repository, the release workflow, this commit and this tag, and checks the Authenticode signature:
+#            the signer must be the pinned pilot leaf, subject CN=Kemetra POS PILOT, self-signed. Only then is
+#            that public leaf trusted, on this hosted runner only, so Windows can answer Valid; the trust is
+#            removed again whatever happens. Nothing is rebuilt, re-signed or changed.
+#
+# Why the run can start on any ref: it is read-only. The live promotion will run on main only (the Backend-Core
+# `ref` pin is one exact value) and will be a different, approved version of this file.
+name: promote-pos-pilot
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The pilot release tag to verify, pos-pilot/vX.Y.Z. It must be on main.
+        type: string
+        required: true
+      leaf_sha1:
+        description: SHA-1 thumbprint (40 hex) of the pilot signing leaf, as the release-pos-pilot signing step printed it.
+        type: string
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: promote-pos-pilot-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: promote/resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      leaf: ${{ steps.resolve.outputs.leaf }}
+    steps:
+      - name: Checkout (history and tags only, for the main-ancestry check)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          # Non-cone: the check reads git objects only, no working file.
+          sparse-checkout: |
+            /.github/release/
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve the tag and the leaf pin
+        id: resolve
+        env:
+          TAG: ${{ inputs.tag }}
+          LEAF_SHA1: ${{ inputs.leaf_sha1 }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$TAG" =~ ^pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "tag '$TAG' is not pos-pilot/vX.Y.Z"
+          [[ "$LEAF_SHA1" =~ ^[0-9A-Fa-f]{40}$ ]] || fail "leaf_sha1 is not a 40-hex SHA-1 thumbprint"
+          SHA="$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}")" || fail "tag $TAG does not exist"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || fail "unexpected commit '$SHA' for tag $TAG"
+          git merge-base --is-ancestor "$SHA" refs/remotes/origin/main || fail "tag $TAG ($SHA) is not on main"
+          LEAF="$(printf '%s' "$LEAF_SHA1" | tr 'a-f' 'A-F')"
+          VERSION="${TAG#pos-pilot/v}"
+          { echo "sha=$SHA"; echo "tag=$TAG"; echo "version=$VERSION"; echo "leaf=$LEAF"; } >> "$GITHUB_OUTPUT"
+          echo "### promote-pos-pilot (verify only): $TAG at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: promote/verify (dry-run, nothing is uploaded or registered)
+    needs: resolve
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      LEAF_SHA1: ${{ needs.resolve.outputs.leaf }}
+      REPO: ${{ github.repository }}
+    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
+    steps:
+      # Not a draft, this tag, exactly the three assets the pilot release publishes. Nothing is downloaded after
+      # a refusal.
+      - name: Download the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          for tool in jq sha256sum gh; do command -v "$tool" >/dev/null || fail "$tool is not available on this runner"; done
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          # The tag may not have moved since resolve (release-pos-pilot checks the same before it creates a release).
+          TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
+          [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
+          REL="$(gh release view "$TAG" --repo "$REPO" --json tagName,isDraft,isPrerelease,assets)" || fail "cannot read release $TAG"
+          jq -e --arg tag "$TAG" '.tagName == $tag and .isDraft == false and .isPrerelease == false' <<<"$REL" >/dev/null \
+            || fail "release $TAG is missing, a draft, a prerelease, or another tag"
+          jq -e --arg exe "$EXE" '([.assets[].name] | sort) == ([$exe, ($exe + ".sha256"), "release-manifest.json"] | sort)' <<<"$REL" >/dev/null \
+            || fail "the release assets are not exactly $EXE, $EXE.sha256 and release-manifest.json"
+          mkdir -p "$PKG"
+          gh release download "$TAG" --repo "$REPO" --dir "$PKG"
+          # The listing was checked above: what arrived must be exactly those three files.
+          [ "$(ls "$PKG" | LC_ALL=C sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.sha256" release-manifest.json | LC_ALL=C sort | paste -sd ' ' -)" ] \
+            || fail "the download held other files than $EXE, $EXE.sha256 and release-manifest.json"
+
+      # What was published must be what the build and signing jobs produced and the manifest job recorded.
+      - name: Check the assets against the manifest
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          MANIFEST="$PKG/release-manifest.json"
+          [ "$(ls "$PKG" | LC_ALL=C sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.sha256" release-manifest.json | LC_ALL=C sort | paste -sd ' ' -)" ] \
+            || fail "the package must hold exactly $EXE, $EXE.sha256 and release-manifest.json"
+          # Hash from stdin: on a Windows runner $PKG holds backslashes, which sha256sum would print (escaped) with the name.
+          DIGEST="sha256:$(sha256sum < "$PKG/$EXE" | cut -d' ' -f1)"
+          jq -e --arg tag "$TAG" --arg sha "$SHA" --arg repo "$REPO" --arg exe "$EXE" --arg digest "$DIGEST" '
+              .product == "pos-pilot" and .signing == "pilot" and .mode == "release" and .tag == $tag
+              and .source.sha == $sha and .source.repository == $repo
+              and ([.artifacts[] | select(.name == "pos-installer" and .file == $exe and .digest == $digest)] | length == 1)
+              and (.artifacts | length == 1)
+            ' "$MANIFEST" >/dev/null \
+            || fail "the manifest does not match the package: expected product pos-pilot, signing pilot, mode release, tag $TAG, commit $SHA, repository $REPO and installer $EXE $DIGEST"
+          (cd "$PKG" && sha256sum -c "$EXE.sha256") || fail "$EXE.sha256 does not match the installer"
+          SIZE="$(wc -c < "$PKG/$EXE" | tr -d ' ')"
+          # The registry accepts 1 byte to 2 GiB.
+          { [ "$SIZE" -ge 1 ] && [ "$SIZE" -le 2147483648 ]; } || fail "the installer size $SIZE is outside 1..2147483648 bytes"
+
+      # Bound to this repository, the pilot release workflow, this commit and this tag: an attestation made by any
+      # other workflow, commit or ref does not pass.
+      - name: Verify the build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          gh attestation verify "$PKG/$EXE" \
+            --repo "$REPO" \
+            --signer-workflow "$REPO/.github/workflows/release-pos-pilot.yml" \
+            --source-digest "$SHA" \
+            --signer-digest "$SHA" \
+            --source-ref "refs/tags/$TAG" \
+            --deny-self-hosted-runners
+
+      # The signer is pinned and checked BEFORE anything is trusted. A self-signed leaf is its own root, so Windows
+      # answers Valid only where that leaf is trusted: this hosted runner is ephemeral, the public bytes of the pinned
+      # leaf are added for the check, and the next step removes them whatever happens.
+      - name: Verify the Authenticode signature
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:RUNNER_TEMP "pkg/POS-Pulse-Setup-$($env:VERSION).exe"
+          $pin = $env:LEAF_SHA1
+          $sig = Get-AuthenticodeSignature -LiteralPath $exe
+          $leaf = $sig.SignerCertificate
+          if ($null -eq $leaf) { throw 'the installer carries no signature' }
+          if ($leaf.Thumbprint -ne $pin) { throw "the installer is signed by another certificate ($($leaf.Thumbprint)) than the pinned pilot leaf" }
+          if ($leaf.Subject -cne 'CN=Kemetra POS PILOT') { throw "the signer is not the pilot certificate (subject: $($leaf.Subject))" }
+          if ($leaf.Issuer -cne $leaf.Subject) { throw "the pilot certificate is not self-signed (issuer: $($leaf.Issuer))" }
+          $public = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([byte[]]$leaf.RawData)
+          $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+          try {
+            $store.Open('ReadWrite')
+            $store.Add($public)
+          } finally {
+            $store.Close()
+          }
+          $checked = Get-AuthenticodeSignature -LiteralPath $exe
+          if ($checked.Status -ne 'Valid') { throw "the installer signature status is $($checked.Status), expected Valid" }
+          if ($checked.SignerCertificate.Thumbprint -ne $pin) { throw 'the checked signer is not the pinned pilot leaf' }
+          if (-not $checked.TimeStamperCertificate) { throw 'the installer carries no timestamp: a pilot signature is always timestamped' }
+          Write-Host "[OK] $(Split-Path -Leaf $exe) signed by $($leaf.Subject) ($($leaf.Thumbprint)), timestamped, Valid"
+
+      - name: Remove the pilot trust
+        if: always()
+        shell: pwsh
+        run: |
+          $path = "Cert:\LocalMachine\Root\$env:LEAF_SHA1"
+          if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+          if (Test-Path -LiteralPath $path) { throw "the pilot leaf is still in the trust store ($env:LEAF_SHA1)" }
+
+      # What a live promotion would do with these bytes. Nothing here touches S3 or Backend-Core.
+      - name: Dry-run result
+        run: |
+          set -euo pipefail
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          DIGEST="$(sha256sum < "$PKG/$EXE" | cut -d' ' -f1)"
+          SIZE="$(wc -c < "$PKG/$EXE" | tr -d ' ')"
+          {
+            echo "### Verified $TAG (dry-run): nothing was uploaded, nothing was registered, nothing was activated"
+            echo
+            echo "A live promotion of these exact bytes would:"
+            echo
+            echo "- upload \`$EXE\` ($SIZE bytes) to \`pos/pilot/${VERSION}/${EXE}\` in the private bucket, with SHA-256 \`$DIGEST\`, never overwriting;"
+            echo "- register it with Backend-Core as version \`$VERSION\`, signing class \`pilot\`, publisher \`CN=Kemetra POS PILOT\`, source commit \`$SHA\`, and promotion run $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID;"
+            echo "- leave the release inactive: a platform admin activates it separately."
+            echo
+            echo "Checked: published release with exactly the three assets, manifest, .sha256, size, build provenance, and the signature of the pinned leaf \`$LEAF_SHA1\`."
+          } >> "$GITHUB_STEP_SUMMARY"
