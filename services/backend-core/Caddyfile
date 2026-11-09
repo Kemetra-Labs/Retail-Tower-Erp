@@ -60,8 +60,19 @@
 	# no Caddy restart (deploy/README.md).
 	handle {
 		root * /srv/console/current
+
+		# RT-1305: the Console's Download POS hands the presigned pilot installer URL to a hidden
+		# iframe (RT-1304), so the URL never reaches the address bar. Only when the host sets a
+		# valid pilot bucket and region (the values the api presigner signs for, RT-1297; compose
+		# maps POS_PILOT_RELEASE_BUCKET and _S3_REGION to these CONSOLE_FRAME_PILOT_* names) does the
+		# CSP gain one frame-src: that bucket's virtual-hosted S3 origin. Unset or malformed, the
+		# CSP stays exactly the base policy. The two matchers are exclusive: one CSP per response.
+		@pilot_frame expression `{env.CONSOLE_FRAME_PILOT_BUCKET}.matches("^[a-z0-9][a-z0-9-]*[a-z0-9]$") && {env.CONSOLE_FRAME_PILOT_REGION}.matches("^[a-z][a-z](-[a-z]+)+-[0-9]+$")`
+		@no_pilot_frame not expression `{env.CONSOLE_FRAME_PILOT_BUCKET}.matches("^[a-z0-9][a-z0-9-]*[a-z0-9]$") && {env.CONSOLE_FRAME_PILOT_REGION}.matches("^[a-z][a-z](-[a-z]+)+-[0-9]+$")`
+		header @pilot_frame Content-Security-Policy "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src https://{env.CONSOLE_FRAME_PILOT_BUCKET}.s3.{env.CONSOLE_FRAME_PILOT_REGION}.amazonaws.com"
+		header @no_pilot_frame Content-Security-Policy "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
 		header {
-			Content-Security-Policy "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 			Strict-Transport-Security "max-age=31536000"
 			X-Content-Type-Options "nosniff"
 			Referrer-Policy "strict-origin-when-cross-origin"

@@ -29,7 +29,10 @@ key for this. Region: `us-east-1` for the lab (the region of the registered lab 
 
 1. **Account-level Block Public Access:** in S3, "Block Public Access settings for this account", turn all
    four settings on. (On 2026-11-09 the account had none configured; check before you rely on it.)
-2. **Create the bucket** with a name you choose, in the lab region:
+2. **Create the bucket** with a name you choose, in the lab region. Use lower-case letters, digits and
+   hyphens only, **no dots**: the Console CSP allows the bucket's virtual-hosted origin
+   `https://<bucket>.s3.<region>.amazonaws.com` as its only `frame-src` (RT-1305), and a dotted name
+   gets no `frame-src`, so the Console's Download POS hand-off would be blocked.
    - Object Ownership: **Bucket owner enforced** (ACLs disabled).
    - Block Public Access: all four settings **on**.
    - Versioning: **Enabled** (the resolver presigns a `VersionId`, so a replaced object is never served
