@@ -13,6 +13,13 @@
  *     `snapshot_busy` with Retry-After before its body is read; small bodies
  *     are never bounded; a slot is released after success, a parse error, a
  *     413 and a client abort.
+ * RT-1295 — a large snapshot body is read only after its caller passes the
+ * route's connector guards on its headers (the real
+ * `connectorSnapshotCallerAuthorizer` over in-memory repositories):
+ *   - no, invalid, non-connector or session credentials get 401, and a
+ *     connector of another environment 403, before one body byte is sent;
+ *   - a refused caller never takes a slot, so it cannot block a real connector;
+ *   - a client that aborts while it is being authorized never takes a slot.
  */
 import { Body, Controller, HttpCode, Param, Post } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
@@ -26,6 +33,9 @@ import { join } from "node:path";
 import { load as parseYaml } from "js-yaml";
 import request from "supertest";
 
+import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
+import { connectorSnapshotCallerAuthorizer } from "../../src/auth/connector-snapshot-preauth";
+import type { SessionRepository } from "../../src/auth/session.repository";
 import { SnapshotReportBodySchema, type SnapshotReportBody } from "../../src/catalog/erpnext-bin-view/dto/snapshot-report.dto";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import {
@@ -34,6 +44,7 @@ import {
   isBinViewSnapshotJson,
   registerJsonBodyParsers,
   type SnapshotBodyGate,
+  type SnapshotCallerAuthorizer,
 } from "../../src/common/json-body-limits";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { CONTRACTS_DIR } from "../_helpers/openapi-routes";
@@ -43,6 +54,8 @@ const SNAPSHOT_PATH = `/api/connector/v1/erpnext/bin-view-requests/${REQUEST_REF
 const OTHER_PATH = "/api/v1/rt-1284-probe/echo";
 /** body-parser's default JSON limit, "100kb" = 102,400 bytes. */
 const DEFAULT_LIMIT_BYTES = 100 * 1024;
+/** For the RT-1284 suites, which test the limits and the bound, not who may call. */
+const admitAll: SnapshotCallerAuthorizer = async () => undefined;
 
 @Controller()
 class ProbeController {
@@ -120,7 +133,7 @@ describe("RT-1284 JSON body limits", () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    gate = registerJsonBodyParsers(app);
+    gate = registerJsonBodyParsers(app, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     maximal = maximalAsciiTrackedWindow();
@@ -251,7 +264,7 @@ describe("RT-1284 concurrency bound on large snapshot bodies", () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    gate = registerJsonBodyParsers(app);
+    gate = registerJsonBodyParsers(app, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.listen(0, "127.0.0.1");
     port = (app.getHttpServer().address() as AddressInfo).port;
@@ -413,7 +426,7 @@ describe("malformed JSON", () => {
   it("still gets 400 on both routes", async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    registerJsonBodyParsers(app);
+    registerJsonBodyParsers(app, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     try {
@@ -459,5 +472,157 @@ describe("isBinViewSnapshotJson", () => {
     expect(isBinViewSnapshotJson({ method: "POST", headers: { "content-type": "application/json" } } as Parameters<
       typeof isBinViewSnapshotJson
     >[0])).toBe(false);
+  });
+});
+
+describe("RT-1295 pre-authentication before a large snapshot body is read", () => {
+  const TENANT = "0190f0f0-0000-7000-8000-00000000aaaa";
+  const tokenRow = (id: string, scope: string) => ({
+    id,
+    scope,
+    tenantId: TENANT,
+    userId: null,
+    storeId: null,
+  });
+  /** Raw bearer → token row; only `connector-*` rows are connector-scoped. */
+  const tokens: Record<string, ReturnType<typeof tokenRow>> = {
+    "connector-pilot": tokenRow("t-pilot", "connector"),
+    "connector-dev": tokenRow("t-dev", "connector"),
+    "connector-slow": tokenRow("t-slow", "connector"),
+    "pos-device": tokenRow("t-pos", "pos"),
+  };
+  const registrations: Record<string, string> = { "t-pilot": "pilot", "t-dev": "dev", "t-slow": "pilot" };
+  let releaseSlowLookup: () => void = () => undefined;
+  let slowLookupStarted = false;
+  const authTokens = {
+    async findActiveByRawToken(raw: string) {
+      if (raw === "connector-slow") {
+        slowLookupStarted = true;
+        await new Promise<void>((resolve) => (releaseSlowLookup = resolve));
+      }
+      return tokens[raw] ?? null;
+    },
+    async findActiveConnectorCredentialByTokenId(tokenId: string) {
+      const environment = registrations[tokenId];
+      return environment === undefined ? null : { registrationId: `r-${tokenId}`, tenantId: TENANT, environment };
+    },
+  } as unknown as AuthTokenRepository;
+  const sessions = {} as SessionRepository;
+
+  let app: NestExpressApplication;
+  let gate: SnapshotBodyGate;
+  let port: number;
+  let previousEnvironment: string | undefined;
+  /** The last request the gate sent to the authorizer (server side). */
+  let lastAuthorized: { destroyed: boolean } | undefined;
+  const LARGE = 200 * 1024;
+
+  beforeAll(async () => {
+    previousEnvironment = process.env["DEPLOYMENT_ENVIRONMENT"];
+    process.env["DEPLOYMENT_ENVIRONMENT"] = "pilot";
+    const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
+    app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+    const authorize = connectorSnapshotCallerAuthorizer(sessions, authTokens);
+    gate = registerJsonBodyParsers(app, (req, res) => {
+      lastAuthorized = req;
+      return authorize(req, res);
+    });
+    app.useGlobalFilters(new GlobalExceptionFilter());
+    await app.listen(0, "127.0.0.1");
+    port = (app.getHttpServer().address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await app.close();
+    if (previousEnvironment === undefined) delete process.env["DEPLOYMENT_ENVIRONMENT"];
+    else process.env["DEPLOYMENT_ENVIRONMENT"] = previousEnvironment;
+  });
+
+  afterEach(async () => {
+    await waitFor(() => gate.inFlight() === 0);
+  });
+
+  /** Sends only the headers of a large snapshot upload; fails if no answer comes before the body. */
+  async function headersOnly(headers: Record<string, string>): Promise<RawResponse> {
+    const upload = openPost(port, SNAPSHOT_PATH, LARGE, headers);
+    upload.req.flushHeaders(); // not one body byte is sent
+    return Promise.race([
+      upload.response,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no answer before the body was sent")), 5000)),
+    ]).finally(() => upload.req.destroy());
+  }
+
+  it.each([
+    ["no credential", {}, 401],
+    ["an unknown bearer", { authorization: "Bearer not-a-token" }, 401],
+    ["a non-connector (POS) bearer", { authorization: "Bearer pos-device" }, 401],
+    ["a dashboard session cookie", { cookie: "dp2_session=abc", authorization: "Bearer connector-pilot" }, 401],
+    ["a connector of another environment", { authorization: "Bearer connector-dev" }, 403],
+  ])("refuses %s before reading the body (%i, Connection: close, no slot)", async (_label, headers, status) => {
+    const res = await headersOnly(headers);
+    expect(res.status).toBe(status);
+    expect(res.headers["connection"]).toBe("close");
+    const body = JSON.parse(res.body) as { error: { code: string } };
+    expect(body.error.code).toBe(status === 401 ? "unauthorized" : "forbidden");
+    expect(gate.inFlight()).toBe(0);
+  });
+
+  it("unauthenticated uploads cannot hold the slots: a real connector report still gets through", async () => {
+    const refused = await Promise.all(
+      Array.from({ length: BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES + 1 }, () => headersOnly({})),
+    );
+    expect(refused.map((r) => r.status)).toEqual([401, 401, 401]);
+    expect(gate.inFlight()).toBe(0);
+
+    const ok = await request(app.getHttpServer())
+      .post(SNAPSHOT_PATH)
+      .set("Content-Type", "application/json")
+      .set("Authorization", "Bearer connector-pilot")
+      .send(largeValidWindow());
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual({ entries: 500 });
+  });
+
+  it("still bounds authorized connectors at 2, and answers an unauthenticated caller 401 (not 503) while full", async () => {
+    const held = Array.from({ length: BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES }, () => {
+      const { req } = openPost(port, SNAPSHOT_PATH, LARGE, { authorization: "Bearer connector-pilot" });
+      req.write("{");
+      return req;
+    });
+    try {
+      await waitFor(() => gate.inFlight() === BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES);
+      const busy = await headersOnly({ authorization: "Bearer connector-pilot" });
+      expect(busy.status).toBe(503);
+      expect((JSON.parse(busy.body) as { error: { code: string } }).error.code).toBe("snapshot_busy");
+      const anonymous = await headersOnly({});
+      expect(anonymous.status).toBe(401);
+    } finally {
+      for (const req of held) req.destroy();
+    }
+  });
+
+  it("does not pre-authenticate a body of at most 100 kB (the route's guards handle it after parsing)", async () => {
+    const small = await request(app.getHttpServer())
+      .post(SNAPSHOT_PATH)
+      .set("Content-Type", "application/json")
+      .send('{"entries": [], "readAt": "2026-11-08T12:00:00.000+02:00"}');
+    // The probe route has no guards; the real controller's ConnectorAuthGuard refuses it.
+    expect(small.status).toBe(200);
+  });
+
+  it("a client that aborts while being authorized never takes a slot", async () => {
+    slowLookupStarted = false;
+    lastAuthorized = undefined;
+    const upload = openPost(port, SNAPSHOT_PATH, LARGE, { authorization: "Bearer connector-slow" });
+    upload.req.write("{");
+    await waitFor(() => slowLookupStarted);
+    upload.req.destroy();
+    // The server has seen the abort: its "close" has fired, so a slot taken
+    // from now on would never be released.
+    await waitFor(() => lastAuthorized?.destroyed === true);
+    releaseSlowLookup();
+    // Let the authorizer's remaining lookup and the gate's continuation run.
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    expect(gate.inFlight()).toBe(0);
   });
 });

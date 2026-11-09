@@ -20,13 +20,17 @@
  *     the G7-9 rules (`capture-tracking.rules.ts`).
  *   - {@link writeSaleLineFindings}: appends the row-2 and row-3 findings,
  *     one per (line, kind, cause).
+ *   - {@link prepareCaptureTracking}: the capture's pre-header step that runs
+ *     the three reads above in order (moved here from `sales.service.ts`,
+ *     RT-1295, unchanged).
  */
 import type { PoolClient } from "pg";
 
-import type { CaptureSaleLineDto } from "../dto/capture-sale-request.dto";
+import type { CaptureSaleLineDto, CaptureSaleRequestDto } from "../dto/capture-sale-request.dto";
 import { isTrackedSellingEnabled } from "./tracked-selling-gate";
 import {
   classifyCapturedLine,
+  saleTrackingStatus,
   type CapturedIdentityFacts,
   type LineClassification,
   type LineFinding,
@@ -69,7 +73,7 @@ export async function lockProductProfiles(
 }
 
 /** The sale being classified, as stored by the capture. */
-export interface ClassifiedSale {
+interface ClassifiedSale {
   readonly tenantId: string;
   readonly storeId: string;
   /** The sale's stored business date (`YYYY-MM-DD`). */
@@ -99,7 +103,7 @@ interface HoldRow {
 }
 
 /** Classify every line of a first capture (tracked selling on); one result per line, in order. */
-export async function classifyCaptureLines(
+async function classifyCaptureLines(
   client: PoolClient,
   sale: ClassifiedSale,
 ): Promise<LineClassification[]> {
@@ -248,4 +252,62 @@ async function byId<T extends { readonly id: string }>(
   if (Array.isArray(last) && last.length === 0) return new Map();
   const r = await client.query<T>(sql, params as unknown[]);
   return new Map(r.rows.map((row) => [row.id, row]));
+}
+
+/** RT-451 S3: what a capture knows about tracking before it writes the header. */
+export interface CaptureTracking {
+  /** Tracked selling (gate AND tenant switch) is on. */
+  readonly on: boolean;
+  /** The sale's business date (`YYYY-MM-DD`), as the header stores it; "" while off (unused). */
+  readonly businessDate: string;
+  /** Each line's G7-9 class, in line order (all null while off). */
+  readonly classes: ReadonlyArray<LineClassification>;
+  /** The sale's `tracking_status`. */
+  readonly status: "tracked" | "tracking_unresolved" | null;
+}
+
+/**
+ * RT-451 S3: read the tracked-selling state, take the per-product
+ * capture/profile lock (SHARED, comment 11790) for every product the sale
+ * names, then classify the lines while tracked selling is on. Runs before the
+ * header insert, so a replay takes the same shared lock and reads, and writes
+ * nothing. While off nothing is classified (OD-T4; comment 16269): a tracked
+ * product's line, with or without `tracking`, is an ordinary line, and a sent
+ * `tracking` is stored as received (provenance), never refused.
+ */
+export async function prepareCaptureTracking(
+  client: PoolClient,
+  capture: {
+    readonly tenantId: string;
+    readonly storeId: string;
+    readonly storeTimezone: string;
+    readonly body: CaptureSaleRequestDto;
+  },
+): Promise<CaptureTracking> {
+  const { tenantId, storeId, body } = capture;
+  await lockProductProfiles(
+    client,
+    tenantId,
+    body.lines.flatMap((l) => (l.tenantProductRef === undefined ? [] : [l.tenantProductRef])),
+    "shared",
+  );
+  const on = await readTrackedSellingOn(client, tenantId);
+  if (!on) {
+    // Off: no line is classified, so no business date or fact is read.
+    return { on, businessDate: "", classes: body.lines.map(() => ({ trackingClass: null })), status: null };
+  }
+  // The header's business date (the same expression `insertSaleHeader` stores).
+  const date = await client.query<{ business_date: string }>(
+    `SELECT ($1::timestamptz AT TIME ZONE $2)::date::text AS business_date`,
+    [body.occurredAt, capture.storeTimezone],
+  );
+  const businessDate = date.rows[0]!.business_date;
+  const classes = await classifyCaptureLines(client, {
+    tenantId,
+    storeId,
+    businessDate,
+    occurredAt: body.occurredAt,
+    lines: body.lines,
+  });
+  return { on, businessDate, classes, status: saleTrackingStatus(classes) };
 }

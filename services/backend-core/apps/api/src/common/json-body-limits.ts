@@ -25,16 +25,26 @@
  * with long non-ASCII names can exceed it and fails closed with 413 before
  * validation (nothing is recorded). The follow-up, if a tenant hits it, is a
  * per-window byte or Batch budget in the contract, a separate gated issue.
- * 128 MiB was refused: the parser runs before authentication, so any caller of
- * the path could make the API buffer and parse that much.
+ * 128 MiB was refused: body parsing runs before the route's guards, so a large
+ * limit is only safe with the pre-authentication below.
+ *
+ * Pre-authentication (RT-1295): a large snapshot body (above 100 kB, chunked or
+ * compressed) is read only after its caller is authorized from the request
+ * headers alone, with the route's own guards (`ConnectorAuthGuard`, then
+ * `ConnectorEnvironmentGuard`; see `auth/connector-snapshot-preauth.ts`). A
+ * refused caller gets the guard's 401 or 403 with `Connection: close` before a
+ * single body byte is read, and never takes a slot of the concurrency bound.
+ * Bodies of at most 100 kB are not pre-authenticated: they cost no more than on
+ * any other route, and the route's guards still run before the handler.
  *
  * Concurrency bound (captain decision, RT-1284 comment 16234; CodeRabbit PR
- * #435): because that parse happens before `ConnectorAuthGuard`, many
- * concurrent 32 MiB bodies could exhaust memory. At most
- * `BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES` (2) snapshot bodies above 100 kB (or
- * chunked, or compressed) are read at once; a further one gets 503 `snapshot_busy` with `Retry-After`
- * before its body is read. Worst case is about 2 x 32 MiB x the parse
- * overhead. Bodies of at most 100 kB are never bounded.
+ * #435): many concurrent 32 MiB bodies could exhaust memory. At most
+ * `BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES` (2) authorized snapshot bodies above
+ * 100 kB (or chunked, or compressed) are read at once; a further authorized
+ * one gets 503 `snapshot_busy` with `Retry-After` before its body is read.
+ * Worst case is about 2 x 32 MiB x the parse overhead. Only an authorized
+ * connector can hold a slot (RT-1295), so an unauthenticated caller can no
+ * longer block real inventory snapshots.
  */
 import { PayloadTooLargeException } from "@nestjs/common";
 import { errorEnvelope, newId } from "@data-pulse-2/shared";
@@ -134,6 +144,13 @@ function isLargeBody(req: IncomingMessage): boolean {
   return !Number.isFinite(bytes) || bytes > DEFAULT_JSON_LIMIT_BYTES;
 }
 
+/**
+ * Authorizes a `binViewReportSnapshot` caller from its request headers alone,
+ * before its body is read (RT-1295). Resolves to admit; rejects with the
+ * `HttpException` (401 / 403) the caller gets. It must not read the body.
+ */
+export type SnapshotCallerAuthorizer = (req: Request, res: Response) => Promise<void>;
+
 /** The concurrency gate for large `binViewReportSnapshot` bodies. */
 export interface SnapshotBodyGate {
   (req: Request, res: Response, next: NextFunction): void;
@@ -142,21 +159,45 @@ export interface SnapshotBodyGate {
 }
 
 /**
- * Admits at most `max` large snapshot bodies at once. A further one is answered
- * 503 `snapshot_busy` with `Retry-After` at once, before any parser reads its
- * body. The 503 is written here, not thrown to the global filter: it is load
- * shedding, not a server fault, so it must not be reported as a 5xx error.
- * An admitted slot is released exactly once when the response finishes or the
- * connection closes: on success, on a parse or validation error, on 413, and
- * on a client abort.
+ * For a large snapshot body: first `authorize` the caller from its headers
+ * (RT-1295). A refusal goes to the global exception filter (the shared 401 /
+ * 403 envelope) with `Connection: close`, so the unread body is dropped with
+ * the connection; it never takes a slot.
+ *
+ * Then admits at most `max` large snapshot bodies at once. A further one is
+ * answered 503 `snapshot_busy` with `Retry-After` at once, before any parser
+ * reads its body. The 503 is written here, not thrown to the global filter: it
+ * is load shedding, not a server fault, so it must not be reported as a 5xx
+ * error. An admitted slot is released exactly once when the response finishes
+ * or the connection closes: on success, on a parse or validation error, on
+ * 413, and on a client abort. A client that aborts while it is being
+ * authorized never takes a slot.
  */
-function createSnapshotBodyGate(max: number = BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES): SnapshotBodyGate {
+function createSnapshotBodyGate(
+  authorize: SnapshotCallerAuthorizer,
+  max: number = BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES,
+): SnapshotBodyGate {
   let inFlight = 0;
+  const gone = (req: Request, res: Response): boolean =>
+    req.destroyed || res.destroyed || res.writableEnded || res.headersSent;
   const gate = (req: Request, res: Response, next: NextFunction): void => {
     if (!isBinViewSnapshotJson(req) || !isLargeBody(req)) {
       next();
       return;
     }
+    authorize(req, res).then(
+      () => admit(req, res, next),
+      (err: unknown) => {
+        if (gone(req, res)) return;
+        res.setHeader("Connection", "close");
+        next(err);
+      },
+    );
+  };
+  const admit = (req: Request, res: Response, next: NextFunction): void => {
+    // Aborted while being authorized: its "close" has already fired, so a slot
+    // taken now would never be released.
+    if (gone(req, res)) return;
     if (inFlight >= max) {
       const requestId = newId();
       res.setHeader("Retry-After", String(BIN_VIEW_SNAPSHOT_RETRY_AFTER_SECONDS));
@@ -188,7 +229,9 @@ function createSnapshotBodyGate(max: number = BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES
 /**
  * Registers the JSON parsers. Call before `app.init()` / `app.listen()`.
  *
- * 0. The concurrency gate for large `binViewReportSnapshot` bodies.
+ * 0. The pre-authentication and concurrency gate for large
+ *    `binViewReportSnapshot` bodies (`authorize`: RT-1295; production passes
+ *    `connectorSnapshotCallerAuthorizer`).
  * 1. The route-scoped 32 MiB parser for `binViewReportSnapshot`.
  * 2. The default parser (100 kB) for every other route. It must be registered
  *    here: Nest skips its own default JSON parser at init once any
@@ -198,8 +241,11 @@ function createSnapshotBodyGate(max: number = BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES
  *
  * Nest still registers its default urlencoded parser at init, unchanged.
  */
-export function registerJsonBodyParsers(app: NestExpressApplication): SnapshotBodyGate {
-  const gate = createSnapshotBodyGate();
+export function registerJsonBodyParsers(
+  app: NestExpressApplication,
+  authorize: SnapshotCallerAuthorizer,
+): SnapshotBodyGate {
+  const gate = createSnapshotBodyGate(authorize);
   app.use(gate);
   app.useBodyParser("json", {
     limit: BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES,

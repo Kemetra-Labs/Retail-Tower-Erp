@@ -154,7 +154,7 @@ The development stack (Postgres, Redis) is described in [`services/backend-core/
 
 ### ERPNext-Connector
 
-`integrations/erpnext-connector/` · uv. The frappe-free job uses Python 3.11. Database tests run on the Frappe v16 bench lane (`connector/bench`), so this command skips `test_foundation.py`.
+`integrations/erpnext-connector/` · uv, Python 3.14 (`integrations/erpnext-connector/.python-version`; Frappe v16 is the only supported line). Database tests run on the Frappe v16 bench lane (`connector/bench`), so this command skips `test_foundation.py`.
 
 ```bash
 uv pip install --require-hashes --no-build -r pylock.toml
@@ -162,6 +162,15 @@ python -m ruff check retail_tower_erpnext_connector
 python -m pytest -q retail_tower_erpnext_connector/tests \
   --ignore=retail_tower_erpnext_connector/tests/test_foundation.py
 ```
+
+### Python versions
+
+Two pins, one rule (RT-1295):
+
+- `integrations/erpnext-connector/.python-version` (3.14) is for the Connector and anything that runs Frappe. Frappe v16, the only supported line, requires Python 3.14.
+- The root `.python-version` (3.12) is for repository tooling that never imports Frappe: `tools/project-graph`, `tools/contracts-check`, the release and mirror scripts under `tools/release/`, and the helper steps that the product workflows run with it.
+
+A workflow step that runs the Connector's tests or installs it reads the Connector pin, and a step that sets up Python for repository tooling reads the root pin. Some steps select no pin and run a standard-library-only script with the runner's own `python3`: for example `.github/release/manifest.py` and `live_state.py`, and the lab rollback classifier `integrations/erpnext-connector/deploy/lab/rollback_class.py`, which reads the repository and never imports Frappe. Those scripts must stay standard-library-only. A script that gains a dependency, or starts to need a specific Python version, needs a `setup-python` step that reads the matching pin. Moving the root pin is a separate change that checks each tool on the new version.
 
 ### Repository checks
 

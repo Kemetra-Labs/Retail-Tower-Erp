@@ -10,5 +10,8 @@
   "jscpdDuplicatedLines": 3682,
   "eslintComplexity": 5,
   "eslintMaxLinesPerFunction": 2,
-  "eslintMaxLines": 2
+  "eslintMaxLines": 1,
+  "oversizedFiles": {
+    "apps/api/src/pos-operators/pos-operators.service.ts": 857
+  }
 }

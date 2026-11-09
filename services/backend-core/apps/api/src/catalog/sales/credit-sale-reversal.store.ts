@@ -23,7 +23,7 @@ import type { VoidApprovalDto } from "./dto/record-void-request.dto";
 import { TerminalEventProvenanceConflictError } from "./sale-errors";
 import { loadSaleReturn, type PricedLine, type ReturnLineProjection } from "./sale-returns.service";
 import { mapOneVoidViolation } from "./sale-reversal";
-import { mapApprovalReuseViolation } from "./sales.service";
+import { mapApprovalReuseViolation } from "./sale-terminal-provenance";
 
 /** The contract `CreditReversalRefundTender` wire shape. */
 export interface CreditReversalRefundTenderProjection {
