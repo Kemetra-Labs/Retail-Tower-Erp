@@ -18,10 +18,13 @@ info:
       2. `platformAddPilotTenant` / `platformRemovePilotTenant` — a platform
          admin adds a tenant to, or removes it from, the pilot allowlist.
          Served, audited, platform-scoped.
-      3. `platformRegisterPilotRelease` / `platformWithdrawPilotRelease` /
-         `platformActivatePilotRelease` — `x-runtime-status: contract-only`. The
-         runtime waits for the promotion workflow and its credential
-         (RT-1260 D-5a) and a later slice.
+      3. `platformRegisterPilotRelease` / `platformWithdrawPilotRelease` — the
+         owner-run promotion workflow, authenticated by its GitHub OIDC token
+         (`promotionWriter`, owner decision D-5a, RT-1298). Served, audited,
+         platform-scoped. `platformActivatePilotRelease` — a platform admin on
+         the session cookie makes one registered release current (RT-1298).
+         Served, audited. Registering a release never makes it downloadable;
+         activating it does.
 
 
     **Eligibility.** A release is returned only if the pilot lane is configured
@@ -50,7 +53,14 @@ info:
     (tenant-scoped, metadata `releaseId` and `version` only) per issued link;
     `pos.pilot_tenant.added` and `pos.pilot_tenant.removed` (platform-scoped,
     metadata `tenantId`) per effective allowlist change, in the same
-    transaction. No URL, key, token or email in any row.
+    transaction. `pos.pilot_release.registered` and `.withdrawn` (platform-scoped,
+    actor label `github-oidc:<login>` of the verified workflow, no user id) and
+    `pos.pilot_release.activated` (platform-scoped, actor the platform admin) per
+    effective registry change, in the same transaction; a replay writes none.
+    No presigned URL, access key, token or email in any row. The registration
+    audit row does record the release's `attestationRef` and `promotionRunUrl`
+    (public GitHub links, not credentials), and the withdrawal row the run's
+    `promotionRunUrl`, as release metadata.
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id } }`
@@ -65,7 +75,7 @@ tags:
   - name: pos-pilot-allowlist
     description: Platform-admin management of the pilot tenant allowlist (RT-1292).
   - name: pos-pilot-release-registry
-    description: Contract-only writes to the pilot release registry (RT-1292).
+    description: Writes to the pilot release registry (RT-1298), register and withdraw by the promotion workflow, activate by a platform admin.
 
 paths:
   /api/v1/pos-pilot-releases/latest:
@@ -189,10 +199,6 @@ paths:
       operationId: platformRegisterPilotRelease
       x-audit-action: pos.pilot_release.registered
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Blocked on the promotion workflow's credential (RT-1260 D-5a) and a
-        later slice. Not served in RT-1292.
       tags: [pos-pilot-release-registry]
       security:
         - promotionWriter: []
@@ -202,7 +208,15 @@ paths:
         rules and conflicts. A body equal to an existing row is a 200 that
         writes nothing. The same version, sha256 or object key with any other
         value is 409. A lab or production class, or a lab-marked publisher, is
-        422 `release_not_pilot`.
+        422 `release_not_pilot`. The object key is derived from the version on
+        the server. The body's `promotionRunUrl` must name the run that holds
+        the token (its `run_id` claim): another run is 403 `forbidden` and
+        nothing is written. A missing or malformed `Idempotency-Key` is 400. The
+        key is validated only: a replay is recognised by content (the version,
+        sha256 and object key, and every field of the body), so a retry with any
+        key and an equal body is the 200 above, and a different body for the same
+        release is 409 whatever the key. A retry of a withdrawn release is also a
+        200, and its `approved` is `false`: a release is never re-approved.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -242,10 +256,6 @@ paths:
       summary: Withdraw a registered pilot POS release (promotion workflow only).
       operationId: platformWithdrawPilotRelease
       x-audit-action: pos.pilot_release.withdrawn
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Blocked on the promotion workflow's credential (RT-1260 D-5a) and a
-        later slice. Not served in RT-1292.
       tags: [pos-pilot-release-registry]
       security:
         - promotionWriter: []
@@ -253,7 +263,9 @@ paths:
         Sets `approved` to false for good; the resolver stops returning the
         release at once and a new release may then be activated. A withdrawn
         release is never re-approved: a fix ships a higher version. Withdrawing
-        a withdrawn release is a 200 that writes nothing.
+        a withdrawn release is a 200 that writes nothing. No body: `withdrawnBy`
+        is the token's `actor` claim (a GitHub login) and the audit row names
+        the token's run.
       parameters:
         - $ref: "#/components/parameters/ReleaseIdPath"
       responses:
@@ -263,6 +275,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PilotRelease"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -277,10 +291,6 @@ paths:
       summary: Activate a registered pilot POS release (platform admins only).
       operationId: platformActivatePilotRelease
       x-audit-action: pos.pilot_release.activated
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with the other registry writes in a later slice. Not
-        served in RT-1292.
       tags: [pos-pilot-release-registry]
       security:
         - cookieAuth: []
@@ -299,6 +309,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PilotRelease"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -332,10 +344,19 @@ components:
     promotionWriter:
       type: http
       scheme: bearer
+      bearerFormat: JWT
       description: >
-        OPEN (RT-1260 D-5a). The credential of the owner-run promotion
-        workflow, usable only from its protected approval environment. A
-        Console session cookie is never accepted here. Not served in RT-1292.
+        The GitHub OIDC token of the owner-run promotion workflow (owner
+        decision D-5a, RT-1298): no stored secret. The token must be signed by
+        GitHub (algorithm RS256), issued by
+        `https://token.actions.githubusercontent.com` for the configured
+        audience, unexpired and at most 15 minutes old. Its `repository`,
+        `environment`, `ref` and `job_workflow_ref` claims must equal the
+        configured pins, and its `actor` (a GitHub login) and `run_id` must be
+        usable. A token that cannot be authenticated is 401; a genuine token
+        with other claims is 403 `forbidden`. While any pin is unset no token is
+        accepted (401). A Console session cookie, a device token or any other
+        credential is 401.
 
   headers:
     CacheControlNoStore:
@@ -640,8 +661,9 @@ components:
     WriteValidationFailure:
       description: >
         validation_error (400): a malformed path id, a body that is not a JSON
-        object, an unknown or missing key, or a value outside its pattern.
-        Nothing is written.
+        object, an unknown or missing key, a value outside its pattern, or (on
+        register) a missing or malformed `Idempotency-Key`. Checked after the
+        guards, so an unauthenticated caller gets 401, not 400. Nothing is written.
       content:
         application/json:
           schema:
@@ -650,8 +672,11 @@ components:
       description: >
         Unauthenticated (401): a missing or invalid session cookie, a
         non-cookie credential, or (console read) a session with no active
-        tenant. Non-disclosing; nothing is presigned and no audit row is
-        written. Owned by 028 (G10).
+        tenant; on register and withdraw, a missing, malformed, expired, badly
+        signed or wrong-issuer or wrong-audience promotion token, a key set that
+        cannot be fetched, or any credential at all while the promotion pins are
+        unset. Non-disclosing; nothing is presigned or written and no audit row
+        is written. Owned by 028 (G10).
       content:
         application/json:
           schema:
@@ -679,9 +704,11 @@ components:
     PlatformWriteForbidden:
       description: >
         403, `error.code` one of: `forbidden` (a signed-in user who is not a
-        platform admin) or `origin_rejected` (RT-430: the `Origin` header is
+        platform admin; or, on register and withdraw, a genuine promotion token
+        whose claims do not match the configured pins, or whose run is not the
+        run the body names) or `origin_rejected` (RT-430: the `Origin` header is
         missing, or is neither the API's own origin nor listed in
-        `ALLOWED_ORIGINS`). Nothing is written.
+        `ALLOWED_ORIGINS`; cookie routes only). Nothing is written.
       content:
         application/json:
           schema:

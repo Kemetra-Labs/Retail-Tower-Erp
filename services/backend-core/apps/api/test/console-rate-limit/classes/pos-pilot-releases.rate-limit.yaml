@@ -6,5 +6,5 @@ consolePilotGetLatestPosRelease: write
 # RT-1292: the platform pilot allowlist changes, audited.
 platformAddPilotTenant: write
 platformRemovePilotTenant: write
-# RT-1292: contract-only; the platform admin's explicit activation.
+# RT-1298: the platform admin's explicit activation (served; register and withdraw are not cookieAuth).
 platformActivatePilotRelease: write

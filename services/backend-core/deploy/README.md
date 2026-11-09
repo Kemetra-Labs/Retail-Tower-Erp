@@ -948,6 +948,39 @@ api: no request goes to S3 to build it, and the browser then downloads straight 
   [`docs/operations/pos-pilot-release-bucket.md`](../docs/operations/pos-pilot-release-bucket.md).
   The key is created by the owner in the AWS console and written straight into the host env file:
   never typed into chat, Jira, a PR or an SSM Run Command parameter.
+
+### POS pilot release registry writes: the promotion workflow's GitHub OIDC token (RT-1298)
+
+A pilot release becomes downloadable in three steps: the owner-run promotion workflow **registers** it,
+a platform admin **activates** it, and the Console resolver then serves it to allowlisted tenants. A
+registered release is never downloadable until it is activated. The workflow authenticates with its
+GitHub OIDC token (owner decision D-5a): **no stored secret**. Backend-Core verifies the token against
+GitHub's public key set, so this adds one outbound call from the api to
+`token.actions.githubusercontent.com` (the key set is cached; a refetch is rate-limited).
+
+| Variable (host env file) | Passed to the api as | Notes |
+|---|---|---|
+| `POS_PILOT_PROMOTION_OIDC_AUDIENCE` | same | The `aud` the workflow requests for its token. |
+| `POS_PILOT_PROMOTION_OIDC_REPOSITORY` | same | The `repository` claim, `owner/name`. |
+| `POS_PILOT_PROMOTION_OIDC_ENVIRONMENT` | same | The `environment` claim: the protected approval environment of the promotion job. |
+| `POS_PILOT_PROMOTION_OIDC_REF` | same | The `ref` claim, such as `refs/heads/main`. |
+| `POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF` | same | The `job_workflow_ref` claim, `owner/name/.github/workflows/<file>@<ref>`. |
+
+- **Fail closed:** none is a secret. While any value is blank or malformed, no token is accepted: register and
+  withdraw answer 401, the api is unaffected, and a half-set lane logs one warning at boot with a closed reason
+  (`pilot release promotion writes are off: incomplete` or `invalid`), never a value. A fully blank lane is silent.
+- **What is checked:** a token signed by GitHub (RS256), issued by `https://token.actions.githubusercontent.com`
+  for the configured audience, unexpired and at most 15 minutes old. A token that cannot be authenticated is 401.
+  A genuine token whose `repository`, `environment`, `ref` or `job_workflow_ref` differs from the pins is 403, and
+  so is a register body that names another run than the token's.
+- **GitHub-side prerequisites:** the pins identify the workflow only together with settings this code cannot
+  check: a required reviewer and `main`-only deployment branches on the promotion environment, a protected
+  `main`, a `workflow_dispatch`-only trigger, and a run by a plain GitHub user account (the token's `actor` must
+  be a login). The runbook lists them and says which hardening the owner may add.
+- **Who may activate:** a platform admin on the Console session, with a trusted `Origin`. The workflow cannot.
+- **Setup and the three steps:** `docs/operations/pos-pilot-release-bucket.md` section 7. The real environment
+  and workflow names are fixed by the promotion workflow slice; until then leave the five values blank.
+
 ### `PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET` (RT-1043, RT-625 D4)
 
 An HMAC key, **secret**. The public-auth rate-limit buckets (`signin_pair`,
