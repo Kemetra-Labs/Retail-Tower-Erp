@@ -104,6 +104,25 @@
   block-size: max(100%, var(--control-h));
   transform: translate(-50%, -50%);
 }
+/* RT-1299 3b (owner decision 2026-11-09): when the button sits in a sortable
+ * header cell, the whole cell is its hit area. The cell is the containing block
+ * (and at least the 36px target tall: a table cell's height is a minimum), the
+ * button leaves positioning to it, and the same invisible ::after is stretched
+ * over the cell's padding box. The button stays the one native control, so the
+ * keyboard sort is unchanged. */
+.data-table thead th.data-table__th--sortable {
+  position: relative;
+  block-size: var(--control-h);
+}
+.data-table__th--sortable .data-table__sort {
+  position: static;
+}
+.data-table__th--sortable .data-table__sort::after {
+  inset: 0;
+  transform: none;
+  inline-size: auto;
+  block-size: auto;
+}
 .data-table__sort-mark {
   display: inline-flex;
 }

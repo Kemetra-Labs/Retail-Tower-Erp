@@ -166,6 +166,7 @@ export function DataTable<Row>({
                 <th
                   key={col.key}
                   scope="col"
+                  className={col.sortable && onSortChange ? "data-table__th--sortable" : undefined}
                   aria-sort={col.sortable ? ariaSortOf(sort, col.key) : undefined}
                 >
                   {col.sortable && onSortChange ? (

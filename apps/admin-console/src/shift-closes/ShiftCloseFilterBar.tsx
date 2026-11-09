@@ -3,7 +3,8 @@
  * generated client has: store and a closed date range in the main row; close
  * kind, a minimum absolute variance, currency and whether an approver was
  * recorded behind «فلاتر إضافية». Apply, a ghost Clear. A date is read in the
- * selected store's zone, else UTC, and the bar says which. The bar never offers
+ * selected store's zone, else UTC, and the bar says which: in the note and, since
+ * RT-1299, in each date field's own label. The bar never offers
  * a zero-variance view: "exception" is non-zero variance only, set in the query.
  */
 import { FilterBar, type FilterChip, FilterField, isolate, ltr } from "@/components/FilterBar";
@@ -62,7 +63,8 @@ function ScopeFields({
   set,
   errors,
   stores,
-}: Readonly<FieldsProps & { stores: readonly StoreInfo[] }>): React.JSX.Element {
+  zone,
+}: Readonly<FieldsProps & { stores: readonly StoreInfo[]; zone: string }>): React.JSX.Element {
   const t = useT();
   return (
     <>
@@ -81,7 +83,7 @@ function ScopeFields({
           ))}
         </select>
       </Field>
-      <Field id="sf-from" label={t("shift.filter.from")} error={errors.date}>
+      <Field id="sf-from" label={t("shift.filter.fromIn", { zone: ltr(zone) })} error={errors.date}>
         <input
           id="sf-from"
           type="date"
@@ -91,7 +93,7 @@ function ScopeFields({
           onChange={(e) => set("fromDate")(e.target.value)}
         />
       </Field>
-      <Field id="sf-to" label={t("shift.filter.to")} error={errors.range}>
+      <Field id="sf-to" label={t("shift.filter.toIn", { zone: ltr(zone) })} error={errors.range}>
         <input
           id="sf-to"
           type="date"
@@ -284,7 +286,7 @@ export function ShiftCloseFilterBar({
         </p>
       }
     >
-      <ScopeFields draft={draft} set={set} errors={errors} stores={stores} />
+      <ScopeFields draft={draft} set={set} errors={errors} stores={stores} zone={zone} />
     </FilterBar>
   );
 }

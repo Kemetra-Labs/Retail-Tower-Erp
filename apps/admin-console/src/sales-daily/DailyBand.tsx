@@ -15,6 +15,17 @@ import { BusinessDateRange } from "@/sales/SaleParts";
 import { Zones } from "./DailyCells";
 import type { ReportModel } from "./dailyLogic";
 
+/**
+ * RT-1299 3a: the read time is shown in the report's stated zone: the store's, or
+ * the one zone every served store shares. Several zones name no single report
+ * zone, so the time stays UTC and says so. The exact served instant (UTC) stays on
+ * the <time> element as secondary evidence.
+ */
+function reportZone(model: ReportModel): string | undefined {
+  if (model.scope === "store") return model.zones[0];
+  return model.zones.length === 1 ? model.zones[0] : undefined;
+}
+
 export function useDailyBandFacts(
   model: ReportModel | null,
   readStores: number,
@@ -29,12 +40,7 @@ export function useDailyBandFacts(
   };
   const asOf: BandFact = {
     label: t("salesDaily.band.asOf"),
-    value: (
-      <DateTime
-        value={model.asOf}
-        timeZone={model.scope === "store" ? model.zones[0] : undefined}
-      />
-    ),
+    value: <DateTime value={model.asOf} timeZone={reportZone(model)} />,
   };
   if (model.zones.length === 0) return [period, asOf];
   const partial = model.zonesComplete
