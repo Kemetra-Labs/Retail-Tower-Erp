@@ -513,6 +513,8 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
   let gate: SnapshotBodyGate;
   let port: number;
   let previousEnvironment: string | undefined;
+  /** The last request the gate sent to the authorizer (server side). */
+  let lastAuthorized: { destroyed: boolean } | undefined;
   const LARGE = 200 * 1024;
 
   beforeAll(async () => {
@@ -520,7 +522,11 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
     process.env["DEPLOYMENT_ENVIRONMENT"] = "pilot";
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    gate = registerJsonBodyParsers(app, connectorSnapshotCallerAuthorizer(sessions, authTokens));
+    const authorize = connectorSnapshotCallerAuthorizer(sessions, authTokens);
+    gate = registerJsonBodyParsers(app, (req, res) => {
+      lastAuthorized = req;
+      return authorize(req, res);
+    });
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.listen(0, "127.0.0.1");
     port = (app.getHttpServer().address() as AddressInfo).port;
@@ -606,13 +612,17 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
 
   it("a client that aborts while being authorized never takes a slot", async () => {
     slowLookupStarted = false;
+    lastAuthorized = undefined;
     const upload = openPost(port, SNAPSHOT_PATH, LARGE, { authorization: "Bearer connector-slow" });
     upload.req.write("{");
     await waitFor(() => slowLookupStarted);
     upload.req.destroy();
-    await new Promise((resolve) => setTimeout(resolve, 200)); // the server sees the close
+    // The server has seen the abort: its "close" has fired, so a slot taken
+    // from now on would never be released.
+    await waitFor(() => lastAuthorized?.destroyed === true);
     releaseSlowLookup();
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Let the authorizer's remaining lookup and the gate's continuation run.
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
     expect(gate.inFlight()).toBe(0);
   });
 });
