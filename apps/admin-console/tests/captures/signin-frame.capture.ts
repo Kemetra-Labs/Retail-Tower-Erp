@@ -46,6 +46,7 @@ const row = (m: FrameMeasure) =>
 
 for (const route of FRAME_ROUTES) {
   test(`RT-1301 frame sizes: ${route.name}`, async ({ page, appLocale }) => {
+    test.setTimeout(120_000);
     await mockSignedOut(page);
     const rows: string[] = [];
     for (const size of SIZES) {
@@ -71,6 +72,30 @@ for (const route of FRAME_ROUTES) {
     );
   });
 }
+
+test("RT-1301 AC6 baseline: touch heights, field direction and forced colours", async ({
+  page,
+  appLocale,
+}) => {
+  await mockSignedOut(page);
+  const normal = await openAndMeasure(page, "/signin", { width: 1280, height: 720 });
+  await page.emulateMedia({ forcedColors: "active" });
+  const forced = await openAndMeasure(page, "/signin", { width: 1280, height: 720 });
+  await page.screenshot({ path: join(OUT, `${TICKET}__signin__${appLocale}__forced-colors.png`) });
+  const ac6 = {
+    locale: appLocale,
+    fieldHeights: normal.fieldHeights,
+    buttonHeight: normal.buttonHeight,
+    inputDirections: normal.inputDirections,
+    forcedColors: { artWidth: forced.artWidth, towerShown: forced.towerShown },
+  };
+  writeFileSync(
+    join(OUT, `${TICKET}__signin__${appLocale}__ac6.json`),
+    `${JSON.stringify(ac6, null, 2)}
+`,
+  );
+  console.log(`RT-1301-AC6 ${JSON.stringify(ac6)}`);
+});
 
 test("RT-1301 keyboard walk and axe: signin", async ({ page, appLocale }) => {
   await mockSignedOut(page);

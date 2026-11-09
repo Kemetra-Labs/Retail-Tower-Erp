@@ -20,6 +20,10 @@ export interface FrameMeasure {
   /** 0 when the picture is hidden. */
   artWidth: number;
   logo: { width: number; height: number };
+  /** AC6: the touch heights and the direction of the machine-input fields. */
+  fieldHeights: number[];
+  buttonHeight: number;
+  inputDirections: Record<string, string>;
   towerShown: boolean;
   towerWidth: number;
   /** Selectors of the fields or the button the tower's box overlaps. */
@@ -65,6 +69,8 @@ const measure = (): FrameMeasure => {
     rect(form).height +
     2 * num(mainStyle?.rowGap);
 
+  const round = (n: number) => Math.round(n * 10) / 10;
+  const inputs = [...document.querySelectorAll<HTMLInputElement>(".auth-fields input")];
   const artShown = !!art && getComputedStyle(art).display !== "none";
   return {
     viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -82,6 +88,13 @@ const measure = (): FrameMeasure => {
     towerShown,
     towerWidth: towerShown ? Math.round(towerBox.width * 10) / 10 : 0,
     towerOverlaps: overlaps,
+    fieldHeights: [...document.querySelectorAll<HTMLElement>(".auth-fields .input")].map((el) =>
+      round(el.getBoundingClientRect().height),
+    ),
+    buttonHeight: round(rect(q(".auth-fields .auth-submit")).height),
+    inputDirections: Object.fromEntries(
+      inputs.map((el) => [el.id || el.name, getComputedStyle(el).direction]),
+    ),
   };
 };
 

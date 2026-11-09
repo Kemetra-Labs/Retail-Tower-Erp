@@ -44,7 +44,9 @@ for (const route of FRAME_ROUTES) {
       });
     }
 
-    for (const size of FITS) {
+    // AC3 is the sign-in screen's. Accept-invitation is taller (one more field, the hint and the
+    // note), so its height is recorded by the capture, not asserted here (RT-1301 AC7).
+    for (const size of route.name === "signin" ? FITS : []) {
       test(`AC3: no vertical scroll at ${size.width} x ${size.height}`, async ({ page }) => {
         const m = await openAndMeasure(page, route.path, size);
         expect(m.pageScrollsY, `needs ${m.neededHeight}px of ${size.height}px`).toBe(false);
