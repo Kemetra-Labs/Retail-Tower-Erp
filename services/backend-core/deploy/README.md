@@ -926,9 +926,9 @@ api: no request goes to S3 to build it, and the browser then downloads straight 
 | Variable (host env file) | Passed to the api as | Notes |
 |---|---|---|
 | `POS_PILOT_RELEASE_PUBLISHER` | same | The pilot installer's Authenticode subject. Never a lab subject (`LAB TEST`, `NOT FOR PRODUCTION`) and never the production pin. |
-| `POS_PILOT_RELEASE_BUCKET` | same, and to caddy | The private pilot bucket. Lower-case letters, digits and hyphens, no dots (see the CSP note below). |
+| `POS_PILOT_RELEASE_BUCKET` | same; to caddy as `CONSOLE_FRAME_PILOT_BUCKET` | The private pilot bucket. Lower-case letters, digits and hyphens, no dots (see the CSP note below). |
 | `POS_PILOT_RELEASE_URL_TTL_SECONDS` | same | Integer 1 to 900. Blank means 300. Any other value turns the lane off; it is never clamped. |
-| `POS_PILOT_RELEASE_S3_REGION` | same, and to caddy | The bucket's region (`us-east-1` for the lab). |
+| `POS_PILOT_RELEASE_S3_REGION` | same; to caddy as `CONSOLE_FRAME_PILOT_REGION` | The bucket's region (`us-east-1` for the lab). |
 | `POS_PILOT_RELEASE_S3_ACCESS_KEY_ID`, `POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY` | same | **Secret.** The key of an IAM user allowed only `s3:GetObject` and `s3:GetObjectVersion` on `pos/pilot/*`. Only the api container receives it. |
 
 - **Console CSP `frame-src` (RT-1305):** the Console hands the presigned URL to a hidden iframe so it

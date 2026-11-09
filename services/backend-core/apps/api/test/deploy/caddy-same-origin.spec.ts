@@ -98,10 +98,10 @@ describe("Caddyfile same-origin gateway", () => {
   it("sends the exact Console CSP, with frame-src only for a valid pilot bucket and region (RT-1305)", () => {
     const consoleBlock = blockAfter(site, "handle {");
     const pilotFrameSrc =
-      "https://{env.POS_PILOT_RELEASE_BUCKET}.s3.{env.POS_PILOT_RELEASE_S3_REGION}.amazonaws.com";
+      "https://{env.CONSOLE_FRAME_PILOT_BUCKET}.s3.{env.CONSOLE_FRAME_PILOT_REGION}.amazonaws.com";
     const valid =
-      '{env.POS_PILOT_RELEASE_BUCKET}.matches("^[a-z0-9][a-z0-9-]*[a-z0-9]$") && ' +
-      '{env.POS_PILOT_RELEASE_S3_REGION}.matches("^[a-z][a-z](-[a-z]+)+-[0-9]+$")';
+      '{env.CONSOLE_FRAME_PILOT_BUCKET}.matches("^[a-z0-9][a-z0-9-]*[a-z0-9]$") && ' +
+      '{env.CONSOLE_FRAME_PILOT_REGION}.matches("^[a-z][a-z](-[a-z]+)+-[0-9]+$")';
 
     // Two mutually exclusive matchers on the same check, so exactly one CSP is ever sent.
     expect(consoleBlock).toContain(`@pilot_frame expression \`${valid}\``);
@@ -174,8 +174,11 @@ describe("production compose for the same-origin gateway", () => {
   });
 
   it("passes the pilot bucket and region to Caddy for the CSP frame-src, optional and never the S3 key (RT-1305)", () => {
-    expect(caddy).toContain("POS_PILOT_RELEASE_BUCKET: ${POS_PILOT_RELEASE_BUCKET:-}");
-    expect(caddy).toContain("POS_PILOT_RELEASE_S3_REGION: ${POS_PILOT_RELEASE_S3_REGION:-}");
+    // Same host values the presigner signs with, under Caddy's own names: no POS_PILOT_* name
+    // reaches a service other than the api (RT-1297 guard in compose-api-env.spec.ts).
+    expect(caddy).toContain("CONSOLE_FRAME_PILOT_BUCKET: ${POS_PILOT_RELEASE_BUCKET:-}");
+    expect(caddy).toContain("CONSOLE_FRAME_PILOT_REGION: ${POS_PILOT_RELEASE_S3_REGION:-}");
+    expect(caddy).not.toMatch(/^\s+POS_PILOT_/m);
     expect(caddy).not.toContain("POS_PILOT_RELEASE_S3_ACCESS_KEY_ID");
     expect(caddy).not.toContain("POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY");
   });
