@@ -936,7 +936,9 @@ api: no request goes to S3 to build it, and the browser then downloads straight 
   only when both are valid, adds one directive to the Console CSP:
   `frame-src https://<bucket>.s3.<region>.amazonaws.com`, the host the api presigner signs for. Unset,
   partial or malformed (a dotted bucket name included), the CSP stays the base policy with no
-  `frame-src`. Caddy reads the values at start, so restart the caddy container after changing them.
+  `frame-src`. Values must have no surrounding spaces (the api trims them, Caddy does not), and only
+  regions whose S3 host ends in `.amazonaws.com` (commercial and GovCloud, not `cn-*` or ISO) get a
+  working `frame-src`. Caddy reads the values at start, so restart the caddy container after changing them.
   `deploy/console-smoke.sh` accepts exactly either form. Check after a deploy:
   `curl -sI https://<site>/ | grep -i content-security-policy`.
 - **Why the lab uses a key:** lab-01 is an SSM *hybrid* managed node (`mi-…`), not an EC2 instance,

@@ -83,6 +83,7 @@ status="$(get / root)"
 check "/ returns 200" is "$status" 200
 check "/ is HTML" has "$(header root content-type)" "text/html"
 check "/ is Cache-Control: no-cache" is "$(header root cache-control)" "no-cache"
+check "/ sends exactly one CSP" is "$(grep -ci '^content-security-policy:' "$work/root.hdr")" 1
 check "/ sends the exact Console CSP" csp_ok "$(header root content-security-policy)"
 check "/ sends X-Content-Type-Options: nosniff" is "$(header root x-content-type-options)" "nosniff"
 check "/ sends Strict-Transport-Security" has "$(header root strict-transport-security)" "max-age="

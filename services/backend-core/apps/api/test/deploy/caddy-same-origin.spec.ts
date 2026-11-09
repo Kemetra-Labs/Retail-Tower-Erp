@@ -130,6 +130,10 @@ describe("Caddyfile same-origin gateway", () => {
       "csp_pilot_re='^; frame-src https://[a-z0-9][a-z0-9-]*[a-z0-9]\\.s3\\.[a-z][a-z](-[a-z]+)+-[0-9]+\\.amazonaws\\.com$'",
     );
     expect(smoke).toContain(`check "/ sends the exact Console CSP" csp_ok "$(header root content-security-policy)"`);
+    // Browsers enforce every CSP they get; a second one would silently block the frame.
+    expect(smoke).toContain(
+      `check "/ sends exactly one CSP" is "$(grep -ci '^content-security-policy:' "$work/root.hdr")" 1`,
+    );
   });
 
   it("sends the other security headers on Console responses only", () => {
