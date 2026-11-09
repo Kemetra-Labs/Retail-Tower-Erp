@@ -1,7 +1,10 @@
 # Install with: pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
 # (--only-binary stops a fallback sdist build from pulling unhashed build deps)
 # Hashes read from the PyPI JSON API for PyYAML 6.0.3 on 2026-10-19:
-# sdist, plus the CPython 3.12 manylinux x86_64 wheel used on ubuntu-24.04 runners.
+# sdist, plus the CPython 3.12 and 3.14 manylinux x86_64 wheels used on ubuntu-24.04 runners.
+# The plan and gate jobs install this file from the BASE commit on the interpreter of the PR's
+# .python-version, so a PR that moves that pin needs the new wheel's hash on main first (RT-1296).
 PyYAML==6.0.3 \
     --hash=sha256:d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f \
-    --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+    --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc \
+    --hash=sha256:c458b6d084f9b935061bc36216e8a69a7e293a2f1e68bf956dcd9e6cbcd143f5
