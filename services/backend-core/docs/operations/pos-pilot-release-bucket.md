@@ -213,16 +213,19 @@ checked for shape: replay detection is by content. A retry of a withdrawn releas
 activate: it holds no environment, secret, AWS credential or id-token, its token is read-only, and it never
 calls Backend-Core. Use it before the real promotion exists, and again before each live one.
 
-**Run it** (Actions → promote-pos-pilot → Run workflow, any ref, it is read-only) with two inputs. A
+**Run it from `main`** (Actions → promote-pos-pilot → Run workflow, branch `main`) with two inputs. The run
+refuses any other ref, because another branch's copy of the file could report a verification it did not do. A
 manually started workflow can be dispatched only once its file is on the default branch, so the first run is
 after the change that adds it is merged:
 
 - `tag`: the published pilot release, `pos-pilot/vX.Y.Z`. The tag must exist and its commit must be on `main`.
-- `leaf_sha1`: the SHA-1 thumbprint (40 hex) of the pilot signing leaf, as the `release-pos-pilot` signing step
-  printed it (the same value as the `POS_PILOT_LEAF_SHA1` variable of the signing environment).
+- `leaf_sha1`: the SHA-1 thumbprint (40 hex) of the pilot signing leaf. Take it from the `POS_PILOT_LEAF_SHA1`
+  variable of the protected signing environment (Settings → Environments → `release-pos-pilot-sign`),
+  not from the output of the signing run: a compromised signing job could print another value, and the
+  dry-run would then report that installer as verified.
 
 **What it checks, in order** (the first failure stops the run; no repository, release, S3 or registry state is
-changed either way, and the output is informational: the workflow can be run from any ref):
+changed either way):
 
 1. The tag is `pos-pilot/vX.Y.Z` exactly (a lab tag or a look-alike is refused), its commit is on `main`, and the
    tag still points at that commit when the release is read.
@@ -247,7 +250,9 @@ That version must run on `main` only, because the Backend-Core `ref` pin is one 
 
 | Symptom | Likely cause |
 |---|---|
+| `run this workflow from main` | The run was started on another branch or tag. Start it again with the branch set to `main`. |
 | `tag ... is not on main` | The release was tagged on a commit that never reached `main`. |
+| `... is not exactly '<digest>  POS-Pulse-Setup-<version>.exe'` | The `.sha256` asset names another file, holds more than one line, or does not match the installer's bytes. Never edit a pilot release: ship a higher version. |
 | `the release assets are not exactly ...` | An asset was added to or removed from the release after it was published. Never edit a pilot release: ship a higher version. |
 | `gh attestation verify` fails | The installer was not attested by `release-pos-pilot.yml` for this commit and tag, or the bytes differ from the attested ones. |
 | `the installer is signed by another certificate` | `leaf_sha1` is wrong, or the installer was not signed with the pinned pilot leaf. |

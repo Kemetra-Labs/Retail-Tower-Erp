@@ -19,8 +19,9 @@
 #            that public leaf trusted, on this hosted runner only, so Windows can answer Valid; the trust is
 #            removed again whatever happens. Nothing is rebuilt, re-signed or changed.
 #
-# Why the run can start on any ref: it is read-only. The live promotion will run on main only (the Backend-Core
-# `ref` pin is one exact value) and will be a different, approved version of this file.
+# It runs on main only: a copy of this file on another branch could print a verification it did not do. The live
+# promotion will run on main too (the Backend-Core `ref` pin is one exact value) and will be a different, approved
+# version of this file.
 name: promote-pos-pilot
 
 "on":
@@ -69,9 +70,11 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
           LEAF_SHA1: ${{ inputs.leaf_sha1 }}
+          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
+          [ "$REF" = refs/heads/main ] || fail "run this workflow from main, not '$REF': another branch's copy of it could report a verification it did not do"
           [[ "$TAG" =~ ^pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "tag '$TAG' is not pos-pilot/vX.Y.Z"
           [[ "$LEAF_SHA1" =~ ^[0-9A-Fa-f]{40}$ ]] || fail "leaf_sha1 is not a 40-hex SHA-1 thumbprint"
           SHA="$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}")" || fail "tag $TAG does not exist"
@@ -144,7 +147,9 @@ jobs:
               and (.artifacts | length == 1)
             ' "$MANIFEST" >/dev/null \
             || fail "the manifest does not match the package: expected product pos-pilot, signing pilot, mode release, tag $TAG, commit $SHA, repository $REPO and installer $EXE $DIGEST"
-          (cd "$PKG" && sha256sum -c "$EXE.sha256") || fail "$EXE.sha256 does not match the installer"
+          # Exactly the one line the pilot release writes (`sha256sum "$EXE"`): the installer's digest and ITS name. A
+          # valid checksum of another asset, an extra line or a different format does not pass.
+          [ "$(cat "$PKG/$EXE.sha256")" = "${DIGEST#sha256:}  $EXE" ] || fail "$EXE.sha256 is not exactly '<digest>  $EXE' for the installer"
           SIZE="$(wc -c < "$PKG/$EXE" | tr -d ' ')"
           # The registry accepts 1 byte to 2 GiB.
           { [ "$SIZE" -ge 1 ] && [ "$SIZE" -le 2147483648 ]; } || fail "the installer size $SIZE is outside 1..2147483648 bytes"

@@ -97,6 +97,18 @@ class PromotePosPilotStatic(unittest.TestCase):
         for name in ("resolve", "verify"):
             self.assertIsInstance(document["jobs"][name]["name"], str)
 
+    def test_the_run_must_be_on_main_and_the_runbook_says_so_and_takes_the_pin_from_the_protected_environment(self):
+        resolve = job(self.text, "resolve")
+        self.assertIn("REF: ${{ github.ref }}", step(resolve, "Resolve the tag and the leaf pin"))
+        self.assertIn('[ "$REF" = refs/heads/main ]', step_script(resolve, "Resolve the tag and the leaf pin"))
+        doc = read(ROOT / "services/backend-core/docs/operations/pos-pilot-release-bucket.md")
+        section = doc.split("## 8. Verifying a pilot release before promotion", 1)[1]
+        self.assertNotIn("any ref", section)
+        self.assertIn("from `main`", section)
+        pin = section.split("`leaf_sha1`", 1)[1].split("**What it checks", 1)[0]
+        self.assertIn("POS_PILOT_LEAF_SHA1", pin)
+        self.assertIn("not from the output of the signing run", pin)
+
     def test_it_is_started_by_hand_only(self):
         self.assertEqual(triggers(self.text), ["workflow_dispatch"])
         self.assertNotIn("pull_request", code(self.text))
@@ -250,10 +262,10 @@ class PromotePosPilotSteps(unittest.TestCase):
             git(repo, "tag", "pos/v0.1.0", on_main)
             output, summary = repo / "out.txt", repo / "summary.md"
 
-            def run(tag: str, leaf: str = LEAF) -> subprocess.CompletedProcess:
+            def run(tag: str, leaf: str = LEAF, ref: str = "refs/heads/main") -> subprocess.CompletedProcess:
                 output.unlink(missing_ok=True)
                 summary.unlink(missing_ok=True)
-                return run_bash(script, {"TAG": tag, "LEAF_SHA1": leaf, "GITHUB_OUTPUT": str(output),
+                return run_bash(script, {"TAG": tag, "LEAF_SHA1": leaf, "REF": ref, "GITHUB_OUTPUT": str(output),
                                          "GITHUB_STEP_SUMMARY": str(summary)}, cwd=repo)
 
             ok = run(TAG)
@@ -279,6 +291,10 @@ class PromotePosPilotSteps(unittest.TestCase):
                 "a short pin": run(TAG, "AB" * 19),
                 "a non-hex pin": run(TAG, "G" * 40),
                 "an empty pin": run(TAG, ""),
+                "a development branch": run(TAG, ref="refs/heads/some-branch"),
+                "a look-alike of main": run(TAG, ref="refs/heads/main-copy"),
+                "a tag ref": run(TAG, ref=f"refs/tags/{TAG}"),
+                "no ref": run(TAG, ref=""),
             }
             for label, result in refused.items():
                 self.assertNotEqual(result.returncode, 0, label)
@@ -309,9 +325,11 @@ class PromotePosPilotSteps(unittest.TestCase):
         cases = {
             "a draft": {"tagName": TAG, "isDraft": True, "assets": three},
             "another tag": {"tagName": "pos-pilot/v0.1.1", "isDraft": False, "assets": three},
-            "a missing asset": {"tagName": TAG, "isDraft": False, "assets": three[:2]},
-            "an extra asset": {"tagName": TAG, "isDraft": False, "assets": [*three, {"name": "lab.yml"}]},
-            "a renamed installer": {"tagName": TAG, "isDraft": False, "assets": [{"name": "POS-Pulse-0.1.0-win-x64.zip"}, *three[1:]]},
+            # Each of these is otherwise a published release, so only the asset-set check can refuse it.
+            "a missing asset": {"tagName": TAG, "isDraft": False, "isPrerelease": False, "assets": three[:2]},
+            "an extra asset": {"tagName": TAG, "isDraft": False, "isPrerelease": False, "assets": [*three, {"name": "lab.yml"}]},
+            "a renamed installer": {"tagName": TAG, "isDraft": False, "isPrerelease": False,
+                                    "assets": [{"name": "POS-Pulse-0.1.0-win-x64.zip"}, *three[1:]]},
         }
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
@@ -405,6 +423,14 @@ class PromotePosPilotSteps(unittest.TestCase):
         for label, doc in bad.items():
             self.assertNotEqual(run(doc).returncode, 0, label)
         self.assertNotEqual(run(manifest(), sha_text=f"{'0' * 64}  {EXE}\n").returncode, 0, "a .sha256 that does not match the bytes")
+        # A valid checksum of ANOTHER asset must not pass as the installer's: this is the manifest's own digest.
+        manifest_sha = hashlib.sha256(json.dumps(manifest()).encode()).hexdigest()
+        other = run(manifest(), sha_text=f"{manifest_sha}  release-manifest.json\n")
+        self.assertNotEqual(other.returncode, 0, "a .sha256 that names release-manifest.json, not the installer")
+        for label, text in {"a binary-mode entry": f"{hashlib.sha256(b'installer bytes').hexdigest()} *{EXE}\n",
+                            "two entries": f"{hashlib.sha256(b'installer bytes').hexdigest()}  {EXE}\n{manifest_sha}  release-manifest.json\n",
+                            "an empty file": ""}.items():
+            self.assertNotEqual(run(manifest(), sha_text=text).returncode, 0, label)
         tampered = run(manifest(), payload=b"installer bytes!")
         self.assertNotEqual(tampered.returncode, 0, "tampered bytes")
         self.assertNotEqual(run(manifest(), payload=b"").returncode, 0, "an empty installer")
