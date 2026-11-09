@@ -140,10 +140,14 @@ class DeployErpLab(PinnedActions, unittest.TestCase):
 
     def test_preflight_sets_up_the_repository_python_before_the_rollback_class(self):
         # rollback_class.py runs on the repository's Python (3.14); the runner's own python3 is older.
-        pre = job(self.text, "preflight")
-        pin = "python-version-file: .python-version"
-        self.assertIn(pin, pre)
-        self.assertLess(pre.index(pin), pre.index("deploy/lab/rollback_class.py --repo"))
+        steps = re.split(r"(?m)^      - ", job(self.text, "preflight"))
+        setup = [i for i, step in enumerate(steps)
+                 if "uses: actions/setup-python@" in step and "python-version-file: .python-version" in step]
+        classifier = [i for i, step in enumerate(steps) if "deploy/lab/rollback_class.py --repo" in step]
+        self.assertEqual((len(setup), len(classifier)), (1, 1), (setup, classifier))
+        self.assertLess(setup[0], classifier[0])
+        # A disabled step (`if: ${{ false }}`) would leave the runner's older python3 in place.
+        self.assertNotRegex(steps[setup[0]], r"(?m)^\s*if:")
 
     def test_target_labels_are_checked_against_main(self):
         pre = job(self.text, "preflight")
