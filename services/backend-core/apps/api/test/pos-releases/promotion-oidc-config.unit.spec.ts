@@ -28,6 +28,26 @@ describe("RT-1298 promotion OIDC config", () => {
     });
   });
 
+  it.each([
+    ["a branch", "@refs/heads/main"],
+    ["a tag", "@refs/tags/v1.2.3"],
+    ["a commit sha", `@${"a".repeat(40)}`],
+  ])("accepts a workflow ref pinned to %s", (_label, suffix) => {
+    const workflowRef = `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/promote-pos-pilot.yml${suffix}`;
+    expect(resolvePromotionOidcConfig({ ...FULL, POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF: workflowRef })).toMatchObject({
+      enabled: true,
+      workflowRef,
+    });
+  });
+
+  it.each(["@main", `@${"A".repeat(40)}`, `@${"a".repeat(39)}`, "@"])("refuses the workflow ref suffix %p", (suffix) => {
+    const workflowRef = `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/promote-pos-pilot.yml${suffix}`;
+    expect(resolvePromotionOidcConfig({ ...FULL, POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF: workflowRef })).toEqual({
+      enabled: false,
+      reason: "invalid",
+    });
+  });
+
   it("is disabled, quietly, when nothing is set", () => {
     expect(resolvePromotionOidcConfig({})).toEqual({ enabled: false, reason: "not_configured" });
     expect(resolvePromotionOidcConfig({ POS_PILOT_PROMOTION_OIDC_AUDIENCE: "  " })).toEqual({

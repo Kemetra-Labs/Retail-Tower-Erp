@@ -57,7 +57,10 @@ info:
     actor label `github-oidc:<login>` of the verified workflow, no user id) and
     `pos.pilot_release.activated` (platform-scoped, actor the platform admin) per
     effective registry change, in the same transaction; a replay writes none.
-    No URL, key, token or email in any row.
+    No presigned URL, access key, token or email in any row. The registration
+    audit row does record the release's `attestationRef` and `promotionRunUrl`
+    (public GitHub links, not credentials), and the withdrawal row the run's
+    `promotionRunUrl`, as release metadata.
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id } }`

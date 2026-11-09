@@ -35,7 +35,9 @@ export type PromotionOidcConfig =
 
 const REPOSITORY_SHAPE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REF_SHAPE = /^refs\/(heads|tags)\/\S+$/;
-const WORKFLOW_REF_SHAPE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[^@\s/]+@refs\/(heads|tags)\/\S+$/;
+// The workflow file at a branch, a tag, or (a workflow GitHub resolved by commit) a 40-hex commit SHA.
+const WORKFLOW_REF_SHAPE =
+  /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[^@\s/]+@(refs\/(heads|tags)\/\S+|[0-9a-f]{40})$/;
 
 /** True when the pins have the shape GitHub puts in a token. */
 function hasTokenShape(pins: { repository: string; ref: string; workflowRef: string }): boolean {

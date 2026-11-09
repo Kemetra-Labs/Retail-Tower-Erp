@@ -9,8 +9,10 @@ the lab hosts are SSM hybrid managed nodes (`mi-…`), not EC2, so no instance r
 
 Registering, activating and withdrawing a release are in section 7 (RT-1298). Not covered here (later
 slices): putting a release into the bucket (the promotion workflow and its upload role) and the Console
-page. Until a release is in the bucket, registered and activated, the lane answers
-`{ "available": false }` whatever is set below.
+page. Without an approved and activated release the lane answers `{ "available": false }` whatever is set
+below. The converse does not hold: `available: true` only says a release is registered and activated. The
+api does not check that the referenced object version exists in the bucket (the promotion workflow verified it
+before registering), so a missing or deleted object shows up as a failed download, not as `available: false`.
 
 ## 1. What each piece may do
 
