@@ -63,8 +63,8 @@ describe("theme storage", () => {
     expect(storedThemeFor("u1")).toBe("light");
   });
 
-  test("index.html's pre-paint script reads the same key as THEME_LAST_KEY", () => {
-    const html = readFileSync(join(process.cwd(), "index.html"), "utf8");
+  test("the pre-paint script reads the same key as THEME_LAST_KEY", () => {
+    const html = readFileSync(join(process.cwd(), "public", "pre-paint.js"), "utf8");
     expect(html).toContain(`localStorage.getItem("${THEME_LAST_KEY}") === "dark"`);
   });
 });

@@ -131,7 +131,7 @@ describe("MemberList grouped by role", () => {
     member("m2", "Omar Khaled", "store_manager", true),
     member("m3", "Amal Saleh", "tenant_admin"),
     member("m4", "Sami Store", "store_manager"),
-    member("m5", "Una Known", "store_staff"),
+    member("m5", "Una Known", "auditor_x"),
     member("m6", null, "mystery_role"),
   ];
 
@@ -175,7 +175,7 @@ describe("MemberList grouped by role", () => {
     // One «Role» column header, whatever the number of groups.
     expect(screen.getAllByRole("columnheader", { name: "Role" })).toHaveLength(1);
     // A raw role code never reaches the page.
-    expect(screen.queryByText("store_staff")).toBeNull();
+    expect(screen.queryByText("auditor_x")).toBeNull();
     expect(screen.queryByText("mystery_role")).toBeNull();
   });
 

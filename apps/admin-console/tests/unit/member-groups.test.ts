@@ -44,6 +44,12 @@ describe("groupMembers", () => {
     expect(groups[1]?.rows.map((r) => r.membershipId)).toEqual(["a", "c"]);
   });
 
+  test("RT-1299: store_staff is its own known group after cashier, not unknown", () => {
+    const groups = groupMembers([row("a", "x_one"), row("b", "store_staff"), row("c", "cashier")]);
+    expect(groups.map((g) => g.key)).toEqual(["role.cashier", "role.store_staff", "role.unknown"]);
+    expect(groups[1]?.rows.map((r) => r.membershipId)).toEqual(["b"]);
+  });
+
   test("keeps the server order inside a group, active members before revoked ones", () => {
     const [group] = groupMembers([
       row("r1", "cashier", true),

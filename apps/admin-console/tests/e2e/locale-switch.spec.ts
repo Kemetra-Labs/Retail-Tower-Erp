@@ -76,7 +76,7 @@ test("the switch flips the frame and the choice survives a reload, before the bu
   await expect(overviewHeading(page, (k, p) => translate(next, k, p))).toBeVisible();
   expect(await docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });
 
-  // With every script bundle blocked, only the inline pre-paint script runs.
+  // With every script bundle blocked, only the pre-paint file (/pre-paint.js) runs.
   await page.route("**/assets/*.js", (r) => r.abort());
   await page.reload();
   expect(await docLocale(page)).toEqual({ lang: TAG[next], dir: DIR[next] });

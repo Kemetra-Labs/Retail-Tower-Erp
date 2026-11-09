@@ -55,8 +55,10 @@ describe("default and document direction", () => {
   test("index.html ships Arabic RTL and restores English from the same key the app writes", () => {
     const page = readFileSync(join(process.cwd(), "index.html"), "utf8");
     expect(page).toContain('<html lang="ar-EG" dir="rtl">');
-    expect(page).toContain(`localStorage.getItem("${LOCALE_LAST_KEY}") === "en"`);
-    expect(page).toContain('document.documentElement.dir = "ltr"');
+    // RT-1299: the pre-paint code lives in a same-origin file (CSP default-src 'self').
+    const prePaint = readFileSync(join(process.cwd(), "public", "pre-paint.js"), "utf8");
+    expect(prePaint).toContain(`localStorage.getItem("${LOCALE_LAST_KEY}") === "en"`);
+    expect(prePaint).toContain('document.documentElement.dir = "ltr"');
   });
 });
 
@@ -160,5 +162,10 @@ describe("message lookup", () => {
     expect(roleLabel("tenant_admin", "en")).toBe("Tenant admin");
     expect(roleLabel("auditor_x", "ar")).toBe("دور غير معروف");
     expect(roleLabel("constructor", "en")).toBe("Unknown role");
+  });
+
+  test("RT-1299: store_staff has its owner-approved label, not the unknown fallback", () => {
+    expect(roleLabel("store_staff", "ar")).toBe("موظف المتجر");
+    expect(roleLabel("store_staff", "en")).toBe("Store staff");
   });
 });

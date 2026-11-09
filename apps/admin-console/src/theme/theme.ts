@@ -7,8 +7,8 @@
  *    shared admin PC keeps one operator's preference from leaking to the next.
  *    Screens before the shell (sign-in, scope gate, no-access) follow the
  *    browser's last choice until the shell mounts;
- *  - `rt.theme.v1:last` mirrors the most recent choice on this browser. The inline
- *    pre-paint script in index.html reads it before the bundle loads, so a dark
+ *  - `rt.theme.v1:last` mirrors the most recent choice on this browser. The
+ *    pre-paint script (public/pre-paint.js) reads it before the bundle loads, so a dark
  *    user does not see a light flash on reload. Keep THEME_LAST_KEY in step with
  *    that script (tests/unit/theme.test.tsx checks it).
  *
