@@ -129,9 +129,27 @@ export function normalizeNullable(node: unknown): unknown {
   return out;
 }
 
+/** The POS-facing route prefix; every other route of a contract is not the POS's to call. */
+const POS_PATH_PREFIX = '/api/pos/v1/';
+
+/**
+ * RT-1312: some contracts hold the POS route next to console or platform routes
+ * of other principals (`pos-device-health.openapi.yaml`: the device heartbeat,
+ * the console device-health reads, the platform version policy). Keep only the
+ * `/api/pos/v1/` paths, so the generated types offer the POS nothing it must not
+ * call; components stay as they are. Pure — returns a new tree.
+ */
+export function posPathsOnly(doc: unknown): unknown {
+  if (!isRecord(doc) || !isRecord(doc.paths)) return doc;
+  const paths = Object.fromEntries(
+    Object.entries(doc.paths).filter(([route]) => route.startsWith(POS_PATH_PREFIX)),
+  );
+  return { ...doc, paths };
+}
+
 async function generateNamespace(contractsDir: string, file: string): Promise<string> {
-  const doc = normalizeNullable(
-    loadYaml(readFileSync(path.join(contractsDir, 'openapi', file), 'utf8')),
+  const doc = posPathsOnly(
+    normalizeNullable(loadYaml(readFileSync(path.join(contractsDir, 'openapi', file), 'utf8'))),
   ) as Parameters<typeof openapiTS>[0];
   const body = astToString(await openapiTS(doc, FIXED_OPTIONS)).replace(/\r\n/g, '\n');
   const indented = body

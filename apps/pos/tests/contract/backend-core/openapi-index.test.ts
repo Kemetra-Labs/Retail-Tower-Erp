@@ -87,6 +87,28 @@ describe('indexContract', () => {
     ).toThrow(/no POS credential mapping/);
   });
 
+  it('classifies the human console session cookie (RT-1312) as a credential no POS client holds', () => {
+    const extra = `${SCHEMES}    cookieAuth:\n      type: apiKey\n      in: cookie\n      name: dp2_session\n`;
+    const [op] = indexContract(
+      doc(
+        `  /a:\n    get:\n      operationId: a\n      security:\n        - cookieAuth: []\n`,
+        extra,
+      ),
+    );
+    expect([...(op?.accepts ?? [])]).toEqual(['human-session']);
+  });
+
+  it('fails on an apiKey scheme outside a cookie, or a cookie scheme with no mapping', () => {
+    const header = `${SCHEMES}    cookieAuth:\n      type: apiKey\n      in: header\n      name: x\n`;
+    const unmapped = `${SCHEMES}    otherCookie:\n      type: apiKey\n      in: cookie\n      name: x\n`;
+    const op = (name: string): string =>
+      `  /a:\n    get:\n      operationId: a\n      security:\n        - ${name}: []\n`;
+    expect(() => indexContract(doc(op('cookieAuth'), header))).toThrow(/extend the classifier/);
+    expect(() => indexContract(doc(op('otherCookie'), unmapped))).toThrow(
+      /no POS credential mapping/,
+    );
+  });
+
   it('fails when an operationId sits outside the structure it reads', () => {
     expect(() =>
       indexContract(

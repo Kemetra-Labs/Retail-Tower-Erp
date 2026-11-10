@@ -907,6 +907,434 @@ export namespace PosCashierAdmissions {
     }
 }
 
+/** Generated from contracts/backend-core/openapi/pos-device-health.openapi.yaml. */
+export namespace PosDeviceHealth {
+    export interface paths {
+        "/api/pos/v1/terminals/heartbeat": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Report a POS device heartbeat and receive the version policy and compatibility signal.
+             * @description A paired terminal reports its installed version, channel, update state, pending version, local schema head and its own clock. The device, tenant and store come from the guard; `last_seen_at` is the server clock. The body is closed (unknown and identity keys are 400). Backend-Core stores at most one beat per device per 60 seconds and always answers with a `HeartbeatAck` computed from this request and the current policy. Not one of the RT-719 build identity reporting operations: the `X-POS-*` headers are not read here.
+             */
+            post: operations["posReportDeviceHeartbeat"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description A semantic version without build metadata, at most 32 characters (`1.4.0`, `1.4.0-rc.1`). The same schema as the RT-719 `X-POS-App-Version` header and `appVersion` in the build identity. */
+            AppVersion: string;
+            /**
+             * @description The server's verdict against the current policy (see "The compliance verdict"). `unknown` whenever the version, the channel or the policy is missing; never `ok` on missing data.
+             * @enum {string}
+             */
+            Compliance: "ok" | "below_minimum" | "unknown";
+            /** @description A keyset page of device health rows, by `deviceId` ascending. */
+            DeviceHealthPage: {
+                items: components["schemas"]["DeviceHealthView"][];
+                /** @description The cursor for the next page; `null` on the last page. */
+                nextCursor: string | null;
+            };
+            /** @description One device's health. Identity, label and trust state come from the device row; the self-reported fields are the last STORED heartbeat (`null` until the first, and `null` for a field that beat omitted); `liveness` and `compliance` are derived at this read. No tenant id, no health-row id, no secret. */
+            DeviceHealthView: {
+                /**
+                 * Format: date-time
+                 * @description `devices.last_seen_at`, the activity clock (RT-370), the same value as `lastSeenAt` on `DeviceSummary` while that is activity-sourced; `null` until written.
+                 */
+                activityLastSeenAt: string | null;
+                /** @description The last stored `app_version`; `null` when unknown. */
+                appVersion: components["schemas"]["AppVersion"] | null;
+                compliance: components["schemas"]["Compliance"];
+                /**
+                 * Format: uuid
+                 * @description The device id (`devices.id`).
+                 */
+                deviceId: string;
+                /**
+                 * Format: date-time
+                 * @description `device_health.last_seen_at`: the server clock of the last stored heartbeat; `null` when the device never sent one.
+                 */
+                heartbeatAt: string | null;
+                /** @description The terminal label given at pairing; `null` when none. */
+                label: string | null;
+                /**
+                 * Format: date-time
+                 * @description The more recent of `heartbeatAt` and `activityLastSeenAt` (D-5 as amended); `null` when both are. Display only: never drives `liveness`.
+                 */
+                lastSeenAt: string | null;
+                /** @description Which clock `lastSeenAt` is: `heartbeat` or `activity` (on a tie, `heartbeat`); `null` exactly when `lastSeenAt` is. */
+                lastSeenSource: ("heartbeat" | "activity") | null;
+                liveness: components["schemas"]["Liveness"];
+                /**
+                 * Format: date-time
+                 * @description The grace instant of that policy; `null` with it.
+                 */
+                minSupportedGraceUntil: string | null;
+                /** @description The current `minSupportedVersion` of the device's stored channel; `null` when the channel is unknown or has no policy. */
+                minSupportedVersion: components["schemas"]["AppVersion"] | null;
+                /** @description The last stored `pending_version`; `null` when none or unknown. */
+                pendingVersion: components["schemas"]["AppVersion"] | null;
+                /** @description RT-1312: the sale queue of the last stored beat; `null` when the device never beat or that beat carried none (unknown, never 0). */
+                saleQueue: components["schemas"]["SaleQueueView"] | null;
+                /** @description The last stored `schema_head`; `null` when unknown. */
+                schemaHead: components["schemas"]["SchemaHead"] | null;
+                /** @description Whole seconds since `heartbeatAt` (floored); `null` with it. */
+                secondsSinceHeartbeat: number | null;
+                /**
+                 * Format: date-time
+                 * @description The terminal clock of the last stored beat (provenance only).
+                 */
+                sourceClockAt: string | null;
+                /**
+                 * Format: uuid
+                 * @description The device's store.
+                 */
+                storeId: string;
+                trustState: components["schemas"]["TrustState"];
+                /** @description The last stored `update_channel`; `null` when unknown. */
+                updateChannel: components["schemas"]["UpdateChannel"] | null;
+                /** @description The last stored `update_state`; `null` when unknown. */
+                updateState: components["schemas"]["UpdateState"] | null;
+            } & (unknown & unknown & unknown & unknown & unknown);
+            /** @description A heartbeat's self-reported fields (AD-DEVICE-001 D-1). All optional: an empty object is a valid heartbeat (it records liveness, and every field as unknown). A stored beat replaces every field; an omitted one is stored as `null`. NO `device_id`, `tenant_id`, `store_id` or `last_seen_at`: identity and the last-seen clock are Backend-Core's. An unknown key is 400 `validation_error`. `null` is accepted where a field is nullable and means the same as omitting it. */
+            DeviceHeartbeatReport: {
+                /** @description The installed POS version. Absent or `null` while the build has no release version (compliance is then `unknown`). The same value and bound as `X-POS-App-Version`. */
+                app_version?: components["schemas"]["AppVersion"] | null;
+                /** @description A version downloaded and waiting for a safe point; `null` when none. */
+                pending_version?: components["schemas"]["AppVersion"] | null;
+                /** @description RT-1312: the till's unsent sale counts at beat time. Absent or `null` is stored as unknown. Send it only when the last reply's `pos_contract_revision` is at least 2. */
+                sale_queue?: components["schemas"]["SaleQueueReport"] | null;
+                /** @description The newest applied local migration; `null` when unknown. */
+                schema_head?: components["schemas"]["SchemaHead"] | null;
+                /** @description The terminal clock at beat time. Provenance for skew diagnosis only; never `last_seen_at` and never used for liveness. */
+                source_clock_at?: string | null;
+                /** @description The terminal's update channel. Absent or `null`, compliance is `unknown`. */
+                update_channel?: components["schemas"]["UpdateChannel"] | null;
+                /** @description The POS updater state at the time of the beat. */
+                update_state?: components["schemas"]["UpdateState"] | null;
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+            /** @description The reply to every accepted heartbeat, computed from this request's body and the current policy (D-2, D-3), stored or throttled alike. With no policy for the reported channel (or no channel reported), `policy` and `min_supported_grace_until` are `null` and `compliance` is `unknown`. */
+            HeartbeatAck: {
+                /**
+                 * Format: date-time
+                 * @description The Backend-Core server clock when the heartbeat was accepted. For skew diagnosis; the terminal measures the reply's freshness from when it received it.
+                 */
+                acknowledged_at: string;
+                compliance: components["schemas"]["Compliance"];
+                /** @description The server-set instant after which a below-minimum terminal blocks opening a new shift (D-6); `null` when no policy applies. */
+                min_supported_grace_until: string | null;
+                /** @description The reported channel's policy; `null` when none applies. */
+                policy: components["schemas"]["HeartbeatPolicy"] | null;
+                pos_contract_revision: components["schemas"]["PosContractRevision"];
+            } & unknown;
+            /** @description The version policy of the channel the heartbeat reported (D-2). Being behind `latest_version` or `recommended_version` never blocks. */
+            HeartbeatPolicy: {
+                channel: components["schemas"]["UpdateChannel"];
+                latest_version: components["schemas"]["AppVersion"];
+                min_supported_version: components["schemas"]["AppVersion"];
+                /** @description The policy's revision, as `revision` on the platform read. */
+                policy_revision: number;
+                recommended_version: components["schemas"]["AppVersion"];
+            };
+            /**
+             * @description Derived at read from the heartbeat clock (D-4): `online` within 30 minutes, `stale` within 24 hours, `offline` beyond, `unknown` with no heartbeat row. The thresholds are server configuration. `unknown` is never Healthy.
+             * @enum {string}
+             */
+            Liveness: "online" | "stale" | "offline" | "unknown";
+            /** @description Backend-Core's POS contract revision (D-3): incremented with every POS-facing API change a POS release may depend on; never decreases. */
+            PosContractRevision: number;
+            /** @description One channel's stored policy. `minSupportedVersion <= recommendedVersion <= latestVersion` in semantic-version precedence. */
+            PosVersionPolicy: {
+                latestVersion: components["schemas"]["AppVersion"];
+                /**
+                 * Format: date-time
+                 * @description The instant after which a below-minimum terminal blocks opening a new shift (D-6).
+                 */
+                minSupportedGraceUntil: string;
+                minSupportedVersion: components["schemas"]["AppVersion"];
+                recommendedVersion: components["schemas"]["AppVersion"];
+                /** @description Bumped by every effective change; the `expectedRevision` of the next change. */
+                revision: number;
+                /**
+                 * Format: date-time
+                 * @description Server clock of the last effective change.
+                 */
+                updatedAt: string;
+                /**
+                 * Format: uuid
+                 * @description The platform admin who made the last effective change (a user id, never an email).
+                 */
+                updatedByUserId: string;
+            };
+            /** @description The full new policy of the channel and the revision it replaces. No free text: the audit row records the old and new values. */
+            PosVersionPolicyChange: {
+                /** @description The `revision` last read; `null` when the channel has no policy yet. A mismatch is 409 `policy_revision_conflict`, unless the body equals the stored values (then a no-op 200). */
+                expectedRevision: number | null;
+                latestVersion: components["schemas"]["AppVersion"];
+                /** Format: date-time */
+                minSupportedGraceUntil: string;
+                minSupportedVersion: components["schemas"]["AppVersion"];
+                recommendedVersion: components["schemas"]["AppVersion"];
+            };
+            /** @description One channel and its policy, `null` when none has been set. */
+            PosVersionPolicyEntry: {
+                channel: components["schemas"]["UpdateChannel"];
+                policy: components["schemas"]["PosVersionPolicy"] | null;
+            };
+            /** @description Every channel, in the order `lab`, `canary`, `stable`. */
+            PosVersionPolicySet: {
+                items: components["schemas"]["PosVersionPolicyEntry"][];
+            };
+            /** @description A count of sales on the till (RT-1312), bounded like the DB CHECK. */
+            SaleQueueCount: number;
+            /** @description RT-1312 F1: the till's unsent sales, by state. Counts and one instant; no sale id, number, amount or cashier. */
+            SaleQueueReport: {
+                dead_letter: components["schemas"]["SaleQueueCount"];
+                held_previous_pairing: components["schemas"]["SaleQueueCount"];
+                /** @description The till time of the oldest pending sale; `null` when none is pending. */
+                oldest_pending_at: string | null;
+                pending: components["schemas"]["SaleQueueCount"];
+            };
+            /** @description RT-1312 F1: the till's unsent sale counts as of its last stored heartbeat (`heartbeatAt`), not live. */
+            SaleQueueView: {
+                deadLetter: components["schemas"]["SaleQueueCount"];
+                heldPreviousPairing: components["schemas"]["SaleQueueCount"];
+                /**
+                 * Format: date-time
+                 * @description The till time of the oldest pending sale; `null` when none was pending.
+                 */
+                oldestPendingAt: string | null;
+                pending: components["schemas"]["SaleQueueCount"];
+            };
+            /** @description The name of the newest applied local POS migration (RT-320 SchemaAheadGuard diagnosis): letters, digits, `_`, `.`, `-`; never a path or free text. */
+            SchemaHead: string;
+            /**
+             * @description The device's trust state, as on `devices.openapi.yaml`. Health never changes it; below minimum never revokes (G10).
+             * @enum {string}
+             */
+            TrustState: "active" | "revoked" | "retired";
+            /**
+             * @description The terminal's update channel (ADR-0006 §10). A new value is a contract change.
+             * @enum {string}
+             */
+            UpdateChannel: "lab" | "canary" | "stable";
+            /**
+             * @description The POS updater state (ADR-0006 §9, RT-322). A new value is a contract change.
+             * @enum {string}
+             */
+            UpdateState: "idle" | "checking" | "downloading" | "downloaded" | "verify_failed" | "verify_unavailable" | "compat_blocked" | "update_pending" | "installing" | "error";
+        };
+        responses: {
+            /** @description 401 `unauthorized`: a missing, invalid, revoked or otherwise refused device token, or a non-device credential. Non-disclosing; nothing is stored. */
+            DeviceUnauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description validation_error (400): a body that is not a JSON object, an unknown key, an identity or server-owned key (`device_id`, `tenant_id`, `store_id`, `last_seen_at`), or a value outside its bound, enum or pattern. Nothing is stored and no reply policy is computed. */
+            HeartbeatValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside `owner` / `tenant_admin` / `store_manager`, another tenant's device or store, a store outside the caller's scope and an absent id. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description forbidden (403): a signed-in user who is not a platform admin (`users.is_platform_admin` false), including a tenant `owner`. */
+            PlatformReadForbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403, `error.code` one of: `forbidden` (a signed-in user who is not a platform admin) or `origin_rejected` (RT-430: the `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`). Nothing is written. */
+            PlatformWriteForbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description policy_revision_conflict (409): `expectedRevision` is not the stored revision (or is `null` while a policy exists, or set while none exists) and the body differs from the stored values. Nothing is written; read the policy again and retry. */
+            PolicyRevisionConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description validation_error (400): a malformed path id, an unknown, repeated or malformed query value, or a cursor the server cannot decode. Checked after the guards and before any database read. */
+            ReadValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential. Non-disclosing. Owned by 028 (G10). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description version_order_invalid (422): the versions are well-formed but not `minSupportedVersion <= recommendedVersion <= latestVersion` in semantic-version precedence. Nothing is written. */
+            VersionOrderInvalid: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description validation_error (400): an unknown channel, a body that is not a JSON object, an unknown or missing key, or a value outside its pattern. Nothing is written. */
+            WriteValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description Only devices whose last stored heartbeat reported exactly this version. A device with no reported version never matches. */
+            AppVersionQuery: components["schemas"]["AppVersion"];
+            /** @description The channel whose policy is set. Any other value is 400 `validation_error`. */
+            ChannelPath: components["schemas"]["UpdateChannel"];
+            /** @description Only devices with this compliance verdict, derived at this read. */
+            ComplianceQuery: components["schemas"]["Compliance"];
+            /** @description Opaque keyset cursor from a prior page's `nextCursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_error`. */
+            Cursor: string;
+            /** @description The device id (`devices.id`, the paired `terminal_id`). Case insensitive: normalised to lower case before the lookup. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+            DeviceIdPath: string;
+            /** @description Only devices with this liveness verdict, derived at this read. */
+            LivenessQuery: components["schemas"]["Liveness"];
+            /** @description Maximum items per page (bounded). The server MAY return fewer. */
+            PageSize: number;
+            /** @description Only devices of this store. Validated against the caller's store scope: a store outside it, or of another tenant, is the non-disclosing 404. Omitted: every store in the caller's scope. */
+            StoreIdQuery: string;
+            /** @description Only devices in this trust state, as on `consoleListDevices`. Omitted: `active` and `revoked` devices, never `retired` ones. */
+            TrustStateQuery: components["schemas"]["TrustState"];
+            /** @description Only devices whose last stored heartbeat reported this channel. */
+            UpdateChannelQuery: components["schemas"]["UpdateChannel"];
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body is per-device state or the live policy, so no shared or browser cache keeps it. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
+            ConsoleRetryAfter: number;
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        posReportDeviceHeartbeat: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeviceHeartbeatReport"];
+                };
+            };
+            responses: {
+                /** @description The heartbeat was accepted (stored, or inside the 60-second throttle window). The reply is the same either way. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HeartbeatAck"];
+                    };
+                };
+                400: components["responses"]["HeartbeatValidationFailure"];
+                401: components["responses"]["DeviceUnauthorized"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
 /** Generated from contracts/backend-core/openapi/pos-operators.openapi.yaml. */
 export namespace PosOperators {
     export interface paths {
@@ -2334,7 +2762,10 @@ export namespace PosSalesSales {
              *     Admission check time (RT-225): on this path the body may also carry `admissionCheckAt`, which then replaces `occurredAt` in the admission-window comparison only (see the field). Sent without `operatorUserId`, it is a 400.
              *     Payer responsibilities (RT-417, from RT-418): the optional `responsibilities` list records who owes the part of the sale not paid by `tenders`. When it is present, `sum(tenders) + sum(responsibilities) = posTotal` must hold exactly (else 422 `sale_responsibility_mismatch`), and every payer must be eligible (else 422 `sale_responsibility_payer_invalid`); see the field and `CaptureUnprocessable`. Responsibilities are accepted only on the `operatorAuthorization` path (owner decision 2026-10-16, option A). On the `device` path a body with `responsibilities` is 422 `sale_responsibility_offline_refused`, decided before the coverage rule and after authentication and the RT-224 cashier-claim check (403 `refused`). On the envelope path the role check (403 `sale_responsibility_role_refused`) is decided after authentication and before every 422. Order of the 422s: the device-path offline refusal, then the coverage rule, then the line price invariant, then the payers (as in `CaptureUnprocessable`). A replay of an already-captured sale answers after authentication and the RT-224 cashier-claim check (403 `refused`), and before the role check (403 `sale_responsibility_role_refused`) and every 422, so a payer suspended after capture never turns a stored result into a 403 or a 422. Nothing is recorded on any failure.
              *     Receipt snapshot (RT-537): the body may carry the optional `receipt` (see `CaptureSaleReceipt`). The server stores it first-write-wins and keeps it out of the `payload_hash`. From RT-539 the order of `lines` is stored as the receipt line order.
-             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and so is a provenance replay under another key with different tracking (RT-1206). Stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons: a refusal would only strand the fact in the till's dead-letter. The server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
+             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and so is a provenance replay under another key with different tracking (RT-1206). Stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons, whatever the switch state: a refusal would only strand the fact in the till's dead-letter.
+             *     Tracked selling OFF (RT-451 S3, OD-T4; comment 16269): the classification below applies only while the deployment gate `POS_TRACKED_SELLING_ENABLED` AND the tenant's tracked-selling switch are both on, evaluated at capture (the tenant switch is read in the capture transaction). While either is off, no line is classified: a tracked product's line, with or without `tracking`, is accepted as an ordinary line (normal Inventory effects at the product grain, a normal ERP posting intent; never `tracking_unresolved` and never a finding). A `tracking` it carries is stored as received (provenance only), not validated and not classified; it stays in the `payload_hash`, so the replay and conflict rules above are unchanged. There is no 400 for tracking reasons, so a sale the till validated while tracked selling was on and sends after it was switched off is still accepted.
+             *     Ad-hoc lines (RT-451 S3, comment 16275 (b)): a line without a tenant product is never classified, even while tracked selling is on. A `tracking` it carries is stored as received (provenance only), with no finding, and it never makes the sale `tracking_unresolved`.
+             *     Tracked selling ON: the server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
              *
              *       1. Valid: a known identity of this product, a `validationId` that
              *          matches an accepted validation of that identity (same tenant,
@@ -2739,7 +3170,7 @@ export namespace PosSalesSales {
             /**
              * @description RT-450 (RT-50 G7-9, G7-13; contract-only until RT-451): the tracking identity a line of a batch-tracked product sold. One identity per line: a quantity from two lots is two lines (G7-4). Absent on a line of an untracked product. The line freezes this snapshot at capture (437), and it is included in the sale `payload_hash`.
              *     Source of truth, field by field: `identityId`, `code` and `expiryDate` are the Backend-Core Inventory tracking identity record (G7-2), as the till received them from the validation; they are never defined by the till and never taken from the ERPNext Batch. The ERP Batch ref is not here: it comes from the Inventory edge map and is frozen with the posting intent. `selection` and `validationId` are the till's account of how the lot was chosen and which online validation covered it.
-             *     `validationId` and `expiryDate` are optional on purpose, so that no row of the G7-9 classification table (see `captureSale`) needs a 400: a line sent without `validationId` is classified as a tracked line without online validation, never refused. A malformed object (an unknown key, a `selection` outside the enum, a non-UUID id) is a 400 `validation_error`, as for any body field; a well-formed `tracking` that names an unknown or wrong identity is accepted and classified.
+             *     `validationId` and `expiryDate` are optional on purpose, so that no row of the G7-9 classification table (see `captureSale`) needs a 400: a line sent without `validationId` is classified as a tracked line without online validation, never refused. A malformed object (an unknown key, a `selection` outside the enum, a non-UUID id) is a 400 `validation_error`, as for any body field; a well-formed `tracking` that names an unknown or wrong identity is accepted and classified. While tracked selling is off for the tenant (the deployment gate or the tenant's switch, RT-451 S3), and on an ad-hoc line, a well-formed `tracking` is stored as received and not classified, never refused (see `captureSale`).
              */
             CaptureSaleLineTracking: {
                 /** @description The lot number exactly as recorded on the identity (`TrackingIdentity.code`, at most 128 characters), matched exactly, never fuzzily. A snapshot: it is not re-read from the identity later. */

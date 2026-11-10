@@ -78,6 +78,7 @@ import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
 import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from './bootstrap/env.js';
 import { registerBranding } from './bootstrap/branding.js';
+import { registerDeviceHeartbeat } from './bootstrap/device-heartbeat.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerCart, registerPayments } from './bootstrap/payments-cart.js';
 import { registerReturns } from './bootstrap/returns.js';
@@ -1326,6 +1327,7 @@ singleInstanceReady
     };
     const { bootPairing } = await registerCatalogue(deviceReadDownDeps);
     registerBranding(deviceReadDownDeps);
+    registerDeviceHeartbeat({ ...deviceReadDownDeps, updateService }); // RT-1312 P1 heartbeat
 
     // RT-1219 — `payments.*` / `tender.*` IPC, manager recovery and the deferred voucher-reversal
     // resolver, after the catalogue/branding IPC as before (see `bootstrap/payments-cart.ts`).
@@ -1333,9 +1335,7 @@ singleInstanceReady
 
     // ── Shared receipt printer + drawer ports (RT-15 S4: hoisted out of the
     // 008 branch below so the return payout reuses the same instances) ──────
-    //
     // 008 §A3 print transports.
-    //
     // OS-print path (T200): the REAL `webContents.print` transport is wired —
     // an actual 008 receipt prints through the Windows OS print path on a
     // physically attached printer (e.g. the BIXOLON SRP-330 II from the §A5
