@@ -225,6 +225,19 @@ describe("Devices list: the till's unsent sales (RT-1312)", () => {
     );
   });
 
+  test.each([400, 401, 500])(
+    "a list failure (%i) shows only the list's own banner, not a second health banner",
+    async (status) => {
+      consoleListDevices.mockResolvedValue(failure(status, "req-list"));
+      consoleListDeviceHealth.mockResolvedValue(failure(status, "req-h"));
+      renderAt("/devices");
+      await waitFor(() => expect(consoleListDeviceHealth).toHaveBeenCalled());
+      expect(await screen.findByRole("alert")).toBeDefined();
+      expect(screen.getAllByRole("alert")).toHaveLength(1);
+      expect(screen.queryByText(/Could not load the unsent sale counts/)).toBeNull();
+    },
+  );
+
   test("joins by deviceId across health pages, whatever the order", async () => {
     consoleListDevices.mockResolvedValue(
       page([

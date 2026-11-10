@@ -343,7 +343,8 @@ export function DeviceList(): React.JSX.Element {
         onClear={clearFilters}
       />
 
-      {saleQueues.status === "failed" ? (
+      {/* Only beside rows: with no rows the list's own state already speaks. */}
+      {saleQueues.status === "failed" && list.rows.length > 0 ? (
         <Banner
           variant="warning"
           message={t("devices.saleQueue.loadFailed")}

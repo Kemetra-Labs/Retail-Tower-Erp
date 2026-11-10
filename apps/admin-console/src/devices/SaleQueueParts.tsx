@@ -9,6 +9,7 @@
  */
 import { DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { DateTime, type MessageKey, formatNumber, useT } from "@/i18n";
+import { LtrTime } from "./DeviceParts";
 import type { SaleQueueState } from "./saleQueueLogic";
 import "./devices.css";
 
@@ -50,13 +51,13 @@ export function SaleQueueCell({
       {state.oldestPendingAt ? (
         <small className="device-quiet">
           {t.rich("devices.saleQueue.oldestPending", {
-            time: <DateTime value={state.oldestPendingAt} timeZone={timeZone} />,
+            time: <LtrTime value={state.oldestPendingAt} timeZone={timeZone} />,
           })}
         </small>
       ) : null}
       <small className="device-quiet">
         {t.rich("devices.saleQueue.asOf", {
-          time: <DateTime value={state.heartbeatAt} timeZone={timeZone} />,
+          time: <LtrTime value={state.heartbeatAt} timeZone={timeZone} />,
         })}
       </small>
     </span>
