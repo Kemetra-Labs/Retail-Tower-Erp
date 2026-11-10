@@ -56,6 +56,15 @@ export type PairingStatus =
       terminal_id: string;
       terminal_label: string;
       paired_at: number; // unix epoch seconds
+      /**
+       * RT-1316 Phase 2 — the store's display name from the pair response
+       * (`terminal_assignment.branch_name`), shown on the Ready card. Human
+       * configuration, not an identifier. Read-only: nothing writes it through
+       * the bridge. `null` for a row paired before migration 0027 (or a server
+       * that sent none); optional so a fixture without it still type-checks.
+       * Both mean "no name": the Ready card hides the line.
+       */
+      branch_name?: string | null;
     };
 
 /** Outcome category of a single pair-submit attempt. */

@@ -212,6 +212,45 @@ describe('PairedScreen — minimum disclosure (F-2)', () => {
   });
 });
 
+describe('PairedScreen — store name (RT-1316 Phase 2)', () => {
+  it('shows the store name before «متابعة», isolated in <bdi>, with no new label', async () => {
+    const { bridge } = makeBridge({ status: { ...PAIRED_STATUS, branch_name: 'Maadi Store' } });
+    renderInRouter(bridge);
+    await waitFor(() => {
+      expect(screen.getByTestId('route-paired')).toBeInTheDocument();
+    });
+
+    const store = screen.getByText('Maadi Store');
+    expect(store.tagName).toBe('BDI');
+    // Data only: not a <dd> (it has no <dt> label) and no aria-label copy.
+    expect(store.closest('dl')).toBeNull();
+    const line = screen.getByTestId('paired-store');
+    expect(line.textContent).toBe('Maadi Store');
+    expect(line).not.toHaveAttribute('aria-label');
+    const commit = screen.getByRole('button', { name: READY_COPY.continue });
+    expect(line.compareDocumentPosition(commit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The terminal label stays the card fact.
+    expect(screen.getByText(PAIRED_STATUS.terminal_label).tagName).toBe('BDI');
+  });
+
+  it.each([
+    ['null', null],
+    ['missing', undefined],
+    ['blank', '   '],
+  ])('hides the store line when branch_name is %s', async (_case, branchName) => {
+    const status = { ...PAIRED_STATUS, branch_name: branchName } as Extract<
+      PairingStatus,
+      { kind: 'paired' }
+    >;
+    const { bridge } = makeBridge({ status });
+    renderInRouter(bridge);
+    await waitFor(() => {
+      expect(screen.getByTestId('route-paired')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('paired-store')).not.toBeInTheDocument();
+  });
+});
+
 describe('PairedScreen — production fallback to window.api', () => {
   it('reads bridge from window.api when no `pairing` prop is provided', async () => {
     const fakeApi = {

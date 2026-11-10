@@ -21,9 +21,10 @@ import type { PairingStatus } from '../../../shared/pairing-types';
  *
  * Security policy:
  *   - The `paired` PairingStatus branch type explicitly omits
- *     `device_token`. This component only reads terminal_label /
- *     paired_at — all human-facing configuration, no identifiers or
- *     secrets are rendered in visible text or DOM attributes.
+ *     `device_token`. This component only reads terminal_label and
+ *     branch_name (RT-1316, the store's display name) — human-facing
+ *     configuration; no identifiers or secrets are rendered in visible
+ *     text or DOM attributes.
  *   - The bridge call goes through the typed preload, which
  *     in turn invokes the main-process IPC handler that already
  *     omits the token from the result envelope.
@@ -83,10 +84,14 @@ export function PairedScreen(props: Readonly<PairedScreenProps>): JSX.Element {
   }
 
   const { status } = state;
+  const storeName = status.branch_name?.trim() ?? '';
   // RT-244 PR2 (G-1 «Ready»): the M-F1 sentence, the terminal label as the one
   // fact, one commit. A neutral state, not a success colour. The label is admin
   // free text, so it is isolated in <bdi>. data-terminal-label is a
   // human-friendly label, not a backend identifier — intentionally retained.
+  // RT-1316 Phase 2: the store name (admin free text from the pair response)
+  // shows as data only, in <bdi>, before «متابعة». It carries no label until
+  // the owner approves one, and is hidden when the pairing has no name.
   return (
     <EntryCardScreen
       rootProps={{ 'data-testid': 'route-paired', 'data-terminal-label': status.terminal_label }}
@@ -96,6 +101,11 @@ export function PairedScreen(props: Readonly<PairedScreenProps>): JSX.Element {
         <h1 id="ready-title" className="v5-entry__card-title">
           {READY_COPY.title}
         </h1>
+        {storeName !== '' ? (
+          <p className="v5-entry__card-hint" data-testid="paired-store">
+            <bdi>{storeName}</bdi>
+          </p>
+        ) : null}
         <dl className="v5-entry__facts">
           <dt>{READY_COPY.terminal}</dt>
           <dd>
