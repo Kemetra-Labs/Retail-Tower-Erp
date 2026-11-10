@@ -1,17 +1,20 @@
-"""RT-1300: static and step-level checks of promote-pos-pilot.yml, the VERIFY-ONLY (dry-run) promotion of a
-pilot release.
+"""RT-1300: static and step-level checks of promote-pos-pilot.yml, the promotion of a pilot release.
 
 The workflow is policy class (root .github/), so its checks live here and run in project-graph-selftest
 (`python -m unittest discover -s .github/release`), next to the pilot release checks whose helpers are reused.
 
-What is pinned: it can be started only by hand, it holds no environment, no secret, no AWS and no Backend-Core
-call (it cannot upload, sign, register or activate), the release it reads must be a pilot release on a tag that
-is on main, the assets are exactly the three the pilot release publishes, the manifest and the attestation
-bind them to the tag's commit, and the installer's signature is checked against a pinned leaf. The bash steps
-run for real (with a stub `gh`); the PowerShell step is only parsed here, because it adds a certificate to the
-machine's trust store and so runs on a hosted runner only.
+What is pinned, job by job. It can be started only by hand, and `dry_run` defaults to true. `resolve` and `verify`
+hold no environment, no secret, no AWS and no id-token in either mode: the release it reads must be a pilot release
+on a tag that is on main, the assets are exactly the three the pilot release publishes, the manifest and the
+attestation bind them to the tag's commit, and the installer's signature is checked against a pinned leaf. Only
+when a person turns `dry_run` off do two more jobs run, and they are the only ones with an environment or an
+id-token: `upload` (checks everything first, then one conditional, checksummed PutObject, and builds the
+registration body once) and `register` (one OIDC-authenticated POST; it never activates). The bash steps run for
+real, with stub `gh`, `aws` and `curl`; the PowerShell step is only parsed here, because it adds a certificate to
+the machine's trust store and so runs on a hosted runner only.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -43,11 +46,14 @@ EXE = f"POS-Pulse-Setup-{VERSION}.exe"
 SHA = "a" * 40
 LEAF = "AB" * 20
 REPO = "Kemetra-Labs/Retail-Tower-Erp"
-FORBIDDEN_IN_CODE = (
+# What the two jobs that run in a dry run too (resolve, verify) must never hold: a credential, an environment, a
+# write to S3 or to Backend-Core, or a way to publish anything.
+NEVER_IN_THE_VERIFY_JOBS = (
     "id-token", "environment:", "secrets.", "aws-actions", "configure-aws-credentials", "aws s3", "PutObject",
-    "AWS_", "attestations: write", "contents: write", "/api/v1/", "Idempotency-Key", "gh release create",
-    "gh release upload", "git push",
+    "put-object", "AWS_", "attestations: write", "contents: write", "/api/v1/", "Idempotency-Key", "Bearer",
+    "gh release create", "gh release upload", "git push",
 )
+ENVIRONMENT = "release-pos-pilot-promote"
 STUB_GH = """
 gh() {
   printf '%s\\n' "$*" >> "$GH_LOG"
@@ -81,6 +87,7 @@ def runner_temp(tmp: Path) -> str:
 def manifest(**changes) -> dict:
     """A manifest the checks must accept; each keyword replaces one top-level field."""
     base = {"product": "pos-pilot", "signing": "pilot", "mode": "release", "tag": TAG, "source": {"repository": REPO, "sha": SHA},
+            "ci_url": f"https://github.com/{REPO}/actions/runs/777/attempts/2",
             "artifacts": [{"name": "pos-installer", "file": EXE, "digest": "sha256:" + hashlib.sha256(b"installer bytes").hexdigest()}]}
     base.update(changes)
     return base
@@ -90,11 +97,11 @@ class PromotePosPilotStatic(unittest.TestCase):
     text = read(WORKFLOW)
 
     @unittest.skipUnless(yaml, "PyYAML is needed")
-    def test_the_file_is_valid_yaml_with_the_two_jobs(self):
+    def test_the_file_is_valid_yaml_with_the_four_jobs(self):
         # A plain scalar such as a job name must not hold ": " (the project-graph privilege scan refuses the file).
         document = yaml.safe_load(self.text)
-        self.assertEqual(list(document["jobs"]), ["resolve", "verify"])
-        for name in ("resolve", "verify"):
+        self.assertEqual(list(document["jobs"]), ["resolve", "verify", "upload", "register"])
+        for name in ("resolve", "verify", "upload", "register"):
             self.assertIsInstance(document["jobs"][name]["name"], str)
 
     def test_the_run_must_be_on_main_and_the_runbook_says_so_and_takes_the_pin_from_the_protected_environment(self):
@@ -113,20 +120,25 @@ class PromotePosPilotStatic(unittest.TestCase):
         self.assertEqual(triggers(self.text), ["workflow_dispatch"])
         self.assertNotIn("pull_request", code(self.text))
         inputs = re.findall(r"^      ([a-z_0-9]+):$", re.search(r"workflow_dispatch:\n    inputs:\n((?:      .*\n|        .*\n)+)", self.text).group(1), re.M)
-        self.assertEqual(inputs, ["tag", "leaf_sha1"])
+        self.assertEqual(inputs, ["tag", "leaf_sha1", "dry_run"])
 
-    def test_every_action_is_pinned_by_sha_and_already_pinned_by_the_pilot_release(self):
+    def test_every_action_is_pinned_by_sha_and_already_pinned_by_the_pilot_release_or_the_lab_deploys(self):
         pilot = read(WORKFLOWS / "release-pos-pilot.yml")
-        pilot_uses = set(re.findall(r"^\s*(?:-\s+)?uses:\s*(\S+)", pilot, re.M))
+        lab = read(WORKFLOWS / "deploy-lab.yml")
+        known = set(re.findall(r"^\s*(?:-\s+)?uses:\s*(\S+)", pilot, re.M))
+        # The one AWS action is the build the lab deploys already assume their role with, not a new pin.
+        lab_aws = {ref for ref in re.findall(r"^\s*(?:-\s+)?uses:\s*(\S+)", lab, re.M) if ref.startswith("aws-actions/configure-aws-credentials@")}
+        self.assertEqual(len(lab_aws), 1)
         for ref in re.findall(r"^\s*(?:-\s+)?uses:\s*(\S+)", self.text, re.M):
             self.assertRegex(ref, r"^[\w./-]+@[0-9a-f]{40}$")
-            self.assertIn(ref, pilot_uses, f"{ref} is not pinned by release-pos-pilot.yml")
+            self.assertIn(ref, known | lab_aws, f"{ref} is pinned by neither release-pos-pilot.yml nor deploy-lab.yml")
 
-    def test_it_can_neither_upload_nor_register_nor_authenticate_to_anything(self):
-        body = code(self.text)
-        for word in FORBIDDEN_IN_CODE:
-            self.assertNotIn(word, body, word)
-        self.assertEqual(len(re.findall(r"^    environment:", body, re.M)), 0)
+    def test_the_two_jobs_that_run_in_a_dry_run_too_hold_no_credential_and_no_way_to_publish(self):
+        for name in ("resolve", "verify"):
+            body = code(job(self.text, name))
+            for word in NEVER_IN_THE_VERIFY_JOBS:
+                self.assertNotIn(word, body, f"{name}: {word}")
+            self.assertEqual(len(re.findall(r"^    environment:", body, re.M)), 0, name)
 
     def test_the_token_is_read_only_everywhere(self):
         self.assertRegex(self.text, r"(?m)^permissions: \{\}$")
@@ -219,6 +231,8 @@ class PromotePosPilotStatic(unittest.TestCase):
         rows = read(ROOT / "services/backend-core/apps/api/src/pos-pilot-releases/pilot-release-registry.rows.ts")
         self.assertIn("`pos/pilot/${version}/POS-Pulse-Setup-${version}.exe`", rows)
         self.assertIn("pos/pilot/${VERSION}/${EXE}", step_script(job(self.text, "verify"), "Dry-run result"))
+        # The live upload writes to the very key the api derives (and the dry run announces).
+        self.assertIn('KEY="pos/pilot/$VERSION/$EXE"', step_script(job(self.text, "upload"), "Upload the installer once (conditional write)"))
 
     @unittest.skipUnless(shutil.which("pwsh"), "pwsh is needed")
     def test_the_powershell_steps_parse(self):
@@ -317,7 +331,7 @@ class PromotePosPilotSteps(unittest.TestCase):
 
     def common_env(self, tmp: Path) -> dict:
         return {"TAG": TAG, "SHA": SHA, "VERSION": VERSION, "REPO": REPO, "RUNNER_TEMP": runner_temp(tmp), "GH_TOKEN": "t",
-                "FAKE_TAG_SHA": SHA}
+                "FAKE_TAG_SHA": SHA, "GITHUB_OUTPUT": str(tmp / "out.txt")}
 
     def test_the_download_step_reads_only_a_published_release_with_exactly_the_three_assets(self):
         script = step_script(job(self.text, "verify"), "Download the release assets")
@@ -470,6 +484,529 @@ class PromotePosPilotSteps(unittest.TestCase):
                 self.assertIn(part, text)
             for word in ("http://", "X-Amz", "Authorization", "Bearer"):
                 self.assertNotIn(word, text)
+
+
+ROLE_ARN = "arn:aws:iam::123456789012:role/rt-gha-pos-pilot-promote"
+BUCKET = "kemetra-rt-pos-pilot-releases"
+REGION = "us-east-1"
+API = "https://lab.example.com"
+AUDIENCE = "https://lab.example.com/pos-pilot-promotion"
+PAYLOAD = b"installer bytes"
+DIGEST = hashlib.sha256(PAYLOAD).hexdigest()
+B64 = base64.b64encode(hashlib.sha256(PAYLOAD).digest()).decode()
+CI_RUN = "777"
+ATTESTATION_ID = "65805159"
+RELEASE_ATTESTATION_ID = "65805210"
+SLSA = "https://slsa.dev/provenance/v1"
+RELEASE_PREDICATE = "https://in-toto.io/attestation/release/v0.2"
+VERSION_ID = "3HL4kqtJlcpXroDTDmJ.rmSpXd3dIbrHY"
+RUN_ID = "123456789"
+STEP_SETTINGS = "Check the environment's settings and the tools"
+STEP_DOWNLOAD = "Download the release again and compare it with what verify checked"
+STEP_ATTEST = "Resolve the build provenance attestation"
+STEP_API = "Check that Backend-Core answers"
+STEP_ASSUME = "Assume the upload role (GitHub OIDC, no stored keys)"
+STEP_PUT = "Upload the installer once (conditional write)"
+STEP_BODY = "Build the registration body once"
+STEP_REGISTER = "Register the release with Backend-Core (OIDC bearer; it is not activated)"
+RUNBOOK = ROOT / "services/backend-core/docs/operations/pos-pilot-release-bucket.md"
+
+# `gh`, `aws` and `curl` as the live steps use them. Each logs its arguments (never what goes in on stdin).
+STUB_GH_LIVE = r"""
+gh() {
+  printf '%s\n' "$*" >> "$GH_LOG"
+  case "$1 $2" in
+    "release view") cat "$FAKE_VIEW" ;;
+    "release download")
+      dir=""
+      while [ "$#" -gt 0 ]; do if [ "$1" = "--dir" ]; then dir="$2"; fi; shift; done
+      cp "$FAKE_ASSETS"/* "$dir"/ ;;
+    "api repos/"*)
+      case "$2" in
+        */attestations/*) cat "$FAKE_ATTESTATIONS" ;;
+        *) printf '%s\n' "${FAKE_TAG_SHA:-}" ;;
+      esac ;;
+    *) echo "unexpected gh $*" >&2; exit 9 ;;
+  esac
+}
+"""
+STUB_AWS = r"""
+aws() {
+  printf '%s\n' "$*" >> "$AWS_LOG"
+  if [ "$1 $2 $3" = "s3api put-object --generate-cli-skeleton" ]; then
+    if [ -n "${FAKE_NO_IFNONE:-}" ]; then printf '{"Bucket": ""}\n'; else printf '{"Bucket": "", "IfNoneMatch": ""}\n'; fi
+    return 0
+  fi
+  if [ "$1 $2" = "s3api put-object" ]; then
+    if [ -n "${FAKE_PUT_ERR:-}" ]; then printf '%s\n' "$FAKE_PUT_ERR" >&2; fi
+    if [ "${FAKE_PUT_EXIT:-0}" = 0 ]; then printf '%s\n' "$FAKE_PUT_OUT"; fi
+    return "${FAKE_PUT_EXIT:-0}"
+  fi
+  echo "unexpected aws $*" >&2; return 9
+}
+"""
+STUB_CURL = r"""
+curl() {
+  printf '%s\n' "$*" >> "$CURL_LOG"
+  case " $* " in *" -K - "*) cat > "$CURL_STDIN" ;; esac
+  case " $* " in
+    *" --get "*)
+      if [ -n "${FAKE_TOKEN_REPLY:-}" ]; then printf '%s\n' "$FAKE_TOKEN_REPLY"; else printf '{"value":"jwt.test.token"}\n'; fi ;;
+    *"/api/v1/health/ready"*) printf '%s' "${FAKE_HEALTH:-200}" ;;
+    *" -X POST "*)
+      out=""; prev=""
+      for a in "$@"; do if [ "$prev" = "-o" ]; then out="$a"; fi; prev="$a"; done
+      printf '%s' "$FAKE_RESP" > "$out"
+      printf '%s' "${FAKE_HTTP:-201}" ;;
+    *) echo "unexpected curl $*" >&2; return 9 ;;
+  esac
+}
+"""
+
+
+def statement(predicate_type: str = SLSA, digest: str = DIGEST, invocation: str | None = None) -> dict:
+    """The in-toto statement inside an attestation bundle, as much of it as the workflow reads."""
+    run = invocation or f"https://github.com/{REPO}/actions/runs/{CI_RUN}/attempts/2"
+    return {"_type": "https://in-toto.io/Statement/v1", "predicateType": predicate_type,
+            "subject": [{"name": EXE, "digest": {"sha256": digest}}],
+            "predicate": {"runDetails": {"metadata": {"invocationId": run}}}}
+
+
+def attestation(att_id: str, stmt: dict, url: str | None = None) -> dict:
+    """One entry of GitHub's attestation list: no id field, the id is the number in the bundle's storage path."""
+    return {"bundle_url": url or f"https://blob.example.net/attestations/1430288487/2026/11/10/{att_id}.json.sn?se=x&sig=y",
+            "repository_id": 1430288487, "initiator": "github",
+            "bundle": {"dsseEnvelope": {"payload": base64.b64encode(json.dumps(stmt).encode()).decode()}}}
+
+
+def lay_out_release(tmp: Path, view: dict | None = None, payload: bytes = PAYLOAD, manifest_obj: dict | None = None,
+                    sha_line: str | None = None, attestations: list | None = None) -> dict:
+    """A fake release (the assets the stub downloads, the JSON its `release view` prints, the attestation list)."""
+    assets = tmp / "assets"
+    assets.mkdir()
+    (assets / EXE).write_bytes(payload)
+    line = sha_line if sha_line is not None else f"{hashlib.sha256(payload).hexdigest()}  {EXE}\n"
+    (assets / f"{EXE}.sha256").write_text(line, encoding="utf-8")
+    (assets / "release-manifest.json").write_text(json.dumps(manifest_obj if manifest_obj is not None else manifest()), encoding="utf-8")
+    shown = view if view is not None else {
+        "tagName": TAG, "isDraft": False, "isPrerelease": False,
+        "assets": [{"name": EXE}, {"name": f"{EXE}.sha256"}, {"name": "release-manifest.json"}],
+    }
+    (tmp / "view.json").write_text(json.dumps(shown), encoding="utf-8")
+    listed = attestations if attestations is not None else [
+        attestation(RELEASE_ATTESTATION_ID, statement(RELEASE_PREDICATE)), attestation(ATTESTATION_ID, statement())]
+    (tmp / "attestations.json").write_text(json.dumps({"attestations": listed}), encoding="utf-8")
+    return {"FAKE_ASSETS": str(assets), "FAKE_VIEW": str(tmp / "view.json"), "FAKE_ATTESTATIONS": str(tmp / "attestations.json")}
+
+
+def live_env(tmp: Path, **extra: str) -> dict:
+    """The environment a live step sees: the job's env, the environment's variables and the fakes' log files."""
+    env = {"TAG": TAG, "SHA": SHA, "VERSION": VERSION, "REPO": REPO, "RUNNER_TEMP": runner_temp(tmp), "GH_TOKEN": "t",
+           "GITHUB_OUTPUT": str(tmp / "out.txt"), "GITHUB_STEP_SUMMARY": str(tmp / "summary.md"), "GH_LOG": str(tmp / "gh.log"),
+           "AWS_LOG": str(tmp / "aws.log"), "CURL_LOG": str(tmp / "curl.log"), "CURL_STDIN": str(tmp / "curl.stdin"),
+           "FAKE_TAG_SHA": SHA, "ROLE_ARN": ROLE_ARN, "BUCKET": BUCKET, "S3_REGION": REGION, "API_BASE": API,
+           "AUDIENCE": AUDIENCE, "VERIFIED_DIGEST": DIGEST, "VERIFIED_SIZE": str(len(PAYLOAD)), "ACTOR": "octocat", "RUN_ID": RUN_ID}
+    env.update(extra)
+    return env
+
+
+def step_outputs(tmp: Path) -> dict[str, str]:
+    """What the step wrote to GITHUB_OUTPUT."""
+    path = tmp / "out.txt"
+    if not path.exists():
+        return {}
+    return dict(line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines() if "=" in line)
+
+
+class PromotePosPilotLiveStatic(unittest.TestCase):
+    text = read(WORKFLOW)
+
+    def test_the_live_jobs_run_only_when_dry_run_is_off_and_in_a_fixed_order(self):
+        self.assertEqual(needs_of(job(self.text, "upload")), ["resolve", "verify"])
+        self.assertEqual(needs_of(job(self.text, "register")), ["resolve", "upload"])
+        for name in ("upload", "register"):
+            self.assertIn("if: ${{ !inputs.dry_run }}", job(self.text, name), name)
+        for name in ("resolve", "verify"):
+            self.assertNotIn("inputs.dry_run", job(self.text, name), name)
+
+    def test_dry_run_is_a_boolean_that_defaults_to_true(self):
+        block = re.search(r"      dry_run:\n((?:        .*\n)+)", self.text).group(1)
+        self.assertIn("type: boolean", block)
+        self.assertIn("default: true", block)
+
+    def test_exactly_the_two_live_jobs_hold_the_environment_and_an_id_token(self):
+        for name in ("resolve", "verify", "upload", "register"):
+            body = code(job(self.text, name))
+            environment = re.search(r"^    environment: (\S+)$", body, re.M)
+            token = "id-token: write" in body
+            if name in ("upload", "register"):
+                self.assertIsNotNone(environment, name)
+                self.assertEqual(environment.group(1), ENVIRONMENT, name)
+                self.assertTrue(token, name)
+            else:
+                self.assertIsNone(environment, name)
+                self.assertFalse(token, name)
+        # Permission lines only (six spaces in): a job's error message may name the permission it needs.
+        self.assertEqual(len(re.findall(r"^      id-token: write$", code(self.text), re.M)), 2)
+        self.assertEqual(len(re.findall(r"^    environment:", code(self.text), re.M)), 2)
+
+    def test_the_live_jobs_hold_exactly_the_permissions_they_use(self):
+        def perms(name: str) -> list[str]:
+            block = re.search(r"^    permissions:\n((?:      .*\n)+)", job(self.text, name) + "\n", re.M)
+            return sorted(re.sub(r"\s+#.*$", "", line.strip()) for line in block.group(1).splitlines())
+
+        self.assertEqual(perms("upload"), ["attestations: read", "contents: read", "id-token: write"])
+        self.assertEqual(perms("register"), ["id-token: write"])
+        for word in ("contents: write", "attestations: write", "actions:", "packages:", "write-all"):
+            self.assertNotIn(word, code(self.text), word)
+
+    def test_the_aws_role_is_assumed_once_in_the_upload_job_from_the_environments_variables_with_no_stored_keys(self):
+        self.assertEqual(self.text.count("aws-actions/configure-aws-credentials@"), 1)
+        assume = step(job(self.text, "upload"), STEP_ASSUME)
+        for part in ("role-to-assume: ${{ vars.POS_PILOT_PROMOTE_ROLE_ARN }}", "aws-region: ${{ vars.POS_PILOT_RELEASE_S3_REGION }}",
+                     "role-session-name: rt-promote-pos-pilot-${{ github.run_id }}", "role-duration-seconds: 900"):
+            self.assertIn(part, assume)
+        for word in ("secrets.", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "aws-access-key-id", "aws-secret-access-key"):
+            self.assertNotIn(word, self.text, word)
+        self.assertNotIn("configure-aws-credentials", job(self.text, "register"))
+        self.assertNotIn("aws ", code(job(self.text, "register")))
+
+    def test_the_upload_is_one_conditional_checksummed_put_object_and_nothing_else_touches_s3(self):
+        script = step_script(job(self.text, "upload"), STEP_PUT)
+        for part in ("aws s3api put-object", '--bucket "$BUCKET"', '--key "$KEY"', "--checksum-algorithm SHA256",
+                     '--checksum-sha256 "$B64"', "--if-none-match '*'", '--body "$PKG/$EXE"'):
+            self.assertIn(part, script)
+        self.assertEqual(script.count("put-object"), 1)
+        body = code(self.text)
+        # Two s3api calls in the whole file: the capability probe and the one upload.
+        self.assertEqual(len(re.findall(r"\baws s3api\b", body)), 2)
+        for word in ("aws s3 ", "s3 cp", "s3 sync", "multipart", "delete-object", "get-object", "head-object", "list-object",
+                     "put-bucket", "put-object-acl", "create-bucket", "iam "):
+            self.assertNotIn(word, body, word)
+
+    def test_register_posts_once_to_the_register_route_and_never_activates_or_withdraws(self):
+        register = code(job(self.text, "register"))
+        self.assertEqual(register.count("-X POST"), 1)
+        self.assertEqual(register.count("/api/v1/platform/pos-pilot-releases"), 1)
+        for word in ("/activate", "/withdraw", "-X PUT", "-X DELETE", "-X PATCH", "actions/checkout", "put-object"):
+            self.assertNotIn(word, register, word)
+        upload = code(job(self.text, "upload"))
+        self.assertNotIn("/api/v1/platform", upload, "the upload job only asks whether Backend-Core answers")
+        self.assertNotIn("Bearer", upload)
+        self.assertEqual(len(re.findall(r"curl [^\n]*/api/v1/health/ready", code(self.text))), 1, "one health request, in the upload job")
+
+    def test_no_credential_reaches_a_process_argument_list(self):
+        register = code(job(self.text, "register"))
+        self.assertNotIn('-H "Authorization', register)
+        self.assertEqual(register.count("curl -K -"), 2, "the id-token request and the register call both read their header from stdin")
+        self.assertIn("::add-mask::", register)
+        self.assertNotIn("curl -L", self.text)
+        self.assertNotIn("--location", self.text)
+        calls = re.findall(r"curl (?:-K - )?--silent[^\n]*", code(self.text))
+        self.assertEqual(len(calls), 3, "the Backend-Core check, the id-token request and the register call")
+        for call in calls:
+            self.assertIn("--proto '=https'", call, "every curl is https-only")
+            self.assertIn("--tlsv1.2", call)
+
+    def test_every_check_runs_before_the_role_is_assumed_and_the_body_is_built_after_the_upload(self):
+        names = re.findall(r"^      - name: (.+)$", job(self.text, "upload"), re.M)
+        self.assertEqual(names, [STEP_SETTINGS, STEP_DOWNLOAD, STEP_ATTEST, STEP_API, STEP_ASSUME, STEP_PUT, STEP_BODY])
+
+    def test_the_runbook_names_every_setting_the_workflow_reads_and_the_five_pins(self):
+        section = read(RUNBOOK).split("## 9. ", 1)[1]
+        variables = sorted(set(re.findall(r"vars\.([A-Z0-9_]+)", self.text)))
+        self.assertEqual(variables, ["POS_PILOT_API_BASE_URL", "POS_PILOT_PROMOTE_ROLE_ARN", "POS_PILOT_PROMOTION_OIDC_AUDIENCE",
+                                     "POS_PILOT_RELEASE_BUCKET", "POS_PILOT_RELEASE_S3_REGION"])
+        for name in (*variables, ENVIRONMENT, "refs/heads/main", "promote-pos-pilot.yml", "POS_PILOT_PROMOTION_OIDC_AUDIENCE",
+                     "POS_PILOT_PROMOTION_OIDC_REPOSITORY", "POS_PILOT_PROMOTION_OIDC_ENVIRONMENT", "POS_PILOT_PROMOTION_OIDC_REF",
+                     "POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF", "Re-run failed jobs"):
+            self.assertIn(name, section, name)
+
+
+@unittest.skipUnless(HAVE_BASH and shutil.which("jq") and shutil.which("sha256sum"), "bash, jq and sha256sum are needed")
+class PromotePosPilotLiveSteps(unittest.TestCase):
+    text = read(WORKFLOW)
+
+    def run_step(self, tmp: Path, job_name: str, step_name: str, env: dict, preamble: str) -> subprocess.CompletedProcess:
+        return run_bash(step_script(job(self.text, job_name), step_name), env, preamble=preamble)
+
+    def test_verify_hands_the_digest_and_size_of_the_installer_to_the_live_job(self):
+        script = step_script(job(self.text, "verify"), "Check the assets against the manifest")
+        self.assertIn("digest: ${{ steps.assets.outputs.digest }}", job(self.text, "verify"))
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            pkg = temp / "pkg"
+            pkg.mkdir()
+            (pkg / EXE).write_bytes(PAYLOAD)
+            (pkg / f"{EXE}.sha256").write_text(f"{DIGEST}  {EXE}\n", encoding="utf-8")
+            (pkg / "release-manifest.json").write_text(json.dumps(manifest()), encoding="utf-8")
+            result = run_bash(script, live_env(temp))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(step_outputs(temp), {"digest": DIGEST, "size": str(len(PAYLOAD))})
+
+    def test_the_settings_step_accepts_the_real_shapes_and_refuses_every_malformed_or_foreign_value(self):
+        stubs = STUB_AWS + "\ncurl() { :; }\nopenssl() { :; }\nbase64() { :; }\ngh() { :; }\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            ok = self.run_step(Path(tmp), "upload", STEP_SETTINGS, live_env(Path(tmp)), stubs)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        bad = {
+            "ROLE_ARN": ["", "arn:aws:iam::123:role/rt-gha-pos-pilot-promote", "arn:aws:iam::123456789012:role/rt-gha-aws-lab-deploy",
+                         ROLE_ARN + "x", ROLE_ARN + "/extra", "role/rt-gha-pos-pilot-promote"],
+            "BUCKET": ["", "Has-Upper", "has.dot", "-lead", "trail-", "ab", "has_underscore"],
+            "S3_REGION": ["", "us_east_1", "useast1", "us-east-1; rm -rf /"],
+            "API_BASE": ["", "http://lab.example.com", "https://lab.example.com/", "https://lab.example.com/api", "lab.example.com", "https://"],
+            "AUDIENCE": ["", "ab", "sts.amazonaws.com", "has space", "x" * 201],
+            # What the body will carry is refused BEFORE the one-shot upload, never after it.
+            "ACTOR": ["", "some-app[bot]", "bad actor", "-x", "x-", "a--b", "x" * 40],
+            "RUN_ID": ["", "12a"],
+            "VERSION": ["01.0.0", "1.02.0", "1.0", "1.0.0-rc.1", "1" * 33],
+        }
+        for var, values in bad.items():
+            for value in values:
+                with tempfile.TemporaryDirectory() as tmp:
+                    result = self.run_step(Path(tmp), "upload", STEP_SETTINGS, live_env(Path(tmp), **{var: value}), stubs)
+                    self.assertNotEqual(result.returncode, 0, f"{var}={value!r}")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.run_step(Path(tmp), "upload", STEP_SETTINGS, live_env(Path(tmp), FAKE_NO_IFNONE="1"), stubs)
+            self.assertNotEqual(result.returncode, 0, "a CLI that cannot send If-None-Match must not upload")
+            self.assertIn("If-None-Match", result.stdout + result.stderr)
+
+    def test_the_download_step_accepts_only_the_bytes_verify_checked_and_names_the_release_run(self):
+        three = [{"name": EXE}, {"name": f"{EXE}.sha256"}, {"name": "release-manifest.json"}]
+        other = manifest()
+        other["artifacts"] = [{"name": "pos-installer", "file": EXE, "digest": "sha256:" + "0" * 64}]
+        two = manifest()
+        two["artifacts"].append({"name": "other", "file": "x", "digest": "sha256:" + DIGEST})
+        no_ci = {k: v for k, v in manifest().items() if k != "ci_url"}
+        cases = {
+            "verify saw other bytes": ({}, {"VERIFIED_DIGEST": "0" * 64}),
+            "verify saw another size": ({}, {"VERIFIED_SIZE": "16"}),
+            "the tag moved": ({}, {"FAKE_TAG_SHA": "b" * 40}),
+            "the manifest names another digest": ({"manifest_obj": other}, {}),
+            "the manifest holds two artifacts": ({"manifest_obj": two}, {}),
+            "the .sha256 is another file's": ({"sha_line": f"{DIGEST}  other.exe\n"}, {}),
+            "the ci_url is another repository's": ({"manifest_obj": manifest(ci_url="https://github.com/someone/else/actions/runs/1")}, {}),
+            "the ci_url is not a run": ({"manifest_obj": manifest(ci_url=f"https://github.com/{REPO}/actions/runs/abc")}, {}),
+            "there is no ci_url": ({"manifest_obj": no_ci}, {}),
+            "a draft": ({"view": {"tagName": TAG, "isDraft": True, "isPrerelease": False, "assets": three}}, {}),
+            "an extra asset": ({"view": {"tagName": TAG, "isDraft": False, "isPrerelease": False, "assets": [*three, {"name": "lab.yml"}]}}, {}),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            ok = self.run_step(temp, "upload", STEP_DOWNLOAD, live_env(temp, **lay_out_release(temp)), STUB_GH_LIVE)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertEqual(step_outputs(temp), {"digest": DIGEST, "size": str(len(PAYLOAD)), "ci_run": CI_RUN})
+            self.assertIn(f"release download {TAG} --repo {REPO} --dir ", (temp / "gh.log").read_text(encoding="utf-8"))
+        for label, (layout, env_changes) in cases.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.run_step(temp, "upload", STEP_DOWNLOAD, live_env(temp, **lay_out_release(temp, **layout), **env_changes), STUB_GH_LIVE)
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertEqual(step_outputs(temp), {}, f"{label}: nothing may be handed on after a refusal")
+
+    def test_the_attestation_step_selects_the_slsa_provenance_of_the_release_run_and_nothing_else(self):
+        release = attestation(RELEASE_ATTESTATION_ID, statement(RELEASE_PREDICATE))
+        slsa = attestation(ATTESTATION_ID, statement())
+        wanted = f"https://github.com/{REPO}/attestations/{ATTESTATION_ID}"
+        for listed in ([release, slsa], [slsa, release], [slsa]):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                env = live_env(temp, **lay_out_release(temp, attestations=listed), DIGEST=DIGEST, CI_RUN=CI_RUN)
+                ok = self.run_step(temp, "upload", STEP_ATTEST, env, STUB_GH_LIVE)
+                self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+                self.assertEqual(step_outputs(temp), {"ref": wanted})
+                self.assertIn(f"api repos/{REPO}/attestations/sha256:{DIGEST}", (temp / "gh.log").read_text(encoding="utf-8"))
+        cases = {
+            "only the release attestation": [release],
+            "none at all": [],
+            "two provenances of the run": [slsa, attestation("65805300", statement())],
+            "a provenance of another run": [attestation(ATTESTATION_ID, statement(invocation=f"https://github.com/{REPO}/actions/runs/999/attempts/1"))],
+            "a run number that only starts the same": [attestation(ATTESTATION_ID, statement(invocation=f"https://github.com/{REPO}/actions/runs/{CI_RUN}1/attempts/1"))],
+            "a provenance of another repository's run": [attestation(ATTESTATION_ID, statement(invocation=f"https://github.com/someone/else/actions/runs/{CI_RUN}"))],
+            "a provenance of another digest": [attestation(ATTESTATION_ID, statement(digest="0" * 64))],
+            "a bundle url without an id": [attestation(ATTESTATION_ID, statement(), url="https://blob.example.net/attestations/x.json")],
+            "a provenance with no invocationId": [attestation(ATTESTATION_ID, {**statement(), "predicate": {"runDetails": {"metadata": {}}}})],
+            "a provenance with an empty invocationId": [attestation(ATTESTATION_ID, statement(invocation=None) | {"predicate": {"runDetails": {"metadata": {"invocationId": ""}}}})],
+        }
+        for label, listed in cases.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                env = live_env(temp, **lay_out_release(temp, attestations=listed), DIGEST=DIGEST, CI_RUN=CI_RUN)
+                result = self.run_step(temp, "upload", STEP_ATTEST, env, STUB_GH_LIVE)
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertEqual(step_outputs(temp), {}, label)
+
+    def test_the_backend_core_check_follows_no_redirect_and_needs_exactly_a_200(self):
+        # 000 is what curl's -w prints when no HTTP answer came back at all.
+        for status, passes in (("200", True), ("302", False), ("401", False), ("404", False), ("503", False), ("000", False)):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.run_step(temp, "upload", STEP_API, live_env(temp, FAKE_HEALTH=status), STUB_CURL)
+                self.assertEqual(result.returncode == 0, passes, f"{status!r}: {result.stdout}{result.stderr}")
+                log = (temp / "curl.log").read_text(encoding="utf-8")
+                self.assertIn(f"{API}/api/v1/health/ready", log)
+                self.assertIn("--proto =https", log)
+                self.assertNotIn(" -L ", f" {log} ")
+
+    @unittest.skipUnless(shutil.which("openssl") and shutil.which("base64"), "openssl and base64 are needed")
+    def test_the_upload_sends_one_conditional_checksummed_put_and_records_the_version(self):
+        good = json.dumps({"ETag": '"abc"', "VersionId": VERSION_ID, "ChecksumSHA256": B64})
+
+        def run(tmp: Path, **extra: str) -> subprocess.CompletedProcess:
+            (tmp / "pkg").mkdir()
+            (tmp / "pkg" / EXE).write_bytes(PAYLOAD)
+            return self.run_step(tmp, "upload", STEP_PUT, live_env(tmp, DIGEST=DIGEST, **{"FAKE_PUT_OUT": good, **extra}), STUB_AWS)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            ok = run(temp)
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            self.assertEqual(step_outputs(temp), {"version_id": VERSION_ID})
+            calls = (temp / "aws.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(calls), 1, "one PutObject, once")
+            for part in (f"--bucket {BUCKET}", f"--key pos/pilot/{VERSION}/{EXE}", "--checksum-algorithm SHA256",
+                         f"--checksum-sha256 {B64}", "--if-none-match *", "--content-type application/octet-stream"):
+                self.assertIn(part, calls[0])
+        cases = {
+            "no VersionId": ({"FAKE_PUT_OUT": json.dumps({"ChecksumSHA256": B64})}, None),
+            "an empty VersionId": ({"FAKE_PUT_OUT": json.dumps({"VersionId": "", "ChecksumSHA256": B64})}, None),
+            "a VersionId with a newline": ({"FAKE_PUT_OUT": json.dumps({"VersionId": "abc\nbody=evil", "ChecksumSHA256": B64})}, "unexpected shape"),
+            "another checksum": ({"FAKE_PUT_OUT": json.dumps({"VersionId": VERSION_ID, "ChecksumSHA256": "AAAA"})}, None),
+            "no checksum": ({"FAKE_PUT_OUT": json.dumps({"VersionId": VERSION_ID})}, None),
+            "an existing key": ({"FAKE_PUT_EXIT": "254", "FAKE_PUT_ERR": "An error occurred (PreconditionFailed) when calling the PutObject operation"}, "Do not re-run"),
+            "any other failure": ({"FAKE_PUT_EXIT": "1", "FAKE_PUT_ERR": "An error occurred (AccessDenied)"}, "nothing was written"),
+        }
+        for label, (extra, message) in cases.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = run(temp, **extra)
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertEqual(step_outputs(temp), {}, label)
+                if message:
+                    self.assertIn(message, result.stdout + result.stderr, label)
+
+    def test_the_registration_body_is_built_once_and_satisfies_the_contract_and_the_servers_own_patterns(self):
+        script_env = {"DIGEST": DIGEST, "SIZE": str(len(PAYLOAD)), "VERSION_ID": VERSION_ID, "ATTEST_REF": f"https://github.com/{REPO}/attestations/{ATTESTATION_ID}",
+                      "ACTOR": "octocat", "RUN_ID": RUN_ID}
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            ok = self.run_step(temp, "upload", STEP_BODY, live_env(temp, **script_env), "")
+            self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+            body = json.loads(step_outputs(temp)["body"])
+            api = read(ROOT / "services/backend-core/packages/contracts/openapi/pos-pilot-releases.openapi.yaml")
+            registration = api.split("    PilotReleaseRegistration:", 1)[1].split("      properties:", 1)[0]
+            required = re.findall(r"^        - (\w+)$", registration, re.M)
+            self.assertEqual(sorted(body), sorted(required), "the body carries exactly the fields the contract requires")
+            self.assertEqual(body["publisher"], SUBJECT)
+            self.assertEqual(body["signingClass"], "pilot")
+            self.assertEqual(body["sourceSha"], SHA)
+            self.assertEqual(body["sizeBytes"], len(PAYLOAD))
+            self.assertIsInstance(body["sizeBytes"], int)
+            self.assertEqual(body["approvedBy"], "octocat")
+            self.assertEqual(body["artifactVersionId"], VERSION_ID)
+            self.assertEqual(body["promotionRunUrl"], f"https://github.com/{REPO}/actions/runs/{RUN_ID}", "no /attempts/N: a re-run must send the same body")
+            self.assertRegex(body["approvedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+            dto = read(ROOT / "services/backend-core/apps/api/src/pos-pilot-releases/dto.ts")
+            for const, field in (("ATTESTATION_REF", "attestationRef"), ("PROMOTION_RUN_URL", "promotionRunUrl"), ("GITHUB_LOGIN", "approvedBy")):
+                literal = re.search(rf"const {const} = /(.+)/;", dto).group(1).replace("\\/", "/")
+                self.assertRegex(body[field], literal, f"{field} must match the server's {const}")
+            self.assertRegex(body["version"], r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+            self.assertRegex(body["sha256"], r"^[0-9a-f]{64}$")
+            summary = (temp / "summary.md").read_text(encoding="utf-8")
+            for part in (VERSION_ID, "Re-run failed jobs", "never re-run this job"):
+                self.assertIn(part, summary)
+        for label, change in {"an empty actor": {"ACTOR": ""}, "a space in the actor": {"ACTOR": "bad actor"}, "a leading hyphen": {"ACTOR": "-x"},
+                              "a trailing hyphen": {"ACTOR": "x-"}, "a double hyphen": {"ACTOR": "a--b"}, "an actor over 39": {"ACTOR": "x" * 40},
+                              "a non-numeric run id": {"RUN_ID": "12a"}, "no version id": {"VERSION_ID": ""}}.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.run_step(temp, "upload", STEP_BODY, live_env(temp, **{**script_env, **change}), "")
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertEqual(step_outputs(temp), {}, label)
+
+    def register_env(self, tmp: Path, body: dict | None = None, **extra: str) -> dict:
+        sent = body if body is not None else {
+            "version": VERSION, "sha256": DIGEST, "sizeBytes": len(PAYLOAD), "publisher": SUBJECT, "signingClass": "pilot",
+            "attestationRef": f"https://github.com/{REPO}/attestations/{ATTESTATION_ID}", "sourceSha": SHA, "approvedBy": "octocat",
+            "approvedAt": "2026-11-10T12:00:00Z", "promotionRunUrl": f"https://github.com/{REPO}/actions/runs/{RUN_ID}", "artifactVersionId": VERSION_ID}
+        answered = {"releaseId": "11111111-2222-3333-4444-555555555555", "version": VERSION, "sha256": DIGEST, "sizeBytes": len(PAYLOAD),
+                    "signingClass": "pilot", "artifactVersionId": VERSION_ID, "approved": True}
+        env = live_env(tmp, BODY=json.dumps(sent, separators=(",", ":")), RUN_ID=RUN_ID,
+                       ACTIONS_ID_TOKEN_REQUEST_URL="https://token.example.net/oidc?api-version=2", ACTIONS_ID_TOKEN_REQUEST_TOKEN="requesttoken",
+                       FAKE_RESP=json.dumps(answered), FAKE_HTTP="201")
+        env.update(extra)
+        return env
+
+    def test_register_sends_the_body_with_an_oidc_bearer_and_accepts_only_the_release_it_sent(self):
+        for status in ("201", "200"):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                env = self.register_env(temp, FAKE_HTTP=status)
+                ok = self.run_step(temp, "register", STEP_REGISTER, env, STUB_CURL)
+                self.assertEqual(ok.returncode, 0, f"{status}: {ok.stdout}{ok.stderr}")
+                log = (temp / "curl.log").read_text(encoding="utf-8")
+                calls = log.splitlines()
+                self.assertEqual(len(calls), 2, "one token request and one register call")
+                self.assertIn(f"--data-urlencode audience={AUDIENCE}", calls[0])
+                self.assertIn("--get", calls[0])
+                self.assertIn(f"{API}/api/v1/platform/pos-pilot-releases", calls[1])
+                self.assertIn("-X POST", calls[1])
+                self.assertIn(f"-H Idempotency-Key: pos-pilot-promote-{VERSION}-{RUN_ID}", calls[1])
+                self.assertIn("-H Content-Type: application/json", calls[1])
+                self.assertIn(f"--data {env['BODY']}", calls[1])
+                for secret in ("requesttoken", "jwt.test.token"):
+                    self.assertNotIn(secret, log, "a credential must never be in an argument list")
+                self.assertIn("Authorization: Bearer jwt.test.token", (temp / "curl.stdin").read_text(encoding="utf-8"))
+                self.assertIn("::add-mask::jwt.test.token", ok.stdout)
+                self.assertIn("NOT active", (temp / "summary.md").read_text(encoding="utf-8"))
+
+    def test_register_fails_closed_on_every_refusal_a_mismatched_answer_and_every_bad_setting(self):
+        mismatched = {
+            "a withdrawn release answered 200": {"approved": False},
+            "another digest": {"sha256": "0" * 64},
+            "another size": {"sizeBytes": 1},
+            "another version id": {"artifactVersionId": "someone-elses"},
+            "a lab class": {"signingClass": "lab"},
+            "another version": {"version": "9.9.9"},
+        }
+        for status in ("400", "401", "403", "409", "422", "429", "500", "302"):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.run_step(temp, "register", STEP_REGISTER, self.register_env(temp, FAKE_HTTP=status, FAKE_RESP='{"code":"forbidden"}'), STUB_CURL)
+                self.assertNotEqual(result.returncode, 0, status)
+                self.assertIn("Re-run failed jobs", result.stdout + result.stderr, status)
+        for label, change in mismatched.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                answered = {"releaseId": "x", "version": VERSION, "sha256": DIGEST, "sizeBytes": len(PAYLOAD), "signingClass": "pilot",
+                            "artifactVersionId": VERSION_ID, "approved": True, **change}
+                result = self.run_step(temp, "register", STEP_REGISTER, self.register_env(temp, FAKE_HTTP="200", FAKE_RESP=json.dumps(answered)), STUB_CURL)
+                self.assertNotEqual(result.returncode, 0, label)
+        lab_body = {"version": VERSION, "signingClass": "lab", "publisher": SUBJECT}
+        other_version = {"version": "0.2.0", "signingClass": "pilot", "publisher": SUBJECT}
+        bad_settings = {
+            "no id-token request url": {"ACTIONS_ID_TOKEN_REQUEST_URL": ""},
+            "no id-token request token": {"ACTIONS_ID_TOKEN_REQUEST_TOKEN": ""},
+            "a plain http api": {"API_BASE": "http://lab.example.com"},
+            "an api with a path": {"API_BASE": "https://lab.example.com/api"},
+            "the AWS audience": {"AUDIENCE": "sts.amazonaws.com"},
+            "no audience": {"AUDIENCE": ""},
+            "an empty token": {"FAKE_TOKEN_REPLY": '{"value":""}'},
+            "no token field": {"FAKE_TOKEN_REPLY": "{}"},
+        }
+        for label, change in bad_settings.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.run_step(temp, "register", STEP_REGISTER, self.register_env(temp, **change), STUB_CURL)
+                self.assertNotEqual(result.returncode, 0, label)
+                if "api" in label or "token" in label or "audience" in label:
+                    self.assertFalse((temp / "curl.log").exists() and "pos-pilot-releases" in (temp / "curl.log").read_text(encoding="utf-8"), f"{label}: nothing is sent")
+        for label, body in {"a lab body": lab_body, "a body for another version": other_version}.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.run_step(temp, "register", STEP_REGISTER, self.register_env(temp, body=body), STUB_CURL)
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertFalse((temp / "curl.log").exists(), f"{label}: nothing is requested or sent")
 
 
 if __name__ == "__main__":
