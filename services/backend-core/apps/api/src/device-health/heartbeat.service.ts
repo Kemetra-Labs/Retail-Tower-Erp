@@ -19,7 +19,8 @@
  *      the terminal gets the reply of step 1 computed from THIS request.
  *
  * A stored beat replaces every self-reported field: an omitted field is
- * stored as NULL (unknown), never kept from an earlier beat. There is no
+ * stored as NULL (unknown), never kept from an earlier beat. That includes the
+ * RT-1312 sale queue: a beat without it stores all four columns NULL, never 0. There is no
  * history, no audit row per beat and no per-device rate limit; the one signal
  * is `pos_device_heartbeat_total{outcome}`.
  */
@@ -57,12 +58,17 @@ const POLICY_SQL = `
     FROM pos_version_policy
    WHERE channel = $1::text`;
 
-/** $1 device, $2 tenant, $3..$8 the beat's fields, $9 the throttle window in seconds. */
+/**
+ * $1 device, $2 tenant, $3..$8 the beat's fields, $9 the throttle window in
+ * seconds, $10..$13 the RT-1312 sale queue (all NULL when the beat carried none).
+ */
 const STORE_SQL = `
   INSERT INTO device_health
     (device_id, tenant_id, last_seen_at, app_version, update_channel, update_state,
-     pending_version, schema_head, source_clock_at)
-  SELECT d.id, d.tenant_id, now(), $3::text, $4::text, $5::text, $6::text, $7::text, $8::timestamptz
+     pending_version, schema_head, source_clock_at,
+     sale_queue_pending, sale_queue_dead_letter, sale_queue_held, sale_queue_oldest_pending_at)
+  SELECT d.id, d.tenant_id, now(), $3::text, $4::text, $5::text, $6::text, $7::text, $8::timestamptz,
+         $10::int, $11::int, $12::int, $13::timestamptz
     FROM devices d
    WHERE d.id = $1::uuid AND d.tenant_id = $2::uuid AND d.revoked_at IS NULL
   ON CONFLICT (device_id) DO UPDATE SET
@@ -73,6 +79,10 @@ const STORE_SQL = `
     pending_version = EXCLUDED.pending_version,
     schema_head     = EXCLUDED.schema_head,
     source_clock_at = EXCLUDED.source_clock_at,
+    sale_queue_pending           = EXCLUDED.sale_queue_pending,
+    sale_queue_dead_letter       = EXCLUDED.sale_queue_dead_letter,
+    sale_queue_held              = EXCLUDED.sale_queue_held,
+    sale_queue_oldest_pending_at = EXCLUDED.sale_queue_oldest_pending_at,
     updated_at      = now()
   WHERE device_health.last_seen_at <= now() - make_interval(secs => $9::int)
   RETURNING device_id`;
@@ -135,6 +145,10 @@ export class DeviceHeartbeatService {
         report.schema_head ?? null,
         report.source_clock_at ?? null,
         HEARTBEAT_STORE_INTERVAL_SECONDS,
+        report.sale_queue?.pending ?? null,
+        report.sale_queue?.dead_letter ?? null,
+        report.sale_queue?.held_previous_pairing ?? null,
+        report.sale_queue?.oldest_pending_at ?? null,
       ]);
       await client.query("RELEASE SAVEPOINT heartbeat_store");
       return res.rowCount === 1 ? "stored" : "throttled";

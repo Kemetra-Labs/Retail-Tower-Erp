@@ -32,6 +32,18 @@ export interface DeviceHealthReadRow {
   readonly source_clock_at: Date | null;
   readonly min_supported_version: string | null;
   readonly min_supported_grace_until: Date | null;
+  readonly sale_queue_pending: number | null;
+  readonly sale_queue_dead_letter: number | null;
+  readonly sale_queue_held: number | null;
+  readonly sale_queue_oldest_pending_at: Date | null;
+}
+
+/** RT-1312 F1 (`SaleQueueView`): the till's unsent sale counts as of its last stored beat. */
+interface SaleQueueViewBody {
+  readonly pending: number;
+  readonly deadLetter: number;
+  readonly heldPreviousPairing: number;
+  readonly oldestPendingAt: string | null;
 }
 
 export interface DeviceHealthViewBody {
@@ -54,6 +66,7 @@ export interface DeviceHealthViewBody {
   readonly activityLastSeenAt: string | null;
   readonly lastSeenAt: string | null;
   readonly lastSeenSource: LastSeenSource | null;
+  readonly saleQueue: SaleQueueViewBody | null;
 }
 
 export interface DeviceHealthPage {
@@ -63,6 +76,19 @@ export interface DeviceHealthPage {
 
 function iso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
+}
+
+/** NULL counts (no beat, or a beat without a queue) are unknown: `null`, never zeros. */
+function saleQueueOf(row: DeviceHealthReadRow): SaleQueueViewBody | null {
+  if (row.heartbeat_at === null || row.sale_queue_pending === null || row.sale_queue_dead_letter === null || row.sale_queue_held === null) {
+    return null;
+  }
+  return {
+    pending: row.sale_queue_pending,
+    deadLetter: row.sale_queue_dead_letter,
+    heldPreviousPairing: row.sale_queue_held,
+    oldestPendingAt: iso(row.sale_queue_oldest_pending_at),
+  };
 }
 
 /** The derived verdicts of a row at `now`: what the `liveness` / `compliance` filters match. */
@@ -100,6 +126,7 @@ export function toDeviceHealthView(row: DeviceHealthReadRow, now: Date): DeviceH
     activityLastSeenAt: iso(row.activity_last_seen_at),
     lastSeenAt: iso(seen.lastSeenAt),
     lastSeenSource: seen.lastSeenSource,
+    saleQueue: saleQueueOf(row),
   };
 }
 

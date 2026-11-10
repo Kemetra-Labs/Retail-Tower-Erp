@@ -11,5 +11,11 @@
  *     the capability (an additive POS-facing field, operation or header a
  *     release may rely on). It never decreases.
  *   - 1 is the first value: the revision that ships the heartbeat itself.
+ *
+ * HISTORY
+ *   1  RT-327: the heartbeat itself.
+ *   2  RT-1312 F1: the heartbeat accepts `sale_queue`. A POS sends it only
+ *      once a reply carried revision 2 or more: an older Backend-Core refuses
+ *      the unknown key with a 400.
  */
-export const POS_CONTRACT_REVISION = 1;
+export const POS_CONTRACT_REVISION = 2;

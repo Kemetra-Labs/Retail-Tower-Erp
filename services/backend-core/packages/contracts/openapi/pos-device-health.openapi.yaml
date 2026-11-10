@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — POS Device Health, Version Policy and Contract Revision API
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     Jira RT-327 step 1 (AD-DEVICE-001, owner-ratified 2026-10-21 with D-5 and
     D-7 amended, RT-323 comment 13215): per-terminal fleet version truth, a
@@ -75,6 +75,19 @@ info:
       - **Additive evolution.** A POS sends a new body field only once the
         `pos_contract_revision` it last received is at least the revision
         that added it; an unknown key is otherwise refused (400).
+
+
+    **Sale queue (1.1.0-draft, RT-1312 Phase 1, RT-1124 finding F1).** The
+    heartbeat may carry `sale_queue`: the till's counts of sales waiting to be
+    sent (`pending`), refused for good (`dead_letter`) and held from an
+    earlier pairing (`held_previous_pairing`), plus the time of the oldest
+    pending sale. It is the only central signal that a sale already paid at
+    the till has not reached Backend-Core. Counts and one instant only: no
+    sale id, number or amount. Like every heartbeat field it is replaced by
+    each stored beat, and a stored beat without it reads `saleQueue: null`
+    (unknown), never zeros. Additive: `pos_contract_revision` becomes 2, and
+    a POS sends `sale_queue` only after a reply carried revision 2 or more,
+    because an older Backend-Core refuses the unknown key with a 400.
 
 
     **Heartbeat body and the RT-719 build identity headers.** RT-719 (merged,
@@ -730,6 +743,60 @@ components:
             - type: string
               format: date-time
             - type: "null"
+        sale_queue:
+          description: >
+            RT-1312: the till's unsent sale counts at beat time. Absent or
+            `null` is stored as unknown. Send it only when the last reply's
+            `pos_contract_revision` is at least 2.
+          oneOf:
+            - $ref: "#/components/schemas/SaleQueueReport"
+            - type: "null"
+
+    SaleQueueCount:
+      type: integer
+      minimum: 0
+      maximum: 1000000
+      description: A count of sales on the till (RT-1312), bounded like the DB CHECK.
+
+    SaleQueueReport:
+      type: object
+      additionalProperties: false
+      required: [pending, dead_letter, held_previous_pairing, oldest_pending_at]
+      description: >
+        RT-1312 F1: the till's unsent sales, by state. Counts and one
+        instant; no sale id, number, amount or cashier.
+      properties:
+        pending:
+          $ref: "#/components/schemas/SaleQueueCount"
+        dead_letter:
+          $ref: "#/components/schemas/SaleQueueCount"
+        held_previous_pairing:
+          $ref: "#/components/schemas/SaleQueueCount"
+        oldest_pending_at:
+          description: The till time of the oldest pending sale; `null` when none is pending.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+
+    SaleQueueView:
+      type: object
+      additionalProperties: false
+      required: [pending, deadLetter, heldPreviousPairing, oldestPendingAt]
+      description: >
+        RT-1312 F1: the till's unsent sale counts as of its last stored
+        heartbeat (`heartbeatAt`), not live.
+      properties:
+        pending:
+          $ref: "#/components/schemas/SaleQueueCount"
+        deadLetter:
+          $ref: "#/components/schemas/SaleQueueCount"
+        heldPreviousPairing:
+          $ref: "#/components/schemas/SaleQueueCount"
+        oldestPendingAt:
+          type: [string, "null"]
+          format: date-time
+          description: The till time of the oldest pending sale; `null` when none was pending.
 
     HeartbeatPolicy:
       type: object
@@ -840,6 +907,7 @@ components:
         - activityLastSeenAt
         - lastSeenAt
         - lastSeenSource
+        - saleQueue
       allOf:
         - if:
             properties:
@@ -854,6 +922,8 @@ components:
                 type: "null"
               compliance:
                 const: unknown
+              saleQueue:
+                type: "null"
           else:
             properties:
               liveness:
@@ -997,6 +1067,13 @@ components:
           oneOf:
             - type: string
               enum: [heartbeat, activity]
+            - type: "null"
+        saleQueue:
+          description: >
+            RT-1312: the sale queue of the last stored beat; `null` when the
+            device never beat or that beat carried none (unknown, never 0).
+          oneOf:
+            - $ref: "#/components/schemas/SaleQueueView"
             - type: "null"
 
     DeviceHealthPage:

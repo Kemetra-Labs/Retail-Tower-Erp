@@ -88,6 +88,7 @@ const NEVER_SEEN = {
   activityLastSeenAt: null,
   lastSeenAt: null,
   lastSeenSource: null,
+  saleQueue: null,
 };
 const SEEN = {
   ...NEVER_SEEN,
@@ -104,6 +105,7 @@ const SEEN = {
   activityLastSeenAt: "2026-10-21T09:00:00.000Z",
   lastSeenAt: AT,
   lastSeenSource: "heartbeat",
+  saleQueue: { pending: 3, deadLetter: 1, heldPreviousPairing: 0, oldestPendingAt: AT },
 };
 const STORED_POLICY = {
   latestVersion: "1.5.0",
@@ -129,7 +131,7 @@ describe("pos device health contract — operations", () => {
 
   it("is OpenAPI 3.1.0 at 1.0.0-draft with exactly the five operations", () => {
     expect(contract.document["openapi"]).toBe("3.1.0");
-    expect((contract.document["info"] as JsonObject)["version"]).toBe("1.0.0-draft");
+    expect((contract.document["info"] as JsonObject)["version"]).toBe("1.1.0-draft");
     const declared = Object.entries(contract.document["paths"] as Record<string, JsonObject>).flatMap(([path, item]) =>
       Object.entries(item).map(([method, op]) => [method, path, (op as JsonObject)["operationId"]]),
     );
@@ -221,13 +223,27 @@ describe("pos device health contract — auth and refusals", () => {
 // 3. The heartbeat body
 // ===========================================================================
 describe("pos device health contract — heartbeat body (D-1)", () => {
-  it("is closed and holds exactly the six D-1 fields, all optional", () => {
+  it("is closed and holds exactly the six D-1 fields plus the RT-1312 sale queue, all optional", () => {
     const s = contract.schema("DeviceHeartbeatReport");
     expect(s["additionalProperties"]).toBe(false);
     expect(s["required"]).toBeUndefined();
     expect(keysOf("DeviceHeartbeatReport")).toEqual(
-      ["app_version", "pending_version", "schema_head", "source_clock_at", "update_channel", "update_state"].sort(),
+      ["app_version", "pending_version", "sale_queue", "schema_head", "source_clock_at", "update_channel", "update_state"].sort(),
     );
+  });
+
+  it("RT-1312 F1: the sale queue is closed counts and one instant, never sale ids", () => {
+    const s = contract.schema("SaleQueueReport");
+    expect(s["additionalProperties"]).toBe(false);
+    expect([...((s["required"] ?? []) as string[])].sort()).toEqual(keysOf("SaleQueueReport"));
+    expect(keysOf("SaleQueueReport")).toEqual(["dead_letter", "held_previous_pairing", "oldest_pending_at", "pending"]);
+    const queue = { pending: 3, dead_letter: 1, held_previous_pairing: 0, oldest_pending_at: AT };
+    expect(contract.accepts("DeviceHeartbeatReport", { ...FULL_BEAT, sale_queue: queue })).toBe(true);
+    expect(contract.accepts("DeviceHeartbeatReport", { ...FULL_BEAT, sale_queue: { ...queue, oldest_pending_at: null } })).toBe(true);
+    expect(contract.accepts("DeviceHeartbeatReport", { ...FULL_BEAT, sale_queue: null })).toBe(true);
+    expect(contract.accepts("DeviceHeartbeatReport", { ...FULL_BEAT, sale_queue: { ...queue, pending: -1 } })).toBe(false);
+    expect(contract.accepts("DeviceHeartbeatReport", { ...FULL_BEAT, sale_queue: { ...queue, pending: 1_000_001 } })).toBe(false);
+    expect(contract.accepts("DeviceHeartbeatReport", { ...FULL_BEAT, sale_queue: { ...queue, sale_ids: [] } })).toBe(false);
   });
 
   it("accepts an empty beat, a full beat and nulls", () => {
@@ -356,6 +372,13 @@ describe("pos device health contract — console row (D-4, D-5)", () => {
       expect(contract.accepts("DeviceHealthView", { ...missing, compliance: "below_minimum" })).toBe(false);
     },
   );
+
+  it("RT-1312 F1: shows the sale queue of the last stored beat, null (unknown) without a beat", () => {
+    expect(contract.accepts("DeviceHealthView", { ...SEEN, saleQueue: null })).toBe(true);
+    expect(contract.accepts("DeviceHealthView", { ...NEVER_SEEN, saleQueue: SEEN.saleQueue })).toBe(false);
+    expect(contract.accepts("DeviceHealthView", { ...SEEN, saleQueue: { ...SEEN.saleQueue, deadLetter: -1 } })).toBe(false);
+    expect(contract.accepts("DeviceHealthView", { ...SEEN, saleQueue: { ...SEEN.saleQueue, saleIds: [] } })).toBe(false);
+  });
 
   it("labels the last seen with its source, null exactly when it is null", () => {
     expect(contract.accepts("DeviceHealthView", { ...SEEN, lastSeenSource: "activity" })).toBe(true);

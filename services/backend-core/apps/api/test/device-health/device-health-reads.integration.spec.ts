@@ -367,6 +367,29 @@ describe("RT-327 device health reads: one device", () => {
       lastSeenSource: "heartbeat",
     });
   });
+
+  it("RT-1312 F1: answers the stored sale queue, and null (unknown) when the beat carried none or there is no beat", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    await putBeat(admin, { deviceId: DEV_A1A.id, tenantId: TENANT_A_ID, agoSeconds: 30 });
+    await admin.query(
+      `UPDATE device_health SET sale_queue_pending = 5, sale_queue_dead_letter = 2, sale_queue_held = 1,
+              sale_queue_oldest_pending_at = '2026-11-10T08:00:00Z' WHERE device_id = $1`,
+      [DEV_A1A.id],
+    );
+    const res = await h.get(one(DEV_A1A.id), OWNER_A.session).expect(200);
+    h.conforms("DeviceHealthView", res.body);
+    expect(res.body).toMatchObject({
+      saleQueue: { pending: 5, deadLetter: 2, heldPreviousPairing: 1, oldestPendingAt: "2026-11-10T08:00:00.000Z" },
+    });
+    await putBeat(admin, { deviceId: DEV_A1B.id, tenantId: TENANT_A_ID, agoSeconds: 30 });
+    const list = await page(OWNER_A.session);
+    const byId = new Map(list.items.map((i) => [i.deviceId, i]));
+    expect(byId.get(DEV_A1A.id)?.["saleQueue"]).toMatchObject({ deadLetter: 2 });
+    expect(byId.get(DEV_A1B.id)?.["saleQueue"]).toBeNull();
+    const never = [...byId.values()].find((i) => i["heartbeatAt"] === null);
+    expect(never?.["saleQueue"]).toBeNull();
+  });
 });
 
 describe("RT-327 device health reads: no side effects", () => {
