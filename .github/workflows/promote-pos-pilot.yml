@@ -1,10 +1,11 @@
-# RT-1300: VERIFY-ONLY (dry-run) promotion of a POS PILOT release. It reads a published pos-pilot/vX.Y.Z release
-# and proves it is the release the pilot lane may promote, then says what a live promotion would do. It cannot
-# upload, sign, register or activate: it holds no environment, no secret, no AWS credential and no id-token, its
-# token is read-only, and it never calls Backend-Core. The live promotion (the S3 upload role, the OIDC register
-# call) is a later, separately approved change to this file; until then nothing here reaches S3 or the registry.
+# RT-1300: promotion of a POS PILOT release. It reads a published pos-pilot/vX.Y.Z release, proves it is the
+# release the pilot lane may promote, and, only when `dry_run` is false, uploads those exact bytes to the private
+# pilot bucket and registers them with Backend-Core. It never activates a release: a platform admin does that
+# separately, in the Console. `dry_run` defaults to true, and a dry run holds no environment, no secret, no AWS
+# credential and no id-token: the first two jobs (resolve, verify) never hold one in either mode, and the two
+# live jobs (upload, register) are skipped unless a person turns `dry_run` off.
 #
-# Trigger: workflow_dispatch only, with the tag and the pinned pilot leaf thumbprint. No push and no
+# Trigger: workflow_dispatch only, with the tag, the pinned pilot leaf thumbprint and `dry_run`. No push and no
 # pull_request trigger: PR code can never start it.
 #
 #   resolve  the tag must be pos-pilot/vX.Y.Z (anchored at both ends: a lab tag or a look-alike is refused), the
@@ -18,10 +19,19 @@
 #            the signer must be the pinned pilot leaf, subject CN=Kemetra POS PILOT, self-signed. Only then is
 #            that public leaf trusted, on this hosted runner only, so Windows can answer Valid; the trust is
 #            removed again whatever happens. Nothing is rebuilt, re-signed or changed.
+#   upload   LIVE only (dry_run false), behind the protected release-pos-pilot-promote environment. The upload is
+#            ONE-SHOT: the bucket policy refuses a second write of the same key and this role can neither read
+#            nor delete, so everything that can be checked is checked BEFORE the role is assumed: the
+#            environment's settings, the tools, the release bytes against what verify checked, the SLSA build
+#            provenance attestation (its id comes from the release run the manifest names), and that Backend-Core
+#            answers. Then one conditional PutObject (If-None-Match: *, SHA-256 checked by S3), and the
+#            registration body is built once so that any re-run sends the identical body.
+#   register LIVE only, behind the same environment. One POST to the register route with a GitHub OIDC token for
+#            the Backend-Core audience. A failure here is retried with "Re-run failed jobs", which repeats only
+#            this job with the upload's outputs; re-running the upload fails closed on the conditional write.
 #
-# It runs on main only: a copy of this file on another branch could print a verification it did not do. The live
-# promotion will run on main too (the Backend-Core `ref` pin is one exact value) and will be a different, approved
-# version of this file.
+# It runs on main only: a copy of this file on another branch could print a verification it did not do, and the
+# Backend-Core `ref` pin and the upload role's trust are each one exact value (refs/heads/main).
 name: promote-pos-pilot
 
 "on":
@@ -35,6 +45,10 @@ name: promote-pos-pilot
         description: SHA-1 thumbprint (40 hex) of the pilot signing leaf, as the release-pos-pilot signing step printed it.
         type: string
         required: true
+      dry_run:
+        description: Verify only (true, the default). False also uploads the verified bytes and registers them; it never activates.
+        type: boolean
+        default: true
 
 permissions: {}
 
@@ -92,6 +106,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      digest: ${{ steps.assets.outputs.digest }}
+      size: ${{ steps.assets.outputs.size }}
     defaults:
       run:
         shell: bash
@@ -130,6 +147,7 @@ jobs:
 
       # What was published must be what the build and signing jobs produced and the manifest job recorded.
       - name: Check the assets against the manifest
+        id: assets
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
@@ -153,6 +171,8 @@ jobs:
           SIZE="$(wc -c < "$PKG/$EXE" | tr -d ' ')"
           # The registry accepts 1 byte to 2 GiB.
           { [ "$SIZE" -ge 1 ] && [ "$SIZE" -le 2147483648 ]; } || fail "the installer size $SIZE is outside 1..2147483648 bytes"
+          # What a live upload must find again: the same bytes, by digest and size.
+          { echo "digest=${DIGEST#sha256:}"; echo "size=$SIZE"; } >> "$GITHUB_OUTPUT"
 
       # Bound to this repository, the pilot release workflow, this commit and this tag: an attestation made by any
       # other workflow, commit or ref does not pass.
@@ -226,4 +246,262 @@ jobs:
             echo "- leave the release inactive: a platform admin activates it separately."
             echo
             echo "Checked: published release with exactly the three assets, manifest, .sha256, size, build provenance, and the signature of the pinned leaf \`$LEAF_SHA1\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # LIVE, only when dry_run is false and verify passed. The upload is one-shot (see the header), so every check that
+  # can run before the role is assumed does. This job holds the AWS role and an id-token request ONLY for the
+  # assume-role step; the registration token is requested in the next job.
+  upload:
+    name: promote/upload (live, the private bucket, behind the approval environment)
+    needs: [resolve, verify]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release-pos-pilot-promote
+    permissions:
+      contents: read
+      attestations: read
+      id-token: write
+    outputs:
+      body: ${{ steps.body.outputs.body }}
+      version_id: ${{ steps.put.outputs.version_id }}
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      REPO: ${{ github.repository }}
+      VERIFIED_DIGEST: ${{ needs.verify.outputs.digest }}
+      VERIFIED_SIZE: ${{ needs.verify.outputs.size }}
+      ROLE_ARN: ${{ vars.POS_PILOT_PROMOTE_ROLE_ARN }}
+      BUCKET: ${{ vars.POS_PILOT_RELEASE_BUCKET }}
+      S3_REGION: ${{ vars.POS_PILOT_RELEASE_S3_REGION }}
+      API_BASE: ${{ vars.POS_PILOT_API_BASE_URL }}
+      AUDIENCE: ${{ vars.POS_PILOT_PROMOTION_OIDC_AUDIENCE }}
+    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
+    steps:
+      # Settings come from the protected environment's variables (none is a secret). A blank or malformed one stops
+      # the run here, before anything is uploaded that register could not then record.
+      - name: Check the environment's settings and the tools
+        env:
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # What the registration body will carry, checked BEFORE the one-shot upload: a value the registry would
+          # refuse after the upload would leave an object that can never be registered.
+          [[ "$ACTOR" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]] && [ "${#ACTOR}" -le 39 ] || fail "the actor '$ACTOR' is not a GitHub login the registry accepts (start the run as a person, not an app)"
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || fail "the run id is not a number"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] && [ "${#VERSION}" -le 32 ] || fail "version '$VERSION' is not one the registry accepts"
+          [[ "$ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/rt-gha-pos-pilot-promote$ ]] || fail "POS_PILOT_PROMOTE_ROLE_ARN must be the ARN of the role rt-gha-pos-pilot-promote"
+          [[ "$BUCKET" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]] || fail "POS_PILOT_RELEASE_BUCKET must be a lower-case bucket name of letters, digits and hyphens (no dots)"
+          [[ "$S3_REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || fail "POS_PILOT_RELEASE_S3_REGION is not an AWS region name"
+          [[ "$API_BASE" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$ ]] || fail "POS_PILOT_API_BASE_URL must be an https origin with no path and no trailing slash"
+          [[ "$AUDIENCE" =~ ^[A-Za-z0-9._:/@-]{3,200}$ ]] || fail "POS_PILOT_PROMOTION_OIDC_AUDIENCE is blank or malformed"
+          [ "$AUDIENCE" != sts.amazonaws.com ] || fail "the Backend-Core audience must not be the AWS one (sts.amazonaws.com)"
+          for tool in jq sha256sum openssl base64 gh aws curl; do command -v "$tool" >/dev/null || fail "$tool is not available on this runner"; done
+          # The conditional write is what makes the upload one-shot: a CLI that cannot send it must not upload at all.
+          AWS_PAGER="" aws s3api put-object --generate-cli-skeleton input | jq -e 'has("IfNoneMatch")' >/dev/null \
+            || fail "this runner's aws CLI cannot send If-None-Match on a PutObject, so the one-shot upload would not be enforced"
+
+      # The release is immutable, so these are the bytes verify checked: same digest, same size, same manifest.
+      - name: Download the release again and compare it with what verify checked
+        id: download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          TAG_SHA="$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)" || fail "cannot resolve tag $TAG"
+          [ "$TAG_SHA" = "$SHA" ] || fail "tag $TAG now points at $TAG_SHA, not $SHA"
+          REL="$(gh release view "$TAG" --repo "$REPO" --json tagName,isDraft,isPrerelease,assets)" || fail "cannot read release $TAG"
+          jq -e --arg tag "$TAG" '.tagName == $tag and .isDraft == false and .isPrerelease == false' <<<"$REL" >/dev/null \
+            || fail "release $TAG is missing, a draft, a prerelease, or another tag"
+          jq -e --arg exe "$EXE" '([.assets[].name] | sort) == ([$exe, ($exe + ".sha256"), "release-manifest.json"] | sort)' <<<"$REL" >/dev/null \
+            || fail "the release assets are not exactly $EXE, $EXE.sha256 and release-manifest.json"
+          mkdir -p "$PKG"
+          gh release download "$TAG" --repo "$REPO" --dir "$PKG"
+          [ "$(ls "$PKG" | LC_ALL=C sort | paste -sd ' ' -)" = "$(printf '%s\n' "$EXE" "$EXE.sha256" release-manifest.json | LC_ALL=C sort | paste -sd ' ' -)" ] \
+            || fail "the download held other files than $EXE, $EXE.sha256 and release-manifest.json"
+          DIGEST="$(sha256sum < "$PKG/$EXE" | cut -d' ' -f1)"
+          [ "$DIGEST" = "$VERIFIED_DIGEST" ] || fail "the installer is not the one verify checked (sha256 $DIGEST, verify saw $VERIFIED_DIGEST)"
+          SIZE="$(wc -c < "$PKG/$EXE" | tr -d ' ')"
+          [ "$SIZE" = "$VERIFIED_SIZE" ] || fail "the installer size is $SIZE bytes, verify saw $VERIFIED_SIZE"
+          jq -e --arg digest "sha256:$DIGEST" '(.artifacts | length == 1) and .artifacts[0].digest == $digest' "$PKG/release-manifest.json" >/dev/null \
+            || fail "the manifest does not name this installer"
+          [ "$(cat "$PKG/$EXE.sha256")" = "$DIGEST  $EXE" ] || fail "$EXE.sha256 is not exactly '<digest>  $EXE' for the installer"
+          # The run that built the release: its url is in the manifest, and the attestation must come from that run.
+          CI_URL="$(jq -r '.ci_url // empty' "$PKG/release-manifest.json")"
+          PREFIX="https://github.com/$REPO/actions/runs/"
+          [[ "$CI_URL" == "$PREFIX"* ]] || fail "the manifest's ci_url is not a run of $REPO"
+          REST="${CI_URL#"$PREFIX"}"
+          [[ "$REST" =~ ^([0-9]+)(/attempts/[0-9]+)?$ ]] || fail "the manifest's ci_url is not a workflow run url"
+          { echo "digest=$DIGEST"; echo "size=$SIZE"; echo "ci_run=${BASH_REMATCH[1]}"; } >> "$GITHUB_OUTPUT"
+
+      # The registry wants the build provenance attestation's page url (.../attestations/<id>). GitHub's list API does
+      # not return the id; it is the number in each bundle's storage path. Two attestations exist for the installer (the
+      # SLSA build provenance and GitHub's release attestation), so the one wanted is selected by predicate type,
+      # by this digest, and by the release run the manifest names; anything but exactly one match stops the run.
+      - name: Resolve the build provenance attestation
+        id: attest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.download.outputs.digest }}
+          CI_RUN: ${{ steps.download.outputs.ci_run }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          LIST="$(gh api "repos/$REPO/attestations/sha256:$DIGEST")" || fail "cannot list the attestations of sha256:$DIGEST"
+          IDS="$(jq -c --arg d "$DIGEST" --arg prefix "https://github.com/$REPO/actions/runs/$CI_RUN" '
+              [ .attestations[]
+                | { id: (.bundle_url | capture("/(?<id>[0-9]+)[.]json").id),
+                    statement: (.bundle.dsseEnvelope.payload | @base64d | fromjson) }
+                | select(.statement.predicateType == "https://slsa.dev/provenance/v1")
+                | select([.statement.subject[].digest.sha256] | index($d) != null)
+                | select((.statement.predicate.runDetails.metadata.invocationId | type) == "string")
+                | select(.statement.predicate.runDetails.metadata.invocationId | startswith($prefix))
+                | select(.statement.predicate.runDetails.metadata.invocationId | ltrimstr($prefix) | test("^(/attempts/[0-9]+)?$"))
+                | .id ]' <<<"$LIST")" || fail "the attestation list is not in the expected shape"
+          COUNT="$(jq 'length' <<<"$IDS")"
+          [ "$COUNT" = 1 ] || fail "expected exactly one SLSA build provenance attestation for sha256:$DIGEST from run $CI_RUN, found $COUNT"
+          ID="$(jq -r '.[0]' <<<"$IDS")"
+          [[ "$ID" =~ ^[0-9]+$ ]] || fail "the attestation id '$ID' is not a number"
+          echo "ref=https://github.com/$REPO/attestations/$ID" >> "$GITHUB_OUTPUT"
+
+      # Before a byte is uploaded: if Backend-Core cannot be reached, the registration could not follow it.
+      - name: Check that Backend-Core answers
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          HTTP="$(curl --silent --show-error --max-time 20 --proto '=https' --tlsv1.2 -o /dev/null -w '%{http_code}' "$API_BASE/api/v1/health/ready")" \
+            || fail "cannot reach $API_BASE"
+          [ "$HTTP" = 200 ] || fail "$API_BASE/api/v1/health/ready answered $HTTP, not 200"
+
+      - name: Assume the upload role (GitHub OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.POS_PILOT_PROMOTE_ROLE_ARN }}
+          aws-region: ${{ vars.POS_PILOT_RELEASE_S3_REGION }}
+          role-session-name: rt-promote-pos-pilot-${{ github.run_id }}
+          role-duration-seconds: 900
+
+      # One PutObject (a multipart upload would be refused: its parts carry no If-None-Match). S3 verifies the SHA-256 we
+      # send and refuses an existing key (412), so this can neither corrupt nor replace an object.
+      - name: Upload the installer once (conditional write)
+        id: put
+        env:
+          DIGEST: ${{ steps.download.outputs.digest }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          EXE="POS-Pulse-Setup-$VERSION.exe"
+          PKG="$RUNNER_TEMP/pkg"
+          KEY="pos/pilot/$VERSION/$EXE"
+          B64="$(openssl dgst -sha256 -binary "$PKG/$EXE" | base64 | tr -d '\n')"
+          ERR="$RUNNER_TEMP/put.err"
+          if ! OUT="$(AWS_PAGER="" aws s3api put-object --bucket "$BUCKET" --key "$KEY" --body "$PKG/$EXE" \
+                --checksum-algorithm SHA256 --checksum-sha256 "$B64" --if-none-match '*' --content-type application/octet-stream \
+                --output json 2>"$ERR")"; then
+            head -c 600 "$ERR" >&2 || true
+            if grep -q 'PreconditionFailed' "$ERR"; then
+              fail "$KEY already exists, so the one-shot write was refused. Do not re-run this job. If an earlier run uploaded it and only register failed, re-run the failed jobs of THAT run."
+            fi
+            fail "the upload of $KEY failed; nothing was written"
+          fi
+          VID="$(jq -r '.VersionId // empty' <<<"$OUT")"
+          [ -n "$VID" ] || fail "S3 returned no VersionId: is versioning enabled on the bucket?"
+          # (POSIX ERE caps a {m,n} repeat at 255, so the 1024 limit is a separate length check.)
+          [[ "$VID" =~ ^[A-Za-z0-9._-]+$ ]] && [ "${#VID}" -le 1024 ] || fail "S3 returned a VersionId of an unexpected shape"
+          [ "$(jq -r '.ChecksumSHA256 // empty' <<<"$OUT")" = "$B64" ] || fail "S3 did not confirm the SHA-256 of the uploaded object"
+          echo "version_id=$VID" >> "$GITHUB_OUTPUT"
+          echo "uploaded $KEY as version $VID"
+
+      # Built once, here: a replay is recognised by exact content, so a re-run of register must send this very body
+      # (the approval time and the run url are fixed now, not recomputed later).
+      - name: Build the registration body once
+        id: body
+        env:
+          DIGEST: ${{ steps.download.outputs.digest }}
+          SIZE: ${{ steps.download.outputs.size }}
+          VERSION_ID: ${{ steps.put.outputs.version_id }}
+          ATTEST_REF: ${{ steps.attest.outputs.ref }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$ACTOR" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]] && [ "${#ACTOR}" -le 39 ] || fail "the actor '$ACTOR' is not a GitHub login the registry accepts"
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || fail "the run id is not a number"
+          [ -n "$VERSION_ID" ] || fail "there is no S3 VersionId to register"
+          APPROVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BODY="$(jq -cn --arg version "$VERSION" --arg sha256 "$DIGEST" --argjson size "$SIZE" --arg attestation "$ATTEST_REF" \
+              --arg sourceSha "$SHA" --arg by "$ACTOR" --arg at "$APPROVED_AT" --arg run "https://github.com/$REPO/actions/runs/$RUN_ID" \
+              --arg versionId "$VERSION_ID" \
+              '{version: $version, sha256: $sha256, sizeBytes: $size, publisher: "CN=Kemetra POS PILOT", signingClass: "pilot",
+                attestationRef: $attestation, sourceSha: $sourceSha, approvedBy: $by, approvedAt: $at, promotionRunUrl: $run,
+                artifactVersionId: $versionId}')"
+          echo "body=$BODY" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Uploaded $TAG to the private pilot bucket (not yet registered)"
+            echo
+            echo "- object \`pos/pilot/$VERSION/POS-Pulse-Setup-$VERSION.exe\`, S3 version \`$VERSION_ID\`, SHA-256 \`$DIGEST\`, $SIZE bytes"
+            echo "- build provenance $ATTEST_REF"
+            echo "- the next job registers it. If that fails, use **Re-run failed jobs** (never re-run this job)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # LIVE. One POST to Backend-Core with a GitHub OIDC token for the Backend-Core audience, in the same protected
+  # environment (the token's `environment` claim is one of the five pins). It never activates a release.
+  register:
+    name: promote/register (live, Backend-Core, behind the approval environment)
+    needs: [resolve, upload]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-pos-pilot-promote
+    permissions:
+      id-token: write
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      BODY: ${{ needs.upload.outputs.body }}
+      API_BASE: ${{ vars.POS_PILOT_API_BASE_URL }}
+      AUDIENCE: ${{ vars.POS_PILOT_PROMOTION_OIDC_AUDIENCE }}
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Register the release with Backend-Core (OIDC bearer; it is not activated)
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [[ "$API_BASE" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$ ]] || fail "POS_PILOT_API_BASE_URL must be an https origin with no path and no trailing slash"
+          [[ "$AUDIENCE" =~ ^[A-Za-z0-9._:/@-]{3,200}$ ]] && [ "$AUDIENCE" != sts.amazonaws.com ] || fail "POS_PILOT_PROMOTION_OIDC_AUDIENCE is blank, malformed, or the AWS audience"
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] || fail "no OIDC token request is available: this job needs id-token: write"
+          jq -e --arg v "$VERSION" '.version == $v and .signingClass == "pilot" and .publisher == "CN=Kemetra POS PILOT"' <<<"$BODY" >/dev/null \
+            || fail "the registration body from the upload job is not a pilot registration of $VERSION"
+          # The credentials go through curl's config on stdin, never through the argument list.
+          TOKEN="$(printf 'header = "Authorization: Bearer %s"\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            | curl -K - --silent --show-error --fail --max-time 20 --proto '=https' --tlsv1.2 --get --data-urlencode "audience=$AUDIENCE" "$ACTIONS_ID_TOKEN_REQUEST_URL" \
+            | jq -r '.value // empty')" || fail "GitHub did not issue an OIDC token"
+          [ -n "$TOKEN" ] || fail "GitHub issued an empty OIDC token"
+          echo "::add-mask::$TOKEN"
+          KEY="pos-pilot-promote-$VERSION-$RUN_ID"
+          RESP="$RUNNER_TEMP/register.json"
+          HTTP="$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+            | curl -K - --silent --show-error --max-time 30 --proto '=https' --tlsv1.2 -o "$RESP" -w '%{http_code}' -X POST \
+                -H "Idempotency-Key: $KEY" -H 'Content-Type: application/json' --data "$BODY" "$API_BASE/api/v1/platform/pos-pilot-releases")" \
+            || fail "cannot reach Backend-Core"
+          case "$HTTP" in
+            200|201) ;;
+            *) fail "Backend-Core answered $HTTP ($(jq -r '.code // .error // "no code"' "$RESP" 2>/dev/null | tr -cd 'A-Za-z0-9_. -' | head -c 120)). A 401 or 403 means the five POS_PILOT_PROMOTION_OIDC_* pins on the host do not match this token: fix the host, then use Re-run failed jobs." ;;
+          esac
+          jq -e --arg v "$VERSION" --argjson body "$BODY" \
+              '.version == $v and .sha256 == $body.sha256 and .sizeBytes == $body.sizeBytes and .signingClass == "pilot" and .artifactVersionId == $body.artifactVersionId and .approved == true' \
+              "$RESP" >/dev/null \
+            || fail "Backend-Core answered $HTTP but not with the release that was sent (a withdrawn release answers approved:false)"
+          {
+            echo "### Registered $TAG with Backend-Core (HTTP $HTTP): it is NOT active"
+            echo
+            echo "- release \`$(jq -r '.releaseId // "unknown"' "$RESP")\`, version \`$VERSION\`"
+            echo "- a platform admin activates it separately in the Console; nothing here makes it downloadable"
           } >> "$GITHUB_STEP_SUMMARY"

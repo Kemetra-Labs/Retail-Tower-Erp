@@ -212,9 +212,10 @@ checked for shape: replay detection is by content. A retry of a withdrawn releas
 
 ## 8. Verifying a pilot release before promotion: the dry-run (RT-1300)
 
-`.github/workflows/promote-pos-pilot.yml` is, for now, **verify-only**. It cannot upload, register or
-activate: it holds no environment, secret, AWS credential or id-token, its token is read-only, and it never
-calls Backend-Core. Use it before the real promotion exists, and again before each live one.
+`.github/workflows/promote-pos-pilot.yml` has two modes. A **dry run** (`dry_run` true, the default) is
+verify-only: the jobs that run hold no environment, secret, AWS credential or id-token, the token is read-only,
+and it never calls Backend-Core. Use it before each live promotion (section 9), and any time you want to check a
+release again. Setting `dry_run` to false adds the live jobs; this section describes the checks both modes share.
 
 **Run it from `main`** (Actions → promote-pos-pilot → Run workflow, branch `main`) with two inputs. The run
 refuses any other ref, because another branch's copy of the file could report a verification it did not do. A
@@ -247,9 +248,8 @@ The run summary then states what a live promotion would do with these bytes (the
 `pos/pilot/<version>/POS-Pulse-Setup-<version>.exe`, the SHA-256, the size and the registration fields) and that
 nothing was uploaded, registered or activated.
 
-**Not built yet** (a later, separately approved change to the same file, after the owner sets up the bucket, the
-upload role and the protected promotion environment): the S3 upload, the second OIDC token and the register call.
-That version must run on `main` only, because the Backend-Core `ref` pin is one exact value (section 7).
+The live upload and the register call are section 9. They also run on `main` only, because the Backend-Core `ref`
+pin and the upload role's trust are each one exact value (section 7).
 
 | Symptom | Likely cause |
 |---|---|
@@ -259,3 +259,81 @@ That version must run on `main` only, because the Backend-Core `ref` pin is one 
 | `the release assets are not exactly ...` | An asset was added to or removed from the release after it was published. Never edit a pilot release: ship a higher version. |
 | `gh attestation verify` fails | The installer was not attested by `release-pos-pilot.yml` for this commit and tag, or the bytes differ from the attested ones. |
 | `the installer is signed by another certificate` | `leaf_sha1` is wrong, or the installer was not signed with the pinned pilot leaf. |
+
+## 9. Promoting a verified release: the live run (RT-1300)
+
+Start the same workflow from `main` with `dry_run` set to **false** to promote. After `verify` passes, two more
+jobs run behind the protected environment `release-pos-pilot-promote`: `upload` puts the verified bytes in the
+private bucket, and `register` records them in the registry (section 7). A promotion **never activates** a
+release: a platform admin does that separately, in the Console, and withdrawing is not part of this workflow yet.
+The run asks for your approval on the environment twice, once for each of the two jobs.
+
+**One-time owner setup** (none of it is a secret; do it before the first live run):
+
+1. **AWS**: the bucket and its policy (section 2) and the upload role `rt-gha-pos-pilot-promote`. Its trust is the
+   GitHub OIDC provider pinned to the environment `release-pos-pilot-promote`, the ref `refs/heads/main`, the
+   workflow file `promote-pos-pilot.yml` and your GitHub actor; its only permission is `s3:PutObject` on
+   `pos/pilot/*`. The bucket policy refuses every request that is not TLS and every `PutObject` under `pos/pilot/*`
+   that carries no `If-None-Match`, so an object can be written once and never replaced.
+2. **GitHub environment** `release-pos-pilot-promote` (Settings → Environments): a required reviewer (you) and a
+   deployment policy that admits the `main` branch only. It is not the tag-only policy of the release
+   environments: the run is a manual dispatch on `main`.
+3. **Variables of that environment**, all of them read by the workflow, and each checked for its shape before
+   anything is uploaded:
+
+   | Variable | Value |
+   |---|---|
+   | `POS_PILOT_PROMOTE_ROLE_ARN` | the ARN of the role `rt-gha-pos-pilot-promote` |
+   | `POS_PILOT_RELEASE_BUCKET` | the bucket name (lower-case letters, digits and hyphens, no dots) |
+   | `POS_PILOT_RELEASE_S3_REGION` | the bucket's region |
+   | `POS_PILOT_API_BASE_URL` | the Backend-Core origin the register call goes to: `https://host`, no path, no trailing slash, and reachable from GitHub-hosted runners |
+   | `POS_PILOT_PROMOTION_OIDC_AUDIENCE` | the audience the register token is requested for (never `sts.amazonaws.com`) |
+
+4. **The five pins on the Backend-Core host** (section 3), each equal to what GitHub puts in the register job's
+   token. Until all five are set, every register is a 401:
+
+   | Pin | Value |
+   |---|---|
+   | `POS_PILOT_PROMOTION_OIDC_AUDIENCE` | the same string as the variable of that name above |
+   | `POS_PILOT_PROMOTION_OIDC_REPOSITORY` | `Kemetra-Labs/Retail-Tower-Erp` |
+   | `POS_PILOT_PROMOTION_OIDC_ENVIRONMENT` | `release-pos-pilot-promote` |
+   | `POS_PILOT_PROMOTION_OIDC_REF` | `refs/heads/main` |
+   | `POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF` | `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/promote-pos-pilot.yml@refs/heads/main` |
+
+**What the live jobs do**
+
+- `upload` checks everything before it uses the role, because the upload is one-shot: the environment's variables,
+  the tools (including that the runner's `aws` can send `If-None-Match`), that the release bytes are the ones
+  `verify` checked, the build provenance attestation (the SLSA one, from the release run that the manifest names;
+  its id is taken from the attestation's storage path, because GitHub's API does not return it), and that
+  Backend-Core answers `200` on `/api/v1/health/ready`. Only then does it assume the role and make **one**
+  `PutObject` with `If-None-Match: *` and the SHA-256, which S3 checks. A multipart upload is not used: its parts
+  cannot carry the header and the bucket policy would refuse them. It then builds the registration body once.
+- `register` requests a GitHub OIDC token for the Backend-Core audience (the token never appears in an argument
+  list) and sends one `POST /api/v1/platform/pos-pilot-releases`. It accepts `200` or `201` and then checks that
+  the answer is the release it sent (a withdrawn release answers `approved: false` and is refused).
+
+**If something fails after the upload.** The object is already there and cannot be replaced.
+
+- **`register` failed** (and `upload` succeeded): use **Re-run failed jobs** on the same run. That repeats only
+  `register`, with the body `upload` built (its approval time and run url are fixed, because the registry
+  recognises a retry by exact content). Never **Re-run all jobs**, and do not start a new dispatch for that
+  version: the conditional write refuses it (`already exists`), by design.
+- **`upload` itself failed after its PutObject** (no VersionId returned, a checksum S3 did not confirm, or the
+  runner was lost after the put): there is no body to register, and re-running `upload` only hits `already exists`.
+  The upload role can neither read nor delete, so recover in one of two ways: ship a higher version, or, as the
+  bucket owner, delete that object version deliberately (console or CLI) and then start a new dispatch. Everything
+  the body needs (the actor, the run id, the version, the attestation, Backend-Core's answer) is checked before
+  the put, so this case is limited to S3 or the runner failing at that moment.
+
+A bad upload cannot be fixed in place: ship a higher version.
+
+| Symptom | Likely cause |
+|---|---|
+| `POS_PILOT_... must be ...` in the first step of `upload` | A variable of the environment is blank or malformed. Fix it, then run again: nothing was uploaded. |
+| `expected exactly one SLSA build provenance attestation ...` | The release has no provenance attestation from the run its manifest names, or more than one. Nothing was uploaded. |
+| `... answered 503, not 200` (Backend-Core check) | The API is down or not ready, or `POS_PILOT_API_BASE_URL` is wrong. Nothing was uploaded. |
+| `already exists, so the one-shot write was refused` | This version is already in the bucket. If an earlier run's `register` failed, use Re-run failed jobs of THAT run; if its `upload` failed after the put, see "If something fails after the upload" above. |
+| `the actor ... is not a GitHub login` | The run was started by an app or bot. Start it as a person; nothing was uploaded. |
+| `register` answers 401 or 403 | One of the five pins on the host differs from the token's claims, or is unset. Fix the host, then Re-run failed jobs. |
+| `register` answers 409 | The registry already holds this version, hash or key with other values. It never overwrites. |
