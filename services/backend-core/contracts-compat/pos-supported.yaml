@@ -10,7 +10,9 @@ fleet_baseline:
   # 2026-11-10 re-observation (RT-1312 Phase 1 F2, RT-713 comment 16400): read-only query on lab-02,
   # owner-approved. The earlier entries were an attestation (2026-10-24, comment 13734) whose clock
   # was moved twice without re-observation (comments 14440, 15724). Two active tills report no build
-  # (T-1A011D4D, RT-778 Windows Test 1), so the 9dfd7d97 supported entry below is kept for them.
+  # (T-1A011D4D, RT-778 Windows Test 1), so the 9dfd7d97 supported entry below is kept for them. Three
+  # older test tills (Test_1, dsad, rrrr on builds 318eb48e, c263f18a, e4d25139, contracts that main has
+  # since broken) are being retired in the Console by owner decision (RT-1312, 2026-11-10); not listed.
   captured_at: 2026-11-10T11:30:00Z
   evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=16400
   installed:
@@ -18,12 +20,6 @@ fleet_baseline:
       build_id: 27e466afcd2cb9dc309ad24f2e3dc7e1b1ad0691
     - kind: build
       build_id: 9931199b90eace78aba02d3878d5bf027c9e6bce
-    - kind: build
-      build_id: 318eb48e62fea76989592887e8dfc6cdbd742f60
-    - kind: build
-      build_id: c263f18a54452cc04f1438f7feec509a7c6ef83d
-    - kind: build
-      build_id: e4d25139eb4d6d27914d7ff7faa007a40a905335
 supported:
   - kind: build
     build_id: 9dfd7d977267806a907d4c03a566382570cbd0c9
@@ -134,105 +130,6 @@ supported:
         - path: pos-terminal-pairing.openapi.yaml
           blob: a27b8ccd4848ac784ec805102013f462b310dc72
     snapshot_sha256: e3e74e84af78cc0be24d6cf24eb6ce28aae69c692c6e0c9b68f05bf437e86a44
-    status: supported
-    added_by: RT-1312 (F2 fleet re-observation, RT-713)
-  - kind: build
-    build_id: 318eb48e62fea76989592887e8dfc6cdbd742f60
-    device_label: Test_1
-    # RT-1312 Phase 1 (F2): observed 2026-11-10 in the lab devices table (reported_build_commit).
-    pos_pin:
-      repo: Kemetra-Labs/Retail-Tower-Erp
-      path: apps/pos/contracts/backend-core/PIN
-      blob: b9f810f06aaaa07df3903e0fb582e7bcf11fd844
-      bc_commit: 3b3909e1cc3ca8ba918c80836b54453e3cd8805e
-    contract_ref:
-      repo: Kemetra-Labs/Retail-Tower-Erp
-      commit: 3b3909e1cc3ca8ba918c80836b54453e3cd8805e
-      root: services/backend-core/packages/contracts/openapi
-      files:
-        - path: catalog/read-down.yaml
-          blob: cfd32292389741428cfce18cda1a4fcb40944a67
-        - path: pos-cashier-admissions.openapi.yaml
-          blob: 387c916b2592fac39d3892a8e61857f335ee919a
-        - path: pos-operators.openapi.yaml
-          blob: afda13c78d545bcdb218a531a86a7bf33045f6bd
-        - path: pos-payments/vouchers.yaml
-          blob: 2c49388f4a5e2e26fad4b29651f6ccb938859e54
-        - path: pos-sales/sale-history.yaml
-          blob: 07f4a633e7c7ea0ac272700977646ca6b617b9d3
-        - path: pos-sales/sales.yaml
-          blob: 884b229c5d2e24494a188fadbd31d9fc2a8c3513
-        - path: pos-shifts.openapi.yaml
-          blob: b65fad81a49294603f94f4ea1ff9243820539816
-        - path: pos-terminal-pairing.openapi.yaml
-          blob: c9966b9baa27e291097fadf720762d47d25db8dd
-    snapshot_sha256: 5bc68c380e905eea0384b554b2c321d05d238357d7a82b6363d42432806fd129
-    status: supported
-    added_by: RT-1312 (F2 fleet re-observation, RT-713)
-  - kind: build
-    build_id: c263f18a54452cc04f1438f7feec509a7c6ef83d
-    device_label: dsad
-    # RT-1312 Phase 1 (F2): observed 2026-11-10 in the lab devices table (reported_build_commit).
-    pos_pin:
-      repo: Kemetra-Labs/Retail-Tower-Erp
-      path: apps/pos/contracts/backend-core/PIN
-      blob: b9f810f06aaaa07df3903e0fb582e7bcf11fd844
-      bc_commit: 3b3909e1cc3ca8ba918c80836b54453e3cd8805e
-    contract_ref:
-      repo: Kemetra-Labs/Retail-Tower-Erp
-      commit: 3b3909e1cc3ca8ba918c80836b54453e3cd8805e
-      root: services/backend-core/packages/contracts/openapi
-      files:
-        - path: catalog/read-down.yaml
-          blob: cfd32292389741428cfce18cda1a4fcb40944a67
-        - path: pos-cashier-admissions.openapi.yaml
-          blob: 387c916b2592fac39d3892a8e61857f335ee919a
-        - path: pos-operators.openapi.yaml
-          blob: afda13c78d545bcdb218a531a86a7bf33045f6bd
-        - path: pos-payments/vouchers.yaml
-          blob: 2c49388f4a5e2e26fad4b29651f6ccb938859e54
-        - path: pos-sales/sale-history.yaml
-          blob: 07f4a633e7c7ea0ac272700977646ca6b617b9d3
-        - path: pos-sales/sales.yaml
-          blob: 884b229c5d2e24494a188fadbd31d9fc2a8c3513
-        - path: pos-shifts.openapi.yaml
-          blob: b65fad81a49294603f94f4ea1ff9243820539816
-        - path: pos-terminal-pairing.openapi.yaml
-          blob: c9966b9baa27e291097fadf720762d47d25db8dd
-    snapshot_sha256: 5bc68c380e905eea0384b554b2c321d05d238357d7a82b6363d42432806fd129
-    status: supported
-    added_by: RT-1312 (F2 fleet re-observation, RT-713)
-  - kind: build
-    build_id: e4d25139eb4d6d27914d7ff7faa007a40a905335
-    device_label: rrrr
-    # RT-1312 Phase 1 (F2): observed 2026-11-10 in the lab devices table (reported_build_commit).
-    pos_pin:
-      repo: Kemetra-Labs/Retail-Tower-Erp
-      path: apps/pos/contracts/backend-core/PIN
-      blob: 7e0e69f4436754c161f42b6df6db3f52e2130e61
-      bc_commit: c06c7b48c654e46b6a0edb149e5f410e45963097
-    contract_ref:
-      repo: Kemetra-Labs/Retail-Tower-Erp
-      commit: c06c7b48c654e46b6a0edb149e5f410e45963097
-      root: services/backend-core/packages/contracts/openapi
-      files:
-        - path: catalog/read-down.yaml
-          blob: cfd32292389741428cfce18cda1a4fcb40944a67
-        - path: pos-cashier-admissions.openapi.yaml
-          blob: 387c916b2592fac39d3892a8e61857f335ee919a
-        - path: pos-operators.openapi.yaml
-          blob: afda13c78d545bcdb218a531a86a7bf33045f6bd
-        - path: pos-payments/vouchers.yaml
-          blob: 2c49388f4a5e2e26fad4b29651f6ccb938859e54
-        - path: pos-sales/sale-history.yaml
-          blob: 07f4a633e7c7ea0ac272700977646ca6b617b9d3
-        - path: pos-sales/sales.yaml
-          blob: a281f4f660696124b8be7109c40a0db83f92eda0
-        - path: pos-shifts.openapi.yaml
-          blob: 05692f4de1f6aa6dce5b440812f9f10bf35f0904
-        - path: pos-terminal-pairing.openapi.yaml
-          blob: c9966b9baa27e291097fadf720762d47d25db8dd
-    snapshot_sha256: 6599ea1eb4523ec50a81de5b0fffea5f2bc5c8a3e1ad08d84138823f1acdaad3
     status: supported
     added_by: RT-1312 (F2 fleet re-observation, RT-713)
 # Test-only probes that prove the harness itself: they never count as real-client
