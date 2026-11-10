@@ -1,0 +1,11 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/vouchers-admin.openapi.yaml (RT-1101, RT-805; checked by console-rate-limit.ratchet.spec.ts).
+# Every operation is contract-only here, so the class is the INTENDED one (RT-574 D3); the runtime (RT-1108) drops only the marker.
+
+# Issue creates up to 100 vouchers in one transaction; cancel is a single conditional update.
+consoleIssueVouchers: write
+consoleCancelVoucher: write
+
+# One keyset-paginated indexed read, and one indexed lookup by id.
+consoleListVouchers: cheapRead
+consoleGetVoucher: cheapRead

@@ -1,0 +1,762 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — Voucher Issuance Admin API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1101 (RT-1098 slice I-1, Post-Pilot). Design record:
+    `services/backend-core/docs/planning/rt-922-voucher-issuance.md` §5.2 and
+    §5.3. Owner decisions: RT-1098 comments 15289 and 15291 (v1 vouchers are
+    promotional only; 1A forfeit, 2A, 3A and 5A).
+
+
+    **Posture.** `1.0.0-draft`, `[GATED]` OpenAPI, and **contract-only**: every
+    operation carries `x-runtime-status: contract-only`. Backend-Core has no
+    controller, guard, service or persistence path for these routes yet; the
+    migration is RT-1107 (I-2) and the runtime is RT-1108 (I-3). This file is a
+    new contract, so it adds nothing to an existing one. The POS redemption
+    contract (`pos-payments/vouchers.yaml`, V-A) is a different surface and is
+    not changed here (RT-1110, R-1).
+
+
+    **What this surface is.** The tenant-scoped way an owner or tenant admin
+    issues, lists, reads and cancels promotional vouchers from the Admin
+    Console. The tenant's own stores are the only stores a voucher can be valid
+    in (D2); the issuer picks all stores or a subset (D3); an "all stores"
+    voucher includes stores added later and an explicit subset never grows by
+    itself (D4). The issuing surface takes no payment: a voucher issued here is
+    given away, not sold.
+
+
+    **Auth and tenant.** The HUMAN `cookieAuth` scheme (httpOnly
+    `dp2_session`) only. The intended guard order is `DashboardAuthGuard`
+    (which carries the RT-430 Origin check on cookie-authenticated POSTs, the
+    CSRF defence for `consoleIssueVouchers` and `consoleCancelVoucher`), then
+    `TenantContextGuard`, then `RolesGuard`. No bearer, device or operator
+    credential is accepted here. The tenant is the session's active tenant and
+    never a request value (Constitution §II, §XII): no request carries a
+    `tenant_id`.
+
+
+    **Roles (decision 2A).** `owner` and `tenant_admin` only, on all four
+    operations. A `store_manager`, or any other role, is 403 `forbidden`.
+    Widening a read to another role later is additive.
+
+
+    **Codes are secret (RT-922 §5.3).** The server generates the code; the
+    issuer never chooses it. It is 16 characters of Crockford base32
+    (`I`, `L`, `O` and `U` are not used), shown as `XXXX-XXXX-XXXX-XXXX`. The
+    server stores only a hash. A code appears in **one place only**: the
+    `consoleIssueVouchers` 201 body. No read response has a `code` property
+    (`Voucher`, `VoucherPage` and `VoucherCancelResult` are closed with
+    `additionalProperties: false`), and a code is never logged, audited or
+    stored in idempotency storage. A lost code cannot be shown again: cancel the
+    voucher and issue a new one.
+
+
+    **Effective status.** `status` is derived when read (RT-922 §5.4): a stored
+    `active` voucher whose `expires_at` has passed reads `expired`. The list
+    filter `status=active` excludes it and `status=expired` includes it.
+
+
+    **Errors.** The closed voucher error set is `VoucherAdminErrorCode`:
+    `validation_failure`, `store_not_found`, `store_inactive`,
+    `voucher_not_found`, `voucher_already_redeemed`, `forbidden`,
+    `idempotency_key_required`, `idempotency_key_malformed` and
+    `idempotency_key_conflict`. Two platform codes can also appear:
+    `rate_limited` (RT-574) on any operation, and `origin_rejected` (RT-430) on
+    the two POSTs only (the Origin check does not run on the GETs). The
+    voucher-domain 400, 404 and 409 bodies use `VoucherAdminError`, whose
+    `code` is that closed set; the 401, 403 and 429 bodies use the canonical
+    envelope with a free-string `code`; a 425 carries the platform's
+    `IdempotencyInProgress` body. The envelope is
+    `{ error: { code, message, request_id } }`.
+    A store, voucher or tenant that is not in scope is the same non-disclosing
+    404; no refusal reveals whether an object exists in another tenant.
+
+
+    **Rate limit.** Intended class: `write` for the two POSTs, `cheapRead` for
+    the two GETs (`apps/api/test/console-rate-limit/classes/vouchers-admin.rate-limit.yaml`).
+servers:
+  - url: https://api.example.com
+paths:
+  /api/v1/vouchers:
+    post:
+      summary: Issue a batch of vouchers; the codes are returned once.
+      description: >
+        Creates `count` vouchers with the same value, expiry and store
+        eligibility, in one transaction, under one `batch_id`. Roles: `owner`,
+        `tenant_admin`.
+
+
+        **Non-replayable (RT-82 K3).** The issued codes are never stored, so a
+        retry with the same `Idempotency-Key` never issues a second batch and
+        never returns the first one: it is answered 409
+        `idempotency_key_conflict`, and so is the same key with a different
+        body. A request still in progress under the key is 425. A caller that
+        lost the response lists the newest vouchers with `consoleListVouchers`,
+        cancels the ones it cannot recover, and issues again with a new key.
+        Never retry with the same key.
+
+
+        **Eligibility.** `applies_to_all_stores: true` requires
+        `eligible_store_ids` to be omitted or empty, else 400
+        `validation_failure`. `applies_to_all_stores: false` requires a
+        non-empty `eligible_store_ids`. A store that is not a store of the
+        tenant, or is soft-deleted, is 404 `store_not_found` (non-disclosing).
+        A store that exists but is inactive is 409 `store_inactive`. Currency is
+        the tenant default and is returned as `currency_code`.
+      operationId: consoleIssueVouchers
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1101 (I-1) publishes the contract only. There is no controller,
+        guard, service, table or migration for this route until RT-1107 (I-2)
+        and RT-1108 (I-3).
+      x-idempotency: required
+      x-audit-action: voucher.issued
+      tags: [vouchers-admin]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoucherIssueRequest"
+      responses:
+        "201":
+          description: >
+            The batch is issued. The body carries every code, once. The
+            response is `Cache-Control: no-store`; do not cache or log it.
+          headers:
+            Cache-Control:
+              description: "Always `no-store`: the body carries secret codes."
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherIssueResponse"
+        "400":
+          description: >
+            `validation_failure` (malformed body, `count` outside 1 to 100, a
+            non-positive `amount_minor`, an `expires_at` that is not in the
+            future, or an eligibility combination described above),
+            `idempotency_key_required` or `idempotency_key_malformed`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: >
+            `store_not_found`: an `eligible_store_ids` entry is not a store of
+            the tenant, or is soft-deleted. Non-disclosing: the same body for a
+            store of another tenant and for one that never existed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "409":
+          description: >
+            `store_inactive` (an eligible store exists but is inactive), or
+            `idempotency_key_conflict` (the same key was used before; terminal,
+            generate a new key).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "425":
+          $ref: "#/components/responses/IssueInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      summary: List vouchers, newest first, never with a code.
+      description: >
+        Keyset-paginated list of the session tenant's vouchers. Roles: `owner`,
+        `tenant_admin`. The list never returns a code. `status` is the
+        effective status. Filters combine with AND.
+      operationId: consoleListVouchers
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1101 (I-1) publishes the contract only. There is no controller,
+        guard, service or table for this route until RT-1107 (I-2) and RT-1108
+        (I-3).
+      x-audit-action: vouchers.listed
+      tags: [vouchers-admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/VoucherStatus"
+          description: Effective-status filter.
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: Only the vouchers issued in this batch.
+        - name: eligible_store_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: >
+            Only vouchers that are valid in this store: an "all stores" voucher,
+            or a subset voucher that lists it. A store that is not of the tenant
+            matches nothing; it is not an error.
+        - name: expires_from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: >
+            Only vouchers whose `expires_at` is at or after this instant
+            (inclusive). A voucher that never expires (`expires_at` null)
+            matches neither bound of the expiry window.
+        - name: expires_before
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: >
+            Only vouchers whose `expires_at` is before this instant
+            (exclusive).
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: One page of vouchers. `next_cursor` is null on the last page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherPage"
+        "400":
+          description: >
+            `validation_failure`: a malformed filter, cursor or `page_size`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/vouchers/{voucher_id}:
+    parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Read one voucher, never with its code.
+      description: >
+        Value, effective status, eligibility and the current redemption, if any.
+        Roles: `owner`, `tenant_admin`. A voucher that is not of the session
+        tenant is the same 404 as one that does not exist.
+      operationId: consoleGetVoucher
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1101 (I-1) publishes the contract only. There is no controller,
+        guard, service or table for this route until RT-1107 (I-2) and RT-1108
+        (I-3).
+      x-audit-action: vouchers.read
+      tags: [vouchers-admin]
+      responses:
+        "200":
+          description: The voucher.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+        "400":
+          description: "`validation_failure`: `voucher_id` is not a UUID."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/VoucherNotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/vouchers/{voucher_id}/cancel:
+    parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Cancel a voucher; idempotent.
+      description: >
+        Roles: `owner`, `tenant_admin`. Cancels a voucher that is stored
+        `active`, whether or not its `expires_at` has passed (decision 5A): no
+        money moves and the audit row records who cancelled it. Cancelling a
+        voucher that is already cancelled is 200 with `already_cancelled: true`
+        and no second audit row. A voucher that has been redeemed cannot be
+        cancelled: 409 `voucher_already_redeemed`. A cancel that races a redeem
+        is settled by one conditional status change (RT-922 §5.4): exactly one
+        wins, and the final status is `cancelled` or `redeemed`, never both.
+        A same-key retry replays the stored 200 (`Idempotent-Replayed: true`).
+      operationId: consoleCancelVoucher
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1101 (I-1) publishes the contract only. There is no controller,
+        guard, service or table for this route until RT-1107 (I-2) and RT-1108
+        (I-3).
+      x-idempotency: required
+      x-audit-action: voucher.cancelled
+      tags: [vouchers-admin]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The voucher is cancelled, now or earlier.
+          headers:
+            Idempotent-Replayed:
+              description: Present with value `true` when this response replays an earlier request with the same key.
+              schema:
+                type: string
+                enum: ["true"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherCancelResult"
+        "400":
+          description: >
+            `validation_failure` (`voucher_id` is not a UUID),
+            `idempotency_key_required` or `idempotency_key_malformed`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/VoucherNotFound"
+        "409":
+          description: >
+            `voucher_already_redeemed`, or `idempotency_key_conflict` (the same
+            key was used with a different request; terminal, generate a new
+            key).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoucherAdminError"
+        "425":
+          $ref: "#/components/responses/CancelInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+tags:
+  - name: vouchers-admin
+    description: >
+      Tenant-scoped promotional voucher issuance for the Admin Console:
+      issue (codes shown once), list, read and cancel. Contract-only until
+      RT-1108.
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        Client-generated opaque token (UUIDv7 recommended). Missing: 400
+        `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`.
+        On `consoleIssueVouchers` it is non-replayable (see that operation). On
+        `consoleCancelVoucher` the same key with the same request replays the
+        stored response, and the same key with a different request is 409
+        `idempotency_key_conflict`.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `next_cursor`. Do not decode
+        or construct it; omit it for the first page. Reuse it only with the
+        same filters. A value the server did not issue, or cannot decode, is
+        400 `validation_failure`.
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+      description: Maximum vouchers per page. The server may return fewer.
+  schemas:
+    VoucherStatus:
+      type: string
+      enum: [active, redeemed, cancelled, expired]
+      description: >
+        The effective status (RT-922 §5.4). `expired` is derived: the stored
+        status is `active` and `expires_at` has passed.
+    VoucherIssueRequest:
+      type: object
+      additionalProperties: false
+      required: [count, amount_minor, applies_to_all_stores]
+      properties:
+        count:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: >
+            How many vouchers to issue in this batch (decision 3A, 100). Raising
+            the maximum later is non-breaking; lowering it is breaking.
+        amount_minor:
+          type: integer
+          minimum: 1
+          description: The value of each voucher in minor currency units of the tenant default currency.
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            Optional. When present it must be in the future, else 400
+            `validation_failure`. Null or omitted means the voucher does not
+            expire.
+        applies_to_all_stores:
+          type: boolean
+          description: >
+            True: valid in every store of the tenant, including stores added
+            later (D4). False: valid only in `eligible_store_ids` (D3).
+        eligible_store_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items: { type: string, format: uuid }
+          description: >
+            Required and non-empty when `applies_to_all_stores` is false;
+            omitted or empty when it is true. At most 100 stores, refused before
+            any element is validated.
+        note:
+          type: [string, "null"]
+          maxLength: 200
+          description: Optional internal note. Never put personal data in it.
+    VoucherIssueResponse:
+      type: object
+      additionalProperties: false
+      required: [batch_id, vouchers]
+      properties:
+        batch_id: { type: string, format: uuid }
+        vouchers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/IssuedVoucher"
+    IssuedVoucher:
+      type: object
+      additionalProperties: false
+      required: [voucher_id, code, amount_minor, currency_code, expires_at]
+      properties:
+        voucher_id: { type: string, format: uuid }
+        code:
+          type: string
+          pattern: "^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$"
+          description: >
+            SECRET. Present in this response only, once: 16 characters of
+            Crockford base32 shown as `XXXX-XXXX-XXXX-XXXX`. It is never stored,
+            logged or audited, and cannot be shown again.
+        amount_minor: { type: integer, minimum: 1 }
+        currency_code:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+    Voucher:
+      type: object
+      additionalProperties: false
+      required:
+        - voucher_id
+        - batch_id
+        - amount_minor
+        - currency_code
+        - status
+        - expires_at
+        - applies_to_all_stores
+        - eligible_store_ids
+        - note
+        - created_at
+        - cancelled_at
+        - redemption
+      description: >
+        A voucher as read back. It has no `code` property by design: the schema
+        is closed, and a code is never returned after issue.
+      properties:
+        voucher_id: { type: string, format: uuid }
+        batch_id: { type: string, format: uuid }
+        amount_minor: { type: integer, minimum: 1 }
+        currency_code:
+          type: string
+          pattern: "^[A-Z]{3}$"
+        status:
+          $ref: "#/components/schemas/VoucherStatus"
+        expires_at:
+          type: [string, "null"]
+          format: date-time
+        applies_to_all_stores: { type: boolean }
+        eligible_store_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: Empty when `applies_to_all_stores` is true.
+        note:
+          type: [string, "null"]
+        created_at: { type: string, format: date-time }
+        cancelled_at:
+          type: [string, "null"]
+          format: date-time
+        redemption:
+          description: >
+            The current, non-reversed redemption, or null. Always null until the
+            redemption runtime ships (RT-1111, RT-1112).
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/VoucherRedemptionSummary"
+    VoucherRedemptionSummary:
+      type: object
+      additionalProperties: false
+      required: [redeemed_at, applied_amount_minor, forfeited_amount_minor]
+      properties:
+        redeemed_at: { type: string, format: date-time }
+        applied_amount_minor:
+          type: integer
+          minimum: 0
+        forfeited_amount_minor:
+          type: integer
+          minimum: 0
+          description: The unused remainder, lost on redemption (decision 1A).
+    VoucherPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Voucher"
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null on the last page.
+    VoucherCancelResult:
+      type: object
+      additionalProperties: false
+      required: [voucher_id, status, cancelled_at, already_cancelled]
+      properties:
+        voucher_id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [cancelled]
+        cancelled_at: { type: string, format: date-time }
+        already_cancelled:
+          type: boolean
+          description: True when the voucher was already cancelled before this request.
+    VoucherAdminErrorCode:
+      type: string
+      description: >
+        The closed error set of this surface: nine voucher and idempotency
+        codes, plus the two platform codes `origin_rejected` (RT-430) and
+        `rate_limited` (RT-574).
+      enum:
+        - validation_failure
+        - store_not_found
+        - store_inactive
+        - voucher_not_found
+        - voucher_already_redeemed
+        - forbidden
+        - idempotency_key_required
+        - idempotency_key_malformed
+        - idempotency_key_conflict
+        - origin_rejected
+        - rate_limited
+    Error:
+      description: >
+        The canonical error envelope (code, message, request_id). `code` is a
+        free string, as in the sibling contracts: the platform guards answer
+        401 and 403 with codes this contract does not own, and a client must
+        not fail to decode one it does not know. The voucher-domain 400, 404
+        and 409 bodies use `VoucherAdminError`, whose `code` is the closed set.
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+              description: Non-disclosing; never carries a code, a hash or another tenant's data.
+            request_id:
+              type: string
+              format: uuid
+    VoucherAdminError:
+      description: >
+        The error envelope of the voucher-domain 400, 404 and 409 responses.
+        `code` is one of the closed `VoucherAdminErrorCode` set.
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              $ref: "#/components/schemas/VoucherAdminErrorCode"
+            message:
+              type: string
+              description: Non-disclosing; never carries a code, a hash or another tenant's data.
+            request_id:
+              type: string
+              format: uuid
+    IdempotencyInProgress:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: >
+        The platform idempotency interceptor's 425 body (not the canonical
+        envelope).
+      properties:
+        error:
+          type: string
+          enum: [idempotency_in_progress]
+        retryAfterSec:
+          type: integer
+          minimum: 1
+  headers:
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+  responses:
+    Unauthorized:
+      description: No valid session cookie (`401`). 401 semantics are owned by spec 028.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: >
+        `forbidden`: the session user is not an `owner` or `tenant_admin` of the
+        active tenant (decision 2A; this includes `store_manager`). Also
+        `origin_rejected` (RT-430) on the two POSTs: the request is
+        authenticated by the `dp2_session` cookie and its `Origin` header is
+        missing, or is neither the API's own origin nor listed in
+        `ALLOWED_ORIGINS`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    VoucherNotFound:
+      description: >
+        `voucher_not_found`. Non-disclosing: the same body for a voucher of
+        another tenant and for one that never existed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/VoucherAdminError"
+    IssueInProgress:
+      description: >
+        Too Early (425): an issue request with this `Idempotency-Key` is still
+        in progress. The key is non-replayable (RT-82 K3): once that request
+        completes, any retry with the same key is 409
+        `idempotency_key_conflict` and never returns the codes. Do not retry
+        with the same key. After `Retry-After` seconds, call
+        `consoleListVouchers`, cancel any stray voucher the lost batch issued,
+        and issue again with a new key. The body is the platform's
+        `IdempotencyInProgress`, not the canonical envelope.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: Seconds to wait before checking.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgress"
+    CancelInProgress:
+      description: >
+        Too Early (425): a cancel with this `Idempotency-Key` is still in
+        progress. Cancel is replayable, so retrying after `Retry-After`
+        seconds with the same key and request is safe: it replays the stored
+        200. The body is the platform's `IdempotencyInProgress`, not the
+        canonical envelope.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+          description: Seconds to wait before retrying.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgress"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error envelope
+        with a non-disclosing message; its `request_id` equals the
+        `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a
+        mutation. A 429 is not a 401: it never means the session ended.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`). The only
+        accepted credential on this surface: a machine bearer, a POS `device`
+        token or an `operatorAuthorization` envelope is rejected (401). With a
+        valid session cookie, the cookie authenticates the request and any
+        `Authorization` header is ignored (the repo-wide `AuthGuard` rule).
+        `RolesGuard` and `@Roles("owner", "tenant_admin")` gate every route.
+security:
+  - cookieAuth: []
