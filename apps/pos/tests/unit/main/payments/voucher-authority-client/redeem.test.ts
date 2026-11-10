@@ -27,6 +27,7 @@ import { redeemVoucher } from '../../../../../src/main/payments/voucher-authorit
 import {
   BASE_URL,
   FAKE_IDEMPOTENCY_KEY,
+  FAKE_OPERATOR_USER_ID,
   FAKE_PAYMENT_ATTEMPT_ID,
   FAKE_REDEMPTION_ID,
   bareResponse,
@@ -34,11 +35,13 @@ import {
   errorBody,
   jsonResponse,
   makeLogger,
+  fakeDeviceToken,
 } from './_fixtures.js';
 
 const REDEEM_INPUT = {
   payment_attempt_id: FAKE_PAYMENT_ATTEMPT_ID,
   redemption_intent_token: 'opaque-intent-token-AAA',
+  operatorUserId: FAKE_OPERATOR_USER_ID,
 };
 
 const REDEEM_OK = {
@@ -61,6 +64,7 @@ describe('redeemVoucher — happy path', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
 
     expect(captured).toHaveLength(1);
@@ -83,6 +87,7 @@ describe('redeemVoucher — idempotent replay', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
 
     expect(result).toEqual(REDEEM_REPLAY);
@@ -101,6 +106,7 @@ describe('redeemVoucher — double-redeem refusal', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'voucher_already_redeemed' });
   });
@@ -112,6 +118,7 @@ describe('redeemVoucher — double-redeem refusal', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'intent_token_not_found' });
   });
@@ -123,6 +130,7 @@ describe('redeemVoucher — double-redeem refusal', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'idempotency_key_conflict' });
   });
@@ -136,6 +144,7 @@ describe('redeemVoucher — malformed responses', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -147,6 +156,7 @@ describe('redeemVoucher — malformed responses', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -158,6 +168,7 @@ describe('redeemVoucher — malformed responses', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'validation_failure' });
   });
@@ -171,6 +182,7 @@ describe('redeemVoucher — transport-tier outcomes', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -182,6 +194,7 @@ describe('redeemVoucher — transport-tier outcomes', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });

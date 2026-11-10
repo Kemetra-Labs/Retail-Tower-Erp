@@ -79,14 +79,18 @@ export function LastSeen({
 /**
  * What needs attention on a row, from recorded fields only: an open custody
  * exception (the server ranks it first), and an expiry that has passed but is
- * not enforced yet. No "expiring soon" threshold is invented.
+ * not enforced yet. No "expiring soon" threshold is invented. RT-1312: a till that
+ * holds a refused sale or a sale from an earlier pairing (`strandedSales`, from its
+ * last heartbeat) is flagged too; the server's order is kept, so it is not ranked.
  */
 export function Attention({
   device,
   now,
+  strandedSales = false,
 }: Readonly<{
   device: { custodyExceptionShiftId: string | null; trustState: string; expiresAt: string };
   now: number;
+  strandedSales?: boolean;
 }>): React.JSX.Element {
   const t = useT();
   const flags: React.JSX.Element[] = [];
@@ -94,6 +98,13 @@ export function Attention({
     flags.push(
       <span key="custody" className="device-flag device-flag--danger">
         {t("devices.attention.custody")}
+      </span>,
+    );
+  }
+  if (strandedSales) {
+    flags.push(
+      <span key="stranded" className="device-flag device-flag--danger">
+        {t("devices.attention.strandedSales")}
       </span>,
     );
   }

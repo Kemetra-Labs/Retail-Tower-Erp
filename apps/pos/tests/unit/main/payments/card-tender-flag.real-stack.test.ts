@@ -40,6 +40,7 @@ const validateVoucher = (): Promise<ValidateVoucherOutcome> =>
   Promise.resolve({
     kind: 'validated',
     applied_amount_minor: 1000,
+    forfeited_amount_minor: 0,
     intent_expires_at: '2026-10-18T10:05:00.000Z',
     redemption_intent_token: 'opaque-intent-token',
   });
@@ -51,7 +52,7 @@ function build(flag: { cardTender: boolean }) {
   const auditEmitter = makeAuditEmitterDouble();
   let n = 0;
   const shared = {
-    getCurrentSession: () => makeSession(),
+    getCurrentSession: () => makeSession({ user_id: '44444444-4444-4444-8444-444444444444' }),
     attemptsRepo: attempts,
     idempotency,
     auditEmitter,
@@ -230,7 +231,7 @@ describe('RT-700 — card-tender flag off (default): main refuses a card tender'
     const s = build({ cardTender: false });
     const attempt = await startAttempt(s);
     const unwired = createTenderApplyHandler({
-      getCurrentSession: () => makeSession(),
+      getCurrentSession: () => makeSession({ user_id: '44444444-4444-4444-8444-444444444444' }),
       attemptsRepo: core.attempts,
       linesRepo: core.lines,
       tenderLineFsm: core.tenderLineFsm,

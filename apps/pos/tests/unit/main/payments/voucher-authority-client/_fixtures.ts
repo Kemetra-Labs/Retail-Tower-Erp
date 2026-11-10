@@ -87,3 +87,9 @@ export const BASE_URL = 'https://api.example.test';
 export const FAKE_IDEMPOTENCY_KEY = '11111111-1111-4111-8111-111111111111';
 export const FAKE_PAYMENT_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 export const FAKE_REDEMPTION_ID = '33333333-3333-4333-8333-333333333333';
+/** The cashier admission's `users.id` sent as `operatorUserId` (RT-1110). */
+export const FAKE_OPERATOR_USER_ID = '44444444-4444-4444-8444-444444444444';
+/** The paired terminal's device token (RT-1110). Opaque test value; must never be logged. */
+export const FAKE_DEVICE_TOKEN = 'DEVICE-TOKEN-MUST-NEVER-LOG-QQ-123';
+/** A device-token read that returns `FAKE_DEVICE_TOKEN` (RT-1110). */
+export const fakeDeviceToken = (): Promise<string> => Promise.resolve(FAKE_DEVICE_TOKEN);

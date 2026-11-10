@@ -91,6 +91,8 @@ function posPaymentsContractsDir(): string {
 
 interface OperationObject {
   operationId?: string;
+  description?: string;
+  "x-runtime-status"?: string;
   security?: Array<Record<string, unknown>>;
   parameters?: Array<{
     in?: string;
@@ -187,12 +189,17 @@ describe("pos-payments/vouchers.yaml — loadability", () => {
     expect(vouchersDoc.info?.version).toEqual(expect.any(String));
   });
 
-  it("declares the role-named operator-identity security scheme (spec 030; was clerkJwt)", () => {
-    // Spec 030 retired the provider-named `clerkJwt` key on this surface and
-    // re-pointed every (non-sale) voucher operation to the role-named
-    // `operator-identity` scheme (a provider-identity JWT, identity proof only).
+  it("declares the device security scheme and no provider-JWT scheme (RT-1110; was operator-identity, spec 030)", () => {
+    // RT-1110 (owner decisions RT-1098 c16394, c16402): the voucher operations
+    // use the paired terminal's opaque device token, the same credential as
+    // captureSale (RT-224 option B). The provider-identity JWT scheme
+    // `operator-identity` (earlier `clerkJwt`) is removed: a cashier session
+    // holds no such JWT (RT-218).
     const schemes = vouchersDoc.components?.securitySchemes ?? {};
-    expect(schemes["operator-identity"]).toBeDefined();
+    expect(Object.keys(schemes)).toEqual(["device"]);
+    expect(schemes["device"]).toMatchObject({ type: "http", scheme: "bearer" });
+    expect(schemes["device"]?.["bearerFormat"]).toBeUndefined();
+    expect(schemes["operator-identity"]).toBeUndefined();
     expect(schemes["clerkJwt"]).toBeUndefined();
   });
 
@@ -200,15 +207,13 @@ describe("pos-payments/vouchers.yaml — loadability", () => {
     // Tenant-admin voucher CRUD is not part of this contract (it has no
     // contract or route yet). This V-A
     // contract is strictly the POS terminal → backend voucher-authority
-    // surface and uses the role-named `operator-identity` scheme exclusively.
+    // surface and uses the `device` scheme exclusively (RT-1110).
     const schemes = vouchersDoc.components?.securitySchemes ?? {};
     expect(schemes["cookieAuth"]).toBeUndefined();
   });
 
-  it("declares operator-identity as the document-level default security (spec 030)", () => {
-    expect(vouchersDoc.security).toBeDefined();
-    expect(vouchersDoc.security).toContainEqual({ "operator-identity": [] });
-    expect(vouchersDoc.security).not.toContainEqual({ clerkJwt: [] });
+  it("declares device as the document-level default security (RT-1110)", () => {
+    expect(vouchersDoc.security).toEqual([{ device: [] }]);
   });
 
   it("declares the pos-payments-vouchers tag (matches the operation tag)", () => {
@@ -267,14 +272,13 @@ describe("pos-payments/vouchers.yaml — Slice 4 operationIds", () => {
   });
 
   it.each(SLICE_4_OPERATION_IDS)(
-    "%s uses operator-identity security (spec 030; provider-identity JWT bearer)",
+    "%s uses device security only (RT-1110; the RT-224 option B credential)",
     (operationId) => {
       const found = newContractOperations().find(
         ({ op }) => op.operationId === operationId,
       );
       expect(found).toBeDefined();
-      expect(found?.op.security).toContainEqual({ "operator-identity": [] });
-      expect(found?.op.security).not.toContainEqual({ clerkJwt: [] });
+      expect(found?.op.security).toEqual([{ device: [] }]);
     },
   );
 });
@@ -594,5 +598,143 @@ describe("pos-payments/vouchers.yaml — sensitive-field minimisation", () => {
     // Only `code`, `message`, `request_id` are defined on the error
     // envelope. Anything else is a leak surface.
     expect(errorKeys.sort()).toEqual(["code", "message", "request_id"].sort());
+  });
+});
+
+// ===========================================================================
+// 8. RT-1110 (RT-1098 R-1) amendment: device credential, redeem error set,
+//    forfeit rule (decision 1A), eligibility, code normalisation. The three
+//    operations stay contract-only.
+// ===========================================================================
+describe("pos-payments/vouchers.yaml — RT-1110 amendment", () => {
+  const schemas = (): Record<string, Record<string, unknown>> => vouchersDoc.components?.schemas ?? {};
+  const postOp = (path: string): OperationObject => {
+    const op = vouchersDoc.paths?.[path]?.["post"];
+    if (!op) throw new Error(`POST ${path} not declared`);
+    return op;
+  };
+  const props = (name: string): Record<string, Record<string, unknown>> =>
+    (schemas()[name]?.["properties"] ?? {}) as Record<string, Record<string, unknown>>;
+
+  it("keeps all three operations contract-only (AC4)", () => {
+    for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH, POS_REVERSE_PATH]) {
+      expect(postOp(path)["x-runtime-status"]).toBe("contract-only");
+    }
+  });
+
+  it.each(["PosValidateVoucherRequest", "PosRedeemVoucherRequest"])(
+    "%s requires operatorUserId, a uuid (the device token never proves the author alone)",
+    (name) => {
+      expect(schemas()[name]?.["required"]).toContain("operatorUserId");
+      expect(props(name)["operatorUserId"]).toMatchObject({ type: "string", format: "uuid" });
+    },
+  );
+
+  it("posReverseVoucher takes no operatorUserId: the reversal is attributed to the redeem-time operator", () => {
+    expect(Object.keys(props("PosReverseVoucherRequest"))).toEqual(["redemption_id"]);
+    expect(schemas()["PosReverseVoucherRequest"]?.["required"]).toEqual(["redemption_id"]);
+    expect(vouchersDoc.paths?.[POS_REVERSE_PATH]?.["post"]?.description).toEqual(
+      expect.stringContaining("carries no `operatorUserId`"),
+    );
+  });
+
+  it("declares the generic 403 `refused` on validate and redeem, and none on reverse", () => {
+    for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH]) {
+      const r = postOp(path).responses?.["403"] as { description?: string } | undefined;
+      expect(r?.description).toEqual(expect.stringContaining('`error.code = "refused"`'));
+    }
+    expect(postOp(POS_REVERSE_PATH).responses?.["403"]).toBeUndefined();
+  });
+
+  it("states a missing, invalid or revoked device token as the generic 401 on every operation", () => {
+    for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH, POS_REVERSE_PATH]) {
+      const r = postOp(path).responses?.["401"] as { description?: string } | undefined;
+      expect(r?.description).toEqual(expect.stringContaining("device token"));
+    }
+  });
+
+  it("adds voucher_cancelled, voucher_expired and voucher_branch_mismatch to the redeem closed set", () => {
+    const description = postOp(POS_REDEEM_PATH).description ?? "";
+    for (const code of ["voucher_cancelled", "voucher_expired", "voucher_branch_mismatch", "refused"]) {
+      expect(description).toContain(`\`${code}\``);
+    }
+    const conflict = postOp(POS_REDEEM_PATH).responses?.["409"] as { description?: string } | undefined;
+    for (const code of ["voucher_already_redeemed", "voucher_cancelled", "voucher_expired", "voucher_branch_mismatch"]) {
+      expect(conflict?.description).toContain(`\`${code}\``);
+    }
+  });
+
+  it("states the eligibility rule: an all-stores voucher includes later stores, a subset never grows", () => {
+    const description = postOp(POS_REDEEM_PATH).description ?? "";
+    expect(description).toContain('An "all stores" voucher');
+    expect(description).toContain("an explicit subset never");
+  });
+
+  it("states the forfeit rule (decision 1A) and drops the partial-balance wording", () => {
+    const doc = vouchersDoc as unknown as { info?: { description?: string } };
+    expect(doc.info?.description).toContain("Redemption consumes the whole");
+    expect(doc.info?.description).toContain("There is no residual balance");
+    const redeem = postOp(POS_REDEEM_PATH).description ?? "";
+    expect(redeem).toContain("forfeited, decision 1A");
+    expect(redeem).not.toContain("remaining balance is decremented");
+    const reverse = postOp(POS_REVERSE_PATH).description ?? "";
+    expect(reverse).toContain("full value");
+    expect(reverse).not.toContain("partially-redeemed state for forward compatibility");
+    expect(postOp(POS_VALIDATE_PATH).description ?? "").not.toContain("no residual voucher reconciliation");
+  });
+
+  it("PosValidateVoucherResponse carries forfeited_amount_minor: required integer minor units, no float, no negative", () => {
+    expect(schemas()["PosValidateVoucherResponse"]?.["required"]).toContain("forfeited_amount_minor");
+    expect(props("PosValidateVoucherResponse")["forfeited_amount_minor"]).toMatchObject({
+      type: "integer",
+      minimum: 0,
+      maximum: Number.MAX_SAFE_INTEGER,
+    });
+    // It reveals the voucher's value only to the terminal that presented the code. No other
+    // response carries it.
+    expect(props("PosRedeemVoucherResponse")["forfeited_amount_minor"]).toBeUndefined();
+    expect(props("PosReverseVoucherResponse")["forfeited_amount_minor"]).toBeUndefined();
+  });
+
+  it("states the code normalisation instead of case-sensitive lookup", () => {
+    const description = String(props("PosValidateVoucherRequest")["code"]?.["description"] ?? "");
+    expect(description).toContain("normalised before lookup");
+    expect(description).toContain("upper-cased, hyphens and spaces");
+    expect(description).not.toContain("case-sensitive");
+  });
+
+  it("bounds the one FR-017 exception: forfeited_amount_minor is never logged, audited or printed", () => {
+    const info = (vouchersDoc as unknown as { info?: { description?: string } }).info?.description ?? "";
+    expect(info).toContain("ONE owner-approved exception");
+    expect(info).toContain("`forfeited_amount_minor` on the `posValidateVoucher` 200");
+    expect(info).toContain("MUST NOT be logged, written to an audit event or printed on a receipt");
+  });
+
+  it("refuses a zero applied amount, because a voucher is consumed whole", () => {
+    expect(postOp(POS_VALIDATE_PATH).description ?? "").toContain(
+      "A zero `applied_amount_minor` is refused with `validation_failure`",
+    );
+    const applied = String(props("PosValidateVoucherRequest")["applied_amount_minor"]?.["description"] ?? "");
+    expect(applied).toContain("0 < applied_amount_minor");
+  });
+
+  it("leaves no residual-balance wording anywhere in the contract", () => {
+    const all = JSON.stringify(vouchersDoc);
+    for (const stale of [
+      "authoritative voucher balance",
+      "authoritative_voucher_balance",
+      "voucher-balance decrement",
+      "voucher balance is restored",
+      "backend caps authority-side",
+    ]) {
+      expect([stale, all.includes(stale)]).toEqual([stale, false]);
+    }
+  });
+
+  it("records the reversing device, checks the claim before any code lookup, and keeps implementation detail out", () => {
+    expect(postOp(POS_REVERSE_PATH).description ?? "").toContain("records the reversing `device_id`");
+    const info = (vouchersDoc as unknown as { info?: { description?: string } }).info?.description ?? "";
+    expect(info).toContain("The claim is checked before the voucher code is looked up");
+    expect(postOp(POS_REDEEM_PATH).description ?? "").not.toContain("row lock");
   });
 });

@@ -3,13 +3,17 @@
  * credential expiry and last seen with its source. Read-only. There is no
  * health field: last seen is activity, and the tab says so (RT-287 D-Q6).
  * RT-961: the ledger sits in a section panel; the tab names it, so the panel
- * has no title of its own.
+ * has no title of its own. RT-1312: a second, titled panel shows the till's
+ * unsent sales as of its last heartbeat; its read failing never fails this tab.
  */
 import { DetailGrid, DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
 import { DateTime, useT } from "@/i18n";
 import type { DeviceDetail } from "@/lib/device-queries";
 import { LastSeen } from "./DeviceParts";
+import { SaleQueuePanel } from "./SaleQueueParts";
 import { isPastExpiry } from "./deviceLogic";
+import { useDeviceSaleQueue } from "./useDeviceHealth";
+import { useDeviceScope } from "./useDevices";
 import "../shell/surface.css";
 import "./devices.css";
 
@@ -41,6 +45,7 @@ function Expiry({ device, timeZone, now }: Readonly<DeviceViewProps>): React.JSX
 export function DeviceOverview(props: Readonly<DeviceViewProps>): React.JSX.Element {
   const t = useT();
   const { device, storeName, timeZone } = props;
+  const saleQueue = useDeviceSaleQueue(useDeviceScope(), device.deviceId);
   return (
     <DetailGrid>
       <DetailPanel>
@@ -77,6 +82,7 @@ export function DeviceOverview(props: Readonly<DeviceViewProps>): React.JSX.Elem
           <p className="content__sub">{t("devices.lastSeen.notHealth")}</p>
         </PanelBody>
       </DetailPanel>
+      <SaleQueuePanel state={saleQueue} timeZone={timeZone} />
     </DetailGrid>
   );
 }

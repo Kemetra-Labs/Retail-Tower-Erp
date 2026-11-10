@@ -51,7 +51,11 @@ import {
   makeSessionSource,
   makeTenderLineFsmDouble,
 } from './__fixtures__/bridge-handler-deps.js';
+import type { OperatorSessionForPayments } from '../../../../src/main/payments/require-operator-session.js';
 import type { TenderApplyRequest } from '../../../../src/shared/bridge-api.js';
+
+/** RT-1110: the admitted cashier's `users.id`, sent to V-A as `operatorUserId`. */
+const OPERATOR_USER_ID = '44444444-4444-4444-8444-444444444444';
 
 function validRequest(overrides: Partial<TenderApplyRequest> = {}): TenderApplyRequest {
   return {
@@ -395,6 +399,7 @@ type T263ValidateOutcome =
   | {
       kind: 'validated';
       applied_amount_minor: number;
+      forfeited_amount_minor: 0;
       intent_expires_at: string;
       redemption_intent_token: string;
     }
@@ -402,8 +407,12 @@ type T263ValidateOutcome =
   | { kind: 'authority_unreachable' };
 
 describe('T263 — tender.apply voucher branch (Wave 4)', () => {
-  function setupVoucher(opts: { validateOutcome?: T263ValidateOutcome } = {}) {
-    const sessionSource = makeSessionSource(makeSession());
+  function setupVoucher(
+    opts: { validateOutcome?: T263ValidateOutcome; session?: OperatorSessionForPayments } = {},
+  ) {
+    const sessionSource = makeSessionSource(
+      opts.session ?? makeSession({ user_id: OPERATOR_USER_ID }),
+    );
     const row = makeAttemptRow({ envelope_subtotal_minor: 3000 });
     const attemptsRepo = makeAttemptsRepoDouble([row]);
     const linesRepo = makeLinesRepoDouble();
@@ -415,6 +424,7 @@ describe('T263 — tender.apply voucher branch (Wave 4)', () => {
         opts.validateOutcome ?? {
           kind: 'validated' as const,
           applied_amount_minor: 1500,
+          forfeited_amount_minor: 0,
           intent_expires_at: '2026-06-01T10:05:00.000Z',
           redemption_intent_token: 'opaque-intent-token-XYZ',
         },
@@ -451,6 +461,39 @@ describe('T263 — tender.apply voucher branch (Wave 4)', () => {
       tender_line_id: 'tl-v',
       applied_at: '2026-05-25T10:00:01.000Z',
     });
+  });
+
+  it('RT-1110: sends the cashier admission users.id as operatorUserId', async () => {
+    const { handler, validateVoucher } = setupVoucher();
+    await handler(
+      validRequest({
+        tender_type: 'internal_voucher',
+        voucher_code: 'V-CODE',
+        amount_applied_minor: 1500,
+      }),
+    );
+    expect(validateVoucher).toHaveBeenCalledWith(
+      expect.objectContaining({ operatorUserId: OPERATOR_USER_ID }),
+    );
+  });
+
+  it('RT-1110: a session with no cashier admission (no user_id) is refused role_denied and V-A is never called', async () => {
+    // Device-only credential: the claim is the admitted cashier's users.id; a manager / admin
+    // session has none. Nothing is persisted, audited or sent.
+    const { handler, validateVoucher, fsm, auditEmitter } = setupVoucher({
+      session: makeSession({ role: 'manager' }),
+    });
+    const result = await handler(
+      validRequest({
+        tender_type: 'internal_voucher',
+        voucher_code: 'V-CODE',
+        amount_applied_minor: 1500,
+      }),
+    );
+    expect(result).toEqual({ kind: 'refused', reason: 'role_denied' });
+    expect(validateVoucher).not.toHaveBeenCalled();
+    expect(fsm.apply).not.toHaveBeenCalled();
+    expect(auditEmitter.captured).toHaveLength(0);
   });
 
   it('refuses with the closed-set voucher reason on V-A refused', async () => {
@@ -558,7 +601,7 @@ describe('tender.apply — branch-coverage backfill', () => {
     // appliedNetSum loop body and the change_due_minor nullish-coalesce both
     // execute. The voucher request then asks for 1500 against a remaining
     // balance of 3000 − 900 = 2100; V-A validates and returns ok.
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 3000 });
     const priorCash = makeLineRow({
       tender_line_id: 'tl-prior-cash',
@@ -574,6 +617,7 @@ describe('tender.apply — branch-coverage backfill', () => {
       Promise.resolve({
         kind: 'validated' as const,
         applied_amount_minor: 1500,
+        forfeited_amount_minor: 0,
         intent_expires_at: '2026-06-01T10:05:00.000Z',
         redemption_intent_token: 'opaque-intent-token-XYZ',
       }),

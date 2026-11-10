@@ -44,7 +44,11 @@ export interface VoucherAuthorityLogger {
  *     idempotency_key_required, idempotency_key_malformed,
  *     idempotency_key_conflict
  *   - redeem (adds): intent_token_not_found, intent_token_expired,
- *     intent_token_payment_attempt_mismatch
+ *     intent_token_payment_attempt_mismatch (RT-1110 also lists the already
+ *     present voucher_cancelled, voucher_expired, voucher_branch_mismatch, which
+ *     redeem now returns when it re-evaluates the voucher)
+ *   - validate / redeem (RT-1110): a 403 `refused` (valid device token, refused
+ *     cashier claim) maps to `validation_failure`; it is not a reason of its own
  *   - reverse (adds): redemption_not_found,
  *     redemption_tenant_mismatch, redemption_branch_mismatch
  *
@@ -79,6 +83,13 @@ export type VoucherRefusalReason = (typeof REFUSAL_REASONS)[number];
 const REFUSAL_REASON_SET: ReadonlySet<string> = new Set<string>(REFUSAL_REASONS);
 
 /**
+ * RT-1110 (contract V-A amendment): `error.code` of the generic 403 on validate and
+ * redeem. It is deliberately NOT a `VoucherRefusalReason` (the closed reason set and
+ * the cashier-facing copy stay as they were); it maps to `validation_failure`.
+ */
+const DEVICE_CLAIM_REFUSED_CODE = 'refused';
+
+/**
  * Returns `true` when `code` is in the closed set, narrowing the type
  * for safe assignment to `VoucherRefusalReason`.
  */
@@ -102,6 +113,10 @@ export function mapRefusalCode(
   logger: VoucherAuthorityLogger,
 ): VoucherRefusalReason {
   if (isKnownRefusalReason(code)) return code;
+  // RT-1110: the generic 403 of validate / redeem (a valid device token, a refused
+  // `operatorUserId` claim). One body for every cause, so it carries no more
+  // detail here: it is the generic refusal, and a KNOWN code (no unknown-code warn).
+  if (code === DEVICE_CLAIM_REFUSED_CODE) return 'validation_failure';
   logger.warn({ unknown_refusal_code: code, endpoint }, 'voucher_authority:unknown_refusal_code');
   return 'validation_failure';
 }

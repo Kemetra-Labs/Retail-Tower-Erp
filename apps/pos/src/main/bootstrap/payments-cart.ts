@@ -119,6 +119,12 @@ export interface PaymentsDeps extends CartDeps {
   apiBaseUrl: string;
   /** The reachability-observed Backend-Core fetch the voucher reverse client is built on. */
   backendFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  /**
+   * RT-1110: the ONE sendable read of the paired terminal's device token (null unless paired,
+   * null once revoked; RT-215), the credential of the voucher reverse client (`device` scheme).
+   * The same instance the catalogue read-down uses.
+   */
+  readSendableDeviceToken: () => Promise<string | null>;
   /** Ends the recovery-scoped session once a manager recovery completes. */
   operatorSignOutHandler: Pick<SignOutHandler, 'signOut'>;
   /**
@@ -463,7 +469,7 @@ function startDeferredReversalResolver(
   core: PaymentsCore,
   paymentsClock: () => Date,
 ): void {
-  const { mainLogger, apiBaseUrl, backendFetch } = deps;
+  const { mainLogger, apiBaseUrl, backendFetch, readSendableDeviceToken } = deps;
   const { paymentsLinesRepo, paymentsAttemptsRepo, tenderLineFsm, paymentAuditEmitter } = core;
 
   // 006 T271 — deferred-reversal resolver bootstrap.
@@ -501,6 +507,9 @@ function startDeferredReversalResolver(
         },
       },
       idempotencyKey: options.idempotencyKey,
+      // RT-1110: device-only credential. No token (unpaired / revoked) is
+      // `authority_unreachable`, so the line stays `reversal_pending` for the next pass.
+      getDeviceToken: readSendableDeviceToken,
     });
   };
   const deferredReversalResolver = createDeferredReversalResolver({

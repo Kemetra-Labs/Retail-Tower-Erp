@@ -44,6 +44,8 @@ import type {
   ValidateVoucherOutcome,
 } from '../voucher-authority-client/validate.js';
 
+import { sellingUserIdOf } from './payments-confirm.js';
+
 export interface ApplyVoucherLineDeps {
   validateVoucher: (input: ValidateVoucherInput) => Promise<ValidateVoucherOutcome>;
   tenderLineFsm: Pick<TenderLineFsm, 'apply'>;
@@ -57,6 +59,12 @@ export interface ApplyVoucherLineInput {
   voucher_code: string;
   amount_applied_minor: number;
   remaining_balance_minor: number;
+  /**
+   * RT-1110 (device-only credential): the admitted cashier's `users.id`, sent to
+   * V-A as `operatorUserId` (`sellingUserIdOf`). Null when the session has no
+   * cashier admission (a manager / admin session): then V-A is not called.
+   */
+  operator_user_id: string | null;
   applied_at: string;
   action_id: string;
 }
@@ -80,6 +88,8 @@ export type ApplyVoucherLineOutcome =
         | 'voucher_branch_mismatch'
         | 'non_cash_overpayment_refused'
         | 'dependency_unavailable'
+        // RT-1110: a session with no cashier admission cannot apply a voucher.
+        | 'role_denied'
         | 'internal_error';
     };
 
@@ -132,11 +142,37 @@ export function applyVoucherForRequest(
       voucher_code: req.voucher_code,
       amount_applied_minor: req.amount_applied_minor,
       remaining_balance_minor: remainingBalanceMinor(ctx.attempt, ctx.existingLines),
+      // The same source as the sale's `selling_user_id` (payments-confirm).
+      operator_user_id: sellingUserIdOf(ctx.session, ctx.attempt.acting_operator_id),
       applied_at: ctx.now,
       action_id: req.idempotency_key,
     },
     deps,
   );
+}
+
+type RefusalReason = Parameters<
+  ApplyVoucherLineDeps['auditEmitter']['emitTenderRefused']
+>[0]['refusal_reason'];
+
+/** `tender.refused` for this line: one shape for both refusal branches of the flow. */
+function emitRefused(
+  input: ApplyVoucherLineInput,
+  deps: ApplyVoucherLineDeps,
+  reason: RefusalReason,
+): void {
+  deps.auditEmitter.emitTenderRefused({
+    tender_line_id: input.tender_line_id,
+    payment_attempt_id: input.attempt.payment_attempt_id,
+    tender_type: 'internal_voucher',
+    refusal_reason: reason,
+    refused_at: input.applied_at,
+    attribution_operator_id: input.session.operator_id,
+    tenant_id: input.attempt.tenant_id,
+    branch_id: input.attempt.branch_id,
+    originating_terminal_id: input.attempt.terminal_id,
+    session_id: input.session.operator_session_id,
+  });
 }
 
 /**
@@ -148,11 +184,19 @@ export async function applyVoucherLine(
   input: ApplyVoucherLineInput,
   deps: ApplyVoucherLineDeps,
 ): Promise<ApplyVoucherLineOutcome> {
+  // RT-1110: V-A accepts only a cashier claim backed by an active admission of this
+  // device. A session without one would be refused 403, so do not call; nothing is
+  // persisted or audited (like `dependency_unavailable`), and the cashier is told the
+  // session's role cannot do this.
+  if (input.operator_user_id === null) {
+    return { kind: 'refused', reason: 'role_denied' };
+  }
   const outcome = await deps.validateVoucher({
     code: input.voucher_code,
     payment_attempt_id: input.attempt.payment_attempt_id,
     applied_amount_minor: input.amount_applied_minor,
     remaining_balance_minor: input.remaining_balance_minor,
+    operatorUserId: input.operator_user_id,
   });
 
   if (outcome.kind === 'authority_unreachable') {
@@ -177,18 +221,7 @@ export async function applyVoucherLine(
       applied_at: input.applied_at,
       action_id: input.action_id,
     });
-    deps.auditEmitter.emitTenderRefused({
-      tender_line_id: input.tender_line_id,
-      payment_attempt_id: input.attempt.payment_attempt_id,
-      tender_type: 'internal_voucher',
-      refusal_reason: mapped,
-      refused_at: input.applied_at,
-      attribution_operator_id: input.session.operator_id,
-      tenant_id: input.attempt.tenant_id,
-      branch_id: input.attempt.branch_id,
-      originating_terminal_id: input.attempt.terminal_id,
-      session_id: input.session.operator_session_id,
-    });
+    emitRefused(input, deps, mapped);
     return { kind: 'refused', reason: mapped };
   }
 
@@ -218,18 +251,7 @@ export async function applyVoucherLine(
     // FSM authority-side overpayment refusal (the FSM compared
     // `outcome.applied_amount_minor` against the local remaining balance
     // and refused). Persist + audit accordingly.
-    deps.auditEmitter.emitTenderRefused({
-      tender_line_id: input.tender_line_id,
-      payment_attempt_id: input.attempt.payment_attempt_id,
-      tender_type: 'internal_voucher',
-      refusal_reason: fsmOutcome.reason,
-      refused_at: input.applied_at,
-      attribution_operator_id: input.session.operator_id,
-      tenant_id: input.attempt.tenant_id,
-      branch_id: input.attempt.branch_id,
-      originating_terminal_id: input.attempt.terminal_id,
-      session_id: input.session.operator_session_id,
-    });
+    emitRefused(input, deps, fsmOutcome.reason);
     return {
       kind: 'refused',
       reason: 'non_cash_overpayment_refused',

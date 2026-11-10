@@ -17,11 +17,13 @@ import { validateVoucher } from '../../../../../src/main/payments/voucher-author
 import {
   BASE_URL,
   FAKE_IDEMPOTENCY_KEY,
+  FAKE_OPERATOR_USER_ID,
   FAKE_PAYMENT_ATTEMPT_ID,
   captureFetch,
   errorBody,
   jsonResponse,
   makeLogger,
+  fakeDeviceToken,
 } from './_fixtures.js';
 
 const OVERPAYMENT_INPUT = {
@@ -30,6 +32,7 @@ const OVERPAYMENT_INPUT = {
   // Cashier requested 10_000 but cart only owes 2_000 → authority refuses.
   applied_amount_minor: 10_000,
   remaining_balance_minor: 2_000,
+  operatorUserId: FAKE_OPERATOR_USER_ID,
 };
 
 describe('validateVoucher — partial-redemption refuse-not-cap (R-7)', () => {
@@ -42,6 +45,7 @@ describe('validateVoucher — partial-redemption refuse-not-cap (R-7)', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
 
     // Client sent the cashier's amount verbatim — no client-side cap.
@@ -69,6 +73,7 @@ describe('validateVoucher — partial-redemption refuse-not-cap (R-7)', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(captured).toHaveLength(1);
   });

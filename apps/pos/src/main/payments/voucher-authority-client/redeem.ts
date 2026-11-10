@@ -17,12 +17,13 @@
  */
 import type { PosPaymentsVouchers } from '../../../shared/api-types.js';
 
-import { extractErrorCode } from './error-body.js';
 import {
-  mapRefusalCode,
-  type VoucherAuthorityLogger,
-  type VoucherRefusalReason,
-} from './refusal-mapping.js';
+  bearerHeaderFor,
+  voucherRequestHeaders,
+  type DeviceTokenRead,
+} from './device-credential.js';
+import { interpretVoucherResponse } from './interpret-response.js';
+import type { VoucherAuthorityLogger, VoucherRefusalReason } from './refusal-mapping.js';
 
 function isRedeemedResponse(raw: unknown): raw is RedeemVoucherOk {
   return typeof raw === 'object' && raw !== null && (raw as { kind?: unknown }).kind === 'redeemed';
@@ -43,6 +44,12 @@ export interface RedeemVoucherDeps {
   logger: VoucherAuthorityLogger;
   /** Caller-generated UUID v4 — replays MUST reuse the same key. */
   idempotencyKey: string;
+  /**
+   * RT-1110: the paired terminal's device token (`device` scheme), sent as
+   * `Authorization: Bearer`. No token or a failing read: nothing is sent and
+   * the outcome is `authority_unreachable`. Never logged.
+   */
+  getDeviceToken: DeviceTokenRead;
   timeoutMs?: number;
 }
 
@@ -56,14 +63,15 @@ export async function redeemVoucher(
   const root = deps.baseUrl.replace(/\/$/, '');
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // RT-1110: no usable device token means nothing is sent.
+  const authorization = await bearerHeaderFor(deps.getDeviceToken, 'redeem', deps.logger);
+  if (authorization === null) return { kind: 'authority_unreachable' };
+
   let response: Response;
   try {
     response = await deps.fetch(`${root}${REDEEM_PATH}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': deps.idempotencyKey,
-      },
+      headers: voucherRequestHeaders(deps.idempotencyKey, authorization),
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -75,51 +83,5 @@ export async function redeemVoucher(
     return { kind: 'authority_unreachable' };
   }
 
-  if (response.ok) {
-    try {
-      const raw = (await response.json()) as unknown;
-      if (isRedeemedResponse(raw)) return raw;
-      deps.logger.warn(
-        { endpoint: 'redeem', reason: 'malformed_success_body' },
-        'voucher_authority:malformed_response',
-      );
-      return { kind: 'authority_unreachable' };
-    } catch {
-      deps.logger.warn(
-        { endpoint: 'redeem', reason: 'json_parse_failure' },
-        'voucher_authority:malformed_response',
-      );
-      return { kind: 'authority_unreachable' };
-    }
-  }
-
-  if (
-    response.status >= 400 &&
-    response.status < 500 &&
-    response.status !== 401 &&
-    response.status !== 425
-  ) {
-    let code: string | undefined;
-    try {
-      const raw = (await response.json()) as unknown;
-      code = extractErrorCode(raw);
-    } catch {
-      // fall through
-    }
-    if (!code) {
-      deps.logger.warn(
-        { endpoint: 'redeem', reason: 'missing_error_code', status: response.status },
-        'voucher_authority:refused_no_code',
-      );
-      return { kind: 'refused', reason: 'validation_failure' };
-    }
-    const reason = mapRefusalCode(code, 'redeem', deps.logger);
-    return { kind: 'refused', reason };
-  }
-
-  deps.logger.warn(
-    { endpoint: 'redeem', status: response.status, outcome: 'authority_unreachable' },
-    'voucher_authority:non_ok_response',
-  );
-  return { kind: 'authority_unreachable' };
+  return interpretVoucherResponse(response, 'redeem', isRedeemedResponse, deps.logger);
 }

@@ -515,3 +515,26 @@ export function isRt1231ExemptFile(branch: string, file: string): boolean {
     (RT_1231_AUDIT_SYNC_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1110-voucher-va-amendment` implements Jira RT-1110 (RT-1098 R-1): it amends the
+ * Backend-Core voucher contract V-A and, in the same PR, repins the POS to that contract
+ * commit (`npm run contracts:repin`), which regenerates `src/shared/api-types.ts`.
+ *
+ * Authority: owner decision 2026-11-10 (RT-1110 c16412, "fold it in": the POS repin goes into
+ * the contract PR, as #348 / #354 did for RT-1051), following the RT-889 / RT-1051 / RT-1181
+ * repin pattern: exactly ONE file on exactly ONE branch (exact name, no `startsWith`).
+ * Narrowness is asserted by `source-scope-guard-rt1110.test.ts`.
+ */
+export const RT_1110_VOUCHER_REPIN_BRANCH = 'claude/rt-1110-voucher-va-amendment' as const;
+export const RT_1110_VOUCHER_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1110 exemption allows on `branch`. */
+export function isRt1110ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1110_VOUCHER_REPIN_BRANCH &&
+    (RT_1110_VOUCHER_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

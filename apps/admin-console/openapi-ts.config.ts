@@ -507,6 +507,16 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "PosPilotReleases",
     path: "services/backend-core/packages/contracts/openapi/pos-pilot-releases.openapi.yaml",
   },
+  // POS device health (RT-327; RT-1312 F1 adds `saleQueue`): only the two Console reads
+  // `consoleListDeviceHealth` and `consoleGetDeviceHealth` are wrapped
+  // (src/lib/device-health-queries.ts), for the till's unsent sale counts on the Devices
+  // surface (RT-1312 Phase 1). The heartbeat and the platform version-policy operations in
+  // the same document are composed, not called. Consume-only; no YAML authored here.
+  // Composed at the repin to the RT-1312 F1 merge commit (8703e3f).
+  {
+    name: "PosDeviceHealth",
+    path: "services/backend-core/packages/contracts/openapi/pos-device-health.openapi.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */
