@@ -12,6 +12,13 @@
  * the cleaned form is used only when it is exactly a Console-shaped code;
  * anything else is sent as typed, trimmed, as before.
  *
+ * Owner decision 2026-11-10 (RT-1316, "Console codes only"). One consequence:
+ * an owner-SUPPLIED bootstrap code (`--code`) that becomes 16 Console-alphabet
+ * characters once spaces and dashes are removed is sent in that cleaned form,
+ * so it no longer matches its stored hash. Bootstrap codes should come from
+ * the CLI's `--generate` (24 base64url characters), which never takes that shape
+ * in practice. Separators-only input is treated as empty (no valid code is one).
+ *
  * Pure: no I/O, and the code is never logged.
  */
 
