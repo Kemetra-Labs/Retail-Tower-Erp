@@ -1348,8 +1348,9 @@ export namespace PosPaymentsVouchers {
             put?: never;
             /**
              * Atomically consume a redemption-intent token at confirm time.
-             * @description Consume a `redemption_intent_token` issued by an earlier `posValidateVoucher` call. On success, the voucher transitions to `redeemed` (or its remaining balance is decremented atomically) and the response carries the durable `redemption_id` that POS-Pulse persists on the `payment_tender_lines` row for audit / receipt correlation. The intent token is single-use; a second call with the same token but the same Idempotency-Key returns 200 with `idempotent_replayed: true`.
-             *     **Failure-response error codes** (closed set): `intent_token_not_found`, `intent_token_expired`, `intent_token_payment_attempt_mismatch`, `voucher_already_redeemed`, `validation_failure`, `store_context_required`, `idempotency_key_required`, `idempotency_key_malformed`, `idempotency_key_conflict`.
+             * @description Consume a `redemption_intent_token` issued by an earlier `posValidateVoucher` call. On success, the voucher transitions to `redeemed` (the whole voucher is consumed; the part of its value above `applied_amount_minor` is forfeited, decision 1A) and the response carries the durable `redemption_id` that POS-Pulse persists on the `payment_tender_lines` row for audit / receipt correlation. The intent token is single-use; a second call with the same token but the same Idempotency-Key returns 200 with `idempotent_replayed: true`.
+             *     Redeem re-evaluates the voucher at redeem time. A voucher cancelled or expired since validate is refused with `voucher_cancelled` or `voucher_expired`, and a store outside the voucher's eligible set with `voucher_branch_mismatch`. An "all stores" voucher includes stores added after it was issued; an explicit subset never grows (RT-810 D3, D4).
+             *     **Failure-response error codes** (closed set): `intent_token_not_found`, `intent_token_expired`, `intent_token_payment_attempt_mismatch`, `voucher_already_redeemed`, `voucher_cancelled`, `voucher_expired`, `voucher_branch_mismatch`, `validation_failure`, `store_context_required`, `refused`, `idempotency_key_required`, `idempotency_key_malformed`, `idempotency_key_conflict`.
              */
             post: operations["posRedeemVoucher"];
             delete?: never;
@@ -1369,7 +1370,7 @@ export namespace PosPaymentsVouchers {
             put?: never;
             /**
              * Reverse a previously-committed voucher redemption.
-             * @description Reverse a `redemption_id` issued by `posRedeemVoucher`. The voucher's balance is restored atomically and the voucher status transitions back from `redeemed` to `active` (or to its prior partially-redeemed state for forward compatibility — V-A v1 only supports single full redemption). On success, the response carries `already_reversed: false` on the first call and `already_reversed: true` on every subsequent call with the same `redemption_id`.
+             * @description Reverse a `redemption_id` issued by `posRedeemVoucher`. The voucher is restored atomically: its status transitions back from `redeemed` to `active` with its full value, and the forfeit of that redemption is undone. V-A supports a single full redemption only (decision 1A); there is no partially-redeemed state. The reversal is attributed to the operator recorded when the redemption was made, and the request carries no `operatorUserId`; the reversal's audit event records the reversing `device_id`. On success, the response carries `already_reversed: false` on the first call and `already_reversed: true` on every subsequent call with the same `redemption_id`.
              *     **Failure-response error codes** (closed set): `redemption_not_found`, `redemption_tenant_mismatch`, `redemption_branch_mismatch`, `validation_failure`, `store_context_required`, `idempotency_key_required`, `idempotency_key_malformed`, `idempotency_key_conflict`.
              *     **Authority-unreachable handling** is a POS-Pulse-side concern: the POS bridge handler transitions the tender line to `reversal_pending` on a network error and runs a deferred resolver. The backend has no `reversal_pending` concept; from the backend's point of view a reverse either succeeded or the request was never received.
              */
@@ -1392,8 +1393,8 @@ export namespace PosPaymentsVouchers {
             /**
              * Validate a voucher code for a specific payment attempt + amount.
              * @description Resolve the submitted voucher `code` against the tenant's active voucher set. On success, return a short-lived `redemption_intent_token` bound to the supplied `payment_attempt_id` + `applied_amount_minor`. The token is the only artefact the POS terminal needs to subsequently call `posRedeemVoucher` at settlement time.
-             *     **Partial redemption rule (POS-Pulse AD-7 / OQ-PLAN-3):** if the caller-supplied `applied_amount_minor` exceeds either the authoritative voucher balance OR the caller-supplied `remaining_balance_minor`, the operation MUST refuse with `non_cash_overpayment_refused`. The backend caps authority-side; no residual voucher reconciliation in V-A.
-             *     **Failure-response error codes** (closed set, mirrors POS-Pulse bridge contract §`vouchers.validate`): `voucher_not_found`, `voucher_expired`, `voucher_cancelled`, `voucher_already_redeemed`, `voucher_tenant_mismatch`, `voucher_branch_mismatch`, `non_cash_overpayment_refused`, `validation_failure`, `store_context_required`, `idempotency_key_required`, `idempotency_key_malformed`, `idempotency_key_conflict`.
+             *     **Partial redemption rule (POS-Pulse AD-7 / OQ-PLAN-3):** if the caller-supplied `applied_amount_minor` exceeds either the authoritative voucher value OR the caller-supplied `remaining_balance_minor`, the operation MUST refuse with `non_cash_overpayment_refused`. The backend enforces this authority-side. A zero `applied_amount_minor` is refused with `validation_failure`: a voucher is consumed whole, so applying nothing would forfeit its entire value for no tender (the schema bound is unchanged). There is no residual voucher balance: redeeming consumes the whole voucher and forfeits the unused remainder (decision 1A), and the 200 carries `forfeited_amount_minor` so the POS can show it before it redeems.
+             *     **Failure-response error codes** (closed set, mirrors POS-Pulse bridge contract §`vouchers.validate`): `voucher_not_found`, `voucher_expired`, `voucher_cancelled`, `voucher_already_redeemed`, `voucher_tenant_mismatch`, `voucher_branch_mismatch`, `non_cash_overpayment_refused`, `validation_failure`, `store_context_required`, `refused`, `idempotency_key_required`, `idempotency_key_malformed`, `idempotency_key_conflict`.
              */
             post: operations["posValidateVoucher"];
             delete?: never;
@@ -1423,10 +1424,15 @@ export namespace PosPaymentsVouchers {
             PosRedeemVoucherRequest: {
                 /**
                  * Format: uuid
+                 * @description RT-1110 (RT-224 option B credential). The `users.id` of the cashier applying the voucher: the `user_id` of the cashier admission the terminal holds (NOT the provider subject `operator_id`). REQUIRED with the `device` scheme. It is a claim, never trusted on its own: the server accepts it only when a cashier admission of this device, store and user is active at the time of the request, and re-checks the cashier's membership and store access live. A refused claim from a valid device is the generic 403 `refused`.
+                 */
+                operatorUserId: string;
+                /**
+                 * Format: uuid
                  * @description Must match the `payment_attempt_id` the token was issued against. Mismatch returns `intent_token_payment_attempt_mismatch`.
                  */
                 payment_attempt_id: string;
-                /** @description Opaque token previously issued by `posValidateVoucher`. Single-use; consumed atomically with the underlying voucher-balance decrement. */
+                /** @description Opaque token previously issued by `posValidateVoucher`. Single-use; consumed atomically with the voucher's transition to `redeemed`. */
                 redemption_intent_token: string;
             };
             PosRedeemVoucherResponse: {
@@ -1472,10 +1478,15 @@ export namespace PosPaymentsVouchers {
                 reversed_at: string;
             };
             PosValidateVoucherRequest: {
-                /** @description The exact amount the cashier intends to apply, in integer minor units (Constitution §II equivalent — POS-Pulse P-II). MUST satisfy `0 <= applied_amount_minor <= remaining_balance_minor` AND `applied_amount_minor <= authoritative_voucher_balance`. V-A refuses overpayment with `non_cash_overpayment_refused` rather than capping. */
+                /** @description The exact amount the cashier intends to apply, in integer minor units (Constitution §II equivalent — POS-Pulse P-II). MUST satisfy `0 < applied_amount_minor <= remaining_balance_minor` AND `applied_amount_minor <= authoritative_voucher_value`; the server refuses 0 with `validation_failure` (see the operation description). V-A refuses overpayment with `non_cash_overpayment_refused` rather than capping. */
                 applied_amount_minor: number;
-                /** @description Voucher code as scanned or keyed by the cashier. Lookup is case-sensitive and tenant-scoped; cross-tenant codes return 404 (non-disclosing). */
+                /** @description Voucher code as scanned or keyed by the cashier. It is normalised before lookup (upper-cased, hyphens and spaces removed, exactly as at issue). Lookup is tenant-scoped; cross-tenant codes return 404 (non-disclosing). */
                 code: string;
+                /**
+                 * Format: uuid
+                 * @description RT-1110 (RT-224 option B credential). The `users.id` of the cashier applying the voucher: the `user_id` of the cashier admission the terminal holds (NOT the provider subject `operator_id`). REQUIRED with the `device` scheme. It is a claim, never trusted on its own: the server accepts it only when a cashier admission of this device, store and user is active at the time of the request, and re-checks the cashier's membership and store access live. A refused claim from a valid device is the generic 403 `refused`.
+                 */
+                operatorUserId: string;
                 /**
                  * Format: uuid
                  * @description POS-Pulse-generated UUID v4 identifying the in-flight PaymentAttempt this voucher is being applied to. The issued `redemption_intent_token` is bound to this id; an attempt at `posRedeemVoucher` with a different `payment_attempt_id` returns `intent_token_payment_attempt_mismatch`.
@@ -1487,6 +1498,8 @@ export namespace PosPaymentsVouchers {
             PosValidateVoucherResponse: {
                 /** @description Authority-confirmed amount. Equal to the caller-supplied value on success (V-A refuses partial-redemption capping per AD-7). */
                 applied_amount_minor: number;
+                /** @description RT-1110 (decision 1A). The part of the voucher's value that this redemption would forfeit: the authoritative voucher value minus `applied_amount_minor`, in integer minor units. 0 when the voucher is used in full. Shown to the cashier before redeem. It reveals the voucher's value only to the terminal that presented the valid code in a validate for its own payment attempt, and is not carried by any other response. */
+                forfeited_amount_minor: number;
                 /**
                  * Format: date-time
                  * @description UTC timestamp after which the `redemption_intent_token` is no longer accepted by `posRedeemVoucher`. POS-Pulse SHOULD call redeem before this time; on expiry POS MUST re-call `posValidateVoucher` to obtain a fresh token.
@@ -1544,8 +1557,17 @@ export namespace PosPaymentsVouchers {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description POS principal is missing or invalid. */
+                /** @description Missing, invalid or revoked device token. The generic 401: no factor is disclosed. */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `error.code = "refused"`. The device token is valid but the `operatorUserId` claim is refused: no active cashier admission of this device, store and user, or the cashier's membership or store access no longer holds. One generic body for every cause. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1562,7 +1584,7 @@ export namespace PosPaymentsVouchers {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description Idempotency-Key reuse with a different logical payload, OR the voucher has already been redeemed by a different attempt. `error.code` is one of `idempotency_key_conflict`, `voucher_already_redeemed`. */
+                /** @description Idempotency-Key reuse with a different logical payload, OR the voucher can no longer be redeemed: already redeemed by a different attempt, cancelled, expired, or not valid in this store. `error.code` is one of `idempotency_key_conflict`, `voucher_already_redeemed`, `voucher_cancelled`, `voucher_expired`, `voucher_branch_mismatch`. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -1618,7 +1640,7 @@ export namespace PosPaymentsVouchers {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description POS principal is missing or invalid. */
+                /** @description Missing, invalid or revoked device token. The generic 401: no factor is disclosed. */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -1673,7 +1695,7 @@ export namespace PosPaymentsVouchers {
                 };
             };
             responses: {
-                /** @description Voucher is redeemable for the requested amount. Body carries a short-lived `redemption_intent_token` plus the authority-confirmed `applied_amount_minor` (which equals the caller-supplied value — V-A refuses overpayment rather than capping it). */
+                /** @description Voucher is redeemable for the requested amount. Body carries a short-lived `redemption_intent_token` plus the authority-confirmed `applied_amount_minor` (which equals the caller-supplied value — V-A refuses overpayment rather than capping it) and `forfeited_amount_minor`, the part of the voucher's value that redeeming it would forfeit (0 when the voucher is used in full). */
                 200: {
                     headers: {
                         /** @description Present with value "true" when this response is an idempotent replay of an earlier successful validation. */
@@ -1693,8 +1715,17 @@ export namespace PosPaymentsVouchers {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
-                /** @description POS principal is missing or invalid. */
+                /** @description Missing, invalid or revoked device token. The generic 401: no factor is disclosed. */
                 401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `error.code = "refused"`. The device token is valid but the `operatorUserId` claim is refused: no active cashier admission of this device, store and user, or the cashier's membership or store access no longer holds. One generic body for every cause. */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2334,7 +2365,10 @@ export namespace PosSalesSales {
              *     Admission check time (RT-225): on this path the body may also carry `admissionCheckAt`, which then replaces `occurredAt` in the admission-window comparison only (see the field). Sent without `operatorUserId`, it is a 400.
              *     Payer responsibilities (RT-417, from RT-418): the optional `responsibilities` list records who owes the part of the sale not paid by `tenders`. When it is present, `sum(tenders) + sum(responsibilities) = posTotal` must hold exactly (else 422 `sale_responsibility_mismatch`), and every payer must be eligible (else 422 `sale_responsibility_payer_invalid`); see the field and `CaptureUnprocessable`. Responsibilities are accepted only on the `operatorAuthorization` path (owner decision 2026-10-16, option A). On the `device` path a body with `responsibilities` is 422 `sale_responsibility_offline_refused`, decided before the coverage rule and after authentication and the RT-224 cashier-claim check (403 `refused`). On the envelope path the role check (403 `sale_responsibility_role_refused`) is decided after authentication and before every 422. Order of the 422s: the device-path offline refusal, then the coverage rule, then the line price invariant, then the payers (as in `CaptureUnprocessable`). A replay of an already-captured sale answers after authentication and the RT-224 cashier-claim check (403 `refused`), and before the role check (403 `sale_responsibility_role_refused`) and every 422, so a payer suspended after capture never turns a stored result into a 403 or a 422. Nothing is recorded on any failure.
              *     Receipt snapshot (RT-537): the body may carry the optional `receipt` (see `CaptureSaleReceipt`). The server stores it first-write-wins and keeps it out of the `payload_hash`. From RT-539 the order of `lines` is stored as the receipt line order.
-             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and so is a provenance replay under another key with different tracking (RT-1206). Stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons: a refusal would only strand the fact in the till's dead-letter. The server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
+             *     Tracked lines (RT-450, from RT-451; RT-50 G7-9, Q5): a line of a tracked product carries `tracking` (`CaptureSaleLineTracking`), the identity the till sold, chosen after an online validation (`posValidateTrackedLine`, `pos-sales/tracked-lines.yaml`). `tracking` is frozen on the line, included in the `payload_hash` and echoed by `SaleLine`; the same `Idempotency-Key` re-sent with different tracking is the existing conflict (409 `idempotency_key_conflict`), and so is a provenance replay under another key with different tracking (RT-1206). Stored tracking is never rewritten, like every other line field. Capture NEVER rejects a real sale for tracking reasons, whatever the switch state: a refusal would only strand the fact in the till's dead-letter.
+             *     Tracked selling OFF (RT-451 S3, OD-T4; comment 16269): the classification below applies only while the deployment gate `POS_TRACKED_SELLING_ENABLED` AND the tenant's tracked-selling switch are both on, evaluated at capture (the tenant switch is read in the capture transaction). While either is off, no line is classified: a tracked product's line, with or without `tracking`, is accepted as an ordinary line (normal Inventory effects at the product grain, a normal ERP posting intent; never `tracking_unresolved` and never a finding). A `tracking` it carries is stored as received (provenance only), not validated and not classified; it stays in the `payload_hash`, so the replay and conflict rules above are unchanged. There is no 400 for tracking reasons, so a sale the till validated while tracked selling was on and sends after it was switched off is still accepted.
+             *     Ad-hoc lines (RT-451 S3, comment 16275 (b)): a line without a tenant product is never classified, even while tracked selling is on. A `tracking` it carries is stored as received (provenance only), with no finding, and it never makes the sale `tracking_unresolved`.
+             *     Tracked selling ON: the server accepts the sale and classifies each tracked line. When several rows match, the lower (more severe) row wins:
              *
              *       1. Valid: a known identity of this product, a `validationId` that
              *          matches an accepted validation of that identity (same tenant,
@@ -2739,7 +2773,7 @@ export namespace PosSalesSales {
             /**
              * @description RT-450 (RT-50 G7-9, G7-13; contract-only until RT-451): the tracking identity a line of a batch-tracked product sold. One identity per line: a quantity from two lots is two lines (G7-4). Absent on a line of an untracked product. The line freezes this snapshot at capture (437), and it is included in the sale `payload_hash`.
              *     Source of truth, field by field: `identityId`, `code` and `expiryDate` are the Backend-Core Inventory tracking identity record (G7-2), as the till received them from the validation; they are never defined by the till and never taken from the ERPNext Batch. The ERP Batch ref is not here: it comes from the Inventory edge map and is frozen with the posting intent. `selection` and `validationId` are the till's account of how the lot was chosen and which online validation covered it.
-             *     `validationId` and `expiryDate` are optional on purpose, so that no row of the G7-9 classification table (see `captureSale`) needs a 400: a line sent without `validationId` is classified as a tracked line without online validation, never refused. A malformed object (an unknown key, a `selection` outside the enum, a non-UUID id) is a 400 `validation_error`, as for any body field; a well-formed `tracking` that names an unknown or wrong identity is accepted and classified.
+             *     `validationId` and `expiryDate` are optional on purpose, so that no row of the G7-9 classification table (see `captureSale`) needs a 400: a line sent without `validationId` is classified as a tracked line without online validation, never refused. A malformed object (an unknown key, a `selection` outside the enum, a non-UUID id) is a 400 `validation_error`, as for any body field; a well-formed `tracking` that names an unknown or wrong identity is accepted and classified. While tracked selling is off for the tenant (the deployment gate or the tenant's switch, RT-451 S3), and on an ad-hoc line, a well-formed `tracking` is stored as received and not classified, never refused (see `captureSale`).
              */
             CaptureSaleLineTracking: {
                 /** @description The lot number exactly as recorded on the identity (`TrackingIdentity.code`, at most 128 characters), matched exactly, never fuzzily. A snapshot: it is not re-read from the identity later. */

@@ -195,6 +195,7 @@ interface Harness {
   signOut: ReturnType<typeof vi.fn>;
   logger: Record<'info' | 'warn' | 'error', ReturnType<typeof vi.fn>>;
   backendFetch: ReturnType<typeof vi.fn>;
+  readSendableDeviceToken: ReturnType<typeof vi.fn>;
 }
 
 /** Composition-root dependencies as recording fakes, with a live session on terminal-1. */
@@ -205,6 +206,7 @@ function makeHarness(): Harness {
   const signOut = vi.fn(() => Promise.resolve());
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const backendFetch = vi.fn();
+  const readSendableDeviceToken = vi.fn(() => Promise.resolve('device-token-sentinel'));
   const deps = {
     guardedIpcMain: { marker: 'guarded-ipc-main' },
     db: { marker: 'db' },
@@ -217,10 +219,20 @@ function makeHarness(): Harness {
     mainLogger: logger,
     apiBaseUrl: 'https://backend.example.test',
     backendFetch,
+    readSendableDeviceToken,
     operatorSignOutHandler: { signOut },
     recoveryRef: { current: null },
   } as unknown as PaymentsDeps;
-  return { deps, getCurrent, getCurrentTerminalId, insertIgnore, signOut, logger, backendFetch };
+  return {
+    deps,
+    getCurrent,
+    getCurrentTerminalId,
+    insertIgnore,
+    signOut,
+    logger,
+    backendFetch,
+    readSendableDeviceToken,
+  };
 }
 
 let resolverStart: ReturnType<typeof vi.fn>;
@@ -630,6 +642,8 @@ describe('registerPayments, deferred voucher-reversal resolver', () => {
       baseUrl: 'https://backend.example.test',
       fetch: h.backendFetch,
       idempotencyKey: 'k-1',
+      // RT-1110: the paired terminal's sendable device token (the one read-down uses).
+      getDeviceToken: h.readSendableDeviceToken,
     });
     options.logger.info({ b: 1 }, 'i');
     options.logger.warn({ b: 2 }, 'w');

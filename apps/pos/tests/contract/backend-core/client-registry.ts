@@ -275,6 +275,13 @@ const CASHIER_ADMISSION_CLIENT = 'src/main/operator/cashier-admission-client.ts'
 const CASHIER_ADMISSION_WIRING =
   'index.ts createCashierAdmissionClient: `getDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)';
 const VOUCHER_DIR = 'src/main/payments/voucher-authority-client';
+// RT-1110: the voucher clients use the device scheme. Only the deferred-reversal resolver binds
+// the reverse client in production (the voucher tender is off for the pilot, RT-103); validate and
+// redeem are reached through handlers whose deps are injected, so they have no boot binding yet.
+const VOUCHER_REVERSE_WIRING =
+  'bootstrap/payments-cart.ts startDeferredReversalResolver: `getDeviceToken` = readSendableDeviceToken (index.ts createSendableDeviceTokenReader; paired only; never once revoked, RT-215)';
+const VOUCHER_HANDLER_WIRING =
+  'not bound at boot (voucher tender is off for the pilot, RT-103): the handler dep is injected; a binding must pass `getDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)';
 const SHIFT_SYNC_CLIENT = 'src/main/shift-cashup/shift-sync-client.ts';
 const SHIFT_SYNC_WIRING =
   'not wired yet (RT-17 slice 3 part 3): `getDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)';
@@ -665,7 +672,7 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     module: `${VOUCHER_DIR}/validate.ts`,
     method: 'post',
     pathTemplate: '/api/pos/v1/vouchers/validate',
-    wiring: 'none — the function takes no credential (apply-voucher-line.ts)',
+    wiring: VOUCHER_HANDLER_WIRING,
     invoke: (fetch) =>
       validateVoucher(
         {
@@ -673,8 +680,15 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
           payment_attempt_id: UUID,
           applied_amount_minor: 100,
           remaining_balance_minor: 100,
+          operatorUserId: UUID,
         },
-        { baseUrl: BASE_URL, fetch, logger: NOOP_LOGGER, idempotencyKey: UUID },
+        {
+          baseUrl: BASE_URL,
+          fetch,
+          logger: NOOP_LOGGER,
+          idempotencyKey: UUID,
+          getDeviceToken: () => Promise.resolve(SENTINEL.device),
+        },
       ),
   },
   {
@@ -682,11 +696,17 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     module: `${VOUCHER_DIR}/redeem.ts`,
     method: 'post',
     pathTemplate: '/api/pos/v1/vouchers/redeem',
-    wiring: 'none — the function takes no credential (payments-confirm.ts)',
+    wiring: VOUCHER_HANDLER_WIRING,
     invoke: (fetch) =>
       redeemVoucher(
-        { payment_attempt_id: UUID, redemption_intent_token: 'intent' },
-        { baseUrl: BASE_URL, fetch, logger: NOOP_LOGGER, idempotencyKey: UUID },
+        { payment_attempt_id: UUID, redemption_intent_token: 'intent', operatorUserId: UUID },
+        {
+          baseUrl: BASE_URL,
+          fetch,
+          logger: NOOP_LOGGER,
+          idempotencyKey: UUID,
+          getDeviceToken: () => Promise.resolve(SENTINEL.device),
+        },
       ),
   },
   {
@@ -694,11 +714,17 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     module: `${VOUCHER_DIR}/reverse.ts`,
     method: 'post',
     pathTemplate: '/api/pos/v1/vouchers/reverse',
-    wiring: 'none — the function takes no credential (index.ts deferred-reversal resolver)',
+    wiring: VOUCHER_REVERSE_WIRING,
     invoke: (fetch) =>
       reverseVoucher(
         { redemption_id: UUID },
-        { baseUrl: BASE_URL, fetch, logger: NOOP_LOGGER, idempotencyKey: UUID },
+        {
+          baseUrl: BASE_URL,
+          fetch,
+          logger: NOOP_LOGGER,
+          idempotencyKey: UUID,
+          getDeviceToken: () => Promise.resolve(SENTINEL.device),
+        },
       ),
   },
   {

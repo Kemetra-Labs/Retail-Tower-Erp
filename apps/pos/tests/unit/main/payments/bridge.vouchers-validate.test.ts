@@ -62,6 +62,9 @@ import type {
   ValidateVoucherInput,
 } from '../../../../src/main/payments/voucher-authority-client/validate.js';
 
+/** RT-1110: the admitted cashier's `users.id`, sent to V-A as `operatorUserId`. */
+const OPERATOR_USER_ID = '44444444-4444-4444-8444-444444444444';
+
 function validRequest(overrides: Partial<VouchersValidateRequest> = {}): VouchersValidateRequest {
   return {
     payment_attempt_id: 'pa-1',
@@ -76,6 +79,7 @@ function makeValidateVoucherDouble(
   outcome: ValidateVoucherOutcome = {
     kind: 'validated',
     applied_amount_minor: 1500,
+    forfeited_amount_minor: 0,
     intent_expires_at: '2026-06-01T10:05:00.000Z',
     redemption_intent_token: 'opaque-intent-token-XYZ',
   },
@@ -91,7 +95,7 @@ function setup(
     attemptRow?: ReturnType<typeof makeAttemptRow>;
   } = {},
 ) {
-  const sessionSource = makeSessionSource(makeSession());
+  const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
   const row = opts.attemptRow ?? makeAttemptRow({ envelope_subtotal_minor: 3000 });
   const attemptsRepo = makeAttemptsRepoDouble([row]);
   const linesRepo = makeLinesRepoDouble();
@@ -163,7 +167,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
   });
 
   it('refuses attempt_terminal when the attempt id is unknown', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const handler = createVouchersValidateHandler({
       getCurrentSession: sessionSource.getCurrentSession,
       attemptsRepo: makeAttemptsRepoDouble([]),
@@ -201,7 +205,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
     const linesRepo = makeLinesRepoDouble([
       makeLineRow({ tender_line_id: 'tl-cash', tender_type: 'cash', amount_applied_minor: 1000 }),
     ]);
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const validateVoucher = makeValidateVoucherDouble();
     const handler = createVouchersValidateHandler({
       getCurrentSession: sessionSource.getCurrentSession,
@@ -221,7 +225,32 @@ describe('T220 — vouchers.validate bridge handler', () => {
       payment_attempt_id: 'pa-1',
       applied_amount_minor: 1500,
       remaining_balance_minor: 2000,
+      operatorUserId: OPERATOR_USER_ID,
     });
+  });
+
+  it('RT-1110: a session with no cashier admission (no user_id) is refused role_denied and V-A is never called', async () => {
+    // Device-only credential: the claim is the admitted cashier's users.id; a manager / admin
+    // session has none. Nothing is persisted, audited or sent.
+    const sessionSource = makeSessionSource(makeSession({ role: 'manager' }));
+    const validateVoucher = makeValidateVoucherDouble();
+    const fsm = makeTenderLineFsmDouble();
+    const auditEmitter = makeAuditEmitterDouble();
+    const handler = createVouchersValidateHandler({
+      getCurrentSession: sessionSource.getCurrentSession,
+      attemptsRepo: makeAttemptsRepoDouble([makeAttemptRow({ envelope_subtotal_minor: 3000 })]),
+      linesRepo: makeLinesRepoDouble(),
+      tenderLineFsm: fsm,
+      idempotency: makeIdempotencyHelperDouble(),
+      auditEmitter,
+      validateVoucher,
+      uuid: () => 'tl-VOUCHER-1',
+      clock: () => new Date('2026-05-25T10:00:01.000Z'),
+    });
+    expect(await handler(validRequest())).toEqual({ kind: 'refused', reason: 'role_denied' });
+    expect(validateVoucher).not.toHaveBeenCalled();
+    expect(fsm.apply).not.toHaveBeenCalled();
+    expect(auditEmitter.captured).toHaveLength(0);
   });
 
   // ── 3. Success path — persists applied line + ok response (FR-017 guard) ──
@@ -261,6 +290,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
       validateOutcome: {
         kind: 'validated',
         applied_amount_minor: 1500,
+        forfeited_amount_minor: 0,
         intent_expires_at: '2026-06-01T10:05:00.000Z',
         redemption_intent_token: 'TOKEN-SECRET-VALUE',
       },
@@ -358,7 +388,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
   // ── 6. Idempotency ────────────────────────────────────────────────────────
 
   it('refuses idempotency_payload_mismatch when the helper signals mismatch', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const handler = createVouchersValidateHandler({
       getCurrentSession: sessionSource.getCurrentSession,
       attemptsRepo: makeAttemptsRepoDouble([makeAttemptRow()]),
@@ -377,7 +407,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
   });
 
   it('returns the prior outcome on idempotency replay (applied line)', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const linesRepo = makeLinesRepoDouble([
       makeLineRow({
         tender_line_id: 'tl-VOUCHER-EXISTING',
@@ -413,7 +443,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
   });
 
   it('replays a refused-state line as the prior refusal envelope', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const linesRepo = makeLinesRepoDouble([
       makeLineRow({
         tender_line_id: 'tl-VOUCHER-REJECT',
@@ -444,7 +474,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
   });
 
   it('replay with no matching line refuses internal_error (impossible state but defended)', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const handler = createVouchersValidateHandler({
       getCurrentSession: sessionSource.getCurrentSession,
       attemptsRepo: makeAttemptsRepoDouble([makeAttemptRow()]),
@@ -463,7 +493,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
   });
 
   it('does NOT emit any audit event on idempotency replay or mismatch', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const linesRepo = makeLinesRepoDouble([
       makeLineRow({
         tender_line_id: 'tl-VOUCHER-EXISTING',

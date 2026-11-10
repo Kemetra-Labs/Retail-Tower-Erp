@@ -1303,6 +1303,7 @@ singleInstanceReady
       mainLogger,
       apiBaseUrl,
       backendFetch,
+      readSendableDeviceToken,
       operatorSignOutHandler,
       recoveryRef,
     };
@@ -1311,7 +1312,6 @@ singleInstanceReady
     // above (RT-442); it only calls them at a sign-in or session end.
     const { forwardAuditEvent, settledAuditReconciler, paymentAttemptFsm, paymentAuditEmitter } =
       paymentsCore;
-
     const deviceReadDownDeps = {
       guardedIpcMain,
       db,

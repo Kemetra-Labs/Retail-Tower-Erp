@@ -34,6 +34,7 @@ import {
   errorBody,
   jsonResponse,
   makeLogger,
+  fakeDeviceToken,
 } from './_fixtures.js';
 
 const REVERSE_INPUT = { redemption_id: FAKE_REDEMPTION_ID };
@@ -55,6 +56,7 @@ describe('reverseVoucher — happy path', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(captured).toHaveLength(1);
     const call = captured[0];
@@ -75,6 +77,7 @@ describe('reverseVoucher — idempotent replay', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result.kind).toBe('reversed');
     if (result.kind === 'reversed') {
@@ -91,6 +94,7 @@ describe('reverseVoucher — refusal mapping', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'redemption_not_found' });
   });
@@ -102,6 +106,7 @@ describe('reverseVoucher — refusal mapping', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'validation_failure' });
   });
@@ -115,6 +120,7 @@ describe('reverseVoucher — malformed responses', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -126,6 +132,7 @@ describe('reverseVoucher — malformed responses', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -137,6 +144,7 @@ describe('reverseVoucher — malformed responses', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'validation_failure' });
   });
@@ -150,6 +158,7 @@ describe('reverseVoucher — authority-unreachable sentinel (R-13 / FSM driver)'
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -161,6 +170,7 @@ describe('reverseVoucher — authority-unreachable sentinel (R-13 / FSM driver)'
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -172,6 +182,7 @@ describe('reverseVoucher — authority-unreachable sentinel (R-13 / FSM driver)'
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -183,6 +194,7 @@ describe('reverseVoucher — authority-unreachable sentinel (R-13 / FSM driver)'
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -198,6 +210,7 @@ describe('reverseVoucher — authority-unreachable sentinel (R-13 / FSM driver)'
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result.kind).toBe('authority_unreachable');
     // No other fields on the sentinel — it's literally `{ kind: ... }`.

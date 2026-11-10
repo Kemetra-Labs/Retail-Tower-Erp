@@ -55,9 +55,18 @@ function cappedVoucherAuthority(applied_amount_minor: number): ValidateVoucherFn
     Promise.resolve({
       kind: 'validated' as const,
       applied_amount_minor,
+      forfeited_amount_minor: 0,
       intent_expires_at: '2026-10-08T10:05:00.000Z',
       redemption_intent_token: 'opaque-intent-token-SECRET',
     });
+}
+
+/** RT-1110: the admitted cashier's `users.id`, sent to V-A as `operatorUserId`. */
+const CASHIER_USER_ID = '44444444-4444-4444-8444-444444444444';
+
+/** The default admitted-cashier session (a voucher claim needs the cashier's `users.id`). */
+function cashierSession(): OperatorSessionForPayments {
+  return makeSession({ user_id: CASHIER_USER_ID });
 }
 
 function build(options: StackOptions = {}) {
@@ -65,7 +74,7 @@ function build(options: StackOptions = {}) {
     bindRealPaymentsCore(currentDb());
   const auditEmitter = makeAuditEmitterDouble();
   const { validateVoucher = cappedVoucherAuthority(0), reverseVoucher } = options;
-  let session: OperatorSessionForPayments = makeSession();
+  let session: OperatorSessionForPayments = cashierSession();
   let n = 0;
   const shared = {
     getCurrentSession: (): OperatorSessionForPayments => session,
@@ -133,7 +142,7 @@ async function as<T>(s: Stack, who: OperatorSessionForPayments, fn: () => Promis
   try {
     return await fn();
   } finally {
-    s.useSession(makeSession());
+    s.useSession(cashierSession());
   }
 }
 
