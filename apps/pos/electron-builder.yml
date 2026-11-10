@@ -1,5 +1,5 @@
 productName: POS Pulse
-appId: tech.smartdatapulse.pos
+appId: com.kemetralabs.retailtower.pos
 directories:
   output: dist-electron
 win:

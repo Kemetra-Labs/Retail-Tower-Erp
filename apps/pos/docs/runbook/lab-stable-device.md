@@ -34,7 +34,7 @@ State is as recorded on 2026-11-03 (Cairo) and must be re-checked, not assumed.
 | :----------- | :---- | :------------------ |
 | RT-717 authorization for each real tag and each live deploy | owner | per release |
 | Written yes that exporting the lab leaf is acceptable (design C-1) | owner | not seen |
-| `appId` `tech.smartdatapulse.pos` and `productName` `POS Pulse` confirmed final (RT-234 §11.2) | owner | not seen |
+| `appId` `com.kemetralabs.retailtower.pos` (RT-1314) and `productName` `POS Pulse` confirmed final (RT-234 §11.2) | owner | not seen |
 | `release-pos-sign` environment with its secrets and variable | owner | **absent** from the repository's environments |
 | `release-pos` environment | owner | exists; reviewer and tag policy `pos/v*` read back on 2026-11-03, re-check |
 | `aws-lab` environment, `AWS_ROLE_ARN`, `AWS_REGION` | owner | exists; the two variables are set, the role's trust policy is not verified |
