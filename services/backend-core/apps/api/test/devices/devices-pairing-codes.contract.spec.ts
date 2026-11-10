@@ -396,8 +396,8 @@ describe("pos-terminal-pairing contract — RT-367 wording", () => {
       "properties"
     ] as Record<string, JsonObject>;
 
-  it("is 1.6.0-draft (RT-1184 printer fields removed, after RT-327 named operation sets, RT-719 build identity and RT-369 rotate) and no longer calls the token long-lived or says terminal_id survives re-pairing", () => {
-    expect((pairing()["info"] as JsonObject)["version"]).toBe("1.6.0-draft");
+  it("is 1.7.0-draft (RT-1316 pairing_code entry rule, after RT-1184 printer fields removed, RT-327 named operation sets, RT-719 build identity and RT-369 rotate) and no longer calls the token long-lived or says terminal_id survives re-pairing", () => {
+    expect((pairing()["info"] as JsonObject)["version"]).toBe("1.7.0-draft");
     expect(text()).not.toMatch(/long-lived/i);
     expect(text()).not.toMatch(/Survives\s+re-pairing/i);
   });
