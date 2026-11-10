@@ -72,11 +72,13 @@ State this in the PR body.
   sibling branch drafts against the same file, say the new version in the PR body or on the Jira
   issue so it takes the next one.
 - **Grep the consumers for the old value of a default you change.** #485 moved the pairing TTL
-  default from 60 to 1440, and `rg "Default 60|60 minutes" apps` still found the Console help text
-  (`apps/admin-console/src/i18n/messages/*/devices.ts`), code comments in
-  `apps/admin-console/src/lib/device-queries.ts` and the POS runbook
-  (`apps/pos/docs/runbook/pilot-terminal-provisioning.md`). Update each stale copy or name the issue
-  that owns it in the PR body; never leave one unowned.
+  default from 60 to 1440, and `git grep -n -E "ttlMinutes|Default 60|default \(60\)|60 minutes" -- apps`
+  still found the Console help text (`apps/admin-console/src/i18n/messages/*/devices.ts`), code
+  comments in `apps/admin-console/src/lib/device-queries.ts` and the POS runbook
+  (`apps/pos/docs/runbook/pilot-terminal-provisioning.md`), among unrelated "60 minutes" hits. The
+  generated Console client (`apps/admin-console/src/generated/schema.d.ts`, `@default 60`) changes
+  only at the next repin. Update each stale hand-written copy or name the issue that owns it in the PR
+  body; never leave one unowned.
 
 ## Migrations (`services/backend-core/packages/db/drizzle/`)
 
