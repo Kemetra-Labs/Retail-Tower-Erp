@@ -45,6 +45,18 @@ issues (apply OS section 4A directly).
    for the GitHub side: own PRs per key, newest completed `required` per head, push runs
    on merge commits, reverts. See the script's `--help`. Comments are the largest
    payload: fetch them per issue, and only for candidates that have own merged PRs.
+   **The script's own-PR list is empty for work imported from the frozen repos** (before
+   the cutover). That evidence lives in comments, either as links to
+   `Kemetra-Labs/Retail-Tower-Erp/commit/<sha>` (SHAs of this repo) or as bare source-repo
+   SHAs such as `352b86a`. For the first kind run
+   `git merge-base --is-ancestor <sha> origin/main`. A source-repo SHA is not an object
+   here: find its imported commit with
+   `git log origin/main --grep 'Original-Commit: <sha>' --format=%H` (or the table
+   `tools/history/crosswalk/<product>.tsv`), then run the same check on the new SHA.
+   Subjects usually end `(Kemetra/<Repo>#NNN)`, and merge commits read
+   `Merge pull request Kemetra/<Repo>#NNN`; a commit with neither is found only through
+   its SHA. Its CI is only in the issue's comments, because `required` never ran here:
+   say so, and do not call it re-verified.
 3. **Read the evidence for each candidate, in this order** (the order matters: later
    steps often overturn earlier guesses):
    1. Acceptance criteria and evidence contract in the description.
@@ -53,6 +65,8 @@ issues (apply OS section 4A directly).
       verdicts.
    3. Own PRs only: the issue key that comes first in the PR title (else the branch).
       A PR that merely mentions a key belongs to its first key, not to every key named.
+      A PR number found in an issue's comments is a lead, not proof of ownership: confirm
+      the key in its title (`gh pr view N --json title`) before crediting it.
    4. The PR file list: captures (`*.png`), specs, migrations, docs named by the criteria.
    5. The newest `required` check-run on each PR head by `started_at` (CLAUDE.md 11.6).
       If it is completed and green, older runs stuck `in_progress` are superseded
@@ -64,7 +78,9 @@ issues (apply OS section 4A directly).
 4. **Decide per issue** with the table below. Never decide from keywords in the criteria
    ("lab", "captures") without doing step 3.
 5. **Act** (only what was authorized), then **read back** every changed issue in one
-   query and record each change in the mutation log.
+   query and record each change in the mutation log. Re-read an issue's status right
+   before acting on it: a comment can announce a closure that never happened, and other
+   sessions change statuses during a long run.
 6. **Report**: what changed, what stays open and the exact missing fact for each, and
    the owner decisions that would unlock the next closeouts.
 
@@ -120,3 +136,7 @@ see it before you close.
 | Posting a generic "merged, not verified" comment | Comment only with a specific missing fact or a closeout |
 | Claiming a result before reading it back | One readback query of all changed issues |
 | Writing scripts as shell heredocs on Windows | Use the bundled script; UTF-8 in and out |
+| Treating a PR number from a comment as the issue's own PR | Confirm the key in the PR title first; several issues in one run only mentioned PRs that belonged to other keys |
+| Sweeping stale links in one direction only | Cover "is blocked by" links whose blocker is Done, "blocks" links whose target is Done, and links to issues closed in this run. Compare link IDs before and after |
+| Closing a duplicate or superseded issue with an ordinary closeout | Verify the native Duplicate link and that its target (or the replacements) is Done. Say in the comment that gate `verified` means "closed as duplicate or superseded", not "criteria verified", and list what was not done |
+| Numbering items in a markdown table in a Jira comment | Jira drops the leading `2.` or `3.`; write "Item 2" or use bullets when other text refers to the number |

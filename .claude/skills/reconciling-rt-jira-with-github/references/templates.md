@@ -39,6 +39,18 @@ Closeout Gate set to `verified` on this evidence. A merged PR alone was not trea
 When the owner answers in chat, post a follow-up that quotes the decision with its date,
 then either close (evidence comment) or say what is still open.
 
+## Closeout as duplicate or superseded
+
+```markdown
+**Closeout as <a duplicate of RT-NNNN | superseded by RT-NNNN, RT-NNNN>, <YYYY-MM-DD> (Claude Code, on the owner's instruction in chat).** Baseline: `origin/main` `<sha9>`.
+
+**Why:** <the native Duplicate link id and the target's status, read today; or the replacements, each Done with its gate>. The owner confirmed in chat on <date>; earlier comments that suggested the closure are history, not authority.
+
+**No work was done under this key** (or: the work done is ...). The implementation is <PR or issue>, where its evidence lives.
+
+**Not claimed:** this issue's own acceptance criteria are not separately proven here. Gate `verified` is set only because Done requires it; it means "closed as <duplicate | superseded>". Not done: <the owner steps and checks that remain>.
+```
+
 ## Mutation log
 
 Append one tab-separated line per change to a session file (scratchpad), before and after

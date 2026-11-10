@@ -1,6 +1,6 @@
 # RT Jira mechanics
 
-Verified against the live site on 2026-11-07. Re-check with a read before relying on an ID
+Verified against the live site on 2026-11-07; notes added later carry their own date. Re-check with a read before relying on an ID
 if anything here looks off.
 
 ## Site
@@ -30,7 +30,10 @@ All are global and have no screen.
 Done is conditional: `Checklist Completed = All Completed` OR `Closeout Gate = verified`.
 Before the gate is set, transition 41 is missing from the default list (or shows
 `isAvailable: false` with `includeUnavailableTransitions`). Set the gate first, then list
-transitions again and use 41.
+transitions again and use 41. Once the gate is `verified`, 41 is available directly from
+To Do or In Progress, so no In Review step is needed (re-checked on 2026-11-10). Some
+older issues (for example RT-293 and RT-309) have an empty gate field; setting it works
+the same way.
 
 Tasks and Bugs both accept the gate field. Moving an issue out of Done resets the gate to
 `pending` asynchronously; reconfirm after any reopen.
@@ -60,7 +63,14 @@ evidence or the owner's confirmation. Never set the gate for a status move.
 - A blocker that is Done is stale. Removal is destructive: get the owner's approval of the
   exact list, log every link ID and its blocker first, delete one and verify, then batch.
 - Delete with `twg jira workitem unlink workitem --link-id <id> -s rahmaqanater -o json`
-  (look for `success: true`).
+  (look for `success: true`). At the time of writing (2026-11-10) the Atlassian MCP tools
+  offered in a Claude Code session had no delete-link operation.
+- A link shows on both issues. `outwardIssue` on issue A means A blocks X; when X is
+  Done the link is moot. Sweep both directions, plus links to issues you close in the
+  same run. Compare the link IDs of every touched issue before and after: the removed
+  set must equal the approved set and nothing else may change.
+- Duplicates use link type `Duplicate` ("duplicates" outward, "is duplicated by" inward).
+  Read it on the issue before closing it as a duplicate.
 
 ## Large queries
 
