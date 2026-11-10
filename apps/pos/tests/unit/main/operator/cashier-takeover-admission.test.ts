@@ -54,7 +54,10 @@ function cashierProto(overrides: Partial<ProtoSession> = {}): ProtoSession {
   };
 }
 
-function build(result: CashierAdmissionResult = ADMITTED): {
+function build(
+  result: CashierAdmissionResult = ADMITTED,
+  tillClockMs?: () => number,
+): {
   handler: TakeoverHandler;
   store: ProtoSessionStore;
   sessions: SessionManager;
@@ -82,6 +85,7 @@ function build(result: CashierAdmissionResult = ADMITTED): {
     pairingStore: paired,
     deviceTokenAttestation: () => 'att',
     cashierAdmission: fake.deps,
+    ...(tillClockMs === undefined ? {} : { tillClockMs }),
   });
   return { handler, store, sessions, fake, backend, emit };
 }
@@ -283,5 +287,32 @@ describe('Codex P2 4179771036 — the takeover admission deadline is anchored at
     const stamped = sessions.getCurrent()?.admission_requested_at_ms;
     expect(typeof stamped).toBe('number');
     expect(stamped).toBeLessThanOrEqual(sentAt);
+  });
+});
+
+/** RT-1312 F18 (review): the takeover admission gets the same till clock check as sign-in. */
+describe('RT-1312 F18 — cashier takeover refuses a till clock off the server', () => {
+  const SERVER_MS = Date.parse(ADMITTED.server_time);
+
+  it('a till clock 121 s ahead is refused clock_skew, the proto-session dropped and the admission ended', async () => {
+    const { handler, store, sessions, fake } = build(ADMITTED, () => SERVER_MS + 121_000);
+    const proto = cashierProto();
+    store.set(proto);
+
+    const res = await handler.confirmTakeover({ pending_takeover_id: proto.pending_takeover_id });
+
+    expect(res).toEqual({ kind: 'refused', category: 'clock_skew' });
+    expect(sessions.getCurrent()).toBeNull();
+    expect(store.get(proto.pending_takeover_id)).toBeUndefined();
+    expect(fake.endRequests.map((r) => r.admission_id)).toEqual([ADMITTED.admission_id]);
+  });
+
+  it('a till clock within tolerance takes over as before', async () => {
+    const { handler, store } = build(ADMITTED, () => SERVER_MS + 60_000);
+    const proto = cashierProto();
+    store.set(proto);
+    expect(
+      (await handler.confirmTakeover({ pending_takeover_id: proto.pending_takeover_id })).kind,
+    ).toBe('signed_in');
   });
 });

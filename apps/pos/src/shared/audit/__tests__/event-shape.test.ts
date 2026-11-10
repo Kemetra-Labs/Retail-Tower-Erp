@@ -117,6 +117,8 @@ describe('audit/event-shape — OperatorRefusal envelope (NFR-003 / PR-2)', () =
       'close_blocked',
       // RT-554 (b) — a forced close recorded on this terminal that has not reached the server yet.
       'closed_here_unsent',
+      // RT-1312 F18 — cashier sign-in refused: the till clock is more than 120 s off the server.
+      'clock_skew',
     ]);
   });
 

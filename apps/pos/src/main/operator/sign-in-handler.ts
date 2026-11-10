@@ -37,6 +37,7 @@ import { unsealPinMaterial } from './pin-seal.js';
 import { verifyPinWithWindow, rowMatchesScope, type PinScope } from './pin-lockout.js';
 import type { PinRow } from './pin-credential.js';
 import { ProtoSessionStore } from './takeover-handler.js';
+import { tillClockSkewed } from './till-clock.js';
 import {
   admissionRefusal,
   admissionVerdict,
@@ -134,6 +135,7 @@ export interface SignInHandlerDeps {
 const REFUSE_INVALID: OperatorRefusal = { kind: 'refused', category: 'invalid_input' };
 const REFUSE_NO_CONN: OperatorRefusal = { kind: 'refused', category: 'no_connection' };
 const REFUSE_RATE_LIMITED: OperatorRefusal = { kind: 'refused', category: 'rate_limited' };
+const REFUSE_CLOCK_SKEW: OperatorRefusal = { kind: 'refused', category: 'clock_skew' };
 
 export class SignInHandler {
   constructor(private readonly deps: SignInHandlerDeps) {}
@@ -411,6 +413,13 @@ export interface CashierSignInHandlerDeps {
    * refuses the sign-in (`no_connection`), as before.
    */
   offline?: OfflineAdmissionDeps;
+  /**
+   * RT-1312 F18 — the till wall clock (epoch ms), read when the admission is sent and when it is
+   * answered. When set, an admission whose `server_time` is outside that window widened by
+   * `TILL_CLOCK_TOLERANCE_MS` (till-clock.ts) is refused `clock_skew` and ended. Production wires
+   * `Date.now`; tests that use a fixed server time omit it.
+   */
+  tillClockMs?: () => number;
   /** Optional logger. Tests omit it. */
   logger?: Logger;
 }
@@ -497,6 +506,7 @@ export class CashierSignInHandler {
       this.logRefusal('invalid_input', 'no_user_id');
       return REFUSE_INVALID;
     }
+    const sentAtMs = this.deps.tillClockMs?.(); // RT-1312 F18: the till clock at send time
     const admission = await admitCashierOnline(this.deps.admission, {
       user_id,
       operator_id: req.cashier_clerk_user_id,
@@ -540,6 +550,10 @@ export class CashierSignInHandler {
       this.logRefusal('invalid_input', 'pairing_changed');
       return REFUSE_INVALID;
     }
+    // RT-1312 F18 — a till clock off by more than the tolerance would have every cashier sale
+    // refused at sync. Refuse now, and end the admission the server just created.
+    const clockRefusal = this.refuseIfClockSkewed(admission, sentAtMs, user_id);
+    if (clockRefusal !== null) return clockRefusal;
     // RT-444 — re-check, and end a locked session, right before create().
     const refusedAtCreate = admissionRefusal(this.deps.sessionAdmission, 'admit', candidate);
     if (refusedAtCreate !== null) {
@@ -876,6 +890,25 @@ export class CashierSignInHandler {
       scope.terminal_id,
       scope.cashier_clerk_user_id,
     );
+  }
+
+  /** RT-1312 F18 — `clock_skew` (and the admission ended) when the till clock is off; else null. */
+  private refuseIfClockSkewed(
+    admission: { server_time: string; admission_id: string; admission_generation: string },
+    sentAtMs: number | undefined,
+    user_id: string,
+  ): OperatorRefusal | null {
+    const tillClockMs = this.deps.tillClockMs;
+    if (tillClockMs === undefined || sentAtMs === undefined) return null;
+    if (!tillClockSkewed(admission.server_time, sentAtMs, tillClockMs())) return null;
+    void endAdmissionTracked(
+      this.deps.admission,
+      admission.admission_id,
+      admission.admission_generation,
+      user_id,
+    );
+    this.logRefusal('clock_skew', 'admission_clock_skew');
+    return REFUSE_CLOCK_SKEW;
   }
 
   private logRefusal(category: string, stage: string): void {

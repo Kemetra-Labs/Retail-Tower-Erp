@@ -122,6 +122,7 @@ function request(overrides: Partial<CashierSignInRequest> = {}): CashierSignInRe
 function build(
   result: CashierAdmissionResult = ADMITTED,
   r: Row | undefined = row,
+  tillClockMs?: () => number,
 ): {
   handler: CashierSignInHandler;
   sessions: SessionManager;
@@ -138,6 +139,7 @@ function build(
     admission: fake.deps,
     pairingStore: paired,
     protoStore,
+    ...(tillClockMs === undefined ? {} : { tillClockMs }),
   });
   return { handler, sessions, protoStore, fake };
 }
@@ -451,5 +453,62 @@ describe('Codex P2 4179771036 — the admission deadline is anchored at the requ
     const stamped = sessions.getCurrent()?.admission_requested_at_ms;
     expect(typeof stamped).toBe('number');
     expect(stamped).toBeLessThanOrEqual(sentAt);
+  });
+});
+
+/**
+ * RT-1312 F18 (owner decision 2026-11-10: block). Backend-Core refuses a cashier sale whose time
+ * is more than 120 s off the server (operator-attribution.ts CLOCK_SKEW_TOLERANCE_SECONDS), so a
+ * till with a wrong clock would capture sales that are all refused later and stranded. The
+ * sign-in compares the admission's `server_time` with the till clock and refuses `clock_skew`,
+ * ending the server admission it just created. ADMITTED.server_time is 2026-10-04T10:00:00Z.
+ */
+describe('RT-1312 F18 — the till clock must match the server at cashier sign-in', () => {
+  const SERVER_MS = Date.parse(ADMITTED.server_time);
+
+  it.each([
+    ['ahead', SERVER_MS + 121_000],
+    ['behind', SERVER_MS - 121_000],
+  ])(
+    'a till clock %s by more than 120 s is refused clock_skew, with no session',
+    async (_label, till) => {
+      const { handler, sessions, fake } = build(ADMITTED, row, () => till);
+      const res = await handler.signIn(request());
+
+      expect(res).toEqual({ kind: 'refused', category: 'clock_skew' });
+      expect(sessions.getCurrent()).toBeNull();
+      // The admission the server just created is ended, never left live for a session never made.
+      expect(fake.endRequests).toEqual([
+        { admission_id: ADMITTED.admission_id, admission_generation: FAKE_GENERATION },
+      ]);
+    },
+  );
+
+  it.each([
+    ['equal', SERVER_MS],
+    ['119 s ahead', SERVER_MS + 119_000],
+    ['119 s behind', SERVER_MS - 119_000],
+  ])('a till clock within 120 s (%s) signs in', async (_label, till) => {
+    const { handler, sessions } = build(ADMITTED, row, () => till);
+    expect((await handler.signIn(request())).kind).toBe('signed_in');
+    expect(sessions.getCurrent()).not.toBeNull();
+  });
+});
+
+/** RT-1312 F18 (review): the window is [sent − 120 s, received + 120 s] on the till's wall clock. */
+describe('RT-1312 F18 — the clock check tolerates latency and holds the exact boundary', () => {
+  const SERVER_MS = Date.parse(ADMITTED.server_time);
+
+  it('exactly 120 s off is still accepted', async () => {
+    const { handler } = build(ADMITTED, row, () => SERVER_MS + 120_000);
+    expect((await handler.signIn(request())).kind).toBe('signed_in');
+  });
+
+  it('a slow response never causes a refusal: sent 115 s ahead, answered 30 s later', async () => {
+    // A till 115 s ahead (inside tolerance) whose request took 30 s: measured after the response
+    // alone it would look 145 s ahead. Judged against the send time it is within tolerance.
+    const reads = [SERVER_MS + 115_000, SERVER_MS + 145_000];
+    const { handler } = build(ADMITTED, row, () => reads.shift() ?? SERVER_MS + 145_000);
+    expect((await handler.signIn(request())).kind).toBe('signed_in');
   });
 });

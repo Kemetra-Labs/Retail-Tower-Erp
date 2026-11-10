@@ -47,6 +47,10 @@ export const SIGN_IN_REFUSAL_COPY: Readonly<Record<RefusalCategory, string>> = O
   close_blocked: STUCK_SHIFTS_COPY.closeBlocked,
   // RT-554 (b) — closed on this terminal, not at the server yet.
   closed_here_unsent: STUCK_SHIFTS_COPY.queuedNotice,
+  // RT-1312 F18 (owner decision 2026-11-10) — the till clock is off by more than 120 s.
+  // A cashier often cannot change the Windows clock, so the copy also names who can (review).
+  clock_skew:
+    'ساعة هذا الجهاز غير مضبوطة. اضبط التاريخ والوقت في Windows أو أبلغ المدير، ثم سجّل الدخول مرة أخرى.',
 });
 
 export const EMPTY_INPUT_MESSAGE = 'أدخل بيانات الدخول للمتابعة.';
