@@ -23,6 +23,7 @@
  *   6. The pairing contract: terminal_id survives rotation, not re-pair; no
  *      "long-lived" token; expires_at populated; REPLACEMENT_BLOCKED.
  */
+import { TTL_MINUTES_DEFAULT } from "../../src/devices/pairing-codes.query";
 import { readContract, type ContractReader, type JsonObject } from "../_helpers/openapi-contract-reader";
 
 const CODES_PATH = "/api/v1/pairing-codes";
@@ -265,7 +266,14 @@ describe("pairing codes contract — the issue body", () => {
       replacesDeviceId: DEVICE_ID,
     };
     expect(contract.accepts("PairingCodeIssueRequest", full)).toBe(true);
-    expect(props("PairingCodeIssueRequest")["ttlMinutes"]).toMatchObject({ minimum: 1, maximum: 1440, default: 60 });
+    expect(props("PairingCodeIssueRequest")["ttlMinutes"]).toMatchObject({ minimum: 1, maximum: 1440, default: 1440 });
+  });
+
+  it("documents the server's TTL default, 24 h (RT-1316)", () => {
+    expect(props("PairingCodeIssueRequest")["ttlMinutes"]?.["default"]).toBe(TTL_MINUTES_DEFAULT);
+    expect(TTL_MINUTES_DEFAULT).toBe(1440);
+    expect(info()).toMatch(/`ttlMinutes` \(default 1440/);
+    expect(info()).not.toMatch(/default 60\b/);
   });
 
   it("derives the kind from the stores, never from the request", () => {
