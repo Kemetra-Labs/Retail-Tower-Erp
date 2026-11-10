@@ -236,7 +236,7 @@ Open the [interactive Three.js terminal map](docs/architecture/pos-pulse-live-ma
 | `specs` | Spec Kit artifacts, `001`–`023` plus `0xx-insurance-copay`: design records, not the authority for current behavior (see [`specs/README.md`](specs/README.md)) |
 | `docs` | Documentation index · current architecture · hardware matrix · product · design system and RT-104 VNext package · runbooks · assets |
 | `scripts` | OpenAPI codegen and verification · contract re-pin · dev-electron launcher · perf seed · lab installer and update drill |
-| `.specify` | Spec Kit infrastructure · constitution v1.7.0 · templates |
+| `.specify` | Spec Kit infrastructure · constitution v1.8.0 · templates |
 | CI | The monorepo's root `.github/workflows/pos.yml` (static, test, Windows package, docs, Electron e2e) and `pos-lab-update-drill.yml` (manual lab drill) |
 
 ### What this repo owns

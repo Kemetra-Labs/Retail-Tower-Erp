@@ -1,6 +1,77 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Version change: 1.7.0 → 1.8.0
+Bump rationale: MINOR — materially changed guidance in Additional Constraints → Tech Stack:
+  the "Update identity (frozen)" bullet records a new `appId` and states what each of the three
+  identifiers governs. No Roman-numeral Core Principle or P1–P18 principle is added, removed or
+  redefined.
+
+  Why this update is needed:
+  - Jira RT-1314 (owner decision 2026-11-10): the Windows `appId` moves from the legacy
+    `tech.smartdatapulse.pos` to `com.kemetralabs.retailtower.pos` before the first real
+    pilot-signed release. There are no customer deployments, so the owner authorized a clean
+    pre-pilot cutover and rejected a legacy-customer migration project; the `pos/v0.1.3`
+    installers are LAB artifacts only.
+  - The previous bullet said that changing `appId`, `productName` or `name` "requires an
+    amendment and a data-migration plan". This is that amendment. No data-migration plan is
+    required because no deployment exists to migrate (owner decision, RT-1314).
+  - The code change shipped on `main` in #470 (RT-1314): `apps/pos/electron-builder.yml`, the
+    pinning test in `scripts/__tests__/lab-nsis-config.test.ts` and three runbook lines. The lab
+    and pilot builder configs extend that file and inherit the new `appId`.
+  - Reading the electron-builder 26.15.3 NSIS source (not observed on a Windows install) shows,
+    for this product's per-user one-click installer, that the `appId` sets the installer GUID
+    (uninstall and install registry keys, installer mutex) and the shortcut AppUserModelID; the
+    package `name` sets the install directory (`%LOCALAPPDATA%\Programs\pos-pulse`) and, because
+    `package.json` carries no `productName`, the Electron `userData` path; `productName` sets
+    the executable (`POS Pulse.exe`), shortcut and Installed-apps names. The bullet now says so;
+    it used to attribute all of them to the three identifiers together.
+
+  Modified sections:
+  - Additional Constraints → Tech Stack: "Update identity (frozen)" bullet — new `appId`, an
+    identity-history note and a sharper statement of what each identifier governs. The freeze
+    stays: changing an identifier always needs an amendment, and once a customer or pilot
+    deployment exists it also needs a data-migration plan.
+  - Governance footer: version and Last Amended.
+  - All other sections → unchanged.
+
+  Added sections: none. Removed sections: none.
+  Modified principles: none.
+
+  Templates requiring updates:
+  - ✅ `.specify/templates/plan-template.md` / `spec-template.md` / `tasks-template.md` — no
+    changes required.
+  - ✅ `README.md`, `CLAUDE.md`, `docs/maestro/README.md` — version references updated to v1.8.0.
+  - ✅ `docs/hardware-matrix.md` — unchanged: it reproduces § Hardware, which this revision does
+    not touch, so its "v1.7.0" statements stay true.
+
+  Conflicts with existing planning artifacts (dated records, deliberately not edited):
+  - The RT-234 delivery/update design (§11.2, "Update identity freeze"), the lab installer design
+    (§7) and plan of 2026-11-03, and `specs/001-foundation/tasks.md` (T026) still name
+    `tech.smartdatapulse.pos`. They are superseded by this entry and RT-1314.
+    `docs/design/vnext/*` cite v1.7.0 as dated authority.
+
+  Follow-up TODOs (open):
+  - ⏳ WINDOWS_IDENTITY_SMOKE — a clean install, launch, AppUserModelID and `userData` / SQLite
+    creation check of a build with the new `appId`, on a fresh disposable Windows profile
+    (RT-1314 acceptance). The pilot dry run on `main` covers build, signing and silent install
+    and uninstall, not launch.
+  - Carried from v1.7.0: ⏳ PILOT_DISPLAY_MODEL, ⏳ COMPACT_BAND_VERIFICATION. Carried from
+    v1.6.0: ⏳ UPDATER_IMPLEMENTATION, ⏳ FLEET_VERSION_CONTRACT (all unchanged).
+
+  Resolved TODOs (this revision): none.
+
+  Compatibility ledger:
+  - Docs only; the code change is already on `main` (#470).
+  - A machine that already carries an NSIS build of the old `appId` (reasoned from the NSIS
+    templates, not observed): the installer GUID follows the `appId`, so a new-`appId` installer
+    does not find the old registry entries. It installs into the same directory (the package
+    `name` is unchanged), reuses the same `userData`, and leaves two Installed-apps entries for
+    one directory. Uninstall the old build first, never after: either uninstaller removes the
+    shared directory. No migration is built (RT-1314).
+
+History (prior revisions retained for reference):
+
 Version change: 1.6.0 → 1.7.0
 Bump rationale: MINOR — materially expanded guidance in Additional Constraints → Hardware:
   the MVP matrix gains a **Display** row (effective-viewport support policy). No Roman-numeral
@@ -55,8 +126,6 @@ Bump rationale: MINOR — materially expanded guidance in Additional Constraints
     supported for the pilot (D8), and beyond the pilot it may hold only where the effective
     viewport is ≥ 1024×600, with heights 600–767 still conditional on pilot-hardware
     verification.
-
-History (prior revisions retained for reference):
 
 Version change: 1.5.1 → 1.6.0
 Bump rationale: MINOR — a Tech Stack substitution within an existing category (update feed
@@ -1260,11 +1329,20 @@ within a category, MAJOR bump if it shifts a Core Principle's enforcement).
 - Build & ship: Vite for renderer, `tsc` for main, electron-builder for Windows installers
   (per-user NSIS), electron-updater (`generic` provider) against the configured update origin
   for auto-update (ADR-0006).
-- Update identity (frozen): `appId` `tech.smartdatapulse.pos`, `productName` `POS Pulse`, and
-  the package `name` `pos-pulse`. Together they determine the installer identity, install
-  directory, executable name and the `userData` path that holds the local database and
-  DPAPI-protected secrets. Changing any of them breaks the update chain and orphans terminal
-  data, so it requires an amendment and a data-migration plan.
+- Update identity (frozen): `appId` `com.kemetralabs.retailtower.pos`, `productName`
+  `POS Pulse`, and the package `name` `pos-pulse`. The `appId` replaced the legacy
+  `tech.smartdatapulse.pos` on 2026-11-10 (RT-1314, owner decision), before the first
+  pilot-signed release and while no customer or pilot deployment existed (lab devices
+  excepted), so no data-migration plan was needed then. For this product's per-user one-click
+  NSIS installer, the `appId` sets the installer GUID (uninstall and install registry keys,
+  installer mutex) and the shortcut AppUserModelID; the package `name` sets the install
+  directory (`%LOCALAPPDATA%\Programs\pos-pulse`) and, because `package.json` carries no
+  `productName`, the Electron `userData` path that holds the local database and
+  DPAPI-protected secrets (adding a `productName` to `package.json` would move it);
+  `productName` sets the executable (`POS Pulse.exe`), shortcut and Installed-apps names.
+  Changing any of them always requires an amendment. Once a customer or pilot deployment
+  exists, it also requires a data-migration plan, because it can break the update chain,
+  orphan terminal data or leave duplicate installs.
 - API typings: `openapi-typescript` reading from `https://api.smartdatapulse.tech/openapi.json`,
   generated into `src/shared/api-types.ts` and committed to the repo.
 
@@ -1467,6 +1545,6 @@ feature) when 003 closes.
 
 ---
 
-**Version:** 1.7.0
+**Version:** 1.8.0
 **Ratified:** 2026-05-01
-**Last Amended:** 2026-10-15
+**Last Amended:** 2026-11-10
