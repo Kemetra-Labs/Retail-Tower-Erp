@@ -251,9 +251,12 @@ test("run(): committed matrix passes; VERIFIED is contract-level and release mod
   const text = r.lines.join(" | ");
   assert.equal(r.exit, 0, text);
   assert.match(text, /harness correctness +: PASS/);
-  assert.match(text, /real-snapshot oasdiff: PASS [(]1 snapshot[)]/);
+  // Derived from the committed matrix (RT-1312 F2 lists several builds); each snapshot's
+  // contract-derived fixture holds 5 events.
+  const n = fresh().supported.length;
+  assert.match(text, new RegExp(`real-snapshot oasdiff: PASS [(]${n} snapshots?[)]`));
   assert.match(text, /envelope[/]idempotency +: PASS/);
-  assert.match(text, /replay +: PASS [(]5 event[(]s[)]: 0 recorded, 5 contract-derived[)]/);
+  assert.match(text, new RegExp(`replay +: PASS [(]${5 * n} event[(]s[)]: 0 recorded, ${5 * n} contract-derived[)]`));
   assert.match(text, /VERIFIED [(]contract level; replay is offline[)]/);
   const release = run({ now: NOW, mode: "release" });
   assert.equal(release.exit, 1, "release mode must not go green without a recorded fixture");
