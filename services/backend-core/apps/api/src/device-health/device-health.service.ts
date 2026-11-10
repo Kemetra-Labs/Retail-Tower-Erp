@@ -102,6 +102,7 @@ const SELECT_SQL = `
          h.last_seen_at AS heartbeat_at,
          h.app_version, h.update_channel, h.update_state, h.pending_version,
          h.schema_head, h.source_clock_at,
+         h.sale_queue_pending, h.sale_queue_dead_letter, h.sale_queue_held, h.sale_queue_oldest_pending_at,
          p.min_supported_version, p.min_supported_grace_until
     FROM devices d
     LEFT JOIN device_health h ON h.device_id = d.id AND h.tenant_id = d.tenant_id

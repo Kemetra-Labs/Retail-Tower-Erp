@@ -21,6 +21,8 @@ describe("POS_CONTRACT_REVISION", () => {
   it("is an integer inside the contract's bounds (never below 1)", () => {
     expect(Number.isInteger(POS_CONTRACT_REVISION)).toBe(true);
     expect(POS_CONTRACT_REVISION).toBeGreaterThanOrEqual(1);
+    // RT-1312: revision 2 ships `sale_queue`; a POS gates the field on it, so it never decreases.
+    expect(POS_CONTRACT_REVISION).toBeGreaterThanOrEqual(2);
     expect(POS_CONTRACT_REVISION).toBeLessThanOrEqual(2_147_483_647);
   });
 });

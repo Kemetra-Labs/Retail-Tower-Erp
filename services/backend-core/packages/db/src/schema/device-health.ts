@@ -15,6 +15,13 @@
  *
  * Constraints, RLS and the same-tenant device check on writes live in
  * migration `0068_pos_device_health.sql`.
+ *
+ * Sale queue (RT-1312, migration `0090_device_health_sale_queue`): the four
+ * nullable `sale_queue_pending`, `sale_queue_dead_letter`, `sale_queue_held`
+ * and `sale_queue_oldest_pending_at` columns are deliberately NOT declared
+ * here, as `devices.ts` does for its 0073 build identity: a bare `select()`
+ * would fail on a database without 0090. The heartbeat store and the console
+ * reads use raw SQL (`heartbeat.service.ts`, `device-health.service.ts`).
  */
 import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 

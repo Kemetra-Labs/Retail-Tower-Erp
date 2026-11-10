@@ -59,6 +59,30 @@ describe("HeartbeatReportSchema", () => {
     expect(HeartbeatReportSchema.safeParse({ ...FULL, [key]: value }).success).toBe(false);
   });
 
+  describe("RT-1312 F1: sale_queue", () => {
+    const QUEUE = { pending: 3, dead_letter: 1, held_previous_pairing: 0, oldest_pending_at: "2026-11-10T09:00:00.000Z" };
+
+    it("accepts a full queue, an empty one with no oldest time, and null as omitted", () => {
+      expect(HeartbeatReportSchema.safeParse({ ...FULL, sale_queue: QUEUE }).success).toBe(true);
+      const empty = { pending: 0, dead_letter: 0, held_previous_pairing: 0, oldest_pending_at: null };
+      expect(HeartbeatReportSchema.safeParse({ ...FULL, sale_queue: empty }).success).toBe(true);
+      expect(HeartbeatReportSchema.safeParse({ ...FULL, sale_queue: null }).success).toBe(true);
+    });
+
+    it.each([
+      ["a missing count", { pending: 3, dead_letter: 1, oldest_pending_at: null }],
+      ["a missing oldest time", { pending: 3, dead_letter: 1, held_previous_pairing: 0 }],
+      ["a negative count", { ...QUEUE, pending: -1 }],
+      ["a fractional count", { ...QUEUE, dead_letter: 1.5 }],
+      ["a count over 1000000", { ...QUEUE, held_previous_pairing: 1_000_001 }],
+      ["a count as a string", { ...QUEUE, pending: "3" }],
+      ["an oldest time that is not an instant", { ...QUEUE, oldest_pending_at: "yesterday" }],
+      ["an unknown key (no sale ids)", { ...QUEUE, sale_ids: ["s-1"] }],
+    ])("refuses %s", (_why, queue) => {
+      expect(HeartbeatReportSchema.safeParse({ ...FULL, sale_queue: queue }).success).toBe(false);
+    });
+  });
+
   it("refuses a body that is not an object", () => {
     expect(HeartbeatReportSchema.safeParse([]).success).toBe(false);
     expect(HeartbeatReportSchema.safeParse("beat").success).toBe(false);

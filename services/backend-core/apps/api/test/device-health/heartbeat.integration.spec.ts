@@ -235,6 +235,32 @@ describe("RT-327 heartbeat: storage, throttle and last-write-wins", () => {
     expect(outcomes()).toEqual(["stored", "stored"]);
   });
 
+  it("RT-1312 F1: stores the sale queue counts, and a later beat without them stores NULL (unknown), never 0", async () => {
+    if (h.skipped()) return;
+    const queue = { pending: 4, dead_letter: 2, held_previous_pairing: 1, oldest_pending_at: "2026-11-10T08:00:00.000Z" };
+    await beat(DEV_A1A, { ...FULL, sale_queue: queue }).expect(200);
+    const [stored] = await h.env().admin.query<Record<string, unknown>>(
+      `SELECT sale_queue_pending, sale_queue_dead_letter, sale_queue_held, sale_queue_oldest_pending_at FROM device_health WHERE device_id = $1`,
+      [DEV_A1A.id],
+    ).then((r) => r.rows);
+    expect(stored).toMatchObject({ sale_queue_pending: 4, sale_queue_dead_letter: 2, sale_queue_held: 1 });
+    expect((stored!["sale_queue_oldest_pending_at"] as Date).toISOString()).toBe("2026-11-10T08:00:00.000Z");
+    await age(h.env().admin, DEV_A1A.id, 61);
+    await beat(DEV_A1A, FULL).expect(200);
+    const [after] = await h.env().admin.query<Record<string, unknown>>(
+      `SELECT sale_queue_pending, sale_queue_dead_letter, sale_queue_held, sale_queue_oldest_pending_at FROM device_health WHERE device_id = $1`,
+      [DEV_A1A.id],
+    ).then((r) => r.rows);
+    expect(after).toEqual({ sale_queue_pending: null, sale_queue_dead_letter: null, sale_queue_held: null, sale_queue_oldest_pending_at: null });
+  });
+
+  it("RT-1312 F1: refuses a sale queue carrying sale ids (400) and stores nothing", async () => {
+    if (h.skipped()) return;
+    const queue = { pending: 1, dead_letter: 0, held_previous_pairing: 0, oldest_pending_at: null, sale_ids: ["s-1"] };
+    await beat(DEV_A1A, { ...FULL, sale_queue: queue }).expect(400);
+    expect(await rows(h.env().admin, DEV_A1A.id)).toEqual([]);
+  });
+
   it("does not store a beat 59 s after the last one", async () => {
     if (h.skipped()) return;
     await beat(DEV_A1A, FULL).expect(200);

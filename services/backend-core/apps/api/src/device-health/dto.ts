@@ -16,6 +16,9 @@ import { z } from "zod";
 
 import { APP_VERSION_MAX_LENGTH, APP_VERSION_MIN_LENGTH, APP_VERSION_PATTERN } from "./semver";
 
+/** RT-1312 F1: one sale queue count, 0..1000000 (contract `SaleQueueCount`, the 0090 DB CHECK). */
+const SaleQueueCountSchema = z.number().int().min(0).max(1_000_000);
+
 export const UPDATE_CHANNELS = ["lab", "canary", "stable"] as const;
 export type UpdateChannel = (typeof UPDATE_CHANNELS)[number];
 
@@ -67,6 +70,17 @@ export const HeartbeatReportSchema = z
     pending_version: AppVersionSchema.nullish(),
     schema_head: z.string().min(1).max(64).regex(SCHEMA_HEAD_PATTERN).nullish(),
     source_clock_at: InstantSchema.nullish(),
+    // RT-1312 F1 (`SaleQueueReport`): the till's unsent sale counts at beat
+    // time. Counts and one instant only: no sale id, number or amount (§XIV).
+    sale_queue: z
+      .object({
+        pending: SaleQueueCountSchema,
+        dead_letter: SaleQueueCountSchema,
+        held_previous_pairing: SaleQueueCountSchema,
+        oldest_pending_at: InstantSchema.nullable(),
+      })
+      .strict()
+      .nullish(),
   })
   .strict();
 
