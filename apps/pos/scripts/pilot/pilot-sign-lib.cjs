@@ -5,9 +5,16 @@
  *
  * The pilot installer is signed with a self-signed leaf whose subject is exactly PILOT_SUBJECT. The hook
  * refuses every other certificate, in particular the lab certificate (its subject carries the lab markers)
- * and anything that could be a production certificate. A pilot signature is always timestamped over https
- * (RFC 3161): without a timestamp it would stop validating when the leaf expires. Nothing here talks to
- * the network; signtool does, when the hook runs it.
+ * and anything that could be a production certificate. A pilot signature is always timestamped (RFC 3161):
+ * without a timestamp it would stop validating when the leaf expires. Nothing here talks to the network;
+ * signtool does, when the hook runs it.
+ *
+ * The timestamp URL is http:// or https://. The workflow sets http://timestamp.sectigo.com (Sectigo's
+ * documented URL) because the Windows SDK signtool seen on the hosted runner (10.0.26100.0 at the time)
+ * rejected the https form with "Invalid Timestamp URL" (RT-1294 dry run 42783687374; owner amendment of
+ * RT-1290 P-5, 2026-11-10). The TSA signs the timestamp token, so the transport scheme is not what protects
+ * its integrity: a network attacker cannot forge a time. They can block or delay stamping (signing then
+ * fails closed) or answer through another publicly trusted TSA, which still yields a valid token.
  */
 
 const PILOT_SUBJECT = 'CN=Kemetra POS PILOT';
@@ -55,15 +62,17 @@ function normalizeThumbprint(value) {
 }
 
 /**
- * A pilot signature is always timestamped: the URL must be https.
+ * A pilot signature is always timestamped: the URL must start with http:// or https://, have something after
+ * the scheme and contain no whitespace. It is not parsed further; signtool rejects a malformed host itself.
  * @param {string | undefined} url the raw POS_PILOT_TSA_URL value
  * @returns {string} the trimmed URL
  */
 function assertTimestampUrl(url) {
   const text = (url ?? '').trim();
-  if (!text.startsWith('https://') || /\s/.test(text) || text.length <= 'https://'.length) {
+  const scheme = /^https?:\/\//.exec(text);
+  if (!scheme || /\s/.test(text) || text.length <= scheme[0].length) {
     throw new Error(
-      'a pilot signature must be timestamped: POS_PILOT_TSA_URL must be an https URL',
+      'a pilot signature must be timestamped: POS_PILOT_TSA_URL must be an http or https URL',
     );
   }
   return text;

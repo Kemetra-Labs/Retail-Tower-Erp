@@ -9,7 +9,7 @@
  * adds an RFC 3161 timestamp, and never imports a certificate into any store.
  *
  *   POS_PILOT_CERT_SHA1   required  thumbprint of the pilot leaf certificate
- *   POS_PILOT_TSA_URL     required  https RFC 3161 timestamp URL (a signature is never left untimestamped)
+ *   POS_PILOT_TSA_URL     required  RFC 3161 timestamp URL, http:// (the workflow's Sectigo URL) or https:// (a signature is never left untimestamped)
  *   POS_PILOT_SIGNTOOL    optional  path to signtool.exe (default: newest Windows SDK x64)
  */
 

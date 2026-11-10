@@ -115,8 +115,9 @@ and the lockfile; a leaked key is handled by the revocation steps above. The sam
 
 | Symptom | Where to look |
 | :-- | :-- |
-| `POS_PILOT_TSA_URL must be an https URL` | The signing step sets `https://timestamp.sectigo.com`; a changed value must still be https. |
-| signtool timestamp failure | The timestamp server was unreachable; re-run the failed job. A pilot signature is never left untimestamped. |
+| `POS_PILOT_TSA_URL must be an http or https URL` | The signing step sets `http://timestamp.sectigo.com`; a changed value must still be an http or https URL, and the workflow test pins the exact value, so change both together. |
+| `SignTool Error: Invalid Timestamp URL` | Observed in the first dry run (RT-1294, run 42783687374) with the Windows SDK `signtool` that was on the hosted runner (10.0.26100.0 then) and an `https` timestamp URL, while the server itself answered a direct RFC 3161 request. A public report shows the same. So treat it as the URL scheme, not the server, and keep `http://timestamp.sectigo.com`, Sectigo's documented URL. The timestamp token is signed by the TSA, so `http` does not let anyone forge a time; a network attacker can block or delay stamping (signing then fails) or answer through another publicly trusted TSA, which still gives a valid token. |
+| other signtool timestamp failure | The timestamp server was unreachable; re-run the failed job. A pilot signature is never left untimestamped. |
 | `the PFX leaf … is not the pinned one` | `POS_PILOT_LEAF_SHA1` does not equal the PFX's certificate; fix the variable or re-export. |
 | `has resources\app-update.yml` | A build baked an update configuration; the pilot installer must ship none. Find what wrote it. |
 | `publish` says an environment is unprotected | Fix the tag pattern or the reviewer on the named environment (§2 steps 2 and 3). Signing may already have run: check the run before approving anything. |
@@ -125,8 +126,9 @@ and the lockfile; a leaked key is handled by the revocation steps above. The sam
 | `has no Basic Constraints extension` | The leaf was not made by `new-pilot-release-cert.ps1`; create a new one. |
 
 **Needs verification on the first dry run (not assumed):** that the signing hook also signs the uninstaller for
-the pilot config as it does for the lab config, and that `signtool` accepts the Sectigo https endpoint with
-SHA-256.
+the pilot config as it does for the lab config, and that `signtool` accepts `http://timestamp.sectigo.com` with
+`/td sha256`. (The https form is answered: the first dry run, run 42783687374, showed `signtool` rejecting it, so the
+workflow uses http. The http form is not yet proven on the runner.)
 
 **Needs verification on the first real release (the dry run reads no PFX):** the release path imports the PFX
 twice on the runner, once in memory and once with a persisted key. The PFX is AES-256 / SHA-256 encrypted (not the

@@ -203,7 +203,8 @@ jobs:
       - name: Sign and verify the installer
         shell: pwsh
         env:
-          POS_PILOT_TSA_URL: https://timestamp.sectigo.com
+          # http on purpose: the hosted runner's signtool rejected the https form in the RT-1294 dry run.
+          POS_PILOT_TSA_URL: http://timestamp.sectigo.com
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           & ./scripts/pilot/ci/release-pilot-installer.ps1 -Mode dry-run -Unpacked "$env:RUNNER_TEMP/pos-unpacked" -Version $version -Out "$env:RUNNER_TEMP/pos-installer"
@@ -266,7 +267,8 @@ jobs:
           POS_PILOT_SIGN_PFX_BASE64: ${{ secrets.POS_PILOT_SIGN_PFX_BASE64 }}
           POS_PILOT_SIGN_PFX_PASSWORD: ${{ secrets.POS_PILOT_SIGN_PFX_PASSWORD }}
           POS_PILOT_LEAF_SHA1: ${{ vars.POS_PILOT_LEAF_SHA1 }}
-          POS_PILOT_TSA_URL: https://timestamp.sectigo.com
+          # http on purpose: the hosted runner's signtool rejected the https form in the RT-1294 dry run.
+          POS_PILOT_TSA_URL: http://timestamp.sectigo.com
         run: |
           $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           & ./scripts/pilot/ci/release-pilot-installer.ps1 -Mode release -Unpacked "$env:RUNNER_TEMP/pos-unpacked" -Version $version -Out "$env:RUNNER_TEMP/pos-installer"
