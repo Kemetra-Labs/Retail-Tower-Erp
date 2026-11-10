@@ -46,7 +46,7 @@ def _reversal_work_item(
 		"currencyCode": "EGP",
 		"quantity": "2",
 		"lineAmount": "200.00",
-		"taxAmount": "30.00",
+		"taxAmount": "0.00",
 		"unit": "each",
 		"erpnextItemRef": {"doctype": "Item", "name": "ITEM-A"},
 	}
@@ -202,7 +202,7 @@ class TestNegativeQty:
 				"currencyCode": "EGP",
 				"quantity": "2",
 				"lineAmount": "200.00",
-				"taxAmount": "30.00",
+				"taxAmount": "0.00",
 				"unit": "each",
 				"erpnextItemRef": {"doctype": "Item", "name": "ITEM-A"},
 			},

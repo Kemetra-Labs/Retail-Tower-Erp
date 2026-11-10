@@ -72,6 +72,28 @@ class UnmappedUnit(Exception):
 		self.unit = unit
 
 
+class SaleTaxNotPosted(Exception):
+	"""A sale line carries a non-zero ``taxAmount`` while no tax rows are posted (VAT 0) — validation.
+
+	RT-1312 F5 / owner decision D3: the pilot posts no tax, so the line is rejected rather than posted
+	at its net amount with the tax silently dropped. Mirrors ``return_builder.ReturnTaxNotPosted``.
+	"""
+
+	def __init__(self, line: SaleLine) -> None:
+		super().__init__(
+			f"line {line.line_ref or line.line_name!r}: taxAmount {line.tax_amount} cannot be posted "
+			"(no tax rows while VAT is 0) — rejected as validation rather than posted with the tax "
+			"silently dropped"
+		)
+
+
+def _assert_no_tax(lines: Sequence[SaleLine]) -> None:
+	"""RT-1312 F5: refuse any line whose ``taxAmount`` is present and non-zero."""
+	for line in lines:
+		if line.tax_amount is not None and Decimal(line.tax_amount) != 0:
+			raise SaleTaxNotPosted(line)
+
+
 class LineDiscountNotPostable(Exception):
 	"""A discounted line cannot be posted exactly as a visible per-unit discount (RT-857, OD-28-13).
 
@@ -201,6 +223,7 @@ def build_sales_invoice(
 	representation check expects. Without one the document carries no ``company`` key.
 	"""
 	sale = work_item.sale
+	_assert_no_tax(sale.lines)  # RT-1312 F5: never drop a tax amount silently
 	warehouse = warehouse_for(sale.store_id)
 	# F-009: the 012 work-item carries no customer identity — only Sale.store_id. The operator
 	# maps each store to its ERPNext Customer (config, injected) exactly as for the warehouse.
