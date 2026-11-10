@@ -51,6 +51,8 @@ import { INVENTORY_STATUSES } from '@data-pulse-2/db';
 import { z } from 'zod';
 
 import { DashboardAuthGuard } from '../auth/dashboard-auth.guard';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { Idempotent } from '../idempotency/idempotent.decorator';
 import { resolveStoreScope } from '../context/store-scope';
@@ -166,6 +168,15 @@ const RecordStockCountSchema = z
   .strict();
 type RecordStockCountDto = z.infer<typeof RecordStockCountSchema>;
 
+/**
+ * RT-1312 F7 — the RT-132 inventory role rule (owner ratification, RT-132 comment 10674):
+ * inventory mutations need owner, tenant_admin or store_manager plus the resolved store scope
+ * (`authorizeStore`, below); store_staff has no inventory mutation authority. A refusal is the
+ * RolesGuard default non-disclosing 404 the operations already declare. Reads stay open to any
+ * store member.
+ */
+const INVENTORY_WRITE_ROLES = ['owner', 'tenant_admin', 'store_manager'] as const;
+
 @Controller()
 @UseGuards(DashboardAuthGuard, TenantContextGuard)
 export class InventoryController {
@@ -239,6 +250,8 @@ export class InventoryController {
    * negative (allow-and-flag, FR-024) — never rejected.
    */
   @Post('api/inventory/v1/stores/:storeId/movements')
+  @UseGuards(RolesGuard)
+  @Roles(...INVENTORY_WRITE_ROLES)
   @HttpCode(HttpStatus.CREATED)
   @Idempotent('required')
   async createStockMovement(
@@ -300,6 +313,8 @@ export class InventoryController {
    * still recorded (allow-and-flag, FR-024). Idempotent via `Idempotency-Key`.
    */
   @Post('api/inventory/v1/transfers')
+  @UseGuards(RolesGuard)
+  @Roles(...INVENTORY_WRITE_ROLES)
   @HttpCode(HttpStatus.CREATED)
   @Idempotent('required')
   async createStockTransfer(
@@ -336,6 +351,8 @@ export class InventoryController {
    * scope; tenant + actor resolve from context. Idempotent via `Idempotency-Key`.
    */
   @Post('api/inventory/v1/stores/:storeId/counts')
+  @UseGuards(RolesGuard)
+  @Roles(...INVENTORY_WRITE_ROLES)
   @HttpCode(HttpStatus.CREATED)
   @Idempotent('required')
   async recordStockCount(

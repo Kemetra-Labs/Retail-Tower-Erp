@@ -13,6 +13,12 @@
  *
  * Also covers the RT-120 scope amendment: a transfer must be authorized for
  * the DESTINATION store, not only the source.
+ *
+ * RT-1312 F7 (RT-132 c10674): inventory writes need owner, tenant_admin or
+ * store_manager. The specific-store member is therefore a store_manager (its
+ * scope tests are about store scope, not role); a separate store_staff clerk,
+ * granted store A, proves a write is a non-disclosing 404 that records nothing
+ * while its reads still work.
  */
 import "reflect-metadata";
 
@@ -47,13 +53,17 @@ delete process.env["REDIS_URL"]; // AuthModule falls back to its in-process Redi
 const TENANT = "aaaaaaaa-6161-4161-8161-aaaaaaaaaaaa";
 const ROLE_OWNER = "cccccccc-6161-4161-8161-cccccccccccc";
 const ROLE_STAFF = "dddddddd-6161-4161-8161-dddddddddddd";
+const ROLE_CLERK = "dddddddd-6161-4161-8161-ddddddddddd3";
 const OWNER_ID = "11111111-6161-4161-8161-111111111111";
 const STAFF_ID = "22222222-6161-4161-8161-222222222222";
+const CLERK_ID = "33333333-6161-4161-8161-333333333333";
 const OWNER_EMAIL = "rt61-owner@example.com";
 const STAFF_EMAIL = "rt61-staff@example.com";
+const CLERK_EMAIL = "rt61-clerk@example.com";
 const PASSWORD = "Rt61-Password-123!";
 const M_OWNER = "eeeeeeee-6161-4161-8161-eeeeeeeeeee1";
 const M_STAFF = "eeeeeeee-6161-4161-8161-eeeeeeeeeee2";
+const M_CLERK = "eeeeeeee-6161-4161-8161-eeeeeeeeeee3";
 const STORE_A = "11111111-aaaa-4aaa-8aaa-616161616161";
 const STORE_B = "22222222-aaaa-4aaa-8aaa-616161616161";
 const PRODUCT = "33333333-aaaa-4aaa-8aaa-616161616161";
@@ -74,19 +84,20 @@ async function seed(admin: Pool): Promise<void> {
   const hash = await hashPassword(PASSWORD);
   await admin.query(
     `INSERT INTO users (id, email, password_hash, is_platform_admin)
-     VALUES ($1, $2, $3, false), ($4, $5, $3, false)`,
-    [OWNER_ID, OWNER_EMAIL, hash, STAFF_ID, STAFF_EMAIL],
+     VALUES ($1, $2, $3, false), ($4, $5, $3, false), ($6, $7, $3, false)`,
+    [OWNER_ID, OWNER_EMAIL, hash, STAFF_ID, STAFF_EMAIL, CLERK_ID, CLERK_EMAIL],
   );
   await admin.query(`INSERT INTO tenants (id, slug, name) VALUES ($1, 'rt61', 'RT-61')`, [TENANT]);
   await admin.query(
     `INSERT INTO roles (id, tenant_id, code, name) VALUES
-       ($1, $3, 'owner', 'Owner'), ($2, $3, 'store_staff', 'Store Staff')`,
-    [ROLE_OWNER, ROLE_STAFF, TENANT],
+       ($1, $3, 'owner', 'Owner'), ($2, $3, 'store_manager', 'Store Manager'),
+       ($4, $3, 'store_staff', 'Store Staff')`,
+    [ROLE_OWNER, ROLE_STAFF, TENANT, ROLE_CLERK],
   );
   await admin.query(
     `INSERT INTO memberships (id, tenant_id, user_id, role_id, store_access_kind) VALUES
-       ($1, $3, $4, $5, 'all'), ($2, $3, $6, $7, 'specific')`,
-    [M_OWNER, M_STAFF, TENANT, OWNER_ID, ROLE_OWNER, STAFF_ID, ROLE_STAFF],
+       ($1, $3, $4, $5, 'all'), ($2, $3, $6, $7, 'specific'), ($8, $3, $9, $10, 'specific')`,
+    [M_OWNER, M_STAFF, TENANT, OWNER_ID, ROLE_OWNER, STAFF_ID, ROLE_STAFF, M_CLERK, CLERK_ID, ROLE_CLERK],
   );
   await admin.query(
     `INSERT INTO stores (id, tenant_id, code, name) VALUES
@@ -95,8 +106,8 @@ async function seed(admin: Pool): Promise<void> {
   );
   // The staff member is granted store A only.
   await admin.query(
-    `INSERT INTO store_access (membership_id, store_id, tenant_id) VALUES ($1, $2, $3)`,
-    [M_STAFF, STORE_A, TENANT],
+    `INSERT INTO store_access (membership_id, store_id, tenant_id) VALUES ($1, $2, $3), ($4, $2, $3)`,
+    [M_STAFF, STORE_A, TENANT, M_CLERK],
   );
   await admin.query(
     `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by)
@@ -264,6 +275,39 @@ describe("RT-61 inventory authorization for cookie sessions (NOBYPASSRLS role, r
       .set(SAME_ORIGIN)
       .set("Idempotency-Key", idemKey())
       .send(body(STORE_A, STORE_B))
+      .expect(201);
+  });
+
+  it("RT-1312 F7: a store_staff clerk reads its store but every inventory write is a 404 that records nothing", async () => {
+    if (dockerSkipped) return;
+    const clerk = await sessionFor(CLERK_EMAIL);
+    await http().get(`/api/inventory/v1/on-hand/${STORE_A}/${PRODUCT}`).set("Cookie", clerk).set(SAME_ORIGIN).expect(200);
+    const movementCount = async (): Promise<number> => {
+      const r = await env!.admin.query(`SELECT count(*)::int AS n FROM stock_movements WHERE tenant_id = $1`, [TENANT]);
+      return r.rows[0]!.n as number;
+    };
+    const before = await movementCount();
+    const writes: Array<[string, Record<string, unknown>]> = [
+      [`/api/inventory/v1/stores/${STORE_A}/movements`, { movementType: "inbound", quantity: "1", stockingUnit: "each", tenantProductRef: PRODUCT }],
+      [`/api/inventory/v1/stores/${STORE_A}/counts`, { tenantProductRef: PRODUCT, countedQuantity: "1", stockingUnit: "each" }],
+      ["/api/inventory/v1/transfers", { sourceStoreId: STORE_A, destinationStoreId: STORE_A, tenantProductRef: PRODUCT, quantity: "1", stockingUnit: "each" }],
+    ];
+    for (const [path, body] of writes) {
+      const res = await http().post(path).set("Cookie", clerk).set(SAME_ORIGIN).set("Idempotency-Key", idemKey()).send(body);
+      expect({ path, status: res.status }).toEqual({ path, status: 404 });
+    }
+    expect(await movementCount()).toBe(before);
+  });
+
+  it("RT-1312 F7: a store_manager may write inventory in its granted store", async () => {
+    if (dockerSkipped) return;
+    const manager = await sessionFor(STAFF_EMAIL);
+    await http()
+      .post(`/api/inventory/v1/stores/${STORE_A}/movements`)
+      .set("Cookie", manager)
+      .set(SAME_ORIGIN)
+      .set("Idempotency-Key", idemKey())
+      .send({ movementType: "inbound", quantity: "1", stockingUnit: "each", tenantProductRef: PRODUCT })
       .expect(201);
   });
 });
