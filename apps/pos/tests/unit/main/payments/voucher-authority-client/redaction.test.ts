@@ -27,6 +27,7 @@ import { validateVoucher } from '../../../../../src/main/payments/voucher-author
 import {
   BASE_URL,
   FAKE_IDEMPOTENCY_KEY,
+  FAKE_OPERATOR_USER_ID,
   FAKE_PAYMENT_ATTEMPT_ID,
   FAKE_REDEMPTION_ID,
   bareResponse,
@@ -34,6 +35,7 @@ import {
   errorBody,
   jsonResponse,
   makeLogger,
+  fakeDeviceToken,
 } from './_fixtures.js';
 
 const SENSITIVE_TOKEN = 'OPAQUE-INTENT-TOKEN-MUST-NEVER-LOG-XYZ-987';
@@ -44,6 +46,7 @@ const VALIDATE_INPUT = {
   payment_attempt_id: FAKE_PAYMENT_ATTEMPT_ID,
   applied_amount_minor: 1_500,
   remaining_balance_minor: 2_000,
+  operatorUserId: FAKE_OPERATOR_USER_ID,
 };
 
 const VALIDATE_OK = {
@@ -56,6 +59,7 @@ const VALIDATE_OK = {
 const REDEEM_INPUT = {
   payment_attempt_id: FAKE_PAYMENT_ATTEMPT_ID,
   redemption_intent_token: SENSITIVE_TOKEN,
+  operatorUserId: FAKE_OPERATOR_USER_ID,
 };
 
 const REDEEM_OK = {
@@ -94,6 +98,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -107,6 +112,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -123,6 +129,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -138,6 +145,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -152,6 +160,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -165,6 +174,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -178,6 +188,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);
@@ -191,6 +202,7 @@ describe('voucher V-A client — redemption_intent_token redaction (FR-017)', ()
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     // No token in scope for reverse, but we still confirm no raw error
@@ -214,6 +226,7 @@ describe('voucher V-A client — error-path log hygiene', () => {
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     const haystack = flattenLoggerCalls(logger);
     expect(haystack).not.toContain(SENSITIVE_TOKEN);

@@ -28,12 +28,13 @@
  */
 import type { PosPaymentsVouchers } from '../../../shared/api-types.js';
 
-import { extractErrorCode } from './error-body.js';
 import {
-  mapRefusalCode,
-  type VoucherAuthorityLogger,
-  type VoucherRefusalReason,
-} from './refusal-mapping.js';
+  bearerHeaderFor,
+  voucherRequestHeaders,
+  type DeviceTokenRead,
+} from './device-credential.js';
+import { interpretVoucherResponse } from './interpret-response.js';
+import type { VoucherAuthorityLogger, VoucherRefusalReason } from './refusal-mapping.js';
 
 function isValidatedResponse(raw: unknown): raw is ValidateVoucherOk {
   return (
@@ -67,6 +68,12 @@ export interface ValidateVoucherDeps {
   logger: VoucherAuthorityLogger;
   /** Caller-generated UUID v4. */
   idempotencyKey: string;
+  /**
+   * RT-1110: the paired terminal's device token (`device` scheme), sent as
+   * `Authorization: Bearer`. No token or a failing read: nothing is sent and
+   * the outcome is `authority_unreachable`. Never logged.
+   */
+  getDeviceToken: DeviceTokenRead;
   /** Override the request timeout (ms). Defaults to 15s, matching 004. */
   timeoutMs?: number;
 }
@@ -81,14 +88,15 @@ export async function validateVoucher(
   const root = deps.baseUrl.replace(/\/$/, '');
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // RT-1110: no usable device token means nothing is sent.
+  const authorization = await bearerHeaderFor(deps.getDeviceToken, 'validate', deps.logger);
+  if (authorization === null) return { kind: 'authority_unreachable' };
+
   let response: Response;
   try {
     response = await deps.fetch(`${root}${VALIDATE_PATH}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Idempotency-Key': deps.idempotencyKey,
-      },
+      headers: voucherRequestHeaders(deps.idempotencyKey, authorization),
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -102,56 +110,5 @@ export async function validateVoucher(
     return { kind: 'authority_unreachable' };
   }
 
-  // 2xx — try to unwrap the success envelope.
-  if (response.ok) {
-    try {
-      const raw = (await response.json()) as unknown;
-      // Defensive: confirm the discriminator is present before trusting it.
-      if (isValidatedResponse(raw)) return raw;
-      deps.logger.warn(
-        { endpoint: 'validate', reason: 'malformed_success_body' },
-        'voucher_authority:malformed_response',
-      );
-      return { kind: 'authority_unreachable' };
-    } catch {
-      deps.logger.warn(
-        { endpoint: 'validate', reason: 'json_parse_failure' },
-        'voucher_authority:malformed_response',
-      );
-      return { kind: 'authority_unreachable' };
-    }
-  }
-
-  // 4xx — try to map a closed-set refusal code.
-  if (
-    response.status >= 400 &&
-    response.status < 500 &&
-    response.status !== 401 &&
-    response.status !== 425
-  ) {
-    let code: string | undefined;
-    try {
-      const raw = (await response.json()) as unknown;
-      // Extract ONLY the `error.code` — never log the whole body.
-      code = extractErrorCode(raw);
-    } catch {
-      // fall through to validation_failure
-    }
-    if (!code) {
-      deps.logger.warn(
-        { endpoint: 'validate', reason: 'missing_error_code', status: response.status },
-        'voucher_authority:refused_no_code',
-      );
-      return { kind: 'refused', reason: 'validation_failure' };
-    }
-    const reason = mapRefusalCode(code, 'validate', deps.logger);
-    return { kind: 'refused', reason };
-  }
-
-  // 401 / 425 / 5xx / anything else → unreachable.
-  deps.logger.warn(
-    { endpoint: 'validate', status: response.status, outcome: 'authority_unreachable' },
-    'voucher_authority:non_ok_response',
-  );
-  return { kind: 'authority_unreachable' };
+  return interpretVoucherResponse(response, 'validate', isValidatedResponse, deps.logger);
 }

@@ -26,33 +26,6 @@ export interface KnownViolation {
 
 export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
   {
-    call: 'validateVoucher',
-    kind: 'credential-mismatch',
-    sent: 'none',
-    requires: ['operator-jwt'],
-    tickets: ['RT-218'],
-    note:
-      'POST /vouchers/validate declares operator-identity; the client sends no Authorization. ' +
-      'Contract V-A is x-runtime-status: contract-only (no Backend-Core route yet) and the voucher ' +
-      'tender is off for the pilot (RT-103).',
-  },
-  {
-    call: 'redeemVoucher',
-    kind: 'credential-mismatch',
-    sent: 'none',
-    requires: ['operator-jwt'],
-    tickets: ['RT-218'],
-    note: 'Same as validateVoucher: POST /vouchers/redeem declares operator-identity.',
-  },
-  {
-    call: 'reverseVoucher',
-    kind: 'credential-mismatch',
-    sent: 'none',
-    requires: ['operator-jwt'],
-    tickets: ['RT-218'],
-    note: 'Same as validateVoucher: POST /vouchers/reverse declares operator-identity.',
-  },
-  {
     call: 'runLivenessProbe',
     kind: 'endpoint-missing',
     tickets: ['RT-602', 'RT-600'],

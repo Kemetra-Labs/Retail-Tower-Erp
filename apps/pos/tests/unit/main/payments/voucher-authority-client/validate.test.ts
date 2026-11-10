@@ -27,12 +27,14 @@ import { validateVoucher } from '../../../../../src/main/payments/voucher-author
 import {
   BASE_URL,
   FAKE_IDEMPOTENCY_KEY,
+  FAKE_OPERATOR_USER_ID,
   FAKE_PAYMENT_ATTEMPT_ID,
   bareResponse,
   captureFetch,
   errorBody,
   jsonResponse,
   makeLogger,
+  fakeDeviceToken,
 } from './_fixtures.js';
 
 const HAPPY_RESPONSE = {
@@ -47,6 +49,7 @@ const VALIDATE_INPUT = {
   payment_attempt_id: FAKE_PAYMENT_ATTEMPT_ID,
   applied_amount_minor: 1_500,
   remaining_balance_minor: 2_000,
+  operatorUserId: FAKE_OPERATOR_USER_ID,
 };
 
 describe('validateVoucher — happy path', () => {
@@ -58,6 +61,7 @@ describe('validateVoucher — happy path', () => {
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
 
     expect(captured).toHaveLength(1);
@@ -97,6 +101,7 @@ describe('validateVoucher — closed-set refusal mapping', () => {
         fetch: fetchImpl,
         logger,
         idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+        getDeviceToken: fakeDeviceToken,
       });
       expect(result).toEqual({ kind: 'refused', reason: code });
     });
@@ -110,6 +115,7 @@ describe('validateVoucher — closed-set refusal mapping', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'voucher_not_found' });
   });
@@ -122,6 +128,7 @@ describe('validateVoucher — closed-set refusal mapping', () => {
       fetch: fetchImpl,
       logger,
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'validation_failure' });
     expect(logger.warn).toHaveBeenCalledTimes(1);
@@ -137,6 +144,7 @@ describe('validateVoucher — closed-set refusal mapping', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'refused', reason: 'validation_failure' });
   });
@@ -165,6 +173,7 @@ describe('validateVoucher — transport-tier outcomes', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
@@ -176,6 +185,7 @@ describe('validateVoucher — transport-tier outcomes', () => {
       fetch: fetchImpl,
       logger: makeLogger(),
       idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+      getDeviceToken: fakeDeviceToken,
     });
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });

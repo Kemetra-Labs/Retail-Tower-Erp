@@ -14,9 +14,12 @@ info:
          binds the voucher to a specific payment attempt. The token MUST NOT
          be a long-lived bearer or a re-usable credential. Partial redemption
          is refused (POS-Pulse plan AD-7 / OQ-PLAN-3): `applied_amount_minor`
-         that exceeds either the authoritative voucher balance or the
+         that exceeds either the authoritative voucher value or the
          caller-supplied `remaining_balance_minor` returns 400
-         `non_cash_overpayment_refused`.
+         `non_cash_overpayment_refused`. The response also carries
+         `forfeited_amount_minor`, the part of the voucher's value this
+         redemption would forfeit (see "Redemption consumes the whole
+         voucher" below).
       2. `posRedeemVoucher`    — POS atomically consumes a previously-issued
          intent token at payment confirmation. The response carries an opaque
          `redemption_id` that the terminal persists on the tender line for
@@ -25,8 +28,21 @@ info:
       3. `posReverseVoucher`   — POS reverses a committed redemption when the
          attempt is cancelled or the tender line is reversed individually.
          Idempotent: a second reverse of the same `redemption_id` returns 200
-         with `already_reversed: true`. The voucher balance is restored
-         atomically.
+         with `already_reversed: true`. The voucher is restored atomically to
+         `active` with its full value.
+
+    **Redemption consumes the whole voucher (RT-1098 decision 1A, owner
+    2026-11-03).** A voucher has one value and is used once. A successful
+    `posRedeemVoucher` moves the voucher to `redeemed`; the part of its value
+    above `applied_amount_minor` is forfeited and is not carried as a balance.
+    There is no residual balance and no second redemption. The redemption
+    stores `applied_amount_minor` and `forfeited_amount_minor`. A reverse
+    undoes the whole redemption. v1 vouchers are promotional only (issued
+    free; RT-1098 c15291).
+
+    **Code normalisation.** The voucher `code` is normalised before lookup:
+    upper-cased, with hyphens and spaces removed, exactly as at issue
+    (`vouchers-admin.openapi.yaml`; RT-922 §5.3). Lookup is tenant-scoped.
 
     This contract is consumed by POS-Pulse main-process bridge handlers
     `vouchers.validate` / `vouchers.redeem` / `vouchers.reverse` (see
@@ -36,17 +52,32 @@ info:
     vouchers) is not part of this contract and has no contract or route
     yet; it will need its own contract when it is specified.
 
-    Authentication boundary: all three operations are POS-authenticated
-    via the role-named `operator-identity` security scheme — a
-    provider-identity JWT bearer (spec 030 / 028 DOC-1; previously the
-    provider-named `clerkJwt` key, the same scheme used by
-    `pos-operators.openapi.yaml` and `pos-shifts.openapi.yaml`). Identity proof
-    only — NOT business authorization (028 §6 CM-1). The
-    principal's resolved store binding (per spec 002) supplies `store_id`;
-    rejected with 400 `store_context_required` if absent. The submitting
-    POS device's authenticated principal supplies both `tenant_id` and
-    `store_id`; body-supplied tenant / store fields are NOT accepted
-    (Constitution §III backend authority).
+    Authentication boundary (RT-1110; owner decisions RT-1098 c16394 and
+    c16402): all three operations are authenticated with the `device` scheme
+    only, the paired terminal's opaque token presented as
+    `Authorization: Bearer <device_token>`. It is the same credential as
+    `captureSale` (`pos-sales/sales.yaml`, RT-224 option B). The previous
+    `operator-identity` provider JWT is removed: a cashier session holds no
+    such JWT (RT-218). The device row supplies `tenant_id`, `store_id` and
+    `device_id`; body-supplied tenant / store fields are NOT accepted
+    (Constitution §III backend authority). `store_context_required` stays in
+    the closed sets below, but a device that carries a store never produces
+    it.
+
+    `posValidateVoucher` and `posRedeemVoucher` also carry `operatorUserId`
+    in the body: the `users.id` of the cashier applying the voucher. A device
+    token alone never proves the author. The server accepts the claim only
+    when a cashier admission of this device, store and user is active at the
+    time of the request, and it re-checks the cashier's membership and store
+    access live. A refused claim from a valid device is the generic 403
+    `refused`; a missing, invalid or revoked device token is the generic 401.
+    These calls are online, so no `occurredAt` window applies. The claim is
+    checked before the voucher code is looked up, so a refused claim reveals
+    nothing about any code.
+    `posReverseVoucher` takes no `operatorUserId`: the reverse is attributed
+    to the operator recorded when the redemption was made, so the POS's
+    deferred reverse resolver still works after the cashier's admission has
+    ended.
 
     Idempotency: all three operations REQUIRE the `Idempotency-Key` header
     following the existing `IdempotencyInterceptor` convention (header
@@ -58,7 +89,13 @@ info:
     PII / secret discipline (Constitution §XIV; POS-Pulse FR-017 / P6 /
     P7): voucher token rotation, holder identity, voucher value history,
     and cross-attempt voucher state MUST NOT appear in any response body
-    on this contract. Only the closed-set response fields below cross
+    on this contract, with ONE owner-approved exception (RT-1098 c16402):
+    `forfeited_amount_minor` on the `posValidateVoucher` 200. Together with
+    `applied_amount_minor` it gives the voucher's value to the terminal that
+    presented a valid code for its own payment attempt, so the cashier can
+    confirm the forfeit before redeeming (decision 1A). It is carried by no
+    other response, and it MUST NOT be logged, written to an audit event or
+    printed on a receipt. Only the closed-set response fields below cross
     the wire. The `redemption_intent_token` returned by `posValidateVoucher`
     is short-lived (≤ 5 minutes recommended) and bound to a single
     `payment_attempt_id` — losing it does not leak voucher value.
@@ -84,7 +121,7 @@ paths:
       x-idempotency: required
       tags: [pos-payments-vouchers]
       security:
-        - operator-identity: []
+        - device: []
       description: >
         Resolve the submitted voucher `code` against the tenant's active
         voucher set. On success, return a short-lived
@@ -95,17 +132,24 @@ paths:
 
         **Partial redemption rule (POS-Pulse AD-7 / OQ-PLAN-3):** if the
         caller-supplied `applied_amount_minor` exceeds either the
-        authoritative voucher balance OR the caller-supplied
+        authoritative voucher value OR the caller-supplied
         `remaining_balance_minor`, the operation MUST refuse with
-        `non_cash_overpayment_refused`. The backend caps authority-side;
-        no residual voucher reconciliation in V-A.
+        `non_cash_overpayment_refused`. The backend enforces this
+        authority-side. A zero `applied_amount_minor` is refused with
+        `validation_failure`: a voucher is consumed whole, so applying
+        nothing would forfeit its entire value for no tender (the schema
+        bound is unchanged).
+        There is no residual voucher balance: redeeming consumes the whole
+        voucher and forfeits the unused remainder (decision 1A), and the 200
+        carries `forfeited_amount_minor` so the POS can show it before it
+        redeems.
 
         **Failure-response error codes** (closed set, mirrors POS-Pulse
         bridge contract §`vouchers.validate`):
         `voucher_not_found`, `voucher_expired`, `voucher_cancelled`,
         `voucher_already_redeemed`, `voucher_tenant_mismatch`,
         `voucher_branch_mismatch`, `non_cash_overpayment_refused`,
-        `validation_failure`, `store_context_required`,
+        `validation_failure`, `store_context_required`, `refused`,
         `idempotency_key_required`, `idempotency_key_malformed`,
         `idempotency_key_conflict`.
       parameters:
@@ -135,7 +179,9 @@ paths:
             short-lived `redemption_intent_token` plus the
             authority-confirmed `applied_amount_minor` (which equals the
             caller-supplied value — V-A refuses overpayment rather than
-            capping it).
+            capping it) and `forfeited_amount_minor`, the part of the
+            voucher's value that redeeming it would forfeit (0 when the
+            voucher is used in full).
           headers:
             Idempotent-Replayed:
               schema:
@@ -157,7 +203,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: POS principal is missing or invalid.
+          description: >
+            Missing, invalid or revoked device token. The generic 401: no
+            factor is disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `error.code = "refused"`. The device token is valid but the
+            `operatorUserId` claim is refused: no active cashier admission of
+            this device, store and user, or the cashier's membership or store
+            access no longer holds. One generic body for every cause.
           content:
             application/json:
               schema:
@@ -205,21 +263,30 @@ paths:
       x-idempotency: required
       tags: [pos-payments-vouchers]
       security:
-        - operator-identity: []
+        - device: []
       description: >
         Consume a `redemption_intent_token` issued by an earlier
         `posValidateVoucher` call. On success, the voucher transitions
-        to `redeemed` (or its remaining balance is decremented atomically)
+        to `redeemed` (the whole voucher is consumed; the part of its value
+        above `applied_amount_minor` is forfeited, decision 1A)
         and the response carries the durable `redemption_id` that
         POS-Pulse persists on the `payment_tender_lines` row for audit /
         receipt correlation. The intent token is single-use; a second
         call with the same token but the same Idempotency-Key returns
         200 with `idempotent_replayed: true`.
 
+        Redeem re-evaluates the voucher at redeem time. A voucher cancelled
+        or expired since validate is refused with `voucher_cancelled` or
+        `voucher_expired`, and a store outside the voucher's
+        eligible set with `voucher_branch_mismatch`. An "all stores" voucher
+        includes stores added after it was issued; an explicit subset never
+        grows (RT-810 D3, D4).
+
         **Failure-response error codes** (closed set):
         `intent_token_not_found`, `intent_token_expired`,
         `intent_token_payment_attempt_mismatch`, `voucher_already_redeemed`,
-        `validation_failure`, `store_context_required`,
+        `voucher_cancelled`, `voucher_expired`, `voucher_branch_mismatch`,
+        `validation_failure`, `store_context_required`, `refused`,
         `idempotency_key_required`, `idempotency_key_malformed`,
         `idempotency_key_conflict`.
       parameters:
@@ -265,7 +332,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: POS principal is missing or invalid.
+          description: >
+            Missing, invalid or revoked device token. The generic 401: no
+            factor is disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `error.code = "refused"`. The device token is valid but the
+            `operatorUserId` claim is refused: no active cashier admission of
+            this device, store and user, or the cashier's membership or store
+            access no longer holds. One generic body for every cause.
           content:
             application/json:
               schema:
@@ -282,9 +361,11 @@ paths:
         "409":
           description: >
             Idempotency-Key reuse with a different logical payload, OR
-            the voucher has already been redeemed by a different attempt.
-            `error.code` is one of `idempotency_key_conflict`,
-            `voucher_already_redeemed`.
+            the voucher can no longer be redeemed: already redeemed by a
+            different attempt, cancelled, expired, or not valid in this
+            store. `error.code` is one of `idempotency_key_conflict`,
+            `voucher_already_redeemed`, `voucher_cancelled`,
+            `voucher_expired`, `voucher_branch_mismatch`.
           content:
             application/json:
               schema:
@@ -314,13 +395,16 @@ paths:
       x-idempotency: required
       tags: [pos-payments-vouchers]
       security:
-        - operator-identity: []
+        - device: []
       description: >
-        Reverse a `redemption_id` issued by `posRedeemVoucher`. The
-        voucher's balance is restored atomically and the voucher status
-        transitions back from `redeemed` to `active` (or to its prior
-        partially-redeemed state for forward compatibility — V-A v1 only
-        supports single full redemption). On success, the response
+        Reverse a `redemption_id` issued by `posRedeemVoucher`. The voucher
+        is restored atomically: its status transitions back from `redeemed`
+        to `active` with its full value, and the forfeit of that redemption
+        is undone. V-A supports a single full redemption only (decision 1A);
+        there is no partially-redeemed state. The reversal is attributed to
+        the operator recorded when the redemption was made, and the request
+        carries no `operatorUserId`; the reversal's audit event records the
+        reversing `device_id`. On success, the response
         carries `already_reversed: false` on the first call and
         `already_reversed: true` on every subsequent call with the same
         `redemption_id`.
@@ -376,7 +460,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: POS principal is missing or invalid.
+          description: >
+            Missing, invalid or revoked device token. The generic 401: no
+            factor is disclosed.
           content:
             application/json:
               schema:
@@ -412,39 +498,27 @@ paths:
 
 components:
   securitySchemes:
-    # `operator-identity` is the role-named provider-identity scheme
-    # (spec 030 / 028 DOC-1), replacing the provider-named `clerkJwt` key.
-    # Identity proof only — NOT business authorization (028 §6 CM-1). These
-    # voucher operations are NON-SALE (they tender against an in-flight payment
-    # attempt; they are not the sale-sync envelope, which stays on `clerkJwt`).
-    operator-identity:
+    # RT-1110: the `device` scheme replaces `operator-identity` (a provider JWT
+    # a cashier session never holds, RT-218). Same scheme, same wire form as
+    # `pos-sales/sales.yaml`.
+    device:
       type: http
       scheme: bearer
-      bearerFormat: JWT
       description: >
-        Provider-identity JWT (spec 030 / 028 §6 CM-1), presented as
-        `Authorization: Bearer <jwt>`. Identity proof / sign-in evidence ONLY —
-        it is NOT business authorization. The provider is Clerk today, named
-        only as the current implementation; the scheme name is provider-neutral.
-        The declared/intended verification is at the API edge, fail-closed, with
-        the token not propagated past the verifier.
-
-
-        HANDOFF NOTE (D1 / 028 DOC-3): this `operator-identity` classification is
-        a CONTRACT-ONLY assertion. These voucher operations have NO wired runtime
-        guard today, so the G-6 additive guarantee (the role-named scheme must
-        match the credential the guard actually verifies) cannot yet be confirmed
-        by guard-tracing — it rests on the declared `bearerFormat: JWT` and the
-        sibling JWT-verified surfaces (`pos-operators.openapi.yaml`,
-        `pos-shifts.openapi.yaml`) this contract cross-references. The risk: if
-        vouchers later lands on `PosOperatorAuthGuard` — the same guard as
-        `posCaptureItem`, which was DEFERRED precisely because it verifies an
-        opaque `pos_operator`-scoped operator-session token rather than a JWT —
-        then `operator-identity` would become a DOC-3 doc↔runtime lie. WHEN
-        WIRING THE VOUCHERS GUARD (D1 / operator-authorization-envelope work):
-        confirm the guard actually verifies a provider-identity JWT, OR
-        re-classify this surface to the scheme matching the credential it
-        verifies, BEFORE SHIPPING.
+        RT-224 option B: the paired terminal's opaque `devices` pairing token,
+        presented as `Authorization: Bearer <device_token>` (NOT a JWT, so
+        `bearerFormat` is omitted). The token is hashed and matched against a
+        non-revoked `devices` row of an active tenant; that row supplies the
+        authoritative `(tenant_id, store_id, device_id)`. A missing, invalid
+        or revoked device token is the generic 401. On `posValidateVoucher` and
+        `posRedeemVoucher` it is accepted only together with `operatorUserId`
+        in the body: the device token is device-scoped and never proves the
+        author alone. The server then requires a cashier admission of that
+        device, store and user that is active at the time of the request, and
+        re-checks the cashier's membership and store access live; a refused
+        claim from a valid device is the generic 403 `refused`. On
+        `posReverseVoucher` no `operatorUserId` is sent: the reversal is
+        attributed to the operator recorded at redeem time.
 
   schemas:
 
@@ -456,15 +530,30 @@ components:
         - payment_attempt_id
         - applied_amount_minor
         - remaining_balance_minor
+        - operatorUserId
       properties:
+        operatorUserId:
+          type: string
+          format: uuid
+          description: >
+            RT-1110 (RT-224 option B credential). The `users.id` of the
+            cashier applying the voucher: the `user_id` of the cashier
+            admission the terminal holds (NOT the provider subject
+            `operator_id`). REQUIRED with the `device` scheme. It is a claim,
+            never trusted on its own: the server accepts it only when a
+            cashier admission of this device, store and user is active at the
+            time of the request, and re-checks the cashier's membership and
+            store access live. A refused claim from a valid device is the
+            generic 403 `refused`.
         code:
           type: string
           minLength: 1
           maxLength: 64
           description: >
-            Voucher code as scanned or keyed by the cashier. Lookup is
-            case-sensitive and tenant-scoped; cross-tenant codes return
-            404 (non-disclosing).
+            Voucher code as scanned or keyed by the cashier. It is
+            normalised before lookup (upper-cased, hyphens and spaces
+            removed, exactly as at issue). Lookup is tenant-scoped;
+            cross-tenant codes return 404 (non-disclosing).
         payment_attempt_id:
           type: string
           format: uuid
@@ -483,8 +572,10 @@ components:
             The exact amount the cashier intends to apply, in integer
             minor units (Constitution §II equivalent — POS-Pulse P-II).
             MUST satisfy
-            `0 <= applied_amount_minor <= remaining_balance_minor` AND
-            `applied_amount_minor <= authoritative_voucher_balance`.
+            `0 < applied_amount_minor <= remaining_balance_minor` AND
+            `applied_amount_minor <= authoritative_voucher_value`; the server
+            refuses 0 with `validation_failure` (see the operation
+            description).
             V-A refuses overpayment with `non_cash_overpayment_refused`
             rather than capping.
         remaining_balance_minor:
@@ -504,6 +595,7 @@ components:
         - kind
         - redemption_intent_token
         - applied_amount_minor
+        - forfeited_amount_minor
         - intent_expires_at
       properties:
         kind:
@@ -529,6 +621,18 @@ components:
             Authority-confirmed amount. Equal to the caller-supplied
             value on success (V-A refuses partial-redemption capping
             per AD-7).
+        forfeited_amount_minor:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+          description: >
+            RT-1110 (decision 1A). The part of the voucher's value that this
+            redemption would forfeit: the authoritative voucher value minus
+            `applied_amount_minor`, in integer minor units. 0 when the voucher
+            is used in full. Shown to the cashier before redeem. It reveals the
+            voucher's value only to the terminal that presented the valid code
+            in a validate for its own payment attempt, and is not carried by
+            any other response.
         intent_expires_at:
           type: string
           format: date-time
@@ -544,15 +648,29 @@ components:
       required:
         - redemption_intent_token
         - payment_attempt_id
+        - operatorUserId
       properties:
+        operatorUserId:
+          type: string
+          format: uuid
+          description: >
+            RT-1110 (RT-224 option B credential). The `users.id` of the
+            cashier applying the voucher: the `user_id` of the cashier
+            admission the terminal holds (NOT the provider subject
+            `operator_id`). REQUIRED with the `device` scheme. It is a claim,
+            never trusted on its own: the server accepts it only when a
+            cashier admission of this device, store and user is active at the
+            time of the request, and re-checks the cashier's membership and
+            store access live. A refused claim from a valid device is the
+            generic 403 `refused`.
         redemption_intent_token:
           type: string
           minLength: 32
           maxLength: 256
           description: >
             Opaque token previously issued by `posValidateVoucher`.
-            Single-use; consumed atomically with the underlying
-            voucher-balance decrement.
+            Single-use; consumed atomically with the voucher's
+            transition to `redeemed`.
         payment_attempt_id:
           type: string
           format: uuid
@@ -670,4 +788,4 @@ components:
               description: Server-assigned correlation id.
 
 security:
-  - operator-identity: []
+  - device: []

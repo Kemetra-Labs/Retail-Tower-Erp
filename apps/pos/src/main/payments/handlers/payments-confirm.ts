@@ -297,6 +297,8 @@ async function sweepAndSettle(ctx: SettleContext): Promise<PaymentsConfirmRespon
     const sweep = await redeemVoucherLines({
       ...voucherDeps,
       ...compensationScope(ctx),
+      // RT-1110: the redeem claim is the admitted cashier's users.id, as for the sale.
+      operatorUserId: sellingUserIdOf(session, row.acting_operator_id),
       voucherLines,
       linesRepo: deps.linesRepo,
     });
@@ -415,6 +417,8 @@ interface CompensationInput {
 
 interface RedeemVoucherLinesInput extends CompensationInput {
   voucherLines: readonly PaymentTenderLineRow[];
+  /** RT-1110: V-A `operatorUserId`; null (no cashier admission) means redeem is not called. */
+  operatorUserId: string | null;
   redeemVoucher: (input: RedeemVoucherInput) => Promise<RedeemVoucherOutcome>;
   linesRepo: Pick<PaymentTenderLinesRepository, 'persistAuthorityRedemptionId'>;
 }
@@ -461,17 +465,22 @@ function isRedeemed(
 
 async function redeemVoucherLines(input: RedeemVoucherLinesInput): Promise<RedeemSweepOutcome> {
   const { voucherLines, attemptRow, idempotency_key_root, redeemVoucher, linesRepo } = input;
+  const { operatorUserId } = input;
   const persistedRedemptions: PersistedRedemption[] = [];
   for (const line of voucherLines) {
     // Defence-in-depth — an `applied`-state voucher line without an intent
     // token is impossible under T263 / T260, but the row's column is
     // nullable, so we refuse rather than send a malformed V-A request.
+    // RT-1110: likewise with no cashier admission (no `operatorUserId`): V-A would
+    // refuse the claim 403, so it is not called and the sweep fails like any redeem
+    // that did not succeed (nothing is redeemed for this line).
     const outcome =
-      line.voucher_redemption_intent_token === null
+      line.voucher_redemption_intent_token === null || operatorUserId === null
         ? null
         : await redeemVoucher({
             payment_attempt_id: attemptRow.payment_attempt_id,
             redemption_intent_token: line.voucher_redemption_intent_token,
+            operatorUserId,
           });
     if (!isRedeemed(outcome)) {
       // Mid-sweep failure. The never-redeemed lines (current + any

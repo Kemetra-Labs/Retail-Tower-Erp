@@ -57,6 +57,13 @@ import type {
   ReverseVoucherOutcome,
 } from '../../../../src/main/payments/voucher-authority-client/reverse.js';
 
+/** RT-1110: the admitted cashier's `users.id`, sent to V-A as `operatorUserId`. */
+const OPERATOR_USER_ID = '44444444-4444-4444-8444-444444444444';
+
+/** The session getter of an admitted cashier whose `users.id` is `OPERATOR_USER_ID`. */
+const cashierSession = (): ReturnType<typeof makeSessionSource>['getCurrentSession'] =>
+  makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID })).getCurrentSession;
+
 function validRequest(overrides: Partial<PaymentsConfirmRequest> = {}): PaymentsConfirmRequest {
   return {
     payment_attempt_id: 'pa-1',
@@ -97,7 +104,7 @@ describe('T221 — payments.confirm voucher path', () => {
   // ── 1. Successful voucher redeem → settle ─────────────────────────────────
 
   it('calls vouchers.redeem for each internal_voucher applied line before confirming the attempt', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
       tender_line_id: 'tl-voucher-1',
@@ -136,6 +143,7 @@ describe('T221 — payments.confirm voucher path', () => {
     expect(redeemVoucher.mock.calls[0]?.[0]).toEqual({
       payment_attempt_id: 'pa-1',
       redemption_intent_token: 'TOKEN-SECRET',
+      operatorUserId: OPERATOR_USER_ID,
     });
     expect(fsm.confirm).toHaveBeenCalledTimes(1);
     // The redemption_id is stamped on the line via the new repo setter.
@@ -146,8 +154,50 @@ describe('T221 — payments.confirm voucher path', () => {
     });
   });
 
+  it('RT-1110: a session with no cashier admission (no user_id) never calls redeem: the attempt fails dependency_unavailable', async () => {
+    // Device-only credential: `operatorUserId` is the admitted cashier's `users.id`. A
+    // manager / admin session (or a session that is not the attempt's operator) has none,
+    // so nothing is sent to V-A (it would be refused 403) and the attempt fails like any
+    // redeem that did not succeed. Nothing was redeemed, so nothing is reversed.
+    const sessionSource = makeSessionSource(makeSession({ role: 'manager' }));
+    const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
+    const voucherLine = makeLineRow({
+      tender_line_id: 'tl-voucher-1',
+      tender_type: 'internal_voucher',
+      amount_applied_minor: 1500,
+      voucher_redemption_intent_token: 'TOKEN-SECRET',
+      applied_at: '2026-05-25T10:00:01.000Z',
+    });
+    const fsm = makePaymentAttemptFsmDouble();
+    const auditEmitter = makeAuditEmitterDouble();
+    const redeemVoucher = makeRedeemVoucherDouble();
+    const reverseVoucher = makeReverseVoucherDouble();
+    const handler = createPaymentsConfirmHandler({
+      ...makeSettlementDeps(fsm, auditEmitter),
+      getCurrentSession: sessionSource.getCurrentSession,
+      attemptsRepo: makeAttemptsRepoDouble([row]),
+      linesRepo: makeLinesRepoDouble([voucherLine]),
+      paymentAttemptFsm: fsm,
+      tenderLineFsm: makeTenderLineFsmDouble(),
+      idempotency: makeIdempotencyHelperDouble(),
+      auditEmitter,
+      redeemVoucher,
+      reverseVoucher,
+      uuid: () => 'uuid-confirm-v',
+      clock: () => new Date('2026-05-25T10:00:05.000Z'),
+    });
+    expect(await handler(validRequest())).toEqual({
+      kind: 'refused',
+      reason: 'dependency_unavailable',
+    });
+    expect(redeemVoucher).not.toHaveBeenCalled();
+    expect(reverseVoucher).not.toHaveBeenCalled();
+    expect(fsm.fail).toHaveBeenCalledTimes(1);
+    expect(fsm.confirm).not.toHaveBeenCalled();
+  });
+
   it('does NOT call redeemVoucher when the attempt has no internal_voucher applied lines', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow();
     const linesRepo = makeLinesRepoDouble([
       makeLineRow({ tender_line_id: 'tl-cash', tender_type: 'cash', amount_applied_minor: 1500 }),
@@ -181,7 +231,7 @@ describe('T221 — payments.confirm voucher path', () => {
     // never redeemed at V-A, so there is no V-A redemption to reverse
     // and the line MUST NOT be marked `reversal_pending`. The attempt
     // itself still transitions to `failed` (dependency_unavailable).
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
       tender_line_id: 'tl-voucher-1',
@@ -229,7 +279,7 @@ describe('T221 — payments.confirm voucher path', () => {
   });
 
   it('does NOT emit payment.settled when redeem fails', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
       tender_line_id: 'tl-voucher-1',
@@ -260,7 +310,7 @@ describe('T221 — payments.confirm voucher path', () => {
   });
 
   it('fails the attempt when V-A redeem refuses (e.g., intent_token_expired)', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
       tender_line_id: 'tl-voucher-1',
@@ -295,7 +345,7 @@ describe('T221 — payments.confirm voucher path', () => {
   });
 
   it('refuses dependency_unavailable when voucher lines exist but redeemVoucher dep is missing (pre-Wave-4)', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
       tender_line_id: 'tl-voucher-1',
@@ -370,7 +420,7 @@ describe('T221 — payments.confirm voucher path', () => {
     });
     const handler = createPaymentsConfirmHandler({
       ...makeSettlementDeps(fsm, auditEmitter),
-      getCurrentSession: makeSessionSource(makeSession()).getCurrentSession,
+      getCurrentSession: cashierSession(),
       attemptsRepo: makeAttemptsRepoDouble([row]),
       linesRepo,
       paymentAttemptFsm: fsm,
@@ -460,7 +510,7 @@ describe('T221 — payments.confirm voucher path', () => {
     const reverseVoucher = makeReverseVoucherDouble({ kind: 'authority_unreachable' });
     const handler = createPaymentsConfirmHandler({
       ...makeSettlementDeps(fsm, auditEmitter),
-      getCurrentSession: makeSessionSource(makeSession()).getCurrentSession,
+      getCurrentSession: cashierSession(),
       attemptsRepo: makeAttemptsRepoDouble([row]),
       linesRepo,
       paymentAttemptFsm: fsm,
@@ -502,7 +552,7 @@ describe('T221 — payments.confirm voucher path', () => {
   it('CR-3 — two voucher lines, both redeem ok → both settle, no compensation', async () => {
     // Happy path — both vouchers redeem; attempt settles cleanly; no
     // compensating-reverse invoked.
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 2000 });
     const linesRepo = makeLinesRepoDouble([
       makeLineRow({
@@ -567,7 +617,7 @@ describe('T221 — payments.confirm voucher path', () => {
   // ── 3. FR-017 guard ───────────────────────────────────────────────────────
 
   it('redemption_intent_token NEVER appears in the bridge response or audit payload', async () => {
-    const sessionSource = makeSessionSource(makeSession());
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
       tender_line_id: 'tl-voucher-1',
@@ -641,7 +691,7 @@ describe('RT-496 — voucher compensation when the settle transaction fails', ()
           throw new Error('INJECTED: audit insert failed at the settle boundary');
         },
       },
-      getCurrentSession: makeSessionSource(makeSession()).getCurrentSession,
+      getCurrentSession: cashierSession(),
       attemptsRepo: makeAttemptsRepoDouble([row]),
       linesRepo,
       paymentAttemptFsm: fsm,
@@ -708,7 +758,7 @@ describe('RT-496 — voucher compensation when the settle transaction fails', ()
           throw new Error('INJECTED');
         },
       },
-      getCurrentSession: makeSessionSource(makeSession()).getCurrentSession,
+      getCurrentSession: cashierSession(),
       attemptsRepo: makeAttemptsRepoDouble([makeAttemptRow()]),
       linesRepo: makeLinesRepoDouble([makeLineRow({ tender_type: 'cash' })]),
       paymentAttemptFsm: fsm,
