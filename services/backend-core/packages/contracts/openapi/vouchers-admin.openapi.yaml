@@ -62,8 +62,9 @@ info:
     `validation_failure`, `store_not_found`, `store_inactive`,
     `voucher_not_found`, `voucher_already_redeemed`, `forbidden`,
     `idempotency_key_required`, `idempotency_key_malformed` and
-    `idempotency_key_conflict`. Two platform codes can also appear on any
-    operation: `origin_rejected` (RT-430) and `rate_limited` (RT-574). The
+    `idempotency_key_conflict`. Two platform codes can also appear:
+    `rate_limited` (RT-574) on any operation, and `origin_rejected` (RT-430) on
+    the two POSTs only (the Origin check does not run on the GETs). The
     voucher-domain 400, 404 and 409 bodies use `VoucherAdminError`, whose
     `code` is that closed set; the 401, 403 and 429 bodies use the canonical
     envelope with a free-string `code`; a 425 carries the platform's

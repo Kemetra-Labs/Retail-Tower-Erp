@@ -411,6 +411,13 @@ describe("vouchers-admin — the closed error set", () => {
     expect(envelope({ error: { code: "voucher_expired", message: "no" } })).toBe(false);
   });
 
+  it("limits origin_rejected to the two POSTs, in the info text and in the Forbidden response", () => {
+    expect(doc.info?.description).toEqual(
+      expect.stringContaining("`origin_rejected` (RT-430) on\n    the two POSTs only".replace(/\s+/g, " ")),
+    );
+    expect(api.responseDescription("Forbidden")).toEqual(expect.stringContaining("on the two POSTs"));
+  });
+
   it("keeps the platform envelope's code a free string, so a real 401 or 403 still decodes", () => {
     const error = api.schema("Error")["properties"] as Record<string, { properties?: Record<string, unknown> }>;
     expect(error["error"]?.properties?.["code"]).toEqual({ type: "string" });
