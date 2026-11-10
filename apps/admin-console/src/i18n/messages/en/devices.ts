@@ -46,6 +46,30 @@ export const devices: MessagesOf<typeof ar> = {
   // --- Attention ---------------------------------------------------------------
   "devices.attention.custody": "Custody exception: open shift",
   "devices.attention.pastExpiry": "Expiry passed (not enforced yet)",
+  "devices.attention.strandedSales": "Stranded sales on the till",
+
+  // --- Unsent sales on the till (RT-1312) --------------------------------------
+  "devices.saleQueue.col": "Unsent sales",
+  "devices.saleQueue.title": "Unsent sales on the till",
+  "devices.saleQueue.pending": "Pending: {count}",
+  "devices.saleQueue.deadLetter": "Refused: {count}",
+  "devices.saleQueue.held": "Held from an earlier pairing: {count}",
+  "devices.saleQueue.oldestPending": "Oldest pending: {time}",
+  "devices.saleQueue.asOf": "As of last heartbeat: {time}",
+  "devices.saleQueue.unknown": "Unknown",
+  "devices.saleQueue.unavailable": "Unavailable",
+  "devices.saleQueue.loading": "Loading…",
+  "devices.saleQueue.nonePending": "No pending sale",
+  "devices.saleQueue.loadFailed":
+    "Could not load the unsent sale counts. The devices are shown without them.",
+  "devices.saleQueue.note":
+    "Counts are as the till reported them in its last heartbeat, not live. Unknown means the till has not reported them yet.",
+  "devices.saleQueue.field.state": "Unsent sales",
+  "devices.saleQueue.field.pending": "Pending",
+  "devices.saleQueue.field.deadLetter": "Refused",
+  "devices.saleQueue.field.held": "Held from an earlier pairing",
+  "devices.saleQueue.field.oldestPending": "Oldest pending sale",
+  "devices.saleQueue.field.asOf": "As of last heartbeat",
 
   // --- Filters -----------------------------------------------------------------
   "devices.filter.label": "Filter devices",
@@ -79,7 +103,7 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.lastSeen.source.activity": "Last authenticated request from the device",
   "devices.lastSeen.source.unknown": "Unknown source",
   "devices.lastSeen.notHealth":
-    "Last seen does not mean the device is healthy. Device health is not reported yet.",
+    "Last seen does not mean the device is healthy. Unsent-sale counts come from the device's last heartbeat.",
 
   // --- Detail ------------------------------------------------------------------
   "devices.detail.back": "Back to devices",

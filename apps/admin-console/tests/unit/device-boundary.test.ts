@@ -97,4 +97,17 @@ describe("device registry boundary (RT-371, RT-372)", () => {
   test("no health verdict is computed or rendered", () => {
     expect(featureSrc).not.toMatch(/healthy|isHealthy|health:|"devices\.health/i);
   });
+
+  test("RT-1312: device health is read for the sale queue only, by the two console GETs", () => {
+    const healthSrc = readSource("src/lib/device-health-queries.ts");
+    const calls = [...healthSrc.matchAll(/apiClient\.(\w+)\(\s*"([^"]+)"/g)].map(
+      (m) => `${m[1]} ${m[2]}`,
+    );
+    expect(calls.sort()).toEqual([
+      "GET /api/v1/device-health",
+      "GET /api/v1/device-health/{deviceId}",
+    ]);
+    // No liveness or compliance verdict reaches the Devices surface (RT-327's scope).
+    expect(featureSrc).not.toMatch(/\.liveness|\.compliance/);
+  });
 });

@@ -29,6 +29,7 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { DeviceFilterBar } from "./DeviceFilterBar";
 import { Attention, DeviceName, LastSeen, TrustBadge } from "./DeviceParts";
+import { SaleQueueCell } from "./SaleQueueParts";
 import {
   type DeviceFilters,
   buildListQuery,
@@ -36,6 +37,8 @@ import {
   filtersToSearch,
   isFiltered,
 } from "./deviceFilters";
+import { hasStrandedSales, saleQueueStateOf } from "./saleQueueLogic";
+import { type DeviceHealthIndex, useDeviceHealthIndex } from "./useDeviceHealth";
 import {
   type DeviceError,
   type DeviceListState,
@@ -49,7 +52,11 @@ function deviceColumns(
   t: T,
   directory: StoreDirectory,
   now: number,
+  saleQueues: DeviceHealthIndex,
 ): DataTableColumn<DeviceSummary>[] {
+  // RT-1312: joined by deviceId; a device absent from the device-health read is unavailable.
+  const queueOf = (d: DeviceSummary) =>
+    saleQueueStateOf(saleQueues.byId.get(d.deviceId), saleQueues.status);
   return [
     {
       key: "device",
@@ -69,7 +76,12 @@ function deviceColumns(
     {
       key: "attention",
       header: t("devices.list.col.attention"),
-      cell: (d) => <Attention device={d} now={now} />,
+      cell: (d) => <Attention device={d} now={now} strandedSales={hasStrandedSales(queueOf(d))} />,
+    },
+    {
+      key: "saleQueue",
+      header: t("devices.saleQueue.col"),
+      cell: (d) => <SaleQueueCell state={queueOf(d)} timeZone={directory.timeZoneOf(d.storeId)} />,
     },
     {
       key: "expires",
@@ -202,6 +214,7 @@ function Pager({ list }: Readonly<{ list: DeviceListState }>): React.JSX.Element
 
 interface ResultsProps {
   list: DeviceListState;
+  saleQueues: DeviceHealthIndex;
   directory: StoreDirectory;
   filters: DeviceFilters;
   onOpen: (row: DeviceSummary) => void;
@@ -227,6 +240,7 @@ function Results(props: Readonly<ResultsProps>): React.JSX.Element {
 
 function ResultState({
   list,
+  saleQueues,
   directory,
   filters,
   onOpen,
@@ -235,7 +249,7 @@ function ResultState({
   const t = useT();
   // One clock reading per mount: "expiry passed" does not flicker between renders.
   const [now] = useState(() => Date.now());
-  const columns = deviceColumns(t, directory, now);
+  const columns = deviceColumns(t, directory, now, saleQueues);
   const pending = list.isLoading || awaitingRoster(list, directory);
   if (pending) {
     return (
@@ -290,6 +304,7 @@ export function DeviceList(): React.JSX.Element {
 
   const filters = filtersFromSearch(search);
   const list = useDeviceList(scope, buildListQuery(filters));
+  const saleQueues = useDeviceHealthIndex(scope, filters);
   const clearFilters = () => setSearch(new URLSearchParams());
 
   if (!scope.tenantId) {
@@ -328,8 +343,23 @@ export function DeviceList(): React.JSX.Element {
         onClear={clearFilters}
       />
 
+      {/* Only beside rows: with no rows the list's own state already speaks. */}
+      {saleQueues.status === "failed" && list.rows.length > 0 ? (
+        <Banner
+          variant="warning"
+          message={t("devices.saleQueue.loadFailed")}
+          requestId={saleQueues.requestId}
+          action={
+            <button type="button" className="btn-secondary" onClick={saleQueues.retry}>
+              {t("devices.list.retry")}
+            </button>
+          }
+        />
+      ) : null}
+
       <Results
         list={list}
+        saleQueues={saleQueues}
         directory={directory}
         filters={filters}
         onClear={clearFilters}
