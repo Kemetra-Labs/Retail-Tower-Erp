@@ -8,7 +8,6 @@ import {
   generateApiTypes,
   namespaceFor,
   normalizeNullable,
-  posPathsOnly,
   readPinnedContractFiles,
 } from '../codegen-api.js';
 import { verifyCodegen } from '../verify-codegen.js';
@@ -182,27 +181,19 @@ describe('contract-set source (RT-869)', () => {
     const namespaces = [...text.matchAll(/^export namespace (\w+) \{$/gm)].map((m) => m[1]);
     expect(namespaces).toEqual(readPinnedContractFiles(CONTRACTS_DIR).map(namespaceFor));
     expect(text).not.toMatch(/\/api\/v1\/(analytics|billing)/);
-    const paths = [...text.matchAll(/^ {8}"(\/[^"]*)": \{$/gm)].map((m) => m[1]);
+    const paths = [...text.matchAll(/^ {8}"(\/[^"]*)": \{$/gm)].map((m) => m[1] ?? '');
     expect(paths.length).toBeGreaterThan(0);
-    for (const p of paths) expect(p).toMatch(/^\/api\/pos\/v1\//);
-  });
-
-  it('keeps only the POS paths of a contract that also holds console routes (RT-1312)', () => {
-    const input = {
-      openapi: '3.1.0',
-      paths: {
-        '/api/pos/v1/terminals/heartbeat': { post: { operationId: 'beat' } },
-        '/api/v1/device-health': { get: { operationId: 'consoleRead' } },
-        '/api/v1/platform/pos-version-policy': { get: { operationId: 'platformRead' } },
-      },
-      components: { schemas: { A: { type: 'string' } } },
-    };
-    expect(posPathsOnly(input)).toEqual({
-      ...input,
-      paths: { '/api/pos/v1/terminals/heartbeat': { post: { operationId: 'beat' } } },
-    });
-    expect(Object.keys(input.paths)).toHaveLength(3);
-    expect(posPathsOnly('not a document')).toBe('not a document');
+    const nonPos = paths.filter((p) => !p.startsWith('/api/pos/v1/'));
+    // RT-1312: `pos-device-health.openapi.yaml` holds the POS heartbeat next to the console
+    // device-health reads and the platform version policy (other principals). They are generated
+    // with the contract but never called: the conformance registry refuses any unregistered route.
+    // Exactly these, and nothing else outside `/api/pos/v1/`.
+    expect(nonPos).toEqual([
+      '/api/v1/device-health',
+      '/api/v1/device-health/{deviceId}',
+      '/api/v1/platform/pos-version-policy',
+      '/api/v1/platform/pos-version-policy/{channel}',
+    ]);
   });
 
   it('rewrites a 3.0 nullable into a 3.1 type union without mutating the input', () => {

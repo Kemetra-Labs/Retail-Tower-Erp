@@ -930,6 +930,86 @@ export namespace PosDeviceHealth {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/device-health": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the health of the devices in the caller's scope.
+             * @description One row per device in the caller's tenant and store scope, including devices that never sent a heartbeat (`liveness: unknown`, `compliance: unknown`). Ordered by `deviceId` ascending, keyset paginated. Every filter is optional and they combine with AND; the `liveness` and `compliance` filters apply to the values derived at this read. With no `trust_state`, retired devices are not listed, as on `consoleListDevices`. An empty page (`items: []`, `nextCursor: null`) is a 200. No aggregate: the build baseline is `consoleGetFleetBaseline`.
+             */
+            get: operations["consoleListDeviceHealth"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/device-health/{deviceId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read one device's health.
+             * @description The health row of one device in the caller's tenant and store scope, whatever its trust state. A device that never sent a heartbeat is a 200 with `liveness: unknown`. Another tenant's device, a device outside the caller's store scope, a role outside the list and an absent id are the same non-disclosing 404.
+             */
+            get: operations["consoleGetDeviceHealth"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/pos-version-policy": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the POS version policy of every channel (platform admins only).
+             * @description The policy of each channel, always all three channels in the order `lab`, `canary`, `stable`, each with its policy or `null` when none has been set. Platform admins only; any other signed-in user is 403 `forbidden`. A platform admin with no active tenant gets 200.
+             */
+            get: operations["platformGetPosVersionPolicy"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/pos-version-policy/{channel}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Set the POS version policy of one channel (platform admins only).
+             * @description Replaces the channel's policy with the body's values (a full replacement, no partial update). Compare-and-set on `expectedRevision`: `null` to create the first policy of the channel, otherwise the revision last read. A body whose values equal the stored ones is a 200 that changes nothing and writes no audit row, whatever `expectedRevision` says, so a retry after a lost response is safe. Otherwise a stale `expectedRevision` is 409 `policy_revision_conflict` and nothing is written. Values out of order (`minSupportedVersion <= recommendedVersion <= latestVersion` fails in semantic-version precedence) are 422 `version_order_invalid`. An effective change bumps `revision`, sets `updatedAt` (server clock) and `updatedByUserId`, and writes `pos.release_policy.changed` with the old and new values. A `minSupportedGraceUntil` already in the past makes the new minimum enforceable at once on the POS (D-6); that is the platform admin's choice and is not refused.
+             */
+            put: operations["platformSetPosVersionPolicy"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
     }
     export type webhooks = Record<string, never>;
     export interface components {
@@ -1329,6 +1409,138 @@ export namespace PosDeviceHealth {
                 };
                 400: components["responses"]["HeartbeatValidationFailure"];
                 401: components["responses"]["DeviceUnauthorized"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleListDeviceHealth: {
+            parameters: {
+                query?: {
+                    /** @description Only devices whose last stored heartbeat reported exactly this version. A device with no reported version never matches. */
+                    app_version?: components["parameters"]["AppVersionQuery"];
+                    /** @description Only devices with this compliance verdict, derived at this read. */
+                    compliance?: components["parameters"]["ComplianceQuery"];
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_error`. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description Only devices with this liveness verdict, derived at this read. */
+                    liveness?: components["parameters"]["LivenessQuery"];
+                    /** @description Maximum items per page (bounded). The server MAY return fewer. */
+                    page_size?: components["parameters"]["PageSize"];
+                    /** @description Only devices of this store. Validated against the caller's store scope: a store outside it, or of another tenant, is the non-disclosing 404. Omitted: every store in the caller's scope. */
+                    store_id?: components["parameters"]["StoreIdQuery"];
+                    /** @description Only devices in this trust state, as on `consoleListDevices`. Omitted: `active` and `revoked` devices, never `retired` ones. */
+                    trust_state?: components["parameters"]["TrustStateQuery"];
+                    /** @description Only devices whose last stored heartbeat reported this channel. */
+                    update_channel?: components["parameters"]["UpdateChannelQuery"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of device health rows. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeviceHealthPage"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetDeviceHealth: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The device id (`devices.id`, the paired `terminal_id`). Case insensitive: normalised to lower case before the lookup. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    deviceId: components["parameters"]["DeviceIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The device's health row. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeviceHealthView"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformGetPosVersionPolicy: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The per-channel policy. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PosVersionPolicySet"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformReadForbidden"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformSetPosVersionPolicy: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The channel whose policy is set. Any other value is 400 `validation_error`. */
+                    channel: components["parameters"]["ChannelPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PosVersionPolicyChange"];
+                };
+            };
+            responses: {
+                /** @description The channel's policy after the request. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PosVersionPolicyEntry"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                409: components["responses"]["PolicyRevisionConflict"];
+                422: components["responses"]["VersionOrderInvalid"];
+                429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };
         };
