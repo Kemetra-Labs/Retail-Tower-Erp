@@ -844,8 +844,8 @@ singleInstanceReady
       protoStore: operatorProtoStore,
       secretStore,
       sessionAdmission,
-      // RT-308 (RT113-P3) — Backend-Core unreachable: admit the cashier only
-      // from a valid sealed grant on this terminal (one use persisted first).
+      tillClockMs: Date.now, // RT-1312 F18: refuse sign-in when the till clock is off
+      // RT-308 (RT113-P3) — Backend-Core unreachable: admit the cashier only from a valid sealed grant (one use persisted first).
       offline: {
         grants: offlineGrants,
         audit: new AuditEmitter(bindAuditEventsStoreDb(db)),

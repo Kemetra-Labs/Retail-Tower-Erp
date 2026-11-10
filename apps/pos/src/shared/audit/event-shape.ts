@@ -285,6 +285,12 @@ export type Fr025MandatoryAttribute = (typeof FR025_MANDATORY_ATTRIBUTES)[number
  * an earlier fact that is stuck): the stuck list still shows the shift, and the
  * truthful answer is "closed on this device, not at the server yet". Once the
  * server has it the answer is `state_invalid` (the list is only stale).
+ *
+ * `clock_skew` (RT-1312 F18, owner decision 2026-11-10: block) — cashier sign-in
+ * refused because this till's clock is more than 120 s off the server time the
+ * admission carried. Backend-Core refuses a cashier sale outside that tolerance,
+ * so every sale would later be refused and stranded on the till. Fix the Windows
+ * date and time, then sign in again. Carries no time values.
  */
 export const REFUSAL_CATEGORIES = [
   'invalid_input',
@@ -300,6 +306,7 @@ export const REFUSAL_CATEGORIES = [
   'not_closable_here',
   'close_blocked',
   'closed_here_unsent',
+  'clock_skew',
 ] as const;
 export type RefusalCategory = (typeof REFUSAL_CATEGORIES)[number];
 
