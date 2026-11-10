@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  *
  * The pilot installer is signed with a self-signed leaf whose subject is exactly `CN=Kemetra POS PILOT`.
  * These tests pin the boundary: the hook refuses every other certificate (lab, production, anything
- * else), a pilot signature is always timestamped over https, the pilot builder config can never publish
+ * else), a pilot signature is always timestamped, the pilot builder config can never publish
  * or bake an update feed, and the scripts never touch the lab secrets or write a password.
  */
 
@@ -29,7 +29,8 @@ interface PilotSignLib {
 const lib = nodeRequire('../pilot/pilot-sign-lib.cjs') as PilotSignLib;
 
 const SHA1 = 'A'.repeat(40);
-const TSA = 'https://timestamp.sectigo.com';
+// http on purpose: the hosted runner's signtool rejected the https form in the RT-1294 dry run.
+const TSA = 'http://timestamp.sectigo.com';
 
 describe('RT-1294 pilot sign lib: only the pilot certificate may sign', () => {
   it('accepts exactly the pilot subject', () => {
@@ -76,15 +77,21 @@ describe('RT-1294 pilot sign lib: thumbprint and timestamp', () => {
     expect(() => lib.normalizeThumbprint('A'.repeat(39))).toThrow(/POS_PILOT_CERT_SHA1/);
   });
 
-  it('requires an https timestamp URL: a pilot signature is never left untimestamped', () => {
+  it('requires an http(s) timestamp URL: a pilot signature is never left untimestamped', () => {
     expect(lib.assertTimestampUrl(TSA)).toBe(TSA);
+    expect(lib.assertTimestampUrl(`  ${TSA}  `)).toBe(TSA);
+    expect(lib.assertTimestampUrl('https://tsa.example.test')).toBe('https://tsa.example.test');
     for (const bad of [
       undefined,
       '',
       '  ',
-      'http://timestamp.sectigo.com',
+      'http://',
+      'https://',
       'ftp://x',
+      'ftp://x/http://y',
+      'xhttp://a',
       'timestamp.sectigo.com',
+      'http://a b',
       'https://a b',
     ]) {
       expect(() => lib.assertTimestampUrl(bad)).toThrow(/POS_PILOT_TSA_URL/);
@@ -114,7 +121,7 @@ describe('RT-1294 pilot sign lib: thumbprint and timestamp', () => {
       /POS_PILOT_TSA_URL/,
     );
     expect(() =>
-      lib.buildSigntoolArgs({ thumbprint: SHA1, file: 'f.exe', tsaUrl: 'http://x.test' }),
+      lib.buildSigntoolArgs({ thumbprint: SHA1, file: 'f.exe', tsaUrl: 'ftp://x.test' }),
     ).toThrow(/POS_PILOT_TSA_URL/);
   });
 });

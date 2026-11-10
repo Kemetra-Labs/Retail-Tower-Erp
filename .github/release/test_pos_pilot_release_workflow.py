@@ -95,11 +95,12 @@ class ReleasePosPilot(unittest.TestCase):
         self.assertIn("npm ci --ignore-scripts", dry)
         self.assertRegex(step(dry, "Remove the pilot certificates"), r"if: always\(\)")
 
-    def test_both_sign_paths_timestamp_over_https(self):
+    def test_both_sign_paths_timestamp_with_the_http_sectigo_url(self):
+        # Pinned exactly. The signtool on the hosted runner rejected the https form ("Invalid Timestamp URL",
+        # RT-1294 dry run 42783687374), so an https value would fail every signing run until that is re-proven.
         for name in ("sign-release", "sign-dry-run"):
             tsa = re.findall(r"POS_PILOT_TSA_URL: (\S+)", job(self.text, name))
-            self.assertEqual(len(tsa), 1, name)
-            self.assertRegex(tsa[0], r"^https://\S+$", name)
+            self.assertEqual(tsa, ["http://timestamp.sectigo.com"], name)
 
     def test_dry_run_reads_no_secret_and_release_publishes_only_after_both_gates(self):
         self.assertNotIn("secrets.", job(self.text, "sign-dry-run"))
