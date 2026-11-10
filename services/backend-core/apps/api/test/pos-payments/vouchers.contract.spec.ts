@@ -702,4 +702,39 @@ describe("pos-payments/vouchers.yaml — RT-1110 amendment", () => {
     expect(description).toContain("upper-cased, hyphens and spaces");
     expect(description).not.toContain("case-sensitive");
   });
+
+  it("bounds the one FR-017 exception: forfeited_amount_minor is never logged, audited or printed", () => {
+    const info = (vouchersDoc as unknown as { info?: { description?: string } }).info?.description ?? "";
+    expect(info).toContain("ONE owner-approved exception");
+    expect(info).toContain("`forfeited_amount_minor` on the `posValidateVoucher` 200");
+    expect(info).toContain("MUST NOT be logged, written to an audit event or printed on a receipt");
+  });
+
+  it("refuses a zero applied amount, because a voucher is consumed whole", () => {
+    expect(postOp(POS_VALIDATE_PATH).description ?? "").toContain(
+      "A zero `applied_amount_minor` is refused with `validation_failure`",
+    );
+    const applied = String(props("PosValidateVoucherRequest")["applied_amount_minor"]?.["description"] ?? "");
+    expect(applied).toContain("0 < applied_amount_minor");
+  });
+
+  it("leaves no residual-balance wording anywhere in the contract", () => {
+    const all = JSON.stringify(vouchersDoc);
+    for (const stale of [
+      "authoritative voucher balance",
+      "authoritative_voucher_balance",
+      "voucher-balance decrement",
+      "voucher balance is restored",
+      "backend caps authority-side",
+    ]) {
+      expect([stale, all.includes(stale)]).toEqual([stale, false]);
+    }
+  });
+
+  it("records the reversing device, checks the claim before any code lookup, and keeps implementation detail out", () => {
+    expect(postOp(POS_REVERSE_PATH).description ?? "").toContain("records the reversing `device_id`");
+    const info = (vouchersDoc as unknown as { info?: { description?: string } }).info?.description ?? "";
+    expect(info).toContain("The claim is checked before the voucher code is looked up");
+    expect(postOp(POS_REDEEM_PATH).description ?? "").not.toContain("row lock");
+  });
 });

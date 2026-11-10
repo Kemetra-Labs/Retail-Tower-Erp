@@ -71,7 +71,9 @@ info:
     time of the request, and it re-checks the cashier's membership and store
     access live. A refused claim from a valid device is the generic 403
     `refused`; a missing, invalid or revoked device token is the generic 401.
-    These calls are online, so no `occurredAt` window applies.
+    These calls are online, so no `occurredAt` window applies. The claim is
+    checked before the voucher code is looked up, so a refused claim reveals
+    nothing about any code.
     `posReverseVoucher` takes no `operatorUserId`: the reverse is attributed
     to the operator recorded when the redemption was made, so the POS's
     deferred reverse resolver still works after the cashier's admission has
@@ -87,7 +89,13 @@ info:
     PII / secret discipline (Constitution §XIV; POS-Pulse FR-017 / P6 /
     P7): voucher token rotation, holder identity, voucher value history,
     and cross-attempt voucher state MUST NOT appear in any response body
-    on this contract. Only the closed-set response fields below cross
+    on this contract, with ONE owner-approved exception (RT-1098 c16402):
+    `forfeited_amount_minor` on the `posValidateVoucher` 200. Together with
+    `applied_amount_minor` it gives the voucher's value to the terminal that
+    presented a valid code for its own payment attempt, so the cashier can
+    confirm the forfeit before redeeming (decision 1A). It is carried by no
+    other response, and it MUST NOT be logged, written to an audit event or
+    printed on a receipt. Only the closed-set response fields below cross
     the wire. The `redemption_intent_token` returned by `posValidateVoucher`
     is short-lived (≤ 5 minutes recommended) and bound to a single
     `payment_attempt_id` — losing it does not leak voucher value.
@@ -124,9 +132,13 @@ paths:
 
         **Partial redemption rule (POS-Pulse AD-7 / OQ-PLAN-3):** if the
         caller-supplied `applied_amount_minor` exceeds either the
-        authoritative voucher balance OR the caller-supplied
+        authoritative voucher value OR the caller-supplied
         `remaining_balance_minor`, the operation MUST refuse with
-        `non_cash_overpayment_refused`. The backend caps authority-side.
+        `non_cash_overpayment_refused`. The backend enforces this
+        authority-side. A zero `applied_amount_minor` is refused with
+        `validation_failure`: a voucher is consumed whole, so applying
+        nothing would forfeit its entire value for no tender (the schema
+        bound is unchanged).
         There is no residual voucher balance: redeeming consumes the whole
         voucher and forfeits the unused remainder (decision 1A), and the 200
         carries `forfeited_amount_minor` so the POS can show it before it
@@ -265,8 +277,7 @@ paths:
 
         Redeem re-evaluates the voucher at redeem time. A voucher cancelled
         or expired since validate is refused with `voucher_cancelled` or
-        `voucher_expired` (a redeem that waits on the voucher row lock past
-        its expiry is `voucher_expired`), and a store outside the voucher's
+        `voucher_expired`, and a store outside the voucher's
         eligible set with `voucher_branch_mismatch`. An "all stores" voucher
         includes stores added after it was issued; an explicit subset never
         grows (RT-810 D3, D4).
@@ -392,7 +403,8 @@ paths:
         is undone. V-A supports a single full redemption only (decision 1A);
         there is no partially-redeemed state. The reversal is attributed to
         the operator recorded when the redemption was made, and the request
-        carries no `operatorUserId`. On success, the response
+        carries no `operatorUserId`; the reversal's audit event records the
+        reversing `device_id`. On success, the response
         carries `already_reversed: false` on the first call and
         `already_reversed: true` on every subsequent call with the same
         `redemption_id`.
@@ -560,8 +572,10 @@ components:
             The exact amount the cashier intends to apply, in integer
             minor units (Constitution §II equivalent — POS-Pulse P-II).
             MUST satisfy
-            `0 <= applied_amount_minor <= remaining_balance_minor` AND
-            `applied_amount_minor <= authoritative_voucher_balance`.
+            `0 < applied_amount_minor <= remaining_balance_minor` AND
+            `applied_amount_minor <= authoritative_voucher_value`; the server
+            refuses 0 with `validation_failure` (see the operation
+            description).
             V-A refuses overpayment with `non_cash_overpayment_refused`
             rather than capping.
         remaining_balance_minor:
@@ -655,8 +669,8 @@ components:
           maxLength: 256
           description: >
             Opaque token previously issued by `posValidateVoucher`.
-            Single-use; consumed atomically with the underlying
-            voucher-balance decrement.
+            Single-use; consumed atomically with the voucher's
+            transition to `redeemed`.
         payment_attempt_id:
           type: string
           format: uuid

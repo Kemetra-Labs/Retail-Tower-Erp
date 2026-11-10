@@ -170,11 +170,16 @@ const OPERATOR_SCHEME = "operator-identity";
 const DEVICE_OPS: Array<[string[], string, string]> = [
   [["catalog"], "read-down", "posGetCatalogSnapshot"],
   [["catalog"], "read-down", "posGetCatalogDeltas"],
+  // RT-1110 (owner decisions RT-1098 c16394, c16402): the contract-only voucher
+  // operations moved from `operator-identity` to `device` (RT-224 option B).
+  [["pos-payments"], "vouchers", "posValidateVoucher"],
+  [["pos-payments"], "vouchers", "posRedeemVoucher"],
+  [["pos-payments"], "vouchers", "posReverseVoucher"],
 ];
 
-// operator-identity-classified operations (CONFIRMED Clerk-JWT-verified, or —
-// for the contract-only vouchers — declared `bearerFormat: JWT` and a sibling
-// of the JWT-verified surfaces it cross-references):
+// operator-identity-classified operations (CONFIRMED Clerk-JWT-verified). The
+// contract-only vouchers left this list in RT-1110: a cashier session holds no
+// provider JWT, so they use the `device` scheme (see DEVICE_OPS).
 const OPERATOR_OPS: Array<[string[], string, string]> = [
   [[], "pos-operators.openapi", "posOperatorSignIn"],
   [[], "pos-operators.openapi", "posOperatorSignOut"],
@@ -182,9 +187,6 @@ const OPERATOR_OPS: Array<[string[], string, string]> = [
   [[], "pos-operators.openapi", "posOperatorTakeoverConfirm"],
   [[], "pos-operators.openapi", "posOperatorActiveSession"],
   [[], "pos-shifts.openapi", "posShiftsGetStuck"],
-  [["pos-payments"], "vouchers", "posValidateVoucher"],
-  [["pos-payments"], "vouchers", "posRedeemVoucher"],
-  [["pos-payments"], "vouchers", "posReverseVoucher"],
 ];
 
 // Contracts whose clerkJwt scheme DEFINITION must be fully retired (T9) —
@@ -320,24 +322,26 @@ describe("030 — operator-identity POS surfaces use the `operator-identity` sch
     },
   );
 
-  it("vouchers re-points its document-level default to `operator-identity` (not clerkJwt)", () => {
+  it("vouchers uses `device` as its document-level default, not `operator-identity` or clerkJwt (RT-1110)", () => {
     const doc = loadDoc(["pos-payments"], "vouchers");
     const docLevel = doc.security ?? [];
     expect(
       docLevel.some((r) =>
-        Object.prototype.hasOwnProperty.call(r, OPERATOR_SCHEME),
+        Object.prototype.hasOwnProperty.call(r, DEVICE_SCHEME),
       ),
     ).toBe(true);
-    expect(
-      docLevel.some((r) => Object.prototype.hasOwnProperty.call(r, "clerkJwt")),
-    ).toBe(false);
+    for (const removed of [OPERATOR_SCHEME, "clerkJwt"]) {
+      expect(
+        docLevel.some((r) => Object.prototype.hasOwnProperty.call(r, removed)),
+      ).toBe(false);
+    }
+    expect(definedSchemeNames(doc).has(OPERATOR_SCHEME)).toBe(false);
   });
 
   it("the `operator-identity` scheme is http bearer with `bearerFormat: JWT`", () => {
     for (const [dirParts, id] of [
       [[], "pos-operators.openapi"],
       [[], "pos-shifts.openapi"],
-      [["pos-payments"], "vouchers"],
     ] as Array<[string[], string]>) {
       const doc = loadDoc(dirParts, id);
       const scheme = doc.components?.securitySchemes?.[OPERATOR_SCHEME];
