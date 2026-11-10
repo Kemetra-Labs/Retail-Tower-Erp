@@ -13,10 +13,12 @@ info:
     **Posture (RT-1316, `[GATED]`, description only).** `1.7.0-draft`
     rewrites the `TerminalPairRequest.pairing_code` description. It no
     longer says the format is opaque to the POS and must be sent exactly
-    as entered: the POS now normalises a Console-shaped code (spaces and
+    as entered: the POS now normalises a Console-shaped code (whitespace and
     dashes removed, upper case, sent only when the result is 16 characters
     from the Console alphabet) and sends any other entry trimmed and
     otherwise unchanged (owner decision 2026-11-10, "Console codes only").
+    It also tells the owner to supply a bootstrap code that would normalise
+    to that shape in upper case without separators.
     The server still matches the SHA-256 of the exact value it receives.
     The wire is unchanged: no operation, field, type, pattern or length
     changes.
@@ -866,14 +868,17 @@ components:
             (`consoleIssuePairingCode`: 16 characters from the alphabet
             `ABCDEFGHJKMNPQRSTVWXYZ23456789`, which has no look-alikes) or
             the owner-run bootstrap CLI (24 base64url characters with
-            `--generate`). The POS terminal normalises only Console-shaped
-            codes (RT-1316): it removes spaces and dashes from the entry and
-            upper-cases it, and when the result is exactly 16 characters,
-            all from that alphabet, it sends the result. Any other entry,
-            such as a bootstrap CLI code, is sent trimmed and otherwise
-            exactly as entered. The server does no normalisation: it matches
-            the SHA-256 of the exact value it receives. Single-use: a
-            successful pair burns the code server-side.
+            `--generate`, or a code the owner supplies). The POS terminal
+            normalises only Console-shaped codes (RT-1316): it removes
+            whitespace and dashes from the entry and upper-cases it, and when
+            the result is exactly 16 characters, all from that alphabet, it
+            sends the result. Any other entry, such as a generated bootstrap
+            CLI code, is sent trimmed and otherwise exactly as entered. An
+            owner-supplied bootstrap code that normalises to the Console
+            shape is therefore sent normalised, so supply such a code in
+            upper case without separators. The server does no normalisation:
+            it matches the SHA-256 of the exact value it receives.
+            Single-use: a successful pair burns the code server-side.
 
     TerminalPairResponse:
       type: object

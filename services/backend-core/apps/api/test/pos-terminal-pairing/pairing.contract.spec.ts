@@ -426,9 +426,12 @@ describe("pos-terminal-pairing.yaml — TerminalPairRequest shape", () => {
     const props = schema?.["properties"] as Record<string, { description?: string; pattern?: string }> | undefined;
     const text = String(props?.["pairing_code"]?.description).replace(/\s+/g, " ");
     expect(text).toContain("`ABCDEFGHJKMNPQRSTVWXYZ23456789`");
-    expect(text).toMatch(/removes spaces and dashes from the entry and upper-cases it/);
+    expect(text).toMatch(/removes whitespace and dashes from the entry and upper-cases it/);
     expect(text).toMatch(/exactly 16 characters, all from that alphabet, it sends the result/);
-    expect(text).toMatch(/Any other entry, such as a bootstrap CLI code, is sent trimmed and otherwise exactly as entered/);
+    expect(text).toMatch(
+      /Any other entry, such as a generated bootstrap CLI code, is sent trimmed and otherwise exactly as entered/,
+    );
+    expect(text).toMatch(/owner-supplied bootstrap code that normalises to the Console shape is therefore sent normalised/);
     expect(text).toMatch(/The server does no normalisation: it matches the SHA-256 of the exact value it receives/);
     expect(text).not.toMatch(/Format is opaque/);
     expect(props?.["pairing_code"]?.pattern).toBeUndefined();
