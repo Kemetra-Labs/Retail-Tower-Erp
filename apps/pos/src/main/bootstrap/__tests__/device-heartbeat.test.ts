@@ -46,7 +46,9 @@ const ackOf = (revision: number): Response =>
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 
-function wire(opts: { revision?: number; token?: string | null; status?: number } = {}) {
+function wire(
+  opts: { revision?: number; token?: string | null; status?: number; processEnv?: boolean } = {},
+) {
   const starters: [string, PairedWorkerStarter][] = [];
   const stops: [string, () => void][] = [];
   const sent: { url: string; init: RequestInit | undefined }[] = [];
@@ -76,7 +78,7 @@ function wire(opts: { revision?: number; token?: string | null; status?: number 
         return () => listeners.delete(listener);
       },
     },
-    env: { POS_PULSE_UPDATE_CHANNEL: 'canary' },
+    ...(opts.processEnv ? {} : { env: { POS_PULSE_UPDATE_CHANNEL: 'canary' } }),
   };
   registerDeviceHeartbeat(deps);
   const bodies = (): Record<string, unknown>[] =>
@@ -124,6 +126,19 @@ describe('RT-1312 — registerDeviceHeartbeat', () => {
       source_clock_at: '2026-11-10T12:00:00.000Z',
     });
     for (const [, stop] of w.stops) stop();
+  });
+
+  it('reads the update channel from the process environment when no env is passed', async () => {
+    vi.stubEnv('POS_PULSE_UPDATE_CHANNEL', 'stable');
+    try {
+      const w = wire({ processEnv: true });
+      w.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.bodies()[0]?.['update_channel']).toBe('stable');
+      for (const [, stop] of w.stops) stop();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('sends the real sale-queue counts one cool-down after a revision 2 reply', async () => {
