@@ -493,8 +493,16 @@ function decodePageToken(
     // Scope-bound: a page token from another scope is non-disclosingly rejected.
     throw new ReadDownCursorError("page_token scope mismatch");
   }
-  if (payload.q !== undefined && (typeof payload.q !== "string" || !/^\d+$/.test(payload.q))) {
+  if (payload.q !== undefined && !isBigintSequence(payload.q)) {
     throw new ReadDownCursorError("malformed page_token");
   }
   return { afterProductId: payload.a, sequence: payload.q ?? null };
+}
+
+/** Postgres bigint max: a larger pinned head would reach `$n::bigint` as a database error (a 500). */
+const BIGINT_MAX = 9223372036854775807n;
+
+/** RT-1312: a decimal-digit string that fits a Postgres bigint (the change-log `sequence`). */
+function isBigintSequence(value: unknown): value is string {
+  return typeof value === "string" && /^\d{1,19}$/.test(value) && BigInt(value) <= BIGINT_MAX;
 }

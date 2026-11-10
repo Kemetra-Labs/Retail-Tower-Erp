@@ -9,7 +9,7 @@
  */
 import type { Pool, PoolClient } from "pg";
 
-import { decodeCursor } from "../../../../src/catalog/read-down/read-down.cursor";
+import { ReadDownCursorError, decodeCursor } from "../../../../src/catalog/read-down/read-down.cursor";
 import { ReadDownService } from "../../../../src/catalog/read-down/read-down.service";
 import { encodeOpaque } from "../../../../src/common/cursor/opaque-cursor";
 
@@ -54,5 +54,17 @@ describe("RT-1312 F19 snapshot cursor pinned across pages", () => {
     const page = await service.getSnapshot(TENANT, STORE, { pageToken: legacyToken });
 
     expect(decodeCursor(page.cursor, TENANT, STORE).sequence).toBe("999");
+  });
+
+  it.each([
+    ["30 digits", "9".repeat(30)],
+    ["one above bigint max", "9223372036854775808"],
+    ["not digits", "12a"],
+  ])("a page token whose pinned head is out of range (%s) is a cursor error, never a database error", async (_label, q) => {
+    const { pool } = fakePool("999");
+    const service = new ReadDownService(pool);
+    const pageToken = encodeOpaque({ t: TENANT, s: STORE, a: AFTER, q });
+
+    await expect(service.getSnapshot(TENANT, STORE, { pageToken })).rejects.toBeInstanceOf(ReadDownCursorError);
   });
 });
