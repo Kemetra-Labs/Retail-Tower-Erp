@@ -30,6 +30,7 @@ import request from 'supertest';
 
 import { DashboardAuthGuard } from '../../../src/auth/dashboard-auth.guard';
 import { GlobalExceptionFilter } from '../../../src/common/exception.filter';
+import { RolesGuard } from '../../../src/auth/roles.guard';
 import { TenantContextGuard } from '../../../src/context/tenant-context.guard';
 import type { ResolvedContext } from '../../../src/context/types';
 import { InventoryController } from '../../../src/inventory/inventory.controller';
@@ -91,6 +92,10 @@ beforeAll(async () => {
     .useValue(new PassAuthGuard())
     .overrideGuard(TenantContextGuard)
     .useValue(contextGuard)
+    // RT-1312 F7: the inventory write role gate is proven end to end in
+    // session-store-authz.rls.spec.ts; this suite's subject is unchanged.
+    .overrideGuard(RolesGuard)
+    .useValue({ canActivate: () => true })
     .compile();
 
   app = moduleRef.createNestApplication({ bufferLogs: true });

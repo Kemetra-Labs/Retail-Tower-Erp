@@ -33,6 +33,7 @@ import {
 } from '../../../src/idempotency/in-progress-marker';
 import { PG_POOL } from '../../../src/auth/auth.module';
 import { DashboardAuthGuard } from '../../../src/auth/dashboard-auth.guard';
+import { RolesGuard } from '../../../src/auth/roles.guard';
 import { TenantContextGuard } from '../../../src/context/tenant-context.guard';
 import type { ResolvedContext } from '../../../src/context/types';
 import { IdempotencyKeyStore } from '@data-pulse-2/shared';
@@ -217,6 +218,10 @@ export async function startTransferHarness(): Promise<HarnessHandle> {
       .overrideGuard(DashboardAuthGuard)
       .useValue({ canActivate: () => true })
       .overrideGuard(TenantContextGuard)
+      .useValue({ canActivate: () => true })
+      // RT-1312 F7: the inventory write role gate is proven end to end in
+      // session-store-authz.rls.spec.ts; this suite's subject is unchanged.
+      .overrideGuard(RolesGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

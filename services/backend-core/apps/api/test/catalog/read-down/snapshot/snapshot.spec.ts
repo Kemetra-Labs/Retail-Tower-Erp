@@ -187,6 +187,32 @@ describe("posGetCatalogSnapshot — pagination (T033)", () => {
     const secondIds = secondBody.items.map((r) => r.product_id);
     expect(firstIds.filter((id) => secondIds.includes(id))).toEqual([]);
   });
+
+  it("RT-1312 F19 (RT447-F05): a catalog edit between pages keeps the pinned cursor", async () => {
+    if (skip()) return;
+    const first = await h.harness!.http().get("/api/pos/v1/catalog/snapshot").query({ limit: 1 });
+    expect(first.status).toBe(200);
+    const firstBody = first.body as SnapshotPage;
+    expect(typeof firstBody.next_page_token).toBe("string");
+
+    // A tenant catalog edit mid-walk advances the change-log head. The rename is reverted
+    // afterwards (two more log rows, no lasting data change for the other tests).
+    const admin = h.harness!.env.admin;
+    const ACTOR_A = "0a000000-0000-7000-8000-0000000000ac";
+    const original = await admin.query<{ name: string }>(`SELECT name FROM tenant_products WHERE id = $1`, [F.sellableProduct]);
+    await admin.query(`UPDATE tenant_products SET name = name || ' (rt1312)', updated_by = $2 WHERE id = $1`, [F.sellableProduct, ACTOR_A]);
+    try {
+      const second = await h.harness!
+        .http()
+        .get("/api/pos/v1/catalog/snapshot")
+        .query({ limit: 1, page_token: firstBody.next_page_token });
+      expect(second.status).toBe(200);
+      // The POS rejects a walk whose cursor changes (read-down-client.ts); the server must keep it.
+      expect((second.body as SnapshotPage).cursor).toBe(firstBody.cursor);
+    } finally {
+      await admin.query(`UPDATE tenant_products SET name = $2, updated_by = $3 WHERE id = $1`, [F.sellableProduct, original.rows[0]!.name, ACTOR_A]);
+    }
+  });
 });
 
 // ===========================================================================

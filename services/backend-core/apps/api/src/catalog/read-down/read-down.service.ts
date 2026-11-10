@@ -138,11 +138,21 @@ export class ReadDownService {
         // platform-admin bypass, which would break §II store isolation).
         await pinOverrideStore(client, storeId);
 
+        // Page boundary: products are ordered by product_id; page_token carries
+        // the last product_id SCANNED at this cursor point (sellable or not).
+        const page = opts.pageToken ? decodePageToken(opts.pageToken, tenantId, storeId) : null;
+
         // Pin the snapshot cursor: reuse the caller's pinned head if continuing
         // a page set, else read the current change-log head sequence (FR-011).
+        // RT-1312 F19 (RT447-F05): the page token carries the head pinned on the
+        // first page, so a catalog edit mid-walk never changes the cursor (the POS
+        // rejects a walk whose cursor drifts). A token without one (issued before
+        // this change) continues at the current head, as before.
         let head: SnapshotCursor;
         if (opts.cursorToken) {
           head = decodeCursor(opts.cursorToken, tenantId, storeId);
+        } else if (page?.sequence) {
+          head = { tenantId, storeId, sequence: page.sequence };
         } else {
           const r = await client.query<{ head: string | null }>(
             `SELECT max(sequence)::text AS head FROM catalog_change_log
@@ -153,11 +163,7 @@ export class ReadDownService {
         }
         const cursor = encodeCursor(head);
 
-        // Page boundary: products are ordered by product_id; page_token carries
-        // the last product_id SCANNED at this cursor point (sellable or not).
-        const afterProductId = opts.pageToken
-          ? decodePageToken(opts.pageToken, tenantId, storeId)
-          : null;
+        const afterProductId = page?.afterProductId ?? null;
 
         // Resolved(store) = Tenant ⊕ Store Override (003 §6.4), paginated by
         // product_id. Over-fetch by 1 to detect a next page.
@@ -189,7 +195,7 @@ export class ReadDownService {
         const lastScanned = scanned.at(-1);
         const next_page_token =
           resolved.length > limit && lastScanned
-            ? encodePageToken({ tenantId, storeId, afterProductId: lastScanned.product_id })
+            ? encodePageToken({ tenantId, storeId, afterProductId: lastScanned.product_id, sequence: head.sequence })
             : null;
 
         return { items, cursor, next_page_token };
@@ -463,17 +469,20 @@ interface PageTokenPayload {
   tenantId: string;
   storeId: string;
   afterProductId: string;
+  /** RT-1312 F19: the change-log head pinned on the first page (decimal string). */
+  sequence: string;
 }
 
 function encodePageToken(p: PageTokenPayload): string {
-  return encodeOpaque({ t: p.tenantId, s: p.storeId, a: p.afterProductId });
+  return encodeOpaque({ t: p.tenantId, s: p.storeId, a: p.afterProductId, q: p.sequence });
 }
 
+/** The page position plus the pinned head; `sequence` is null for a token issued before RT-1312. */
 function decodePageToken(
   token: string,
   tenantId: string,
   storeId: string,
-): string {
+): { afterProductId: string; sequence: string | null } {
   const payload = decodeOpaque(token, anyJsonObject, () => new ReadDownCursorError("malformed page_token"));
   if (
     payload.t !== tenantId ||
@@ -484,5 +493,8 @@ function decodePageToken(
     // Scope-bound: a page token from another scope is non-disclosingly rejected.
     throw new ReadDownCursorError("page_token scope mismatch");
   }
-  return payload.a;
+  if (payload.q !== undefined && (typeof payload.q !== "string" || !/^\d+$/.test(payload.q))) {
+    throw new ReadDownCursorError("malformed page_token");
+  }
+  return { afterProductId: payload.a, sequence: payload.q ?? null };
 }
