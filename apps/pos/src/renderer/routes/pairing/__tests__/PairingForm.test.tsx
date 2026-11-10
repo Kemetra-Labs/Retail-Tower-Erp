@@ -723,11 +723,14 @@ describe('PairingForm — BRANCH_MISMATCH outcome (T050)', () => {
     expect(set.size).toBe(2);
   });
 
-  it('BRANCH_MISMATCH copy mentions admin / different branch (operator action hint)', () => {
+  it('BRANCH_MISMATCH copy asks the admin for a new code (operator action hint)', () => {
     // Pin the action-oriented shape of the copy at the dictionary level
     // so a future copy edit does not accidentally drop the admin hint.
-    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/لفرع آخر/);
-    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/المشرف/);
+    // RT-1316 (owner decision 2026-11-10): under the RT-367 identity model
+    // there is no "unpair", and the copy names no branch.
+    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/رمزًا جديدًا/);
+    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/المسؤول/);
+    expect(BRANCH_MISMATCH_MESSAGE).not.toMatch(/فرع/);
   });
 
   it('on outcome=branch_mismatch: form remains editable (input + button enabled)', async () => {
