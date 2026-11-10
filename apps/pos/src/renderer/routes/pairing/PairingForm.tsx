@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type SyntheticEvent, type JSX } from 'reac
 import { useNavigate } from 'react-router-dom';
 
 import { messageFor, EMPTY_INPUT_MESSAGE } from './messages';
+import { normalisePairingCode } from './normalise-code';
 import { PAIRING_COPY } from '../../v5/entry/entry-copy';
 import { RefusalNotice } from '../../v5/entry/RefusalNotice';
 import type { PairingBridgeAPI, PreloadBridgeAPI } from '../../../shared/bridge-api';
@@ -134,7 +135,9 @@ export function PairingForm(props: Readonly<PairingFormProps>): JSX.Element {
   async function performSubmit(): Promise<void> {
     if (submitting) return;
     if (isRateLimited) return;
-    const code = inputRef.current?.value.trim() ?? '';
+    // RT-1316: read from the ref (live DOM value, wedge-safe) and normalise a
+    // Console code only at submit; the field keeps what the installer typed.
+    const code = normalisePairingCode(inputRef.current?.value ?? '');
     if (code.length === 0) {
       // T045: visible client-side validation. Replaces the silent
       // no-op the form had in US2. No bridge call; the operator sees

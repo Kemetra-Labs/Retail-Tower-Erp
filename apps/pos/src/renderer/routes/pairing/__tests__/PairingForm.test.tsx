@@ -171,6 +171,33 @@ describe('PairingForm — manual entry (T027)', () => {
     });
     expect(submit).toHaveBeenCalledWith('PADDED-CODE');
   });
+
+  it('RT-1316: a lower-case, grouped Console code typed then Enter is sent canonical', async () => {
+    const user = userEvent.setup();
+    const { bridge, submit } = makeBridge();
+    renderInRouter(bridge);
+
+    const input = screen.getByRole('textbox');
+    await user.type(input, ' abcd-2345 efgh-6789 {Enter}');
+
+    await waitFor(() => {
+      expect(submit).toHaveBeenCalledTimes(1);
+    });
+    expect(submit).toHaveBeenCalledWith('ABCD2345EFGH6789');
+    // Normalised only on submit: the field keeps what the installer typed.
+    expect(input).toHaveValue(' abcd-2345 efgh-6789 ');
+  });
+
+  it('RT-1316: separators-only input shows the empty-input message and sends nothing', async () => {
+    const user = userEvent.setup();
+    const { bridge, submit } = makeBridge();
+    renderInRouter(bridge);
+
+    await user.type(screen.getByRole('textbox'), ' - - {Enter}');
+
+    expect(await screen.findByText(EMPTY_INPUT_MESSAGE)).toBeInTheDocument();
+    expect(submit).not.toHaveBeenCalled();
+  });
 });
 
 describe('PairingForm — wedge scanner (T028)', () => {
@@ -193,6 +220,23 @@ describe('PairingForm — wedge scanner (T028)', () => {
       expect(submit).toHaveBeenCalledTimes(1);
     });
     expect(submit).toHaveBeenCalledWith('VALIDCODE');
+  });
+
+  it('RT-1316: a scanned grouped Console code (keys then Enter) is sent canonical', async () => {
+    const user = userEvent.setup();
+    const { bridge, submit } = makeBridge();
+    renderInRouter(bridge);
+
+    const input = screen.getByRole('textbox');
+    await waitFor(() => {
+      expect(input).toHaveFocus();
+    });
+    await user.keyboard('ABCD-2345-EFGH-6789{Enter}');
+
+    await waitFor(() => {
+      expect(submit).toHaveBeenCalledTimes(1);
+    });
+    expect(submit).toHaveBeenCalledWith('ABCD2345EFGH6789');
   });
 
   it('does NOT submit on focus alone (no extra submit on autofocus)', async () => {
