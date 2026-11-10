@@ -402,6 +402,15 @@ describe("consoleIssuePairingCode", () => {
     expect((await pair(issued.code)).status).toBe(410);
   });
 
+  it("applies the 24 h default when no TTL is given (RT-1316)", async () => {
+    if (skip()) return;
+    const issued = await issueOk(SES_OWNER_ALL, { storeId: STORE_A_X });
+    const ttl = Date.parse(issued.expiresAt) - Date.parse(issued.createdAt);
+    expect(ttl).toBe(1440 * 60_000);
+    const [audit] = await auditRows("pos.device.pairing_code.issued", issued.pairingCodeId);
+    expect(audit?.["metadata"]).toMatchObject({ ttl_minutes: 1440 });
+  });
+
   it("keeps a given label", async () => {
     if (skip()) return;
     const issued = await issueOk(SES_OWNER_ALL, { storeId: STORE_A_X, terminalLabel: "Counter 9" });
