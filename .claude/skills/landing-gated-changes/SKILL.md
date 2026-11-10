@@ -58,6 +58,23 @@ State this in the PR body.
   in `apps/admin-console`, committing the regenerated client; the Connector PIN by hand), as #317
   and #321 did. Never pin a branch-only commit: CI reads the pinned commit from git, and a squash
   merge drops it. Each slice is its own issue when the consumers are out of scope.
+- **A default value or description edit is not a break (RT-1316, #485).** oasdiff rates
+  `request-property-default-value-changed` as INFO, and `tools/oasdiff/severity-levels.txt` does not
+  raise it. `contracts/check` only fails on WARN or ERR, so a changed `default:`, a rewritten
+  description or an `info.version` bump leaves `bc/oasdiff` and `contracts/check` green even though
+  the consumer PINs still list the old blob (#485 changed the pinned `devices.openapi.yaml` and
+  `pos-terminal-pairing.openapi.yaml` and passed with no repin). Do not repin, and do not edit a
+  vendored copy under `apps/pos/contracts/` in the same PR: that breaks its pin hash. The copy and
+  the generated `api-types.ts` catch up at the next repin to a `main` commit. State this in the PR.
+- **Bumping `info.version` breaks version-pinning specs.** Backend-Core specs assert contract
+  versions (for example `devices*.contract.spec.ts` and `pos-terminal-pairing/*.contract.spec.ts`).
+  Grep `services/backend-core/apps/api/test` for the old version string (and its escaped form,
+  `1\.7\.0`) before the first push, and add a version note paragraph in the contract's own style.
+  Record the new version in the shared notes folder when a sibling session drafts against the same
+  file, so it takes the next one.
+- **Check the other copies of a number or rule you change.** After a contract default moves, grep the
+  consumers for the old value: #485 left the Console help text, the POS runbook and the owner-run
+  bootstrap CLI default at 60, which is correct only when each is owned by a named phase or issue.
 
 ## Migrations (`services/backend-core/packages/db/drizzle/`)
 
