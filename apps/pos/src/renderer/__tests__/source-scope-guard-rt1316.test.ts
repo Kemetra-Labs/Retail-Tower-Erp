@@ -72,7 +72,7 @@ describe('source-scope guard — RT-1316 exemption is narrow', () => {
     );
     expect(guard.match(/isRt1316ExemptFile/g)).toHaveLength(2); // import + use
     expect(guard).toMatch(
-      /!isRt1110ExemptFile\(currentBranch, file\) &&\s*!isRt1316ExemptFile\(currentBranch, file\)/,
+      /ExemptFile\(currentBranch, file\) &&\s*!isRt1316ExemptFile\(currentBranch, file\)/,
     );
   });
 });

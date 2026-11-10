@@ -43,6 +43,7 @@ import { reverseVoucher } from '../../../src/main/payments/voucher-authority-cli
 import { runLivenessProbe } from '../../../src/main/terminal-status/liveness-probe.js';
 import { createBackendTransport } from '../../../src/main/http/transport.js';
 import { createTelemetryConfigClient } from '../../../src/main/observability/telemetry-config.js';
+import { createHeartbeatClient } from '../../../src/main/device-health/heartbeat-client.js';
 import {
   CAPTURE_TERMINAL_TAG,
   createTunnelRequestExecutor,
@@ -270,6 +271,9 @@ const telemetryConfigClient = (fetch: FetchLike): ReturnType<typeof createTeleme
     readToken: () => Promise.resolve(SENTINEL.device),
   });
 
+const heartbeatClient = (fetch: FetchLike): ReturnType<typeof createHeartbeatClient> =>
+  createHeartbeatClient({ baseUrl: BASE_URL, fetch });
+
 const BACKEND_CLIENT = 'src/main/operator/backend-client.ts';
 const CASHIER_ADMISSION_CLIENT = 'src/main/operator/cashier-admission-client.ts';
 const CASHIER_ADMISSION_WIRING =
@@ -291,6 +295,7 @@ const SHIFT_SYNC_ENVELOPE_WIRING =
 const LIVENESS_PROBE = 'src/main/terminal-status/liveness-probe.ts';
 const TELEMETRY_CONFIG_MODULE = 'src/main/observability/telemetry-config.ts';
 const TUNNEL_TRANSPORT_MODULE = 'src/main/observability/tunnel-transport.ts';
+const HEARTBEAT_MODULE = 'src/main/device-health/heartbeat-client.ts';
 const TELEMETRY_WIRING =
   'bootstrap/telemetry.ts bind(): `readToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215), on the shared base fetch BEFORE the terminal-status observer (a telemetry 401 never counts toward a revocation)';
 
@@ -327,6 +332,9 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   // transport) and the envelope forward.
   { module: TELEMETRY_CONFIG_MODULE, fetchCallSites: 0, surface: telemetryConfigClient },
   { module: TUNNEL_TRANSPORT_MODULE, fetchCallSites: 1 },
+  // RT-1312 Phase 1: the device heartbeat with the sale queue counts (device bearer, on the
+  // shared transport).
+  { module: HEARTBEAT_MODULE, fetchCallSites: 0, surface: heartbeatClient },
 ];
 
 /** Modules that call `fetch` but not Backend-Core. Each needs a reason. */
@@ -755,6 +763,18 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
 {"type":"event"}
 {"tags":{"${CAPTURE_TERMINAL_TAG}":"${UUID}"}}
 `,
+      }),
+  },
+  {
+    id: 'heartbeatClient.report',
+    module: HEARTBEAT_MODULE,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/terminals/heartbeat',
+    wiring:
+      'bootstrap/device-heartbeat.ts: `readToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215), on the shared backendFetch',
+    invoke: (fetch) =>
+      heartbeatClient(fetch).report(SENTINEL.device, {
+        source_clock_at: '2026-11-10T12:00:00.000Z',
       }),
   },
   {

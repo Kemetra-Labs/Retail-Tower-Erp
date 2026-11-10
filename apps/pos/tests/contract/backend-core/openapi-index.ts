@@ -7,7 +7,7 @@
  *
  * It fails loudly instead of guessing: every `operationId:` in a file must belong
  * to an extracted operation, and every security scheme must be declared, HTTP
- * bearer, and mapped to a POS credential kind. A Backend-Core formatting change
+ * bearer (or the human session cookie, RT-1312), and mapped to a POS credential kind. A Backend-Core formatting change
  * therefore turns the suite red at re-pin time rather than silently dropping
  * operations.
  */
@@ -16,23 +16,34 @@ import path from 'node:path';
 import { buildTree, child, toLines, type SourceText, type YamlNode } from './yaml-tree.js';
 
 /** The credentials a POS backend client can attach. */
-export type CredentialKind = 'device' | 'operator-jwt' | 'operator-envelope' | 'none';
+export type CredentialKind =
+  | 'device'
+  | 'operator-jwt'
+  | 'operator-envelope'
+  | 'human-session'
+  | 'none';
 
 /**
  * Backend-Core security-scheme NAME → the POS credential that satisfies it. Every
- * scheme here is HTTP bearer (`Authorization: Bearer <token>`); the index checks
- * that too. A scheme missing from this map fails the suite: classify it here.
+ * scheme here is HTTP bearer (`Authorization: Bearer <token>`), except the human
+ * session cookie; the index checks that too. A scheme missing from this map fails
+ * the suite: classify it here.
  *
  *   device                → the paired terminal's device token (read-down, cashier admissions)
  *   operator-identity     → the operator's provider-identity JWT (Clerk today)
  *   clerkJwt              → the legacy name of operator-identity
  *   operatorAuthorization → the opaque pos_operator envelope from sign-in / takeover
+ *   cookieAuth            → the human console session cookie (`dp2_session`, an apiKey in a
+ *                           cookie): no POS client holds it, so a POS call to such a route
+ *                           is always a credential violation (RT-1312 pins
+ *                           `pos-device-health.openapi.yaml`, whose console reads use it)
  */
 export const SCHEME_CREDENTIAL: Readonly<Record<string, CredentialKind>> = {
   device: 'device',
   'operator-identity': 'operator-jwt',
   clerkJwt: 'operator-jwt',
   operatorAuthorization: 'operator-envelope',
+  cookieAuth: 'human-session',
 };
 
 export const HTTP_METHODS = [
@@ -69,7 +80,12 @@ type SecurityRequirements = readonly (readonly string[])[];
 interface Scheme {
   readonly type: string;
   readonly scheme: string;
+  /** Where an `apiKey` scheme travels (`cookie`, `header`, `query`); empty otherwise. */
+  readonly in: string;
 }
+
+/** The scheme shapes the index understands: HTTP bearer, and an apiKey in a cookie. */
+const KNOWN_SCHEME_SHAPES: ReadonlySet<string> = new Set(['http/bearer/', 'apikey//cookie']);
 
 interface Document {
   readonly source: SourceText;
@@ -126,7 +142,7 @@ function readSecurityAt(node: YamlNode | undefined, ctx: Context): SecurityRequi
 function toScheme(node: YamlNode): [string, Scheme] {
   const type = child(node, 'type')?.value ?? '';
   const scheme = (child(node, 'scheme')?.value ?? '').toLowerCase();
-  return [node.key ?? '', { type, scheme }];
+  return [node.key ?? '', { type, scheme, in: child(node, 'in')?.value ?? '' }];
 }
 
 function readSchemes(root: YamlNode): Map<string, Scheme> {
@@ -165,8 +181,9 @@ function rawOperations(doc: Document): RawOperation[] {
 function declaredScheme(op: RawOperation, name: string): Scheme {
   const declared = op.doc.schemes.get(name);
   if (declared === undefined) fail(op, `undeclared security scheme "${name}"`);
-  if (`${declared.type}/${declared.scheme}` !== 'http/bearer') {
-    fail(op, `scheme "${name}" is not HTTP bearer; extend the classifier`);
+  const shape = `${declared.type.toLowerCase()}/${declared.scheme}/${declared.in}`;
+  if (!KNOWN_SCHEME_SHAPES.has(shape)) {
+    fail(op, `scheme "${name}" is not HTTP bearer or a session cookie; extend the classifier`);
   }
   return declared;
 }

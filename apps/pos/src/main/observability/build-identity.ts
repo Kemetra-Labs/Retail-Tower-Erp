@@ -39,6 +39,14 @@ export interface BuildIdentity {
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+/**
+ * The release version this build reports, or null. The contract sends
+ * `X-POS-App-Version`, and the RT-1312 heartbeat body `app_version` (the same
+ * value and bound), only for a release version; POS has no signed release yet,
+ * so both are unknown. When POS releases, set it here, from `app.getVersion()`.
+ */
+export const RELEASE_APP_VERSION: string | null = null;
+
 export const COMMIT_HEADER = 'X-POS-Build-Commit';
 export const CONTRACT_PIN_HEADER = 'X-POS-Contract-Pin';
 /** Every header this module can send (the app version is deliberately absent). */

@@ -32,6 +32,7 @@ import {
   isRt1231ExemptFile,
   isRt1253ExemptFile,
   isRt1110ExemptFile,
+  isRt1312ExemptFile,
   isRt1316ExemptFile,
 } from './source-scope-guard.const';
 import { gitChangedFiles } from './source-scope-guard.git';
@@ -205,6 +206,7 @@ describe('source-scope guard (T006)', () => {
         !isRt1231ExemptFile(currentBranch, file) &&
         !isRt1253ExemptFile(currentBranch, file) &&
         !isRt1110ExemptFile(currentBranch, file) &&
+        !isRt1312ExemptFile(currentBranch, file) &&
         !isRt1316ExemptFile(currentBranch, file),
     );
 

@@ -7,6 +7,7 @@ source: services/backend-core/packages/contracts/openapi
 file: catalog/read-down.yaml cfd32292389741428cfce18cda1a4fcb40944a67
 file: pos-audit-events.openapi.yaml ab45839a09fec3d64eac7cee53081216ee094905
 file: pos-cashier-admissions.openapi.yaml 387c916b2592fac39d3892a8e61857f335ee919a
+file: pos-device-health.openapi.yaml 0550e9652e35a4a1fea103041208e3f0b0e6c66f
 file: pos-operators.openapi.yaml b23920f90376a77705f595fd89c018cc0d048b92
 file: pos-payments/vouchers.yaml 77dce483e5391e2e06370bf2f29dfd720f2f4497
 file: pos-sales/sale-history.yaml 07f4a633e7c7ea0ac272700977646ca6b617b9d3
