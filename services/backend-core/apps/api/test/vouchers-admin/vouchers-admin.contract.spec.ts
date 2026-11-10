@@ -167,7 +167,13 @@ describe("vouchers-admin — issue", () => {
     });
     expect(issue().description).toEqual(expect.stringContaining("Non-replayable"));
     expect(issue().responses?.["409"]?.description).toEqual(expect.stringContaining("idempotency_key_conflict"));
-    expect(issue().responses?.["425"]).toEqual({ $ref: "#/components/responses/TooEarly" });
+    expect(issue().responses?.["425"]).toEqual({ $ref: "#/components/responses/IssueInProgress" });
+  });
+
+  it("tells an issue caller not to retry a 425 with the same key (the codes would be lost)", () => {
+    const text = api.responseDescription("IssueInProgress");
+    expect(text).toEqual(expect.stringContaining("Do not retry"));
+    expect(text).toEqual(expect.stringContaining("idempotency_key_conflict"));
   });
 
   it("never offers an Idempotent-Replayed header on the 201", () => {
@@ -243,8 +249,8 @@ describe("vouchers-admin — secrecy: a code is in the issue response only", () 
     const withCode = Object.keys(schemas).filter((name) =>
       propertyNames(api.shape(schemas[name])).has("code"),
     );
-    // `Error` has `error.code` (the error code, not a voucher code).
-    expect(withCode.sort()).toEqual(["Error", "IssuedVoucher", "VoucherIssueResponse"]);
+    // The two error envelopes have `error.code` (the error code, not a voucher code).
+    expect(withCode.sort()).toEqual(["Error", "IssuedVoucher", "VoucherAdminError", "VoucherIssueResponse"]);
     expect(Object.keys((api.schema("IssuedVoucher")["properties"] ?? {}) as object)).toContain("code");
   });
 
@@ -288,12 +294,20 @@ describe("vouchers-admin — list and read", () => {
       "status",
       "batch_id",
       "eligible_store_id",
-      "expires_after",
+      "expires_from",
       "expires_before",
       "cursor",
       "page_size",
     ]);
     expect(api.param(ISSUE_LIST, "page_size").schema).toMatchObject({ minimum: 1, maximum: 100, default: 50 });
+    expect(api.param(ISSUE_LIST, "cursor").schema).toMatchObject({
+      type: "string",
+      minLength: 1,
+      maxLength: 512,
+      pattern: "^[A-Za-z0-9_-]+$",
+    });
+    expect(api.param(ISSUE_LIST, "expires_from").description).toEqual(expect.stringContaining("inclusive"));
+    expect(api.param(ISSUE_LIST, "expires_before").description).toEqual(expect.stringContaining("exclusive"));
     expect(api.params(ISSUE_LIST).filter((p) => p.in === "header")).toEqual([]);
     expect(api.params(ONE).filter((p) => p.in === "header")).toEqual([]);
   });
@@ -355,6 +369,11 @@ describe("vouchers-admin — cancel (decision 5A)", () => {
     expect(cancel().responses?.["404"]).toEqual({ $ref: "#/components/responses/VoucherNotFound" });
   });
 
+  it("allows a same-key retry of a 425, because cancel is replayable", () => {
+    expect(cancel().responses?.["425"]).toEqual({ $ref: "#/components/responses/CancelInProgress" });
+    expect(api.responseDescription("CancelInProgress")).toEqual(expect.stringContaining("is safe"));
+  });
+
   it("accepts a first cancel and an already-cancelled one, and refuses extra fields", () => {
     const result = validator("VoucherCancelResult");
     expect(result({ voucher_id: ID, status: "cancelled", cancelled_at: AT, already_cancelled: false })).toBe(true);
@@ -381,12 +400,57 @@ describe("vouchers-admin — the closed error set", () => {
     ]);
   });
 
-  it("types the envelope's code with that set", () => {
-    const error = api.schema("Error")["properties"] as Record<string, { properties?: Record<string, unknown> }>;
+  it("types the voucher-domain envelope's code with that set", () => {
+    const error = api.schema("VoucherAdminError")["properties"] as Record<
+      string,
+      { properties?: Record<string, unknown> }
+    >;
     expect(error["error"]?.properties?.["code"]).toEqual({ $ref: "#/components/schemas/VoucherAdminErrorCode" });
-    const envelope = validator("Error");
+    const envelope = validator("VoucherAdminError");
     expect(envelope({ error: { code: "store_not_found", message: "no" } })).toBe(true);
     expect(envelope({ error: { code: "voucher_expired", message: "no" } })).toBe(false);
+  });
+
+  it("keeps the platform envelope's code a free string, so a real 401 or 403 still decodes", () => {
+    const error = api.schema("Error")["properties"] as Record<string, { properties?: Record<string, unknown> }>;
+    expect(error["error"]?.properties?.["code"]).toEqual({ type: "string" });
+    const envelope = validator("Error");
+    expect(envelope({ error: { code: "Unauthorized", message: "Unauthorized" } })).toBe(true);
+    expect(envelope({ error: { code: "origin_rejected", message: "no", request_id: ID } })).toBe(true);
+  });
+
+  it("uses the typed envelope on the voucher-domain 400, 404 and 409, and the free one on 401, 403 and 429", () => {
+    const typed = { $ref: "#/components/schemas/VoucherAdminError" };
+    const bodyOf = (r: unknown): unknown =>
+      (r as { content?: Record<string, { schema?: unknown }> } | undefined)?.content?.["application/json"]?.schema;
+    for (const [id, path, method] of OPERATIONS) {
+      for (const status of ["400", "404", "409"]) {
+        const r = op(path, method).responses?.[status];
+        if (r && !("$ref" in r)) expect([id, status, bodyOf(r)]).toEqual([id, status, typed]);
+      }
+    }
+    expect(bodyOf(doc.components?.responses?.["VoucherNotFound"])).toEqual(typed);
+    for (const name of ["Unauthorized", "Forbidden", "TooManyRequests"]) {
+      expect([name, bodyOf(doc.components?.responses?.[name])]).toEqual([
+        name,
+        { $ref: "#/components/schemas/Error" },
+      ]);
+    }
+  });
+
+  it("declares the platform's 425 body, not the canonical envelope", () => {
+    for (const name of ["IssueInProgress", "CancelInProgress"]) {
+      const r = doc.components?.responses?.[name] as { content?: Record<string, { schema?: unknown }> };
+      expect(r.content?.["application/json"]?.schema).toEqual({ $ref: "#/components/schemas/IdempotencyInProgress" });
+    }
+    const body = validator("IdempotencyInProgress");
+    expect(body({ error: "idempotency_in_progress", retryAfterSec: 2 })).toBe(true);
+    expect(body({ error: "idempotency_in_progress" })).toBe(false);
+    expect(body({ error: "other", retryAfterSec: 2 })).toBe(false);
+  });
+
+  it("declares its tag at the top level", () => {
+    expect((doc as { tags?: Array<{ name: string }> }).tags?.map((t) => t.name)).toEqual(["vouchers-admin"]);
   });
 
   it("answers 429 on every operation with the shared console response", () => {

@@ -6,7 +6,7 @@ info:
     Jira RT-1101 (RT-1098 slice I-1, Post-Pilot). Design record:
     `services/backend-core/docs/planning/rt-922-voucher-issuance.md` §5.2 and
     §5.3. Owner decisions: RT-1098 comments 15289 and 15291 (v1 vouchers are
-    promotional only; 2A, 3A and 5A).
+    promotional only; 1A forfeit, 2A, 3A and 5A).
 
 
     **Posture.** `1.0.0-draft`, `[GATED]` OpenAPI, and **contract-only**: every
@@ -63,8 +63,12 @@ info:
     `voucher_not_found`, `voucher_already_redeemed`, `forbidden`,
     `idempotency_key_required`, `idempotency_key_malformed` and
     `idempotency_key_conflict`. Two platform codes can also appear on any
-    operation: `origin_rejected` (RT-430) and `rate_limited` (RT-574). Every
-    error uses the canonical envelope `{ error: { code, message, request_id } }`.
+    operation: `origin_rejected` (RT-430) and `rate_limited` (RT-574). The
+    voucher-domain 400, 404 and 409 bodies use `VoucherAdminError`, whose
+    `code` is that closed set; the 401, 403 and 429 bodies use the canonical
+    envelope with a free-string `code`; a 425 carries the platform's
+    `IdempotencyInProgress` body. The envelope is
+    `{ error: { code, message, request_id } }`.
     A store, voucher or tenant that is not in scope is the same non-disclosing
     404; no refusal reveals whether an object exists in another tenant.
 
@@ -141,7 +145,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -154,7 +158,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "409":
           description: >
             `store_inactive` (an eligible store exists but is inactive), or
@@ -163,9 +167,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "425":
-          $ref: "#/components/responses/TooEarly"
+          $ref: "#/components/responses/IssueInProgress"
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
@@ -202,16 +206,21 @@ paths:
             Only vouchers that are valid in this store: an "all stores" voucher,
             or a subset voucher that lists it. A store that is not of the tenant
             matches nothing; it is not an error.
-        - name: expires_after
+        - name: expires_from
           in: query
           required: false
           schema: { type: string, format: date-time }
-          description: Only vouchers whose `expires_at` is at or after this instant.
+          description: >
+            Only vouchers whose `expires_at` is at or after this instant
+            (inclusive). A voucher that never expires (`expires_at` null)
+            matches neither bound of the expiry window.
         - name: expires_before
           in: query
           required: false
           schema: { type: string, format: date-time }
-          description: Only vouchers whose `expires_at` is before this instant.
+          description: >
+            Only vouchers whose `expires_at` is before this instant
+            (exclusive).
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/PageSize"
       responses:
@@ -227,7 +236,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -266,7 +275,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -324,7 +333,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -339,11 +348,17 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/VoucherAdminError"
         "425":
-          $ref: "#/components/responses/TooEarly"
+          $ref: "#/components/responses/CancelInProgress"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+tags:
+  - name: vouchers-admin
+    description: >
+      Tenant-scoped promotional voucher issuance for the Admin Console:
+      issue (codes shown once), list, read and cancel. Contract-only until
+      RT-1108.
 components:
   parameters:
     IdempotencyKey:
@@ -369,7 +384,13 @@ components:
       schema:
         type: string
         minLength: 1
-      description: Opaque keyset cursor from a prior page's `next_cursor`. Omit it for the first page.
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `next_cursor`. Do not decode
+        or construct it; omit it for the first page. Reuse it only with the
+        same filters. A value the server did not issue, or cannot decode, is
+        400 `validation_failure`.
     PageSize:
       name: page_size
       in: query
@@ -567,7 +588,31 @@ components:
         - origin_rejected
         - rate_limited
     Error:
-      description: The canonical error envelope (code, message, request_id).
+      description: >
+        The canonical error envelope (code, message, request_id). `code` is a
+        free string, as in the sibling contracts: the platform guards answer
+        401 and 403 with codes this contract does not own, and a client must
+        not fail to decode one it does not know. The voucher-domain 400, 404
+        and 409 bodies use `VoucherAdminError`, whose `code` is the closed set.
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+              description: Non-disclosing; never carries a code, a hash or another tenant's data.
+            request_id:
+              type: string
+              format: uuid
+    VoucherAdminError:
+      description: >
+        The error envelope of the voucher-domain 400, 404 and 409 responses.
+        `code` is one of the closed `VoucherAdminErrorCode` set.
       type: object
       required: [error]
       properties:
@@ -583,6 +628,20 @@ components:
             request_id:
               type: string
               format: uuid
+    IdempotencyInProgress:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: >
+        The platform idempotency interceptor's 425 body (not the canonical
+        envelope).
+      properties:
+        error:
+          type: string
+          enum: [idempotency_in_progress]
+        retryAfterSec:
+          type: integer
+          minimum: 1
   headers:
     ConsoleRetryAfter:
       description: >
@@ -619,18 +678,44 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
-    TooEarly:
+            $ref: "#/components/schemas/VoucherAdminError"
+    IssueInProgress:
       description: >
-        Too Early. The original request with this `Idempotency-Key` is still
-        being processed. Retry after the `Retry-After` interval with the same
-        key and body (a `consoleIssueVouchers` retry after completion is 409,
-        see that operation).
+        Too Early (425): an issue request with this `Idempotency-Key` is still
+        in progress. The key is non-replayable (RT-82 K3): once that request
+        completes, any retry with the same key is 409
+        `idempotency_key_conflict` and never returns the codes. Do not retry
+        with the same key. After `Retry-After` seconds, call
+        `consoleListVouchers`, cancel any stray voucher the lost batch issued,
+        and issue again with a new key. The body is the platform's
+        `IdempotencyInProgress`, not the canonical envelope.
       headers:
         Retry-After:
           schema:
             type: integer
+            minimum: 1
+          description: Seconds to wait before checking.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgress"
+    CancelInProgress:
+      description: >
+        Too Early (425): a cancel with this `Idempotency-Key` is still in
+        progress. Cancel is replayable, so retrying after `Retry-After`
+        seconds with the same key and request is safe: it replays the stored
+        200. The body is the platform's `IdempotencyInProgress`, not the
+        canonical envelope.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
           description: Seconds to wait before retrying.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgress"
     TooManyRequests:
       description: >
         429 `rate_limited` (RT-574): the caller's per-user budget for this
