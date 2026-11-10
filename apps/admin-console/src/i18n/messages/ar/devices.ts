@@ -108,7 +108,8 @@ export const devices = {
   "devices.lastSeen.notRecorded": "غير مسجّل",
   "devices.lastSeen.source.activity": "آخر طلب موثَّق من الجهاز",
   "devices.lastSeen.source.unknown": "مصدر غير معروف",
-  "devices.lastSeen.notHealth": "آخر نشاط لا يعني أن الجهاز سليم. أعداد المبيعات غير المرسلة تأتي من آخر نبضة أرسلها الجهاز.",
+  "devices.lastSeen.notHealth":
+    "آخر نشاط لا يعني أن الجهاز سليم. أعداد المبيعات غير المرسلة تأتي من آخر نبضة أرسلها الجهاز.",
 
   // --- Detail ------------------------------------------------------------------
   "devices.detail.back": "العودة إلى الأجهزة",
