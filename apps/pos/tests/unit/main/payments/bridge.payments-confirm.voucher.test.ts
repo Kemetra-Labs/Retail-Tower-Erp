@@ -154,11 +154,12 @@ describe('T221 — payments.confirm voucher path', () => {
     });
   });
 
-  it('RT-1110: a session with no cashier admission (no user_id) never calls redeem: the attempt fails dependency_unavailable', async () => {
+  it('RT-1110: a session with no cashier admission (no user_id) is refused role_denied before any redeem: the attempt stays retryable', async () => {
     // Device-only credential: `operatorUserId` is the admitted cashier's `users.id`. A
     // manager / admin session (or a session that is not the attempt's operator) has none,
-    // so nothing is sent to V-A (it would be refused 403) and the attempt fails like any
-    // redeem that did not succeed. Nothing was redeemed, so nothing is reversed.
+    // so nothing is sent to V-A (it would be refused 403). The confirm is refused before any
+    // side effect: nothing is redeemed or reversed, and the attempt is not failed, so a
+    // correctly admitted cashier can still confirm it.
     const sessionSource = makeSessionSource(makeSession({ role: 'manager' }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });
     const voucherLine = makeLineRow({
@@ -188,11 +189,11 @@ describe('T221 — payments.confirm voucher path', () => {
     });
     expect(await handler(validRequest())).toEqual({
       kind: 'refused',
-      reason: 'dependency_unavailable',
+      reason: 'role_denied',
     });
     expect(redeemVoucher).not.toHaveBeenCalled();
     expect(reverseVoucher).not.toHaveBeenCalled();
-    expect(fsm.fail).toHaveBeenCalledTimes(1);
+    expect(fsm.fail).not.toHaveBeenCalled();
     expect(fsm.confirm).not.toHaveBeenCalled();
   });
 

@@ -270,6 +270,37 @@ interface SettleContext {
 }
 
 /**
+ * The voucher part of the confirm: refuses before any side effect when the V-A clients are
+ * not wired or there is no cashier claim, else redeems every applied voucher line.
+ */
+async function sweepVoucherLines(
+  ctx: SettleContext,
+  voucherLines: readonly PaymentTenderLineRow[],
+): Promise<RedeemSweepOutcome> {
+  const { deps, voucherDeps, row, session } = ctx;
+  if (voucherDeps === null) {
+    // Pre-Wave-4 deployment: voucher lines cannot settle without the
+    // V-A redeem + reverse clients. Refuse with dependency_unavailable
+    // so the cashier knows the path is offline (defence-in-depth).
+    return { kind: 'failed', response: { kind: 'refused', reason: 'dependency_unavailable' } };
+  }
+  // RT-1110: the redeem claim is the admitted cashier's users.id, as for the sale. With
+  // none (a manager session, or the admission ended), V-A would refuse the claim: refuse
+  // before any side effect, so nothing is redeemed and the attempt stays retryable.
+  const operatorUserId = sellingUserIdOf(session, row.acting_operator_id);
+  if (operatorUserId === null) {
+    return { kind: 'failed', response: { kind: 'refused', reason: 'role_denied' } };
+  }
+  return redeemVoucherLines({
+    ...voucherDeps,
+    ...compensationScope(ctx),
+    operatorUserId,
+    voucherLines,
+    linesRepo: deps.linesRepo,
+  });
+}
+
+/**
  * Wave 4 — voucher redeem sweep (PRE-FSM, T261). For each `internal_voucher`
  * `applied` line the handler calls V-A `vouchers.redeem` BEFORE driving
  * `paymentAttemptFsm.confirm`. HTTP cannot live inside `db.transaction()`. On
@@ -288,20 +319,7 @@ async function sweepAndSettle(ctx: SettleContext): Promise<PaymentsConfirmRespon
     );
   let redeemed: readonly PersistedRedemption[] = [];
   if (voucherLines.length > 0) {
-    if (voucherDeps === null) {
-      // Pre-Wave-4 deployment: voucher lines cannot settle without the
-      // V-A redeem + reverse clients. Refuse with dependency_unavailable
-      // so the cashier knows the path is offline (defence-in-depth).
-      return { kind: 'refused', reason: 'dependency_unavailable' };
-    }
-    const sweep = await redeemVoucherLines({
-      ...voucherDeps,
-      ...compensationScope(ctx),
-      // RT-1110: the redeem claim is the admitted cashier's users.id, as for the sale.
-      operatorUserId: sellingUserIdOf(session, row.acting_operator_id),
-      voucherLines,
-      linesRepo: deps.linesRepo,
-    });
+    const sweep = await sweepVoucherLines(ctx, voucherLines);
     if (sweep.kind === 'failed') return sweep.response;
     redeemed = sweep.persisted;
   }
@@ -417,8 +435,8 @@ interface CompensationInput {
 
 interface RedeemVoucherLinesInput extends CompensationInput {
   voucherLines: readonly PaymentTenderLineRow[];
-  /** RT-1110: V-A `operatorUserId`; null (no cashier admission) means redeem is not called. */
-  operatorUserId: string | null;
+  /** RT-1110: V-A `operatorUserId`, the admitted cashier's users.id. */
+  operatorUserId: string;
   redeemVoucher: (input: RedeemVoucherInput) => Promise<RedeemVoucherOutcome>;
   linesRepo: Pick<PaymentTenderLinesRepository, 'persistAuthorityRedemptionId'>;
 }
@@ -471,11 +489,8 @@ async function redeemVoucherLines(input: RedeemVoucherLinesInput): Promise<Redee
     // Defence-in-depth — an `applied`-state voucher line without an intent
     // token is impossible under T263 / T260, but the row's column is
     // nullable, so we refuse rather than send a malformed V-A request.
-    // RT-1110: likewise with no cashier admission (no `operatorUserId`): V-A would
-    // refuse the claim 403, so it is not called and the sweep fails like any redeem
-    // that did not succeed (nothing is redeemed for this line).
     const outcome =
-      line.voucher_redemption_intent_token === null || operatorUserId === null
+      line.voucher_redemption_intent_token === null
         ? null
         : await redeemVoucher({
             payment_attempt_id: attemptRow.payment_attempt_id,
