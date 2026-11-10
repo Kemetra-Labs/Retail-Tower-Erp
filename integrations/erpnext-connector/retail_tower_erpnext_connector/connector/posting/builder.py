@@ -52,7 +52,7 @@ Payment Entry here: a paid sale carries its own payments; a tender-unknown one s
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from decimal import Decimal, localcontext
+from decimal import Decimal, InvalidOperation, localcontext
 
 from .compatibility_profile import ISO_MINOR_UNITS
 from .contracts import PostingWorkItem, SaleLine
@@ -88,9 +88,15 @@ class SaleTaxNotPosted(Exception):
 
 
 def _assert_no_tax(lines: Sequence[SaleLine]) -> None:
-	"""RT-1312 F5: refuse any line whose ``taxAmount`` is present and non-zero."""
+	"""RT-1312 F5: refuse any line whose ``taxAmount`` is present and non-zero (or unparseable)."""
 	for line in lines:
-		if line.tax_amount is not None and Decimal(line.tax_amount) != 0:
+		if line.tax_amount is None:
+			continue
+		try:
+			taxed = Decimal(line.tax_amount) != 0
+		except InvalidOperation:
+			taxed = True  # a malformed amount is a validation rejection, never an unclassified crash
+		if taxed:
 			raise SaleTaxNotPosted(line)
 
 

@@ -921,3 +921,9 @@ class TestForwardSaleTaxNotDropped:
 	def test_absent_or_zero_tax_still_posts(self, tax_amount):
 		doc = self._build(tax_amount)
 		assert [i["amount"] for i in doc["items"]] == ["200.00"]
+
+	@pytest.mark.parametrize("tax_amount", ["abc", "", "1e"])
+	def test_unparseable_tax_is_a_validation_rejection_not_a_crash(self, tax_amount):
+		# A malformed taxAmount must map to validation, never escape as InvalidOperation ("other").
+		with pytest.raises(b.SaleTaxNotPosted):
+			self._build(tax_amount)

@@ -1152,7 +1152,15 @@ def _submit_atomically(
 		if batch_intents:
 			_verify_batch_postings(sinv.name, batch_intents, inward=bool(doc_payload.get("is_return")))
 	except BaseException:
-		frappe.db.rollback(save_point=_SUBMIT_SAVEPOINT)
+		try:
+			frappe.db.rollback(save_point=_SUBMIT_SAVEPOINT)
+		except Exception:
+			# RT-1312 F3: MariaDB rolls a deadlock victim's WHOLE transaction back, so the savepoint
+			# no longer exists and ROLLBACK TO SAVEPOINT fails. Finish with a full rollback (nothing
+			# un-acked survives a deadlock anyway; acked work was committed per item) and re-raise the
+			# ORIGINAL error, so a deadlock still reaches the transient mapping instead of being
+			# masked as an unclassified permanent rejection.
+			frappe.db.rollback()
 		raise
 	return sinv
 

@@ -411,12 +411,24 @@ class _DeadlockFrappe(_Frappe):
 		super().__init__()
 		self.QueryDeadlockError = type("QueryDeadlockError", (Exception,), {})
 		self.deadlock = True
+		self._savepoint_lost = False
+
+		# MariaDB rolls the deadlock victim's WHOLE transaction back, so the savepoint is gone and
+		# ``ROLLBACK TO SAVEPOINT`` fails (ER_SP_DOES_NOT_EXIST, 1305) — Frappe's rollback(save_point=)
+		# runs exactly that statement. A full rollback still works.
+		def _rollback(save_point=None):
+			if save_point is not None and self._savepoint_lost:
+				raise RuntimeError("(1305, 'SAVEPOINT rt_submit does not exist')")
+			self.events.append("rollback" if save_point is not None else "full_rollback")
+
+		self.db.rollback = _rollback
 
 	def get_doc(self, payload):
 		invoice = super().get_doc(payload)
 		if self.deadlock:
 
 			def _raise():
+				self._savepoint_lost = True
 				raise self.QueryDeadlockError("Deadlock found when trying to get lock")
 
 			invoice.insert = _raise
@@ -438,6 +450,8 @@ class TestDeadlockIsTransient:
 		assert [a["ack"]["outcome"] for a in client.acks] == ["failed_transient", "posted"]
 		assert client.acks[0]["key"] == f"{_SALE_REF}:failed_transient:30"
 		assert fake.events.count("submit") == 1
+		# The lost savepoint did not mask the deadlock: the transaction was fully rolled back.
+		assert fake.events.count("full_rollback") == 1
 
 
 class TestTaxedSaleIsAValidationRejection:
