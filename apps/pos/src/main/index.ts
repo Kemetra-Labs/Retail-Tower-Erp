@@ -1196,8 +1196,8 @@ singleInstanceReady
       auditEmitter,
       pairingStore,
       deviceTokenAttestation,
-      // RT-113 P2 — the cashier takeover is an admission with takeover:true.
-      cashierAdmission,
+      cashierAdmission, // RT-113 P2 — the cashier takeover is an admission with takeover:true.
+      tillClockMs: Date.now, // RT-1312 F18: same till clock check as cashier sign-in
       sessionAdmission,
       logger: mainLogger,
     });

@@ -494,3 +494,21 @@ describe('RT-1312 F18 — the till clock must match the server at cashier sign-i
     expect(sessions.getCurrent()).not.toBeNull();
   });
 });
+
+/** RT-1312 F18 (review): the window is [sent − 120 s, received + 120 s] on the till's wall clock. */
+describe('RT-1312 F18 — the clock check tolerates latency and holds the exact boundary', () => {
+  const SERVER_MS = Date.parse(ADMITTED.server_time);
+
+  it('exactly 120 s off is still accepted', async () => {
+    const { handler } = build(ADMITTED, row, () => SERVER_MS + 120_000);
+    expect((await handler.signIn(request())).kind).toBe('signed_in');
+  });
+
+  it('a slow response never causes a refusal: sent 115 s ahead, answered 30 s later', async () => {
+    // A till 115 s ahead (inside tolerance) whose request took 30 s: measured after the response
+    // alone it would look 145 s ahead. Judged against the send time it is within tolerance.
+    const reads = [SERVER_MS + 115_000, SERVER_MS + 145_000];
+    const { handler } = build(ADMITTED, row, () => reads.shift() ?? SERVER_MS + 145_000);
+    expect((await handler.signIn(request())).kind).toBe('signed_in');
+  });
+});

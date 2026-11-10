@@ -39,11 +39,13 @@ import {
   type PairingEpochReader,
   type PairingEpochTicket,
 } from './pairing-epoch.js';
+import { tillClockSkewed } from './till-clock.js';
 
 /** TTL for proto-sessions: 60 seconds. */
 const PROTO_SESSION_TTL_MS = 60_000;
 
 const REFUSE_INVALID: OperatorRefusal = { kind: 'refused', category: 'invalid_input' };
+const REFUSE_CLOCK_SKEW: OperatorRefusal = { kind: 'refused', category: 'clock_skew' };
 const REFUSE_NO_CONN: OperatorRefusal = { kind: 'refused', category: 'no_connection' };
 
 /**
@@ -115,6 +117,11 @@ export class ProtoSessionStore {
 }
 
 export interface TakeoverHandlerDeps {
+  /**
+   * RT-1312 F18 — the till wall clock (epoch ms); see `CashierSignInHandlerDeps.tillClockMs`. A
+   * cashier takeover admission outside the tolerance is refused `clock_skew`. Tests may omit it.
+   */
+  tillClockMs?: () => number;
   protoStore: ProtoSessionStore;
   sessionManager: SessionManager;
   backend: BackendClient;
@@ -385,6 +392,7 @@ export class TakeoverHandler {
     }
 
     proto.admission_key ??= mintAdmissionKey(admissionDeps);
+    const sentAtMs = this.deps.tillClockMs?.(); // RT-1312 F18: the till clock at send time
     const admission = await admitCashierOnline(admissionDeps, {
       user_id,
       operator_id: proto.operator_id,
@@ -407,6 +415,24 @@ export class TakeoverHandler {
       this.deps.protoStore.delete(proto.pending_takeover_id);
       this.log('refused', 'pairing_changed');
       return REFUSE_INVALID;
+    }
+    // RT-1312 F18 — a till clock off by more than the tolerance would have every cashier sale
+    // refused at sync. A retry cannot succeed until the clock is fixed, so drop the proto-session.
+    const tillClockMs = this.deps.tillClockMs;
+    if (
+      tillClockMs !== undefined &&
+      sentAtMs !== undefined &&
+      tillClockSkewed(admission.server_time, sentAtMs, tillClockMs())
+    ) {
+      this.deps.protoStore.delete(proto.pending_takeover_id);
+      this.log('refused', 'admission_clock_skew');
+      void endAdmissionTracked(
+        admissionDeps,
+        admission.admission_id,
+        admission.admission_generation,
+        user_id,
+      );
+      return REFUSE_CLOCK_SKEW;
     }
     // RT-444 — re-check, and end a locked session, right before create().
     const refusedAtCreate = admissionRefusal(this.deps.sessionAdmission, 'admit', {
