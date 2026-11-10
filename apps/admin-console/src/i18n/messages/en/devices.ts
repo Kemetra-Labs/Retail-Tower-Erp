@@ -103,7 +103,7 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.lastSeen.source.activity": "Last authenticated request from the device",
   "devices.lastSeen.source.unknown": "Unknown source",
   "devices.lastSeen.notHealth":
-    "Last seen does not mean the device is healthy. Device health is not reported yet.",
+    "Last seen does not mean the device is healthy. Unsent-sale counts come from the device's last heartbeat.",
 
   // --- Detail ------------------------------------------------------------------
   "devices.detail.back": "Back to devices",
