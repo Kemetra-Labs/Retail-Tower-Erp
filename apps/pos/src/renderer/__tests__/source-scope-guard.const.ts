@@ -429,6 +429,29 @@ export function isRt1253ExemptFile(branch: string, file: string): boolean {
   );
 }
 
+/**
+ * `rt-1312-p1-pos-heartbeat` implements Jira RT-1312 Phase 1 (owner decision P1-D1): the POS sends
+ * the device heartbeat with the till's unsent sale counts. It pins `pos-device-health.openapi.yaml`
+ * (`npm run contracts:repin`), which regenerates `src/shared/api-types.ts`.
+ *
+ * Authority: the RT-1312 Phase 1 POS heartbeat slice (the contract pin is its first requirement),
+ * following the RT-1253 pattern: exactly ONE file on exactly ONE branch (exact name, no
+ * `startsWith`); the codegen tool stays refused. Narrowness is asserted by
+ * `source-scope-guard-rt1312.test.ts`.
+ */
+export const RT_1312_POS_HEARTBEAT_BRANCH = 'rt-1312-p1-pos-heartbeat' as const;
+export const RT_1312_POS_HEARTBEAT_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-1312 exemption allows on `branch`. */
+export function isRt1312ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1312_POS_HEARTBEAT_BRANCH &&
+    (RT_1312_POS_HEARTBEAT_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
+
 /** True when `file` is one of the files the RT-1181 exemption allows on `branch`. */
 export function isRt1181ExemptFile(branch: string, file: string): boolean {
   return (

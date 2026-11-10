@@ -50,6 +50,9 @@ const STOP_ORDER = [
   // RT-1231 — the audit upload (D-2 privileged events). It writes the audit
   // sync state, so it stops with the sale-sync interval, before the DB closes.
   'audit-sync interval',
+  // RT-1312 — the device heartbeat (start, 15 min, queue change). Its sale-queue
+  // poll reads the sync state, so it stops with the sync workers, before the DB closes.
+  'device heartbeat',
   // RT-603 — the terminal status push (1 s refresh). Its sync read uses the DB,
   // so it stops with the sale-sync drain it reads, before the DB closes.
   'terminal status push',

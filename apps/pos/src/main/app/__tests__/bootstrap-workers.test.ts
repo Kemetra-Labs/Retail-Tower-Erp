@@ -310,3 +310,17 @@ describe('RT-475 — worker registry: the branding read-down', () => {
     expect(order).toEqual(['read-down driver', 'branding read-down', 'sale-sync interval']);
   });
 });
+
+describe('RT-1312 — worker registry: the device heartbeat', () => {
+  it('stops the heartbeat right after the audit-sync interval (its queue read uses the DB)', () => {
+    const order: string[] = [];
+    const registry = createWorkerRegistry({ logger: createRecordingLogger() });
+    registry.register('terminal status push', () => order.push('terminal status push'));
+    registry.register('device heartbeat', () => order.push('device heartbeat'));
+    registry.register('audit-sync interval', () => order.push('audit-sync interval'));
+
+    registry.stopAll();
+
+    expect(order).toEqual(['audit-sync interval', 'device heartbeat', 'terminal status push']);
+  });
+});
