@@ -51,6 +51,31 @@ export const devices = {
   // --- Attention ---------------------------------------------------------------
   "devices.attention.custody": "استثناء عهدة: وردية مفتوحة",
   "devices.attention.pastExpiry": "انتهى الاعتماد (لا يُطبَّق بعد)",
+  "devices.attention.strandedSales": "مبيعات عالقة على الجهاز",
+
+  // --- Unsent sales on the till (RT-1312) --------------------------------------
+  // As of the device's last heartbeat («نبضة»), not live. A null queue is
+  // «غير معروف», never 0; a health read the caller cannot make is «غير متاح».
+  "devices.saleQueue.col": "مبيعات لم تُرسل",
+  "devices.saleQueue.title": "المبيعات التي لم تُرسل من الجهاز",
+  "devices.saleQueue.pending": "بانتظار الإرسال: {count}",
+  "devices.saleQueue.deadLetter": "مرفوضة نهائيًا: {count}",
+  "devices.saleQueue.held": "محجوزة من ربط سابق: {count}",
+  "devices.saleQueue.oldestPending": "أقدم مبيعة معلّقة: {time}",
+  "devices.saleQueue.asOf": "حسب آخر نبضة: {time}",
+  "devices.saleQueue.unknown": "غير معروف",
+  "devices.saleQueue.unavailable": "غير متاح",
+  "devices.saleQueue.loading": "جارٍ التحميل…",
+  "devices.saleQueue.nonePending": "لا توجد مبيعة معلّقة",
+  "devices.saleQueue.loadFailed": "تعذّر تحميل أعداد المبيعات التي لم تُرسل. تظهر الأجهزة بدونها.",
+  "devices.saleQueue.note":
+    "الأعداد كما أبلغ عنها الجهاز في آخر نبضة، وليست لحظية. «غير معروف» يعني أن الجهاز لم يُبلغ عنها بعد.",
+  "devices.saleQueue.field.state": "مبيعات لم تُرسل",
+  "devices.saleQueue.field.pending": "بانتظار الإرسال",
+  "devices.saleQueue.field.deadLetter": "مرفوضة نهائيًا",
+  "devices.saleQueue.field.held": "محجوزة من ربط سابق",
+  "devices.saleQueue.field.oldestPending": "أقدم مبيعة معلّقة",
+  "devices.saleQueue.field.asOf": "حسب آخر نبضة",
 
   // --- Filters -----------------------------------------------------------------
   "devices.filter.label": "تصفية الأجهزة",

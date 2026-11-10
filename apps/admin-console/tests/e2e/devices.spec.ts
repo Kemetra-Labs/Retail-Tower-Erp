@@ -83,6 +83,8 @@ function json(body: unknown, status = 200) {
 
 async function mockBase(page: Page, role: string): Promise<void> {
   await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
+  // RT-1312: the sale-queue read is refused here (unavailable, no banner); unit-tested.
+  await page.route("**/api/v1/device-health**", (r) => r.fulfill({ status: 404 }));
   await page.route("**/api/v1/context/me", (r) => r.fulfill(json(ctx(role))));
   await page.route("**/api/v1/stores", (r) => r.fulfill(json([store])));
   await page.route(`**/api/v1/stores/${DUBAI}`, (r) => r.fulfill(json(store)));

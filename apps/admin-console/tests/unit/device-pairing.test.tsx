@@ -31,6 +31,12 @@ vi.mock("@/lib/device-queries", () => ({
   consoleIssuePairingCode: (...a: unknown[]) => consoleIssuePairingCode(...a),
   consoleCancelPairingCode: vi.fn(),
 }));
+// RT-1312: the sale-queue read has its own suite (device-sale-queue.test.tsx); here it is
+// refused (404), which reads as unavailable and adds no banner.
+vi.mock("@/lib/device-health-queries", () => ({
+  consoleListDeviceHealth: () => Promise.resolve({ status: 404 }),
+  consoleGetDeviceHealth: () => Promise.resolve({ status: 404 }),
+}));
 const readStore = vi.fn();
 const listStores = vi.fn();
 vi.mock("@/lib/rf2-queries", async (importOriginal) => {
