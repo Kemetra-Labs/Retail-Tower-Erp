@@ -144,6 +144,9 @@ export function createHeartbeatScheduler(deps: HeartbeatSchedulerDeps): Heartbea
     const token = await deps.readToken();
     if (stopped) return;
     if (token === null || token === '') {
+      // An attempt without a credential still counts toward the 61 s floor, or a changed
+      // queue would retry (read the token and log) on every 30 s poll while revoked/unpaired.
+      lastAttemptAt = now();
       deps.logger.info({ outcome: 'no_credential' }, OUTCOME_LOG);
       return;
     }

@@ -302,6 +302,45 @@ describe('createHeartbeatScheduler', () => {
     h.scheduler.stop();
   });
 
+  it('a token lost after the gate opened, with changed counts, does not retry every poll (61 s floor)', async () => {
+    let token: string | null = TOKEN;
+    let deadLetter = 0;
+    const h = harness();
+    const readToken = vi.fn(() => Promise.resolve(token));
+    const s = createHeartbeatScheduler({
+      readToken,
+      readFacts: () => ({
+        appVersion: null,
+        updateChannel: 'canary',
+        updateState: 'idle',
+        pendingVersion: null,
+        schemaHead: null,
+        sourceClockAt: new Date(),
+      }),
+      readSaleQueue: () => ({
+        pending: 0,
+        deadLetter,
+        heldPreviousPairing: 0,
+        oldestPendingAt: null,
+      }),
+      client: { report: h.report },
+      logger: h.logger,
+    });
+    s.start();
+    await advance(0); // first beat: the revision 2 reply opens the gate
+    await advance(HEARTBEAT_MIN_GAP_MS); // follow-up beat reports the queue
+    token = null; // revoked / unpaired
+    deadLetter = 1; // the counts now differ from the last reported ones
+    const before = readToken.mock.calls.length;
+    for (let i = 0; i < 6; i += 1) {
+      await advance(HEARTBEAT_POLL_MS);
+    }
+    const attempts = readToken.mock.calls.length - before;
+    // 6 polls x 30 s = 180 s: at most one attempt per 61 s (3), never one per poll (6).
+    expect(attempts).toBeLessThanOrEqual(Math.ceil((6 * HEARTBEAT_POLL_MS) / HEARTBEAT_MIN_GAP_MS));
+    s.stop();
+  });
+
   it('stops every timer, and a reply that lands after stop schedules and reads nothing', async () => {
     const h = harness();
     let release: (o: HeartbeatOutcome) => void = () => undefined;
