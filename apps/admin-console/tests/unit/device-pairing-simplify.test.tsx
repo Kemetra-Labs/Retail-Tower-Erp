@@ -193,7 +193,10 @@ describe("the issued code (RT-1316 AC1, AC7)", () => {
     for (const absent of ["TRN-100200300", "Level 1, Downtown", "Receipt Branch", "REPLACEMENT"]) {
       expect(sheetText).not.toContain(absent);
     }
-    // And out of the page again once printed.
+    // print() returning is not the end of printing in every browser: the sheet
+    // stays until the browser says printing is over, then leaves the page.
+    expect(document.querySelector(".device-print-sheet")).not.toBeNull();
+    fireEvent(window, new Event("afterprint"));
     await waitFor(() => expect(document.querySelector(".device-print-sheet")).toBeNull());
   });
 
@@ -244,6 +247,36 @@ describe("cancel and issue a new code (RT-1316 AC2)", () => {
       (within(dialog).getByLabelText("Store name on receipts") as HTMLInputElement).value,
     ).toBe("");
     expect(consoleIssuePairingCode).not.toHaveBeenCalled();
+    // Focus is in the drawer, not left behind the modal on the page.
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    // Closing it lands on the codes region, never the page body (the confirm is gone).
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.classList.contains("device-codes-region")).toBe(true);
+  });
+
+  test("while the cancel is pending a new issue cannot be opened beside it", async () => {
+    let answer: (value: unknown) => void = () => {};
+    consoleCancelPairingCode.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    renderPage();
+    await screen.findByText("Counter 2");
+    click("Cancel and issue new code");
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Cancel and issue new code" })).getByRole("button", {
+        name: "Cancel and issue new code",
+      }),
+    );
+    await waitFor(() => expect(consoleCancelPairingCode).toHaveBeenCalledTimes(1));
+    const header = screen.getByRole("button", { name: "Issue pairing code" }) as HTMLButtonElement;
+    expect(header.disabled).toBe(true);
+    answer(cancelled);
+    expect(await screen.findByRole("dialog", { name: "Issue pairing code" })).toBeDefined();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
   test("already_cancelled also opens the new issue", async () => {

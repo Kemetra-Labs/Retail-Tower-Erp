@@ -51,6 +51,8 @@ export interface CancelFlow {
   confirming: PairingCodeSummary | null;
   /** The open confirm is for "cancel and issue a new code". */
   reissuing: boolean;
+  /** The last confirm handed its code to `onReissue`: focus belongs to the issue drawer. */
+  handedOff: boolean;
   result?: CancelResult;
   pending: boolean;
   ask: (code: PairingCodeSummary, reissue?: boolean) => void;
@@ -62,6 +64,7 @@ export function useCancelFlow(onReissue?: (code: PairingCodeSummary) => void): C
   const cancel = useCancelPairingCode();
   const [confirming, setConfirming] = useState<PairingCodeSummary | null>(null);
   const [reissuing, setReissuing] = useState(false);
+  const [handedOff, setHandedOff] = useState(false);
   const [result, setResult] = useState<CancelResult | undefined>();
 
   async function confirm(code: PairingCodeSummary): Promise<void> {
@@ -76,17 +79,21 @@ export function useCancelFlow(onReissue?: (code: PairingCodeSummary) => void): C
     } catch {
       setResult({ key: "devices.codes.error.generic", variant: "danger" });
     }
+    const handOff = cancelled && reissuing;
+    setHandedOff(handOff);
     setConfirming(null);
-    if (cancelled && reissuing) onReissue?.(code);
+    if (handOff) onReissue?.(code);
   }
 
   return {
     confirming,
     reissuing,
+    handedOff,
     result,
     pending: cancel.isPending,
     ask: (code, reissue = false) => {
       setReissuing(reissue);
+      setHandedOff(false);
       setConfirming(code);
     },
     keep: () => setConfirming(null),

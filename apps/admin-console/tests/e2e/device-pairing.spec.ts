@@ -360,6 +360,7 @@ test("S8: RT-1316 cancel and issue a new code; the code grouped with a barcode, 
     window.print = () => {
       const sheet = document.querySelector(".device-print-sheet");
       Reflect.set(window, "__printed", sheet ? (sheet.textContent ?? "") : null);
+      window.dispatchEvent(new Event("afterprint"));
     };
   });
 

@@ -28,6 +28,9 @@ export interface PrintDetails {
 
 type CopyState = "idle" | "copied" | "failed";
 
+/** If the browser never says printing is over, the sheet leaves after this. */
+const PRINT_FALLBACK_MS = 60_000;
+
 function PrintSheet({ details }: Readonly<{ details: PrintDetails }>): React.JSX.Element {
   const t = useT();
   return createPortal(
@@ -77,11 +80,19 @@ export function IssuedCodeActions({
   const [copy, setCopy] = useState<CopyState>("idle");
   const [printing, setPrinting] = useState(false);
 
-  // The sheet is in the page now: print it, then take it out again.
+  // The sheet is in the page now: print it, and take it out once the browser says
+  // printing is over. Some browsers return from print() before they snapshot the
+  // page, so the call returning is not the signal; the timer is a fallback.
   useEffect(() => {
     if (!printing) return;
+    const done = () => setPrinting(false);
+    window.addEventListener("afterprint", done, { once: true });
+    const fallback = setTimeout(done, PRINT_FALLBACK_MS);
     window.print();
-    setPrinting(false);
+    return () => {
+      window.removeEventListener("afterprint", done);
+      clearTimeout(fallback);
+    };
   }, [printing]);
 
   async function copyCode(): Promise<void> {

@@ -37,6 +37,12 @@ Trigger rules are in RT-981 comment 14612. The remote-dev workflows share one Ci
 instead of waiting for "no run in progress" (you would keep losing that race; expect a 6 to 15
 minute wait). The 30-per-Cairo-day cap still counts every trigger.
 
+Two suites on one branch: trigger each on its **own** preflight branch (for example
+`<pr-branch>-preflight` and `<pr-branch>-preflight-e2e`, same SHA). A second pipeline on the same
+branch auto-cancels the first as redundant, whatever its `remote_suite` (RT-1316: `admin` was
+cancelled 2 s after `admin-e2e` was triggered on the same branch). The cancelled trigger still
+counts toward the daily cap.
+
 ## Prove a Docker-gated spec really ran
 
 Backend-Core DB specs fail hard without Docker unless `MIGRATION_TEST_ALLOW_SKIP=1` is set; with

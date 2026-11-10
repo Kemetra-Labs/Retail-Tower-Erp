@@ -20,7 +20,7 @@ import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftC
  * the server confirms the cancel, the issue drawer opens for the same store and
  * label.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { PairDrawer, type PairPrefill } from "./PairDrawer";
 import { CodesTable } from "./PairingCodesTable";
@@ -173,8 +173,21 @@ export function PairingCodes(): React.JSX.Element {
   const opened = useRef(0);
   const openPairing = (prefill?: PairPrefill) => {
     opened.current += 1;
-    setPairing({ key: opened.current, prefill });
+    const next = { key: opened.current, prefill };
+    // A drawer already open is never replaced: it may hold a draft or a code shown once.
+    setPairing((open) => open || next);
   };
+  // The drawer gives focus back to what opened it. After a reissue that was the
+  // confirm, now gone, so focus would fall to the page body: the region takes it.
+  const drawerOpen = pairing !== false;
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    const closed = wasOpen.current && !drawerOpen;
+    wasOpen.current = drawerOpen;
+    if (closed && (document.activeElement === null || document.activeElement === document.body)) {
+      region.current?.focus();
+    }
+  }, [drawerOpen]);
   const cancel = useCancelFocus(
     useCancelFlow((code) =>
       openPairing({ storeId: code.storeId, terminalLabel: code.terminalLabel }),
@@ -199,7 +212,12 @@ export function PairingCodes(): React.JSX.Element {
         title={t("devices.codes.title")}
         subtitle={t.rich("devices.codes.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={
-          <button type="button" className="btn-primary" onClick={() => openPairing()}>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={cancel.pending}
+            onClick={() => openPairing()}
+          >
             {t("devices.codes.issue")}
           </button>
         }
