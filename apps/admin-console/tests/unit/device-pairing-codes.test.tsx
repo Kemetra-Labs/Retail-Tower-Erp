@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { MemoryRouter, Route, Routes } from "react-router";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { DEVICE_1, DUBAI_STORE, NEW_YORK_STORE, ctx, failure, stores } from "./device-fixtures";
-import { SECRET_CODE, issued, pending } from "./device-pairing-fixtures";
+import { SECRET_CODE, SECRET_CODE_SHOWN, issued, pending } from "./device-pairing-fixtures";
 
 const consoleListPairingCodes = vi.fn();
 const consoleCancelPairingCode = vi.fn();
@@ -103,6 +103,7 @@ describe("PairingCodes (RT-372 part B)", () => {
     expect(within(rows[2]).getByText("New pairing")).toBeDefined();
     expect(within(rows[2]).getByText("None")).toBeDefined();
     expect(document.body.textContent).not.toContain(SECRET_CODE);
+    expect(document.body.textContent).not.toContain(SECRET_CODE_SHOWN);
     expect(consoleListPairingCodes).toHaveBeenCalledWith({ page_size: 50, cursor: undefined });
   });
 
@@ -237,13 +238,14 @@ describe("PairingCodes (RT-372 part B)", () => {
       taxRegistrationId: "TRN-1",
     });
     expect(key).toMatch(/^[\x21-\x7E]{16,128}$/);
-    expect(await within(dialog).findByText(SECRET_CODE)).toBeDefined();
+    expect(await within(dialog).findByText(SECRET_CODE_SHOWN)).toBeDefined();
     expect(within(dialog).getByText(/Shown only once/)).toBeDefined();
     expect(within(dialog).queryByText(/REPLACEMENT_BLOCKED/)).toBeNull();
     // Closing drops the secret and refreshes the pending list.
     click("Done");
-    expect(screen.queryByText(SECRET_CODE)).toBeNull();
+    expect(screen.queryByText(SECRET_CODE_SHOWN)).toBeNull();
     expect(document.body.textContent).not.toContain(SECRET_CODE);
+    expect(document.body.textContent).not.toContain(SECRET_CODE_SHOWN);
   });
 
   test("an unanswered issue says the outcome is unknown and is not retried", async () => {

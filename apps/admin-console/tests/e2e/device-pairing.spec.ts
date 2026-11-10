@@ -1,7 +1,13 @@
 import type { MessageKey, Params } from "../../src/i18n/translate";
 import { DEVICE_1, DUBAI_STORE, NEW_YORK_STORE, SHIFT_OPEN, detail } from "../unit/device-fixtures";
 import { impact, openShift, revoked } from "../unit/device-lifecycle-fixtures";
-import { CODE_ID, SECRET_CODE, issued, pending } from "../unit/device-pairing-fixtures";
+import {
+  CODE_ID,
+  SECRET_CODE,
+  SECRET_CODE_SHOWN,
+  issued,
+  pending,
+} from "../unit/device-pairing-fixtures";
 import { expectNoAxeViolations } from "./axe";
 import { type Page, expect, test } from "./fixtures";
 
@@ -15,6 +21,8 @@ import { type Page, expect, test } from "./fixtures";
  *   S4 replacement_already_pending: its own message, never retried.
  *   S5 pending codes: list, cancel with confirm, a used code.
  *   S6 after a security revoke, Replace is offered directly.
+ *   S8 RT-1316: cancel and issue a new code; the code grouped, with a barcode,
+ *      Copy and Print for installer; the printout holds no receipt details.
  * RT-399: runs in both locales; copy comes from the catalog (`t`).
  */
 
@@ -103,7 +111,7 @@ test("S1: replace: binding → the server's impact → the code, once, with its 
   await expect(drawer.getByText(t("devices.impact.verdict.allowed"))).toBeVisible();
   await drawer.getByRole("button", { name: t("devices.issue.confirm") }).click();
 
-  await expect(drawer.getByText(SECRET_CODE)).toBeVisible();
+  await expect(drawer.getByText(SECRET_CODE_SHOWN)).toBeVisible();
   await expect(drawer.getByText(t("devices.issue.issued.once"))).toBeVisible();
   await expect(drawer.getByText(/REPLACEMENT_BLOCKED/)).toBeVisible();
   expect(issues.bodies).toEqual([
@@ -119,10 +127,12 @@ test("S1: replace: binding → the server's impact → the code, once, with its 
 
   // Gone with the drawer: not on the page, not in storage, not in the URL.
   await drawer.getByRole("button", { name: t("devices.flow.done") }).click();
-  await expect(page.getByText(SECRET_CODE)).toHaveCount(0);
-  expect(page.url()).not.toContain(SECRET_CODE);
   const stored = await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }));
-  expect(stored).not.toContain(SECRET_CODE);
+  for (const form of [SECRET_CODE, SECRET_CODE_SHOWN]) {
+    await expect(page.getByText(form)).toHaveCount(0);
+    expect(page.url()).not.toContain(form);
+    expect(stored).not.toContain(form);
+  }
 });
 
 test("S2: move: a store-scope refusal (404 on the issue) reads as unavailable", async ({
@@ -147,7 +157,7 @@ test("S2: move: a store-scope refusal (404 on the issue) reads as unavailable", 
   await drawer.getByRole("button", { name: t("devices.issue.confirm") }).click();
   await expect(drawer.getByText(t("devices.issue.error.notFound"))).toBeVisible();
   await expect(drawer.getByText("req-404")).toBeVisible();
-  await expect(drawer.getByText(SECRET_CODE)).toHaveCount(0);
+  await expect(drawer.getByText(SECRET_CODE_SHOWN)).toHaveCount(0);
 });
 
 test("S3: a blocked replace explains what to do and issues nothing", async ({ page, t }) => {
@@ -237,6 +247,7 @@ test("S5: pending codes: list, cancel after a confirm, and a used code", async (
   const rows = page.getByRole("row").filter({ hasText: /Counter/ });
   await expect(rows).toHaveCount(2);
   await expect(page.getByText(SECRET_CODE)).toHaveCount(0);
+  await expect(page.getByText(SECRET_CODE_SHOWN)).toHaveCount(0);
 
   // A used code can't be cancelled.
   await rows
@@ -310,7 +321,7 @@ test("S7: axe finds no violations on the replace form, the shown-once code and t
   await fillBinding(page, t);
   await drawer.getByRole("button", { name: t("devices.flow.review") }).click();
   await drawer.getByRole("button", { name: t("devices.issue.confirm") }).click();
-  await expect(drawer.getByText(SECRET_CODE)).toBeVisible();
+  await expect(drawer.getByText(SECRET_CODE_SHOWN)).toBeVisible();
   await expectNoAxeViolations(page, "issued code");
 
   await page.goto("/devices/pairing-codes");
@@ -321,4 +332,62 @@ test("S7: axe finds no violations on the replace form, the shown-once code and t
     .first()
     .click();
   await expectNoAxeViolations(page, "cancel confirm");
+});
+
+test("S8: RT-1316 cancel and issue a new code; the code grouped with a barcode, Copy and Print", async ({
+  page,
+  t,
+}) => {
+  const issues = await mockDevice(page);
+  const plain = { kind: "pair", replacesDeviceId: null, storeId: DUBAI_STORE };
+  let live = [pending(plain)];
+  await page.route("**/api/v1/devices?**", (r) => r.fulfill(json({ items: [], nextCursor: null })));
+  await page.route("**/api/v1/pairing-codes?**", (r) =>
+    r.fulfill(json({ items: live, nextCursor: null })),
+  );
+  await page.route("**/api/v1/pairing-codes/*/cancel", (r) => {
+    live = [];
+    return r.fulfill(
+      json({ outcome: "cancelled", pairingCode: { ...pending(plain), status: "cancelled" } }),
+    );
+  });
+  await page.route("**/api/v1/pairing-codes", (r) => {
+    issues.bodies.push(r.request().postDataJSON());
+    return r.fulfill(json(issued(plain), 201));
+  });
+  // Print in place: record what the sheet held when the browser was asked to print.
+  await page.addInitScript(() => {
+    window.print = () => {
+      const sheet = document.querySelector(".device-print-sheet");
+      Reflect.set(window, "__printed", sheet ? (sheet.textContent ?? "") : null);
+    };
+  });
+
+  await page.goto("/devices/pairing-codes");
+  await page.getByRole("button", { name: t("devices.codes.reissue") }).click();
+  const confirm = page.getByRole("group", { name: t("devices.codes.reissue") });
+  await confirm.getByRole("button", { name: t("devices.codes.reissue") }).click();
+
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByLabel(t("devices.issue.field.store"), { exact: true })).toHaveValue(
+    DUBAI_STORE,
+  );
+  await expect(drawer.getByLabel(t("devices.issue.field.terminalLabel"))).toHaveValue("Counter 2");
+  await fillBinding(page, t);
+  await drawer.getByRole("button", { name: t("devices.issue.confirm") }).click();
+
+  await expect(drawer.getByText(SECRET_CODE_SHOWN)).toBeVisible();
+  await expect(drawer.getByRole("img", { name: t("devices.issue.issued.barcode") })).toBeVisible();
+  expect(issues.bodies.at(-1)).not.toHaveProperty("ttlMinutes");
+
+  await drawer.getByRole("button", { name: t("devices.issue.issued.print") }).click();
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, "__printed")))
+    .toContain(SECRET_CODE_SHOWN);
+  const printed = String(await page.evaluate(() => Reflect.get(window, "__printed")));
+  expect(printed).toContain("Dubai Mall");
+  expect(printed).toContain("Counter 2");
+  expect(printed).not.toContain("TRN-100");
+  expect(printed).not.toContain("Level 1");
+  await expect(page.locator(".device-print-sheet")).toHaveCount(0);
 });

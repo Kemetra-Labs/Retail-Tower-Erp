@@ -297,6 +297,8 @@ describe("one icon grammar in product code", () => {
       // line drawing and shield outlines, is decoration (aria-hidden), not icons.
       // Only that file: a real icon elsewhere in src/auth/ still uses the registry.
       .filter(({ file }) => !file.endsWith("/src/auth/AuthOrnament.tsx"))
+      // RT-1316: the pairing-code barcode draws Code 128 bars (data), not an icon.
+      .filter(({ file }) => !file.endsWith("/src/devices/Code128Barcode.tsx"))
       .filter(({ file }) => !file.includes("/src/generated/"))
       .filter(({ src }) => /<svg\b/.test(src))
       .map(({ file }) => file);

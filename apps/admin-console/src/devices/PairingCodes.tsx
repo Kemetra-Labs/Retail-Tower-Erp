@@ -15,10 +15,14 @@ import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftC
  * cancelled. A kind the console does not know is shown as unknown, and a move or
  * replace whose target device is outside the caller's scope says so instead of
  * "none".
+ *
+ * RT-1316: a plain pairing code can be cancelled and replaced in one action. Once
+ * the server confirms the cancel, the issue drawer opens for the same store and
+ * label.
  */
 import { useRef, useState } from "react";
 import { Link } from "react-router";
-import { PairDrawer } from "./PairDrawer";
+import { PairDrawer, type PairPrefill } from "./PairDrawer";
 import { CodesTable } from "./PairingCodesTable";
 import { type CancelFlow, type CancelResult, useCancelFlow } from "./useCancelFlow";
 import { useCancelFocus } from "./useCancelFocus";
@@ -163,8 +167,20 @@ export function PairingCodes(): React.JSX.Element {
   const directory = useStoreDirectory(scope.tenantId);
   const list = usePairingCodes(scope);
   const region = useRef<HTMLDivElement>(null);
-  const cancel = useCancelFocus(useCancelFlow(), region);
-  const [pairing, setPairing] = useState(false);
+  // `false` is closed; a prefill (possibly empty) is open. The key remounts the
+  // drawer for every opening, so one code's draft never carries into the next.
+  const [pairing, setPairing] = useState<{ key: number; prefill?: PairPrefill } | false>(false);
+  const opened = useRef(0);
+  const openPairing = (prefill?: PairPrefill) => {
+    opened.current += 1;
+    setPairing({ key: opened.current, prefill });
+  };
+  const cancel = useCancelFocus(
+    useCancelFlow((code) =>
+      openPairing({ storeId: code.storeId, terminalLabel: code.terminalLabel }),
+    ),
+    region,
+  );
 
   if (!scope.tenantId) {
     return (
@@ -183,7 +199,7 @@ export function PairingCodes(): React.JSX.Element {
         title={t("devices.codes.title")}
         subtitle={t.rich("devices.codes.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={
-          <button type="button" className="btn-primary" onClick={() => setPairing(true)}>
+          <button type="button" className="btn-primary" onClick={() => openPairing()}>
             {t("devices.codes.issue")}
           </button>
         }
@@ -192,7 +208,9 @@ export function PairingCodes(): React.JSX.Element {
       <div ref={region} tabIndex={-1} className="device-codes-region">
         <CodesBody list={list} directory={directory} cancel={cancel} />
       </div>
-      {pairing ? <PairDrawer onClose={() => setPairing(false)} /> : null}
+      {pairing ? (
+        <PairDrawer key={pairing.key} prefill={pairing.prefill} onClose={() => setPairing(false)} />
+      ) : null}
     </div>
   );
 }

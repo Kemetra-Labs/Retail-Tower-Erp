@@ -164,9 +164,8 @@ describe("Replace and Move (RT-372 part B)", () => {
     fireEvent.change(within(dialog()).getByLabelText("New terminal's label (optional)"), {
       target: { value: "Counter 2" },
     });
-    fireEvent.change(within(dialog()).getByLabelText("Valid for, in minutes (optional)"), {
-      target: { value: "30" },
-    });
+    // RT-1316: no time-to-live field; the server default applies.
+    expect(within(dialog()).queryByLabelText(/Valid for/)).toBeNull();
     click("Review impact");
     expect(await within(dialog()).findByText("Allowed by the server.")).toBeDefined();
     expect(consoleGetDeviceImpact).toHaveBeenCalledWith(DEVICE_1, "replace", undefined);
@@ -178,7 +177,6 @@ describe("Replace and Move (RT-372 part B)", () => {
       storeId: DUBAI_STORE,
       replacesDeviceId: DEVICE_1,
       terminalLabel: "Counter 2",
-      ttlMinutes: 30,
       branchName: "Dubai Mall",
       branchAddress: "Level 1, Downtown",
       taxRegistrationId: "TRN-100200300",

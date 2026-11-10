@@ -282,8 +282,6 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.issue.field.terminalLabel": "New terminal's label (optional)",
   "devices.issue.field.terminalLabelHelp":
     "Printed on receipts and in the sale number, so keep it unique within the store. If empty, the server derives one.",
-  "devices.issue.field.ttl": "Valid for, in minutes (optional)",
-  "devices.issue.field.ttlHelp": "Default 60, at most 1440.",
   "devices.issue.bindingTitle": "Receipt details",
   "devices.issue.bindingHelp":
     "The terminal pins these at pairing and prints them on receipts. The server doesn't hold them, so you provide them here.",
@@ -291,7 +289,6 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.issue.field.branchAddress": "Store address on receipts",
   "devices.issue.field.taxRegistrationId": "Tax registration id",
   "devices.issue.problem.tooLong": "Use at most {max} characters.",
-  "devices.issue.problem.ttl": "Enter a whole number from 1 to 1440.",
   "devices.issue.confirm": "Issue pairing code",
   "devices.issue.error.notFound": "The device or store is not available to you.",
   "devices.issue.error.storeNotFound": "The store is not available to you.",
@@ -314,6 +311,19 @@ export const devices: MessagesOf<typeof ar> = {
     one: "Valid for {count} minute, until {time}.",
     other: "Valid for {count} minutes, until {time}.",
   },
+  "devices.issue.issued.validHours": {
+    one: "Valid for {count} hour, until {time}.",
+    other: "Valid for {count} hours, until {time}.",
+  },
+  "devices.issue.issued.barcode": "Barcode of the pairing code",
+  "devices.issue.issued.copy": "Copy code",
+  "devices.issue.issued.copied": "Code copied.",
+  "devices.issue.issued.copyFailed": "The code could not be copied. Select it and copy it by hand.",
+  "devices.issue.issued.print": "Print for installer",
+  "devices.issue.print.title": "Pairing code for a new terminal",
+  "devices.issue.print.code": "Pairing code",
+  "devices.issue.print.terminal": "Terminal",
+  "devices.issue.print.expires": "The code expires at {time}.",
   "devices.issue.issued.replaceHelp":
     "The new terminal will be paired in {store}. When it pairs, the current device is revoked.",
   "devices.issue.issued.blockedHelp":
@@ -353,6 +363,9 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.codes.cancelConfirm":
     "Cancel the pairing code for {label}? It can't be used afterwards.",
   "devices.codes.cancelKeep": "Keep code",
+  "devices.codes.reissue": "Cancel and issue new code",
+  "devices.codes.reissueConfirm":
+    "Cancel the pairing code for {label} and issue a new one? The old code stops working first.",
   "devices.codes.cancelled": "The code is cancelled.",
   "devices.codes.alreadyCancelled": "The code was already cancelled. Nothing changed.",
   "devices.codes.error.used":

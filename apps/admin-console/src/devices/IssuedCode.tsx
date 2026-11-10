@@ -6,18 +6,36 @@
  * panel navigates away: leaving would destroy the code before it was typed in. A replace or
  * move also carries the contract's REPLACEMENT_BLOCKED note: that refusal is the
  * POS's, at pairing, when a shift opened on the old device after the issue.
+ *
+ * RT-1316: the code reads in groups of four (display only), with a Code 128
+ * barcode of the code as issued, Copy, Print for installer and the expiry in store
+ * time. This is still the one place that reads the code from the issue answer.
  */
 import { useT } from "@/i18n";
 import type { PairingCodeIssued } from "@/lib/device-queries";
+import { Code128Barcode } from "./Code128Barcode";
 import { LtrTime } from "./DeviceParts";
+import { IssuedCodeActions } from "./IssuedCodeActions";
+import { groupPairingCode } from "./pairingLogic";
 import "./devices.css";
 
 const MS_PER_MINUTE = 60_000;
+const MINUTES_PER_HOUR = 60;
 
 /** Whole minutes between the server's own `createdAt` and `expiresAt`. */
 export function minutesToLive(issued: Pick<PairingCodeIssued, "createdAt" | "expiresAt">): number {
   const span = Date.parse(issued.expiresAt) - Date.parse(issued.createdAt);
   return Number.isFinite(span) ? Math.max(0, Math.round(span / MS_PER_MINUTE)) : 0;
+}
+
+/** Whole hours read as hours; anything else as minutes. */
+export function validityOf(minutes: number): {
+  key: "devices.issue.issued.valid" | "devices.issue.issued.validHours";
+  count: number;
+} {
+  return minutes >= MINUTES_PER_HOUR && minutes % MINUTES_PER_HOUR === 0
+    ? { key: "devices.issue.issued.validHours", count: minutes / MINUTES_PER_HOUR }
+    : { key: "devices.issue.issued.valid", count: minutes };
 }
 
 export function IssuedCode({
@@ -31,19 +49,30 @@ export function IssuedCode({
 }>): React.JSX.Element {
   const t = useT();
   const replacing = issued.kind !== "pair";
+  const validity = validityOf(minutesToLive(issued));
   return (
     <section className="device-issued" aria-label={t("devices.issue.issued.title")}>
       <h3 className="device-impact__title">{t("devices.issue.issued.title")}</h3>
       <div className="device-issued__code">
         <span className="device-quiet">{t("devices.issue.issued.code")}</span>
         <code dir="ltr" className="device-issued__value">
-          {issued.code}
+          {groupPairingCode(issued.code)}
         </code>
+        <Code128Barcode value={issued.code} label={t("devices.issue.issued.barcode")} />
       </div>
+      <IssuedCodeActions
+        details={{
+          code: issued.code,
+          storeName: storeName ?? issued.storeId,
+          terminalLabel: issued.terminalLabel,
+          expiresAt: issued.expiresAt,
+          timeZone,
+        }}
+      />
       <p className="device-impact__verdict">{t("devices.issue.issued.once")}</p>
       <p>
-        {t.rich("devices.issue.issued.valid", {
-          count: minutesToLive(issued),
+        {t.rich(validity.key, {
+          count: validity.count,
           time: <LtrTime value={issued.expiresAt} timeZone={timeZone} />,
         })}
       </p>
