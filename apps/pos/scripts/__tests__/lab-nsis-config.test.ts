@@ -41,8 +41,8 @@ describe('RT-772 shipped electron-builder.yml is untouched by the lab slice', ()
     expect(base).not.toMatch(/signtoolOptions|certificateSha1|cscLink/);
   });
 
-  it('keeps the frozen update identity and the RT-164 fuses', () => {
-    expect(base).toMatch(/^appId:\s*tech\.smartdatapulse\.pos$/m);
+  it('keeps the approved update identity (RT-1314) and the RT-164 fuses', () => {
+    expect(base).toMatch(/^appId:\s*com\.kemetralabs\.retailtower\.pos$/m);
     expect(base).toMatch(/^productName:\s*POS Pulse$/m);
     expect(base).toMatch(/runAsNode:\s*false/);
     expect(base).toMatch(/onlyLoadAppFromAsar:\s*true/);

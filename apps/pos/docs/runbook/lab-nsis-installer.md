@@ -25,7 +25,7 @@
   machine. It is imported **only on the disposable lab device**, by its owner. It is never
   trusted on the build machine: there the signature is expected to report `NotTrusted`.
 - `electron-builder.lab.yml` has no uploading publish provider (one `generic` entry on the reserved
-  `.test` host, see slice 2), no certificate path, and does not touch the shipped `electron-builder.yml`, the frozen identity (`tech.smartdatapulse.pos` /
+  `.test` host, see slice 2), no certificate path, and does not touch the shipped `electron-builder.yml`, the update identity (`com.kemetralabs.retailtower.pos` /
   `POS Pulse`) or the RT-164 fuses. `scripts/__tests__/lab-nsis-config.test.ts` pins this.
 - No timestamp call is made. A signature without a timestamp stops verifying when the leaf
   expires (90 days), so lab artifacts are short-lived by design. A timestamp is added only

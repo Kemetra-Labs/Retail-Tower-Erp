@@ -59,7 +59,7 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
 4. **Protect the tags.** Add a repository tag ruleset (Settings → Rules) for `pos-pilot/*` that restricts creation,
    update and deletion to you. Without it, anyone who can push a tag can start a run that waits on your approval,
    and a moved or deleted tag changes what a published release points at.
-5. **Confirm the identity is final** before the first signed installer: `appId` `tech.smartdatapulse.pos` and
+5. **Confirm the identity is final** before the first signed installer: `appId` `com.kemetralabs.retailtower.pos` (RT-1314) and
    `productName` `POS Pulse` (RT-234 §11.2).
 6. **Run a dry run** (Actions → release-pos-pilot → Run workflow, `dry_run` true, on `main`). It signs with an
    ephemeral certificate, reads no secret and publishes nothing. It proves the build, the signature checks, the
