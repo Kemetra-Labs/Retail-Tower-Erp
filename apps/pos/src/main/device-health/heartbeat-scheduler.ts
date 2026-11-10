@@ -8,12 +8,13 @@
  *     reported asks for a beat;
  *   - on {@link HeartbeatScheduler.requestBeat} (the bootstrap calls it on every
  *     update state change, the other contract trigger);
- *   - never two requests less than {@link HEARTBEAT_MIN_GAP_MS} apart: Backend-Core
- *     stores at most one beat per device per 60 s, so a closer one is not stored.
- *     A change during the cool-down is sent the moment it ends.
+ *   - never a request less than {@link HEARTBEAT_MIN_GAP_MS} after the previous one
+ *     was sent or its reply arrived: Backend-Core stores at most one beat per device
+ *     per 60 s on its own receipt clock, so a closer one is not stored. A change
+ *     during the cool-down is sent the moment it ends.
  *
  * `sale_queue` is sent only after a reply carried `pos_contract_revision` >= 2
- * (kept in memory with its receive time). The first beat after a start therefore
+ * (kept in memory with its receive time, {@link HeartbeatScheduler.lastAck}). The first beat after a start therefore
  * has none, and the gate opening asks for the next beat at once, so the counts
  * reach the Console one cool-down after start rather than 15 minutes later.
  *
@@ -67,6 +68,14 @@ export interface HeartbeatScheduler {
   requestBeat(): void;
   /** Clears every timer; a reply still in flight changes nothing afterwards. Idempotent. */
   stop(): void;
+  /** The last readable `HeartbeatAck` and when it arrived (terminal clock, ms); null when none. */
+  lastAck(): LastHeartbeatAck | null;
+}
+
+interface LastHeartbeatAck {
+  readonly posContractRevision: number;
+  /** When the reply was received, measured by the terminal (D-3 freshness). */
+  readonly receivedAt: number;
 }
 
 type Timer = ReturnType<typeof setTimeout>;
@@ -86,7 +95,7 @@ export function createHeartbeatScheduler(deps: HeartbeatSchedulerDeps): Heartbea
   let pending = false;
   let authRefused = false;
   let lastAttemptAt: number | null = null;
-  let revision: number | null = null;
+  let ack: LastHeartbeatAck | null = null;
   let reportedQueueKey: string | null = null;
   let intervalTimer: Timer | undefined;
   let deferTimer: Timer | undefined;
@@ -95,7 +104,8 @@ export function createHeartbeatScheduler(deps: HeartbeatSchedulerDeps): Heartbea
   // Read through functions: an await can change them, which flow narrowing cannot see.
   const isStopped = (): boolean => stopped;
   const hasPending = (): boolean => pending;
-  const gateOpen = (): boolean => revision !== null && revision >= SALE_QUEUE_MIN_REVISION;
+  const gateOpen = (): boolean =>
+    ack !== null && ack.posContractRevision >= SALE_QUEUE_MIN_REVISION;
 
   function readQueue(): SaleQueueCounts | null {
     try {
@@ -108,12 +118,12 @@ export function createHeartbeatScheduler(deps: HeartbeatSchedulerDeps): Heartbea
   function apply(outcome: HeartbeatOutcome, sentQueue: boolean, queue: SaleQueueCounts | null) {
     if (outcome.kind === 'acked') {
       const wasOpen = gateOpen();
-      revision = outcome.posContractRevision;
+      ack = { posContractRevision: outcome.posContractRevision, receivedAt: now() };
       authRefused = false;
       if (sentQueue && queue !== null) reportedQueueKey = saleQueueKey(queue);
       if (!wasOpen && gateOpen()) pending = true;
     } else if (outcome.kind === 'rejected') {
-      revision = null;
+      ack = null;
       reportedQueueKey = null;
       authRefused = false;
     } else if (outcome.kind === 'unauthorized') {
@@ -144,7 +154,14 @@ export function createHeartbeatScheduler(deps: HeartbeatSchedulerDeps): Heartbea
       { includeSaleQueue },
     );
     lastAttemptAt = now();
-    const outcome = await deps.client.report(token, body);
+    let outcome: HeartbeatOutcome;
+    try {
+      outcome = await deps.client.report(token, body);
+    } finally {
+      // The cool-down counts from the reply too: Backend-Core throttles on its receipt clock,
+      // so a slow reply must not let the next beat land inside its 60 s window.
+      lastAttemptAt = now();
+    }
     if (isStopped()) return;
     apply(outcome, includeSaleQueue, queue);
     log(outcome);
@@ -213,5 +230,6 @@ export function createHeartbeatScheduler(deps: HeartbeatSchedulerDeps): Heartbea
       clearTimeout(deferTimer);
       clearInterval(pollTimer);
     },
+    lastAck: () => ack,
   };
 }

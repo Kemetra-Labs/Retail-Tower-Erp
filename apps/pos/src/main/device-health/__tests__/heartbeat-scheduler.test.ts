@@ -261,6 +261,39 @@ describe('createHeartbeatScheduler', () => {
     h.scheduler.stop();
   });
 
+  it('counts the cool-down from when a slow reply arrived, so the next beat is stored', async () => {
+    const h = harness();
+    h.report.mockImplementationOnce((_token: string, body: DeviceHeartbeatReport) => {
+      h.beats.push({ at: Date.now() - Date.parse('2026-11-10T12:00:00.000Z'), body });
+      return new Promise<HeartbeatOutcome>((resolve) => {
+        setTimeout(() => {
+          resolve(ACK2);
+        }, 5_000);
+      });
+    });
+    h.scheduler.start();
+    await advance(5_000 + HEARTBEAT_MIN_GAP_MS - 1);
+    expect(h.times()).toEqual([0]);
+    await advance(1);
+    expect(h.times()).toEqual([0, 5_000 + HEARTBEAT_MIN_GAP_MS]);
+    expect(h.beats[1]?.body).toHaveProperty('sale_queue');
+    h.scheduler.stop();
+  });
+
+  it('keeps the last ack revision and its receive time in memory, and drops it on a 400', async () => {
+    const h = harness({ outcomes: [ACK2, { kind: 'rejected', status: 400 }] });
+    expect(h.scheduler.lastAck()).toBeNull();
+    h.scheduler.start();
+    await advance(0);
+    expect(h.scheduler.lastAck()).toEqual({
+      posContractRevision: 2,
+      receivedAt: Date.parse('2026-11-10T12:00:00.000Z'),
+    });
+    await advance(HEARTBEAT_MIN_GAP_MS);
+    expect(h.scheduler.lastAck()).toBeNull();
+    h.scheduler.stop();
+  });
+
   it('sends nothing while there is no sendable device token (unpaired or revoked)', async () => {
     const h = harness({ token: null });
     h.scheduler.start();
