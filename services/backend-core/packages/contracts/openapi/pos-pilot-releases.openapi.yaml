@@ -150,7 +150,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/PlatformWriteForbidden"
+          $ref: "#/components/responses/PlatformReadForbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -240,8 +240,11 @@ paths:
         - cookieAuth: []
       description: >
         Every registry row, newest `registeredAt` first, withdrawn and current
-        rows included (RT-1328). A row is current when `activatedAt` is set and
-        `withdrawnAt` is null. Read-only and not audited. The route takes no
+        rows included (RT-1328). A row is current in the registry when
+        `activatedAt` is set and `withdrawnAt` is null; being current does not
+        by itself make it downloadable (the resolver also needs the lane's
+        configuration and publisher pin, and the caller's tenant allowlisted).
+        Read-only and not audited. The route takes no
         query parameter (400 on any). A signed-in user who is not a platform
         admin is 403 `forbidden`. No presigned URL, object key or credential.
       responses:
@@ -259,7 +262,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/PlatformWriteForbidden"
+          $ref: "#/components/responses/PlatformReadForbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -796,11 +799,20 @@ components:
     PlatformWriteForbidden:
       description: >
         403, `error.code` one of: `forbidden` (a signed-in user who is not a
-        platform admin, on a write or on a platform read; or, on register and withdraw, a genuine promotion token
+        platform admin; or, on register and withdraw, a genuine promotion token
         whose claims do not match the configured pins, or whose run is not the
         run the body names) or `origin_rejected` (RT-430: the `Origin` header is
         missing, or is neither the API's own origin nor listed in
         `ALLOWED_ORIGINS`; cookie routes only). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PlatformReadForbidden:
+      description: >
+        forbidden (403): a signed-in user who is not a platform admin, on a
+        platform read (RT-1328). A safe method skips the RT-430 Origin check, so
+        `origin_rejected` never answers a read. Nothing is read.
       content:
         application/json:
           schema:

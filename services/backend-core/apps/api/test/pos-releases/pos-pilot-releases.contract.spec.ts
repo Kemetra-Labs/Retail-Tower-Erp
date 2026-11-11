@@ -141,6 +141,15 @@ describe("RT-1328 pilot releases contract: the platform-admin reads", () => {
     expect(contract.operation("get", LIST_TENANTS)["x-audit-action"]).toBeUndefined();
   });
 
+  it("answers a non-admin on either read with `PlatformReadForbidden`, which never names `origin_rejected`", () => {
+    const forbidden = (path: `/${string}`): unknown =>
+      ((contract.operation("get", path)["responses"] as JsonObject)["403"] as JsonObject)["$ref"];
+    expect(forbidden(REGISTER)).toBe("#/components/responses/PlatformReadForbidden");
+    expect(forbidden(LIST_TENANTS)).toBe("#/components/responses/PlatformReadForbidden");
+    const responses = (contract.document["components"] as JsonObject)["responses"] as JsonObject;
+    expect(String((responses["PlatformReadForbidden"] as JsonObject)["description"])).not.toMatch(/origin_rejected` \(|one of/);
+  });
+
   it("takes no parameter on either read", () => {
     expect(contract.operation("get", REGISTER)["parameters"]).toBeUndefined();
     expect(contract.operation("get", LIST_TENANTS)["parameters"]).toBeUndefined();
