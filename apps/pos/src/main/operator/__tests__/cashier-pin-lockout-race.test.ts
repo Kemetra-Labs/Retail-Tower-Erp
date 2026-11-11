@@ -19,6 +19,8 @@ import { CashierSignInHandler } from '../sign-in-handler.js';
 import { SessionManager } from '../session-manager.js';
 import { ProtoSessionStore } from '../takeover-handler.js';
 import { hashPin } from '../pin-credential.js';
+import { PinManagementHandler, type PinManagementHandlerDeps } from '../pin-management.js';
+import type { AuditEmitter } from '../../audit/audit-emitter.js';
 import { sealPinMaterial } from '../pin-seal.js';
 import { FAKE_USER_ID, fakeCashierAdmission } from './__helpers__/fake-cashier-admission.js';
 import {
@@ -170,14 +172,37 @@ describe('RT-1326 cashier PIN lockout under concurrent attempts', () => {
     expect(lockoutState()).toEqual({ count: 1, until: null });
   }, 60_000);
 
-  it('keeps PIN rows of different cashiers independent', async () => {
-    provision(0);
-    const results = await Promise.all([
-      handler.verifyPin(CASHIER, WRONG),
-      handler.verifyPin('op-someone-else', WRONG),
-    ]);
-    expect(categoryOf(results[0])).toBe('invalid_input');
-    expect(categoryOf(results[1])).toBe('invalid_input');
-    expect(lockoutState().count).toBe(1);
+  it('does not let an in-flight wrong attempt undo a manager unlock that lands during it', async () => {
+    provision(4);
+    const manager = {
+      id: 'sess-manager',
+      operator_id: 'op-manager-1',
+      display_name: 'Manager',
+      role: 'manager' as const,
+      tenant_id: TENANT,
+      branch_id: BRANCH,
+      backend_session_id: 'be-1',
+      started_at: '2026-11-11T09:00:00.000Z',
+      last_activity_at: '2026-11-11T09:00:00.000Z',
+    };
+    const pins = new PinManagementHandler({
+      db: handleFor(raw),
+      safeStorage,
+      sessionManager: { getCurrent: () => manager } as unknown as SessionManager,
+      pairingStore,
+      auditEmitter: { emit: () => undefined } as unknown as AuditEmitter,
+    } as unknown as PinManagementHandlerDeps);
+    // The fifth wrong PIN locks the cashier; the manager unlock, asked while
+    // that attempt is still verifying, must apply after it, not under it.
+    const attempt = handler.signIn({
+      kind: 'cashier',
+      cashier_clerk_user_id: CASHIER,
+      pin: WRONG,
+      display_name: 'Cashier',
+    });
+    const unlock = pins.unlockCashier({ event_id: 'evt-1326', target_cashier_id: CASHIER });
+    expect(categoryOf(await attempt)).toBe('invalid_input');
+    expect((await unlock).kind).toBe('unlocked');
+    expect(lockoutState()).toEqual({ count: 0, until: null });
   }, 60_000);
 });

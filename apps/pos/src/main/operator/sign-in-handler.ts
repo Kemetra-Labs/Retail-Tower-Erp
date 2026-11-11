@@ -35,6 +35,7 @@ import {
 } from './offline-admission.js';
 import { unsealPinMaterial } from './pin-seal.js';
 import { verifyPinWithWindow, rowMatchesScope, type PinScope } from './pin-lockout.js';
+import { withCashierPinRowLock } from './cashier-pin-row-lock.js';
 import type { PinRow } from './pin-credential.js';
 import { ProtoSessionStore } from './takeover-handler.js';
 import { tillClockSkewed } from './till-clock.js';
@@ -445,42 +446,18 @@ export function makeShiftDismissKey(
 }
 
 export class CashierSignInHandler {
-  /**
-   * RT-1326 (RT-1125 R-17) — one PIN attempt at a time per cashier PIN row.
-   * An attempt reads the row, awaits Argon2, then writes the count it computed;
-   * run concurrently, every attempt would read the same count. Sign-in and the
-   * same-operator unlock share the row, so they share this queue.
-   */
-  private readonly pinQueues = new Map<string, Promise<unknown>>();
-
   constructor(private readonly deps: CashierSignInHandlerDeps) {}
 
-  /** Runs `task` after every earlier attempt on the same PIN row has settled. */
-  private serialisedAttempt<T>(scope: PinScope, task: () => Promise<T>): Promise<T> {
-    const key = JSON.stringify([
-      scope.tenant_id,
-      scope.branch_id,
-      scope.terminal_id,
-      scope.cashier_clerk_user_id,
-    ]);
-    const run = (this.pinQueues.get(key) ?? Promise.resolve()).then(task);
-    const settled = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.pinQueues.set(key, settled);
-    void settled.then(() => {
-      if (this.pinQueues.get(key) === settled) this.pinQueues.delete(key);
-    });
-    return run;
-  }
-
-  /** Load the PIN row, verify, persist the lockout state: one serialised attempt. */
+  /**
+   * Load the PIN row, verify, persist the lockout state: one attempt, under
+   * the row's lock (RT-1326), so sign-in and the same-operator unlock never
+   * interleave on one row.
+   */
   private attemptPin(
     scope: PinScope,
     pin: string,
   ): Promise<{ row: LoadedPinRow; refusal: OperatorRefusal | null } | OperatorRefusal> {
-    return this.serialisedAttempt(scope, async () => {
+    return withCashierPinRowLock(scope, async () => {
       const loaded = this.loadPinRow(scope);
       if ('kind' in loaded) return loaded;
       return { row: loaded, refusal: await this.verifyPinAndUpdateLockout(pin, loaded, scope) };

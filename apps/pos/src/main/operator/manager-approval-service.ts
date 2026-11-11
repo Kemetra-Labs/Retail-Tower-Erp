@@ -177,6 +177,12 @@ interface ApprovalRow {
   approver_role: string | null;
 }
 
+/**
+ * RT-1326: why an approver check did not grant. Only `pin_rejected` (a wrong
+ * PIN on a live record) spends one of the request's tries.
+ */
+type ApproverRefusal = { kind: 'pin_rejected' } | { kind: 'approver_refused' };
+
 /** The approver a verified PIN names: their `users.id`, and (RT-861) their record's role. */
 interface VerifiedApprover {
   userId: string;
@@ -293,7 +299,7 @@ function failedTryAudit(
   scope: ManagerPinScope,
   input: ManagerApprovalRequest,
   failedTries: number,
-  outcome: 'approver_refused' | 'attempts_exhausted',
+  outcome: ApproverRefusal['kind'] | 'attempts_exhausted',
 ): {
   session: OperatorSessionRecord;
   scope: ManagerPinScope;
@@ -318,30 +324,44 @@ function failedTryAudit(
 }
 
 /**
- * RT-1326: failed approver PINs per request (session, kind, subject). An entry
- * past `APPROVAL_TRY_WINDOW_MS` from its first failure counts as zero.
+ * RT-1326: approver PIN tries per request (session, kind, subject). A try is
+ * reserved before the PIN check, so concurrent requests cannot pass the cap
+ * together; it is given back when the PIN was right but the approver is not
+ * allowed (four-eyes), and the count clears on a grant. Entries past
+ * `APPROVAL_TRY_WINDOW_MS` from their first try count as zero and are pruned.
  */
 function createApprovalTryCounter(now: () => string): {
   spent(key: string): number;
-  fail(key: string): number;
+  reserve(key: string): number;
+  release(key: string): number;
   clear(key: string): void;
 } {
   const entries = new Map<string, { failed: number; firstAtMs: number }>();
+  const expired = (firstAtMs: number): boolean =>
+    Date.parse(now()) - firstAtMs > APPROVAL_TRY_WINDOW_MS;
+  function prune(): void {
+    for (const [key, entry] of entries) if (expired(entry.firstAtMs)) entries.delete(key);
+  }
   return {
     spent(key) {
-      const entry = entries.get(key);
-      if (entry === undefined) return 0;
-      if (Date.parse(now()) - entry.firstAtMs > APPROVAL_TRY_WINDOW_MS) {
-        entries.delete(key);
-        return 0;
-      }
-      return entry.failed;
+      prune();
+      return entries.get(key)?.failed ?? 0;
     },
-    fail(key) {
+    reserve(key) {
       const entry = entries.get(key) ?? { failed: 0, firstAtMs: Date.parse(now()) };
       const next = { ...entry, failed: entry.failed + 1 };
       entries.set(key, next);
       return next.failed;
+    },
+    release(key) {
+      const entry = entries.get(key);
+      if (entry === undefined) return 0;
+      if (entry.failed <= 1) {
+        entries.delete(key);
+        return 0;
+      }
+      entries.set(key, { ...entry, failed: entry.failed - 1 });
+      return entry.failed - 1;
     },
     clear(key) {
       entries.delete(key);
@@ -444,19 +464,24 @@ export function createManagerApprovalService(
       const before = resolve(kind, input.subject_ref, session);
       if (before === null) return refused('approval_invalid');
 
-      // RT-1326: past the cap the PIN store is not consulted at all.
+      // RT-1326: past the cap the PIN store is not consulted at all. The try
+      // is reserved before the PIN's await, so concurrent requests share it.
       const key = triesKey(session, input);
       const spent = tries.spent(key);
       if (spent >= APPROVAL_TRY_CAP) {
         audit(failedTryAudit(session, scope, input, spent, 'attempts_exhausted'));
         return refused('approval_attempts_exhausted');
       }
+      const reserved = tries.reserve(key);
 
-      const approver = await verifyApprover(input, session, scope, before.sellerUserId);
-      if (approver === null) {
-        audit(failedTryAudit(session, scope, input, tries.fail(key), 'approver_refused'));
+      const checked = await verifyApprover(input, session, scope, before.sellerUserId);
+      if (checked.kind !== 'verified') {
+        // Only a wrong PIN spends the try; a refused approver gives it back.
+        const count = checked.kind === 'pin_rejected' ? reserved : tries.release(key);
+        audit(failedTryAudit(session, scope, input, count, checked.kind));
         return refused('approval_unavailable');
       }
+      const approver = checked.approver;
       tries.clear(key);
       if (movedDuringVerify(input, session, before)) return refused('approval_stale');
 
@@ -515,15 +540,16 @@ export function createManagerApprovalService(
   /**
    * Steps 4 and 5: the approver's user id (and, RT-861, their record's role)
    * when the PIN verifies and the approver is allowed (four-eyes; the
-   * self-unlock is exempt; a recovery approver is the signed-in manager),
-   * otherwise null.
+   * self-unlock is exempt; a recovery approver is the signed-in manager).
+   * Otherwise why not (RT-1326): a wrong PIN, or any other refusal (a locked,
+   * expired or revoked record, an unknown handle, or four-eyes).
    */
   async function verifyApprover(
     input: ManagerApprovalRequest,
     session: OperatorSessionRecord,
     scope: ManagerPinScope,
     sellerUserId: string | undefined,
-  ): Promise<VerifiedApprover | null> {
+  ): Promise<{ kind: 'verified'; approver: VerifiedApprover } | ApproverRefusal> {
     const verdict = await deps.managerPins.verify({
       scope,
       managerRef: input.approver_ref,
@@ -533,9 +559,12 @@ export function createManagerApprovalService(
       // RT-438 review: the requesting session, captured before the PIN work.
       actor: { operatorId: session.operator_id, sessionId: session.id },
     });
-    if (verdict.kind !== 'verified') return null;
-    const allowed = approverAllowed(input.action_kind, session, verdict.userId, sellerUserId);
-    return allowed ? { userId: verdict.userId, role: verdict.role } : null;
+    if (verdict.kind === 'invalid') return { kind: 'pin_rejected' };
+    if (verdict.kind !== 'verified') return { kind: 'approver_refused' };
+    if (!approverAllowed(input.action_kind, session, verdict.userId, sellerUserId)) {
+      return { kind: 'approver_refused' };
+    }
+    return { kind: 'verified', approver: { userId: verdict.userId, role: verdict.role } };
   }
 
   /** Step 6: after the PIN's await, a different or locked session, or a moved subject. */

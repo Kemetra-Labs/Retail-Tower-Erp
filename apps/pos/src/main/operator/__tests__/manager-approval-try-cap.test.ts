@@ -154,6 +154,22 @@ describe('RT-1326 approval request PIN try cap', () => {
     expect(verifySpy.mock.calls.length).toBe(callsBefore);
   }, 60_000);
 
+  it('holds the cap when wrong approver PINs for one request arrive at once', async () => {
+    const results = await Promise.all(Array.from({ length: 5 }, () => ask(WRONG)));
+    expect(verifySpy.mock.calls.length).toBe(APPROVAL_TRY_CAP);
+    const reasons = results.map((r) => (r.kind === 'refused' ? r.reason : r.kind));
+    expect(reasons.filter((r) => r === 'approval_unavailable')).toHaveLength(APPROVAL_TRY_CAP);
+    expect(reasons.filter((r) => r === 'approval_attempts_exhausted')).toHaveLength(2);
+  }, 60_000);
+
+  it('does not count a correct PIN that the four-eyes rule refuses as a wrong PIN', async () => {
+    // The requester is the manager on record: the PIN verifies, four-eyes refuses.
+    current = { ...cashierSession('sess-4eyes'), user_id: MANAGER.userId };
+    for (let i = 0; i < APPROVAL_TRY_CAP + 1; i++) {
+      expect(await ask(MANAGER.pin)).toEqual({ kind: 'refused', reason: 'approval_unavailable' });
+    }
+  }, 60_000);
+
   it('lets the same request be raised again after the window', async () => {
     for (let i = 0; i < APPROVAL_TRY_CAP; i++) await ask(WRONG);
     advance(APPROVAL_TRY_WINDOW_MS + 1);
