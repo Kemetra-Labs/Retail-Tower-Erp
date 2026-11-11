@@ -27,6 +27,9 @@ on:
 
 # Read-only default; the job below adds only what Scorecard needs.
 permissions: read-all
+# RT-1318: no `concurrency` group on purpose. Each run scores one commit and publishes an idempotent
+# result, so an overlapping weekly, push or manual run is harmless, and a group would put a queue in
+# front of a publish path whose restrictions this file must keep.
 
 jobs:
   analysis:
@@ -43,7 +46,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -56,7 +59,7 @@ jobs:
           publish_results: true
 
       - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: SARIF file
           path: results.sarif
