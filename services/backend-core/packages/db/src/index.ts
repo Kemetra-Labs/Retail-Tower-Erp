@@ -45,6 +45,11 @@ export {
   type VoidEffectsInput,
 } from "./helpers/inventory-effects/sale-effects";
 export {
+  commitResolvedSale,
+  type ResolvedSaleInput,
+  type ResolvedSaleOutcome,
+} from "./helpers/inventory-effects/tracking-resolution";
+export {
   activateSaleEffects,
   compareAnchorsToBin,
   type ActivateSaleEffectsInput,
