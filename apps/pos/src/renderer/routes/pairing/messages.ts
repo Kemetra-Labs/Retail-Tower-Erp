@@ -13,28 +13,39 @@ import type { PairingOutcome } from '../../../shared/pairing-types';
  * 8). The nine failure outcomes map to distinct strings; `success` reuses the
  * "other" copy, because the form navigates before it could ever render. The
  * two "Check again" results use the Arabic the owner approved on 2026-10-12.
+ * RT-1316 (owner decision 2026-11-10) amends three of them: invalid_code,
+ * expired_code and branch_mismatch.
  *
  * Security: nothing in this module reads the `pairing_code` or any
  * device-side identity. Copy is fixed and includes no user-supplied
  * substitutions — there is no place a secret could be interpolated.
  */
 
-/** Message for `outcome: 'invalid_code'` (HTTP 400 INVALID_CODE). */
-export const INVALID_CODE_MESSAGE = 'الرمز غير صحيح. تحقق منه وحاول مرة أخرى.';
+/**
+ * Message for `outcome: 'invalid_code'` (HTTP 400 INVALID_CODE). RT-1316: amends the G-1
+ * 2026-10-11 copy (owner decision 2026-11-10); offers the scanner as the way to avoid typos.
+ */
+export const INVALID_CODE_MESSAGE = 'الرمز غير صحيح. تأكد منه أو امسحه بالقارئ.';
 
-/** Message for `outcome: 'expired_code'` (HTTP 410 EXPIRED_CODE). */
-export const EXPIRED_CODE_MESSAGE = 'انتهت صلاحية الرمز. أنشئ رمزًا جديدًا.';
+/**
+ * Message for `outcome: 'expired_code'` (HTTP 410 EXPIRED_CODE). RT-1316: amends the G-1
+ * 2026-10-11 copy (owner decision 2026-11-10); the person at the till cannot issue a code, so
+ * the action is to ask the admin for one.
+ */
+export const EXPIRED_CODE_MESSAGE = 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا من المسؤول.';
 
 /** Message for `outcome: 'already_paired'` (HTTP 409 ALREADY_PAIRED). */
 export const ALREADY_PAIRED_MESSAGE = 'هذا الرمز مُستخدم من قبل.';
 
 /**
  * Message for `outcome: 'branch_mismatch'` (HTTP 409 BRANCH_MISMATCH).
- * Per the 2026-05-03 clarification (Option B), recovery is admin-driven
- * — the operator's action is to escalate, not to retry the same code.
- * Copy is from `contracts/pairing-http.md` § Failure responses.
+ * RT-1316: amends the G-1 2026-10-11 copy (owner decision 2026-11-10). Under
+ * the RT-367 identity model every pairing mints a new terminal id, so this 409
+ * is only a race of two codes for one terminal id, and there is no "unpair"
+ * step: the operator's action is to ask the admin for a new code, not to retry
+ * the same one. The copy names no store or branch.
  */
-export const BRANCH_MISMATCH_MESSAGE = 'الجهاز مسجّل لفرع آخر. اطلب من المشرف فكّه.';
+export const BRANCH_MISMATCH_MESSAGE = 'تعذّر ربط الجهاز بهذا الرمز. اطلب رمزًا جديدًا من المسؤول.';
 
 /**
  * Message for `outcome: 'rate_limited'` (HTTP 429 RATE_LIMITED). Pairs

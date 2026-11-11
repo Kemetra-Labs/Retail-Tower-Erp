@@ -130,13 +130,23 @@ The sign-in screen is a single centred stage with two zones, using the Direction
 4. **Pairing copy (proposed Arabic).**
    - Title «ربط الجهاز»; hint «أدخل رمز الربط الظاهر في لوحة الإدارة.»; field «رمز الربط»; commit
      «ربط الجهاز» / «جارٍ الربط…».
-   - Invalid «الرمز غير صحيح. تحقق منه وحاول مرة أخرى.»
-   - Expired «انتهت صلاحية الرمز. أنشئ رمزًا جديدًا.»
+   - Invalid «الرمز غير صحيح. تأكد منه أو امسحه بالقارئ.» (amended, see below; was «الرمز غير
+     صحيح. تحقق منه وحاول مرة أخرى.»)
+   - Expired «انتهت صلاحية الرمز. اطلب رمزًا جديدًا من المسؤول.» (amended; was «انتهت صلاحية
+     الرمز. أنشئ رمزًا جديدًا.»)
    - Used «هذا الرمز مُستخدم من قبل.»
-   - Other branch «الجهاز مسجّل لفرع آخر. اطلب من المشرف فكّه.»
+   - Other branch «تعذّر ربط الجهاز بهذا الرمز. اطلب رمزًا جديدًا من المسؤول.» (amended; was
+     «الجهاز مسجّل لفرع آخر. اطلب من المشرف فكّه.»)
    - Too many attempts «محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.»
    - No connection «لا يوجد اتصال. تحقق من الشبكة وحاول مرة أخرى.»
    - Other «تعذّر الربط. حاول مرة أخرى.»
+   - **Amendment (owner decision 2026-11-10, RT-1316 Phase 2).** Invalid, Expired and Other branch
+     amend the 2026-10-11 approval.
+     - The person at the till cannot issue a code, so the action names the admin.
+     - Invalid offers the scanner.
+     - Under the RT-367 identity model, `BRANCH_MISMATCH` is only a race of two codes for one
+       terminal id, and no "unpair" step exists. Its string names no store and asks for a new code.
+     - Shipped in `src/renderer/routes/pairing/messages.ts`, pinned by `messages.test.ts`.
 5. **PIN waiting prompt (proposed).** «اختر اسمك من القائمة لإدخال الرقم السري.»
 6. **Smaller copy changes (proposed).**
    - The screen title is «تسجيل الدخول» (it was «تسجيل دخول الصيدلي»).
@@ -154,6 +164,8 @@ The sign-in screen is a single centred stage with two zones, using the Direction
    - Empty input «أدخل رمز الربط.»
 
 The full copy table, with the shipped string each one replaces, is in `G1-Spec.html`.
+`G1-Spec.html` is a frozen 2026-10-11 reference, so it still shows the three pairing strings before
+the RT-1316 amendment. Where they differ, §6.4 above wins.
 
 ## 7. Delivery
 

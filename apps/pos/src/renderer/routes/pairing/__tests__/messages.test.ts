@@ -35,6 +35,25 @@ import type { PairingOutcome } from '../../../../shared/pairing-types';
  *     misleading "success" string.
  */
 
+describe('RT-1316 approved copy (owner decision 2026-11-10, amends G-1 §6.4)', () => {
+  it('expired_code asks for a new code from the admin', () => {
+    expect(EXPIRED_CODE_MESSAGE).toBe('انتهت صلاحية الرمز. اطلب رمزًا جديدًا من المسؤول.');
+    expect(messageFor('expired_code')).toBe(EXPIRED_CODE_MESSAGE);
+  });
+
+  it('invalid_code asks to check the code or scan it', () => {
+    expect(INVALID_CODE_MESSAGE).toBe('الرمز غير صحيح. تأكد منه أو امسحه بالقارئ.');
+    expect(messageFor('invalid_code')).toBe(INVALID_CODE_MESSAGE);
+  });
+
+  it('branch_mismatch asks for a new code (RT-367: a fresh identity per pairing, no unpair)', () => {
+    expect(BRANCH_MISMATCH_MESSAGE).toBe(
+      'تعذّر ربط الجهاز بهذا الرمز. اطلب رمزًا جديدًا من المسؤول.',
+    );
+    expect(messageFor('branch_mismatch')).toBe(BRANCH_MISMATCH_MESSAGE);
+  });
+});
+
 describe('messageFor — US3 outcomes (T043)', () => {
   it('invalid_code -> INVALID_CODE_MESSAGE', () => {
     expect(messageFor('invalid_code')).toBe(INVALID_CODE_MESSAGE);

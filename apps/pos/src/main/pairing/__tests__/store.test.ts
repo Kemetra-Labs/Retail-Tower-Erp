@@ -234,12 +234,11 @@ describe('createPairingStore.getStatus()', () => {
     });
 
     const status = await h.store.getStatus();
-    // Note: `PairingStatus.paired` carries only the 5 baseline fields by
-    // design — getStatus() does NOT project the 6 new T094a fields out
-    // through this discriminated-union surface. The new fields are read
-    // directly from the store row by callers that need them (receipt
-    // template, print pipeline). Keeps the renderer-visible status
-    // surface narrow per Constitution VII (minimum disclosure).
+    // Note: `PairingStatus.paired` carries the baseline fields plus the
+    // store's display name (RT-1316 Phase 2, shown on the Ready card). The
+    // receipt-only T094a fields (address, tax registration id) are NOT
+    // projected through this renderer-visible surface; callers that need
+    // them read the store row directly (Constitution VII, minimum disclosure).
     expect(status).toEqual<PairingStatus>({
       kind: 'paired',
       tenant_id: 'tenant-A',
@@ -247,6 +246,33 @@ describe('createPairingStore.getStatus()', () => {
       terminal_id: 'terminal-C',
       terminal_label: 'Counter 1',
       paired_at: 1735689600,
+      branch_name: null,
+    });
+  });
+
+  it('RT-1316: projects the stored branch_name onto the paired status, and no other receipt field', async () => {
+    h = await makeHarness();
+    await h.secretStore.set(DEVICE_TOKEN_KEY, 'opaque-token-value');
+    h.storeDb.writeAssignment({
+      tenant_id: 'tenant-A',
+      branch_id: 'branch-B',
+      terminal_id: 'terminal-C',
+      terminal_label: 'Counter 1',
+      paired_at: 1735689600,
+      branch_name: 'Maadi Store',
+      branch_address: '12 Road 9',
+      tenant_tax_registration_id: 'TAX-123',
+    });
+
+    const status = await h.store.getStatus();
+    expect(status).toEqual<PairingStatus>({
+      kind: 'paired',
+      tenant_id: 'tenant-A',
+      branch_id: 'branch-B',
+      terminal_id: 'terminal-C',
+      terminal_label: 'Counter 1',
+      paired_at: 1735689600,
+      branch_name: 'Maadi Store',
     });
   });
 

@@ -171,6 +171,33 @@ describe('PairingForm — manual entry (T027)', () => {
     });
     expect(submit).toHaveBeenCalledWith('PADDED-CODE');
   });
+
+  it('RT-1316: a lower-case, grouped Console code typed then Enter is sent canonical', async () => {
+    const user = userEvent.setup();
+    const { bridge, submit } = makeBridge();
+    renderInRouter(bridge);
+
+    const input = screen.getByRole('textbox');
+    await user.type(input, ' abcd-2345 efgh-6789 {Enter}');
+
+    await waitFor(() => {
+      expect(submit).toHaveBeenCalledTimes(1);
+    });
+    expect(submit).toHaveBeenCalledWith('ABCD2345EFGH6789');
+    // Normalised only on submit: the field keeps what the installer typed.
+    expect(input).toHaveValue(' abcd-2345 efgh-6789 ');
+  });
+
+  it('RT-1316: separators-only input shows the empty-input message and sends nothing', async () => {
+    const user = userEvent.setup();
+    const { bridge, submit } = makeBridge();
+    renderInRouter(bridge);
+
+    await user.type(screen.getByRole('textbox'), ' - - {Enter}');
+
+    expect(await screen.findByText(EMPTY_INPUT_MESSAGE)).toBeInTheDocument();
+    expect(submit).not.toHaveBeenCalled();
+  });
 });
 
 describe('PairingForm — wedge scanner (T028)', () => {
@@ -193,6 +220,23 @@ describe('PairingForm — wedge scanner (T028)', () => {
       expect(submit).toHaveBeenCalledTimes(1);
     });
     expect(submit).toHaveBeenCalledWith('VALIDCODE');
+  });
+
+  it('RT-1316: a scanned grouped Console code (keys then Enter) is sent canonical', async () => {
+    const user = userEvent.setup();
+    const { bridge, submit } = makeBridge();
+    renderInRouter(bridge);
+
+    const input = screen.getByRole('textbox');
+    await waitFor(() => {
+      expect(input).toHaveFocus();
+    });
+    await user.keyboard('ABCD-2345-EFGH-6789{Enter}');
+
+    await waitFor(() => {
+      expect(submit).toHaveBeenCalledTimes(1);
+    });
+    expect(submit).toHaveBeenCalledWith('ABCD2345EFGH6789');
   });
 
   it('does NOT submit on focus alone (no extra submit on autofocus)', async () => {
@@ -679,11 +723,14 @@ describe('PairingForm — BRANCH_MISMATCH outcome (T050)', () => {
     expect(set.size).toBe(2);
   });
 
-  it('BRANCH_MISMATCH copy mentions admin / different branch (operator action hint)', () => {
+  it('BRANCH_MISMATCH copy asks the admin for a new code (operator action hint)', () => {
     // Pin the action-oriented shape of the copy at the dictionary level
     // so a future copy edit does not accidentally drop the admin hint.
-    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/لفرع آخر/);
-    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/المشرف/);
+    // RT-1316 (owner decision 2026-11-10): under the RT-367 identity model
+    // there is no "unpair", and the copy names no branch.
+    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/رمزًا جديدًا/);
+    expect(BRANCH_MISMATCH_MESSAGE).toMatch(/المسؤول/);
+    expect(BRANCH_MISMATCH_MESSAGE).not.toMatch(/فرع/);
   });
 
   it('on outcome=branch_mismatch: form remains editable (input + button enabled)', async () => {

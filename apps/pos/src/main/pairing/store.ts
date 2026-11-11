@@ -302,6 +302,9 @@ function statusFrom(tokenState: TokenState, row: StoredAssignmentRow | null): Pa
     terminal_id: row.terminal_id,
     terminal_label: row.terminal_label,
     paired_at: row.paired_at,
+    // RT-1316: the store's display name for the Ready card. The other receipt
+    // fields (address, tax registration id) stay off this renderer surface.
+    branch_name: row.branch_name ?? null,
   };
 }
 

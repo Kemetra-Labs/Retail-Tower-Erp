@@ -538,3 +538,29 @@ export function isRt1110ExemptFile(branch: string, file: string): boolean {
     (RT_1110_VOUCHER_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1316-pos-pairing-557e08` implements Jira RT-1316 Phase 2: the Ready card shows the
+ * store name "taken from the pair response's existing `branch_name`". That name is already
+ * stored at pair time; the pairing store's status builder (`src/main/pairing/store.ts`) now
+ * projects it onto the paired status, and its unit test (`__tests__/store.test.ts`) pins the
+ * new shape. Both are under the forbidden `src/main/pairing/` prefix.
+ *
+ * Authority: Jira RT-1316 Phase 2 scope (owner-authored), following the RT-869 file-list
+ * pattern: exactly TWO files on exactly ONE branch (exact name, no `startsWith`; the
+ * `-preflight` branch is not exempt). Narrowness is asserted by
+ * `source-scope-guard-rt1316.test.ts`.
+ */
+export const RT_1316_STORE_NAME_BRANCH = 'claude/rt-1316-pos-pairing-557e08' as const;
+export const RT_1316_STORE_NAME_EXEMPT_FILES = [
+  'src/main/pairing/__tests__/store.test.ts',
+  'src/main/pairing/store.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1316 exemption allows on `branch`. */
+export function isRt1316ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1316_STORE_NAME_BRANCH &&
+    (RT_1316_STORE_NAME_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

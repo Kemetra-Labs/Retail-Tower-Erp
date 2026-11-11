@@ -37,6 +37,26 @@ Trigger rules are in RT-981 comment 14612. The remote-dev workflows share one Ci
 instead of waiting for "no run in progress" (you would keep losing that race; expect a 6 to 15
 minute wait). The 30-per-Cairo-day cap still counts every trigger.
 
+## POS source-scope guard and the `pos` preflight
+
+The POS test `src/renderer/__tests__/source-scope-guard.test.ts` fails any branch that changes
+`src/main/pairing/`, `src/main/secrets/`, `src/shared/api-types.ts`, `scripts/codegen-api.ts`,
+`scripts/openapi-snapshot.json` or `.github/workflows/` (the prefixes are in
+`source-scope-guard.const.ts`). Only the full suite catches it: targeted vitest runs never load it.
+
+- **When the issue's scope needs one of those files**, add a narrow exemption in the same PR:
+  - the exact file list on the exact PR branch name, with a `source-scope-guard-rt<n>.test.ts`
+    narrowness test (pattern: RT-869, RT-1316);
+  - cite the authority: the owner-authored Jira scope, or an owner decision;
+  - never shrink the prefix list.
+- **The `<branch>-preflight` branch is not exempt.** This is by design: the narrowness tests assert
+  it (RT-1231, RT-1316). A `pos` preflight of such a change therefore fails exactly that one test.
+  - Read the job's test list. If the guard is the only failure, the preflight counts as green for
+    the code. Say so on the Jira issue.
+  - GitHub `required` on the PR branch is the run that must be fully green.
+- `boot-single-instance.test.ts` can fail under a full parallel local run on this laptop and pass
+  when run alone (seen 2026-11-10). Re-run it alone before treating it as real.
+
 Two suites on one branch: trigger each on its **own** preflight branch (for example
 `<pr-branch>-preflight` and `<pr-branch>-preflight-e2e`, same SHA). A second pipeline on the same
 branch auto-cancels the first as redundant, whatever its `remote_suite` (RT-1316: `admin` was
