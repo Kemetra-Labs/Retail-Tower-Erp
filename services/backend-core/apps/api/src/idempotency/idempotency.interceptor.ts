@@ -485,12 +485,22 @@ async function runFresh(attempt: FreshAttempt): Promise<Observable<unknown>> {
   });
   if (claimed === "conflict") return lostClaim(attempt);
   const keyFp = attempt.keyFingerprint;
+  // RT-1325: both degraded paths below leave the claim in place until it
+  // expires (retries answer 425 until then); the log says when.
+  const degraded = { route: attempt.route, key_fingerprint: keyFp, claim_expires_at: expiresAt.toISOString() };
   return attempt.next.handle().pipe(
         catchError((err: unknown) => from(attempt.store.releaseClaim({
           tenantId: attempt.tenantId,
           storeId: null,
           clientId: attempt.clientId,
           key: attempt.storeKey,
+        }).catch((releaseErr: unknown) => {
+          // RT-1325 (R-03): a failed release must not replace the handler's
+          // own error (a 4xx would become a 500), and must not be silent.
+          attempt.logger?.warn(
+            { ...degraded, err: releaseErr },
+            "IdempotencyInterceptor: claim release failed after a handler error; the claim stays until claim_expires_at",
+          );
         }).then(() => {
           throw err;
         }))),
@@ -527,8 +537,10 @@ async function runFresh(attempt: FreshAttempt): Promise<Observable<unknown>> {
               // happened — failing the request now would only hide it and is
               // incoherent with ADR 0009 D3 fail-open). The metric/alert counter is
               // AD-TOOL-003-phase-gated and lands separately; this is the warn-log half.
+              // RT-1325: `claim_expires_at` says how long the leftover claim
+              // still answers 425 before a retry may re-execute the handler.
               attempt.logger?.warn(
-                { err, route: attempt.route, key_fingerprint: keyFp },
+                { ...degraded, err },
                 "IdempotencyInterceptor: replay-record save failed; idempotency degraded (response returned, retry may re-execute handler)",
               );
             });
