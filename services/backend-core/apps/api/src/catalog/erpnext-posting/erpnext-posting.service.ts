@@ -30,12 +30,14 @@ import {
   PostingResolutionIncompleteError,
   ReturnTendersNotVisibleError,
   SaleTendersNotVisibleError,
+  TrackedLineNotPostableError,
   buildWorkItem,
   type PostingWorkItem,
 } from "./posting-work-item.projection";
 import { PostingFeedReporter } from "./posting-feed-reporter";
 import { sanitizeRejectionMessage } from "./rejection-message";
 import { isFeedResponsibilitiesEnabled } from "./responsibilities-feed-gate";
+import { readTrackedSellingOn } from "../sales/tracked-lines/capture-tracking";
 
 /**
  * Hard ceiling on a single pull page — the 012 contract `Limit.maximum` (500),
@@ -223,6 +225,7 @@ const ROW_BUILD_FAILURES = [
   SaleResponsibilitiesNotVisibleError,
   ReturnTendersNotVisibleError,
   PostingResolutionIncompleteError,
+  TrackedLineNotPostableError,
 ] as const;
 
 function isRowBuildFailure(err: unknown): err is Error {
@@ -331,6 +334,23 @@ export class ErpnextPostingService {
         // capture transaction (the projection keeps a second guard that throws).
         // A missing grant on sale_responsibilities fails the whole pull. Held rows are filtered here, not dropped in the projection, so
         // a page is never short; lifting a hold must re-head their sequence.
+        //
+        // RT-451 S6 HOLDS (posting-feed.yaml 1.10.0-draft, sales.yaml G7-9):
+        // a work item whose frozen resolution has a line sold from a tracking
+        // identity is not offered when
+        //   - that line is held (`erp_hold_cause`, G7-9 row 3: the identity
+        //     was expired at the business date, or had no ERP edge-map row
+        //     when the intent was created): "the ERP posting intent is held,
+        //     never sent". An operator re-resolution after the edge map is
+        //     repaired re-freezes it and re-heads the row; an expired lot
+        //     goes to the owner (RT-50 B1);
+        //   - tracked selling is not in effect for the tenant ($4, the
+        //     contract's per-tenant flag): the batch fields are emitted only
+        //     behind it, and a batch Item offered without its Batch would be
+        //     posted without one or rejected. Switching it back on must
+        //     re-head these rows, as for the RT-418 gate.
+        // A reversal copies its sale's lineage, so it is held with its sale.
+        const trackingOn = await readTrackedSellingOn(client, input.tenantId);
         const rows = await client.query<FeedRow>(
           `SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
                   payload_hash, sequence::text AS sequence,
@@ -361,12 +381,18 @@ export class ErpnextPostingService {
                         OR EXISTS (SELECT 1 FROM sale_voids v WHERE v.sale_id = s.id)
                         OR EXISTS (SELECT 1 FROM sale_refunds f WHERE f.sale_id = s.id)
                         OR EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)))
+              AND NOT EXISTS (
+                SELECT 1 FROM erpnext_posting_resolution tr
+                 WHERE tr.intent_id = erpnext_posting_status.id
+                   AND tr.resolution_version = erpnext_posting_status.current_resolution_version
+                   AND tr.tracking_identity_id IS NOT NULL
+                   AND (tr.erp_hold_cause IS NOT NULL OR NOT $4::boolean))
             ORDER BY erpnext_posting_status.sequence
             LIMIT $2`,
-          [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled()],
+          [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled(), trackingOn],
         );
 
-        const { items, unbuildable, omitted } = await this.buildPage(client, rows.rows);
+        const { items, unbuildable, omitted } = await this.buildPage(client, rows.rows, trackingOn);
         // RT-1325: the cursor below advances past every row of the page, so a
         // row left out must not stay where it was. Re-offer it in this same
         // transaction (a failed write fails the pull: nothing is skipped).
@@ -410,6 +436,7 @@ export class ErpnextPostingService {
   private async buildPage(
     client: PoolClient,
     rows: readonly FeedRow[],
+    emitTracking: boolean,
   ): Promise<{ items: PostingWorkItem[]; unbuildable: UnbuildableRow[]; omitted: FeedRowReport[] }> {
     const items: PostingWorkItem[] = [];
     const unbuildable: UnbuildableRow[] = [];
@@ -427,7 +454,7 @@ export class ErpnextPostingService {
           payloadHash: row.payload_hash,
           sequence: row.sequence,
           currentResolutionVersion: row.current_resolution_version,
-        });
+        }, emitTracking);
         if (item) {
           items.push(item);
         } else {

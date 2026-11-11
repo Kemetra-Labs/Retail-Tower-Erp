@@ -20,6 +20,11 @@ export {
   POSTING_FEED_LOCK_NAMESPACE,
 } from "./helpers/posting-feed-lock";
 export {
+  RESOLUTION_TRACKING_COLUMNS,
+  resolutionTrackingJoin,
+  resolutionTrackingSelect,
+} from "./helpers/posting-resolution-tracking";
+export {
   AI_USAGE_RESERVATION_LOCK_NAMESPACE,
   listExpiredAiReservations,
   settleAiReservation,

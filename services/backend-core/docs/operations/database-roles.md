@@ -657,6 +657,19 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any resolution is stored.
 
+- **Migration `0095_posting_resolution_tracking` (RT-451 S6).** No grant
+  step: it adds four nullable columns to `erpnext_posting_resolution`
+  (`tracking_mode`, `tracking_identity_id`, `erpnext_batch_ref`,
+  `erp_hold_cause`), which the domain role's existing `SELECT` and `INSERT`
+  cover. The worker's freeze also reads `erpnext_tracking_map`,
+  `sale_line_findings` and `tracking_resolution_lines`, which the 0089 and 0094
+  grant steps already give the domain role, so those steps must have run (they
+  run every release). Lock impact: a short ACCESS EXCLUSIVE for the catalog-only
+  column adds and `NOT VALID` CHECKs, then each `VALIDATE` scans under SHARE
+  UPDATE EXCLUSIVE without blocking the feed or the worker; no maintenance
+  window. Its down migration refuses while any line has a frozen tracking
+  identity.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
