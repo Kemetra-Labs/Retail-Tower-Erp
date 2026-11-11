@@ -31,7 +31,7 @@ export const posPilot: MessagesOf<typeof ar> = {
 
   "posPilot.activate.label": "Confirm release activation",
   "posPilot.activate.prompt":
-    "Activate version {version}? It becomes the release every allowlisted organization downloads. It can't be undone here: only the promotion workflow can withdraw it.",
+    "Activate version {version}? It becomes the current pilot release, the only one Download POS can offer allowlisted organizations. It can't be undone here: only the promotion workflow can withdraw it.",
   "posPilot.activate.confirm": "Confirm activation",
   "posPilot.activate.done": "Version {version} is now the current release.",
   "posPilot.activate.currentExists":
