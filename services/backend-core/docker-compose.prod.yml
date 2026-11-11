@@ -103,9 +103,13 @@ services:
       DESCOPE_JWT_ISSUER: ${DESCOPE_JWT_ISSUER:-}
       DESCOPE_JWT_AUDIENCE: ${DESCOPE_JWT_AUDIENCE:-}
       # RT-1327: Admin Console origin the Descope recovery link returns to
-      # (<origin>/reset-password). Same value as the worker's. Empty leaves provider
-      # password recovery off (no link is sent; the route still answers 202).
+      # (<origin>/reset-password). Same value as the worker's.
       CONSOLE_BASE_URL: ${CONSOLE_BASE_URL:-}
+      # RT-1327 owner switch: provider password recovery stays off unless this is
+      # exactly `true` (and CONSOLE_BASE_URL is valid). Turn it on only after the
+      # Console /reset-password page (RT-807) is deployed and the origin is on the
+      # provider's approved domains. Off: no link is sent (202) and no link is accepted (400).
+      DESCOPE_PASSWORD_RECOVERY_ENABLED: ${DESCOPE_PASSWORD_RECOVERY_ENABLED:-false}
       # RT-1122: session-token age cap in seconds; empty keeps the 8 h 30 min default.
       DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS: ${DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS:-}
       # RT-937 Admin sign-in and invite acceptance. A secret kept in backend.env;

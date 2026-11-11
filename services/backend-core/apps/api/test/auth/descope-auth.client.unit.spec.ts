@@ -477,3 +477,51 @@ describe("descopeAuthFactory without DESCOPE_PROJECT_ID (RT-1327)", () => {
     expect(await descopeAuthFactory().sendPasswordReset("a@b.co")).toEqual({ kind: "unconfigured" });
   });
 });
+
+describe("provider password recovery switch DESCOPE_PASSWORD_RECOVERY_ENABLED (RT-1327)", () => {
+  const KEYS = ["DESCOPE_PROJECT_ID", "CONSOLE_BASE_URL", "DESCOPE_PASSWORD_RECOVERY_ENABLED"] as const;
+  const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+  beforeEach(() => {
+    process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+    process.env["CONSOLE_BASE_URL"] = "https://console.example.test";
+    delete process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"];
+  });
+  afterAll(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("is off when unset, even with a valid CONSOLE_BASE_URL: no return URL, so nothing is sent", async () => {
+    const port = descopeAuthFactory();
+    expect(Reflect.get(port, "resetRedirectUrl")).toBeNull();
+    expect(await port.sendPasswordReset("a@b.co")).toEqual({ kind: "unconfigured" });
+  });
+
+  it.each(["false", "1", "yes", "TRUE ", "on", ""])("stays off for %p", (value) => {
+    process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = value;
+    expect(Reflect.get(descopeAuthFactory(), "resetRedirectUrl")).toBeNull();
+  });
+
+  it("is on only for `true`, and then uses <CONSOLE_BASE_URL>/reset-password", () => {
+    process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = "true";
+    expect(Reflect.get(descopeAuthFactory(), "resetRedirectUrl")).toBe("https://console.example.test/reset-password");
+  });
+
+  it("stays off when switched on but CONSOLE_BASE_URL is invalid", () => {
+    process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = "true";
+    process.env["CONSOLE_BASE_URL"] = "http://console.example.test";
+    expect(Reflect.get(descopeAuthFactory(), "resetRedirectUrl")).toBeNull();
+  });
+});
+
+describe("DescopeAuthClient.verifyResetToken with recovery off (RT-1327)", () => {
+  it("refuses any proof without contacting the provider", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, { sessionJwt: "s", refreshJwt: "r" }), {
+      resetRedirectUrl: null,
+    });
+    expect(await client.verifyResetToken("any-token")).toEqual({ kind: "refused" });
+    expect(calls).toHaveLength(0);
+  });
+});

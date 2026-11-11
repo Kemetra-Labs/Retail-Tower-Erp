@@ -22,7 +22,11 @@
   `password-reset/confirm` (it also covers the RT-628 rate-limiter outage the route already
   answered with 503). Unlinked users keep the local reset. The recovery link returns to
   `<CONSOLE_BASE_URL>/reset-password?t=<proof>`: the api reads the same origin-only https
-  `CONSOLE_BASE_URL` as the worker, and without it no provider reset is sent (fail closed). The
-  deploy config must pass `CONSOLE_BASE_URL` to the api service (owner-gated). The only OpenAPI change is the added 503 above.
+  `CONSOLE_BASE_URL` as the worker, and without it no provider reset is sent (fail closed).
+  Provider recovery also needs the new owner switch `DESCOPE_PASSWORD_RECOVERY_ENABLED=true`
+  (compose default `false`): off, no recovery link is sent (202) and no provider link is accepted
+  (400, the provider is not called). Turn it on only after the Console `/reset-password` page
+  (RT-807) is deployed and the Console host is on the provider's approved domains. The deploy
+  config passes `CONSOLE_BASE_URL` and the switch to the api service (owner-gated). The only OpenAPI change is the added 503 above.
   For RT-807: the Admin page at `/reset-password` posts `{ token: <t>, new_password }` to the
   existing confirm route, removes `t` from the URL at once, and on 204 goes to `/signin`.

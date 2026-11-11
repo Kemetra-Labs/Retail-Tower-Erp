@@ -70,7 +70,11 @@ export interface DescopeAuthClientOptions {
   readonly projectId: string;
   /** `DESCOPE_MANAGEMENT_KEY`; null or empty leaves every Management call `unconfigured`. */
   readonly managementKey: string | null;
-  /** Absolute return URL of the recovery link; null or absent leaves `sendPasswordReset` `unconfigured`. */
+  /**
+   * Absolute return URL of the recovery link. Null or absent means provider
+   * recovery is off: `sendPasswordReset` is `unconfigured` and `verifyResetToken`
+   * refuses every proof without a request.
+   */
   readonly resetRedirectUrl?: string | null;
   readonly fetch: DescopeFetch;
   readonly timeoutMs?: number;
@@ -97,6 +101,16 @@ export function resetRedirectUrlFromEnv(raw: string | undefined): string | null 
   } catch {
     return null;
   }
+}
+
+/**
+ * RT-1327 owner decision: `DESCOPE_PASSWORD_RECOVERY_ENABLED` holds provider
+ * recovery off until the Console `/reset-password` page (RT-807) and the
+ * provider's approved domains are ready. On only for exactly `true`, so the
+ * worker's required `CONSOLE_BASE_URL` alone never turns it on.
+ */
+export function providerRecoveryEnabledFromEnv(raw: string | undefined): boolean {
+  return raw === "true";
 }
 
 /** The value as a plain property bag, or null for a non-object. */
@@ -166,6 +180,8 @@ export class DescopeAuthClient implements ExternalCredentialPort {
 
   /** `POST /v1/auth/magiclink/verify`: consumes the link's one-time token and yields the user's session. */
   async verifyResetToken(token: string): Promise<VerifyResetResult> {
+    // Recovery off: no link was sent, so no proof can be legitimate; never ask the provider.
+    if (this.resetRedirectUrl === null) return { kind: "refused" };
     const sent = await this.send("POST", "/v1/auth/magiclink/verify", this.projectId, { token });
     if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
     if (!sent.res.ok) return { kind: "refused" };
@@ -322,7 +338,9 @@ export function descopeAuthFactory(): ExternalCredentialPort {
   return new DescopeAuthClient({
     projectId,
     managementKey: process.env["DESCOPE_MANAGEMENT_KEY"] ?? null,
-    resetRedirectUrl: resetRedirectUrlFromEnv(process.env["CONSOLE_BASE_URL"]),
+    resetRedirectUrl: providerRecoveryEnabledFromEnv(process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"])
+      ? resetRedirectUrlFromEnv(process.env["CONSOLE_BASE_URL"])
+      : null,
     fetch: (input, init) => fetch(input, init),
   });
 }
