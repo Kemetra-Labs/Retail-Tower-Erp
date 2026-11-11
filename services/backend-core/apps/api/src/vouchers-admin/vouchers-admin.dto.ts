@@ -24,7 +24,11 @@ const VOUCHER_PAGE_SIZE_MAX = 100;
 const VOUCHER_STATUSES = ["active", "redeemed", "cancelled", "expired"] as const;
 type EffectiveVoucherStatus = (typeof VOUCHER_STATUSES)[number];
 
-const instant = z.string().datetime({ offset: true });
+// `datetime({ offset: true })` accepts a +99:00 offset the Date parser (and Postgres) refuse.
+const instant = z
+  .string()
+  .datetime({ offset: true })
+  .refine((value) => !Number.isNaN(Date.parse(value)), "must be a real instant");
 
 export const VoucherIssueSchema = z
   .object({
@@ -35,7 +39,7 @@ export const VoucherIssueSchema = z
       .nullable()
       .optional(),
     applies_to_all_stores: z.boolean(),
-    // `max` is checked before any element, so 101 entries are refused without validating them.
+    // zod parses every element; the bound still caps the work (the contract's maxItems).
     eligible_store_ids: z.array(z.string().uuid().transform((id) => id.toLowerCase())).max(100).optional(),
     note: z
       .string()

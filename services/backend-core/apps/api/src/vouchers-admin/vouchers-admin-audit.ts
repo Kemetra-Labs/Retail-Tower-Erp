@@ -16,7 +16,7 @@ import { newId } from "@data-pulse-2/shared";
 export const VOUCHER_ISSUED_ACTION = "voucher.issued";
 export const VOUCHER_CANCELLED_ACTION = "voucher.cancelled";
 
-export interface VoucherAudit {
+interface VoucherAudit {
   readonly tenantId: string;
   readonly actorUserId: string;
   readonly requestId: string | null;

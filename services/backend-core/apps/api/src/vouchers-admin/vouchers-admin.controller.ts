@@ -7,11 +7,18 @@
  *   GET  /api/v1/vouchers/{voucher_id}         consoleGetVoucher
  *   POST /api/v1/vouchers/{voucher_id}/cancel  consoleCancelVoucher
  *
- * AUTH: the human cookie stack, in the contract's order: `DashboardAuthGuard`
- * (it carries the RT-430 Origin check on the two cookie POSTs), then
- * `TenantContextGuard`, then `RolesGuard` with owner / tenant_admin only (any
- * other role is 403 `forbidden`). The tenant is `request.context`, never a body
- * or query value.
+ * AUTH: the human cookie stack: `SessionOnlyAdminGuard` (the cookie session ONLY,
+ * as the contract's `cookieAuth` says: any bearer, even a `dashboard_api` token,
+ * is 401; it also carries the RT-430 Origin check on the two cookie POSTs, a bad
+ * Origin is 403 `origin_rejected`), then `TenantContextGuard`, then `RolesGuard`
+ * with owner / tenant_admin only (any other role is 403 `forbidden`). The tenant
+ * is `request.context`, never a body or query value.
+ *
+ * STORE SCOPE (RT-131, the role never widens a membership): a `specific`
+ * tenant_admin can issue only for stores in scope (an out-of-scope store is the
+ * same 404 `store_not_found` as an absent one), cannot issue an all-stores batch
+ * (403 `forbidden`), and sees, reads and cancels only vouchers whose eligible
+ * stores are all in scope (anything else is `voucher_not_found`).
  *
  * Issue is `@Idempotent("required", { replay: "forbid", replayMarkerFields:
  * ["batch_id"] })` (RT-82 K3): the 201 carries the one-time codes, so the
@@ -29,6 +36,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   HttpCode,
@@ -42,12 +50,12 @@ import {
 } from "@nestjs/common";
 
 import { Auditable } from "../audit/auditable.decorator";
-import { DashboardAuthGuard } from "../auth/dashboard-auth.guard";
 import { Roles } from "../auth/roles.decorator";
 import { RolesGuard } from "../auth/roles.guard";
+import { SessionOnlyAdminGuard } from "../auth/session-only-admin.guard";
 import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decorator";
 import { TenantContextGuard } from "../context/tenant-context.guard";
-import type { TenantContextRequest } from "../context/types";
+import type { ResolvedContext, TenantContextRequest } from "../context/types";
 import { Idempotent } from "../idempotency/idempotent.decorator";
 import {
   ContractValidationPipe,
@@ -62,14 +70,14 @@ import {
   type VoucherPageBody,
 } from "./vouchers-admin.dto";
 import { InvalidVoucherCursorError } from "./vouchers-admin.queries";
-import { VoucherStoreInactiveError, VoucherStoreNotFoundError } from "./voucher-issue";
+import { VoucherScopeInsufficientError, VoucherStoreInactiveError, VoucherStoreNotFoundError } from "./voucher-issue";
 import { VoucherAlreadyRedeemedError, VoucherNotFoundError, VouchersAdminService } from "./vouchers-admin.service";
 
 const STORE_NOT_FOUND = { code: "store_not_found", message: "A store was not found." } as const;
 const VOUCHER_NOT_FOUND = { code: "voucher_not_found", message: "Voucher not found." } as const;
 
 @Controller()
-@UseGuards(DashboardAuthGuard, TenantContextGuard, RolesGuard)
+@UseGuards(SessionOnlyAdminGuard, TenantContextGuard, RolesGuard)
 export class VouchersAdminController {
   constructor(private readonly service: VouchersAdminService) {}
 
@@ -89,6 +97,12 @@ export class VouchersAdminController {
       return await this.service.issue({ ...actor, body });
     } catch (err) {
       if (err instanceof VoucherStoreNotFoundError) throw new NotFoundException(STORE_NOT_FOUND);
+      if (err instanceof VoucherScopeInsufficientError) {
+        throw new ForbiddenException({
+          code: "forbidden",
+          message: "An all-stores voucher needs access to all stores.",
+        });
+      }
       if (err instanceof VoucherStoreInactiveError) {
         throw new ConflictException({ code: "store_inactive", message: "An eligible store is inactive." });
       }
@@ -105,7 +119,7 @@ export class VouchersAdminController {
     @Query(new ContractValidationPipe(VoucherListQuerySchema)) query: VoucherListQuery,
   ): Promise<VoucherPageBody> {
     try {
-      return await this.service.list({ tenantId: actorOf(request).tenantId, query });
+      return await this.service.list({ ...actorOf(request), query });
     } catch (err) {
       if (err instanceof InvalidVoucherCursorError) {
         throw new BadRequestException({ code: "validation_failure", message: "cursor is not valid." });
@@ -123,7 +137,7 @@ export class VouchersAdminController {
     @Param("voucher_id", new ContractValidationPipe(VoucherIdParamSchema)) voucherId: string,
   ): Promise<VoucherBody> {
     try {
-      return await this.service.get({ tenantId: actorOf(request).tenantId, voucherId });
+      return await this.service.get({ ...actorOf(request), voucherId });
     } catch (err) {
       if (err instanceof VoucherNotFoundError) throw new NotFoundException(VOUCHER_NOT_FOUND);
       throw err;
@@ -153,6 +167,7 @@ export class VouchersAdminController {
 
 interface Actor {
   readonly tenantId: string;
+  readonly context: ResolvedContext;
   readonly actorUserId: string;
   readonly requestId: string | null;
 }
@@ -161,5 +176,5 @@ interface Actor {
 function actorOf(request: TenantContextRequest): Actor {
   const ctx = request.context;
   if (!ctx || ctx.tenantId === null || ctx.userId === null) throw new UnauthorizedException("Unauthorized");
-  return { tenantId: ctx.tenantId, actorUserId: ctx.userId, requestId: request.requestId ?? null };
+  return { tenantId: ctx.tenantId, context: ctx, actorUserId: ctx.userId, requestId: request.requestId ?? null };
 }

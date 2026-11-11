@@ -143,15 +143,30 @@ export async function restrictDomainUsersColumns(admin: Pool, role: string): Pro
 }
 
 /**
- * RT-1108: the same for `vouchers`. Production lets the domain role UPDATE only
- * `status`, `cancelled_at` and `cancelled_by_user_id` (src/auth/grants/
- * vouchers.grants.ts), so the test role loses its table-wide UPDATE and gets
- * exactly those columns: a runtime write to any other column fails here with
- * `permission denied`, as it would in production.
+ * RT-1108: the same for the voucher tables, driven by the vouchers grant
+ * fragment. Production gives the domain role SELECT and INSERT on `vouchers` and
+ * `voucher_eligible_stores`, plus UPDATE on three `vouchers` columns only
+ * (src/auth/grants/vouchers.grants.ts). So the test role loses every other
+ * table-level privilege on those tables (DELETE on both, UPDATE on the
+ * eligibility table) and its table-wide UPDATE on `vouchers`, then gets the
+ * fragment's columns: a runtime statement outside the production grants fails
+ * here with `permission denied`.
  */
 export async function restrictDomainVouchersColumns(admin: Pool, role: string): Promise<void> {
+  const held = new Map<string, Set<string>>();
+  for (const [table, privilege] of VOUCHERS_GRANTS.domainRequired) {
+    held.set(table, (held.get(table) ?? new Set<string>()).add(privilege));
+  }
+  const statements: string[] = [];
+  for (const [table, privileges] of held) {
+    const revoked = TABLE_PRIVILEGES.filter((p) => !privileges.has(p));
+    statements.push(`REVOKE ${revoked.join(", ")} ON ${table} FROM ${role}`);
+  }
+  await admin.query(statements.join(";\n"));
   await restrictDomainColumns(admin, role, VOUCHERS_GRANTS, ["UPDATE"]);
 }
+
+const TABLE_PRIVILEGES = ["SELECT", "INSERT", "UPDATE", "DELETE"] as const;
 
 /**
  * Replace `role`'s table-level `revoked` privileges on every table a fragment

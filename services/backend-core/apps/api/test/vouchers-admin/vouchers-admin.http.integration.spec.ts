@@ -29,7 +29,11 @@ import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 
 import { hashToken } from "@data-pulse-2/auth";
+import { createLogger } from "@data-pulse-2/shared";
 
+import { LoggingInterceptor } from "../../src/common/logging.interceptor";
+import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
+import * as voucherAudit from "../../src/vouchers-admin/vouchers-admin-audit";
 import { VouchersAdminModule } from "../../src/vouchers-admin/vouchers-admin.module";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 import { STORE_A_X, STORE_A_Y, STORE_B_X, TENANT_A, TENANT_B } from "../catalog/__support__/isolation-harness";
@@ -63,6 +67,7 @@ let env: PgTestEnv | null = null;
 let app: INestApplication | null = null;
 let recorder: IdempotencyRecorder | null = null;
 let skipped = false;
+const logLines: string[] = [];
 let tenantACurrency = "";
 
 async function seed(e: PgTestEnv): Promise<void> {
@@ -100,7 +105,15 @@ beforeAll(async () => {
   }
   const idem = recordingIdempotencyProviders();
   recorder = idem.recorder;
-  app = await bootScopedApp(env, VouchersAdminModule, undefined, { providers: idem.providers });
+  app = await bootScopedApp(env, VouchersAdminModule, undefined, {
+    providers: idem.providers,
+    // The app's real request logger (main.ts), captured in memory.
+    beforeInit: (a) =>
+      a.useGlobalInterceptors(
+        new RequestIdInterceptor(),
+        new LoggingInterceptor(createLogger({ service: "rt1108-test", level: "info", destination: { write: (m) => void logLines.push(m) } })),
+      ),
+  });
 }, 240_000);
 
 afterAll(async () => {
@@ -174,14 +187,102 @@ describe("authz", () => {
     const before = await voucherCount();
     for (const res of [await issue(session, ALL), await list(session), await get(session, V_EXPIRED), await cancel(session, V_EXPIRED)]) {
       expect(res.status).toBe(403);
+      expect((res.body as { error: { code: string } }).error.code).toBe("forbidden");
       conforms("Error", res.body);
     }
     expect(await voucherCount()).toBe(before);
   });
 
-  it("lets a tenant_admin issue", async () => {
+  it("answers a bearer with 401 and a cookie POST without a trusted Origin with 403 origin_rejected, on both POSTs", async () => {
     if (skip()) return;
-    expect((await issue(SES_ADMIN_X, { ...ALL, count: 1 })).status).toBe(201);
+    const before = await voucherCount();
+    const bearer = await request(server()).post(URL).set("Authorization", "Bearer not-a-real-token").set("Idempotency-Key", freshKey()).send(ALL);
+    expect(bearer.status).toBe(401);
+    const cookie = "dp2_session=rt1108-not-a-session";
+    const posts = [
+      () => request(server()).post(URL).set("Cookie", cookie).set("Idempotency-Key", freshKey()).send(ALL),
+      () => request(server()).post(`${URL}/${V_EXPIRED}/cancel`).set("Cookie", cookie).set("Idempotency-Key", freshKey()),
+    ];
+    for (const post of posts) {
+      const none = await post();
+      expectError(none, 403, "origin_rejected", "Error");
+      const foreign = await post().set("Origin", "https://evil.example");
+      expectError(foreign, 403, "origin_rejected", "Error");
+    }
+    expect(await voucherCount()).toBe(before);
+    const row = await env!.admin.query<{ status: string }>(`SELECT status FROM vouchers WHERE id = $1`, [V_EXPIRED]);
+    expect(row.rows[0]!.status).toBe("active");
+  });
+});
+
+// RT-131 / RT-1108 review: the role never widens a membership. SES_ADMIN_X is a tenant_admin whose
+// membership is `specific`, granted STORE_A_X only.
+describe("store scope of a specific tenant_admin", () => {
+  it("cannot issue an all-stores batch (403 forbidden); a tenant-wide owner can", async () => {
+    if (skip()) return;
+    const before = await voucherCount();
+    expectError(await issue(SES_ADMIN_X, { ...ALL, count: 1 }), 403, "forbidden", "Error");
+    expect(await voucherCount()).toBe(before);
+    expect((await issue(SES_OWNER_ALL, { ...ALL, count: 1 })).status).toBe(201);
+  });
+
+  it("issues for a store in scope, and gets the non-disclosing 404 store_not_found for any store out of scope", async () => {
+    if (skip()) return;
+    const ok = await issue(SES_ADMIN_X, { count: 1, amount_minor: 100, applies_to_all_stores: false, eligible_store_ids: [STORE_A_X] });
+    expect(ok.status).toBe(201);
+    const before = await voucherCount();
+    for (const stores of [[STORE_A_Y], [STORE_A_X, STORE_A_Y]]) {
+      expectError(
+        await issue(SES_ADMIN_X, { count: 1, amount_minor: 100, applies_to_all_stores: false, eligible_store_ids: stores }),
+        404,
+        "store_not_found",
+      );
+    }
+    expect(await voucherCount()).toBe(before);
+  });
+
+  it("lists, gets and cancels only vouchers whose eligible stores are all in scope; the rest are voucher_not_found", async () => {
+    if (skip()) return;
+    const mk = async (stores: string[] | "all"): Promise<string> =>
+      (await issueOk(stores === "all" ? { ...ALL, count: 1 } : { count: 1, amount_minor: 10, applies_to_all_stores: false, eligible_store_ids: stores })).vouchers[0]!.voucher_id;
+    const inScope = await mk([STORE_A_X]);
+    const allStores = await mk("all");
+    const mixed = await mk([STORE_A_X, STORE_A_Y]);
+    const other = await mk([STORE_A_Y]);
+
+    const ids = async (session: string): Promise<string[]> => {
+      const out: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const res = await list(session, { page_size: 2, ...(cursor ? { cursor } : {}) });
+        expect(res.status).toBe(200);
+        out.push(...(res.body as { items: Array<{ voucher_id: string }> }).items.map((v) => v.voucher_id));
+        cursor = (res.body as { next_cursor: string | null }).next_cursor ?? undefined;
+      } while (cursor);
+      return out;
+    };
+    const scoped = await ids(SES_ADMIN_X);
+    expect(scoped).toContain(inScope);
+    for (const hidden of [allStores, mixed, other, V_EXPIRED, V_REDEEMED]) expect(scoped).not.toContain(hidden);
+    expect(new Set(scoped).size).toBe(scoped.length);
+
+    // A tenant-wide member still sees everything.
+    const all = await ids(SES_OWNER_ALL);
+    for (const id of [inScope, allStores, mixed, other]) expect(all).toContain(id);
+
+    expect((await get(SES_ADMIN_X, inScope)).status).toBe(200);
+    for (const hidden of [allStores, mixed, other, V_EXPIRED, V_REDEEMED]) {
+      expectError(await get(SES_ADMIN_X, hidden), 404, "voucher_not_found");
+      expectError(await cancel(SES_ADMIN_X, hidden), 404, "voucher_not_found");
+    }
+    expect((await get(SES_OWNER_ALL, allStores)).status).toBe(200);
+    // The refused cancels changed nothing.
+    const rows = await env!.admin.query<{ id: string; status: string }>(`SELECT id::text, status FROM vouchers WHERE id = ANY($1::uuid[])`, [[allStores, mixed, other, V_REDEEMED]]);
+    expect(rows.rows.find((r) => r.id === allStores)!.status).toBe("active");
+    expect(rows.rows.find((r) => r.id === mixed)!.status).toBe("active");
+
+    const cancelled = await cancel(SES_ADMIN_X, inScope);
+    expect([cancelled.status, (cancelled.body as { already_cancelled: boolean }).already_cancelled]).toEqual([200, false]);
   });
 });
 
@@ -274,27 +375,37 @@ describe("consoleIssueVouchers", () => {
     expect(stored).toContain(issued.batch_id);
   });
 
-  it("writes no code to the process log streams while issuing", async () => {
+  it("logs the request with the app's real logger and the log carries no code", async () => {
     if (skip()) return;
-    const chunks: string[] = [];
-    const capture = (chunk: unknown): boolean => {
-      chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk as Uint8Array).toString("utf8"));
-      return true;
-    };
-    const out = jest.spyOn(process.stdout, "write").mockImplementation(capture as never);
-    const err = jest.spyOn(process.stderr, "write").mockImplementation(capture as never);
-    let issued: IssuedBody;
-    try {
-      issued = await issueOk(ALL);
-    } finally {
-      out.mockRestore();
-      err.mockRestore();
-    }
-    const logged = chunks.join("");
+    logLines.length = 0;
+    const issued = await issueOk(ALL);
+    const logged = logLines.join("");
+    expect(logged).toContain("request completed");
+    expect(logged).toContain("/api/v1/vouchers");
     for (const v of issued.vouchers) {
       expect(logged).not.toContain(v.code);
       expect(logged).not.toContain(v.code.replace(/-/g, ""));
     }
+  });
+
+  it("is atomic: a failure after the batch insert leaves no voucher, eligibility row or audit row", async () => {
+    if (skip()) return;
+    const vouchers = await voucherCount();
+    const eligible = Number((await env!.admin.query<{ n: string }>(`SELECT count(*)::text AS n FROM voucher_eligible_stores`)).rows[0]!.n);
+    const audits = Number((await env!.admin.query<{ n: string }>(`SELECT count(*)::text AS n FROM audit_events WHERE action = 'voucher.issued'`)).rows[0]!.n);
+    const spy = jest.spyOn(voucherAudit, "insertVoucherAudit").mockRejectedValueOnce(new Error("audit boom"));
+    try {
+      const res = await issue(SES_OWNER_ALL, { count: 3, amount_minor: 10, applies_to_all_stores: false, eligible_store_ids: [STORE_A_X, STORE_A_Y] });
+      expect(res.status).toBe(500);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await voucherCount()).toBe(vouchers);
+    const after = await env!.admin.query<{ n: string }>(`SELECT count(*)::text AS n FROM voucher_eligible_stores`);
+    expect(Number(after.rows[0]!.n)).toBe(eligible);
+    const auditAfter = await env!.admin.query<{ n: string }>(`SELECT count(*)::text AS n FROM audit_events WHERE action = 'voucher.issued'`);
+    expect(Number(auditAfter.rows[0]!.n)).toBe(audits);
   });
 
   it("requires a well-formed Idempotency-Key", async () => {
@@ -528,11 +639,14 @@ describe("consoleCancelVoucher", () => {
 });
 
 describe("the domain role's column grants on vouchers (test-harness precondition)", () => {
-  it("can UPDATE only status, cancelled_at and cancelled_by_user_id", async () => {
+  it("can UPDATE only status, cancelled_at and cancelled_by_user_id, and never DELETE", async () => {
     if (skip()) return;
     for (const column of ["amount_minor", "code_hash", "note", "expires_at", "currency_code", "tenant_id", "batch_id", "issued_by_user_id"]) {
       await expect(env!.app.query(`UPDATE vouchers SET ${column} = ${column} WHERE false`)).rejects.toThrow(/permission denied/);
     }
     await expect(env!.app.query(`UPDATE vouchers SET status = status WHERE false`)).resolves.toBeDefined();
+    await expect(env!.app.query(`DELETE FROM vouchers WHERE false`)).rejects.toThrow(/permission denied/);
+    await expect(env!.app.query(`DELETE FROM voucher_eligible_stores WHERE false`)).rejects.toThrow(/permission denied/);
+    await expect(env!.app.query(`UPDATE voucher_eligible_stores SET store_id = store_id WHERE false`)).rejects.toThrow(/permission denied/);
   });
 });

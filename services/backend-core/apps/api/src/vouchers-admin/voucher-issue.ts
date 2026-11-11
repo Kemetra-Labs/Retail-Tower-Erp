@@ -7,6 +7,9 @@ import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
+import { inStoreScope } from "../context/operator-store-scope";
+import type { StoreScope } from "../context/store-scope";
+
 import { formatVoucherCode, generateVoucherCode, hashVoucherCode } from "./voucher-code";
 
 /** An eligible store is not a live store of the tenant (404 `store_not_found`, non-disclosing). */
@@ -33,18 +36,29 @@ class VoucherCodeCollisionError extends Error {
   }
 }
 
+/** The caller's store scope is not tenant-wide, so it cannot issue an all-stores voucher (403 `forbidden`). */
+export class VoucherScopeInsufficientError extends Error {
+  constructor() {
+    super("store scope insufficient");
+    this.name = "VoucherScopeInsufficientError";
+  }
+}
+
 const MAX_GENERATION_ROUNDS = 5;
 
 /**
- * Every id must be a live (not soft-deleted) store of the tenant, else
+ * Every id must be inside the caller's store scope (an out-of-scope store is the
+ * same refusal as an absent one) and a live (not soft-deleted) store of the tenant, else
  * `VoucherStoreNotFoundError` (a store of another tenant is the same refusal);
  * then every one must be active, else `VoucherStoreInactiveError`.
  */
 export async function assertStoresEligible(
   client: PoolClient,
   tenantId: string,
+  scope: StoreScope,
   storeIds: readonly string[],
 ): Promise<void> {
+  if (!storeIds.every((id) => inStoreScope(scope, id))) throw new VoucherStoreNotFoundError();
   const r = await client.query<{ is_active: boolean }>(
     `SELECT is_active FROM stores WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL`,
     [tenantId, storeIds],
@@ -53,7 +67,7 @@ export async function assertStoresEligible(
   if (r.rows.some((row) => !row.is_active)) throw new VoucherStoreInactiveError();
 }
 
-export interface VoucherBatchInput {
+interface VoucherBatchInput {
   readonly tenantId: string;
   readonly batchId: string;
   readonly actorUserId: string;
@@ -66,7 +80,7 @@ export interface VoucherBatchInput {
 }
 
 /** An inserted voucher and the (secret) code that goes into the one response. */
-export interface InsertedVoucher {
+interface InsertedVoucher {
   readonly voucherId: string;
   readonly code: string;
 }
