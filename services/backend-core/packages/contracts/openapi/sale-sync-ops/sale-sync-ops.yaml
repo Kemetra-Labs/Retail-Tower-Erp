@@ -85,47 +85,60 @@ info:
     UUIDv7), its own list and its own repair. `NeedsRepairItem` and
     `consoleListNeedsRepair` are unchanged: widening them would break the
     closed schema the Admin Console pins. The Console shows both lists as the
-    one NEEDS_REPAIR queue. Everything else is shared with items 1 to 4: the
-    `cookieAuth` session, the role and store-scope rules, the error envelope
-    and responses, the `Idempotency-Key` rule and the `repair_conflict` 409.
-    The projections carry no money, no line amounts and not the stored body,
-    like the existing queue.
+    one NEEDS_REPAIR queue. Shared with items 1 to 4: the `cookieAuth`
+    session, the store-scope rule (RT-193), the error envelope, the
+    `Idempotency-Key` rule and the `repair_conflict` code. The roles are
+    `owner` and `tenant_admin`, as today, until owner question 1 is
+    answered. The projections carry no money, no line amounts and not the
+    stored body, like the existing queue.
 
     **The repair (item 7).** It re-ingests the stored `saleBody` through the
     `captureSale` rules (`pos-sales/sales.yaml`) for the item's tenant and
-    store, under the sale's original provenance `(sourceSystem, externalId)`
-    and its recorded idempotency key. At most one sale ever exists for a
-    provenance: that guarantee is the capture provenance dedup (FR-050) and
-    the RT-1206 same-facts rule, not an interceptor replay (the capture
-    interceptor is scoped to the authenticated principal and stores only
-    successful answers, so a Console principal never replays the till's
-    stored answer). So a repair racing a late till retry, a second repair or
-    a repair of a sale captured meanwhile can never create a second sale.
-    The repair's outcome is one of three, always returned as 200 with the
-    updated item: `captured` (a new sale; the item leaves the queue),
-    `already-captured` (a sale with this provenance and the same facts
-    exists; the item leaves the queue) or `refused` (the capture rules
-    refused it again; the item stays `open` with the new status and code).
-    Repair never edits the stored body: a body that can never be captured
-    as sent (for example a `payload_divergence`) needs an owner decision
-    (open question 3 below). Each repair writes one audit row naming the
+    store, under the sale's original provenance `(sourceSystem, externalId)`.
+    At most one sale ever exists for a provenance: that guarantee is the
+    capture provenance dedup (FR-050, the unique `(tenant, source_system,
+    external_id)` on `sales`) and the RT-1206 same-facts rule, not an
+    interceptor replay. The capture IdempotencyInterceptor is partitioned by
+    the authenticated principal and stores only successful answers, so the
+    till's recorded `idempotencyKey` is kept with the item for audit and is
+    NOT written into any interceptor partition by the repair. So a repair
+    racing a late till retry, a second repair or a repair of a sale
+    captured meanwhile can never create a second sale. Repairs of one item
+    run one at a time: a repair that finds the item no longer `open` is 409
+    `repair_conflict`. The repair's outcome is one of three, always
+    returned as 200 with the updated item: `captured` (a new sale; the item
+    leaves the queue), `already-captured` (a sale with this provenance and
+    the same facts exists; the item leaves the queue) or `refused` (the
+    capture rules refused it again; the item stays `open` with the new
+    status and code). Repair never edits the stored body: a body that can
+    never be captured as sent (for example a `payload_divergence`) needs an
+    owner decision (question 3). Each repair writes one audit row naming the
     repairer.
+
+    **Evolution.** `QuarantineState` and `QuarantineRepair.outcome` may gain
+    a value (owner question 3). Adding a value to a response enum is a
+    breaking change under bc/oasdiff and needs its own `[GATED: contract]`
+    change with an acknowledgement; a client treats a value it does not
+    know as unknown, never as `open`.
 
     **Open owner questions (not decided by this draft; the runtime waits
     for them).** (1) Who may repair: `owner` and `tenant_admin`, as the
     existing repair, or also `store_manager` for its stores? (2) Which
     capture checks the repair re-runs, and who the sale's operator
-    (`created_by`) is. The stored body may carry the cashier's
-    `operatorUserId` (RT-224 device path), whose cashier admission window
-    has usually closed by repair time (the RT-1125 R-02 case of an outage
-    over 12 h): does the repair re-check the admission and refuse, or does
-    the repairer's session stand in for it, with the cashier still recorded
-    as the seller? (3) A terminal close without re-ingest (for example
+    (`created_by`) and device (`sales.device_id`) are. The stored body may
+    carry the cashier's `operatorUserId` (RT-224 device path), whose
+    cashier admission window has usually closed by repair time (the RT-1125
+    R-02 case of an outage over 12 h): does the repair re-check the
+    admission and refuse, or does the repairer's session stand in for it,
+    with the cashier still recorded as the seller? Is the device the
+    uploader, the earlier pairing's device (`previousTerminalId`, possibly
+    revoked) or none? (3) A terminal close without re-ingest (for example
     "written off, handled outside Retail Tower") for a body that can never
     be captured, such as a `payload_divergence`: wanted, and by whom?
     (4) Retention of quarantined bodies and items. (5) Whether the Console
     may see the stored body or a money summary (the existing queue shows
-    neither). (6) How the repair result reaches the till, if at all.
+    neither). (6) How the repair result reaches the till, if at all. The
+    POS-side questions are in `pos-sales/sale-quarantine.yaml`.
 
 servers:
   - url: https://api.example.com
@@ -356,7 +369,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
-          $ref: "#/components/responses/NotFound"
+          $ref: "#/components/responses/QuarantineNotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -386,11 +399,12 @@ paths:
         `already-captured` resolve the item (`saleRef` set); `refused` keeps
         it `open` and records the capture's status and code in `lastRepair`.
         An item that is not `open` is 409 `repair_conflict`, deterministic,
-        no side effect. `Idempotency-Key` is REQUIRED and is the Console
-        request's own key (the existing IdempotencyInterceptor): an identical
-        retry replays the stored answer; it is NOT the sale's capture key.
-        Which capture checks re-run and who is recorded as the sale's
-        operator are open owner questions (info description, 1.3.0-draft).
+        no side effect; repairs of one item run one at a time.
+        `Idempotency-Key` is REQUIRED and is the Console request's own key
+        (the existing IdempotencyInterceptor): an identical retry replays the
+        stored answer; it is NOT the sale's capture key. Which capture checks
+        re-run, and the sale's operator and device, are open owner questions
+        (info description, 1.3.0-draft).
       parameters:
         - $ref: "#/components/parameters/QuarantineRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -410,9 +424,9 @@ paths:
         "403":
           $ref: "#/components/responses/ForbiddenOrOriginRejected"
         "404":
-          $ref: "#/components/responses/NotFound"
+          $ref: "#/components/responses/QuarantineNotFound"
         "409":
-          $ref: "#/components/responses/RepairConflict"
+          $ref: "#/components/responses/QuarantineRepairConflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -698,7 +712,16 @@ components:
         Set by Backend-Core only. `open`: waiting for a repair. `captured`: a
         repair captured the stored body as a new sale. `already-captured`: a
         repair found the sale already captured with the same facts. The same
-        values as `QuarantineState` in `pos-sales/sale-quarantine.yaml`.
+        values as `QuarantineState` in `pos-sales/sale-quarantine.yaml`. May
+        gain a value (see "Evolution"); treat an unknown value as unknown.
+    QuarantineErrorCode:
+      type: [string, "null"]
+      minLength: 1
+      maxLength: 64
+      pattern: "^[a-z][a-z0-9_]{0,63}$"
+      description: >
+        A capture `error.code` machine label (e.g. `sale_tender_mismatch`),
+        never a message; null when unknown or not applicable.
     QuarantineReasonKind:
       type: string
       enum: [refused, payload_divergence, cashier_claim_refused, held_previous_pairing]
@@ -729,11 +752,7 @@ components:
           maximum: 499
           description: The capture status of a `refused` outcome; null otherwise.
         errorCode:
-          type: [string, "null"]
-          maxLength: 64
-          description: >
-            The capture `error.code` of a `refused` outcome (a machine label,
-            e.g. `sale_tender_mismatch`); null otherwise.
+          $ref: "#/components/schemas/QuarantineErrorCode"
     QuarantinedSale:
       type: object
       additionalProperties: false
@@ -752,6 +771,7 @@ components:
         - previousTerminalId
         - repairCount
         - lastRepair
+        - uploadConflictCount
         - saleRef
       description: >
         Wire projection of one quarantine item. Carries no `tenant_id`
@@ -781,9 +801,7 @@ components:
           maximum: 499
           description: The capture status the till recorded; null when unknown or held.
         tillErrorCode:
-          type: [string, "null"]
-          maxLength: 64
-          description: The capture `error.code` the till recorded; null when unknown or held.
+          $ref: "#/components/schemas/QuarantineErrorCode"
         state:
           $ref: "#/components/schemas/QuarantineState"
         receivedAt:
@@ -807,6 +825,14 @@ components:
           anyOf:
             - $ref: "#/components/schemas/QuarantineRepair"
             - type: "null"
+        uploadConflictCount:
+          type: integer
+          minimum: 0
+          description: >
+            Uploads of this provenance from the same store whose sale facts
+            differed from the stored body (409 `quarantine_conflict` on
+            `posQuarantineSale`). Nothing else of them is stored; a non-zero
+            count means the till holds a different sale for this provenance.
         saleRef:
           type: [string, "null"]
           format: uuid
@@ -906,6 +932,24 @@ components:
         (open `failed-needs-repair`) state. Deterministic, no side effect. This
         is DISTINCT from the live provenance-conflict 409 on the POS terminal
         surface (F-3), which is NOT touched by this contract.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    QuarantineNotFound:
+      description: >
+        not_found (404, 1.3.0-draft) — the quarantine ref does not resolve
+        within the operator's (tenant, store) scope. Non-disclosing: identical
+        for cross-tenant, out-of-scope and genuinely absent refs (FR-102).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    QuarantineRepairConflict:
+      description: >
+        repair_conflict (409, 1.3.0-draft) — the quarantine item is not
+        `open` (already resolved, possibly by a concurrent repair).
+        Deterministic, no side effect. Same `error.code` as `RepairConflict`.
       content:
         application/json:
           schema:

@@ -7,13 +7,12 @@ info:
     Owner decision D1 (RT-1312 comment 16359): a sale already paid at the
     till must never be stranded there. When Backend-Core refuses a sale for
     good, or when the till holds a sale queued under an earlier pairing, the
-    till uploads the sale's stored capture body and the reason to
-    Backend-Core. Backend-Core keeps it in a quarantine list that the Console
-    shows next to the NEEDS_REPAIR queue, and a Console repair re-ingests the
-    stored body under the sale's original provenance and idempotency key
-    (`sale-sync-ops/sale-sync-ops.yaml` 1.3.0-draft). There is no POS-local
-    override (DP3): the till only reports; it never repairs, re-keys or
-    re-sends the sale itself.
+    till uploads the sale's capture body and the reason to Backend-Core.
+    Backend-Core keeps it in a quarantine list that the Console shows next to
+    the NEEDS_REPAIR queue, and a Console repair re-ingests the stored body
+    under the sale's original provenance (`sale-sync-ops/sale-sync-ops.yaml`
+    1.3.0-draft). There is no POS-local override (DP3): the till only
+    reports; it never repairs, re-keys or re-sends the sale itself.
 
 
     One operation, POS-facing, over the paired terminal's `device` bearer:
@@ -28,48 +27,61 @@ info:
     expected); the POS sender is Phase 3(c). This is a new file, so it
     changes nothing in `pos-sales/sales.yaml` or in any file a consumer pins.
     It is not part of `sale-sync-ops.yaml` because that file is the Console
-    surface and carries no POS route (it says so in its header), and because
-    the principal here is the device bearer, not the human session (the
-    `pos-device-health.openapi.yaml` precedent for keeping principals apart).
+    surface and carries no POS route (it says so in its header). A POS
+    client can then pin this file alone, without the Console operations.
 
 
     **Naming.** camelCase, like `pos-sales/sales.yaml`, whose capture body
     this operation carries.
 
 
-    **What the till uploads.** Exactly one of two cases, named by
-    `reason.kind`:
+    **What the till uploads.** A sale named by `reason.kind`:
 
       - **Refused** (`refused`, `payload_divergence`,
         `cashier_claim_refused`): Backend-Core answered the sale's
         `captureSale` with a non-retryable 4xx and the till dead-lettered it.
-        These three values mirror the till's dead-letter reasons
-        (`last_error_category`: `permanent`, `payload_divergence`,
-        `cashier_claim_refused`), where the till's `permanent` is `refused`
-        here. A 401, 425, 429, 5xx or timeout is never a refusal: the till
-        keeps retrying those and never uploads them.
+        These values follow the till's dead-letter reasons
+        (`last_error_category`): `refused` is a `permanent` row that a
+        capture answer refused; `payload_divergence` and
+        `cashier_claim_refused` are the same-named rows. A 401, 404, 425,
+        429, 5xx or timeout is never a refusal: the till keeps retrying those
+        and never uploads them.
       - **Held** (`held_previous_pairing`): the sale was queued under an
         earlier pairing of this terminal, and the till will not send it under
         the current device identity (RT-221, RT-138 L6). It was never sent
         under the current pairing, so it has no refusal status or code.
 
-    A sale the till never sent because it could not build a sendable body
-    (for example a tender it cannot represent) has no capture body and is
-    NOT covered by this version (owner question, see "Open owner
-    questions").
+    A refused sale that was dead-lettered under an earlier pairing (the
+    till's dead-letter count is branch-wide, not per pairing) is uploaded
+    with its refused kind AND `previousTerminalId`, so the Console keeps the
+    device it was sold on.
+
+    A `permanent` row the till never sent, because it could not build a
+    sendable body (an unrepresentable tender, a corrupt frozen discount, a
+    failed wire transform), has no capture body and is NOT covered by this
+    version (owner question 1).
 
 
-    **The stored body.** `saleBody` is the capture request body exactly as
-    the till sent it (refused) or would send it (held): the same JSON object
-    the till POSTs to `captureSale`, built the same deterministic way, so it
-    hashes to the same `payload_hash`. Backend-Core stores it verbatim and
-    does NOT validate it against `CaptureSaleRequest` on upload: a body
-    refused with 400 `validation_error` is by definition not a valid capture
-    request, and refusing its upload would strand the sale again. The only
-    checks on `saleBody` are that it is a JSON object within the size limit
+    **The stored body.** `saleBody` is the capture request body as the till
+    builds it for `captureSale`: the same JSON object, built the same
+    deterministic way. The till keeps no sent bytes, so it is a rebuild, and
+    a POS update may change the fields that `payload_hash` leaves out
+    (`operatorUserId`, `admissionCheckAt`, `receipt`, RT-1206). Backend-Core
+    stores it verbatim and does NOT validate it against `CaptureSaleRequest`
+    on upload: a body refused with 400 `validation_error` is by definition
+    not a valid capture request, and refusing its upload would strand the
+    sale again. The only checks on `saleBody` are that it is a JSON object
     and that its own `sourceSystem` and `externalId`, when present as
-    strings, equal the upload's `sourceSystem` and `externalId` (else 400).
-    The capture rules apply only when the Console repairs the item.
+    strings, equal the upload's (else 400). The capture rules apply only
+    when the Console repairs the item.
+
+    **Size.** Every route keeps the API's default JSON body limit (100 kB,
+    `json-body-limits.ts`, RT-1284) unless a route is given its own. Over it
+    the answer is 413 `payload_too_large` before validation. The upload
+    wraps a capture body, so a capture body close to 100 kB cannot be
+    uploaded under the default, and neither can a sale whose capture was
+    itself refused with 413. Whether this route gets a larger route-scoped
+    limit is owner question 5; this draft declares the 413.
 
 
     **The reason is the till's claim.** `reason` records what the till saw.
@@ -77,36 +89,42 @@ info:
     authoritative outcome is the one the Console repair gets when it
     re-ingests the body. A till that dead-lettered a sale before it started
     recording the refusal's status and code sends `httpStatus` and
-    `errorCode` as `null` (unknown), never a guessed value.
+    `errorCode` as `null` (unknown), never a guessed value. The schema
+    encodes the rules between `kind`, `httpStatus` and `previousTerminalId`.
 
 
-    **Identity.** The tenant, store and uploading device come from the
-    device token only (`PosDeviceAuthGuard`), never from the body. The store
-    of the quarantine item is the uploading device's store. For a held sale,
-    `previousTerminalId` names the earlier pairing's device
-    (`devices.id`, the pairing `terminal_id`); Backend-Core records it and
-    checks that it is a device of the same tenant (else 400, non-disclosing).
-    Whether a held sale from an earlier pairing in ANOTHER store may be
-    uploaded at all is an open owner question; until it is decided, the till
-    uploads only held rows of its current tenant and branch, which is the
-    only set the till counts today (`heldPreviousPairing`).
+    **Identity and scope.** The tenant, store and uploading device come from
+    the device token only (`PosDeviceAuthGuard`), never from the body. The
+    item's store is the uploading device's store. `previousTerminalId` names
+    the earlier pairing's device (`devices.id`, the pairing `terminal_id`);
+    Backend-Core records it and checks that it is a device of the same
+    tenant (else 400, non-disclosing). Whether a sale from an earlier
+    pairing in ANOTHER store may be uploaded at all is owner question 2;
+    until it is decided, the till uploads only rows of its current tenant
+    and branch, which is the only set it counts today.
 
 
     **Idempotency.** Natural, on the sale's provenance `(tenant,
     sourceSystem, externalId)`, the same dedup key as `captureSale`
     (FR-050). There is no `Idempotency-Key` header on this operation; the
-    sale's original capture key travels in the body as `idempotencyKey`.
+    sale's original capture key travels in the body as `idempotencyKey` and
+    is recorded with the item. The store scope is decided first, as on
+    `captureSale`.
 
       - The first upload of a provenance creates one quarantine item: 201.
-      - A later upload of the same provenance whose `saleBody` is the same
-        JSON value as the stored one (canonical JSON, so key order does not
-        matter) returns the stored item: 200. Its `reason`,
-        `tillRecordedAt` and `previousTerminalId` are ignored; the first
-        upload wins.
-      - A later upload of the same provenance with a different `saleBody`
-        is 409 `quarantine_conflict`; nothing is stored. Two different
-        bodies for one provenance is the payload-divergence case that the
-        Console must see, not overwrite.
+      - A later upload of the same provenance, from the same store, whose
+        `saleBody` has the same sale facts returns the stored item: 200.
+        "Same sale facts" is the RT-1206 rule: the body without
+        `operatorUserId`, `admissionCheckAt` and `receipt`, compared as
+        canonical JSON (key order does not matter). The first upload wins
+        for everything else (`receipt`, `reason`, `idempotencyKey`,
+        `tillRecordedAt`, `previousTerminalId`); a later value is ignored.
+      - A later upload whose sale facts differ is 409 `quarantine_conflict`.
+        Nothing is stored except a conflict count on the item, which the
+        Console shows (`QuarantinedSale.uploadConflictCount`).
+      - An upload of a provenance quarantined by ANOTHER store is the same
+        409 `quarantine_conflict`, with the same body: it never returns that
+        item's reference, state or time, and never counts a conflict on it.
 
     A provenance that is ALREADY captured centrally is still accepted: the
     upload never reads `sales`. The Console repair then resolves the item as
@@ -114,36 +132,53 @@ info:
 
 
     **What the till does with the answer.** 200 or 201: the sale is
-    quarantined; the till records that locally (Phase 3(c)) and never
-    re-sends it to `captureSale`. 400 or 409: terminal for this upload; the
-    till keeps the row dead-lettered or held, logs the code, and does not
-    retry automatically (the heartbeat `sale_queue` counts still show it).
-    401, 429, 5xx or no answer: transient; the till retries later with
-    backoff (honouring `Retry-After` on a 429). The upload never changes the
-    till's sale, outbox or receipt.
+    quarantined; the till records that locally (Phase 3(c)), never re-sends
+    it to `captureSale` (a support reset of the row, such as RT-225's, skips
+    a quarantined row) and never uploads it again. 400, 409 or 413: terminal
+    for this upload; the till keeps the row dead-lettered or held, logs the
+    code, and does not retry automatically (the heartbeat `sale_queue` counts
+    still show it). 401, 404 (an older Backend-Core without the route), 429,
+    5xx or no answer: transient; the till retries later with backoff
+    (honouring `Retry-After` on a 429). The upload never changes the till's
+    sale, outbox or receipt. Whether a quarantined row still counts in the
+    heartbeat `sale_queue.dead_letter` is owner question 4.
 
 
     **Rollout order.** Backend-Core ships the runtime first. A POS sends this
     upload only after a heartbeat reply carried a `pos_contract_revision`
     that includes it (`pos-device-health.openapi.yaml`, "Additive
-    evolution"); the revision bump lands with the Phase 3(b) runtime, not in
-    this contract. An older Backend-Core answers 404 for the unknown route.
+    evolution"). The revision number and its bump are set by the Phase 3(b)
+    runtime, not by this contract.
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id } }`
     shared with `pos-sales/sales.yaml`. Status mapping: 400
     `validation_error`, 401 generic (missing, invalid or revoked device
-    token), 409 `quarantine_conflict`, 429 per-device rate limit, 500.
+    token), 409 `quarantine_conflict`, 413 `payload_too_large`, 429
+    per-device rate limit, 500.
 
 
-    **Open owner questions (not decided by this draft).** (1) Which sales
-    count as uploadable: are sales the till never sent (no capture body) in
-    or out? (2) Held sales from an earlier pairing in another store or
-    tenant. (3) Retention of quarantined bodies, which hold money and
-    possibly personal data (the receipt operator name, payer refs). (4) How
-    the repair result reaches the till, if at all (today only the Console
-    sees it). The Console-side questions are listed in
-    `sale-sync-ops/sale-sync-ops.yaml` 1.3.0-draft.
+    **Evolution.** `QuarantineState` may gain a value if owner question 3 of
+    `sale-sync-ops.yaml` 1.3.0-draft adds a terminal close. Adding a value
+    to a response enum is a breaking change under bc/oasdiff and needs its
+    own `[GATED: contract]` change with an acknowledgement; a client treats
+    a value it does not know as unknown, never as `open`.
+
+
+    **Open owner questions (not decided by this draft).** (1) Sales the till
+    never sent (no capture body): in or out? (2) Sales from an earlier
+    pairing in another store or tenant, and whether RT-138 L6 allows a
+    Console repair to capture a sale from an earlier pairing at all.
+    (3) Retention of quarantined bodies, which hold money and possibly
+    personal data (the receipt operator name, payer refs). (4) How the
+    repair result reaches the till, if at all, and whether a quarantined row
+    still counts as a dead-letter in the heartbeat. (5) A larger
+    route-scoped body limit for this upload (the RT-1284 precedent), or
+    accept that bodies near 100 kB cannot be quarantined. (6) Whether the
+    upload has its own per-device write budget or shares `captureSale`'s,
+    where a backlog after a re-pair could slow live capture. The
+    Console-side questions are in `sale-sync-ops/sale-sync-ops.yaml`
+    1.3.0-draft.
 
 servers:
   - url: https://api.example.com
@@ -165,17 +200,18 @@ paths:
         RT-1312 Phase 3(a) publishes the contract only. There is no
         controller, guard, service, table or migration for this route until
         RT-1312 Phase 3(b); the POS sender is Phase 3(c).
-      x-audit-action: sale.quarantine.uploaded
+      x-audit-action: pos_sales.quarantine_uploaded
       security:
         - device: []
       description: >
         Store one refused or held sale in Backend-Core's quarantine list. The
         tenant, store and device come from the device token. Naturally
-        idempotent on `(tenant, sourceSystem, externalId)`: 201 for the first
-        upload, 200 for a repeat with the same `saleBody`, 409
-        `quarantine_conflict` for a different `saleBody`. The body is stored
-        verbatim and is not validated as a capture request. See the info
-        description for the till's handling of each answer.
+        idempotent on `(tenant, sourceSystem, externalId)` within the store:
+        201 for the first upload, 200 for a repeat with the same sale facts
+        (RT-1206), 409 `quarantine_conflict` for different facts or another
+        store's item. The body is stored verbatim and is not validated as a
+        capture request. See the info description for the till's handling of
+        each answer.
       requestBody:
         required: true
         content:
@@ -185,15 +221,25 @@ paths:
       responses:
         "200":
           description: >
-            The same provenance was already quarantined with the same
-            `saleBody`. Returns the stored item's receipt; nothing new is
-            stored.
+            The same provenance was already quarantined by this store with
+            the same sale facts. Returns the stored item's receipt; nothing
+            new is stored.
+          headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/QuarantineReceipt"
         "201":
           description: The sale was quarantined for the first time.
+          headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
           content:
             application/json:
               schema:
@@ -204,6 +250,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           $ref: "#/components/responses/QuarantineConflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -232,6 +280,28 @@ components:
         type: integer
         minimum: 1
         maximum: 300
+    DeviceTokenRotateAfter:
+      description: >
+        RT-639. Present only when this device credential has 15 days or less
+        left: the ISO-8601 instant `expires_at - 15 days` (the same instant as
+        `rotate_after` in the `posRotateTerminalToken` response). The terminal
+        rotates at or after it. Absent while more than 15 days remain. Never
+        carries token material. See `pos-terminal-pairing.openapi.yaml`,
+        "Credential rotation".
+      required: false
+      schema:
+        type: string
+        format: date-time
+    DeviceTokenRotateStage:
+      description: >
+        RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or
+        less left), `warning` (10 or less), `urgent` (3 or less, or already
+        past `expires_at`). The server keeps no per-device state, so it sends
+        the stage on every response while it holds.
+      required: false
+      schema:
+        type: string
+        enum: [notice, warning, urgent]
 
   schemas:
     QuarantineSaleUpload:
@@ -241,7 +311,8 @@ components:
       description: >
         One refused or held sale. Closed: an unknown key, or any identity or
         server-owned key (tenant, store, device, received time), is 400
-        `validation_error` and nothing is stored.
+        `validation_error` and nothing is stored. A held sale must carry a
+        non-null `previousTerminalId`.
       properties:
         sourceSystem:
           type: string
@@ -265,7 +336,8 @@ components:
             The `Idempotency-Key` the till sent (refused) or would send (held)
             with this sale's `captureSale`, under the capture rule (RT-181).
             The POS sends the sale's `externalId` as its key today. Recorded
-            with the item; the Console repair re-ingests under it.
+            with the item for audit and the Console; see the repair notes in
+            `sale-sync-ops.yaml` 1.3.0-draft for how it is used.
         reason:
           $ref: "#/components/schemas/QuarantineReason"
         tillRecordedAt:
@@ -279,19 +351,29 @@ components:
           type: [string, "null"]
           format: uuid
           description: >
-            Held case only: the `devices.id` (pairing `terminal_id`) the sale
-            was queued under. Required and non-null when `reason.kind` is
-            `held_previous_pairing`; absent or null otherwise (else 400).
+            The `devices.id` (pairing `terminal_id`) of the earlier pairing the
+            sale was queued or dead-lettered under. Required and non-null when
+            `reason.kind` is `held_previous_pairing`. For a refused kind:
+            non-null when the till recorded the dead-letter under an earlier
+            pairing, null or absent when under the current one.
         saleBody:
           type: object
           description: >
-            The capture request body exactly as the till sent or would send
-            it to `captureSale` (`pos-sales/sales.yaml` `CaptureSaleRequest`).
-            Stored verbatim and NOT validated against `CaptureSaleRequest` here
-            (a 400-refused body is not a valid one). Its serialized size is
-            bounded by the API's JSON body limit; when it carries
-            `sourceSystem` or `externalId` as strings, they must equal the
-            upload's (else 400).
+            The capture request body as the till builds it for `captureSale`
+            (`pos-sales/sales.yaml` `CaptureSaleRequest`). Stored verbatim and
+            NOT validated against `CaptureSaleRequest` here (a 400-refused
+            body is not a valid one). When it carries `sourceSystem` or
+            `externalId` as strings, they must equal the upload's (else 400).
+      allOf:
+        - if:
+            properties:
+              reason:
+                properties:
+                  kind: { const: held_previous_pairing }
+          then:
+            required: [previousTerminalId]
+            properties:
+              previousTerminalId: { type: string }
     QuarantineReason:
       type: object
       additionalProperties: false
@@ -300,35 +382,59 @@ components:
         The till's claim of why the sale is stuck. `httpStatus` and
         `errorCode` are the `captureSale` answer the till recorded, or `null`
         when unknown. For `held_previous_pairing` both are `null` (the sale
-        was not sent under this pairing). For `payload_divergence` a known
-        `httpStatus` is 409; for `cashier_claim_refused` it is 403. A value
-        that breaks these rules is 400.
+        was not sent under this pairing). A known `httpStatus` is 409 for
+        `payload_divergence` and 403 for `cashier_claim_refused`.
       properties:
         kind:
           type: string
           enum: [refused, payload_divergence, cashier_claim_refused, held_previous_pairing]
           description: >
-            `refused`: any other non-retryable 4xx (the till's `permanent`
-            dead-letter). `payload_divergence`: a capture 409 (RT-190).
-            `cashier_claim_refused`: a device-path 403 `refused` (RT-224).
-            `held_previous_pairing`: queued under an earlier pairing (RT-221).
+            `refused`: any other non-retryable 4xx (a till `permanent` row
+            that a capture answer refused). `payload_divergence`: a capture
+            409 (RT-190). `cashier_claim_refused`: a device-path 403
+            `refused` (RT-224). `held_previous_pairing`: queued under an
+            earlier pairing (RT-221).
         httpStatus:
           type: [integer, "null"]
           minimum: 400
           maximum: 499
+          not:
+            enum: [401, 404, 425, 429]
           description: >
             The non-retryable 4xx status `captureSale` answered, or `null` when
-            unknown or not sent. Never 401, 425 or 429 (those are retried, not
-            refused).
+            unknown or not sent. Never 401, 404, 425 or 429 (those are
+            retried, not refused).
         errorCode:
-          type: [string, "null"]
-          minLength: 1
-          maxLength: 64
-          pattern: "^[a-z][a-z0-9_]{0,63}$"
-          description: >
-            The `error.code` of that answer (for example
-            `sale_tender_mismatch`, `validation_error`), or `null` when
-            unknown or not sent. A machine label only, never the message.
+          $ref: "#/components/schemas/ErrorCodeLabel"
+      allOf:
+        - if:
+            properties:
+              kind: { const: held_previous_pairing }
+          then:
+            properties:
+              httpStatus: { type: "null" }
+              errorCode: { type: "null" }
+        - if:
+            properties:
+              kind: { const: payload_divergence }
+          then:
+            properties:
+              httpStatus: { enum: [409, null] }
+        - if:
+            properties:
+              kind: { const: cashier_claim_refused }
+          then:
+            properties:
+              httpStatus: { enum: [403, null] }
+    ErrorCodeLabel:
+      type: [string, "null"]
+      minLength: 1
+      maxLength: 64
+      pattern: "^[a-z][a-z0-9_]{0,63}$"
+      description: >
+        The `error.code` of the `captureSale` answer (for example
+        `sale_tender_mismatch`, `validation_error`), or `null` when unknown
+        or not sent. A machine label only, never the message.
     QuarantineState:
       type: string
       enum: [open, captured, already-captured]
@@ -338,6 +444,7 @@ components:
         body as a new sale. `already-captured`: a Console repair found the
         sale already captured with the same facts. The full Console
         projection is `QuarantinedSale` in `sale-sync-ops/sale-sync-ops.yaml`.
+        May gain a value (see "Evolution"); treat an unknown value as unknown.
     QuarantineReceipt:
       type: object
       additionalProperties: false
@@ -388,12 +495,12 @@ components:
     ValidationFailure:
       description: >
         400 `validation_error`: a malformed or unknown body key, a field out
-        of bounds, a `reason` that breaks its rules, a `previousTerminalId`
-        that is missing for a held sale, present for a refused one, or not a
-        device of this tenant, a `saleBody` that is not a JSON object or
-        whose `sourceSystem` / `externalId` differ from the upload's, or a
-        body over the size limit. Deterministic; nothing is stored. One body
-        for every cause (non-disclosing).
+        of bounds, a `reason` that breaks its rules, a held sale without
+        `previousTerminalId`, a `previousTerminalId` that is not a device of
+        this tenant, or a `saleBody` that is not a JSON object or whose
+        `sourceSystem` / `externalId` differ from the upload's.
+        Deterministic; nothing is stored. One body for every cause
+        (non-disclosing). Terminal for the till.
       content:
         application/json:
           schema:
@@ -408,9 +515,20 @@ components:
             $ref: "#/components/schemas/Error"
     QuarantineConflict:
       description: >
-        409 `quarantine_conflict`: this provenance is already quarantined
-        with a different `saleBody`. Deterministic; nothing is stored or
-        changed. The till does not retry it.
+        409 `quarantine_conflict`: this provenance is already quarantined by
+        this store with different sale facts (a conflict is counted on the
+        item), or by another store (nothing is counted or disclosed). One
+        body for both. Nothing else is stored or changed. Terminal for the
+        till.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: >
+        413 `payload_too_large`: the request body is over the JSON body limit
+        (100 kB by default, RT-1284), refused before validation. Nothing is
+        stored. Terminal for the till (owner question 5).
       content:
         application/json:
           schema:
