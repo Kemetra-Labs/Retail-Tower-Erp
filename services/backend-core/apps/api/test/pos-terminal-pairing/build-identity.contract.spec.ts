@@ -138,8 +138,8 @@ describe("POS build identity headers in the contracts (RT-719)", () => {
     const pairing = load("pos-terminal-pairing.openapi.yaml");
     const text = pairing.info.description;
 
-    it("is 1.6.0-draft (RT-1184 printer fields removed), and both RT-719 and RT-327 postures say they add no operation", () => {
-      expect(pairing.info.version).toBe("1.6.0-draft");
+    it("is 1.7.0-draft (RT-1316 pairing_code entry rule, after RT-1184 printer fields removed), and both RT-719 and RT-327 postures say they add no operation", () => {
+      expect(pairing.info.version).toBe("1.7.0-draft");
       expect(text).toMatch(/`1\.3\.0-draft` is additive and adds no operation/);
       expect(text).toMatch(/`1\.4\.0-draft` is additive and adds no operation/);
     });

@@ -57,6 +57,12 @@ The POS test `src/renderer/__tests__/source-scope-guard.test.ts` fails any branc
 - `boot-single-instance.test.ts` can fail under a full parallel local run on this laptop and pass
   when run alone (seen 2026-11-10). Re-run it alone before treating it as real.
 
+Two suites on one branch: trigger each on its **own** preflight branch (for example
+`<pr-branch>-preflight` and `<pr-branch>-preflight-e2e`, same SHA). A second pipeline on the same
+branch auto-cancels the first as redundant, whatever its `remote_suite` (RT-1316: `admin` was
+cancelled 2 s after `admin-e2e` was triggered on the same branch). The cancelled trigger still
+counts toward the daily cap.
+
 ## Prove a Docker-gated spec really ran
 
 Backend-Core DB specs fail hard without Docker unless `MIGRATION_TEST_ALLOW_SKIP=1` is set; with

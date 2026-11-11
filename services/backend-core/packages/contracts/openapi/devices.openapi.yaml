@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Console Device Registry API
-  version: "1.7.0-draft"
+  version: "1.8.0-draft"
   description: >
     Jira RT-365 (RT-287 F2; RT-138 L3 / DL-2), RT-366 (RT-287 F3), RT-367
     (RT-287 F4; RT-138 L1 / L5 / DL-3) and RT-368 (RT-287 F5; D-Q2): the
@@ -260,8 +260,8 @@ info:
         0024's NOT NULL snapshot columns; this API does not manage them, and
         Backend-Core has no other source for them. The request carries no
         printer field since RT-1184 (RT-1165 S4), and the request is strict, so
-        one that sends it is a 400. Then an optional `terminalLabel`, an optional `ttlMinutes` (default 60, at most
-        1440 = 24 h) and optionally `replacesDeviceId`. The server generates
+        one that sends it is a 400. Then an optional `terminalLabel`, an optional `ttlMinutes` (default 1440 = 24 h, which is also
+        the maximum; RT-1316) and optionally `replacesDeviceId`. The server generates
         the code and returns it ONCE, in the 201 body only. It stores only a
         hash (`code_hash`), so it can never return the code again: not on a
         list, not on an idempotent retry. A same-key retry is answered 409
@@ -493,6 +493,15 @@ info:
     step of removing the printer fields from pairing (owner decision, RT-1165
     comment 15479); `1.6.0-draft` (RT-1181) had made them optional first. No
     operation is added or removed.
+
+
+    **1.8.0-draft (RT-1316, `[GATED]`, default only).** The default of
+    `PairingCodeIssueRequest.ttlMinutes` moves from 60 to 1440 minutes (24 h,
+    already the maximum), so a code issued at the office is still redeemable
+    when it is typed at the till hours later (owner decision 2026-11-10). A
+    request that sends `ttlMinutes` is unchanged; only one that omits it gets
+    a longer-lived code. The wire is unchanged: no operation, field, bound or
+    status code is added, removed or renamed.
 
 servers:
   - url: https://api.example.com
@@ -2212,8 +2221,8 @@ components:
           type: integer
           minimum: 1
           maximum: 1440
-          default: 60
-          description: How long the code stays redeemable, in minutes (at most 24 h).
+          default: 1440
+          description: How long the code stays redeemable, in minutes (at most 24 h; 24 h when omitted, RT-1316).
         replacesDeviceId:
           type: string
           format: uuid

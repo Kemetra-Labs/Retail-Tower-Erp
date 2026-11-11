@@ -291,8 +291,6 @@ export const devices = {
   "devices.issue.field.terminalLabel": "اسم الجهاز الجديد (اختياري)",
   "devices.issue.field.terminalLabelHelp":
     "يُطبع على الإيصالات وفي رقم البيع، فاجعله فريدًا داخل المتجر. إن تُرك فارغًا يولّد الخادم اسمًا.",
-  "devices.issue.field.ttl": "مدة الصلاحية بالدقائق (اختياري)",
-  "devices.issue.field.ttlHelp": "الافتراضي 60، وبحد أقصى 1440.",
   "devices.issue.bindingTitle": "بيانات الإيصال",
   "devices.issue.bindingHelp":
     "يثبّتها الجهاز عند الربط ويطبعها على الإيصالات. لا يحتفظ الخادم بها، لذلك تُدخلها هنا.",
@@ -300,7 +298,6 @@ export const devices = {
   "devices.issue.field.branchAddress": "عنوان المتجر على الإيصال",
   "devices.issue.field.taxRegistrationId": "رقم التسجيل الضريبي",
   "devices.issue.problem.tooLong": "استخدم {max} حرفًا على الأكثر.",
-  "devices.issue.problem.ttl": "أدخل عددًا صحيحًا من 1 إلى 1440.",
   "devices.issue.confirm": "إصدار رمز الربط",
   "devices.issue.error.notFound": "الجهاز أو المتجر غير متاح لك.",
   "devices.issue.error.storeNotFound": "المتجر غير متاح لك.",
@@ -326,6 +323,23 @@ export const devices = {
     many: "صالح لمدة {count} دقيقة، حتى {time}.",
     other: "صالح لمدة {count} دقيقة، حتى {time}.",
   },
+  "devices.issue.issued.validHours": {
+    zero: "صالح لمدة {count} ساعة، حتى {time}.",
+    one: "صالح لمدة ساعة واحدة، حتى {time}.",
+    two: "صالح لمدة ساعتين، حتى {time}.",
+    few: "صالح لمدة {count} ساعات، حتى {time}.",
+    many: "صالح لمدة {count} ساعة، حتى {time}.",
+    other: "صالح لمدة {count} ساعة، حتى {time}.",
+  },
+  "devices.issue.issued.barcode": "رمز شريطي لرمز الربط",
+  "devices.issue.issued.copy": "نسخ الرمز",
+  "devices.issue.issued.copied": "نُسخ الرمز.",
+  "devices.issue.issued.copyFailed": "تعذّر نسخ الرمز. حدّده وانسخه يدويًا.",
+  "devices.issue.issued.print": "طباعة لفنّي التركيب",
+  "devices.issue.print.title": "رمز ربط جهاز جديد",
+  "devices.issue.print.code": "رمز الربط",
+  "devices.issue.print.terminal": "الجهاز",
+  "devices.issue.print.expires": "ينتهي الرمز في {time}.",
   "devices.issue.issued.replaceHelp":
     "سيُربط الجهاز الجديد في المتجر {store}. عند ربطه تُوقف صلاحية الجهاز الحالي.",
   "devices.issue.issued.blockedHelp":
@@ -364,6 +378,9 @@ export const devices = {
   "devices.codes.cancel": "إلغاء الرمز",
   "devices.codes.cancelConfirm": "إلغاء رمز الربط {label}؟ لا يمكن استخدامه بعد ذلك.",
   "devices.codes.cancelKeep": "إبقاء الرمز",
+  "devices.codes.reissue": "إلغاء وإصدار رمز جديد",
+  "devices.codes.reissueConfirm":
+    "إلغاء رمز الربط {label} وإصدار رمز جديد؟ يتوقف الرمز القديم عن العمل أولًا.",
   "devices.codes.cancelled": "أُلغي الرمز.",
   "devices.codes.alreadyCancelled": "الرمز ملغى أصلًا. لم يتغيّر شيء.",
   "devices.codes.error.used":

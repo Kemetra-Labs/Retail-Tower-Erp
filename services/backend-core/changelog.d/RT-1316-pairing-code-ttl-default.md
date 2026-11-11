@@ -1,0 +1,2 @@
+### Changed
+- RT-1316 `[GATED]` contract default, owner decision 2026-11-10 (Phase 3, Backend-Core): a pairing code issued by `consoleIssuePairingCode` without `ttlMinutes` now expires 1440 minutes (24 h, the existing maximum) after it is created, instead of 60, because codes are often issued at the office and typed at the till hours later (`devices.openapi.yaml` 1.8.0-draft). A request that sends `ttlMinutes` is unchanged, and the wire is unchanged: no operation, field or bound is added or removed. The owner-run `bootstrap:pairing-code` CLI keeps its own 60-minute default.

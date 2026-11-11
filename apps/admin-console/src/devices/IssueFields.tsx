@@ -24,7 +24,6 @@ interface InputProps {
   auto?: boolean;
   /** The contract allows a newline (the address). */
   multiline?: boolean;
-  inputMode?: "numeric";
   onChange: (value: string) => void;
 }
 
@@ -33,7 +32,6 @@ interface ControlProps {
   value: string;
   dir?: "ltr" | "auto";
   multiline?: boolean;
-  inputMode?: "numeric";
   invalid: boolean;
   describedBy?: string;
   onChange: (value: string) => void;
@@ -53,7 +51,7 @@ function Control({ multiline, invalid, describedBy, onChange, ...rest }: Readonl
   return multiline ? (
     <textarea {...common} rows={3} onChange={(e) => onChange(e.target.value)} />
   ) : (
-    <input {...common} inputMode={rest.inputMode} onChange={(e) => onChange(e.target.value)} />
+    <input {...common} onChange={(e) => onChange(e.target.value)} />
   );
 }
 
@@ -66,7 +64,6 @@ function Input({
   ltr,
   auto,
   multiline,
-  inputMode,
   onChange,
 }: Readonly<InputProps>): React.JSX.Element {
   const t = useT();
@@ -85,7 +82,6 @@ function Input({
         value={value}
         dir={ltr ? "ltr" : auto ? "auto" : undefined}
         multiline={multiline}
-        inputMode={inputMode}
         invalid={problem !== undefined}
         describedBy={
           [help ? helpId : null, problem ? errorId : null].filter(Boolean).join(" ") || undefined
@@ -160,16 +156,6 @@ export function IssueFields({
         value={draft.terminalLabel}
         problem={problems.terminalLabel}
         onChange={(terminalLabel) => onChange({ terminalLabel })}
-      />
-      <Input
-        id="issue-ttl"
-        label={t("devices.issue.field.ttl")}
-        help={t("devices.issue.field.ttlHelp")}
-        value={draft.ttlMinutes}
-        problem={problems.ttlMinutes}
-        ltr
-        inputMode="numeric"
-        onChange={(ttlMinutes) => onChange({ ttlMinutes })}
       />
       <fieldset className="device-reasons__group">
         <legend>{t("devices.issue.bindingTitle")}</legend>

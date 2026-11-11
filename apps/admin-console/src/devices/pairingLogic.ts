@@ -5,7 +5,8 @@
  * C1): the branch name and address and the tax registration id, which the POS
  * pins at pairing and prints on receipts. Backend-Core holds no other source
  * for them. These are form checks that mirror the contract's patterns; the
- * server re-validates everything.
+ * server re-validates everything. There is no time-to-live field (RT-1316): the
+ * server's default applies to every code the console issues.
  */
 import type { MessageKey } from "@/i18n";
 import type { PairingCodeIssueRequest } from "@/lib/device-queries";
@@ -13,7 +14,6 @@ import type { PairingCodeIssueRequest } from "@/lib/device-queries";
 export interface IssueDraft {
   storeId: string;
   terminalLabel: string;
-  ttlMinutes: string;
   branchName: string;
   branchAddress: string;
   taxRegistrationId: string;
@@ -22,7 +22,6 @@ export interface IssueDraft {
 export const EMPTY_ISSUE_DRAFT: IssueDraft = {
   storeId: "",
   terminalLabel: "",
-  ttlMinutes: "",
   branchName: "",
   branchAddress: "",
   taxRegistrationId: "",
@@ -34,9 +33,6 @@ export interface FieldProblem {
 }
 
 export type IssueProblems = Partial<Record<keyof IssueDraft, FieldProblem>>;
-
-export const TTL_MIN = 1;
-export const TTL_MAX = 1440;
 
 const LIMITS = {
   terminalLabel: 64,
@@ -51,28 +47,6 @@ function textProblem(value: string, max: number, required: boolean): FieldProble
   return value.length > max ? { key: "devices.issue.problem.tooLong", params: { max } } : undefined;
 }
 
-const ARABIC_INDIC_ZERO = 0x0660;
-const EXTENDED_ARABIC_INDIC_ZERO = 0x06f0;
-
-/** A number typed with Arabic-Indic (٠-٩) or Persian (۰-۹) digits is the number it spells. */
-function normalizeDigits(value: string): string {
-  return value.replace(/[\u0660-\u0669\u06f0-\u06f9]/g, (digit) => {
-    const code = digit.charCodeAt(0);
-    return String(
-      code - (code >= EXTENDED_ARABIC_INDIC_ZERO ? EXTENDED_ARABIC_INDIC_ZERO : ARABIC_INDIC_ZERO),
-    );
-  });
-}
-
-/** Empty is the server default; anything else is a whole number of minutes in range. */
-function ttlProblem(value: string): FieldProblem | undefined {
-  const ttl = normalizeDigits(value).trim();
-  if (ttl === "") return undefined;
-  const minutes = Number(ttl);
-  const ok = /^\d+$/.test(ttl) && minutes >= TTL_MIN && minutes <= TTL_MAX;
-  return ok ? undefined : { key: "devices.issue.problem.ttl" };
-}
-
 /** The checks per field; a field with no entry has nothing to check. */
 const CHECKS: Readonly<
   Partial<Record<keyof IssueDraft, (value: string) => FieldProblem | undefined>>
@@ -82,7 +56,6 @@ const CHECKS: Readonly<
   branchAddress: (v) => textProblem(v, LIMITS.branchAddress, true),
   taxRegistrationId: (v) => textProblem(v, LIMITS.taxRegistrationId, true),
   terminalLabel: (v) => textProblem(v, LIMITS.terminalLabel, false),
-  ttlMinutes: ttlProblem,
 };
 
 export function validateIssueDraft(draft: IssueDraft): IssueProblems {
@@ -104,14 +77,12 @@ export function buildIssueBody(
   replacesDeviceId?: string,
 ): PairingCodeIssueRequest {
   const label = draft.terminalLabel.trim();
-  const ttl = normalizeDigits(draft.ttlMinutes).trim();
   return {
     storeId: draft.storeId,
     branchName: draft.branchName.trim(),
     branchAddress: draft.branchAddress.trim(),
     taxRegistrationId: draft.taxRegistrationId.trim(),
     ...(label === "" ? {} : { terminalLabel: label }),
-    ...(ttl === "" ? {} : { ttlMinutes: Number(ttl) }),
     ...(replacesDeviceId ? { replacesDeviceId } : {}),
   };
 }
@@ -123,4 +94,17 @@ export function buildIssueBody(
  */
 export function newIdempotencyKey(): string {
   return crypto.randomUUID();
+}
+
+const GROUP = 4;
+
+/**
+ * The code as people read it: groups of four joined by "-" (RT-1316). Display
+ * only: the contract calls the code opaque, so any length is grouped and nothing
+ * is checked, and Copy and the barcode carry the code exactly as issued.
+ */
+export function groupPairingCode(code: string): string {
+  const groups: string[] = [];
+  for (let i = 0; i < code.length; i += GROUP) groups.push(code.slice(i, i + GROUP));
+  return groups.join("-");
 }

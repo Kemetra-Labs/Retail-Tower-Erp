@@ -154,9 +154,9 @@ const omit = (value: Record<string, unknown>, key: string): Record<string, unkno
 // 1. Operations
 // ===========================================================================
 describe("devices contract — operations", () => {
-  it("is OpenAPI 3.1.0 at 1.7.0-draft (RT-620 429, RT-719 build identity key, RT-1184 printer fields removed) with the RT-365 operations, the RT-366 preview, the RT-367 pairing codes and the RT-368 retire", () => {
+  it("is OpenAPI 3.1.0 at 1.8.0-draft (RT-620 429, RT-719 build identity key, RT-1184 printer fields removed, RT-1316 24 h TTL default) with the RT-365 operations, the RT-366 preview, the RT-367 pairing codes and the RT-368 retire", () => {
     expect(contract.document["openapi"]).toBe("3.1.0");
-    expect((contract.document["info"] as JsonObject)["version"]).toBe("1.7.0-draft");
+    expect((contract.document["info"] as JsonObject)["version"]).toBe("1.8.0-draft");
     const declared = Object.entries(contract.document["paths"] as Record<string, JsonObject>).flatMap(([path, item]) =>
       Object.keys(item).map((method) => `${method} ${path}`),
     );

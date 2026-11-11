@@ -3,6 +3,11 @@
  * is awaiting its confirm, and what the last cancel answered. Cancelling is
  * idempotent on the server (`already_cancelled` is a success); a used code can't
  * be cancelled, and a refusal never reads as success.
+ *
+ * RT-1316 "cancel and issue a new code" is the same cancel with a reissue intent:
+ * only a cancel the server confirmed (`cancelled` or `already_cancelled`) hands
+ * the code to `onReissue`, so a refused or unanswered cancel never opens a new
+ * issue beside a code that is still live.
  */
 import type { MessageKey } from "@/i18n";
 import type { PairingCodeSummary } from "@/lib/device-queries";
@@ -44,36 +49,53 @@ function successResult(outcome: string): CancelResult {
 
 export interface CancelFlow {
   confirming: PairingCodeSummary | null;
+  /** The open confirm is for "cancel and issue a new code". */
+  reissuing: boolean;
+  /** The last confirm handed its code to `onReissue`: focus belongs to the issue drawer. */
+  handedOff: boolean;
   result?: CancelResult;
   pending: boolean;
-  ask: (code: PairingCodeSummary) => void;
+  ask: (code: PairingCodeSummary, reissue?: boolean) => void;
   keep: () => void;
   confirm: (code: PairingCodeSummary) => Promise<void>;
 }
 
-export function useCancelFlow(): CancelFlow {
+export function useCancelFlow(onReissue?: (code: PairingCodeSummary) => void): CancelFlow {
   const cancel = useCancelPairingCode();
   const [confirming, setConfirming] = useState<PairingCodeSummary | null>(null);
+  const [reissuing, setReissuing] = useState(false);
+  const [handedOff, setHandedOff] = useState(false);
   const [result, setResult] = useState<CancelResult | undefined>();
 
   async function confirm(code: PairingCodeSummary): Promise<void> {
     setResult(undefined);
+    let cancelled = false;
     try {
       const res = await cancel.mutateAsync(code.pairingCodeId);
+      cancelled = res.status === 200 && Boolean(res.data);
       setResult(
         res.status === 200 && res.data ? successResult(res.data.outcome) : failureResult(res),
       );
     } catch {
       setResult({ key: "devices.codes.error.generic", variant: "danger" });
     }
+    const handOff = cancelled && reissuing;
+    setHandedOff(handOff);
     setConfirming(null);
+    if (handOff) onReissue?.(code);
   }
 
   return {
     confirming,
+    reissuing,
+    handedOff,
     result,
     pending: cancel.isPending,
-    ask: setConfirming,
+    ask: (code, reissue = false) => {
+      setReissuing(reissue);
+      setHandedOff(false);
+      setConfirming(code);
+    },
     keep: () => setConfirming(null),
     confirm,
   };

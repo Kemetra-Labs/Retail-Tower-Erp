@@ -24,7 +24,12 @@ const text = (max: number): z.ZodType<string> =>
     .regex(/\S/, "must not be blank")
     .refine((value) => !value.includes("\u0000"), "must not contain a NUL character");
 
-export const TTL_MINUTES_DEFAULT = 60;
+/**
+ * 24 h, the maximum (RT-1316): a code is often issued at the office and typed
+ * at the till hours later, so the former 60-minute default expired too often.
+ * Mirrors `ttlMinutes.default` in `devices.openapi.yaml`.
+ */
+export const TTL_MINUTES_DEFAULT = 1440;
 
 export const PairingCodeIssueBodySchema = z
   .object({
