@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 710367ae73ec41c09ef6c1f66132611215731395
+// Source: Kemetra-Labs/Retail-Tower-Erp @ ddcce193fdf5ac0f6451f3d62b3b339f88472c72
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -10997,6 +10997,87 @@ export namespace SaleSyncOpsSchema {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/catalog/sale-sync-ops/quarantined-sales": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List quarantined sales (the quarantine half of the NEEDS_REPAIR queue).
+             * @description Sales the till uploaded with `posQuarantineSale` because Backend-Core refused them for good or the till held them after a re-pair. Tenant-scoped (RLS) and bound to the operator's store scope (RT-193), optionally store-filtered, newest-first by `quarantineRef` (UUIDv7), opaque keyset/cursor paginated. Lists `open` items by default; `state` selects resolved ones, which are retained for audit. Never a silent drop.
+             */
+            get: operations["consoleListQuarantinedSales"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read one quarantined sale.
+             * @description One quarantine item, any state. Object-level authz: an item outside the operator's (tenant, store) scope is a non-disclosing 404, identical to genuinely absent (FR-063/102).
+             */
+            get: operations["consoleGetQuarantinedSale"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/repair": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Re-ingest a quarantined sale under its original provenance.
+             * @description SERVER-MEDIATED repair of an `open` quarantine item (DP3: no POS-local override). Re-ingests the stored `saleBody` through the `captureSale` rules for the item's tenant and store, under the stored provenance `(sourceSystem, externalId)`; at most one sale ever exists per provenance (see the 1.3.0-draft notes in the info description: the till's recorded idempotency key is kept for audit, not replayed). Never edits the stored body.
+             *     200 with the updated item for every capture outcome: `captured` and `already-captured` resolve the item (`saleRef` set); `refused` keeps it `open` and records the capture's status and code in `lastRepair` (or `repair_operator_unproven` when the body's operator was not a tenant member at `occurredAt`, decision C2). A body whose facts differ from the captured sale stays `open` and can only be written off. An item that is not `open` is 409 `repair_conflict`, deterministic, no side effect; repairs and write-offs of one item run one at a time. `Idempotency-Key` is REQUIRED and is the Console request's own key (the existing IdempotencyInterceptor): an identical retry replays the stored answer; it is NOT the sale's capture key. The checks that re-run and the sale's operator and device are decision C2 (info description, 1.3.0-draft).
+             */
+            post: operations["consoleRepairQuarantinedSale"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/write-off": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Close a quarantined sale without a sale (written off, handled outside Retail Tower).
+             * @description Decision C3. Closes an `open` quarantine item for good, without a sale: no `sales` row, posting intent or stock effect is created. For a body that can never be captured (a `payload_divergence`, an operator whose tenant membership at `occurredAt` cannot be proven) and that is handled outside Retail Tower. `owner` and `tenant_admin` only (C1); the reason note is required and audited with the writer. The stored body is then kept under the normal audit retention (P3). An item that is not `open` is 409 `repair_conflict`, deterministic, no side effect. `Idempotency-Key` is REQUIRED (the existing IdempotencyInterceptor): an identical retry replays the stored answer; the same key with a different note is 409 `idempotency_key_conflict`.
+             */
+            post: operations["consoleWriteOffQuarantinedSale"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
     }
     export type webhooks = Record<string, never>;
     export interface components {
@@ -11076,6 +11157,120 @@ export namespace SaleSyncOpsSchema {
                 /** Format: uuid */
                 correlationId?: string | null;
             };
+            /**
+             * @description Set by Backend-Core only. `open`: waiting for a repair or a write-off. `captured`: a repair captured the stored body as a new sale. `already-captured`: a repair found the sale already captured with the same facts (resolved, not an error). `written-off`: closed by `consoleWriteOffQuarantinedSale`, without a sale. The same values as `QuarantineState` in `pos-sales/sale-quarantine.yaml`. May gain a value (see "Evolution"); treat an unknown value as unknown.
+             * @enum {string}
+             */
+            QuarantineState: "open" | "captured" | "already-captured" | "written-off";
+            /** @description A capture `error.code` machine label (e.g. `sale_tender_mismatch`), never a message; null when unknown or not applicable. */
+            QuarantineErrorCode: string | null;
+            /**
+             * @description The till's claim of why the sale is stuck, as uploaded (`pos-sales/sale-quarantine.yaml` `QuarantineReason.kind`). A claim, not a server finding: the repair outcome is authoritative.
+             * @enum {string}
+             */
+            QuarantineReasonKind: "refused" | "payload_divergence" | "cashier_claim_refused" | "held_previous_pairing";
+            /** @description The latest repair attempt on an item. */
+            QuarantineRepair: {
+                /**
+                 * Format: date-time
+                 * @description Backend-Core server clock when the repair ran.
+                 */
+                at: string;
+                /**
+                 * @description `captured`: a new sale. `already-captured`: the provenance was already captured with the same facts. `refused`: the capture rules refused the body again; the item stays `open`.
+                 * @enum {string}
+                 */
+                outcome: "captured" | "already-captured" | "refused";
+                /** @description The capture status of a `refused` outcome; null otherwise, and null for `repair_operator_unproven` (the repair's own check, not a capture answer). */
+                httpStatus: number | null;
+                errorCode: components["schemas"]["QuarantineErrorCode"];
+            };
+            /** @description Wire projection of one quarantine item. Carries no `tenant_id` (implicit in the session scope), no line amounts and never the stored body; the only money is the POS total in `summary` (decision C5). */
+            QuarantinedSale: {
+                /** Format: uuid */
+                quarantineRef: string;
+                /**
+                 * Format: uuid
+                 * @description The uploading device's store (the item's store).
+                 */
+                storeId: string;
+                /**
+                 * Format: uuid
+                 * @description The device that uploaded the item (`devices.id`).
+                 */
+                deviceId: string;
+                sourceSystem: string;
+                externalId: string;
+                reasonKind: components["schemas"]["QuarantineReasonKind"];
+                /** @description The capture status the till recorded; null when unknown or held. */
+                tillHttpStatus: number | null;
+                tillErrorCode: components["schemas"]["QuarantineErrorCode"];
+                state: components["schemas"]["QuarantineState"];
+                /**
+                 * Format: date-time
+                 * @description Backend-Core server clock at the first upload.
+                 */
+                receivedAt: string;
+                /**
+                 * Format: date-time
+                 * @description When the till dead-lettered or held the sale, by the till's clock (provenance only).
+                 */
+                tillRecordedAt: string;
+                /**
+                 * Format: uuid
+                 * @description The earlier pairing's `devices.id` when the till recorded the sale under an earlier pairing (always for held items); null otherwise. A device of the item's store. The repair records it as the sale's device (decision C2).
+                 */
+                previousTerminalId: string | null;
+                /** @description Number of repairs run on this item. */
+                repairCount: number;
+                /** @description The latest repair attempt; null before the first. */
+                lastRepair: components["schemas"]["QuarantineRepair"] | null;
+                /** @description Uploads of this provenance from the same store whose sale facts differed from the stored body (409 `quarantine_conflict` on `posQuarantineSale`). Nothing else of them is stored; a non-zero count means the till holds a different sale for this provenance. */
+                uploadConflictCount: number;
+                /**
+                 * Format: uuid
+                 * @description The captured sale (`sales.id`) once the item is `captured` or `already-captured`; null while `open` and when `written-off`. Readable with `consoleGetSaleSyncStatus`.
+                 */
+                saleRef: string | null;
+                summary: components["schemas"]["QuarantineSaleSummary"];
+                /** @description The write-off; null unless the item is `written-off`. */
+                writeOff: components["schemas"]["QuarantineWriteOff"] | null;
+            };
+            /** @description Decision C5. A minimal summary read from the stored body so an operator can identify the sale; never the raw body. Each field is null when the stored body does not carry it in a valid form (the body is not validated on upload). The summary of a `captured` or `already-captured` item stays after its body is purged. */
+            QuarantineSaleSummary: {
+                /**
+                 * Format: date-time
+                 * @description The body's `occurredAt` (the sale time the till recorded).
+                 */
+                occurredAt: string | null;
+                /** @description The body's `posTotal`, an exact non-negative decimal string as on the capture request (`NonNegativeDecimalAmount`), never a float; null when the stored value is not one. */
+                posTotal: string | null;
+                /** @description The body's ISO-4217 `currencyCode`. */
+                currencyCode: string | null;
+                /** @description The number of entries in the body's `lines`. */
+                lineCount: number | null;
+            };
+            /** @description Decision C3. The write-off of an item. */
+            QuarantineWriteOff: {
+                /**
+                 * Format: date-time
+                 * @description Backend-Core server clock when the item was written off.
+                 */
+                at: string;
+                /** @description The writer's reason note, as entered. The writer is in the audit row, not here. */
+                note: string;
+            };
+            /** @description Decision C3. The write-off request. Closed. */
+            QuarantineWriteOffRequest: {
+                /** @description Required reason the sale is closed without capture (for example "refunded in cash outside Retail Tower"). Free text from a signed-in operator; no card data. */
+                note: string;
+            };
+            /** @description A keyset page of quarantined sales, newest-first. */
+            QuarantinedSalePage: {
+                items: components["schemas"]["QuarantinedSale"][];
+                /** @description Opaque cursor for the next page; null on the last page. */
+                nextCursor: string | null;
+            };
             /** @description Canonical error envelope, identical to the shared shape. Cross-tenant / out-of-scope refusals are non-disclosing (§II/§XII) — they never enumerate the underlying cause. */
             Error: {
                 error: {
@@ -11146,6 +11341,24 @@ export namespace SaleSyncOpsSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description not_found (404, 1.3.0-draft) — the quarantine ref does not resolve within the operator's (tenant, store) scope. Non-disclosing: identical for cross-tenant, out-of-scope and genuinely absent refs (FR-102). */
+            QuarantineNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description repair_conflict (409, 1.3.0-draft) — the quarantine item is not `open` (already resolved or written off, possibly by a concurrent repair or write-off). Deterministic, no side effect. Same `error.code` as `RepairConflict`. */
+            QuarantineRepairConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description system_failure (500) — unexpected server error; cause recorded server-side by request_id. */
             SystemFailure: {
                 headers: {
@@ -11181,6 +11394,12 @@ export namespace SaleSyncOpsSchema {
             PageSize: number;
             /** @description REQUIRED on the repair write. Reuses the existing IdempotencyInterceptor — identical retry replays the stored response; key-reuse with a different logical payload returns 409 `idempotency_key_conflict`. */
             IdempotencyKey: string;
+            /** @description 1.3.0-draft. Stable server-issued quarantine item reference (UUIDv7), returned to the till as `QuarantineReceipt.quarantineRef`. Resolves only within the operator's (tenant, store) scope; out-of-scope refs are non-disclosing 404s (FR-063/102). */
+            QuarantineRef: string;
+            /** @description 1.3.0-draft. Which items to list; `open` (the queue) when omitted. */
+            QuarantineStateQuery: "open" | "captured" | "already-captured" | "written-off";
+            /** @description 1.3.0-draft. Opaque keyset pagination cursor from a prior `QuarantinedSalePage.nextCursor`. Do not decode or construct it; omit it for the first page. The value is a UUIDv7 quarantine reference; anything else is a 400 `validation_error`. */
+            QuarantineCursor: string;
         };
         requestBodies: never;
         headers: {
@@ -11311,6 +11530,140 @@ export namespace SaleSyncOpsSchema {
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["RepairConflict"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleListQuarantinedSales: {
+            parameters: {
+                query?: {
+                    /** @description Optional in-scope store filter. Validated against the operator's accessible stores; an out-of-scope id is a non-disclosing 404. */
+                    store_id?: components["parameters"]["StoreIdQuery"];
+                    /** @description 1.3.0-draft. Which items to list; `open` (the queue) when omitted. */
+                    state?: components["parameters"]["QuarantineStateQuery"];
+                    /** @description 1.3.0-draft. Opaque keyset pagination cursor from a prior `QuarantinedSalePage.nextCursor`. Do not decode or construct it; omit it for the first page. The value is a UUIDv7 quarantine reference; anything else is a 400 `validation_error`. */
+                    cursor?: components["parameters"]["QuarantineCursor"];
+                    /** @description Maximum items per page (bounded). The server MAY return fewer. */
+                    page_size?: components["parameters"]["PageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of quarantined sales, newest-first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuarantinedSalePage"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetQuarantinedSale: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description 1.3.0-draft. Stable server-issued quarantine item reference (UUIDv7), returned to the till as `QuarantineReceipt.quarantineRef`. Resolves only within the operator's (tenant, store) scope; out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    quarantineRef: components["parameters"]["QuarantineRef"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The quarantined sale. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuarantinedSale"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["QuarantineNotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleRepairQuarantinedSale: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on the repair write. Reuses the existing IdempotencyInterceptor — identical retry replays the stored response; key-reuse with a different logical payload returns 409 `idempotency_key_conflict`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description 1.3.0-draft. Stable server-issued quarantine item reference (UUIDv7), returned to the till as `QuarantineReceipt.quarantineRef`. Resolves only within the operator's (tenant, store) scope; out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    quarantineRef: components["parameters"]["QuarantineRef"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The repair ran. Returns the item with its new `state` and `lastRepair`. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuarantinedSale"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["QuarantineNotFound"];
+                409: components["responses"]["QuarantineRepairConflict"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleWriteOffQuarantinedSale: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on the repair write. Reuses the existing IdempotencyInterceptor — identical retry replays the stored response; key-reuse with a different logical payload returns 409 `idempotency_key_conflict`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description 1.3.0-draft. Stable server-issued quarantine item reference (UUIDv7), returned to the till as `QuarantineReceipt.quarantineRef`. Resolves only within the operator's (tenant, store) scope; out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    quarantineRef: components["parameters"]["QuarantineRef"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["QuarantineWriteOffRequest"];
+                };
+            };
+            responses: {
+                /** @description The item, now `written-off`. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuarantinedSale"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["QuarantineNotFound"];
+                409: components["responses"]["QuarantineRepairConflict"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };
@@ -17288,6 +17641,26 @@ export namespace PosPilotReleasesSchema {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/platform/pos-pilot-tenants": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the tenants on the pilot allowlist (platform admins only).
+             * @description Every allowlisted tenant, oldest `addedAt` first (RT-1328). Read-only and not audited. The route takes no query parameter (400 on any). A signed-in user who is not a platform admin is 403 `forbidden`. Tenant names are not part of the answer: the Console joins them from its platform tenant list.
+             */
+            get: operations["platformListPilotTenants"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/v1/platform/pos-pilot-tenants/{tenantId}": {
             parameters: {
                 query?: never;
@@ -17319,7 +17692,11 @@ export namespace PosPilotReleasesSchema {
                 path?: never;
                 cookie?: never;
             };
-            get?: never;
+            /**
+             * List every registered pilot POS release (platform admins only).
+             * @description Every registry row, newest `registeredAt` first, withdrawn and current rows included (RT-1328). A row is current in the registry when `activatedAt` is set and `withdrawnAt` is null; being current does not by itself make it downloadable (the resolver also needs the lane's configuration and publisher pin, and the caller's tenant allowlisted). Read-only and not audited. The route takes no query parameter (400 on any). A signed-in user who is not a platform admin is 403 `forbidden`. No presigned URL, object key or credential.
+             */
+            get: operations["platformListPilotReleases"];
             put?: never;
             /**
              * Register an approved pilot POS release (promotion workflow only).
@@ -17429,6 +17806,14 @@ export namespace PosPilotReleasesSchema {
                  */
                 addedByUserId: string;
             };
+            /** @description The pilot allowlist, oldest `addedAt` first (RT-1328). */
+            PilotTenantList: {
+                items: components["schemas"]["PilotTenant"][];
+            };
+            /** @description Every pilot registry row, newest `registeredAt` first (RT-1328). */
+            PilotReleaseList: {
+                items: components["schemas"]["PilotRelease"][];
+            };
             PilotReleaseRegistration: {
                 version: components["schemas"]["AppVersion"];
                 sha256: components["schemas"]["Sha256Hex"];
@@ -17486,7 +17871,7 @@ export namespace PosPilotReleasesSchema {
             };
         };
         responses: {
-            /** @description validation_error (400): any query parameter is present (the route takes none). Checked after the guards and before any database read. */
+            /** @description validation_error (400): any query parameter is present (the read routes take none). Checked after the guards and before any database read. */
             ReadValidationFailure: {
                 headers: {
                     [name: string]: unknown;
@@ -17533,6 +17918,15 @@ export namespace PosPilotReleasesSchema {
             };
             /** @description 403, `error.code` one of: `forbidden` (a signed-in user who is not a platform admin; or, on register and withdraw, a genuine promotion token whose claims do not match the configured pins, or whose run is not the run the body names) or `origin_rejected` (RT-430: the `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`; cookie routes only). Nothing is written. */
             PlatformWriteForbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description forbidden (403): a signed-in user who is not a platform admin, on a platform read (RT-1328). A safe method skips the RT-430 Origin check, so `origin_rejected` never answers a read. Nothing is read. */
+            PlatformReadForbidden: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17655,6 +18049,32 @@ export namespace PosPilotReleasesSchema {
                 500: components["responses"]["SystemFailure"];
             };
         };
+        platformListPilotTenants: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The allowlist, possibly empty. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotTenantList"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformReadForbidden"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
         platformAddPilotTenant: {
             parameters: {
                 query?: never;
@@ -17717,6 +18137,32 @@ export namespace PosPilotReleasesSchema {
                 400: components["responses"]["WriteValidationFailure"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["PlatformWriteForbidden"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformListPilotReleases: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The registry, possibly empty. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotReleaseList"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformReadForbidden"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };

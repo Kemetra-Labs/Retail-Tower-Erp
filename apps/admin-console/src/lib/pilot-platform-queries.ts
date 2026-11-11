@@ -23,35 +23,16 @@ export interface PilotCallResult<D> {
   rateLimitSeq?: number;
 }
 
-/**
- * RT-1328 adds these two paths to the contract; until the pin moves to its merge
- * the generated client has no type for them, so the one GET goes through a
- * narrow cast. Remove it at the repin and call `apiClient.GET` directly.
- */
-type UntypedGet = (
-  path: string,
-  init: object,
-) => Promise<{ data?: unknown; error?: unknown; response: Response }>;
-const getUntyped = apiClient.GET as unknown as UntypedGet;
-
-async function read<D>(path: string): Promise<PilotCallResult<D>> {
-  const { data, error, response } = await getUntyped(path, {});
-  return {
-    status: response.status,
-    data: data as D | undefined,
-    error,
-    rateLimitSeq: rateLimitSeqOf(response),
-  };
-}
-
 /** GET /api/v1/platform/pos-pilot-releases (`platformListPilotReleases`). */
-export function platformListPilotReleases(): Promise<PilotCallResult<PilotReleaseList>> {
-  return read<PilotReleaseList>("/api/v1/platform/pos-pilot-releases");
+export async function platformListPilotReleases(): Promise<PilotCallResult<PilotReleaseList>> {
+  const { data, error, response } = await apiClient.GET("/api/v1/platform/pos-pilot-releases");
+  return { status: response.status, data, error, rateLimitSeq: rateLimitSeqOf(response) };
 }
 
 /** GET /api/v1/platform/pos-pilot-tenants (`platformListPilotTenants`). */
-export function platformListPilotTenants(): Promise<PilotCallResult<PilotTenantList>> {
-  return read<PilotTenantList>("/api/v1/platform/pos-pilot-tenants");
+export async function platformListPilotTenants(): Promise<PilotCallResult<PilotTenantList>> {
+  const { data, error, response } = await apiClient.GET("/api/v1/platform/pos-pilot-tenants");
+  return { status: response.status, data, error, rateLimitSeq: rateLimitSeqOf(response) };
 }
 
 /** POST /api/v1/platform/pos-pilot-releases/{releaseId}/activate. No body. */
