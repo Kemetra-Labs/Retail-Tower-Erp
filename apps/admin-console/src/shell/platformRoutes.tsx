@@ -14,11 +14,14 @@ const PlatformNotAvailable = lazyPage(
   "PlatformNotAvailable",
 );
 const PlatformTenants = lazyPage(() => import("@/platform/PlatformTenants"), "PlatformTenants");
+const PlatformPosPilot = lazyPage(() => import("@/platform/PlatformPosPilot"), "PlatformPosPilot");
 
 export const platformRoutes = (
   <Route path="/platform" element={<PlatformArea />}>
     <Route index element={<Navigate to="tenants" replace />} />
     <Route path="tenants" element={<PlatformTenants />} />
+    {/* RT-1329: pilot release activation and the tenant allowlist. */}
+    <Route path="pos-pilot" element={<PlatformPosPilot />} />
     <Route path="*" element={<PlatformNotAvailable embedded />} />
   </Route>
 );

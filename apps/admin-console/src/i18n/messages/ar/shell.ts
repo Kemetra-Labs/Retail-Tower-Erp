@@ -106,6 +106,8 @@ export const shell = {
   "platform.label": "المنصة",
   "platform.nav.label": "المنصة",
   "platform.nav.tenants": "المؤسسات",
+  // RT-1329: the POS pilot release activation and tenant allowlist page.
+  "platform.nav.posPilot": "تجربة نقطة البيع",
   "platform.tenants.emptyTitle": "لا توجد مؤسسات",
   "platform.tenants.emptyBody": "لا توجد مؤسسات على المنصة لعرضها حاليًا.",
   "platform.noAccess.title": "غير متاح",

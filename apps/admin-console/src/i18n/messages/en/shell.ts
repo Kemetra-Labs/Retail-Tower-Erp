@@ -98,6 +98,8 @@ export const shell: MessagesOf<typeof ar> = {
   "platform.label": "Platform",
   "platform.nav.label": "Platform",
   "platform.nav.tenants": "Organizations",
+  // RT-1329: the POS pilot release activation and tenant allowlist page.
+  "platform.nav.posPilot": "POS pilot",
   "platform.tenants.emptyTitle": "No organizations",
   "platform.tenants.emptyBody": "There are no organizations on the platform to show yet.",
   "platform.noAccess.title": "Not available",

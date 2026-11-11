@@ -99,7 +99,8 @@ describe("/platform entry gate (RT-780)", () => {
     expect(screen.getAllByText("Platform").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Northstar/ })).toBeNull();
     const nav = screen.getByRole("navigation", { name: "Platform" });
-    expect(nav.querySelectorAll("a")).toHaveLength(1);
+    // RT-1329: Organizations and POS pilot.
+    expect(nav.querySelectorAll("a")).toHaveLength(2);
     expect(nav.querySelector("[aria-disabled]")).toBeNull();
   });
 
