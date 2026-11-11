@@ -47,6 +47,8 @@
   DO $$ BEGIN RAISE EXCEPTION 'domain_role not set'; END $$;
 \endif
 
+BEGIN;
+
 -- A table-level UPDATE would cover every column; clear it (and any wider column
 -- UPDATE) so only the list below remains. SELECT and INSERT are untouched.
 REVOKE UPDATE ON vouchers FROM :"domain_role";
@@ -80,8 +82,10 @@ SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
        AS domain_ok \gset
 
 \if :domain_ok
+  COMMIT;
   \echo 'OK: domain role holds every required voucher grant.'
 \else
-  \echo 'FAILED: the domain role is missing a required grant (see the table above).'
+  ROLLBACK;
+  \echo 'FAILED: the domain role is missing a required grant or holds a wider UPDATE (see the tables above). Nothing was changed.'
   DO $$ BEGIN RAISE EXCEPTION 'voucher domain grants incomplete'; END $$;
 \endif

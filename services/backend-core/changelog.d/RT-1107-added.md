@@ -7,7 +7,7 @@
   the eligibility flag and the cancel columns; it has SELECT, INSERT and UPDATE tenant
   policies. `voucher_eligible_stores` pins its voucher and store to the same tenant by
   composite FKs and has SELECT and INSERT policies only. Adds the Drizzle schema, the
-  `vouchers-domain-grants.sql` deploy script (domain role: SELECT, INSERT, UPDATE on
-  `vouchers`; SELECT, INSERT on `voucher_eligible_stores`) and its grant fragment, and a
+  `vouchers-domain-grants.sql` deploy script (domain role: SELECT, INSERT and column-level
+  UPDATE on status, cancelled_at, cancelled_by_user_id of `vouchers`; SELECT, INSERT on `voucher_eligible_stores`) and its grant fragment, and a
   down migration that refuses while any voucher exists. No runtime, redemption table or
   contract change; nothing reads or writes the tables yet.

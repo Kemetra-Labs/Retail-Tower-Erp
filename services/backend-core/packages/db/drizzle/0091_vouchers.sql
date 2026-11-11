@@ -44,8 +44,9 @@
 -- The redemption tables (`voucher_redemption_intents`, `voucher_redemptions`)
 -- are NOT part of this migration (RT-810 slice 3).
 --
--- Grants: none here. Production grants the domain role SELECT, INSERT and
--- UPDATE on `vouchers` and SELECT and INSERT on `voucher_eligible_stores`
+-- Grants: none here. Production grants the domain role SELECT and INSERT on
+-- `vouchers` plus column-level UPDATE on (status, cancelled_at,
+-- cancelled_by_user_id) only, and SELECT and INSERT on `voucher_eligible_stores`
 -- outside migrations: docs/operations/sql/vouchers-domain-grants.sql
 -- (deploy/README.md step 2). The API refuses to boot without them
 -- (DOMAIN_REQUIRED_GRANTS, apps/api/src/auth/grants/).

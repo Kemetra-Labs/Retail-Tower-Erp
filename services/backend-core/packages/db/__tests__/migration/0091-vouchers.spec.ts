@@ -215,7 +215,7 @@ describe("0091: vouchers constraints", () => {
     ["cancel columns on an active voucher", { cancelled_by_user_id: ACTOR, cancelled_at: "2026-11-11T00:00:00Z" }],
     ["a cancelled voucher without who cancelled it", { status: "cancelled", cancelled_at: "2026-11-11T00:00:00Z" }],
     ["a cancelled voucher without when", { status: "cancelled", cancelled_by_user_id: ACTOR }],
-        ["a 201-character note", { note: "n".repeat(201) }],
+    ["a 201-character note", { note: "n".repeat(201) }],
   ])("refuses %s (23514)", async (_why, change) => {
     if (skip()) return;
     expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, ...change }))).toBe("23514");
@@ -309,8 +309,8 @@ describe("0091: tenant isolation (AC2, FORCE RLS)", () => {
     if (skip()) return;
     // Tenant A's voucher and eligible store are committed as the superuser, so
     // they are really there when tenant B's session runs (asApp rolls back).
-    await seedVoucherA();
     try {
+      await seedVoucherA();
       await asApp(guard(), TENANT_A, async (client) => {
         const own = await client.query<{ id: string }>(`SELECT id FROM ${V}`);
         expect(own.rows).toEqual([{ id: VOUCHER_A }]);
@@ -335,6 +335,13 @@ describe("0091: tenant isolation (AC2, FORCE RLS)", () => {
           [VOUCHER_A, ACTOR],
         );
         expect(cancel.rowCount).toBe(0);
+        // An UPDATE with no WHERE touches only the caller's own row (the UPDATE
+        // policy alone; a USING (true) policy would also cancel tenant A's).
+        const all = await client.query(
+          `UPDATE ${V} SET status = 'cancelled', cancelled_by_user_id = $1, cancelled_at = now()`,
+          [ACTOR],
+        );
+        expect(all.rowCount).toBe(1);
       });
       // The superuser confirms tenant A's voucher was not touched.
       const after = await guard().admin.query<{ status: string }>(`SELECT status FROM ${V} WHERE id = $1`, [VOUCHER_A]);
