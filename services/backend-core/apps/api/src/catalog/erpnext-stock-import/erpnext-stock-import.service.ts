@@ -71,6 +71,8 @@ const STOCK_IMPORT_REOFFER_SECONDS = 120;
 /** How long an issued page may wait for its report before its run is failed. */
 const STOCK_IMPORT_PAGE_TIMEOUT_SECONDS = 3600;
 const FEED_MAX_PAGE = 500;
+/** The cursor the controller answers on an empty feed with no `since` (no page has this id). */
+export const FROM_START_CURSOR = "00000000-0000-0000-0000-000000000000";
 
 export class StockImportNotFoundError extends Error {
   constructor() {
@@ -192,6 +194,13 @@ export class ErpnextStockImportService {
     // Opaque on the wire; v1 encodes a page id. A malformed cursor re-baselines.
     const since = input.since && UUID_RE_I.test(input.since) ? input.since : null;
     return runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, async (client) => {
+      // Scope-bound cursor (contract `Since`): a page id the caller's tenant
+      // cannot see (another tenant's, or none) is a non-disclosing 404. The
+      // empty-feed sentinel is the only cursor that names no page.
+      if (since !== null && since !== FROM_START_CURSOR) {
+        const own = await client.query(`SELECT 1 FROM erp_stock_import_pages WHERE id = $1`, [since]);
+        if (own.rowCount === 0) throw new StockImportNotFoundError();
+      }
       await this.failStaleRuns(client);
       await this.openRuns(client, input.tenantId);
       const r = await client.query<{
@@ -233,8 +242,11 @@ export class ErpnextStockImportService {
       );
       // Never move the cursor back: a re-offered laggard sorts below `since`.
       const last = items.length > 0 ? items[items.length - 1]!.requestRef.toLowerCase() : null;
-      const advanced = last !== null && since !== null && last < since.toLowerCase() ? since : last;
-      return { items, cursor: advanced, nextPageToken: items.length === limit ? advanced : null };
+      const backward = last !== null && since !== null && last < since.toLowerCase();
+      const advanced = backward ? since : last;
+      // A page that made no forward progress ends the pagination: a token equal
+      // to `since` would return the same re-offered page forever.
+      return { items, cursor: advanced, nextPageToken: items.length === limit && !backward ? advanced : null };
     });
   }
 

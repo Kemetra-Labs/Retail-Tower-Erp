@@ -41,8 +41,18 @@ BEGIN
     EXECUTE 'SELECT count(*) FROM erp_stock_import_runs WHERE tenant_id = $1' INTO n USING t;
     runs_found := runs_found + n;
   END LOOP;
+  -- An `external` effect carrying erp_confirmed_at would break the restored
+  -- CHECK (it is only written by an import run, so this is a second guard).
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'inventory_effect_integration_confirmed_at') THEN
+    FOR t IN SELECT id FROM tenants LOOP
+      PERFORM set_config('app.current_tenant', t::text, true);
+      EXECUTE 'SELECT count(*) FROM inventory_effect_integration WHERE tenant_id = $1 AND state = ''external'' AND erp_confirmed_at IS NOT NULL'
+        INTO n USING t;
+      runs_found := runs_found + n;
+    END LOOP;
+  END IF;
   IF runs_found > 0 THEN
-    RAISE EXCEPTION '0096 down refused: % ERP stock import run(s) exist; back up and delete the import records and their erp_external effects explicitly first', runs_found;
+    RAISE EXCEPTION '0096 down refused: % ERP stock import run(s) or external effect(s) with erp_confirmed_at exist; back up and delete the import records and their erp_external effects explicitly first', runs_found;
   END IF;
 END
 $$;
@@ -57,7 +67,7 @@ ALTER TABLE inventory_effect_integration
 ALTER TABLE inventory_effect_integration
   ADD CONSTRAINT inventory_effect_integration_confirmed_at
     CHECK ((state = 'confirmed') = (erp_confirmed_at IS NOT NULL)) NOT VALID;
-ALTER TABLE inventory_effect_integration
-  VALIDATE CONSTRAINT inventory_effect_integration_confirmed_at;
+
+DROP INDEX IF EXISTS uq_erpnext_warehouse_map_id_tenant;
 
 COMMIT;

@@ -32,6 +32,7 @@ import {
 } from "./dto/stock-import.dto";
 import {
   ErpnextStockImportService,
+  FROM_START_CURSOR,
   StockImportConflictError,
   StockImportNotFoundError,
   StockImportValidationError,
@@ -69,14 +70,22 @@ export class ErpnextStockImportController {
     @Req() req: AuthedRequest,
     @Query(new ZodValidationPipe(StockImportPullQuerySchema)) query: StockImportPullQuery,
   ): Promise<StockImportPageResponse> {
-    const result = await this.service.pullRequests({
-      tenantId: tenantOf(req),
-      since: query.since ?? null,
-      limit: query.limit ?? 100,
-    });
+    let result;
+    try {
+      result = await this.service.pullRequests({
+        tenantId: tenantOf(req),
+        since: query.since ?? null,
+        limit: query.limit ?? 100,
+      });
+    } catch (err) {
+      if (err instanceof StockImportNotFoundError) {
+        throw new NotFoundException({ code: "not_found", message: "Stock import cursor not found." });
+      }
+      throw err;
+    }
     // `cursor` is required (minLength 1): an empty page echoes `since`, or the
     // from-start sentinel (no real page id equals it).
-    const cursor = result.cursor ?? query.since ?? "00000000-0000-0000-0000-000000000000";
+    const cursor = result.cursor ?? query.since ?? FROM_START_CURSOR;
     return { items: result.items, cursor, next_page_token: result.nextPageToken };
   }
 

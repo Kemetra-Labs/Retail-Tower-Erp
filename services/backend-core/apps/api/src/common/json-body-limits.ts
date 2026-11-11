@@ -64,8 +64,10 @@ export const BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES = 32 * 1024 * 1024;
  * 0.24 MB with ASCII names and about 1.2 MB with Arabic names (`\uXXXX`), both
  * above the 100 kB default, which would refuse a legal page with 413 before
  * validation. 2 MiB covers both with a margin. It shares the pre-authentication
- * and the concurrency bound of the bin-view snapshot (RT-1295): a body above
- * 100 kB is read only after its caller passes the route's guards.
+ * of the bin-view snapshot (RT-1295): a body above 100 kB is read only after
+ * its caller passes the route's guards. It takes no slot of the snapshot's
+ * concurrency bound (a 2 MiB body is cheap, and the stock-import contract has
+ * no 503 `snapshot_busy`).
  */
 export const STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES = 2 * 1024 * 1024;
 
@@ -231,6 +233,13 @@ function createSnapshotBodyGate(
     // Aborted while being authorized: its "close" has already fired, so a slot
     // taken now would never be released.
     if (gone(req, res)) return;
+    // RT-1288: a stock-import report is pre-authenticated but takes no slot. Its
+    // body is at most 2 MiB (not 32), and its contract has no 503: a full
+    // gate must never refuse it.
+    if (isStockImportReportJson(req)) {
+      next();
+      return;
+    }
     if (inFlight >= max) {
       const requestId = newId();
       res.setHeader("Retry-After", String(BIN_VIEW_SNAPSHOT_RETRY_AFTER_SECONDS));

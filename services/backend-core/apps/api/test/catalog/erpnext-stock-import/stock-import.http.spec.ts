@@ -120,6 +120,17 @@ async function seedAnchor(tenantId: string, storeId: string, runId: string, ware
 beforeAll(async () => {
   try {
     env = await startPgEnv();
+  } catch (err) {
+    // Only a Docker start failure may be skipped; every later setup error fails the suite.
+    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
+      skip = true;
+      // eslint-disable-next-line no-console
+      console.warn(`[stock-import.http.spec] Docker unavailable: ${String(err)}`);
+      return;
+    }
+    throw err;
+  }
+  {
     await applyAllUpAndCreateAppRole(env);
     await seedReconciliationFixture(env);
     const a = env.admin;
@@ -199,14 +210,6 @@ beforeAll(async () => {
     app = moduleRef.createNestApplication({ bufferLogs: true });
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
-  } catch (err) {
-    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
-      skip = true;
-      // eslint-disable-next-line no-console
-      console.warn(`[stock-import.http.spec] Docker unavailable: ${String(err)}`);
-      return;
-    }
-    throw err;
   }
 }, 240_000);
 
@@ -812,18 +815,100 @@ describe("review fixes", () => {
     await post(tokenA, item.requestRef, report([])).expect(201);
   });
 
-  it("offers an open page below the caller's cursor again once it is two minutes old", async () => {
+  it("offers an open page below the caller's cursor again once it is two minutes old, and ends pagination there", async () => {
     if (skip) return;
     const item = await openRequest(tokenA, WH_A);
+    // A later page of the caller's own tenant, as the cursor a pull returned.
     const later = "ffffffff-ffff-7fff-bfff-ffffffffffff";
+    const run = newId();
+    const map = await env!.admin.query(`SELECT id FROM erpnext_warehouse_map WHERE erpnext_warehouse_ref = $1`, [WH_A]);
+    await env!.admin.query(
+      `INSERT INTO erp_stock_import_runs (id, tenant_id, store_id, warehouse_map_id, erpnext_warehouse_ref, status, settle_seconds, overlap_seconds, ended_at)
+       VALUES ($1, $2, $3, $4, $5, 'completed', 300, 3900, now())`,
+      [run, TENANT_A, STORE_A_X, map.rows[0].id, WH_A],
+    );
+    await env!.admin.query(
+      `INSERT INTO erp_stock_import_pages (id, tenant_id, run_id, page_seq, max_rows) VALUES ($1, $2, $3, 0, 100)`,
+      [later, TENANT_A, run],
+    );
     const ahead = await http().get(`${FEED}?since=${later}`).set("Authorization", `Bearer ${tokenA}`).expect(200);
     expect(ahead.body.items).toEqual([]);
     await env!.admin.query(`UPDATE erp_stock_import_pages SET issued_at = now() - interval '3 minutes' WHERE id = $1`, [
       item.requestRef,
     ]);
-    const again = await http().get(`${FEED}?since=${later}`).set("Authorization", `Bearer ${tokenA}`).expect(200);
-    expect(again.body.items.map((i: Item) => i.requestRef)).toContain(item.requestRef);
+    const again = await http().get(`${FEED}?since=${later}&limit=1`).set("Authorization", `Bearer ${tokenA}`).expect(200);
+    expect(again.body.items.map((i: Item) => i.requestRef)).toEqual([item.requestRef]);
     expect(again.body.cursor).toBe(later);
+    // No forward progress: no continuation token that would repeat the same page.
+    expect(again.body.next_page_token).toBeNull();
     await post(tokenA, item.requestRef, report([])).expect(201);
+  });
+
+  it("refuses another tenant's cursor (non-disclosing 404) and accepts the from-start sentinel", async () => {
+    if (skip) return;
+    const item = await openRequest(tokenA, WH_A);
+    const foreign = await http().get(`${FEED}?since=${item.requestRef}`).set("Authorization", `Bearer ${tokenB}`).expect(404);
+    expect(foreign.body.error.code).toBe("not_found");
+    await http().get(`${FEED}?since=00000000-0000-0000-0000-000000000000`).set("Authorization", `Bearer ${tokenB}`).expect(200);
+    await post(tokenA, item.requestRef, report([])).expect(201);
+  });
+
+  it("checks a product's first movement against its anchor line's ERP unit", async () => {
+    if (skip) return;
+    const ANCHORED = "ERP-ITEM-1288-ANCHORED";
+    const product = newId();
+    await env!.admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by) VALUES ($1, $2, 'Anchored', 'standard', $3, $3)`,
+      [product, TENANT_A, ACTOR_A],
+    );
+    await env!.admin.query(
+      `INSERT INTO erpnext_item_map (id, tenant_id, tenant_product_id, erpnext_item_ref, state, suggestion_source, confirmed_by, confirmed_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'confirmed', 'manual', $4, now())`,
+      [TENANT_A, product, ANCHORED, ACTOR_A],
+    );
+    await env!.admin.query(
+      `INSERT INTO inventory_anchor_lines (id, anchor_id, tenant_id, tenant_product_ref, quantity, erp_stock_uom, erpnext_item_ref)
+       SELECT gen_random_uuid(), id, tenant_id, $2, 4, 'kg', $3 FROM inventory_anchors
+        WHERE store_id = $1 ORDER BY generation DESC LIMIT 1`,
+      [STORE_A_X, product, ANCHORED],
+    );
+    const box = row({ item: ANCHORED, uom: "ea" });
+    const kg = row({ item: ANCHORED, uom: "kg" });
+    await importA([box, kg]);
+    expect(await findingsOf(box["ledgerEntryRef"] as string)).toEqual(["uom_mismatch"]);
+    expect((await rowRecord(kg["ledgerEntryRef"] as string))!.outcome).toBe("imported");
+  });
+
+  it("compensates an original a later anchor generation holds, even if it was a finding when read", async () => {
+    if (skip) return;
+    const LATER = "ERP-ITEM-1288-LATER";
+    const original = row({ voucherNo: "MAT-PRE-GEN3", detail: "g3", item: LATER, qty: "6", cancelled: true, creation: "2026-11-10T14:00:00Z" });
+    await importA([original]);
+    expect(await findingsOf(original["ledgerEntryRef"] as string)).toEqual(["unknown_item"]);
+    const product = newId();
+    await env!.admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by) VALUES ($1, $2, 'Later', 'standard', $3, $3)`,
+      [product, TENANT_A, ACTOR_A],
+    );
+    await env!.admin.query(
+      `INSERT INTO erpnext_item_map (id, tenant_id, tenant_product_id, erpnext_item_ref, state, suggestion_source, confirmed_by, confirmed_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'confirmed', 'manual', $4, now())`,
+      [TENANT_A, product, LATER, ACTOR_A],
+    );
+    // A later anchor generation whose snapshot (15:00) holds the 14:00 receipt.
+    await env!.admin.query(
+      `INSERT INTO inventory_anchors
+         (id, tenant_id, store_id, stock_location_id, inventory_status, generation, source_run_id,
+          snapshot_read_at, snapshot_recorded_at, erpnext_warehouse_ref, activated_at, coverage, created_by)
+       SELECT $1, $2, $3, (SELECT id FROM stock_locations WHERE store_id = $3 AND kind = 'primary'), 'sellable',
+              max(generation) + 1, $4, '2026-11-10T15:00:00Z', '2026-11-10T15:00:00Z', $5, now(), '{}'::jsonb, $6
+         FROM inventory_anchors WHERE store_id = $3`,
+      [newId(), TENANT_A, STORE_A_X, RUN_A, WH_A, ACTOR_A],
+    );
+    const reverse = row({ voucherNo: "MAT-PRE-GEN3", detail: "g3", item: LATER, qty: "-6", cancelled: true, creation: "2026-11-10T16:00:00Z" });
+    await importA([reverse]);
+    const v = (await rowRecord(reverse["ledgerEntryRef"] as string))!;
+    expect(v.outcome).toBe("imported");
+    expect(v.effect_key).toBe(`Purchase%20Receipt:MAT-PRE-GEN3:g3:${WH_A}:cancel`);
   });
 });

@@ -58,9 +58,9 @@
 -- Lock impact: ONE transaction. The four tables are created empty; their FKs
 -- take SHARE ROW EXCLUSIVE on tenants, stores, erpnext_warehouse_map,
 -- tenant_products, stock_movements and tracking_identities while it commits.
--- The CHECK swap on inventory_effect_integration takes ACCESS EXCLUSIVE briefly
--- for the DROP and ADD ... NOT VALID, then VALIDATE scans the table under SHARE
--- UPDATE EXCLUSIVE (reads and writes continue).
+-- The CHECK swap on inventory_effect_integration takes ACCESS EXCLUSIVE only
+-- for the DROP and the ADD ... NOT VALID (catalog changes, no scan). The new
+-- unique index on erpnext_warehouse_map (one row per store) builds in place.
 --
 -- Reversal: 0096_erp_stock_import.down.sql REFUSES while any import run exists
 -- (its rows are the audit of effects already written), and otherwise drops the
@@ -68,11 +68,15 @@
 
 BEGIN;
 
+-- The composite target of the runs' same-tenant map FK (a small table).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_erpnext_warehouse_map_id_tenant
+  ON erpnext_warehouse_map (id, tenant_id);
+
 CREATE TABLE IF NOT EXISTS erp_stock_import_runs (
   id                     UUID          PRIMARY KEY,
   tenant_id              UUID          NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   store_id               UUID          NOT NULL,
-  warehouse_map_id       UUID          NOT NULL REFERENCES erpnext_warehouse_map(id) ON DELETE RESTRICT,
+  warehouse_map_id       UUID          NOT NULL,
   erpnext_warehouse_ref  TEXT          NOT NULL,
   status                 TEXT          NOT NULL DEFAULT 'running',
   status_reason          TEXT,
@@ -82,6 +86,10 @@ CREATE TABLE IF NOT EXISTS erp_stock_import_runs (
   ended_at               TIMESTAMPTZ,
   CONSTRAINT fk_erp_stock_import_runs_store_tenant
     FOREIGN KEY (tenant_id, store_id) REFERENCES stores (tenant_id, id) ON DELETE RESTRICT,
+  -- The map of the run's own tenant: an FK check bypasses row security, so a
+  -- plain (id) reference would accept another tenant's map.
+  CONSTRAINT fk_erp_stock_import_runs_map_tenant
+    FOREIGN KEY (warehouse_map_id, tenant_id) REFERENCES erpnext_warehouse_map (id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT erp_stock_import_runs_status_allowed
     CHECK (status IN ('running', 'completed', 'refused', 'failed')),
   CONSTRAINT erp_stock_import_runs_ended
@@ -304,10 +312,12 @@ CREATE POLICY erp_stock_import_findings_tenant_insert ON erp_stock_import_findin
 
 ALTER TABLE inventory_effect_integration
   DROP CONSTRAINT IF EXISTS inventory_effect_integration_confirmed_at;
+-- NOT VALID and never validated here (the 0042/0044 convention for a CHECK on a
+-- large table): a VALIDATE in this transaction would scan the table while the
+-- DROP's ACCESS EXCLUSIVE lock is held. Every existing row already satisfies
+-- the new rule (no row is `external`), and new rows are checked.
 ALTER TABLE inventory_effect_integration
   ADD CONSTRAINT inventory_effect_integration_confirmed_at
     CHECK ((state IN ('confirmed', 'external')) = (erp_confirmed_at IS NOT NULL)) NOT VALID;
-ALTER TABLE inventory_effect_integration
-  VALIDATE CONSTRAINT inventory_effect_integration_confirmed_at;
 
 COMMIT;

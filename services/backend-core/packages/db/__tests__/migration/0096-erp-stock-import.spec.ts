@@ -57,7 +57,6 @@ function guard(): PgTestEnv {
 beforeAll(async () => {
   try {
     env = await startPgEnv();
-    await applyMigrationsBefore(env, DRIZZLE_DIR, UP_NAME);
   } catch (err: unknown) {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
@@ -67,6 +66,8 @@ beforeAll(async () => {
     }
     throw new Error(`Container start failed: ${dockerSkipReason}`);
   }
+  // Only a Docker start failure may be skipped: a migration error fails the suite.
+  await applyMigrationsBefore(env, DRIZZLE_DIR, UP_NAME);
   upSql = readFileSync(UP_PATH, "utf8");
   downSql = readFileSync(DOWN_PATH, "utf8");
   const a = env.admin;
@@ -196,6 +197,13 @@ describe("0096: tables, RLS and CHECKs", () => {
         client.query(rowSql, [id("0a082"), TENANT_A, STORE_A, id("0a071"), "SLE-1", "covered", null]),
       ).rejects.toMatchObject({ code: "23505" });
     });
+  });
+});
+
+describe("0096: a run's warehouse map is of its own tenant", () => {
+  it("refuses a run that names another tenant's map (FKs bypass row security, the composite key does not)", async () => {
+    if (skip()) return;
+    await expect(guard().admin.query(...RUN(id("0a066"), TENANT_A, STORE_A, MAP_B))).rejects.toMatchObject({ code: "23503" });
   });
 });
 

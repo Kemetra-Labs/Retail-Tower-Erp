@@ -227,7 +227,7 @@ async function decide(
   const tracking = await resolveTracking(client, product, row);
   if (tracking.kind === "mismatch") return finding("tracking_mismatch", withProduct, { reason: tracking.reason });
   if (tracking.kind === "awaiting") return { outcome: "awaiting_identity", ...withProduct, identityId: null };
-  const key = await keyFor(client, base, row);
+  const key = await keyFor(client, base, row, ctx.anchorReadAt);
   if (key.kind === "duplicate") {
     return finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId }, { reason: key.reason });
   }
@@ -262,15 +262,27 @@ async function resolveProduct(client: PoolClient, item: string): Promise<Product
   return row === undefined ? null : { id: row.id, trackingMode: row.tracking_mode };
 }
 
-/** The unit the product's movements at the store already use (0016), or null. */
+/**
+ * The unit the product's quantity at the store is already counted in: its
+ * movements' unit (0016), or, before any movement, the ERP stock UOM of the
+ * store's current anchor line (the anchor quantity the first effect adds to).
+ * Null when neither exists.
+ */
 async function establishedUnit(client: PoolClient, storeId: string, productId: string): Promise<string | null> {
-  const r = await client.query<{ stocking_unit: string }>(
-    `SELECT stocking_unit FROM stock_movements
-      WHERE store_id = $1 AND tenant_product_ref = $2
-      LIMIT 1`,
+  const r = await client.query<{ unit: string | null }>(
+    `SELECT COALESCE(
+              (SELECT stocking_unit FROM stock_movements
+                WHERE store_id = $1 AND tenant_product_ref = $2
+                LIMIT 1),
+              (SELECT l.erp_stock_uom
+                 FROM inventory_anchor_lines l
+                WHERE l.tenant_product_ref = $2
+                  AND l.anchor_id = (SELECT a.id FROM inventory_anchors a
+                                      WHERE a.store_id = $1
+                                      ORDER BY a.generation DESC LIMIT 1))) AS unit`,
     [storeId, productId],
   );
-  return r.rows[0]?.stocking_unit ?? null;
+  return r.rows[0]?.unit ?? null;
 }
 
 type Tracking =
@@ -306,23 +318,33 @@ type KeyChoice =
  * cancellation, imported once under the `cancel` key and compensating the
  * original's effect, or a real duplicate. The reverse row compensates only an
  * original that moved stock in Retail Tower's books: an imported one (its
- * effect) or a covered one (the anchor's Bin holds it). An original that was a
+ * effect) or one the current anchor's Bin holds (covered then, or by a later
+ * anchor generation). An original that was a
  * finding, awaited its identity or moved nothing gave no stock to take back,
  * so its reverse row is a finding too, never a stock-out of a receipt that was
  * never imported.
  */
-async function keyFor(client: PoolClient, base: string, row: StockImportRowInput): Promise<KeyChoice> {
-  const r = await client.query<{ effect_key: string; outcome: string; effect_id: string | null }>(
-    `SELECT effect_key, outcome, effect_id FROM erp_stock_import_rows
+async function keyFor(
+  client: PoolClient,
+  base: string,
+  row: StockImportRowInput,
+  anchorReadAt: string,
+): Promise<KeyChoice> {
+  const r = await client.query<{ effect_key: string; outcome: string; effect_id: string | null; in_anchor: boolean }>(
+    `SELECT effect_key, outcome, effect_id, (creation <= $2::timestamptz) AS in_anchor
+       FROM erp_stock_import_rows
       WHERE effect_key = ANY($1::text[])
       ORDER BY recorded_at, id`,
-    [[base, cancelKey(base)]],
+    [[base, cancelKey(base)], anchorReadAt],
   );
   const original = r.rows.find((x) => x.effect_key === base);
   if (original === undefined) return { kind: "key", key: base, compensates: null };
   if (!row.isCancelled) return { kind: "duplicate", reason: "key_exists" };
   if (r.rows.some((x) => x.effect_key === cancelKey(base))) return { kind: "duplicate", reason: "cancel_exists" };
-  if (original.outcome !== "imported" && original.outcome !== "covered") {
+  // In the books: imported, covered when it was read, or covered by the store's
+  // CURRENT anchor (a later activation's snapshot holds it even if it was a
+  // finding when first read).
+  if (original.outcome !== "imported" && original.outcome !== "covered" && !original.in_anchor) {
     return { kind: "duplicate", reason: `original_${original.outcome}` };
   }
   return { kind: "key", key: cancelKey(base), compensates: original.effect_id };
