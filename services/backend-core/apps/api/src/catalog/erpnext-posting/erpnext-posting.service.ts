@@ -209,10 +209,14 @@ export interface PullPostingsResult {
  * without its data and never skipped. Anything else (a SQL error, which
  * aborts the transaction, or an unknown bug) still fails the whole pull.
  *
- * Breaker: the same failure on two or more rows of one page points at a
- * systemic fault (a policy or grant gap hits every affected row), not one bad
- * row. Spending every row's budget would dead-letter the backlog, so that page
- * fails the pull as before, with no write, and the feed halts until fixed.
+ * Breaker (RT-1325 option B): visibility errors (tenders, responsibilities or
+ * return tenders not visible) on two or more rows of one page point at an RLS
+ * policy gap hitting every affected row. Spending every row's budget would
+ * dead-letter the backlog, so that page fails the pull as before, with no
+ * write. A single such row is a per-row data fault and is isolated. A table
+ * grant gap already fails the pull as a SQL error (42501). A missing frozen
+ * resolution never trips it: rows sharing a mapping gap stay isolated and
+ * end visibly dead-lettered, so they cannot stall the feed.
  */
 const ROW_BUILD_FAILURES = [
   SaleTendersNotVisibleError,
@@ -225,14 +229,17 @@ function isRowBuildFailure(err: unknown): err is Error {
   return ROW_BUILD_FAILURES.some((failure) => err instanceof failure);
 }
 
-/** RT-1325 breaker: the first error whose class failed two or more rows of the page. */
+/** The breaker's class: a row's data hidden from the feed (RLS). */
+const VISIBILITY_FAILURES = [
+  SaleTendersNotVisibleError,
+  SaleResponsibilitiesNotVisibleError,
+  ReturnTendersNotVisibleError,
+] as const;
+
+/** RT-1325 breaker: the first visibility error, when two or more rows of the page hit one. */
 function systemicFailure(unbuildable: readonly UnbuildableRow[]): Error | null {
-  const seen = new Set<string>();
-  for (const row of unbuildable) {
-    if (seen.has(row.error.name)) return unbuildable.find((r) => r.error.name === row.error.name)!.error;
-    seen.add(row.error.name);
-  }
-  return null;
+  const hidden = unbuildable.filter((row) => VISIBILITY_FAILURES.some((failure) => row.error instanceof failure));
+  return hidden.length >= 2 ? hidden[0]!.error : null;
 }
 
 /** What the feed did with an unbuildable row, reported after the commit. */
@@ -363,7 +370,7 @@ export class ErpnextPostingService {
         // RT-1325: the cursor below advances past every row of the page, so a
         // row left out must not stay where it was. Re-offer it in this same
         // transaction (a failed write fails the pull: nothing is skipped).
-        // The same failure on several rows is systemic: fail as before.
+        // Visibility failures on several rows are systemic: fail as before.
         const systemic = systemicFailure(unbuildable);
         if (systemic) throw systemic;
         const reoffered = unbuildable.length > 0

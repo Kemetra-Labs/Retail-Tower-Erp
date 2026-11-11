@@ -14,8 +14,9 @@
  *     sequence the page read (a concurrent ack or pull wins, nothing else);
  *   - an unclassified error (a SQL error, which aborts the transaction, or an
  *     unknown bug) still fails the whole pull, as before;
- *   - breaker: the same error on two or more rows of a page is systemic, so the
- *     pull fails as before instead of spending every row's budget;
+ *   - breaker: visibility errors on two or more rows of a page are systemic, so
+ *     the pull fails as before; one such row, or any number of resolution-error
+ *     rows, stays isolated;
  *   - signals are logged only once the pull committed;
  *   - a `null` build is still omitted but is now logged;
  *   - a page with no failure writes nothing (the pure-read path is unchanged).
@@ -221,11 +222,22 @@ describe("pullPostings row isolation (RT-1325, RT-1125 R-21)", () => {
     expect(client.statements(/^\s*UPDATE erpnext_posting_status/).map((c) => c.params[0])).toEqual([ROW_A, ROW_B]);
   });
 
-  it("breaker: the SAME error on two rows of a page is systemic, so the pull fails as before, with no write", async () => {
+  it("breaker: two resolution-error rows on one page are both isolated and the other item is returned", async () => {
+    build.mockImplementation(async (_c, row) => {
+      if (row.id === ROW_B) return item(row.id, row.sequence);
+      throw new PostingResolutionIncompleteError(row.id, 1);
+    });
+    const page = await pull();
+    expect(page.items.map((i) => i.workItemRef)).toEqual([ROW_B]);
+    expect(page.cursor).toBe("13");
+    expect(client.statements(/^\s*UPDATE erpnext_posting_status/).map((c) => c.params[0])).toEqual([ROW_A, ROW_C]);
+  });
+
+  it("breaker: visibility errors on two rows of a page (any mix of the class) fail the pull as before, with no write", async () => {
     const first = new SaleTendersNotVisibleError(ROW_A, 1, 0);
     build.mockImplementation(async (_c, row) => {
       if (row.id === ROW_A) throw first;
-      if (row.id === ROW_C) throw new SaleTendersNotVisibleError(row.id, 1, 0);
+      if (row.id === ROW_C) throw new SaleResponsibilitiesNotVisibleError(row.id, 1, 0);
       return item(row.id, row.sequence);
     });
     await expect(pull()).rejects.toBe(first);

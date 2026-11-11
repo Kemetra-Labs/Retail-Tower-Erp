@@ -42,7 +42,7 @@ import { assertIdempotencyRedisRetains } from "./require-retaining-redis";
 
 const LEASE_SEC = 1;
 const HOUR_MS = 60 * 60 * 1000;
-const KEY = "rt1325-lease-key-000001";
+const LEASE_IDEM = "rt1325-lease-key-000001";
 
 class FakeRedis {
   private readonly map = new Map<string, string>();
@@ -145,12 +145,12 @@ function skip(): boolean {
   return dockerSkipped || !app;
 }
 
-const post = () => request(app!.getHttpServer()).post("/lease-probe").set("Idempotency-Key", KEY).send({ a: 1 });
+const post = () => request(app!.getHttpServer()).post("/lease-probe").set("Idempotency-Key", LEASE_IDEM).send({ a: 1 });
 
 async function storedRow(): Promise<{ response_status: number; expires_at: Date }> {
   const r = await env!.admin.query<{ response_status: number; expires_at: Date }>(
     `SELECT response_status, expires_at FROM idempotency_keys WHERE tenant_id = $1 AND key LIKE $2`,
-    [TENANT_A, `%${KEY}`],
+    [TENANT_A, `%${LEASE_IDEM}`],
   );
   expect(r.rows).toHaveLength(1);
   return r.rows[0]!;
@@ -196,16 +196,16 @@ describe("claim lease against real Postgres (RT-1325, RT-1125 R-03)", () => {
   }, 30_000);
 
   describe("fencing after a takeover", () => {
-    const FENCE_KEY = "rt1325-fence-key-000001";
+    const FENCE_IDEM = "rt1325-fence-key-000001";
     const CLIENT = "rt1325-client";
     const FP = Buffer.alloc(32, 7);
     const RESULT: StoredResult = { status: 201, body: { late: true } };
-    const scope = { tenantId: TENANT_A, storeId: null, clientId: CLIENT, key: FENCE_KEY };
+    const scope = { tenantId: TENANT_A, storeId: null, clientId: CLIENT, key: FENCE_IDEM };
 
     async function fenceRow(): Promise<{ response_status: number; expires_at: Date }> {
       const r = await env!.admin.query<{ response_status: number; expires_at: Date }>(
         `SELECT response_status, expires_at FROM idempotency_keys WHERE tenant_id = $1 AND key = $2`,
-        [TENANT_A, FENCE_KEY],
+        [TENANT_A, FENCE_IDEM],
       );
       return r.rows[0]!;
     }
@@ -234,11 +234,11 @@ describe("claim lease against real Postgres (RT-1325, RT-1125 R-03)", () => {
 
     it("a claimant releases its own claim", async () => {
       if (skip()) return;
-      await env!.admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1 AND key = $2`, [TENANT_A, FENCE_KEY]);
+      await env!.admin.query(`DELETE FROM idempotency_keys WHERE tenant_id = $1 AND key = $2`, [TENANT_A, FENCE_IDEM]);
       const own = new Date(Date.now() + 60_000);
       await mirror.claim({ ...scope, fingerprint: FP, expiresAt: own });
       await mirror.release({ ...scope, claimExpiresAt: own });
-      const r = await env!.admin.query(`SELECT 1 FROM idempotency_keys WHERE tenant_id = $1 AND key = $2`, [TENANT_A, FENCE_KEY]);
+      const r = await env!.admin.query(`SELECT 1 FROM idempotency_keys WHERE tenant_id = $1 AND key = $2`, [TENANT_A, FENCE_IDEM]);
       expect(r.rows).toHaveLength(0);
     });
   });
