@@ -1395,9 +1395,8 @@ components:
           enum: [scrap, vendor_return]
           description: >
             `scrap` — written off (Stock Entry `Material Issue`). `vendor_return`
-            — returned to the supplier (Purchase Receipt `is_return`, against the
-            receipt that brought the Batch in, failing closed when that receipt
-            is not unique, Q1).
+            — returned to the supplier (a Purchase Receipt return, Q1; where its
+            `return_against` receipt is found is not decided in this version).
         storeId:
           type: string
           format: uuid

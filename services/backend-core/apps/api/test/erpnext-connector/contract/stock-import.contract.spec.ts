@@ -135,6 +135,20 @@ describe("erpnext-connector/stock-import.yaml — document (RT-1286)", () => {
     expect(info()).not.toMatch(/v15/);
   });
 
+  it("records captain decisions D1-D3: warehouse-specific key, entryIndex cursor, settle bound", () => {
+    expect(info()).toContain("DC-4 KEY (captain decision D1, owner delegation 2026-11-11, RT-1286)");
+    expect(info()).toContain("`voucherType`, `voucherNo`, `voucherDetailNo`, the request's `erpnextWarehouseRef`, and, when the row has one, `erpnextBatchRef.name`");
+    expect(info()).toContain("two effects of one voucher row at different warehouses");
+    expect(info()).toContain("MUST NEVER share a key");
+    expect(info()).toContain("CURSOR, SETTLE AND OVERLAP (captain decisions D2 and D3");
+    expect(info()).toContain("A page may end inside a ledger row");
+    expect(info()).toContain("A transaction open longer than `settleSeconds` can still commit behind the cursor");
+    expect(info()).toContain("default `settleSeconds` 300 until measured");
+    const settle = flat(JSON.stringify(schema("StockImportRequest").properties?.["settleSeconds"]));
+    expect(settle).toContain("site database clock");
+    expect(schema("StockImportRequest").required).toContain("settleSeconds");
+  });
+
   it("states facts only, no classification on the wire (G8-7), and the Backend-Core-first rollout", () => {
     expect(info()).toContain("FACTS ONLY (G8-7)");
     expect(info()).toContain("It classifies nothing and filters nothing by business rule");
@@ -221,7 +235,7 @@ describe("stock-import.yaml — schemas", () => {
 
   it("the row carries every §3 (b) fact, all required", () => {
     expect(schema("StockImportRow").required?.slice().sort()).toEqual([
-      "actualQty", "correctionRef", "creation", "erpnextBatchRef", "erpnextItemRef", "hasRetailProvenance",
+      "actualQty", "correctionRef", "creation", "entryIndex", "erpnextBatchRef", "erpnextItemRef", "hasRetailProvenance",
       "isCancelled", "isReturn", "ledgerEntryRef", "postingDate", "postingTime", "purpose", "returnAgainst",
       "stockUom", "voucherDetailNo", "voucherNo", "voucherType",
     ]);
@@ -286,7 +300,8 @@ describe("stock-import.yaml — instances", () => {
     pageSeq: 0,
     storeId: "00000000-0000-7000-8000-00000000570e",
     erpnextWarehouseRef: "Stores - RT",
-    after: { creation: "2026-11-11T09:55:00.000000+02:00", ledgerEntryRef: null },
+    after: { creation: "2026-11-11T09:55:00.000000+02:00", ledgerEntryRef: null, entryIndex: null },
+    settleSeconds: 300,
     overlapSeconds: 300,
     maxRows: 100,
     itemCursor: "c1",
@@ -294,6 +309,7 @@ describe("stock-import.yaml — instances", () => {
   });
   const row = (overrides: Record<string, unknown> = {}) => ({
     ledgerEntryRef: "SLE-0001",
+    entryIndex: 0,
     voucherType: "Purchase Receipt",
     voucherNo: "MAT-PRE-2026-00001",
     voucherDetailNo: "pri-row-1",
@@ -314,7 +330,7 @@ describe("stock-import.yaml — instances", () => {
   });
   const report = (rows: unknown[], overrides: Record<string, unknown> = {}) => ({
     rows,
-    readThrough: rows.length === 0 ? null : { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: "SLE-0001" },
+    readThrough: rows.length === 0 ? null : { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: "SLE-0001", entryIndex: 0 },
     exhausted: true,
     readAt: READ_AT,
     ...overrides,
@@ -322,8 +338,15 @@ describe("stock-import.yaml — instances", () => {
 
   it("a page-0 request with a null-ref overlap bound, a continuation page and a first-ever request validate", () => {
     expectValid(validateRequest, request());
-    expectValid(validateRequest, request({ pageSeq: 1, overlapSeconds: 0, after: { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: "SLE-0001" } }));
+    expectValid(validateRequest, request({ pageSeq: 1, overlapSeconds: 0, after: { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: "SLE-0001", entryIndex: 3 } }));
     expectValid(validateRequest, request({ after: null, overlapSeconds: 0 }));
+  });
+
+  it("a null-ref bound with an entryIndex, or a request without settleSeconds, is invalid", () => {
+    expectInvalid(validateRequest, request({ after: { creation: "2026-11-11T09:55:00+02:00", ledgerEntryRef: null, entryIndex: 0 } }));
+    const { settleSeconds: _settle, ...noSettle } = request();
+    expectInvalid(validateRequest, noSettle);
+    expectInvalid(validateRequest, request({ settleSeconds: 3601 }));
   });
 
   it("a request with maxRows above 100, an unknown key or no warehouse is invalid", () => {
@@ -346,14 +369,31 @@ describe("stock-import.yaml — instances", () => {
     expectInvalid(validateReport, report([row({ valuationRate: "10.00" })]));
   });
 
-  it("a readThrough without a ledgerEntryRef is invalid", () => {
-    expectInvalid(validateReport, report([row()], { readThrough: { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: null } }));
+  it("a readThrough without a ledgerEntryRef or entryIndex is invalid", () => {
+    expectInvalid(validateReport, report([row()], { readThrough: { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: null, entryIndex: null } }));
+    expectInvalid(validateReport, report([row()], { readThrough: { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: "SLE-0001", entryIndex: null } }));
+    expectInvalid(validateReport, report([row()], { readThrough: { creation: "2026-11-11T09:58:12.512345+02:00", ledgerEntryRef: "SLE-0001" } }));
+  });
+
+  it("a page may end inside a ledger row (D2): its readThrough names the last Batch entry", () => {
+    const first = row({ entryIndex: 0, erpnextBatchRef: { doctype: "Batch", name: "B-A" } });
+    const second = row({ entryIndex: 1, erpnextBatchRef: { doctype: "Batch", name: "B-B" } });
+    expectValid(validateReport, report([first, second], {
+      readThrough: { creation: first.creation, ledgerEntryRef: "SLE-0001", entryIndex: 1 },
+      exhausted: false,
+    }));
+  });
+
+  it("an empty page without a refusal must be exhausted (no rewind to a null position)", () => {
+    expectInvalid(validateReport, report([], { exhausted: false }));
+    expectInvalid(validateReport, report([], { exhausted: false, refusal: null }));
+    expectValid(validateReport, report([], { exhausted: true, refusal: null }));
   });
 
   it("a refusal report validates only with no rows, a null readThrough and exhausted false", () => {
     const refusal = { reason: "unknown_warehouse" };
     expectValid(validateReport, report([], { exhausted: false, refusal }));
-    expectValid(validateReport, report([], { exhausted: false, refusal: { reason: "ledger_row_too_large" } }));
+    expectInvalid(validateReport, report([], { exhausted: false, refusal: { reason: "ledger_row_too_large" } }));
     expectInvalid(validateReport, report([row()], { exhausted: false, refusal }));
     expectInvalid(validateReport, report([], { exhausted: true, refusal }));
     expectInvalid(validateReport, report([], { exhausted: false, refusal: { reason: "unmapped_item" } }));
@@ -384,25 +424,42 @@ describe("stock-import.yaml — instances", () => {
   // =========================================================================
   describe("DC-4 key derivation (acceptance criterion)", () => {
     type Row = ReturnType<typeof row>;
-    /** The key RT-1288 builds; `reverse` marks the reverse row of a cancellation. */
-    const dc4Key = (r: Row, reverse: boolean): [string, string] => {
-      const batch = r.erpnextBatchRef === null ? "" : `:${(r.erpnextBatchRef as { name: string }).name}`;
-      return ["erpnext", `${r.voucherType}:${r.voucherNo}:${r.voucherDetailNo}${batch}${reverse ? ":cancel" : ""}`];
-    };
+    /**
+     * The key components the contract makes normative (D1): voucher type, voucher no, detail
+     * row, the request's warehouse, the Batch when present, and `cancel` for a compensating
+     * effect. RT-1288 fixes the string format; a component tuple stands in for it here.
+     */
+    const dc4Key = (r: Row, warehouse: string, reverse: boolean): string[] => [
+      "erpnext", r.voucherType, r.voucherNo, String(r.voucherDetailNo), warehouse,
+      ...(r.erpnextBatchRef === null ? [] : [(r.erpnextBatchRef as { name: string }).name]),
+      ...(reverse ? ["cancel"] : []),
+    ];
+    const same = (a: string[], b: string[]): boolean => JSON.stringify(a) === JSON.stringify(b);
+    /** The reverse-row rule: of two cancelled rows of one voucher row and Batch, the later created one. */
+    const reverseOf = (a: Row, b: Row): Row => (Date.parse(b.creation) > Date.parse(a.creation) ? b : a);
 
     it("builds distinct keys for each Batch entry of one ledger row", () => {
-      const a = row({ erpnextBatchRef: { doctype: "Batch", name: "B-A" }, actualQty: "10.000000" });
-      const b = row({ erpnextBatchRef: { doctype: "Batch", name: "B-B" }, actualQty: "14.000000" });
-      expectValid(validateReport, report([a, b]));
-      expect(dc4Key(a, false)).toEqual(["erpnext", "Purchase Receipt:MAT-PRE-2026-00001:pri-row-1:B-A"]);
-      expect(dc4Key(b, false)[1]).not.toEqual(dc4Key(a, false)[1]);
+      const a = row({ entryIndex: 0, erpnextBatchRef: { doctype: "Batch", name: "B-A" }, actualQty: "10.000000" });
+      const b = row({ entryIndex: 1, erpnextBatchRef: { doctype: "Batch", name: "B-B" }, actualQty: "14.000000" });
+      expectValid(validateReport, report([a, b], { readThrough: { creation: a.creation, ledgerEntryRef: "SLE-0001", entryIndex: 1 } }));
+      expect(dc4Key(a, "Stores - RT", false)).toEqual(["erpnext", "Purchase Receipt", "MAT-PRE-2026-00001", "pri-row-1", "Stores - RT", "B-A"]);
+      expect(same(dc4Key(a, "Stores - RT", false), dc4Key(b, "Stores - RT", false))).toBe(false);
     });
 
     it("builds the un-batched key for a row with no Batch", () => {
-      expect(dc4Key(row({ erpnextBatchRef: null }), false)).toEqual(["erpnext", "Purchase Receipt:MAT-PRE-2026-00001:pri-row-1"]);
+      expect(dc4Key(row({ erpnextBatchRef: null }), "Stores - RT", false)).toEqual(
+        ["erpnext", "Purchase Receipt", "MAT-PRE-2026-00001", "pri-row-1", "Stores - RT"],
+      );
     });
 
-    it("tells a cancellation's reverse row from its original by ledgerEntryRef and keys it …:cancel", () => {
+    it("never gives one voucher row's effects at two warehouses the same key (D1)", () => {
+      const out = row({ voucherType: "Stock Entry", voucherNo: "MAT-STE-2026-00009", purpose: "Material Transfer", actualQty: "-5.000000", erpnextBatchRef: null });
+      const inn = row({ voucherType: "Stock Entry", voucherNo: "MAT-STE-2026-00009", purpose: "Material Transfer", ledgerEntryRef: "SLE-0003", actualQty: "5.000000", erpnextBatchRef: null });
+      expect(out.voucherDetailNo).toBe(inn.voucherDetailNo);
+      expect(same(dc4Key(out, "Stores - A", false), dc4Key(inn, "Stores - B", false))).toBe(false);
+    });
+
+    it("identifies a cancellation's reverse row as the later created one and keys it with cancel", () => {
       const original = row({ isCancelled: true });
       const reverse = row({
         ledgerEntryRef: "SLE-0002",
@@ -410,11 +467,13 @@ describe("stock-import.yaml — instances", () => {
         actualQty: "-24.000000",
         creation: "2026-11-11T09:59:00.000000+02:00",
       });
-      expectValid(validateReport, report([original, reverse], { readThrough: { creation: reverse.creation, ledgerEntryRef: "SLE-0002" } }));
+      expectValid(validateReport, report([original, reverse], { readThrough: { creation: reverse.creation, ledgerEntryRef: "SLE-0002", entryIndex: 0 } }));
       expect(original.voucherDetailNo).toBe(reverse.voucherDetailNo);
-      expect(original.ledgerEntryRef).not.toBe(reverse.ledgerEntryRef);
-      expect(dc4Key(reverse, true)).toEqual(["erpnext", "Purchase Receipt:MAT-PRE-2026-00001:pri-row-1:B-2026-11-A:cancel"]);
-      expect(dc4Key(reverse, true)[1]).not.toEqual(dc4Key(original, false)[1]);
+      expect(reverseOf(original, reverse)).toBe(reverse);
+      expect(reverseOf(reverse, original)).toBe(reverse);
+      const reverseKey = dc4Key(reverseOf(original, reverse), "Stores - RT", true);
+      expect(reverseKey[reverseKey.length - 1]).toBe("cancel");
+      expect(same(reverseKey, dc4Key(original, "Stores - RT", false))).toBe(false);
     });
 
     it("an ERP-native Purchase Return is reportable as a negative row with its return link (Q4)", () => {
