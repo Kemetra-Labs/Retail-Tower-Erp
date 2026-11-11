@@ -123,24 +123,23 @@ const WRITES: readonly WriteOp[] = [
 ];
 
 /** RT-1334: the brand writes (`owner` / `tenant_admin`), answering with the brand. */
-const BRAND_WRITES: readonly Omit<WriteOp, "slice">[] = [
-  {
-    id: "consoleCreateCatalogBrand",
-    method: "post",
-    path: BRANDS,
-    audit: "catalog.brand.create",
-    ok: "201",
-    responses: [...BASE, "409", "425"],
-  },
-  {
-    id: "consoleRenameCatalogBrand",
-    method: "patch",
-    path: BRAND,
-    audit: "catalog.brand.rename",
-    ok: "200",
-    responses: [...BASE, "409"],
-  },
-];
+const CREATE_BRAND: Omit<WriteOp, "slice"> = {
+  id: "consoleCreateCatalogBrand",
+  method: "post",
+  path: BRANDS,
+  audit: "catalog.brand.create",
+  ok: "201",
+  responses: [...BASE, "409", "425"],
+};
+const RENAME_BRAND: Omit<WriteOp, "slice"> = {
+  id: "consoleRenameCatalogBrand",
+  method: "patch",
+  path: BRAND,
+  audit: "catalog.brand.rename",
+  ok: "200",
+  responses: [...BASE, "409"],
+};
+const BRAND_WRITES: readonly Omit<WriteOp, "slice">[] = [CREATE_BRAND, RENAME_BRAND];
 
 const REQUEST_SCHEMAS = [
   "CreateCatalogProductRequest",
@@ -498,7 +497,7 @@ describe("console-catalog writes — brands (RT-1334)", () => {
   });
 
   it("takes Idempotency-Key on the create only, and the brand id on the rename path", () => {
-    const [create, rename] = BRAND_WRITES as [AnyWrite, AnyWrite];
+    const [create, rename] = [CREATE_BRAND, RENAME_BRAND];
     expect(params(create).map((p) => [p.name, p.in])).toEqual([["Idempotency-Key", "header"]]);
     expect((op(create) as Record<string, unknown>)["x-idempotency"]).toBe("required");
     expect(params(rename).map((p) => [p.name, p.in])).toEqual([["brandId", "path"]]);
@@ -509,7 +508,7 @@ describe("console-catalog writes — brands (RT-1334)", () => {
   });
 
   it("refuses a taken active name with a non-disclosing 409 brand_name_conflict, and a stale rename with stale_write", () => {
-    const [create, rename] = BRAND_WRITES as [AnyWrite, AnyWrite];
+    const [create, rename] = [CREATE_BRAND, RENAME_BRAND];
     expect(responseDescription(create, "409")).toMatch(/brand_name_conflict/);
     expect(responseDescription(create, "409")).toMatch(/idempotency_key_conflict/);
     expect(responseDescription(create, "409")).toMatch(/never names it/);

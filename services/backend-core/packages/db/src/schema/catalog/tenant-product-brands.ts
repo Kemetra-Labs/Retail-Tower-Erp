@@ -16,35 +16,13 @@
  * DELETE policy. Policies live in `0097_tenant_product_brands.sql`.
  */
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  pgTable,
-  text,
-  timestamp,
-  unique,
-  uniqueIndex,
-  uuid,
-} from "drizzle-orm/pg-core";
-import { tenants } from "../tenants";
+import { check, index, pgTable, unique, uniqueIndex } from "drizzle-orm/pg-core";
+import { flatTaxonomyColumns } from "./tenant-taxonomy-columns";
 
 export const tenantProductBrands = pgTable(
   "tenant_product_brands",
-  {
-    id: uuid("id").primaryKey().notNull(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id, { onDelete: "restrict" }),
-    name: text("name").notNull(),
-    retiredAt: timestamp("retired_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    createdBy: uuid("created_by").notNull(),
-  },
+  // The category-shaped columns: id, tenant, name, retired_at and timestamps.
+  flatTaxonomyColumns(),
   (t) => [
     check(
       "tenant_product_brands_name_length",
