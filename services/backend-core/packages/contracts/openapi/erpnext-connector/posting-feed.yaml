@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.10.0-draft"
+  version: "1.11.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -331,6 +331,36 @@ info:
     is safe. Backend-Core MUST NOT emit a non-null `erpnextBatchRef` or
     `trackingMode: batch` to a Connector that has not accepted them: ignoring
     the Batch while posting the line would post it without one.
+
+    RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11, Jira
+    RT-1286 comment 16540 and RT-1283 comment 16534; Inventory Gate 8
+    planning record, Confluence page 70680596, §3 row (c) and §4, approved
+    in RT-293 comment 16226): the work-item kind `inventory_disposition` is
+    RESERVED, with no wire change. A recall disposition (scrap or vendor
+    return of `recall_hold` quantity, 850, G7-6) will post through this feed
+    as that kind. Its shape is `InventoryDispositionWorkItem` with
+    `InventoryDisposition` and `InventoryDispositionLine`. These schemas are
+    referenced by no operation in this version. `PostingWorkItem.kind` keeps
+    `sale_post | reversal`, and Backend-Core MUST NOT emit
+    `inventory_disposition`. Owner decision 2026-11-11 (RT-1286): adding the
+    enum value now would fail `contracts/check`, because the Connector
+    constant `WORK_ITEM_KINDS` must equal this enum, and RT-1286 excludes
+    Connector code. Emitting the kind stays Post-Pilot (P5 Connector, P6
+    Backend-Core, not created; RT-293 Q5).
+    ROLLOUT ORDER (Connector first, as for 1.10.0-draft):
+    (1) P5 adds the kind to the feed together with the Connector constant
+    and a Connector repin. How the feed item admits it is decided there, for
+    example `kind` gaining the value with `sale` becoming conditional, or a
+    `oneOf` with `InventoryDispositionWorkItem`.
+    (2) P5 makes the Connector post it.
+    (3) Only then does P6 emit it.
+    Not decided here, and added additively before the kind is emitted:
+    (a) where the vendor return's `return_against` receipt is found (Q1);
+    (b) where the per-tenant write-off account of a scrap is mapped (Q2);
+    (c) whether a disposition is one ERP document per event or per line;
+    (d) any ack change.
+    The per-line ERP provenance key of planning §3 (c) is `(sourceSystem,
+    'disposition:' + dispositionRef + ':' + lineSeq)`.
 
 servers:
   - url: https://api.example.com
@@ -1303,6 +1333,125 @@ components:
             True when a `permanently_rejected` outcome moved the work-item to the
             DP2 dead-letter state + raised a reconciliation flag (017). Absent/false
             otherwise.
+
+    # -----------------------------------------------------------------------
+    # RT-1286 (1.11.0-draft) — RESERVED `inventory_disposition` kind. Referenced
+    # by no operation; never emitted in this version (see the info note).
+    # -----------------------------------------------------------------------
+    InventoryDispositionWorkItem:
+      type: object
+      additionalProperties: false
+      required: [workItemRef, kind, sourceSystem, externalId, disposition, itemCursor]
+      description: >
+        RT-1286, RESERVED (not on the feed in this version). One recall
+        disposition the Connector will post to ERPNext (planning record §3 (c)):
+        a `scrap` as a Stock Entry `Material Issue` from the bucket warehouse
+        with the explicit Batch, a `vendor_return` as a Purchase Receipt return.
+        Self-contained like `PostingWorkItem`: no `tenant_id`, no credentials.
+      properties:
+        workItemRef:
+          type: string
+          format: uuid
+          description: Stable, opaque, scope-bound work-item reference (as on `PostingWorkItem`).
+        kind:
+          type: string
+          const: inventory_disposition
+          description: The reserved work-item kind.
+        sourceSystem:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Provenance + dedup key (as on `PostingWorkItem`).
+        externalId:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            `disposition:<dispositionRef>`. With `sourceSystem` it is the work
+            item's idempotency anchor; each line's ERP provenance adds
+            `:<lineSeq>`.
+        disposition:
+          $ref: "#/components/schemas/InventoryDisposition"
+        itemCursor:
+          type: string
+          minLength: 1
+          description: Opaque advanced cursor after this work-item (as on `PostingWorkItem`).
+    InventoryDisposition:
+      type: object
+      additionalProperties: false
+      required: [dispositionRef, dispositionType, storeId, recordedAt, businessDate, lines]
+      description: >
+        RT-1286, RESERVED. The Retail-origin, governed disposition event (965) on
+        `recall_hold` quantity: its effect and this intent are written in one
+        transaction (DC-2, P6). The Connector posts it as given and never picks a
+        Batch, a warehouse or an Item itself.
+      properties:
+        dispositionRef:
+          type: string
+          format: uuid
+          description: The Backend-Core disposition event id (`event_id` of planning §3 (c)).
+        dispositionType:
+          type: string
+          enum: [scrap, vendor_return]
+          description: >
+            `scrap` — written off (Stock Entry `Material Issue`). `vendor_return`
+            — returned to the supplier (Purchase Receipt `is_return`, against the
+            receipt that brought the Batch in, failing closed when that receipt
+            is not unique, Q1).
+        storeId:
+          type: string
+          format: uuid
+          description: DP2 store id — lineage only; the warehouse is per line.
+        recordedAt:
+          type: string
+          format: date-time
+          description: Server clock of the disposition event. Never a client time.
+        businessDate:
+          type: string
+          format: date
+          description: The event's business day in the store timezone; drives the ERPNext `posting_date`.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/InventoryDispositionLine"
+    InventoryDispositionLine:
+      type: object
+      additionalProperties: false
+      required: [lineSeq, erpnextItemRef, erpnextBatchRef, quantity, unit, warehouseRef]
+      description: >
+        RT-1286, RESERVED. One disposed quantity of one tracking identity, with
+        every ERP reference resolved by Backend-Core and frozen at intent
+        creation (as `SaleLine` is). Post-write verification (P5): exactly one
+        Stock Ledger Entry per line with `actual_qty` = −`quantity` at
+        `warehouseRef` and a bundle of exactly this Batch and quantity.
+      properties:
+        lineSeq:
+          type: integer
+          minimum: 1
+          description: The line's 1-based position, unique within the disposition.
+        erpnextItemRef:
+          $ref: "#/components/schemas/ErpnextItemRef"
+        erpnextBatchRef:
+          $ref: "#/components/schemas/ErpnextBatchRef"
+          description: >
+            The ERPNext Batch of the line's tracking identity, from the Inventory
+            edge map. Required: a recall hold is per identity.
+        quantity:
+          type: string
+          pattern: '^(?!0+(?:\.0+)?$)[0-9]{1,13}(\.[0-9]{1,6})?$'
+          description: >
+            The disposed quantity, a strictly positive exact-decimal magnitude
+            (never a float; at most 13 integer and 6 fractional digits). The
+            Connector posts it as an outward movement.
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: The unit `quantity` is in (as `SaleLine.unit`).
+        warehouseRef:
+          $ref: "#/components/schemas/ErpnextWarehouseRef"
 
     # -----------------------------------------------------------------------
     # Canonical Error envelope (mirrors auth/outbox/pos-sales — verbatim shape)

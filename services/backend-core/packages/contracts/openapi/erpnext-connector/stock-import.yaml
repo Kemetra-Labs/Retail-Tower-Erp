@@ -1,0 +1,949 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — ERPNext Connector ERP-Origin Stock Import API
+  version: "1.0.0-draft"
+  description: >
+    RT-1286 (Inventory Gate 8 follow-up P2; [GATED: OpenAPI] owner go-ahead
+    2026-11-11, recorded on Jira RT-1286 comment 16540 and RT-1283 comment
+    16534; planning record "Inventory Gate 8" Confluence page 70680596, §3
+    row (b) and §4, approved in RT-293 comment 16226): CONTRACT ONLY. The
+    Backend-Core ↔ Connector boundary by which Backend-Core learns about
+    stock that ERPNext moved at a mapped bucket warehouse without Retail
+    Tower: ERP-origin receipts, opening stock and governed corrections, with
+    their Batch (DC-4, G7-3). Both operations are `x-runtime-status:
+    contract-only`: the Connector reader is RT-1287 and the Backend-Core
+    ingestion is RT-1288.
+
+    The transport mirrors `stock-view.yaml` (the connector is the ONLY
+    component that talks to ERPNext; Backend-Core makes NO outbound HTTP — it
+    EXPOSES these endpoints, the connector CALLS them):
+
+      1. `stockImportPullRequests` — the connector PULLS a cursor-paginated,
+         ordered, idempotent feed of wanted ledger reads (`StockImportRequest`),
+         one per mapped bucket warehouse with an open import run, scoped to the
+         principal's tenant(s). A stale or unservable cursor returns
+         `snapshot_required`, as on the other connector feeds.
+      2. `stockImportReportRows` — the connector REPORTS the Stock Ledger
+         facts it read for a pulled `{requestRef}`: one row per ledger row,
+         or per Batch entry of the row's Serial and Batch Bundle. The report
+         is idempotent: the `Idempotency-Key` header is REQUIRED; a duplicate
+         replays (200 `Idempotent-Replayed: true`); a key reused with a
+         different body returns 409 `idempotency_key_conflict`.
+
+    FACTS ONLY (G8-7). The connector reports every submitted or cancelled
+    Stock Ledger Entry at the requested warehouse in the requested range,
+    whatever its voucher type, including Retail Tower's own Sales Invoices.
+    It classifies nothing and filters nothing by business rule. Backend-Core
+    decides, per row, whether it is imported as an `erp_external` effect,
+    recorded as covered by the Inventory Anchor, or raised as a finding
+    (unattributed ERP movement, unknown item, UOM mismatch, unmapped
+    warehouse); none of that is on this wire (RT-1288). There is NO
+    valuation, rate, cost or amount field anywhere on this surface; ERPNext
+    stays the valuation authority. Quantities are exact-decimal strings,
+    never floats.
+
+    DC-4 KEY. Backend-Core builds the effect key `('erpnext',
+    '<voucherType>:<voucherNo>:<voucherDetailNo>[:<batch>]')` from a row's
+    `voucherType`, `voucherNo`, `voucherDetailNo` and, for a batch row,
+    `erpnextBatchRef.name`; a cancellation's compensating effect is keyed
+    `…:cancel` (DC-6). `ledgerEntryRef` (the ledger row's own name) is not
+    part of the key: it tells an original ledger row from the reverse row
+    ERPNext adds when the voucher is cancelled (both carry the same
+    `voucherDetailNo` and `isCancelled` true), and it is the cursor
+    tie-break. Owner decisions 2026-11-11 (RT-1286): one report row per
+    Batch entry; `ledgerEntryRef` on every row; a refused request answered
+    with a refusal report.
+
+    CURSOR AND OVERLAP. Backend-Core owns the cursor (RT-1288). A request
+    names a keyset lower bound `after` in the connector's read order
+    (`creation`, then `ledgerEntryRef`); the connector reads at most
+    `maxRows` rows strictly after it and reports, with the rows, the key of
+    the last ledger row it read (`readThrough`) and whether nothing was left
+    (`exhausted`). An import run is a sequence of pages (`pageSeq` 0, 1, …):
+    Backend-Core issues page k+1 with `after` = page k's `readThrough`, so
+    pages inside a run always advance. Because ERPNext `creation` order is
+    not commit order, page 0 of a new run starts `overlapSeconds` before the
+    previous run's last `readThrough.creation` (`after.ledgerEntryRef`
+    null), so a voucher that committed behind the cursor is still read; the
+    rows read twice are absorbed by the DC-4 key. The window size is a bench
+    measurement on the pinned v16 bench (Frappe v16.52.0 / ERPNext
+    v16.51.0, RT-1287). Rows of the Inventory Anchor are recorded as
+    covered by Backend-Core, never imported (DC-8, RT-1288); the anchor and
+    the watermark come from one consistent read.
+
+    Item and Batch identity use generic `{doctype, name}` addressing (O-6),
+    verbatim from `stock-view.yaml`. Backend-Core translates an
+    `erpnextItemRef` through the confirmed 013 `erpnext_item_map` and an
+    `erpnextBatchRef` through the Inventory edge map, or hands an unknown
+    Batch to Tracking Identity birth (RT-453); the connector performs no
+    Backend-Core lookup.
+
+    Temporal (§X): `readAt` (when the connector read ERPNext), `creation`,
+    `postingDate` and `postingTime` are connector-reported facts, PRESERVED
+    as received and NEVER a security clock; Backend-Core stamps its own
+    `recordedAt`.
+
+    Request and response bodies are explicit wire projections (§IV): no raw
+    ERPNext row, no credentials, no `tenant_id` (implicit in the principal
+    scope), no body-supplied scope (`requestRef` is a path param).
+
+    Failure vocabulary: the canonical `Error` envelope of `stock-view.yaml`.
+    Closed `error.code` set: `validation_error`, `snapshot_required` (stale
+    pull cursor, 409), `idempotency_key_conflict` (409),
+    `import_report_conflict` (a second, different report for one request,
+    409), `not_found` (non-disclosing 404), the generic bearer-auth refusal
+    (401), `forbidden` (403, connector registration environment mismatch,
+    RT-134), `payload_too_large` (413) and `system_failure` (500).
+
+    ROLLOUT ORDER (Backend-Core first, as for `stock-view.yaml` 1.4.0-draft,
+    because the connector sends and Backend-Core validates): Backend-Core
+    serves the feed and accepts reports (RT-1288) before the connector reads
+    and reports (RT-1287). Until then no route is registered and the
+    connector must not call these paths.
+
+    Serial Items are outside this version (serial selling is fail-closed,
+    RT-50 Q11): a ledger row of a serial Item is reported with
+    `erpnextBatchRef` null and no serial number, and Backend-Core decides
+    what it is (G8-7). The contract is consumed by
+    `apps/api/test/erpnext-connector/contract/stock-import.contract.spec.ts`,
+    loaded with an explicit `dir` as `stock-view.yaml` is.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: erpnext-connector
+    description: >
+      ERPNext connector ERP-origin stock import — pull wanted ledger reads and
+      report Stock Ledger facts. RT-1286; pull/feed bidirectional transport.
+
+paths:
+  /api/connector/v1/erpnext/stock-import-requests:
+    get:
+      summary: Pull a page of wanted ERPNext Stock Ledger reads after a cursor.
+      operationId: stockImportPullRequests
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1286 contract only. Backend-Core serves this feed in RT-1288 (import
+        ingestion, [GATED: migration]); the connector reader that pulls it is
+        RT-1287. No route is registered until RT-1288.
+      tags: [erpnext-connector]
+      security:
+        - connectorBearer: []
+      description: >
+        Return ordered, idempotent wanted ledger reads (`StockImportRequest`)
+        after the supplied opaque `since` cursor, at most one open request per
+        mapped bucket warehouse (the next page of a run is offered once the
+        previous page's report is recorded), for the authenticated connector
+        principal's tenant scope. Re-requesting the same `since` cursor yields
+        the same logical work set. A request stays on the feed until a report
+        for it is recorded. A cursor older than the retained horizon returns
+        `snapshot_required`; a cursor presented under a foreign scope is
+        refused non-disclosingly. Scope is taken from the connector principal
+        ONLY; query scope is never trusted.
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: >
+            A page of wanted ledger reads after `since`, with the advanced
+            opaque server cursor. Cursor-paginated via `next_page_token`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockImportPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/SnapshotRequired"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/connector/v1/erpnext/stock-import-requests/{requestRef}/report:
+    post:
+      summary: Report the Stock Ledger facts read for a pulled import request.
+      operationId: stockImportReportRows
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1286 contract only. Backend-Core records reports and classifies the
+        rows in RT-1288 (DC-4, anchor watermark, findings, [GATED: migration]);
+        the connector that reads ERPNext and reports is RT-1287. No route is
+        registered until RT-1288.
+      x-idempotency: required
+      tags: [erpnext-connector]
+      security:
+        - connectorBearer: []
+      description: >
+        Report the ledger rows the connector read for the pulled
+        `{requestRef}`, or its refusal to read them. Backend-Core records the
+        report and classifies its rows itself (G8-7); the response confirms
+        only what was recorded, never how a row was classified. An empty
+        `rows[]` with `exhausted: true` is a valid report (nothing new at the
+        warehouse). Scope resolves from the connector principal; body-supplied
+        scope is rejected (§XII).
+
+        Rules Backend-Core enforces (400 `validation_error` unless stated):
+
+          * `rows` holds at most the request's `maxRows` rows.
+          * Every row's `creation` is at or after `after.creation` (Backend-Core
+            compares date-times only; the `ledgerEntryRef` order is ERPNext's
+            and is never checked here).
+          * A pair (`ledgerEntryRef`, `erpnextBatchRef`) appears at most once.
+          * `readThrough` is the (`creation`, `ledgerEntryRef`) of the last row
+            when there are rows, and null when there are none.
+          * A page never splits a ledger row: all Batch entries of one ledger
+            row are in the same report. A ledger row with more Batch entries
+            than `maxRows` is refused (`refusal.reason` `ledger_row_too_large`).
+          * A report with `refusal` carries no rows, a null `readThrough` and
+            `exhausted` false; Backend-Core records the refusal as a finding and
+            does not advance the run.
+
+        Idempotency: the `Idempotency-Key` header is REQUIRED, reusing the
+        existing `IdempotencyInterceptor`, which fingerprints the WHOLE body.
+        The same key with an identical body replays the stored response (200
+        `Idempotent-Replayed: true`); the same key with any difference → 409
+        `idempotency_key_conflict`. Connector key: `stockimport-{requestRef}`.
+        One report is recorded per request: a different report for a request
+        that already has one, under another key, → 409
+        `import_report_conflict`. No new idempotency primitive (§XI).
+      parameters:
+        - $ref: "#/components/parameters/RequestRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockImportReport"
+      responses:
+        "200":
+          description: >
+            Idempotent replay — this report was already recorded (same
+            `Idempotency-Key`, identical body). Returns the identical recorded
+            projection with `Idempotent-Replayed: true`; no double-apply.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordedStockImport"
+        "201":
+          description: Report recorded for the first time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordedStockImport"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    connectorBearer:
+      type: http
+      scheme: bearer
+      description: >
+        OPAQUE, REVOCABLE service bearer token presented as
+        `Authorization: Bearer <token>` — the platform's "opaque revocable bearer
+        tokens (API)" baseline (the generic `bearerAuth` in `auth.openapi.yaml`),
+        NOT a Clerk JWT (`clerkJwt`) and NOT a human cookie session. The connector
+        authenticates as a dedicated, tenant-scoped, revocable MACHINE principal
+        (011 / 018 connector-registration), exactly as on `stock-view.yaml` and
+        `posting-feed.yaml`. Verified at the API edge; fail-closed.
+
+  parameters:
+    Since:
+      name: since
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: >
+        The opaque `cursor` returned by a prior pull page. Treated as opaque —
+        clients MUST NOT decode or construct it. Omit to pull from the start
+        (re-baseline). Scope-bound: a foreign-scope cursor is refused
+        non-disclosingly; a cursor older than the retained horizon returns
+        `snapshot_required`. This is the feed cursor, not the ledger keyset
+        (`StockImportRequest.after`).
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+      description: >
+        Maximum requests per page. The server MAY return fewer.
+    RequestRef:
+      name: requestRef
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The opaque, server-issued reference from a pulled
+        `StockImportRequest.requestRef`. Resolves only within the connector
+        principal's tenant scope — out-of-scope refs are non-disclosing 404s
+        (§II/§XII). A path param so it cannot be body-forged. It is bound to
+        the run, the page and the store's warehouse mapping at pull time: once
+        that mapping is retired or the run is closed or failed, the ref no
+        longer resolves (see `NotFound`).
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on the report. 16 to 128 printable ASCII characters with no
+        whitespace, as the interceptor enforces (RT-181); any other value is a
+        400. Keyed on `(method, route, clientId = connector principal, key)`.
+        The connector's key `stockimport-{requestRef}` (48 characters) fits.
+
+  headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a 200 idempotent-replay response (the
+        `posting-feed` / `stock-view` convention). Absent on a fresh 201 record.
+      schema:
+        type: boolean
+
+  schemas:
+    # -----------------------------------------------------------------------
+    # ErpnextItemRef / ErpnextBatchRef — generic {doctype, name} addressing
+    # (O-6). Verbatim from stock-view.yaml (self-contained per file).
+    # -----------------------------------------------------------------------
+    ErpnextItemRef:
+      type: object
+      additionalProperties: false
+      required: [doctype, name]
+      description: >
+        A reference to an ERPNext **Item**. Generic doctype+name addressing (O-6
+        version-independence) with `doctype` fixed to "Item". `name` is the
+        ERPNext Item code/name — the same opaque string stored in the 013
+        `erpnext_item_map.erpnext_item_ref` (maxLength 140). DP2 translates it to
+        a `tenant_product_ref` (R4); the connector reads it from ERPNext.
+      properties:
+        doctype:
+          type: string
+          const: "Item"
+          description: Always "Item" — this ref addresses an ERPNext Item only.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: >
+            ERPNext Item code/name (the 013 `erpnext_item_ref` string). Opaque —
+            no FK, version-independent (O-6).
+    ErpnextBatchRef:
+      type: object
+      additionalProperties: false
+      required: [doctype, name]
+      description: >
+        A reference to an ERPNext **Batch**. Generic doctype+name addressing
+        (O-6 version-independence), mirroring `ErpnextItemRef` and the
+        `ErpnextBatchRef` of `posting-feed.yaml` and `stock-view.yaml`, with
+        `doctype` fixed to "Batch". DP2 maps it to a tracking identity through
+        the Inventory edge map, or hands it to identity birth (RT-453); the
+        connector reads it from ERPNext and performs no DP2 lookup.
+      properties:
+        doctype:
+          type: string
+          const: "Batch"
+          description: Always "Batch" — this ref addresses an ERPNext Batch only.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: ERPNext Batch name (at most 140 characters). Opaque, version-independent (O-6).
+
+    # -----------------------------------------------------------------------
+    # LedgerKey — a position in the connector's ledger read order.
+    # -----------------------------------------------------------------------
+    LedgerKey:
+      type: object
+      additionalProperties: false
+      required: [creation, ledgerEntryRef]
+      description: >
+        A position in the connector's read order of Stock Ledger Entries at one
+        warehouse: by `creation`, then by `ledgerEntryRef` in ERPNext's own
+        ordering. Backend-Core stores it as received and echoes it exactly
+        (it never reformats `creation` or compares `ledgerEntryRef` values).
+      properties:
+        creation:
+          type: string
+          format: date-time
+          description: >
+            A Stock Ledger Entry `creation`, rendered by the connector in the
+            ERPNext site's system time zone with its UTC offset and the stored
+            precision (RFC 3339, up to microseconds).
+        ledgerEntryRef:
+          description: >
+            The Stock Ledger Entry name at that `creation`. On `readThrough` it
+            is always present. On `StockImportRequest.after` it is null only on
+            page 0 of a run, meaning "every row at `creation` or later".
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 140
+            - type: "null"
+
+    # -----------------------------------------------------------------------
+    # StockImportRequest — feed item (Backend-Core → connector). No data.
+    # -----------------------------------------------------------------------
+    StockImportRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - requestRef
+        - runRef
+        - pageSeq
+        - storeId
+        - erpnextWarehouseRef
+        - after
+        - overlapSeconds
+        - maxRows
+        - itemCursor
+      description: >
+        One wanted page of Stock Ledger facts at one mapped bucket warehouse,
+        within one import run. Carries no ledger data and no `tenant_id`.
+
+        Read rule (RT-1287): read submitted and cancelled Stock Ledger Entries
+        at `erpnextWarehouseRef` positioned strictly after `after` in
+        (`creation`, `ledgerEntryRef`) order — or, when `after.ledgerEntryRef`
+        is null, every row with `creation` at or after `after.creation`; when
+        `after` itself is null, from the start of that warehouse's ledger —
+        in that order, up to `maxRows` report rows, without splitting a ledger
+        row. Attach the Serial and Batch Bundle entries of each batch row.
+        Report them with `stockImportReportRows`.
+      properties:
+        requestRef:
+          type: string
+          format: uuid
+          description: >
+            Stable, opaque, scope-bound reference, echoed (as a path param) on
+            the report. The same across re-pulls of this page.
+        runRef:
+          type: string
+          format: uuid
+          description: The import run this page belongs to (Backend-Core-owned, RT-1288).
+        pageSeq:
+          type: integer
+          minimum: 0
+          description: >
+            Zero-based page number within the run. Page k+1 is offered only after
+            page k's report is recorded, with `after` = page k's `readThrough`.
+        storeId:
+          type: string
+          format: uuid
+          description: >
+            DP2 store id — lineage only; the connector reads the warehouse named
+            by `erpnextWarehouseRef`, never by resolving this id.
+        erpnextWarehouseRef:
+          type: string
+          minLength: 1
+          maxLength: 180
+          description: >
+            The 014 `erpnext_warehouse_ref` of the store's active `stock`
+            mapping (the bucket warehouse, M-9: Backend-Core resolves the
+            bucket). Opaque, no FK. If ERPNext has no such warehouse, the
+            connector reads nothing and reports a refusal (`unknown_warehouse`).
+        after:
+          description: >
+            The keyset lower bound (exclusive, see the read rule). Null only on
+            page 0 of the first run for a warehouse. On page 0 of a later run,
+            `creation` is the previous run's last `readThrough.creation` minus
+            `overlapSeconds` and `ledgerEntryRef` is null; on a later page it is
+            the previous page's `readThrough`, unchanged.
+          anyOf:
+            - $ref: "#/components/schemas/LedgerKey"
+            - type: "null"
+        overlapSeconds:
+          type: integer
+          minimum: 0
+          maximum: 86400
+          description: >
+            The overlap window Backend-Core applied to `after` on page 0 of this
+            run (0 on later pages and on the first run). Informative: the
+            connector applies `after` as given and does not subtract it again.
+            Its size is a bench measurement (RT-1287) and Backend-Core's setting
+            (RT-1288).
+        maxRows:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: >
+            The most report rows (ledger rows or Batch entries) the connector may
+            put in this page's report. A report with more rows → 400
+            `validation_error`.
+        itemCursor:
+          type: string
+          minLength: 1
+          description: >
+            Opaque advanced feed cursor after this request (≤ the page cursor).
+            Clients MUST treat as opaque.
+
+    StockImportPage:
+      type: object
+      additionalProperties: false
+      required: [items, cursor, next_page_token]
+      description: >
+        A page of wanted ledger reads after the supplied `since` cursor, with the
+        advanced server cursor (the `BinViewPage` shape).
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/StockImportRequest"
+        cursor:
+          type: string
+          minLength: 1
+          description: The advanced opaque server cursor — pass as `since` next time.
+        next_page_token:
+          type: [string, "null"]
+          description: Opaque continuation token for the next page; null on the last page.
+
+    # -----------------------------------------------------------------------
+    # StockImportReport — report request body (connector → Backend-Core).
+    # -----------------------------------------------------------------------
+    StockImportReport:
+      type: object
+      additionalProperties: false
+      required: [rows, readThrough, exhausted, readAt]
+      description: >
+        The ledger facts the connector read for the pulled `{requestRef}`, in
+        read order, or its refusal. No `tenant_id`, no `storeId`, no warehouse:
+        scope and warehouse are the request's (§XII). Refusal rule (expressed by
+        the `if`/`then` below): with `refusal` present and not null, `rows` is
+        empty, `readThrough` is null and `exhausted` is false.
+      if:
+        required: [refusal]
+        properties:
+          refusal:
+            type: object
+      then:
+        properties:
+          rows:
+            maxItems: 0
+          readThrough:
+            type: "null"
+          exhausted:
+            const: false
+      properties:
+        rows:
+          type: array
+          minItems: 0
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/StockImportRow"
+          description: >
+            The rows read, in (`creation`, `ledgerEntryRef`) order, at most the
+            request's `maxRows`. A batch ledger row is reported as one row per
+            Batch entry of its bundle, consecutively.
+        readThrough:
+          description: >
+            The (`creation`, `ledgerEntryRef`) of the last ledger row in `rows`;
+            null when `rows` is empty. Its `ledgerEntryRef` is never null.
+            Backend-Core's next page starts after it.
+          anyOf:
+            - allOf:
+                - $ref: "#/components/schemas/LedgerKey"
+                - properties:
+                    ledgerEntryRef:
+                      type: string
+            - type: "null"
+        exhausted:
+          type: boolean
+          description: >
+            True when the connector found no further row after `readThrough` (or
+            after the request's `after`, when `rows` is empty) at `readAt`: the
+            run's last page. False when more rows remain, and on a refusal.
+        readAt:
+          type: string
+          format: date-time
+          description: >
+            Connector-reported time it read ERPNext. PRESERVED as received; NEVER
+            a security clock (§X). Distinct from Backend-Core's `recordedAt`.
+        refusal:
+          description: >
+            Present (not null) only when the connector refuses the request and
+            reads nothing. Absent or null on a normal report.
+          anyOf:
+            - $ref: "#/components/schemas/StockImportRefusal"
+            - type: "null"
+
+    StockImportRefusal:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      description: >
+        Why the connector read nothing for this request (fail closed). Backend-Core
+        records it as a finding for the warehouse (RT-1288) and does not advance
+        the run; the request leaves the feed and the next run starts again from
+        the same position.
+      properties:
+        reason:
+          type: string
+          enum: [unknown_warehouse, ledger_row_too_large]
+          description: >
+            `unknown_warehouse` — ERPNext has no warehouse named
+            `erpnextWarehouseRef` (an unmapped-warehouse finding).
+            `ledger_row_too_large` — the next ledger row has more Batch entries
+            than the request's `maxRows`, so it cannot be reported without
+            splitting it.
+
+    # -----------------------------------------------------------------------
+    # StockImportRow — one Stock Ledger fact. Exact-decimal, NO valuation.
+    # -----------------------------------------------------------------------
+    StockImportRow:
+      type: object
+      additionalProperties: false
+      required:
+        - ledgerEntryRef
+        - voucherType
+        - voucherNo
+        - voucherDetailNo
+        - purpose
+        - isReturn
+        - returnAgainst
+        - postingDate
+        - postingTime
+        - creation
+        - isCancelled
+        - actualQty
+        - stockUom
+        - erpnextItemRef
+        - erpnextBatchRef
+        - hasRetailProvenance
+        - correctionRef
+      description: >
+        One Stock Ledger Entry at the requested warehouse, or one Batch entry of
+        its Serial and Batch Bundle (planning record §3 (b)). Facts as read; the
+        connector does not interpret them. Every field is present; a fact that
+        does not apply is null or false as stated per field.
+      properties:
+        ledgerEntryRef:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: >
+            The Stock Ledger Entry `name`. Not part of the DC-4 key: it tells an
+            original ledger row from the reverse row of a cancellation, and it is
+            the cursor tie-break. All Batch-entry rows of one ledger row share it.
+        voucherType:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: >
+            The SLE `voucher_type`, the voucher's DocType name (for example
+            "Purchase Receipt", "Stock Entry", "Stock Reconciliation", "Sales
+            Invoice"). Open string: every voucher type is reported (G8-7).
+        voucherNo:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: The SLE `voucher_no`, the voucher's name.
+        voucherDetailNo:
+          description: >
+            The SLE `voucher_detail_no`, the voucher row the ledger row belongs
+            to. Null when ERPNext left it empty (Backend-Core cannot key such a
+            row and raises a finding).
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 140
+            - type: "null"
+        purpose:
+          description: >
+            The voucher's `purpose` as ERPNext names it (for example a Stock
+            Entry "Manufacture" or "Repack", a Stock Reconciliation "Opening
+            Stock"); null for a voucher type that has none. Open string.
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 140
+            - type: "null"
+        isReturn:
+          type: boolean
+          description: >
+            The voucher's `is_return`; false for a voucher type that has none.
+            An ERP-native Purchase Return is a Purchase Receipt with this true
+            (Q4).
+        returnAgainst:
+          description: >
+            The voucher's `return_against` (the name of the voucher it returns,
+            of the same voucher type); null when it is not a return or has none.
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 140
+            - type: "null"
+        postingDate:
+          type: string
+          format: date
+          description: The SLE `posting_date`. Preserved as read.
+        postingTime:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,6})?$'
+          description: The SLE `posting_time` (24-hour, optional fraction). Preserved as read.
+        creation:
+          type: string
+          format: date-time
+          description: >
+            The SLE `creation`, rendered as in `LedgerKey.creation`. Backend-Core
+            uses it as `erp_confirmed_at` of an imported effect and against the
+            Inventory Anchor watermark (DC-8, RT-1288). Never a security clock.
+        isCancelled:
+          type: boolean
+          description: >
+            The SLE `is_cancelled`. ERPNext sets it on the original rows of a
+            cancelled voucher and on the reverse rows it adds; tell them apart by
+            `ledgerEntryRef`.
+        actualQty:
+          type: string
+          pattern: '^-?[0-9]{1,15}(\.[0-9]{1,6})?$'
+          description: >
+            The quantity this row moved at the warehouse, an exact-decimal string
+            in `stockUom` (never a float; the connector converts deterministically,
+            round half-even to 6 dp, as for `stock-view.yaml` quantities). Signed
+            as the ledger row's `actual_qty` (negative = out of the warehouse).
+            For a Batch-entry row, that entry's quantity with the same sign. For
+            a Stock Reconciliation this is the ledger's change, not the counted
+            quantity: the v16 bench evidence of RT-1287 confirms it.
+        stockUom:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: >
+            The SLE `stock_uom` the quantity is in. Backend-Core compares it with
+            the product's stocking unit (UOM-mismatch finding); no conversion here.
+        erpnextItemRef:
+          $ref: "#/components/schemas/ErpnextItemRef"
+        erpnextBatchRef:
+          description: >
+            The Batch of this row's bundle entry; null for a ledger row with no
+            Batch (an untracked Item, or a serial Item in this version).
+          anyOf:
+            - $ref: "#/components/schemas/ErpnextBatchRef"
+            - type: "null"
+        hasRetailProvenance:
+          type: boolean
+          description: >
+            True when the voucher carries Retail Tower provenance: its
+            `rt_source_system` / `rt_external_id` fields are set, or it is a
+            reversal carrying a Retail `work_item_ref`. Retail Tower already knows
+            such a movement; Backend-Core never imports it (899).
+        correctionRef:
+          description: >
+            The value of the governed correction-reference field on a Stock
+            Reconciliation or Stock Entry set by the governed break-glass path
+            (Q3, 897, 913); null when the field is empty or the voucher type has
+            none. The ERPNext field itself is the connector's; this is its value,
+            opaque here.
+          anyOf:
+            - type: string
+              minLength: 1
+              maxLength: 140
+            - type: "null"
+
+    # -----------------------------------------------------------------------
+    # RecordedStockImport — report response projection (Backend-Core → connector).
+    # -----------------------------------------------------------------------
+    RecordedStockImport:
+      type: object
+      additionalProperties: false
+      required:
+        - requestRef
+        - runRef
+        - pageSeq
+        - erpnextWarehouseRef
+        - recordedRowCount
+        - exhausted
+        - refused
+        - readAt
+        - recordedAt
+      description: >
+        What Backend-Core recorded for the report. It confirms the record, not
+        the classification of any row (imported, covered or a finding), which is
+        Backend-Core's and not on this wire. Carries both clocks as distinct
+        fields.
+      properties:
+        requestRef:
+          type: string
+          format: uuid
+        runRef:
+          type: string
+          format: uuid
+        pageSeq:
+          type: integer
+          minimum: 0
+        erpnextWarehouseRef:
+          type: string
+          minLength: 1
+          maxLength: 180
+          description: The warehouse the report was bound to, echoed from the request.
+        recordedRowCount:
+          type: integer
+          minimum: 0
+          description: How many rows Backend-Core recorded (the report's `rows` count).
+        exhausted:
+          type: boolean
+          description: Echo of the report's `exhausted`.
+        refused:
+          type: boolean
+          description: True when the report was a refusal.
+        readAt:
+          type: string
+          format: date-time
+          description: The connector's `readAt`, echoed unchanged.
+        recordedAt:
+          type: string
+          format: date-time
+          description: Backend-Core server-clock stamp of the record (the security clock, §X).
+
+    # -----------------------------------------------------------------------
+    # Canonical Error envelope (mirrors stock-view / posting-feed)
+    # -----------------------------------------------------------------------
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope, identical to the shared shape in
+        `auth.openapi.yaml` / `stock-view.yaml` / `posting-feed.yaml` (verbatim —
+        no extra fields, no `details`). Cross-tenant / out-of-scope refusals are
+        non-disclosing (§II/§XII).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: >
+                Stable machine-readable error code. Closed set on this surface:
+                validation_error | snapshot_required | idempotency_key_conflict |
+                import_report_conflict | not_found | forbidden |
+                payload_too_large | system_failure (plus the generic 401
+                refusal).
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the actual cause is recorded server-side.
+
+  responses:
+    ValidationFailure:
+      description: >
+        `validation_error` — malformed query or body, an unknown key (strict
+        boundary), a body-supplied server-owned field (a `tenant_id`, `storeId`
+        or warehouse in the report), a malformed quantity or time, or a report
+        that breaks a rule on `stockImportReportRows` (too many rows, a row
+        before `after`, a duplicate row, a `readThrough` that is not the last
+        row's key, a refusal with rows). Deterministic; nothing recorded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Generic refusal (401). The body does not distinguish a missing / invalid /
+        revoked connector bearer token from a missing tenant binding or an
+        in-scope-but-not-permitted principal. Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: >
+        `forbidden` (403) — the connector bearer is valid, but the connector
+        registration's `environment` does not match this Backend-Core
+        deployment's environment (RT-134), as on `stock-view.yaml`.
+        Non-disclosing; deterministic; no side effects; not transient.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        `not_found` — non-disclosing 404 for a cross-tenant / out-of-scope
+        `requestRef` or a foreign-scope cursor, identical for cross-tenant,
+        out-of-scope and genuinely-absent refs, with no existence leak
+        (§II/§XII). A once-valid `requestRef` is also `not_found`, terminally,
+        once its run is closed or failed, or once the warehouse mapping it was
+        pulled under is no longer active; the warehouse's next run is offered
+        on the feed with a new `requestRef`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: >
+        One of two codes, both deterministic with no side effects:
+
+          * `idempotency_key_conflict` (409) — the same `Idempotency-Key` reused
+            with a different body (the whole body is fingerprinted). The same
+            key with an identical body is a 200 replay, not a conflict.
+          * `import_report_conflict` (409) — a report for a request that already
+            has a recorded report, under a different key, with a different
+            body. Nothing is recorded; the recorded report stands.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SnapshotRequired:
+      description: >
+        `snapshot_required` (409) — the supplied pull `since` cursor is older than
+        the retained horizon (or otherwise unservable). The connector MUST
+        re-baseline by pulling from the start (omit `since`). Deterministic.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PayloadTooLarge:
+      description: >
+        `payload_too_large` (413) — the report body is above the route's JSON
+        body limit and was refused before validation; nothing is recorded.
+        Backend-Core keeps the 100 kB default until RT-1288 sizes this route's
+        limit for a full page of `maxRows` rows at maximum field lengths, as
+        RT-1284 did for `binViewReportSnapshot`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        `system_failure` (500) — an unexpected server error. The cause is recorded
+        server-side keyed by `request_id` and is never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
