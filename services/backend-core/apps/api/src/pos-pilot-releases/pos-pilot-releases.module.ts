@@ -7,11 +7,11 @@
  *   PilotReleasesController          (SessionOnlyAdminGuard → TenantContextGuard → RolesGuard)
  *     └─ PilotReleaseService         allowlist + current pilot release, presign, audit
  *   PilotTenantsController           (SessionOnlyAdminGuard → PlatformAdminGuard)
- *     └─ PilotTenantsService         the pilot allowlist, audited change
+ *     └─ PilotTenantsService         the pilot allowlist: list (RT-1328), audited add and remove
  *   PilotReleaseWritesController     (@Public + PromotionWriterGuard: the workflow's GitHub OIDC token)
  *     └─ PilotReleaseRegistryService register, withdraw
  *   PilotReleaseActivationController (SessionOnlyAdminGuard → PlatformAdminGuard)
- *     └─ PilotReleaseRegistryService activate
+ *     └─ PilotReleaseRegistryService list (RT-1328), activate
  *
  * Imports `AuthModule` (`PG_POOL` and the session guards) and `ContextModule`
  * (`TenantContextGuard`, `MembershipRepository`, `PlatformAdminGuard`'s

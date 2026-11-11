@@ -1,7 +1,9 @@
 /**
  * PilotTenantsController: RT-1292 runtime of `platformAddPilotTenant` and
- * `platformRemovePilotTenant` (`pos-pilot-releases.openapi.yaml`):
+ * `platformRemovePilotTenant`, and RT-1328 `platformListPilotTenants`
+ * (`pos-pilot-releases.openapi.yaml`):
  *
+ *   GET    /api/v1/platform/pos-pilot-tenants
  *   PUT    /api/v1/platform/pos-pilot-tenants/{tenantId}
  *   DELETE /api/v1/platform/pos-pilot-tenants/{tenantId}
  *
@@ -18,11 +20,13 @@
 import {
   Controller,
   Delete,
+  Get,
   Header,
   HttpCode,
   HttpException,
   Param,
   Put,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -35,14 +39,23 @@ import type { AuthedRequest } from "../auth/auth.guard";
 import { SessionOnlyAdminGuard } from "../auth/session-only-admin.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decorator";
-import { TenantIdParamSchema } from "./dto";
+import { NoQuerySchema, TenantIdParamSchema } from "./dto";
 import { PilotTenantNotFoundError, PilotTenantsService, type PilotTenantBody } from "./pilot-tenants.service";
 
-/** The platform-admin routes that add and remove pilot allowlist tenants. */
+/** The platform-admin routes that list, add and remove pilot allowlist tenants. */
 @Controller("api/v1/platform/pos-pilot-tenants")
 @UseGuards(SessionOnlyAdminGuard, PlatformAdminGuard)
 export class PilotTenantsController {
   constructor(private readonly service: PilotTenantsService) {}
+
+  /** GET: every allowlisted tenant, oldest first (RT-1328). */
+  @Get()
+  // RT-1328: platformListPilotTenants (read, not audited).
+  @ConsoleRateLimit("cheapRead")
+  @Header("Cache-Control", "no-store")
+  async list(@Query(new ZodValidationPipe(NoQuerySchema)) _query: unknown): Promise<{ items: PilotTenantBody[] }> {
+    return { items: await this.service.list() };
+  }
 
   /** PUT: add the tenant to the allowlist (201 when added, 200 when already listed). */
   @Put(":tenantId")

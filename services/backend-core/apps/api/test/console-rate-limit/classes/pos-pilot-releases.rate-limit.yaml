@@ -8,3 +8,6 @@ platformAddPilotTenant: write
 platformRemovePilotTenant: write
 # RT-1298: the platform admin's explicit activation (served; register and withdraw are not cookieAuth).
 platformActivatePilotRelease: write
+# RT-1328: the platform admin's reads of the registry and the allowlist (no audit row).
+platformListPilotReleases: cheapRead
+platformListPilotTenants: cheapRead

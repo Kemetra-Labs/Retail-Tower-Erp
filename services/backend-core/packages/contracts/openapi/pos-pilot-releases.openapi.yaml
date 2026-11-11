@@ -25,6 +25,10 @@ info:
          the session cookie makes one registered release current (RT-1298).
          Served, audited. Registering a release never makes it downloadable;
          activating it does.
+      4. `platformListPilotReleases` / `platformListPilotTenants` — a platform
+         admin on the session cookie reads every registry row and every
+         allowlisted tenant (RT-1328). Served, read-only, not audited. Neither
+         answer carries a presigned URL, an object key or a credential.
 
 
     **Eligibility.** A release is returned only if the pilot lane is configured
@@ -118,6 +122,40 @@ paths:
         "500":
           $ref: "#/components/responses/SystemFailure"
 
+  /api/v1/platform/pos-pilot-tenants:
+    get:
+      summary: List the tenants on the pilot allowlist (platform admins only).
+      operationId: platformListPilotTenants
+      tags: [pos-pilot-allowlist]
+      security:
+        - cookieAuth: []
+      description: >
+        Every allowlisted tenant, oldest `addedAt` first (RT-1328). Read-only and
+        not audited. The route takes no query parameter (400 on any). A
+        signed-in user who is not a platform admin is 403 `forbidden`. Tenant
+        names are not part of the answer: the Console joins them from its
+        platform tenant list.
+      responses:
+        "200":
+          description: The allowlist, possibly empty.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotTenantList"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformReadForbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
   /api/v1/platform/pos-pilot-tenants/{tenantId}:
     put:
       summary: Add a tenant to the pilot allowlist (platform admins only).
@@ -194,6 +232,41 @@ paths:
           $ref: "#/components/responses/SystemFailure"
 
   /api/v1/platform/pos-pilot-releases:
+    get:
+      summary: List every registered pilot POS release (platform admins only).
+      operationId: platformListPilotReleases
+      tags: [pos-pilot-release-registry]
+      security:
+        - cookieAuth: []
+      description: >
+        Every registry row, newest `registeredAt` first, withdrawn and current
+        rows included (RT-1328). A row is current in the registry when
+        `activatedAt` is set and `withdrawnAt` is null; being current does not
+        by itself make it downloadable (the resolver also needs the lane's
+        configuration and publisher pin, and the caller's tenant allowlisted).
+        Read-only and not audited. The route takes no
+        query parameter (400 on any). A signed-in user who is not a platform
+        admin is 403 `forbidden`. No presigned URL, object key or credential.
+      responses:
+        "200":
+          description: The registry, possibly empty.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotReleaseList"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformReadForbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
     post:
       summary: Register an approved pilot POS release (promotion workflow only).
       operationId: platformRegisterPilotRelease
@@ -513,6 +586,28 @@ components:
           format: uuid
           description: A user id, never an email.
 
+    PilotTenantList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      description: The pilot allowlist, oldest `addedAt` first (RT-1328).
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PilotTenant"
+
+    PilotReleaseList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      description: Every pilot registry row, newest `registeredAt` first (RT-1328).
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PilotRelease"
+
     PilotReleaseRegistration:
       type: object
       additionalProperties: false
@@ -652,8 +747,8 @@ components:
   responses:
     ReadValidationFailure:
       description: >
-        validation_error (400): any query parameter is present (the route takes
-        none). Checked after the guards and before any database read.
+        validation_error (400): any query parameter is present (the read routes
+        take none). Checked after the guards and before any database read.
       content:
         application/json:
           schema:
@@ -709,6 +804,15 @@ components:
         run the body names) or `origin_rejected` (RT-430: the `Origin` header is
         missing, or is neither the API's own origin nor listed in
         `ALLOWED_ORIGINS`; cookie routes only). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PlatformReadForbidden:
+      description: >
+        forbidden (403): a signed-in user who is not a platform admin, on a
+        platform read (RT-1328). A safe method skips the RT-430 Origin check, so
+        `origin_rejected` never answers a read. Nothing is read.
       content:
         application/json:
           schema:
