@@ -377,7 +377,7 @@ paths:
 
   /api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/repair:
     post:
-      summary: Re-ingest a quarantined sale under its original provenance and idempotency key.
+      summary: Re-ingest a quarantined sale under its original provenance.
       operationId: consoleRepairQuarantinedSale
       x-idempotency: required
       tags: [sale-sync-ops]
@@ -391,9 +391,10 @@ paths:
         SERVER-MEDIATED repair of an `open` quarantine item (DP3: no POS-local
         override). Re-ingests the stored `saleBody` through the `captureSale`
         rules for the item's tenant and store, under the stored provenance
-        `(sourceSystem, externalId)` and idempotency key; at most one sale
-        ever exists per provenance (see the 1.3.0-draft notes in the info
-        description). Never edits the stored body.
+        `(sourceSystem, externalId)`; at most one sale ever exists per
+        provenance (see the 1.3.0-draft notes in the info description: the
+        till's recorded idempotency key is kept for audit, not replayed).
+        Never edits the stored body.
 
         200 with the updated item for every capture outcome: `captured` and
         `already-captured` resolve the item (`saleRef` set); `refused` keeps
