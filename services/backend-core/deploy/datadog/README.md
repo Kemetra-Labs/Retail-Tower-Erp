@@ -26,6 +26,7 @@ These are the Datadog EU1 (`datadoghq.eu`) definitions for the AWS lab (`env:sta
 | `p2-api-p95-latency` | P2 | `p95:trace.http.server.request`, 30 min | warn 0.5 s, alert 1 s | 60 min |
 | `p2-api-db-pool-waiters` | P2 | `min(last_10m)` of `dp2.db_pool_waiters` | above 0 for 10 min | 20 min |
 | `p2-api-signin-fail` | P2 | `sum(last_15m)` of `dp2.auth_signin_failure.count` (RT-626: failed credentials plus sign-in 429s, all accounts and clients) | warn 50, alert 100; starting defaults, calibrate on real traffic | 30 min |
+| `p2-api-provider-signout-fail` | P2 | `sum(last_30m)` of `dp2.auth_provider_signout_failure.count` (RT-1327: Descope `logoutall` after a provider password reset still failed after one retry) | alert above 0 | 60 min |
 | `p2-lab02-postgres` | P2 | `postgresql.percent_usage_connections{host:retail-tower-lab-02}` | warn 70%, alert 80% | 10 min |
 | `p2-lab03-mariadb` | P2 | `mysql.performance.threads_connected{host:retail-tower-lab-03}` | warn 100, alert 120 (max 151) | 10 min |
 | `p2-lab03-redis` | P2 | count of reporting `redis.net.clients` series by `redis_host` on lab-03 | under 2 (10-min avg) | 10 min |
@@ -40,6 +41,7 @@ These are the Datadog EU1 (`datadoghq.eu`) definitions for the AWS lab (`env:sta
 - **p95 comes from 10%-sampled spans.** The OpenMetrics histogram has no percentiles. At lab traffic, the p95 is close to the slowest sampled request.
 - **Trace metrics carry the api container id as `host`, not the lab host name.** Never filter APM widgets or monitors by `host`.
 - **`p2-api-signin-fail` only alerts; it never blocks** (RT-574 issue 5d: an enforced global cap would itself be a lockout DoS). The counter is exported at 0 for both causes from boot, so a quiet API still reports data. The query therefore has no `default_zero`, and missing data really means a broken scrape, not a quiet period. `apps/api/test/deploy/datadog-signin-failure-monitor.spec.ts` pins the query, the scrape allowlist and the thresholds.
+- **`p2-api-provider-signout-fail` means Descope sessions may have survived a password reset** (RT-1327). The reset itself succeeded and Backend-Core sessions were revoked; only the provider-side sign-out failed (an outage is retried once first). The counter is exported at 0 from boot, so the query has no `default_zero`. To end an affected user's provider sessions by hand, sign them out of all sessions in the Descope console. `apps/api/test/deploy/datadog-provider-signout-monitor.spec.ts` pins the query, the scrape allowlist and the threshold.
 - **The Connector-stale P1 waits on RT-564** (the Connector heartbeat). It is not defined here.
 
 ## Apply

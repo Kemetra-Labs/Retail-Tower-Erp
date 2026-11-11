@@ -52,7 +52,8 @@ import {
 } from "../audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../audit/audit-job.types";
 import { recordAuthFailure } from "../observability/metrics/api.metrics";
-import type { ExternalCredentialPort } from "./external-credential.port";
+import { recordProviderSignOutFailure } from "../observability/metrics/auth-provider-signout.metrics";
+import type { ExternalCredentialPort, LogoutAllResult } from "./external-credential.port";
 import type { OperatorTokenVerifier } from "./operator-token-verifier";
 
 /**
@@ -702,13 +703,21 @@ export class AuthService {
     return user;
   }
 
-  /** Step 4 of `confirmProviderReset`, best effort: a failure is logged, never thrown. */
+  /**
+   * Step 4 of `confirmProviderReset`, never thrown. An outage is retried once (a
+   * refusal is not: retrying cannot help it). A sign-out that still failed is an
+   * alert (owner decision 2026-11-11): the `auth_provider_signout_failure_total`
+   * counter and an error log, with the result kind only.
+   */
   private async endProviderSessions(external: ExternalCredentials, refreshJwt: string): Promise<void> {
-    const signedOut = await external.port.logoutAllSessions(refreshJwt).catch(() => ({ kind: "unavailable" as const }));
-    if (signedOut.kind !== "ok") {
-      // Fixed message and result kind only: no token, subject, email or user id.
-      log().warn({ result: signedOut.kind }, "provider sign-out after password reset failed; provider sessions may survive");
-    }
+    const attempt = (): Promise<LogoutAllResult> =>
+      external.port.logoutAllSessions(refreshJwt).catch((): LogoutAllResult => ({ kind: "unavailable" }));
+    let signedOut = await attempt();
+    if (signedOut.kind === "unavailable") signedOut = await attempt();
+    if (signedOut.kind === "ok") return;
+    recordProviderSignOutFailure({ result: signedOut.kind });
+    // Fixed message and result kind only: no token, subject, email or user id.
+    log().error({ result: signedOut.kind }, "provider sign-out after password reset failed; provider sessions may survive");
   }
 
   /** The subject of a provider session token that verifies, or null. */

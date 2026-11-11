@@ -59,11 +59,18 @@ jest.mock("@data-pulse-2/auth", () => ({
   hashToken: jest.fn(),
 }));
 
-/** The service's logger: a provider-session revocation failure is logged here, never surfaced. */
+/** The service's logger: provider outcomes are logged here, never surfaced. */
 const logWarn = jest.fn();
+const logError = jest.fn();
 jest.mock("@data-pulse-2/shared", () => ({
   ...jest.requireActual<Record<string, unknown>>("@data-pulse-2/shared"),
-  createLogger: jest.fn(() => ({ warn: logWarn, info: jest.fn(), error: jest.fn(), debug: jest.fn() })),
+  createLogger: jest.fn(() => ({ warn: logWarn, info: jest.fn(), error: logError, debug: jest.fn() })),
+}));
+
+/** The alert counter for a provider sign-out that still failed after its retry. */
+const recordSignOutFailure = jest.fn();
+jest.mock("../../src/observability/metrics/auth-provider-signout.metrics", () => ({
+  recordProviderSignOutFailure: (...args: unknown[]) => recordSignOutFailure(...args),
 }));
 
 import { generateRawToken, hashPassword } from "@data-pulse-2/auth";
@@ -377,24 +384,63 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     expect(endSupportSessions).not.toHaveBeenCalled();
   });
 
-  it.each([{ kind: "refused" }, { kind: "unavailable" }])(
-    "still succeeds and revokes Backend-Core sessions when the provider sign-out answers $kind, logging a fixed warning",
-    async (logoutAll) => {
-      const { service, endSupportSessions } = build({ logoutAll });
+  it.each([
+    // An outage is retried once; a refusal (e.g. the refresh token is no longer valid) is not.
+    { kind: "refused", calls: 1 },
+    { kind: "unavailable", calls: 2 },
+  ])(
+    "still succeeds when the provider sign-out keeps answering $kind, then alerts: counter and error log ($calls call(s))",
+    async ({ kind, calls }) => {
+      const { service, port, endSupportSessions } = build({ logoutAll: { kind } });
 
       // The password is already changed and the link spent: a 400 here would lie to the user.
       await expect(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD })).resolves.toBe(EMAIL);
 
+      expect(port.logoutAllSessions).toHaveBeenCalledTimes(calls);
+      expect(port.logoutAllSessions).toHaveBeenNthCalledWith(calls, REFRESH);
       expect(updateCalls).toHaveBeenCalledTimes(1);
       expect(endSupportSessions).toHaveBeenCalledWith({ userId: USER_ID }, null);
-      expect(logWarn).toHaveBeenCalledTimes(1);
-      const logged = JSON.stringify(logWarn.mock.calls);
-      expect(logged).toContain(logoutAll.kind);
+      expect(recordSignOutFailure).toHaveBeenCalledTimes(1);
+      expect(recordSignOutFailure).toHaveBeenCalledWith({ result: kind });
+      expect(logError).toHaveBeenCalledTimes(1);
+      const logged = JSON.stringify(logError.mock.calls);
+      expect(logged).toContain(kind);
       for (const secret of [PROOF, REFRESH, SESSION_JWT, SUBJECT, EMAIL, NEW_PASSWORD, USER_ID]) {
         expect(logged).not.toContain(secret);
       }
     },
   );
+
+  it("retries an unavailable provider sign-out once and raises no alert when the retry succeeds", async () => {
+    const { service, port } = build();
+    port.logoutAllSessions.mockResolvedValueOnce({ kind: "unavailable" }).mockResolvedValueOnce({ kind: "ok" });
+
+    await expect(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD })).resolves.toBe(EMAIL);
+
+    expect(port.logoutAllSessions).toHaveBeenCalledTimes(2);
+    expect(recordSignOutFailure).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("treats a sign-out call that throws as unavailable: retried once, then alerted, never surfaced", async () => {
+    const { service, port } = build();
+    port.logoutAllSessions.mockRejectedValue(new Error(`boom ${REFRESH}`));
+
+    await expect(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD })).resolves.toBe(EMAIL);
+
+    expect(port.logoutAllSessions).toHaveBeenCalledTimes(2);
+    expect(recordSignOutFailure).toHaveBeenCalledWith({ result: "unavailable" });
+    expect(JSON.stringify(logError.mock.calls)).not.toContain(REFRESH);
+  });
+
+  it("raises no alert when the provider sign-out succeeds first time", async () => {
+    const { service } = build();
+
+    await service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD });
+
+    expect(recordSignOutFailure).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
 
   it("lets only one of two submissions of the same proof change the password (duplicate submit)", async () => {
     const { service, port } = build();
@@ -433,7 +479,7 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     );
     expect(error).toBeInstanceOf(HttpException);
     if (error === null) return;
-    const text = JSON.stringify([error.message, error.getResponse(), logWarn.mock.calls]);
+    const text = JSON.stringify([error.message, error.getResponse(), logWarn.mock.calls, logError.mock.calls]);
 
     for (const secret of [PROOF, REFRESH, SESSION_JWT, SUBJECT, EMAIL, NEW_PASSWORD, USER_ID]) {
       expect(text).not.toContain(secret);
