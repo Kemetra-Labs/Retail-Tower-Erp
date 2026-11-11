@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Sale Sync-Ops Read / Repair API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     Spec 032 §9 — the server-authoritative sale-sync READ/REPAIR surface the
     later Retail Tower Console consumes. DP-2 owns the authoritative sale-status
@@ -64,6 +64,68 @@ info:
     optional: a `consoleRepairSaleSync` idempotent replay returns the body
     stored before that slice (72h replay TTL) without it. No operation
     changes, so no `x-runtime-status` marker applies.
+
+
+    **1.3.0-draft (RT-1312 Phase 3(a), additive, contract-first;
+    owner decision D1, RT-1312 comment 16359).** Three new operations, each
+    `x-runtime-status: contract-only` until RT-1312 Phase 3(b):
+
+      5. `consoleListQuarantinedSales`  — the quarantine half of the
+         NEEDS_REPAIR queue.
+      6. `consoleGetQuarantinedSale`    — one quarantine item.
+      7. `consoleRepairQuarantinedSale` — re-ingest its stored body.
+
+    A quarantined sale is one the till could not get captured: Backend-Core
+    refused its `captureSale` for good, or the till held it after a re-pair.
+    The till uploads it with `posQuarantineSale`
+    (`pos-sales/sale-quarantine.yaml`, the POS-facing half; this file still
+    has no POS route). Unlike items 1 to 4, which act on a CAPTURED sale
+    (`saleRef` = `sales.id`) whose processing dead-lettered, a quarantined
+    sale has no `sales` row, so it has its own reference (`quarantineRef`,
+    UUIDv7), its own list and its own repair. `NeedsRepairItem` and
+    `consoleListNeedsRepair` are unchanged: widening them would break the
+    closed schema the Admin Console pins. The Console shows both lists as the
+    one NEEDS_REPAIR queue. Everything else is shared with items 1 to 4: the
+    `cookieAuth` session, the role and store-scope rules, the error envelope
+    and responses, the `Idempotency-Key` rule and the `repair_conflict` 409.
+    The projections carry no money, no line amounts and not the stored body,
+    like the existing queue.
+
+    **The repair (item 7).** It re-ingests the stored `saleBody` through the
+    `captureSale` rules (`pos-sales/sales.yaml`) for the item's tenant and
+    store, under the sale's original provenance `(sourceSystem, externalId)`
+    and its recorded idempotency key. At most one sale ever exists for a
+    provenance: that guarantee is the capture provenance dedup (FR-050) and
+    the RT-1206 same-facts rule, not an interceptor replay (the capture
+    interceptor is scoped to the authenticated principal and stores only
+    successful answers, so a Console principal never replays the till's
+    stored answer). So a repair racing a late till retry, a second repair or
+    a repair of a sale captured meanwhile can never create a second sale.
+    The repair's outcome is one of three, always returned as 200 with the
+    updated item: `captured` (a new sale; the item leaves the queue),
+    `already-captured` (a sale with this provenance and the same facts
+    exists; the item leaves the queue) or `refused` (the capture rules
+    refused it again; the item stays `open` with the new status and code).
+    Repair never edits the stored body: a body that can never be captured
+    as sent (for example a `payload_divergence`) needs an owner decision
+    (open question 3 below). Each repair writes one audit row naming the
+    repairer.
+
+    **Open owner questions (not decided by this draft; the runtime waits
+    for them).** (1) Who may repair: `owner` and `tenant_admin`, as the
+    existing repair, or also `store_manager` for its stores? (2) Which
+    capture checks the repair re-runs, and who the sale's operator
+    (`created_by`) is. The stored body may carry the cashier's
+    `operatorUserId` (RT-224 device path), whose cashier admission window
+    has usually closed by repair time (the RT-1125 R-02 case of an outage
+    over 12 h): does the repair re-check the admission and refuse, or does
+    the repairer's session stand in for it, with the cashier still recorded
+    as the seller? (3) A terminal close without re-ingest (for example
+    "written off, handled outside Retail Tower") for a body that can never
+    be captured, such as a `payload_divergence`: wanted, and by whom?
+    (4) Retention of quarantined bodies and items. (5) Whether the Console
+    may see the stored body or a money summary (the existing queue shows
+    neither). (6) How the repair result reaches the till, if at all.
 
 servers:
   - url: https://api.example.com
@@ -219,6 +281,143 @@ paths:
         "500":
           $ref: "#/components/responses/SystemFailure"
 
+  /api/v1/catalog/sale-sync-ops/quarantined-sales:
+    get:
+      summary: List quarantined sales (the quarantine half of the NEEDS_REPAIR queue).
+      operationId: consoleListQuarantinedSales
+      tags: [sale-sync-ops]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1312 Phase 3(a) publishes the contract only. There is no
+        controller, service, table or migration for this route until RT-1312
+        Phase 3(b).
+      x-audit-action: sale_sync_ops.quarantine.listed
+      description: >
+        Sales the till uploaded with `posQuarantineSale` because Backend-Core
+        refused them for good or the till held them after a re-pair.
+        Tenant-scoped (RLS) and bound to the operator's store scope (RT-193),
+        optionally store-filtered, newest-first by `quarantineRef` (UUIDv7),
+        opaque keyset/cursor paginated. Lists `open` items by default;
+        `state` selects resolved ones, which are retained for audit. Never a
+        silent drop.
+      parameters:
+        - $ref: "#/components/parameters/StoreIdQuery"
+        - $ref: "#/components/parameters/QuarantineStateQuery"
+        - $ref: "#/components/parameters/QuarantineCursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of quarantined sales, newest-first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuarantinedSalePage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}:
+    get:
+      summary: Read one quarantined sale.
+      operationId: consoleGetQuarantinedSale
+      tags: [sale-sync-ops]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1312 Phase 3(a) publishes the contract only. There is no
+        controller, service, table or migration for this route until RT-1312
+        Phase 3(b).
+      x-audit-action: sale_sync_ops.quarantine.read
+      description: >
+        One quarantine item, any state. Object-level authz: an item outside
+        the operator's (tenant, store) scope is a non-disclosing 404,
+        identical to genuinely absent (FR-063/102).
+      parameters:
+        - $ref: "#/components/parameters/QuarantineRef"
+      responses:
+        "200":
+          description: The quarantined sale.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuarantinedSale"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/repair:
+    post:
+      summary: Re-ingest a quarantined sale under its original provenance and idempotency key.
+      operationId: consoleRepairQuarantinedSale
+      x-idempotency: required
+      tags: [sale-sync-ops]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1312 Phase 3(a) publishes the contract only. There is no
+        controller, service, table or migration for this route until RT-1312
+        Phase 3(b).
+      x-audit-action: sale_sync_ops.quarantine.repair.requested
+      description: >
+        SERVER-MEDIATED repair of an `open` quarantine item (DP3: no POS-local
+        override). Re-ingests the stored `saleBody` through the `captureSale`
+        rules for the item's tenant and store, under the stored provenance
+        `(sourceSystem, externalId)` and idempotency key; at most one sale
+        ever exists per provenance (see the 1.3.0-draft notes in the info
+        description). Never edits the stored body.
+
+        200 with the updated item for every capture outcome: `captured` and
+        `already-captured` resolve the item (`saleRef` set); `refused` keeps
+        it `open` and records the capture's status and code in `lastRepair`.
+        An item that is not `open` is 409 `repair_conflict`, deterministic,
+        no side effect. `Idempotency-Key` is REQUIRED and is the Console
+        request's own key (the existing IdempotencyInterceptor): an identical
+        retry replays the stored answer; it is NOT the sale's capture key.
+        Which capture checks re-run and who is recorded as the sale's
+        operator are open owner questions (info description, 1.3.0-draft).
+      parameters:
+        - $ref: "#/components/parameters/QuarantineRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: >
+            The repair ran. Returns the item with its new `state` and
+            `lastRepair`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuarantinedSale"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/RepairConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -287,6 +486,40 @@ components:
         REQUIRED on the repair write. Reuses the existing IdempotencyInterceptor
         — identical retry replays the stored response; key-reuse with a
         different logical payload returns 409 `idempotency_key_conflict`.
+    QuarantineRef:
+      name: quarantineRef
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        1.3.0-draft. Stable server-issued quarantine item reference (UUIDv7),
+        returned to the till as `QuarantineReceipt.quarantineRef`. Resolves
+        only within the operator's (tenant, store) scope; out-of-scope refs
+        are non-disclosing 404s (FR-063/102).
+    QuarantineStateQuery:
+      name: state
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [open, captured, already-captured]
+        default: open
+      description: >
+        1.3.0-draft. Which items to list; `open` (the queue) when omitted.
+    QuarantineCursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+      description: >
+        1.3.0-draft. Opaque keyset pagination cursor from a prior
+        `QuarantinedSalePage.nextCursor`. Do not decode or construct it; omit
+        it for the first page. The value is a UUIDv7 quarantine reference;
+        anything else is a 400 `validation_error`.
 
   schemas:
     SyncStatusValue:
@@ -454,6 +687,148 @@ components:
         correlationId:
           type: [string, "null"]
           format: uuid
+
+    # -----------------------------------------------------------------------
+    # 1.3.0-draft (RT-1312 Phase 3(a)): quarantined sales
+    # -----------------------------------------------------------------------
+    QuarantineState:
+      type: string
+      enum: [open, captured, already-captured]
+      description: >
+        Set by Backend-Core only. `open`: waiting for a repair. `captured`: a
+        repair captured the stored body as a new sale. `already-captured`: a
+        repair found the sale already captured with the same facts. The same
+        values as `QuarantineState` in `pos-sales/sale-quarantine.yaml`.
+    QuarantineReasonKind:
+      type: string
+      enum: [refused, payload_divergence, cashier_claim_refused, held_previous_pairing]
+      description: >
+        The till's claim of why the sale is stuck, as uploaded
+        (`pos-sales/sale-quarantine.yaml` `QuarantineReason.kind`). A claim,
+        not a server finding: the repair outcome is authoritative.
+    QuarantineRepair:
+      type: object
+      additionalProperties: false
+      required: [at, outcome, httpStatus, errorCode]
+      description: The latest repair attempt on an item.
+      properties:
+        at:
+          type: string
+          format: date-time
+          description: Backend-Core server clock when the repair ran.
+        outcome:
+          type: string
+          enum: [captured, already-captured, refused]
+          description: >
+            `captured`: a new sale. `already-captured`: the provenance was
+            already captured with the same facts. `refused`: the capture
+            rules refused the body again; the item stays `open`.
+        httpStatus:
+          type: [integer, "null"]
+          minimum: 400
+          maximum: 499
+          description: The capture status of a `refused` outcome; null otherwise.
+        errorCode:
+          type: [string, "null"]
+          maxLength: 64
+          description: >
+            The capture `error.code` of a `refused` outcome (a machine label,
+            e.g. `sale_tender_mismatch`); null otherwise.
+    QuarantinedSale:
+      type: object
+      additionalProperties: false
+      required:
+        - quarantineRef
+        - storeId
+        - deviceId
+        - sourceSystem
+        - externalId
+        - reasonKind
+        - tillHttpStatus
+        - tillErrorCode
+        - state
+        - receivedAt
+        - tillRecordedAt
+        - previousTerminalId
+        - repairCount
+        - lastRepair
+        - saleRef
+      description: >
+        Wire projection of one quarantine item. Carries no `tenant_id`
+        (implicit in the session scope), no money, no line amounts and not
+        the stored body.
+      properties:
+        quarantineRef:
+          type: string
+          format: uuid
+        storeId:
+          type: string
+          format: uuid
+          description: The uploading device's store (the item's store).
+        deviceId:
+          type: string
+          format: uuid
+          description: The device that uploaded the item (`devices.id`).
+        sourceSystem:
+          type: string
+        externalId:
+          type: string
+        reasonKind:
+          $ref: "#/components/schemas/QuarantineReasonKind"
+        tillHttpStatus:
+          type: [integer, "null"]
+          minimum: 400
+          maximum: 499
+          description: The capture status the till recorded; null when unknown or held.
+        tillErrorCode:
+          type: [string, "null"]
+          maxLength: 64
+          description: The capture `error.code` the till recorded; null when unknown or held.
+        state:
+          $ref: "#/components/schemas/QuarantineState"
+        receivedAt:
+          type: string
+          format: date-time
+          description: Backend-Core server clock at the first upload.
+        tillRecordedAt:
+          type: string
+          format: date-time
+          description: When the till dead-lettered or held the sale, by the till's clock (provenance only).
+        previousTerminalId:
+          type: [string, "null"]
+          format: uuid
+          description: Held items only, the earlier pairing's `devices.id`; null otherwise.
+        repairCount:
+          type: integer
+          minimum: 0
+          description: Number of repairs run on this item.
+        lastRepair:
+          description: The latest repair attempt; null before the first.
+          anyOf:
+            - $ref: "#/components/schemas/QuarantineRepair"
+            - type: "null"
+        saleRef:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The captured sale (`sales.id`) once the item is `captured` or
+            `already-captured`; null while `open`. Readable with
+            `consoleGetSaleSyncStatus`.
+    QuarantinedSalePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      description: A keyset page of quarantined sales, newest-first.
+      properties:
+        items:
+          type: array
+          # Bounded to the `page_size` maximum (200), as NeedsRepairPage.
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/QuarantinedSale"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null on the last page.
 
     # -----------------------------------------------------------------------
     # Canonical Error envelope (mirrors auth / outbox / pos-sales / console-sync-ops)

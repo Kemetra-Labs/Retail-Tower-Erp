@@ -5,3 +5,10 @@ consoleGetSaleAuditTimeline: expensiveRead
 consoleGetSaleSyncStatus: cheapRead
 consoleListNeedsRepair: expensiveRead
 consoleRepairSaleSync: write
+
+# RT-1312 Phase 3(a) (1.3.0-draft): contract-only, so these are the INTENDED classes (RT-574 D3);
+# the Phase 3(b) runtime drops only the x-runtime-status marker.
+# List: one keyset-paginated indexed read; get: one indexed lookup; repair: a capture re-ingest.
+consoleListQuarantinedSales: cheapRead
+consoleGetQuarantinedSale: cheapRead
+consoleRepairQuarantinedSale: write
