@@ -17,6 +17,15 @@
  *     without rounding (756);
  *   - tracked_product: a batch / serial product needs a tracking identity,
  *     which only tracked selling writes (RT-451, RT-50 G7-4).
+ *
+ * Tracked effects (RT-451 S4; RT-50 G7-9 rows 1 to 3, G7-10). A `batch`
+ * product's line that carries the identity it was sold from (the writer
+ * passes it only for a line capture classified `valid` or `flagged`, or from
+ * the original effect for a void or return) is written AT that identity. A
+ * batch line without one (captured while tracked selling was off, comment
+ * 16269) stays skipped as `tracked_product`, as does every `serial` line
+ * (serial selling stays gated, RT-50 Q11; RT-451 comment 16275 (a)). An
+ * untracked product's line never carries an identity.
  */
 
 export const SKIPPED_EFFECT_REASONS = ["unit_mismatch", "quantity_precision", "tracked_product"] as const;
@@ -35,12 +44,25 @@ export interface EffectLineFacts {
   readonly trackingMode: string | null;
   /** The unit the product's movements at this store already use, if any. */
   readonly establishedUnit: string | null;
+  /**
+   * The tracking identity the line moves, or null: a classified line's
+   * identity (sale), or the original effect's (void, return).
+   */
+  readonly trackingIdentityId: string | null;
 }
 
 export type EffectLineDecision =
-  | { readonly kind: "write" }
+  /** Write the effect; at `trackingIdentityId` when it is not null. */
+  | { readonly kind: "write"; readonly trackingIdentityId: string | null }
   | { readonly kind: "ignore" }
   | { readonly kind: "skip"; readonly reason: SkippedEffectReason };
+
+/** The identity a line's effect is written at, or a `tracked_product` skip. */
+function trackedIdentity(facts: EffectLineFacts): { identity: string | null } | null {
+  if (facts.trackingMode === null || facts.trackingMode === "none") return { identity: null };
+  if (facts.trackingMode === "batch" && facts.trackingIdentityId !== null) return { identity: facts.trackingIdentityId };
+  return null;
+}
 
 const ZERO_QUANTITY = /^-?0+(\.0+)?$/;
 /** At most 4 significant decimals (trailing zeros beyond them are fine). */
@@ -51,7 +73,8 @@ export function decideEffectLine(facts: EffectLineFacts): EffectLineDecision {
   if (facts.tenantProductRef === null || ZERO_QUANTITY.test(facts.quantity)) {
     return { kind: "ignore" };
   }
-  if (facts.trackingMode !== null && facts.trackingMode !== "none") {
+  const tracked = trackedIdentity(facts);
+  if (tracked === null) {
     return { kind: "skip", reason: "tracked_product" };
   }
   if (!FITS_FOUR_DECIMALS.test(facts.quantity)) {
@@ -60,7 +83,7 @@ export function decideEffectLine(facts: EffectLineFacts): EffectLineDecision {
   if (facts.establishedUnit !== null && facts.establishedUnit !== facts.unit) {
     return { kind: "skip", reason: "unit_mismatch" };
   }
-  return { kind: "write" };
+  return { kind: "write", trackingIdentityId: tracked.identity };
 }
 
 /** DC-1 provenance key of a sale line's effect. */

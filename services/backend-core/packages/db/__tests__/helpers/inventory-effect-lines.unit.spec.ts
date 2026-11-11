@@ -15,7 +15,10 @@ const LINE: EffectLineFacts = {
   unit: "ea",
   trackingMode: "none",
   establishedUnit: null,
+  trackingIdentityId: null,
 };
+
+const IDENTITY = "0a000000-0000-7000-8000-0000000000e1";
 
 describe("decideEffectLine", () => {
   it.each<[string, Partial<EffectLineFacts>]>([
@@ -24,7 +27,36 @@ describe("decideEffectLine", () => {
     ["four significant decimals", { quantity: "1.234500" }],
     ["an integer text", { quantity: "3" }],
   ])("writes %s", (_label, over) => {
-    expect(decideEffectLine({ ...LINE, ...over })).toEqual({ kind: "write" });
+    expect(decideEffectLine({ ...LINE, ...over })).toEqual({ kind: "write", trackingIdentityId: null });
+  });
+
+  describe("tracked lines (RT-451 S4)", () => {
+    it("writes a batch line with its identity at the identity", () => {
+      expect(decideEffectLine({ ...LINE, trackingMode: "batch", trackingIdentityId: IDENTITY })).toEqual({
+        kind: "write",
+        trackingIdentityId: IDENTITY,
+      });
+    });
+
+    it("still applies the precision and unit rules to a batch line with its identity", () => {
+      const tracked = { ...LINE, trackingMode: "batch", trackingIdentityId: IDENTITY };
+      expect(decideEffectLine({ ...tracked, quantity: "0.000001" })).toEqual({ kind: "skip", reason: "quantity_precision" });
+      expect(decideEffectLine({ ...tracked, establishedUnit: "kg" })).toEqual({ kind: "skip", reason: "unit_mismatch" });
+    });
+
+    it("never carries an identity on an untracked product's line", () => {
+      expect(decideEffectLine({ ...LINE, trackingMode: "none", trackingIdentityId: IDENTITY })).toEqual({
+        kind: "write",
+        trackingIdentityId: null,
+      });
+    });
+
+    it.each<[string, Partial<EffectLineFacts>]>([
+      ["a batch line without an identity", { trackingMode: "batch", trackingIdentityId: null }],
+      ["a serial line, even with an identity (serial selling stays gated)", { trackingMode: "serial", trackingIdentityId: IDENTITY }],
+    ])("skips %s as tracked_product", (_label, over) => {
+      expect(decideEffectLine({ ...LINE, ...over })).toEqual({ kind: "skip", reason: "tracked_product" });
+    });
   });
 
   it.each<[string, Partial<EffectLineFacts>]>([
