@@ -1161,16 +1161,25 @@ paths:
         runtime). Returns use the FROZEN offer version and unit prices of the
         sale (`SaleLine.promotion`), never the current offers. The per-line
         pricing above is unchanged; a clawback is a separate deduction. For
-        each offer O of the sale with a returned unit:
-        `D_orig` = Σ `discountAmount` over the sale's O lines;
+        each offer O of the sale with a returned unit, counting every earlier
+        return of the sale:
+        `D_held` = Σ `discountAmount` of the O units not returned before this
+        return − Σ `promotionClawbacks` of O already recorded on earlier
+        returns of the sale (the discount the customer still holds);
+        `disc_ret` = min(Σ `discountAmount` of the O units returned now,
+        `D_held`);
         `D_remaining` = the §6 evaluation of the O-eligible units the customer
-        keeps (after this return and every earlier one), with O's frozen
-        version; `refund_O = min(Σ net of the returned O units, Σ gross of the
-        returned O units − (D_orig − D_remaining))`. The `min` stops a return
-        from creating a discount the customer did not get at sale time. The
-        clawback of O is `Σ net of the returned O units − refund_O`; it is
-        listed in `promotionClawbacks` when above 0, and `returnTotal` = Σ
-        returned `lineAmount` − Σ clawback, so `refundTenders` still sum to
+        still keeps after this return, with O's frozen version and prices;
+        `refund_O = Σ gross of the returned O units − max(disc_ret, D_held −
+        D_remaining)`; and the clawback of O is `max(0, D_held − D_remaining −
+        disc_ret)`. The `max` stops a return from creating a discount the
+        customer did not get at sale time, and the earlier clawbacks stop a
+        second return from clawing back the same discount twice. On a first
+        return `D_held` is the sale's whole O discount `D_orig`, and the rule
+        reads `refund_O = min(Σ net of the returned O units, Σ gross of the
+        returned O units − (D_orig − D_remaining))`. A clawback above 0 is
+        listed in `promotionClawbacks`, and `returnTotal` = Σ returned
+        `lineAmount` − Σ clawback, so `refundTenders` still sum to
         `returnTotal`. Units not under an offer are refunded as before. If
         `refund_O < 0` (possible when Y > X or the percent is high) the return
         is refused with 422 `promotion_clawback_exceeds_refund` (OD-10): the
@@ -1179,7 +1188,8 @@ paths:
         ERPNext) is open, a return whose clawback would be above 0 is refused
         with 422 `promotion_return_requires_clawback` (RT-1340, fail closed):
         a full return of every O unit, and a return where no clawback is due,
-        work from the RT-1337 runtime. Worked cases are the `returns` of
+        work from the RT-1337 runtime. Worked cases are the `returns` and
+        `returnSequences` of
         `packages/contracts/fixtures/offers/golden-vectors.json`.
 
 
@@ -2460,9 +2470,14 @@ components:
         A malformed object (an unknown key, a bad id or number) or a line
         that carries both `promotion` and the manual `discount` (OD-5) is 400
         `validation_error`. A line whose arithmetic does not hold (the net
-        invariant, the minor unit, `discountAmount` above the gross, or a
-        reward line with a quantity other than 1) is 422
-        `sale_line_pricing_invalid`, and nothing is recorded. Backend-Core
+        invariant, the minor unit, `discountAmount` above the gross, a
+        reward line with a quantity other than 1, or a `discountAmount` above
+        0 that is not the cited offer version's `percentOff`% of `unitPrice`
+        rounded half up once at the minor unit) is 422
+        `sale_line_pricing_invalid`, and nothing is recorded. The body does
+        not carry the percent: Backend-Core takes it from the offer version
+        that `packRevision` cites, and a mismatch is arithmetic (OD-9), not a
+        rule-level difference. Backend-Core
         then re-runs the evaluation with the cited `packRevision`: a sale
         whose offer result differs at the rule level (the eligible set, the
         number of applications, which units are rewards) is ACCEPTED and
@@ -3391,7 +3406,7 @@ components:
           type: integer
           minimum: 1
         discountAmount:
-          $ref: "#/components/schemas/DecimalAmount"
+          $ref: "#/components/schemas/NonNegativeDecimalAmount"
     SaleLineTracking:
       type: object
       additionalProperties: false
@@ -3508,9 +3523,10 @@ components:
       additionalProperties: false
       required: [offerId, offerVersion, amount]
       description: >
-        RT-1335: one offer's clawback on a return, `Σ net of the returned
-        units of the offer − refund_O` (see `recordReturn`), computed with the
-        frozen offer version and prices of the sale.
+        RT-1335: one offer's clawback on a return, `max(0, D_held −
+        D_remaining − disc_ret)` (see `recordReturn`), computed with the
+        frozen offer version and prices of the sale and net of the clawbacks
+        of earlier returns.
       properties:
         offerId:
           type: string

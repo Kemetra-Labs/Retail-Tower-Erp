@@ -180,16 +180,25 @@ E2 shows the OD-2 rule: the discount goes to the **cheapest units in the whole b
 Returns use the **frozen** offer version and frozen unit prices of the original sale. They never use the current
 offer catalog (§20).
 
-For a return of some units of a sale that had offer O:
+For a return of some units of a sale that had offer O, counting every earlier return of the same sale:
 
 ```
-D_orig      = Σ discountAmount over the sale's O lines
-D_remaining = evaluate(the O-eligible units the customer keeps, O's frozen version).totalDiscount
-refund_O    = min( Σ net of returned O units,
-                   Σ gross of returned O units − (D_orig − D_remaining) )
+D_held      = Σ discountAmount of the O units not returned before this return
+              − Σ clawbacks of O already recorded on earlier returns of the sale
+disc_ret    = min( Σ discountAmount of the O units returned now, D_held )
+D_remaining = evaluate(the O-eligible units the customer still keeps after this return,
+                       O's frozen version and prices).totalDiscount
+refund_O    = Σ gross of returned O units − max( disc_ret, D_held − D_remaining )
+clawback_O  = max( 0, D_held − D_remaining − disc_ret )
 ```
 
-- The `min` stops a return from **creating** a discount the customer did not get at sale time.
+On a first return `D_held = D_orig` (Σ discountAmount over the sale's O lines), and the rule reads
+`refund_O = min(Σ net of returned O units, Σ gross of returned O units − (D_orig − D_remaining))`.
+Subtracting earlier clawbacks from `D_held` stops a second return from clawing back the same discount twice
+(RT-1335 review; for example E1: return the 300 → 220.00 with a clawback of 80.00, then the 200 → 200.00, 420.00 in
+all, which is what was paid). `returnTotal` = Σ returned `lineAmount` − Σ clawback.
+
+- The `max` stops a return from **creating** a discount the customer did not get at sale time.
 - If `refund_O < 0`, the return is **refused** with `promotion_clawback_exceeds_refund`. The till asks the cashier to add the reward units to the return. This can only happen when `Y > X` or `P` is high (OD-10).
 - Units not under offer O are refunded as today (F-8).
 
@@ -204,9 +213,10 @@ Using E3 (100, 60, 40, with the 40 discounted 16.00 and 184.00 paid):
 **Where it changes code.** The return contract gains a per-offer clawback amount. Backend-Core `recordReturn`
 computes it, which is the authority, and the POS quote shows it. The Connector must post a credit note whose total
 equals the refund. How the clawback appears in ERPNext is open (OD-11). It fails closed. Until the S4 and S8
-clawback work lands, a partial return that needs a clawback (`refund_O < Σ net of returned O units`) is
+clawback work lands, a partial return that needs a clawback (`clawback_O > 0`) is
 **refused**, with `promotion_return_requires_clawback`. Full returns of every O unit, and returns where no clawback
-is due, work from day one.
+is due, work from day one. The single returns and the multi-return sequences are golden vectors in
+`packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`).
 
 ## 10. Administration (Admin Console, control surface only)
 

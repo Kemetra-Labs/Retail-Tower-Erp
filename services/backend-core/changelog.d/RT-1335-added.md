@@ -11,7 +11,10 @@
   (ETag/304, trusted time and freshness, OD-6 and OD-8). `pos-sales/sales.yaml`
   1.22.0-draft adds the optional `CaptureSaleLine.promotion`, `SaleLine.promotion` and
   `SaleReturn.promotionClawbacks`, and the return refusals
-  `promotion_clawback_exceeds_refund` and `promotion_return_requires_clawback`. Adds
+  `promotion_clawback_exceeds_refund` and `promotion_return_requires_clawback`; the
+  clawback rule counts earlier returns and their clawbacks, so a second return never
+  claws back the same discount twice. A catalog change keeps a product in the
+  earliest-published live offer only, so a product is in at most one offer per Pack. Adds
   the evaluation golden vectors `packages/contracts/fixtures/offers/golden-vectors.json`,
   their consistency spec, the offers contract spec and console rate-limit class file.
   No runtime, migration, Admin-Console, POS or Connector change; the schema is RT-1336

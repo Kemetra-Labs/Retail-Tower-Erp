@@ -6,7 +6,8 @@
  * evaluator written here from spec 048 §6 and §9 recomputes every vector in
  * exact integer minor units and must agree with the file, so the file is
  * internally consistent and matches the spec's worked examples (§6.1 E1–E8,
- * the §9 return table). The Backend-Core (RT-1337) and POS evaluators consume
+ * the §9 return table, and multi-return sequences where earlier returns and
+ * their clawbacks change what a later return refunds). The Backend-Core (RT-1337) and POS evaluators consume
  * the same file; they are not tested here.
  */
 import { readFileSync } from "node:fs";
@@ -31,26 +32,28 @@ type Evaluation = {
 };
 type EvaluateVector = { id: string; description: string; offer: Offer; currencyCode: string; minorUnit: number; cart: CartLine[]; expected: Evaluation };
 type SaleLine = { saleLineRef: string; productId: string; unitPrice: string; quantity: string; lineAmount: string; promotion: { discountAmount: string } | null };
-type ReturnVector = {
-  id: string;
-  description: string;
-  fromVector: string;
-  offer: Offer;
-  currencyCode: string;
-  minorUnit: number;
-  saleLines: SaleLine[];
-  returned: Array<{ saleLineRef: string; quantity: string }>;
-  expected: {
-    dOrig: string;
-    dRemaining: string;
-    netReturned: string;
-    grossReturned: string;
-    refund: string;
-    clawback: string | null;
-    outcome: "accepted" | "promotion_clawback_exceeds_refund" | "promotion_return_requires_clawback";
-  };
+type Returned = Array<{ saleLineRef: string; quantity: string }>;
+type StepExpected = {
+  dHeld: string;
+  discReturned: string;
+  dRemaining: string;
+  netReturned: string;
+  grossReturned: string;
+  refund: string;
+  clawback: string | null;
+  outcome: "accepted" | "promotion_clawback_exceeds_refund" | "promotion_return_requires_clawback";
 };
-type GoldenVectors = { version: number; source: string; notes: string[]; evaluate: EvaluateVector[]; returns: ReturnVector[] };
+type Sale = { id: string; description: string; fromVector: string; offer: Offer; currencyCode: string; minorUnit: number; saleLines: SaleLine[] };
+type ReturnVector = Sale & { returned: Returned; expected: StepExpected & { dOrig: string } };
+type ReturnSequence = Sale & { steps: Array<{ returned: Returned; expected: StepExpected }> };
+type GoldenVectors = {
+  version: number;
+  source: string;
+  notes: string[];
+  evaluate: EvaluateVector[];
+  returns: ReturnVector[];
+  returnSequences: ReturnSequence[];
+};
 
 const FILE = resolve(__dirname, "..", "..", "..", "..", "packages", "contracts", "fixtures", "offers", "golden-vectors.json");
 const vectors = JSON.parse(readFileSync(FILE, "utf8")) as GoldenVectors;
@@ -142,47 +145,64 @@ function evaluate(vector: EvaluateVector): Evaluation {
   };
 }
 
-/** Spec 048 §9: the refund of one return, with the frozen version and prices. */
-function settleReturn(vector: ReturnVector): ReturnVector["expected"] {
-  const { offer, saleLines, minorUnit } = vector;
-  const returned = new Map(vector.returned.map((r) => [r.saleLineRef, wholeUnits(r.quantity)!]));
-  const offerLines = saleLines.filter((l) => l.promotion !== null);
-  const dOrig = offerLines.reduce((sum, l) => sum + scaled(l.promotion!.discountAmount, minorUnit), 0n);
-  const kept: Unit[] = offerLines.flatMap((l) => {
-    const keep = wholeUnits(l.quantity)! - (returned.get(l.saleLineRef) ?? 0n);
-    return Array.from({ length: Number(keep) }, () => ({
-      price: scaled(l.unitPrice, minorUnit),
-      order: saleLines.indexOf(l),
-      productId: l.productId,
-    }));
-  });
-  const dRemaining = rewardsOf(kept, offer).rewards.reduce((sum, r) => sum + percentOf(r.price, offer.percentOff), 0n);
+/** What earlier returns of the sale left behind: units returned per sale line, and clawbacks recorded. */
+type ReturnHistory = { returnedUnits: Map<string, bigint>; clawbacks: bigint };
+
+/**
+ * Spec 048 §9 (multi-return form), for the one offer O of the sale: one
+ * return after `history`, with the frozen version and prices. Updates
+ * `history` as if the return were recorded (a refused return is not).
+ */
+function settleReturn(sale: Sale, returned: Returned, history: ReturnHistory): StepExpected {
+  const { offer, saleLines, minorUnit } = sale;
+  const now = new Map(returned.map((r) => [r.saleLineRef, wholeUnits(r.quantity)!]));
+  let held = 0n;
+  let discNow = 0n;
   let net = 0n;
   let gross = 0n;
-  for (const l of offerLines) {
-    const q = returned.get(l.saleLineRef);
-    if (q === undefined) continue;
-    const lineAmount = scaled(l.lineAmount, minorUnit);
+  const kept: Unit[] = [];
+  saleLines.forEach((l, order) => {
+    if (l.promotion === null) return;
     const sold = wholeUnits(l.quantity)!;
+    const discount = scaled(l.promotion.discountAmount, minorUnit);
+    expect(discount % sold).toBe(0n);
+    const unitDiscount = discount / sold;
+    const before = history.returnedUnits.get(l.saleLineRef) ?? 0n;
+    const q = now.get(l.saleLineRef) ?? 0n;
+    held += unitDiscount * (sold - before);
+    discNow += unitDiscount * q;
+    gross += scaled(l.unitPrice, minorUnit) * q;
+    const lineAmount = scaled(l.lineAmount, minorUnit);
     expect((lineAmount * q) % sold).toBe(0n);
     net += (lineAmount * q) / sold;
-    gross += scaled(l.unitPrice, minorUnit) * q;
-  }
-  const byGross = gross - (dOrig - dRemaining);
-  const refund = net < byGross ? net : byGross;
-  const clawback = refund < 0n ? null : net - refund;
+    for (let i = 0n; i < sold - before - q; i++) kept.push({ price: scaled(l.unitPrice, minorUnit), order, productId: l.productId });
+  });
+  // D_held: the discount still held on the units not returned before, less the clawbacks already recorded.
+  held -= history.clawbacks;
+  const discReturned = discNow < held ? discNow : held;
+  const dRemaining = rewardsOf(kept, offer).rewards.reduce((sum, r) => sum + percentOf(r.price, offer.percentOff), 0n);
+  const lost = held - dRemaining;
+  const refund = gross - (discReturned > lost ? discReturned : lost);
+  const clawback = lost - discReturned > 0n ? lost - discReturned : 0n;
   const outcome =
-    refund < 0n ? "promotion_clawback_exceeds_refund" : clawback! > 0n ? "promotion_return_requires_clawback" : "accepted";
+    refund < 0n ? "promotion_clawback_exceeds_refund" : clawback > 0n ? "promotion_return_requires_clawback" : "accepted";
+  if (refund >= 0n) {
+    for (const [ref, q] of now) history.returnedUnits.set(ref, (history.returnedUnits.get(ref) ?? 0n) + q);
+    history.clawbacks += clawback;
+  }
   return {
-    dOrig: format(dOrig, minorUnit),
+    dHeld: format(held, minorUnit),
+    discReturned: format(discReturned, minorUnit),
     dRemaining: format(dRemaining, minorUnit),
     netReturned: format(net, minorUnit),
     grossReturned: format(gross, minorUnit),
     refund: format(refund, minorUnit),
-    clawback: clawback === null ? null : format(clawback, minorUnit),
+    clawback: refund < 0n ? null : format(clawback, minorUnit),
     outcome,
   };
 }
+
+const freshHistory = (): ReturnHistory => ({ returnedUnits: new Map(), clawbacks: 0n });
 
 describe("offers golden vectors — file", () => {
   it("is version 1, cites spec 048 and has unique ids", () => {
@@ -265,7 +285,14 @@ describe("offers golden vectors — returns and clawback (spec 048 §9)", () => 
   const byId = new Map(vectors.evaluate.map((v) => [v.id, v]));
 
   it.each(vectors.returns.map((v) => [v.id, v] as const))("%s agrees with the reference refund", (_id, vector) => {
-    expect(settleReturn(vector)).toEqual(vector.expected);
+    const { dOrig, ...expected } = vector.expected;
+    expect(settleReturn(vector, vector.returned, freshHistory())).toEqual(expected);
+    // On a first return D_held is D_orig, and the refund is the single-return form of §9:
+    // min(net returned, gross returned − (D_orig − D_remaining)).
+    expect(expected.dHeld).toBe(dOrig);
+    const m = (x: string): bigint => scaled(x, vector.minorUnit);
+    const byGross = m(expected.grossReturned) - (m(dOrig) - m(expected.dRemaining));
+    expect(m(expected.refund)).toBe(m(expected.netReturned) < byGross ? m(expected.netReturned) : byGross);
   });
 
   it.each(vectors.returns.map((v) => [v.id, v] as const))("%s is the sale of its source vector", (_id, vector) => {
@@ -285,5 +312,36 @@ describe("offers golden vectors — returns and clawback (spec 048 §9)", () => 
     expect(m(e.refund) <= m(e.netReturned)).toBe(true);
     expect(m(e.refund) <= m(e.grossReturned) - (m(e.dOrig) - m(e.dRemaining))).toBe(true);
     if (e.clawback !== null) expect(m(e.clawback)).toBe(m(e.netReturned) - m(e.refund));
+  });
+});
+
+describe("offers golden vectors — return sequences (spec 048 §9, multi-return form)", () => {
+  const byId = new Map(vectors.evaluate.map((v) => [v.id, v]));
+
+  it("holds the three reviewed sequences", () => {
+    const refunds = new Map(vectors.returnSequences.map((s) => [s.id, s.steps.map((st) => st.expected.refund)]));
+    expect(refunds.get("S1-y-greater-than-x")).toEqual(["0.00", "50.00"]);
+    expect(refunds.get("S2-three-returns")).toEqual(["24.00", "36.00", "100.00"]);
+    expect(refunds.get("S3-clawback-then-reward")).toEqual(["220.00", "200.00"]);
+  });
+
+  it.each(vectors.returnSequences.map((v) => [v.id, v] as const))("%s agrees with the reference refund, step by step", (_id, sequence) => {
+    const history = freshHistory();
+    for (const [index, step] of sequence.steps.entries()) {
+      // A step refused only by the OD-11 interim rule is counted as recorded (the behaviour once OD-11 is decided).
+      expect([index, settleReturn(sequence, step.returned, history)]).toEqual([index, step.expected]);
+    }
+  });
+
+  it.each(vectors.returnSequences.map((v) => [v.id, v] as const))("%s never refunds more than was paid, and all of it once every unit is back", (_id, sequence) => {
+    const source = byId.get(sequence.fromVector)!;
+    const m = (x: string): bigint => scaled(x, sequence.minorUnit);
+    expect(sequence.saleLines.map((l) => l.lineAmount)).toEqual(source.expected.lines.map((l) => l.lineAmount));
+    const refunded = sequence.steps.reduce((sum, st) => sum + m(st.expected.refund), 0n);
+    const returnedAll = sequence.steps.flatMap((st) => st.returned.map((r) => r.saleLineRef));
+    const everything = sequence.saleLines.every((l) => returnedAll.includes(l.saleLineRef));
+    expect(refunded <= m(source.expected.total)).toBe(true);
+    if (everything) expect(refunded).toBe(m(source.expected.total));
+    for (const st of sequence.steps) expect(m(st.expected.refund) >= 0n).toBe(true);
   });
 });

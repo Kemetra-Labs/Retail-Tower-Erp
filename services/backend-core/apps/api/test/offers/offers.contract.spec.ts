@@ -145,6 +145,7 @@ const offer = (over: Record<string, unknown> = {}): Record<string, unknown> => (
   updatedAt: AT,
   endedAt: null,
   archivedAt: null,
+  rematerialisationConflicts: [],
   ...over,
 });
 
@@ -276,6 +277,7 @@ describe("offers — the offer definition (spec 048 §5)", () => {
       "OfferPreview",
       "OfferPack",
       "PackOffer",
+      "OfferRematerialisationConflict",
     ]) {
       expect([name, api.schema(name)["additionalProperties"]]).toEqual([name, false]);
     }
@@ -417,6 +419,38 @@ describe("offers — lifecycle writes", () => {
     expect(read(offer({ state: "expired" }))).toBe(false);
     expect(read(offer({ tenantId: ID }))).toBe(false);
     expect(read((({ draft: _d, ...rest }) => rest)(offer()))).toBe(false);
+    const kept = { offerId: ID, offerVersion: 1, nameAr: "عرض", removedProductCount: 2, removedProductSample: [PRODUCT] };
+    expect(read(offer({ rematerialisationConflicts: [kept] }))).toBe(true);
+    expect(read(offer({ rematerialisationConflicts: [{ ...kept, removedProductCount: 0 }] }))).toBe(false);
+    expect(read((({ rematerialisationConflicts: _r, ...rest }) => rest)(offer()))).toBe(false);
+  });
+
+  it("filters other stores out of what a store_manager reads", () => {
+    const info = flat(doc.info?.description);
+    expect(info).toContain(
+      "the server filters every `storeScope.storeIds` and `pausedStores` list to the caller's own stores, so another store's id, pause reason and pausing user are never returned; an all-stores offer reads `allStores: true`",
+    );
+    for (const name of ["Offer", "OfferSummary", "OfferVersion"]) {
+      expect([name, flat(api.schema(name)["description"])]).toEqual([name, expect.stringContaining("to the caller's own stores")]);
+    }
+  });
+
+  it("re-materialisation keeps a product in the earliest-published offer only (OD-7 clarification)", () => {
+    const info = flat(doc.info?.description);
+    expect(info).toContain("keeps the product only in the offer published EARLIEST (tie: the lower `offerId`)");
+    expect(info).toContain("`Offer.rematerialisationConflicts`");
+    expect(info).toContain("a product id appears in at most one offer's `eligibleProductIds` in a Pack");
+    expect(info).toContain("A paused offer counts, so that resuming it can never create an overlap");
+    expect(flat(op(PACK, "get").description)).toContain("a product id appears in at most one offer's `eligibleProductIds` in a Pack");
+    expect(flat(op(PACK, "get").description)).toContain("is omitted from the Pack");
+    expect(api.schema("OfferSummary")["required"]).toContain("rematerialisationConflictCount");
+  });
+
+  it("refuses a publish or resume that would give a store more than 200 live offers", () => {
+    expect(flat(doc.info?.description)).toContain("`offer_store_offer_limit_exceeded`");
+    expect(flat(op(PUBLISH, "post").description)).toContain("`offer_store_offer_limit_exceeded`");
+    expect(flat(op(RESUME, "post").description)).toContain("422 `offer_store_offer_limit_exceeded`");
+    expect(api.schema("OfferPack")["properties"]).toMatchObject({ offers: { maxItems: 200 } });
   });
 
   it("validates a preview with a simulation", () => {
@@ -544,6 +578,7 @@ describe("offers — the closed error set", () => {
       "offer_schedule_elapsed",
       "offer_eligible_set_empty",
       "offer_eligible_set_too_large",
+      "offer_store_offer_limit_exceeded",
       "offer_store_not_in_scope",
       "idempotency_key_required",
       "idempotency_key_malformed",
