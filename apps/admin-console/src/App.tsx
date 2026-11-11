@@ -44,6 +44,7 @@ import { saleSyncRoutes } from "@/shell/saleSyncRoutes";
 import { shiftCloseRoutes } from "@/shell/shiftCloseRoutes";
 import { stockDiscrepancyRoutes } from "@/shell/stockDiscrepancyRoutes";
 import { trackingRoutes } from "@/shell/trackingRoutes";
+import { voucherRoutes } from "@/shell/voucherRoutes";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   Navigate,
@@ -94,6 +95,7 @@ const router = createBrowserRouter(
           {rf6Routes}
           {catalogRoutes}
           {payerRoutes}
+          {voucherRoutes}
           {stockDiscrepancyRoutes}
           {inventoryRoutes}
           {trackingRoutes}
