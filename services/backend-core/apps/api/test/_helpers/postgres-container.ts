@@ -29,6 +29,7 @@ import { Client, Pool } from "pg";
 
 import type { GrantFragment } from "../../src/auth/grant-fragment";
 import { GRANTS as USERS_COLUMNS } from "../../src/auth/grants/users-columns.grants";
+import { GRANTS as VOUCHER_REDEMPTIONS_GRANTS } from "../../src/auth/grants/voucher-redemptions.grants";
 import { GRANTS as VOUCHERS_GRANTS } from "../../src/auth/grants/vouchers.grants";
 import { deviceActivity } from "../../src/pos-operators/device-activity";
 import {
@@ -151,19 +152,26 @@ export async function restrictDomainUsersColumns(admin: Pool, role: string): Pro
  * eligibility table) and its table-wide UPDATE on `vouchers`, then gets the
  * fragment's columns: a runtime statement outside the production grants fails
  * here with `permission denied`.
+ *
+ * RT-1112 (RT-1112 c16559): the same for the two redemption tables, from the
+ * voucher-redemptions fragment: SELECT and INSERT on both, UPDATE only on
+ * `voucher_redemption_intents (consumed_at)` and `voucher_redemptions
+ * (reversed_at, reversed_by_device_id)`, no DELETE.
  */
 export async function restrictDomainVouchersColumns(admin: Pool, role: string): Promise<void> {
-  const held = new Map<string, Set<string>>();
-  for (const [table, privilege] of VOUCHERS_GRANTS.domainRequired) {
-    held.set(table, (held.get(table) ?? new Set<string>()).add(privilege));
+  for (const fragment of [VOUCHERS_GRANTS, VOUCHER_REDEMPTIONS_GRANTS]) {
+    const held = new Map<string, Set<string>>();
+    for (const [table, privilege] of fragment.domainRequired) {
+      held.set(table, (held.get(table) ?? new Set<string>()).add(privilege));
+    }
+    const statements: string[] = [];
+    for (const [table, privileges] of held) {
+      const revoked = TABLE_PRIVILEGES.filter((p) => !privileges.has(p));
+      statements.push(`REVOKE ${revoked.join(", ")} ON ${table} FROM ${role}`);
+    }
+    await admin.query(statements.join(";\n"));
+    await restrictDomainColumns(admin, role, fragment, ["UPDATE"]);
   }
-  const statements: string[] = [];
-  for (const [table, privileges] of held) {
-    const revoked = TABLE_PRIVILEGES.filter((p) => !privileges.has(p));
-    statements.push(`REVOKE ${revoked.join(", ")} ON ${table} FROM ${role}`);
-  }
-  await admin.query(statements.join(";\n"));
-  await restrictDomainColumns(admin, role, VOUCHERS_GRANTS, ["UPDATE"]);
 }
 
 const TABLE_PRIVILEGES = ["SELECT", "INSERT", "UPDATE", "DELETE"] as const;

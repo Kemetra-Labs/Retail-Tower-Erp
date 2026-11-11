@@ -64,6 +64,14 @@ export interface IdempotentOptions {
    * route: the store key of every other route is unchanged.
    */
   clientScope?: "device";
+  /**
+   * RT-1112: top-level fields of a replayed JSON object body that the replay
+   * sets to fixed values, for a contract whose body says whether it is a
+   * replay (V-A redeem `idempotent_replayed: true`, reverse
+   * `already_reversed: true`). The stored record is unchanged; a non-object
+   * body is replayed as stored. Default: none.
+   */
+  replayBodyOverrides?: Readonly<Record<string, unknown>>;
 }
 
 /**
