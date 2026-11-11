@@ -61,7 +61,7 @@ export const vouchers = pgTable(
       "vouchers_cancelled_columns",
       sql`(${t.status} = 'cancelled') = (${t.cancelledAt} IS NOT NULL) AND (${t.status} = 'cancelled') = (${t.cancelledByUserId} IS NOT NULL)`,
     ),
-    check("vouchers_note_length", sql`${t.note} IS NULL OR char_length(${t.note}) BETWEEN 1 AND 200`),
+    check("vouchers_note_length", sql`${t.note} IS NULL OR char_length(${t.note}) <= 200`),
     index("idx_vouchers_tenant_batch").on(t.tenantId, t.batchId),
     index("idx_vouchers_tenant_created").on(t.tenantId, t.createdAt, t.id),
   ],

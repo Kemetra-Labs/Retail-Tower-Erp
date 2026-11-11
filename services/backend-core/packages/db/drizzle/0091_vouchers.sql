@@ -102,7 +102,7 @@ CREATE TABLE vouchers (
     (status = 'cancelled') = (cancelled_at IS NOT NULL)
     AND (status = 'cancelled') = (cancelled_by_user_id IS NOT NULL)
   ),
-  CONSTRAINT vouchers_note_length CHECK (note IS NULL OR char_length(note) BETWEEN 1 AND 200),
+  CONSTRAINT vouchers_note_length CHECK (note IS NULL OR char_length(note) <= 200),
   -- FK target of voucher_eligible_stores (the stores_tenant_id_uk pattern).
   CONSTRAINT vouchers_tenant_id_uk UNIQUE (tenant_id, id),
   CONSTRAINT vouchers_tenant_code_hash_uk UNIQUE (tenant_id, code_hash)

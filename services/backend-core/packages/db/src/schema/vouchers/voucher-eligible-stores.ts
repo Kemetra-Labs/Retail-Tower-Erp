@@ -7,12 +7,15 @@
  * cannot enforce that across tables, so the runtime owns it. Two composite FKs
  * (`(tenant_id, voucher_id) → vouchers (tenant_id, id)` and
  * `(tenant_id, store_id) → stores (tenant_id, id)`, both ON DELETE RESTRICT)
- * are defined in 0091's SQL so neither side can cross tenants.
+ * are declared below (and in 0091's SQL) so neither side can cross tenants.
  *
  * RLS: ENABLE + FORCE; SELECT + INSERT tenant policies only (the eligible set
  * is fixed at issue). §XIV: BUSINESS-CLASS — three opaque ids, no PII, no money.
  */
-import { index, pgTable, primaryKey, uuid } from "drizzle-orm/pg-core";
+import { foreignKey, index, pgTable, primaryKey, uuid } from "drizzle-orm/pg-core";
+
+import { stores } from "../stores";
+import { vouchers } from "./vouchers";
 
 export const voucherEligibleStores = pgTable(
   "voucher_eligible_stores",
@@ -24,6 +27,16 @@ export const voucherEligibleStores = pgTable(
   (t) => [
     primaryKey({ name: "voucher_eligible_stores_pkey", columns: [t.tenantId, t.voucherId, t.storeId] }),
     index("idx_voucher_eligible_stores_tenant_store").on(t.tenantId, t.storeId),
+    foreignKey({
+      name: "fk_voucher_eligible_stores_voucher_tenant",
+      columns: [t.tenantId, t.voucherId],
+      foreignColumns: [vouchers.tenantId, vouchers.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fk_voucher_eligible_stores_store_tenant",
+      columns: [t.tenantId, t.storeId],
+      foreignColumns: [stores.tenantId, stores.id],
+    }).onDelete("restrict"),
   ],
 );
 

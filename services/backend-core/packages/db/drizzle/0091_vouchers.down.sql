@@ -5,7 +5,8 @@
 -- Drops `voucher_eligible_stores`, then `vouchers` (with their indexes,
 -- trigger, policies and grants). A voucher is a stored value a customer may
 -- hold, so the rollback REFUSES while any voucher exists: back up, decide, and
--- delete them explicitly first. Both tables are FORCE ROW LEVEL SECURITY and
+-- have a superuser remove the rows first (neither table has a DELETE policy,
+-- so the migration owner cannot). Both tables are FORCE ROW LEVEL SECURITY and
 -- the production migration owner is not a superuser, so the guard reads under
 -- app.is_platform_admin and each tenant's app.current_tenant; a bare SELECT
 -- would see no rows and drop them. Eligible-store rows cannot exist without
@@ -24,6 +25,8 @@
 
 BEGIN;
 
+SET LOCAL lock_timeout = '2s';
+
 DO $$
 DECLARE
   t uuid;
@@ -33,10 +36,11 @@ BEGIN
   IF to_regclass('vouchers') IS NULL THEN
     RETURN;
   END IF;
+  -- Same order as runtime writes (vouchers, then voucher_eligible_stores).
+  LOCK TABLE vouchers IN ACCESS EXCLUSIVE MODE;
   IF to_regclass('voucher_eligible_stores') IS NOT NULL THEN
     LOCK TABLE voucher_eligible_stores IN ACCESS EXCLUSIVE MODE;
   END IF;
-  LOCK TABLE vouchers IN ACCESS EXCLUSIVE MODE;
   PERFORM set_config('app.is_platform_admin', 'true', true);
   PERFORM set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true);
   FOR t IN SELECT id FROM tenants LOOP
@@ -45,7 +49,7 @@ BEGIN
     rows_found := rows_found + n;
   END LOOP;
   IF rows_found > 0 THEN
-    RAISE EXCEPTION '0091 down refused: % voucher(s) exist; back up and delete them explicitly first', rows_found;
+    RAISE EXCEPTION '0091 down refused: % voucher(s) exist; the tables have no DELETE policy, so a superuser must remove the rows (after a backup, under the data-retention procedure) before rollback', rows_found;
   END IF;
 END
 $$;

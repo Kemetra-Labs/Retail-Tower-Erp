@@ -612,9 +612,11 @@ A script without the marker, such as the owner-gated
   [`sql/vouchers-domain-grants.sql`](sql/vouchers-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
-  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
-  `UPDATE` on `vouchers` (issue inserts; cancel is a conditional `UPDATE` of
-  the status) and `SELECT` and `INSERT` on `voucher_eligible_stores` (fixed at
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and
+  `INSERT` on `vouchers`, column-level `UPDATE` on `vouchers (status,
+  cancelled_at, cancelled_by_user_id)` only (issue inserts; cancel is a
+  conditional `UPDATE` of those columns; the boot check reads it from
+  `domainRequiredColumns`) and `SELECT` and `INSERT` on `voucher_eligible_stores` (fixed at
   issue). No `DELETE` policy on either: never grant `DELETE` or `TRUNCATE`, nor
   `UPDATE` on the eligible stores. Without the grants the API refuses to boot
   (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on

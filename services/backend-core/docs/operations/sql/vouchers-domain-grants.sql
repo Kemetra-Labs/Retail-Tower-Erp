@@ -23,10 +23,13 @@
 -- permission denied. Both tables are FORCE ROW LEVEL SECURITY by tenant, so
 -- the grants give access only inside runWithTenantContext.
 --
--- vouchers: SELECT, INSERT and UPDATE. Issue inserts, the console reads, and
--- cancel (and later redeem) is a conditional UPDATE of the status (0091 has
--- SELECT, INSERT and UPDATE tenant policies). voucher_eligible_stores: SELECT
--- and INSERT only (the eligible set is fixed at issue; no UPDATE policy).
+-- vouchers: SELECT and INSERT table-level, and UPDATE on three columns only
+-- (status, cancelled_at, cancelled_by_user_id; RT-1249 column grants). Issue
+-- inserts, the console reads, and cancel (and later redeem) is a conditional
+-- UPDATE of those columns, so the domain role can never rewrite amount_minor,
+-- code_hash, expires_at and the like. The updated_at trigger assigns NEW
+-- itself and needs no column privilege. voucher_eligible_stores: SELECT and
+-- INSERT only (the eligible set is fixed at issue; no UPDATE policy).
 -- Never grant DELETE or TRUNCATE on either: there is no DELETE policy, and
 -- TRUNCATE is not subject to row security.
 --
@@ -44,23 +47,37 @@
   DO $$ BEGIN RAISE EXCEPTION 'domain_role not set'; END $$;
 \endif
 
-GRANT SELECT, INSERT, UPDATE ON vouchers TO :"domain_role";
+-- A table-level UPDATE would cover every column; clear it (and any wider column
+-- UPDATE) so only the list below remains. SELECT and INSERT are untouched.
+REVOKE UPDATE ON vouchers FROM :"domain_role";
+GRANT SELECT, INSERT ON vouchers TO :"domain_role";
+GRANT UPDATE (status, cancelled_at, cancelled_by_user_id) ON vouchers TO :"domain_role";
 GRANT SELECT, INSERT ON voucher_eligible_stores TO :"domain_role";
 
 -- Verify the domain role: every row must read `t`.
 SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS granted
   FROM (VALUES ('vouchers', 'SELECT'),
                ('vouchers', 'INSERT'),
-               ('vouchers', 'UPDATE'),
                ('voucher_eligible_stores', 'SELECT'),
                ('voucher_eligible_stores', 'INSERT')) AS t(tbl, priv);
 
-SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv)) AS domain_ok
-  FROM (VALUES ('vouchers', 'SELECT'),
-               ('vouchers', 'INSERT'),
-               ('vouchers', 'UPDATE'),
-               ('voucher_eligible_stores', 'SELECT'),
-               ('voucher_eligible_stores', 'INSERT')) AS t(tbl, priv) \gset
+SELECT c.col, has_column_privilege(:'domain_role', 'vouchers', c.col, 'UPDATE') AS granted
+  FROM (VALUES ('status'), ('cancelled_at'), ('cancelled_by_user_id')) AS c(col);
+
+-- No wider UPDATE: the immutable columns must read `f`.
+SELECT c.col, has_column_privilege(:'domain_role', 'vouchers', c.col, 'UPDATE') AS granted
+  FROM (VALUES ('amount_minor'), ('code_hash'), ('expires_at'), ('tenant_id')) AS c(col);
+
+SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
+          FROM (VALUES ('vouchers', 'SELECT'),
+                       ('vouchers', 'INSERT'),
+                       ('voucher_eligible_stores', 'SELECT'),
+                       ('voucher_eligible_stores', 'INSERT')) AS t(tbl, priv))
+       AND (SELECT bool_and(has_column_privilege(:'domain_role', 'vouchers', c.col, 'UPDATE'))
+              FROM (VALUES ('status'), ('cancelled_at'), ('cancelled_by_user_id')) AS c(col))
+       AND NOT (SELECT bool_or(has_column_privilege(:'domain_role', 'vouchers', c.col, 'UPDATE'))
+                  FROM (VALUES ('amount_minor'), ('code_hash'), ('expires_at'), ('tenant_id')) AS c(col))
+       AS domain_ok \gset
 
 \if :domain_ok
   \echo 'OK: domain role holds every required voucher grant.'

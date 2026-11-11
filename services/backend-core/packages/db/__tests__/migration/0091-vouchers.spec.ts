@@ -6,7 +6,7 @@
  *   - FORCE RLS and the exact policy set: `vouchers` SELECT + INSERT + UPDATE,
  *     `voucher_eligible_stores` SELECT + INSERT, no DELETE policy on either;
  *   - the CHECKs: status set, positive amount, currency shape, the cancel
- *     columns set together and only for a cancelled voucher, note length, and
+ *     columns set together and only for a cancelled voucher, note length (max 200), and
  *     a nullable `expires_at`;
  *   - UNIQUE (tenant_id, code_hash);
  *   - the composite FKs (AC1): an eligible-store row whose voucher or store
@@ -201,6 +201,9 @@ describe("0091: vouchers constraints", () => {
       ),
     ).toBeNull();
     expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, status: "redeemed" }))).toBeNull();
+    // The contract's note is any string up to 200 characters, so '' and 200 are accepted.
+    expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, note: "" }))).toBeNull();
+    expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, note: "n".repeat(200) }))).toBeNull();
   });
 
   it.each<[string, Partial<VoucherRow>]>([
@@ -212,8 +215,7 @@ describe("0091: vouchers constraints", () => {
     ["cancel columns on an active voucher", { cancelled_by_user_id: ACTOR, cancelled_at: "2026-11-11T00:00:00Z" }],
     ["a cancelled voucher without who cancelled it", { status: "cancelled", cancelled_at: "2026-11-11T00:00:00Z" }],
     ["a cancelled voucher without when", { status: "cancelled", cancelled_by_user_id: ACTOR }],
-    ["an empty note", { note: "" }],
-    ["a 201-character note", { note: "n".repeat(201) }],
+        ["a 201-character note", { note: "n".repeat(201) }],
   ])("refuses %s (23514)", async (_why, change) => {
     if (skip()) return;
     expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, ...change }))).toBe("23514");
@@ -303,13 +305,15 @@ describe("0091: voucher_eligible_stores composite FKs (AC1)", () => {
 });
 
 describe("0091: tenant isolation (AC2, FORCE RLS)", () => {
-  it("lets the app role write and read only its own tenant", async () => {
+  it("lets the app role read only its own tenant's COMMITTED rows and refuses cross-tenant writes", async () => {
     if (skip()) return;
+    // Tenant A's voucher and eligible store are committed as the superuser, so
+    // they are really there when tenant B's session runs (asApp rolls back).
+    await seedVoucherA();
     try {
       await asApp(guard(), TENANT_A, async (client) => {
-        await client.query(INSERT_V, valuesOf(ACTIVE));
-        await client.query(INSERT_E, [TENANT_A, VOUCHER_A, STORE_A]);
-        expect((await client.query(`SELECT 1 FROM ${V}`)).rowCount).toBe(1);
+        const own = await client.query<{ id: string }>(`SELECT id FROM ${V}`);
+        expect(own.rows).toEqual([{ id: VOUCHER_A }]);
         expect((await client.query(`SELECT 1 FROM ${E}`)).rowCount).toBe(1);
         // Another tenant's rows are refused by the INSERT policies (42501).
         await client.query("SAVEPOINT other");
@@ -321,13 +325,20 @@ describe("0091: tenant isolation (AC2, FORCE RLS)", () => {
       });
       await asApp(guard(), TENANT_B, async (client) => {
         await client.query(INSERT_V, valuesOf(ACTIVE_B));
-        // Tenant B sees none of tenant A's rows.
+        // Tenant B sees only its own row: not the committed tenant-A voucher or store row.
         const seen = await client.query<{ tenant_id: string }>(`SELECT tenant_id FROM ${V}`);
         expect(seen.rows).toEqual([{ tenant_id: TENANT_B }]);
         expect((await client.query(`SELECT 1 FROM ${E}`)).rowCount).toBe(0);
-        // And cannot cancel tenant A's voucher: it is invisible to UPDATE.
-        expect((await client.query(`UPDATE ${V} SET status = 'redeemed' WHERE id = $1`, [VOUCHER_A])).rowCount).toBe(0);
+        // And cannot cancel tenant A's voucher: it is invisible to the UPDATE policy.
+        const cancel = await client.query(
+          `UPDATE ${V} SET status = 'cancelled', cancelled_by_user_id = $2, cancelled_at = now() WHERE id = $1`,
+          [VOUCHER_A, ACTOR],
+        );
+        expect(cancel.rowCount).toBe(0);
       });
+      // The superuser confirms tenant A's voucher was not touched.
+      const after = await guard().admin.query<{ status: string }>(`SELECT status FROM ${V} WHERE id = $1`, [VOUCHER_A]);
+      expect(after.rows).toEqual([{ status: "active" }]);
     } finally {
       await clearVouchers();
     }
