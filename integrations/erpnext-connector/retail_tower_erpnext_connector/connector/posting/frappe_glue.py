@@ -597,8 +597,8 @@ def post_work_item(
 	# Build the Sales-Invoice payload from the pure-Python core (no frappe in the build).
 	# build_sales_invoice self-validates money (FR-009), raises on an unmapped unit (FR-008) or a
 	# non-conformant amount, and warehouse_for raises UnresolvedWarehouse on a store with no
-	# pre-resolved warehouse (rider R5 — should have DLQ'd in DP2). All are non-retryable
-	# (:func:`_build_or_reject`).
+	# pre-resolved warehouse (rider R5 — should have DLQ'd in DP2). All are non-retryable;
+	# only a transient read of the site clock acks failed_transient (:func:`_build_or_reject`).
 	built = _build_sale_or_reject(
 		work_item,
 		client=client,
@@ -947,8 +947,8 @@ def _post_reversal(
 		)
 
 	# Build the reversing payload from the pure core (no frappe in the build). Same fail-closed
-	# mapping as the forward path: unmapped unit → unmapped_unit; money/warehouse/store → validation;
-	# anything else → other. A final `except Exception` guarantees the terminal-outcome invariant.
+	# mapping as the forward path: a transient DB error → failed_transient (RT-1312 Phase 2 item 6);
+	# unmapped unit → unmapped_unit; money/warehouse/store → validation; anything else → other. A final `except Exception` guarantees the terminal-outcome invariant.
 	built = _build_reversal_or_reject(
 		work_item,
 		client=client,
