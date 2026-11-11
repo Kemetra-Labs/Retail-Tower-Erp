@@ -9,10 +9,9 @@ info:
     promotional only; 1A forfeit, 2A, 3A and 5A).
 
 
-    **Posture.** `1.0.0-draft`, `[GATED]` OpenAPI, and **contract-only**: every
-    operation carries `x-runtime-status: contract-only`. Backend-Core has no
-    controller, guard, service or persistence path for these routes yet; the
-    migration is RT-1107 (I-2) and the runtime is RT-1108 (I-3). This file is a
+    **Posture.** `1.0.0-draft`, `[GATED]` OpenAPI. The runtime shipped with
+    RT-1108 (I-3), on the tables of migration 0091 (RT-1107, I-2), so the
+    operations carry no `x-runtime-status` marker. This file is a
     new contract, so it adds nothing to an existing one. The POS redemption
     contract (`pos-payments/vouchers.yaml`, V-A) is a different surface and is
     not changed here (RT-1110, R-1).
@@ -106,11 +105,6 @@ paths:
         A store that exists but is inactive is 409 `store_inactive`. Currency is
         the tenant default and is returned as `currency_code`.
       operationId: consoleIssueVouchers
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1101 (I-1) publishes the contract only. There is no controller,
-        guard, service, table or migration for this route until RT-1107 (I-2)
-        and RT-1108 (I-3).
       x-idempotency: required
       x-audit-action: voucher.issued
       tags: [vouchers-admin]
@@ -180,11 +174,6 @@ paths:
         `tenant_admin`. The list never returns a code. `status` is the
         effective status. Filters combine with AND.
       operationId: consoleListVouchers
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1101 (I-1) publishes the contract only. There is no controller,
-        guard, service or table for this route until RT-1107 (I-2) and RT-1108
-        (I-3).
       x-audit-action: vouchers.listed
       tags: [vouchers-admin]
       parameters:
@@ -257,11 +246,6 @@ paths:
         Roles: `owner`, `tenant_admin`. A voucher that is not of the session
         tenant is the same 404 as one that does not exist.
       operationId: consoleGetVoucher
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1101 (I-1) publishes the contract only. There is no controller,
-        guard, service or table for this route until RT-1107 (I-2) and RT-1108
-        (I-3).
       x-audit-action: vouchers.read
       tags: [vouchers-admin]
       responses:
@@ -304,11 +288,6 @@ paths:
         wins, and the final status is `cancelled` or `redeemed`, never both.
         A same-key retry replays the stored 200 (`Idempotent-Replayed: true`).
       operationId: consoleCancelVoucher
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1101 (I-1) publishes the contract only. There is no controller,
-        guard, service or table for this route until RT-1107 (I-2) and RT-1108
-        (I-3).
       x-idempotency: required
       x-audit-action: voucher.cancelled
       tags: [vouchers-admin]
@@ -358,8 +337,7 @@ tags:
   - name: vouchers-admin
     description: >
       Tenant-scoped promotional voucher issuance for the Admin Console:
-      issue (codes shown once), list, read and cancel. Contract-only until
-      RT-1108.
+      issue (codes shown once), list, read and cancel. Runtime: RT-1108.
 components:
   parameters:
     IdempotencyKey:

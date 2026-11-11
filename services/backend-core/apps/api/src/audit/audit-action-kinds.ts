@@ -80,6 +80,9 @@ const LIVE_READ_CODES = [
   "tenant.logo.read",
   // RT-451 S1: the POS lot lookup.
   "tracked_lots.listed",
+  // RT-1108: the Console voucher reads.
+  "vouchers.listed",
+  "vouchers.read",
 ] as const;
 
 /**

@@ -27,7 +27,9 @@ import {
 } from "@testcontainers/postgresql";
 import { Client, Pool } from "pg";
 
+import type { GrantFragment } from "../../src/auth/grant-fragment";
 import { GRANTS as USERS_COLUMNS } from "../../src/auth/grants/users-columns.grants";
+import { GRANTS as VOUCHERS_GRANTS } from "../../src/auth/grants/vouchers.grants";
 import { deviceActivity } from "../../src/pos-operators/device-activity";
 import {
   cloneDatabase,
@@ -137,15 +139,44 @@ export async function startPgEnv(opts: StartPgEnvOptions = {}): Promise<PgTestEn
  * idempotent. DELETE is left as it is (out of RT-1249's scope).
  */
 export async function restrictDomainUsersColumns(admin: Pool, role: string): Promise<void> {
-  const byPrivilege = new Map<string, string[]>();
-  for (const [table, column, privilege] of USERS_COLUMNS.domainRequiredColumns ?? []) {
-    if (table !== "users") throw new Error(`users-columns fragment names table ${table}`);
+  await restrictDomainColumns(admin, role, USERS_COLUMNS, ["SELECT", "INSERT", "UPDATE"]);
+}
+
+/**
+ * RT-1108: the same for `vouchers`. Production lets the domain role UPDATE only
+ * `status`, `cancelled_at` and `cancelled_by_user_id` (src/auth/grants/
+ * vouchers.grants.ts), so the test role loses its table-wide UPDATE and gets
+ * exactly those columns: a runtime write to any other column fails here with
+ * `permission denied`, as it would in production.
+ */
+export async function restrictDomainVouchersColumns(admin: Pool, role: string): Promise<void> {
+  await restrictDomainColumns(admin, role, VOUCHERS_GRANTS, ["UPDATE"]);
+}
+
+/**
+ * Replace `role`'s table-level `revoked` privileges on every table a fragment
+ * names in `domainRequiredColumns` with the fragment's column grants. Revoking a
+ * table-level privilege also revokes it on every column, so this is idempotent.
+ */
+async function restrictDomainColumns(
+  admin: Pool,
+  role: string,
+  fragment: GrantFragment,
+  revoked: readonly string[],
+): Promise<void> {
+  const byTable = new Map<string, Map<string, string[]>>();
+  for (const [table, column, privilege] of fragment.domainRequiredColumns ?? []) {
+    const byPrivilege = byTable.get(table) ?? new Map<string, string[]>();
     byPrivilege.set(privilege, [...(byPrivilege.get(privilege) ?? []), column]);
+    byTable.set(table, byPrivilege);
   }
-  // Identifiers come from the validated fragment (lowercase [a-z_][a-z0-9_]*).
-  const statements = [`REVOKE SELECT, INSERT, UPDATE ON users FROM ${role}`];
-  for (const [privilege, columns] of byPrivilege) {
-    statements.push(`GRANT ${privilege} (${columns.join(", ")}) ON users TO ${role}`);
+  // Identifiers come from the validated fragments (lowercase [a-z_][a-z0-9_]*).
+  const statements: string[] = [];
+  for (const [table, byPrivilege] of byTable) {
+    statements.push(`REVOKE ${revoked.join(", ")} ON ${table} FROM ${role}`);
+    for (const [privilege, columns] of byPrivilege) {
+      statements.push(`GRANT ${privilege} (${columns.join(", ")}) ON ${table} TO ${role}`);
+    }
   }
   await admin.query(statements.join(";\n"));
 }
@@ -330,4 +361,5 @@ export async function applyAllMigrationsAndAppRole(admin: Pool): Promise<void> {
     ON ALL SEQUENCES IN SCHEMA public TO ${APP_ROLE_NAME}
   `);
   await restrictDomainUsersColumns(admin, APP_ROLE_NAME);
+  await restrictDomainVouchersColumns(admin, APP_ROLE_NAME);
 }
