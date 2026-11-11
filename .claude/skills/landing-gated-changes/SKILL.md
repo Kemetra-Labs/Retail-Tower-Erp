@@ -58,6 +58,27 @@ State this in the PR body.
   in `apps/admin-console`, committing the regenerated client; the Connector PIN by hand), as #317
   and #321 did. Never pin a branch-only commit: CI reads the pinned commit from git, and a squash
   merge drops it. Each slice is its own issue when the consumers are out of scope.
+- **A default value or description edit is not a break (RT-1316, #485).** oasdiff rates
+  `request-property-default-value-changed` as INFO, and
+  `services/backend-core/tools/oasdiff/severity-levels.txt` does not raise it. `contracts/check`
+  fails only on WARN or ERR; for these edits it prints a `DRIFT` line and stays green, even though
+  the consumer PINs still list the old blob (#485 changed two pinned contracts with no repin). Do not
+  repin, and do not edit a vendored copy under `apps/pos/contracts/` in the same PR: that breaks its
+  pin hash. The copy and the generated `api-types.ts` catch up at the next repin to a `main` commit.
+- **Bumping `info.version` breaks version-pinning specs.** Backend-Core specs assert contract
+  versions (for example `devices*.contract.spec.ts` and `pos-terminal-pairing/*.contract.spec.ts`).
+  Before the first push, grep `services/backend-core/apps/api/test` for the old version string and
+  its escaped form (`1\.7\.0`), and add a version note paragraph in the contract's own style. When a
+  sibling branch drafts against the same file, say the new version in the PR body or on the Jira
+  issue so it takes the next one.
+- **Grep the consumers for the old value of a default you change.** #485 moved the pairing TTL
+  default from 60 to 1440, and `git grep -n -E "ttlMinutes|Default 60|default \(60\)|60 minutes" -- apps`
+  still found the Console help text (`apps/admin-console/src/i18n/messages/*/devices.ts`), code
+  comments in `apps/admin-console/src/lib/device-queries.ts` and the POS runbook
+  (`apps/pos/docs/runbook/pilot-terminal-provisioning.md`), among unrelated "60 minutes" hits. The
+  generated Console client (`apps/admin-console/src/generated/schema.d.ts`, `@default 60`) changes
+  only at the next repin. Update each stale hand-written copy or name the issue that owns it in the PR
+  body; never leave one unowned.
 
 ## Migrations (`services/backend-core/packages/db/drizzle/`)
 
