@@ -67,7 +67,10 @@ export function runStartupMigrations(deps: StartupMigrationsDeps): StartupMigrat
       return { ok: false, refusal: describeSchemaAheadRefusal(err.unknownMigrations) };
     }
     const failure = classifyStartupFailure(err, 'database_migration');
-    logger.error({ ...failure, err }, 'db:startup_migration_failed');
+    logger.error(
+      { failureClass: failure.failureClass, code: failure.code },
+      'db:startup_migration_failed',
+    );
     return { ok: false, refusal: describeStartupFailureRefusal({ failure, backupsDir }) };
   }
   return { ok: true };
