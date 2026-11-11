@@ -43,6 +43,7 @@ const STORE_A2 = id("0a012");
 const STORE_B = id("0b011");
 const DEVICE_A = id("0a021");
 const DEVICE_A2 = id("0a022"); // tenant A, store A2
+const DEVICE_A3 = id("0a023"); // tenant A, store A1 (a second device of STORE_A)
 const DEVICE_B = id("0b021");
 const ACTOR = id("0a0a1");
 const BATCH = id("0a0b1");
@@ -108,6 +109,10 @@ beforeAll(async () => {
             ($3, $7, $8, decode(repeat('b1', 32), 'hex'))`,
     [DEVICE_A, DEVICE_A2, DEVICE_B, TENANT_A, STORE_A, STORE_A2, TENANT_B, STORE_B],
   );
+  await a.query(
+    `INSERT INTO devices (id, tenant_id, store_id, token_hash) VALUES ($1, $2, $3, decode(repeat('a3', 32), 'hex'))`,
+    [DEVICE_A3, TENANT_A, STORE_A],
+  );
   await a.query(voucherInsert, [VOUCHER_A, TENANT_A, BATCH, "a1", ACTOR]);
   await a.query(voucherInsert, [VOUCHER_A2, TENANT_A, BATCH, "a2", ACTOR]);
   await a.query(voucherInsert, [VOUCHER_B, TENANT_B, BATCH, "b1", ACTOR]);
@@ -147,6 +152,7 @@ interface RedemptionRow {
   forfeited_amount_minor: number | string;
   operator_user_id: string;
   device_id: string;
+  redeemed_at: string;
   reversed_at: string | null;
   reversed_by_device_id: string | null;
 }
@@ -155,6 +161,8 @@ const hash = (hex: string): Buffer => Buffer.from(hex.repeat(32).slice(0, 64), "
 const CREATED = "2026-11-11T10:00:00Z";
 const IN_5_MIN = "2026-11-11T10:05:00Z";
 const IN_5_MIN_1S = "2026-11-11T10:05:01Z";
+// Well before any real "now", so reversing with now() satisfies reversed_at >= redeemed_at.
+const REDEEMED = "2026-11-01T00:00:00Z";
 
 const INTENT: IntentRow = {
   id: INTENT_A,
@@ -193,6 +201,7 @@ const REDEMPTION: RedemptionRow = {
   forfeited_amount_minor: 2000,
   operator_user_id: ACTOR,
   device_id: DEVICE_A,
+  redeemed_at: REDEEMED,
   reversed_at: null,
   reversed_by_device_id: null,
 };
@@ -204,6 +213,12 @@ const REDEMPTION_OF_B: RedemptionRow = {
   voucher_id: VOUCHER_B,
   intent_id: INTENT_B,
   device_id: DEVICE_B,
+};
+
+/** An intent that is live right now, so a consume with now() lies within [created_at, expires_at]. */
+const fresh = (row: IntentRow): IntentRow => {
+  const now = Date.now();
+  return { ...row, created_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 120_000).toISOString() };
 };
 
 const I_COLS = Object.keys(INTENT) as (keyof IntentRow)[];
@@ -259,6 +274,12 @@ async function code(sql: string, params: unknown[], before?: (c: PoolClient) => 
 const withIntent = async (c: PoolClient): Promise<void> => {
   await c.query(INSERT_I, intentValues(INTENT));
 };
+/** The intent a redemption with these amounts binds to (same id, store, voucher and attempt as INTENT). */
+const withIntentAmounts =
+  (applied: number, forfeited: number) =>
+  async (c: PoolClient): Promise<void> => {
+    await c.query(INSERT_I, intentValues({ ...INTENT, applied_amount_minor: applied, forfeited_amount_minor: forfeited }));
+  };
 
 /** Commit tenant A's intent and redemption as the superuser; the caller clears them. */
 async function seedA(): Promise<void> {
@@ -311,15 +332,10 @@ describe("0092: voucher_redemption_intents constraints", () => {
     expect(await code(INSERT_I, intentValues(INTENT))).toBeNull();
     expect(await code(INSERT_I, intentValues({ ...INTENT, consumed_at: "2026-11-11T10:01:00Z" }))).toBeNull();
     expect(await code(INSERT_I, intentValues({ ...INTENT, forfeited_amount_minor: 0 }))).toBeNull();
+    // The largest valid splits: the sum, not each amount alone, is bounded.
+    expect(await code(INSERT_I, intentValues({ ...INTENT, applied_amount_minor: Number.MAX_SAFE_INTEGER, forfeited_amount_minor: 0 }))).toBeNull();
     expect(
-      await code(
-        INSERT_I,
-        intentValues({
-          ...INTENT,
-          applied_amount_minor: Number.MAX_SAFE_INTEGER,
-          forfeited_amount_minor: Number.MAX_SAFE_INTEGER,
-        }),
-      ),
+      await code(INSERT_I, intentValues({ ...INTENT, applied_amount_minor: 1, forfeited_amount_minor: Number.MAX_SAFE_INTEGER - 1 })),
     ).toBeNull();
     // Exactly 5 minutes is the limit and is accepted; a shorter TTL too.
     expect(await code(INSERT_I, intentValues({ ...INTENT, expires_at: IN_5_MIN }))).toBeNull();
@@ -332,7 +348,12 @@ describe("0092: voucher_redemption_intents constraints", () => {
     ["an applied amount above the JS safe-integer bound", { applied_amount_minor: "9007199254740992" }],
     ["a negative forfeited amount", { forfeited_amount_minor: -1 }],
     ["a forfeited amount above the JS safe-integer bound", { forfeited_amount_minor: "9007199254740992" }],
+    ["an applied + forfeited sum above the JS safe-integer bound", { applied_amount_minor: Number.MAX_SAFE_INTEGER, forfeited_amount_minor: 1 }],
     ["a TTL one second over 5 minutes", { expires_at: IN_5_MIN_1S }],
+    ["an expiry equal to the creation time", { expires_at: CREATED }],
+    ["an expiry before the creation time", { expires_at: "2026-11-11T09:59:00Z" }],
+    ["a consumption before the creation time", { consumed_at: "2026-11-11T09:59:00Z" }],
+    ["a consumption after the expiry", { consumed_at: IN_5_MIN_1S }],
   ])("refuses %s (23514)", async (_why, change) => {
     if (skip()) return;
     expect(await code(INSERT_I, intentValues({ ...INTENT, ...change }))).toBe("23514");
@@ -368,16 +389,22 @@ describe("0092: voucher_redemptions constraints", () => {
         withIntent,
       ),
     ).toBeNull();
-    expect(await code(INSERT_R, redemptionValues({ ...REDEMPTION, forfeited_amount_minor: 0 }), withIntent)).toBeNull();
+    expect(
+      await code(INSERT_R, redemptionValues({ ...REDEMPTION, forfeited_amount_minor: 0 }), withIntentAmounts(3000, 0)),
+    ).toBeNull();
+    // The largest valid splits: the sum, not each amount alone, is bounded.
     expect(
       await code(
         INSERT_R,
-        redemptionValues({
-          ...REDEMPTION,
-          applied_amount_minor: Number.MAX_SAFE_INTEGER,
-          forfeited_amount_minor: Number.MAX_SAFE_INTEGER,
-        }),
-        withIntent,
+        redemptionValues({ ...REDEMPTION, applied_amount_minor: Number.MAX_SAFE_INTEGER, forfeited_amount_minor: 0 }),
+        withIntentAmounts(Number.MAX_SAFE_INTEGER, 0),
+      ),
+    ).toBeNull();
+    expect(
+      await code(
+        INSERT_R,
+        redemptionValues({ ...REDEMPTION, applied_amount_minor: 1, forfeited_amount_minor: Number.MAX_SAFE_INTEGER - 1 }),
+        withIntentAmounts(1, Number.MAX_SAFE_INTEGER - 1),
       ),
     ).toBeNull();
   });
@@ -388,6 +415,8 @@ describe("0092: voucher_redemptions constraints", () => {
     ["an applied amount above the JS safe-integer bound", { applied_amount_minor: "9007199254740992" }],
     ["a negative forfeited amount", { forfeited_amount_minor: -1 }],
     ["a forfeited amount above the JS safe-integer bound", { forfeited_amount_minor: "9007199254740992" }],
+    ["an applied + forfeited sum above the JS safe-integer bound", { applied_amount_minor: Number.MAX_SAFE_INTEGER, forfeited_amount_minor: 1 }],
+    ["a reverse before the redeem", { reversed_at: "2026-10-31T00:00:00Z", reversed_by_device_id: DEVICE_A }],
     ["reversed_at without the reversing device", { reversed_at: "2026-11-11T11:00:00Z" }],
     ["a reversing device without reversed_at", { reversed_by_device_id: DEVICE_A }],
   ])("refuses %s (23514)", async (_why, change) => {
@@ -417,7 +446,7 @@ describe("0092: composite FKs (AC1)", () => {
       expect(fk(await attempt(INSERT_I, intentValues({ ...INTENT, voucher_id: MISSING })))).toBe(
         "23503:fk_voucher_redemption_intents_voucher_tenant",
       );
-      // Tenant A's row naming tenant B's store.
+      // Tenant A's row naming tenant B's store (this also trips the device composite FK, so the code only).
       expect((await attempt(INSERT_I, intentValues({ ...INTENT, store_id: STORE_B })))?.code).toBe("23503");
       // Tenant B's device, and tenant A's device of another store.
       expect(fk(await attempt(INSERT_I, intentValues({ ...INTENT, device_id: DEVICE_B })))).toBe(
@@ -435,12 +464,9 @@ describe("0092: composite FKs (AC1)", () => {
       const fk = (r: Refusal | null): string | null => (r ? `${r.code}:${r.constraint}` : null);
       await client.query(INSERT_I, intentValues(INTENT));
       await client.query(INSERT_I, intentValues(INTENT_OF_B));
-      expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, voucher_id: VOUCHER_B })))).toBe(
-        "23503:fk_voucher_redemptions_voucher_tenant",
-      );
-      expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, voucher_id: MISSING })))).toBe(
-        "23503:fk_voucher_redemptions_voucher_tenant",
-      );
+      // These also differ from the intent's voucher (the binding FK), so only the code is asserted.
+      expect((await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, voucher_id: VOUCHER_B })))?.code).toBe("23503");
+      expect((await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, voucher_id: MISSING })))?.code).toBe("23503");
       // Tenant A's redemption citing tenant B's intent, and a missing intent.
       expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, intent_id: INTENT_B })))).toBe(
         "23503:fk_voucher_redemptions_intent_tenant",
@@ -448,6 +474,8 @@ describe("0092: composite FKs (AC1)", () => {
       expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, intent_id: MISSING })))).toBe(
         "23503:fk_voucher_redemptions_intent_tenant",
       );
+      // The store assertions also trip the device composite FK (and, for a redemption, the binding FK), so they
+      // check the code only; the device FK already implies the store.
       expect((await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, store_id: STORE_B })))?.code).toBe("23503");
       expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, device_id: DEVICE_B })))).toBe(
         "23503:fk_voucher_redemptions_device_store_tenant",
@@ -457,6 +485,39 @@ describe("0092: composite FKs (AC1)", () => {
       );
       // The same-tenant, same-store row is accepted.
       expect(fk(await attempt(INSERT_R, redemptionValues(REDEMPTION)))).toBeNull();
+      // A different device of the same store may redeem (the binding leaves device_id out).
+      expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, device_id: DEVICE_A3 })))).toBeNull();
+      // The reversing device: any device of the redemption's store is accepted ...
+      const reversed = { reversed_at: "2026-11-11T11:00:00Z" };
+      for (const device of [DEVICE_A, DEVICE_A3]) {
+        expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, ...reversed, reversed_by_device_id: device })))).toBeNull();
+      }
+      // ... one of another store, another tenant's device and a missing one are refused.
+      for (const device of [DEVICE_A2, DEVICE_B, MISSING]) {
+        expect(fk(await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, ...reversed, reversed_by_device_id: device })))).toBe(
+          "23503:fk_voucher_redemptions_reversed_by_device_store_tenant",
+        );
+      }
+    });
+  });
+
+  it("refuses a redemption that differs from its intent in store, voucher, payment attempt or amounts (23503, the binding FK)", async () => {
+    if (skip()) return;
+    await inTx(async (client, attempt) => {
+      await client.query(INSERT_I, intentValues(INTENT));
+      const binding = "23503:fk_voucher_redemptions_intent_tenant";
+      const refused = async (change: Partial<RedemptionRow>): Promise<string | null> => {
+        const r = await attempt(INSERT_R, redemptionValues({ ...REDEMPTION, ...change }));
+        return r ? `${r.code}:${r.constraint}` : null;
+      };
+      // Each other row is valid on its own (voucher, store and device exist in the tenant), so only the binding fails.
+      expect(await refused({ voucher_id: VOUCHER_A2 })).toBe(binding);
+      expect(await refused({ store_id: STORE_A2, device_id: DEVICE_A2 })).toBe(binding);
+      expect(await refused({ payment_attempt_id: id("0a0f2") })).toBe(binding);
+      expect(await refused({ applied_amount_minor: 2999 })).toBe(binding);
+      expect(await refused({ forfeited_amount_minor: 1999 })).toBe(binding);
+      // The matching row is accepted.
+      expect(await refused({})).toBeNull();
     });
   });
 
@@ -485,8 +546,12 @@ describe("0092: one redemption per intent, one open redemption per voucher", () 
         code: "23505",
         constraint: "uq_voucher_redemptions_open_per_voucher",
       });
-      // A different voucher is unaffected.
-      expect(await attempt(INSERT_R, redemptionValues({ ...second, voucher_id: VOUCHER_A2 }))).toBeNull();
+      // A different voucher (with its own intent) is unaffected.
+      const intent3: IntentRow = { ...INTENT, id: id("0a0d3"), voucher_id: VOUCHER_A2, token_hash: hash("c3") };
+      await client.query(INSERT_I, intentValues(intent3));
+      expect(
+        await attempt(INSERT_R, redemptionValues({ ...second, id: id("0a0e3"), intent_id: intent3.id, voucher_id: VOUCHER_A2 })),
+      ).toBeNull();
       // Reversing the first frees the voucher.
       await client.query(`UPDATE ${R} SET reversed_at = now(), reversed_by_device_id = $1 WHERE id = $2`, [DEVICE_A, REDEMPTION_A]);
       expect(await attempt(INSERT_R, redemptionValues(second))).toBeNull();
@@ -502,6 +567,22 @@ describe("0092: one redemption per intent, one open redemption per voucher", () 
         code: "23505",
         constraint: "voucher_redemptions_tenant_intent_uk",
       });
+    });
+  });
+});
+
+describe("0092: voucher_redemptions updated_at trigger", () => {
+  it("moves updated_at forward on UPDATE", async () => {
+    if (skip()) return;
+    await inTx(async (client) => {
+      await client.query(INSERT_I, intentValues(INTENT));
+      await client.query(insertSql(R, [...R_COLS, "updated_at"]), [...redemptionValues(REDEMPTION), "2026-01-01T00:00:00Z"]);
+      await client.query(`UPDATE ${R} SET reversed_at = now(), reversed_by_device_id = $1 WHERE id = $2`, [DEVICE_A, REDEMPTION_A]);
+      const after = await client.query<{ moved: boolean }>(
+        `SELECT updated_at > '2026-01-01T00:00:00Z'::timestamptz AS moved FROM ${R} WHERE id = $1`,
+        [REDEMPTION_A],
+      );
+      expect(after.rows).toEqual([{ moved: true }]);
     });
   });
 });
@@ -525,7 +606,7 @@ describe("0092: tenant isolation (AC2, FORCE RLS)", () => {
         await client.query("ROLLBACK TO SAVEPOINT other_r");
       });
       await asApp(guard(), TENANT_B, async (client) => {
-        await client.query(INSERT_I, intentValues(INTENT_OF_B));
+        await client.query(INSERT_I, intentValues(fresh(INTENT_OF_B)));
         await client.query(INSERT_R, redemptionValues(REDEMPTION_OF_B));
         // Tenant B sees only its own rows: not the committed tenant-A ones.
         expect((await client.query<{ tenant_id: string }>(`SELECT tenant_id FROM ${I}`)).rows).toEqual([{ tenant_id: TENANT_B }]);
@@ -564,7 +645,7 @@ describe("0092: tenant isolation (AC2, FORCE RLS)", () => {
     if (skip()) return;
     try {
       await asApp(guard(), TENANT_A, async (client) => {
-        await client.query(INSERT_I, intentValues(INTENT));
+        await client.query(INSERT_I, intentValues(fresh(INTENT)));
         await client.query(INSERT_R, redemptionValues(REDEMPTION));
         const consume = `UPDATE ${I} SET consumed_at = now() WHERE tenant_id = $1 AND id = $2 AND consumed_at IS NULL`;
         expect((await client.query(consume, [TENANT_A, INTENT_A])).rowCount).toBe(1);
@@ -580,6 +661,11 @@ describe("0092: tenant isolation (AC2, FORCE RLS)", () => {
           code: "42501",
         });
         await client.query("ROLLBACK TO SAVEPOINT move");
+        await client.query("SAVEPOINT move_r");
+        await expect(client.query(`UPDATE ${R} SET tenant_id = $1 WHERE id = $2`, [TENANT_B, REDEMPTION_A])).rejects.toMatchObject({
+          code: "42501",
+        });
+        await client.query("ROLLBACK TO SAVEPOINT move_r");
         // No DELETE policy on either table.
         expect((await client.query(`DELETE FROM ${R}`)).rowCount).toBe(0);
         expect((await client.query(`DELETE FROM ${I}`)).rowCount).toBe(0);

@@ -104,6 +104,8 @@ const PII_PAYMENT_SUBSTRINGS = [
   "dob",
   "birth",
   "tender",
+  "payment_method",
+  "instrument",
   "card",
   "cash",
   "pan",

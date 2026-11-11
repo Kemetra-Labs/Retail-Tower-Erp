@@ -22,9 +22,12 @@
 --                               `payment_attempt_id`, applied and forfeited
 --                               amounts) and to the cashier (`operator_user_id`)
 --                               and terminal (`device_id`) that validated.
---                               `expires_at` is at most 5 minutes after
---                               `created_at` (the contract's TTL), enforced
---                               here; the runtime (R-3) sets the actual value.
+--                               `expires_at` is after `created_at` and at
+--                               most 5 minutes after it (the contract's TTL).
+--                               The 5 minutes is a HARD database limit on
+--                               purpose: changing it later needs a migration.
+--                               `consumed_at`, when set, lies within
+--                               [created_at, expires_at]; the runtime (R-3) sets the actual value.
 --                               Redeem sets `consumed_at` once.
 --   voucher_redemptions         one row per redeem; `id` IS the contract's
 --                               `redemption_id`. `intent_id` is unique, so an
@@ -38,8 +41,9 @@
 --                               again).
 --
 -- Money: `applied_amount_minor` is > 0, `forfeited_amount_minor` is >= 0 (zero
--- when the voucher is used in full); both are <= 9007199254740991 (2^53 - 1),
--- the largest integer the Drizzle bigint mode "number" holds exactly. The
+-- when the voucher is used in full); both, and their SUM (the voucher's value
+-- the runtime derives), are <= 9007199254740991 (2^53 - 1), the largest integer
+-- the Drizzle bigint mode "number" holds exactly. The
 -- amounts are copied onto the redemption at redeem; the voucher's own value
 -- stays on `vouchers.amount_minor`.
 --
@@ -48,10 +52,16 @@
 -- (tenant_id, intent_id) -> voucher_redemption_intents, and
 -- (device_id, tenant_id, store_id) -> devices (id, tenant_id, store_id), as on
 -- tracked_line_validations (0087), so the redeeming device is always one of the
--- row's own store. `reversed_by_device_id` (the device that reversed) has NO FK: the
--- contract scopes a reverse to the tenant, not the redeeming store, and
--- `devices` has no (tenant_id, id) key to pin a tenant-only FK, so the runtime
--- (R-3) proves the reversing device from its device token. `payment_attempt_id` is the
+-- row's own store. `reversed_by_device_id` (the device that reversed) is pinned the same
+-- way once set: (reversed_by_device_id, tenant_id, store_id) -> devices (a NULL
+-- column skips a composite FK, MATCH SIMPLE). Any device of the redemption's
+-- store may reverse it (RT-1110 c16417); a reverse from another store is
+-- `redemption_branch_mismatch`, and the database refuses it too.
+-- Binding: a redemption's (store, voucher, payment attempt, applied and
+-- forfeited amounts) must equal its intent's, by one composite FK onto
+-- voucher_redemption_intents_binding_uk. `device_id` and `operator_user_id`
+-- are left out of it on purpose: the redeeming device or cashier may differ
+-- from the validating one within the store. `payment_attempt_id` is the
 -- POS's own UUID (contract: POS-generated UUID v4); no table holds payment
 -- attempts, so it has no FK. `operator_user_id` has no FK, as on 0087 and 0091
 -- (the runtime proves the claim against a live cashier admission).
@@ -115,17 +125,25 @@ CREATE TABLE voucher_redemption_intents (
     CHECK (applied_amount_minor > 0 AND applied_amount_minor <= 9007199254740991),
   CONSTRAINT voucher_redemption_intents_forfeited_non_negative
     CHECK (forfeited_amount_minor >= 0 AND forfeited_amount_minor <= 9007199254740991),
-  -- The contract's intent TTL: at most 5 minutes from issue.
+  CONSTRAINT voucher_redemption_intents_amount_sum
+    CHECK (applied_amount_minor + forfeited_amount_minor <= 9007199254740991),
+  -- The contract's intent TTL: after issue, and at most 5 minutes from it.
   CONSTRAINT voucher_redemption_intents_ttl
-    CHECK (expires_at <= created_at + interval '5 minutes'),
+    CHECK (expires_at > created_at AND expires_at <= created_at + interval '5 minutes'),
+  -- An intent is consumed once, while it is live.
+  CONSTRAINT voucher_redemption_intents_consumed_window
+    CHECK (consumed_at IS NULL OR (consumed_at >= created_at AND consumed_at <= expires_at)),
   CONSTRAINT fk_voucher_redemption_intents_voucher_tenant
     FOREIGN KEY (tenant_id, voucher_id) REFERENCES vouchers (tenant_id, id) ON DELETE RESTRICT,
   CONSTRAINT fk_voucher_redemption_intents_store_tenant
     FOREIGN KEY (tenant_id, store_id) REFERENCES stores (tenant_id, id) ON DELETE RESTRICT,
   CONSTRAINT fk_voucher_redemption_intents_device_store_tenant
     FOREIGN KEY (device_id, tenant_id, store_id) REFERENCES devices (id, tenant_id, store_id) ON DELETE RESTRICT,
-  -- FK target of voucher_redemptions (the stores_tenant_id_uk pattern).
   CONSTRAINT voucher_redemption_intents_tenant_id_uk UNIQUE (tenant_id, id),
+  -- FK target of voucher_redemptions: binds a redemption to what its intent
+  -- validated (id is already unique; the extra columns make the key composite).
+  CONSTRAINT voucher_redemption_intents_binding_uk UNIQUE (
+    tenant_id, id, store_id, voucher_id, payment_attempt_id, applied_amount_minor, forfeited_amount_minor),
   -- Redeem looks the token up by its hash, inside the device's tenant.
   CONSTRAINT voucher_redemption_intents_tenant_token_hash_uk UNIQUE (tenant_id, token_hash)
 );
@@ -178,6 +196,11 @@ CREATE TABLE voucher_redemptions (
     CHECK (applied_amount_minor > 0 AND applied_amount_minor <= 9007199254740991),
   CONSTRAINT voucher_redemptions_forfeited_non_negative
     CHECK (forfeited_amount_minor >= 0 AND forfeited_amount_minor <= 9007199254740991),
+  CONSTRAINT voucher_redemptions_amount_sum
+    CHECK (applied_amount_minor + forfeited_amount_minor <= 9007199254740991),
+  -- A reverse never precedes the redeem.
+  CONSTRAINT voucher_redemptions_reversed_after_redeemed
+    CHECK (reversed_at IS NULL OR reversed_at >= redeemed_at),
   -- The reverse columns are set together, or not at all.
   CONSTRAINT voucher_redemptions_reversed_columns
     CHECK ((reversed_at IS NULL) = (reversed_by_device_id IS NULL)),
@@ -185,10 +208,16 @@ CREATE TABLE voucher_redemptions (
     FOREIGN KEY (tenant_id, voucher_id) REFERENCES vouchers (tenant_id, id) ON DELETE RESTRICT,
   CONSTRAINT fk_voucher_redemptions_store_tenant
     FOREIGN KEY (tenant_id, store_id) REFERENCES stores (tenant_id, id) ON DELETE RESTRICT,
+  -- The redemption equals its intent in store, voucher, attempt and amounts.
   CONSTRAINT fk_voucher_redemptions_intent_tenant
-    FOREIGN KEY (tenant_id, intent_id) REFERENCES voucher_redemption_intents (tenant_id, id) ON DELETE RESTRICT,
+    FOREIGN KEY (tenant_id, intent_id, store_id, voucher_id, payment_attempt_id, applied_amount_minor, forfeited_amount_minor)
+    REFERENCES voucher_redemption_intents (
+      tenant_id, id, store_id, voucher_id, payment_attempt_id, applied_amount_minor, forfeited_amount_minor) ON DELETE RESTRICT,
   CONSTRAINT fk_voucher_redemptions_device_store_tenant
     FOREIGN KEY (device_id, tenant_id, store_id) REFERENCES devices (id, tenant_id, store_id) ON DELETE RESTRICT,
+  -- Skipped while reversed_by_device_id is NULL (MATCH SIMPLE).
+  CONSTRAINT fk_voucher_redemptions_reversed_by_device_store_tenant
+    FOREIGN KEY (reversed_by_device_id, tenant_id, store_id) REFERENCES devices (id, tenant_id, store_id) ON DELETE RESTRICT,
   CONSTRAINT voucher_redemptions_tenant_id_uk UNIQUE (tenant_id, id),
   -- An intent yields at most one redemption.
   CONSTRAINT voucher_redemptions_tenant_intent_uk UNIQUE (tenant_id, intent_id)

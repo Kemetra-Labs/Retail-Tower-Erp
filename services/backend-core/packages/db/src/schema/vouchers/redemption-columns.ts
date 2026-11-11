@@ -12,7 +12,7 @@ import { stores } from "../stores";
 import { tenants } from "../tenants";
 import { vouchers } from "./vouchers";
 
-/** The columns both tables carry, in the order 0092 declares them after `id`. */
+/** The columns both tables carry (Drizzle declaration order; the SQL orders `intent_id` differently, which does not matter). */
 export const redemptionSharedColumns = () => ({
   tenantId: uuid("tenant_id")
     .notNull()
@@ -35,11 +35,16 @@ interface AmountColumns {
   forfeitedAmountMinor: AnyPgColumn;
 }
 
-/** applied > 0, forfeited >= 0, both within the JS safe-integer bound (bigint mode "number"). */
+/** applied > 0, forfeited >= 0, each and their sum within the JS safe-integer bound (bigint mode "number"). */
 export function amountChecks(prefix: string, t: AmountColumns): ReturnType<typeof check>[] {
+  const sum: SQL = sql`${t.appliedAmountMinor} + ${t.forfeitedAmountMinor} <= 9007199254740991`;
   const applied: SQL = sql`${t.appliedAmountMinor} > 0 AND ${t.appliedAmountMinor} <= 9007199254740991`;
   const forfeited: SQL = sql`${t.forfeitedAmountMinor} >= 0 AND ${t.forfeitedAmountMinor} <= 9007199254740991`;
-  return [check(`${prefix}_applied_positive`, applied), check(`${prefix}_forfeited_non_negative`, forfeited)];
+  return [
+    check(`${prefix}_applied_positive`, applied),
+    check(`${prefix}_forfeited_non_negative`, forfeited),
+    check(`${prefix}_amount_sum`, sum),
+  ];
 }
 
 interface ScopeColumns {

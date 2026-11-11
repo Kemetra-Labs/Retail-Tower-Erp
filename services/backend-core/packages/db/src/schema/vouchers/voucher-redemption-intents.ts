@@ -41,7 +41,25 @@ export const voucherRedemptionIntents = pgTable(
     unique("voucher_redemption_intents_tenant_id_uk").on(t.tenantId, t.id),
     unique("voucher_redemption_intents_tenant_token_hash_uk").on(t.tenantId, t.tokenHash),
     ...amountChecks("voucher_redemption_intents", t),
-    check("voucher_redemption_intents_ttl", sql`${t.expiresAt} <= ${t.createdAt} + interval '5 minutes'`),
+    // The 5-minute TTL is a hard database limit on purpose (changing it needs a migration).
+    check(
+      "voucher_redemption_intents_ttl",
+      sql`${t.expiresAt} > ${t.createdAt} AND ${t.expiresAt} <= ${t.createdAt} + interval '5 minutes'`,
+    ),
+    check(
+      "voucher_redemption_intents_consumed_window",
+      sql`${t.consumedAt} IS NULL OR (${t.consumedAt} >= ${t.createdAt} AND ${t.consumedAt} <= ${t.expiresAt})`,
+    ),
+    // FK target of voucher_redemptions: binds a redemption to what its intent validated.
+    unique("voucher_redemption_intents_binding_uk").on(
+      t.tenantId,
+      t.id,
+      t.storeId,
+      t.voucherId,
+      t.paymentAttemptId,
+      t.appliedAmountMinor,
+      t.forfeitedAmountMinor,
+    ),
     index("idx_voucher_redemption_intents_tenant_voucher").on(t.tenantId, t.voucherId),
     ...scopeForeignKeys("voucher_redemption_intents", t),
   ],

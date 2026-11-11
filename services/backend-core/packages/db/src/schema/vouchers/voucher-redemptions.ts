@@ -17,6 +17,7 @@
 import { sql } from "drizzle-orm";
 import { check, foreignKey, index, pgTable, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
+import { devices } from "../devices";
 import { amountChecks, redemptionFactColumns, redemptionSharedColumns, scopeForeignKeys } from "./redemption-columns";
 import { voucherRedemptionIntents } from "./voucher-redemption-intents";
 
@@ -30,7 +31,7 @@ export const voucherRedemptions = pgTable(
     ...redemptionFactColumns(),
     redeemedAt: timestamp("redeemed_at", { withTimezone: true }).defaultNow().notNull(),
     reversedAt: timestamp("reversed_at", { withTimezone: true }),
-    // No FK: a reverse is tenant-scoped, not store-scoped (see 0092's SQL).
+    // Any device of the redemption's store may reverse it (FK below, RT-1110 c16417).
     reversedByDeviceId: uuid("reversed_by_device_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -43,12 +44,28 @@ export const voucherRedemptions = pgTable(
       .where(sql`${t.reversedAt} IS NULL`),
     index("idx_voucher_redemptions_tenant_voucher").on(t.tenantId, t.voucherId),
     ...amountChecks("voucher_redemptions", t),
+    check("voucher_redemptions_reversed_after_redeemed", sql`${t.reversedAt} IS NULL OR ${t.reversedAt} >= ${t.redeemedAt}`),
     check("voucher_redemptions_reversed_columns", sql`(${t.reversedAt} IS NULL) = (${t.reversedByDeviceId} IS NULL)`),
     ...scopeForeignKeys("voucher_redemptions", t),
     foreignKey({
       name: "fk_voucher_redemptions_intent_tenant",
-      columns: [t.tenantId, t.intentId],
-      foreignColumns: [voucherRedemptionIntents.tenantId, voucherRedemptionIntents.id],
+      // The redemption equals its intent in store, voucher, attempt and amounts.
+      columns: [t.tenantId, t.intentId, t.storeId, t.voucherId, t.paymentAttemptId, t.appliedAmountMinor, t.forfeitedAmountMinor],
+      foreignColumns: [
+        voucherRedemptionIntents.tenantId,
+        voucherRedemptionIntents.id,
+        voucherRedemptionIntents.storeId,
+        voucherRedemptionIntents.voucherId,
+        voucherRedemptionIntents.paymentAttemptId,
+        voucherRedemptionIntents.appliedAmountMinor,
+        voucherRedemptionIntents.forfeitedAmountMinor,
+      ],
+    }).onDelete("restrict"),
+    // A NULL reversing device skips this composite FK (MATCH SIMPLE).
+    foreignKey({
+      name: "fk_voucher_redemptions_reversed_by_device_store_tenant",
+      columns: [t.reversedByDeviceId, t.tenantId, t.storeId],
+      foreignColumns: [devices.id, devices.tenantId, devices.storeId],
     }).onDelete("restrict"),
   ],
 );
