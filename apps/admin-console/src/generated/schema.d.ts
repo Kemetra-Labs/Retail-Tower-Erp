@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 8703e3fcca10241f4a2cc10899a62c4ecd5edc7f
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 710367ae73ec41c09ef6c1f66132611215731395
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -6785,8 +6785,8 @@ export namespace DevicesSchema {
                 /** @description The new terminal's label. When omitted, the server derives it from the new `terminalId` prefix: `T-` + its first 8 hex digits, upper case. It is never the replaced device's label (the old till's sale numbers stay its own). Give an explicit label to keep labels distinct within a store. */
                 terminalLabel?: components["schemas"]["TerminalLabel"];
                 /**
-                 * @description How long the code stays redeemable, in minutes (at most 24 h).
-                 * @default 60
+                 * @description How long the code stays redeemable, in minutes (at most 24 h; 24 h when omitted, RT-1316).
+                 * @default 1440
                  */
                 ttlMinutes: number;
                 /**
