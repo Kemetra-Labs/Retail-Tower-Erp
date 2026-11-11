@@ -106,6 +106,8 @@ beforeAll(async () => {
   const idem = recordingIdempotencyProviders();
   recorder = idem.recorder;
   app = await bootScopedApp(env, VouchersAdminModule, undefined, {
+    // Bearer tokens resolve on the RLS-exempt pool, as the production auth-lookup role does.
+    authLookupPool: env.admin,
     providers: idem.providers,
     // The app's real request logger (main.ts), captured in memory.
     beforeInit: (a) =>
