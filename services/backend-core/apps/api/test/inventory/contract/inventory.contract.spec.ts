@@ -87,8 +87,8 @@ const OPERATION_IDS = [
   "getTrackingIdentity",
   "getTrackingIdentityPositions",
   "listTrackingIdentityExpiryCorrections",
-  // RT-451 Step 0 (contract-only): the Tracking Resolution queue, its bind and
-  // the sale-line findings (served since RT-451 S3).
+  // RT-451 Step 0: the Tracking Resolution queue and its bind (served since
+  // RT-451 S5) and the sale-line findings (served since RT-451 S3).
   "listTrackingResolutionQueue",
   "bindTrackingResolution",
   "listSaleLineFindings",
@@ -1064,11 +1064,11 @@ describe("inventory/inventory.yaml — RT-451 Step 0 Tracking Resolution", () =>
     expect(inventoryDoc.info?.description).toContain("RT-455 comment 15233, OD-1, OD-2 and OD-9");
   });
 
-  it.each(STEP0)("maps %s %s to %s, marked contract-only for RT-451", (path, method, operationId) => {
+  it.each(STEP0)("maps %s %s to %s, served by the RT-451 S5 runtime (no contract-only marker)", (path, method, operationId) => {
     const o = op(path, method);
     expect(o.operationId).toBe(operationId);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toContain("RT-451");
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(o.security).toEqual([{ cookieAuth: [] }]);
     expect(o.responses?.["429"]).toEqual({ $ref: "#/components/responses/TooManyRequests" });
   });
@@ -1191,8 +1191,7 @@ describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () =>
     ["put", "setTrackedSellingSetting"],
   ];
 
-  it("is the 1.12.0 draft, with a version note citing the owner decisions", () => {
-    expect(inventoryDoc.info?.version).toBe("1.12.0-draft");
+  it("was introduced at 1.12.0-draft, with a version note citing the owner decisions (version moved on in RT-451 S5)", () => {
     expect(inventoryDoc.info?.description).toContain("**1.12.0-draft (RT-451 S2, additive, contract-only;");
     expect(inventoryDoc.info?.description).toContain("RT-451 comments 16215 and 16216");
   });
@@ -1295,5 +1294,41 @@ describe("inventory/inventory.yaml — RT-451 S2 tracked-selling setting", () =>
 
   it("states that captureSale G7-9 still governs until its later amendment", () => {
     expect(op("put").description).toMatch(/until it lands, `captureSale` G7-9 governs/);
+  });
+});
+
+// ===========================================================================
+// RT-451 S5 — the Tracking Resolution runtime (1.13.0-draft, wording only;
+// owner approval RT-451 comment 16535)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-451 S5 Tracking Resolution runtime", () => {
+  type Op = OperationObject & { description?: string };
+  const op = (path: string, method: string): Op => (inventoryDoc.paths?.[path]?.[method] ?? {}) as Op;
+  const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
+
+  it("is the 1.13.0 draft, with a version note citing the owner approval", () => {
+    expect(inventoryDoc.info?.version).toBe("1.13.0-draft");
+    expect(inventoryDoc.info?.description).toContain("**1.13.0-draft (RT-451 S5, wording only, no shape change;");
+    expect(inventoryDoc.info?.description).toContain("RT-451 comment 16535");
+  });
+
+  it("fails closed on a missing required expiry and names the other 404 causes", () => {
+    const bind = op(RESOLUTION_BIND_PATH, "post").description ?? "";
+    expect(bind).toContain("the identity has no expiry and the line's product requires one (fail closed)");
+    expect(bind).toContain("is not a batch identity");
+    expect(bind).toContain("outside the caller's store scope");
+    const conflict = inventoryDoc.components?.responses?.["TrackingResolutionConflict"] as { description?: string };
+    expect(conflict.description).toContain("or it has none and the line's product requires one");
+  });
+
+  it("commits the pre-bind void and return restores and reversal intents once (RT-451 c16556 Q1)", () => {
+    const bind = op(RESOLUTION_BIND_PATH, "post").description ?? "";
+    expect(bind).toContain("voids and returns recorded before the bind");
+    expect(bind).toContain("each one posted exactly once");
+  });
+
+  it("keeps the bind's reasonCode on the SafetyReasonCode pattern (no shape change)", () => {
+    expect(schemaText("BindTrackingResolutionCommand")).toContain("#/components/schemas/SafetyReasonCode\"");
+    expect(schemaText("SafetyReasonCode")).toContain("`bindTrackingResolution` takes this pattern with a required note");
   });
 });

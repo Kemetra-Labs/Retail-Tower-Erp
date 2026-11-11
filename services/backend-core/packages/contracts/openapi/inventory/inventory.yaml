@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.12.0-draft"
+  version: "1.13.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -69,7 +69,7 @@ info:
          findings (RT-449).
      21. `listTrackingResolutionQueue` / 22. `bindTrackingResolution` — the
          Tracking Resolution queue of `tracking_unresolved` sales and the
-         governed bind that resolves one (RT-451; contract-only).
+         governed bind that resolves one (RT-451; served since RT-451 S5).
      23. `listSaleLineFindings` — the recorded sale-line findings of tracked
          selling (RT-451; contract-only).
      24. `listTrackingHolds` / 25. `listInventoryRecalls` — the tenant's
@@ -294,6 +294,24 @@ info:
     (`inventory/inventory-safety-feed.yaml` 1.1.0-draft). A switched-on
     tenant whose preconditions later fail stays on, shown to the owner as a
     warning (OD-T7). No other operation changes.
+
+    **1.13.0-draft (RT-451 S5, wording only, no shape change; [GATED:
+    contract] owner approval RT-451 comment 16535, 2026-11-11).** The
+    Tracking Resolution runtime ships: `listTrackingResolutionQueue` and
+    `bindTrackingResolution` drop their `x-runtime-status: contract-only`
+    markers. Wording that settles what the runtime does: the bind refuses an
+    identity without an expiry on an `expiry_required` product as
+    `tracking_resolution_identity_expired` (fail closed, as capture and the
+    Tracked Line Validation; RT-451 comment 16246); a non-batch identity is
+    the non-disclosing 404, as an unknown one (RT-50 Q11); a sale outside the
+    caller's store scope is the 404 too; the bind also commits the restores
+    of the sale's voids and returns recorded before it and the reversal
+    posting intents they emitted, each once (RT-451 comment 16556 Q1); and
+    the bind's `reasonCode` is a governed machine code of the
+    `SafetyReasonCode` pattern with a required note, not the
+    `SafetyReasonCodeInput` list of the hold, recall and expiry-correction
+    commands (RT-451 comment 16535, S5 question). Neither operation is gated
+    by the tracked-selling switch (OD-T4).
 
 servers:
   - url: https://api.datapulse.example
@@ -1471,11 +1489,6 @@ paths:
   /api/inventory/v1/tracking-resolutions:
     get:
       operationId: listTrackingResolutionQueue
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-451 Step 0 (contract-first): the runtime that classifies a sale
-        `tracking_unresolved` and serves this queue ships with RT-451. Remove
-        both keys then.
       tags: [inventory]
       summary: List the Tracking Resolution queue, newest capture first, in keyset pages.
       description: >
@@ -1545,10 +1558,6 @@ paths:
   /api/inventory/v1/tracking-resolutions/{saleId}/bind:
     post:
       operationId: bindTrackingResolution
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-451 Step 0 (contract-first): the governed bind ships with the
-        RT-451 runtime (scope item 4). Remove both keys then.
       tags: [inventory]
       summary: Resolve a tracking_unresolved sale by binding an identity to every unresolved line.
       description: >
@@ -1566,16 +1575,25 @@ paths:
         `edge_map_missing` for that line. A bind records no other finding:
         it refuses a held or expired identity, and it is itself the governed
         check, so a bound line is never an `unvalidated_tracked_line`. The
-        sale then leaves the unresolved queue. Refusals, nothing written: a sale that is not of
-        this tenant or was never `tracking_unresolved`, and an identity that
-        does not exist or is of another tenant, is a non-disclosing 404; a `saleLineId` that is not
+        sale then leaves the unresolved queue. The same transaction also
+        commits what the sale's voids and returns recorded before the bind
+        were denied: their Inventory restores (a void compensates the exact
+        identity position; a return lands at the bound identity in
+        `return_inspection`, or `recall_hold` for an identity ever recalled),
+        and the reversal posting intents they emitted, each one posted
+        exactly once. A sale the server has not processed yet gets its
+        effects and its intent when it is processed. Refusals, nothing written: a sale that is not of
+        this tenant, is outside the caller's store scope or was never
+        `tracking_unresolved`, and an identity that does not exist, is of
+        another tenant or is not a batch identity, is a non-disclosing 404; a `saleLineId` that is not
         an unresolved line of the sale is a 400. 409
         `tracking_resolution_identity_mismatch`: an identity is not of the
         line's product. 409 `tracking_resolution_identity_held`: an identity
         has an active hold now, or had one at the sale's `occurredAt`. 409
         `tracking_resolution_identity_expired`: an identity's expiry date is
         before the sale's business date (a lot is sellable through its expiry
-        date, G7-5). 409 `tracking_resolution_already_resolved`: the sale was
+        date, G7-5), or the identity has no expiry and the line's product
+        requires one (fail closed). 409 `tracking_resolution_already_resolved`: the sale was
         already resolved by another command. The `reasonCode` and a non-blank
         `note` are required; the runtime trims the note, and a blank one is a
         400. It does not step the Inventory Safety Revision. Owner only (high
@@ -2399,6 +2417,12 @@ components:
       properties:
         reasonCode:
           $ref: "#/components/schemas/SafetyReasonCode"
+          description: >
+            A governed machine reason code (lower snake case), recorded and
+            audited with the resolution. The bind always requires a `note`, so
+            it takes the `SafetyReasonCode` pattern, not the
+            `SafetyReasonCodeInput` list of the hold, recall and expiry
+            correction commands (RT-451 S5).
         note:
           type: string
           minLength: 1
@@ -2459,8 +2483,10 @@ components:
         RT-449: a machine reason code of a hold, recall or expiry correction,
         lower snake case (e.g. `supplier_notice`, `authority_notice`,
         `label_misprint`). Projections keep this pattern (RT-1081, TR-5), so
-        a code recorded before 1.10.0 still reads back; commands accept only
-        `SafetyReasonCodeInput`.
+        a code recorded before 1.10.0 still reads back; the hold, recall and
+        expiry correction commands accept only `SafetyReasonCodeInput`.
+        `bindTrackingResolution` takes this pattern with a required note
+        (RT-451 S5).
     SafetyReasonCodeInput:
       type: string
       enum: [supplier_notice, authority_notice, label_misprint, other]
@@ -3050,7 +3076,8 @@ components:
         not of the line's product. `tracking_resolution_identity_held`: an
         identity has an active hold now, or had one at the sale's
         `occurredAt`. `tracking_resolution_identity_expired`: an identity's
-        expiry date is before the sale's business date.
+        expiry date is before the sale's business date, or it has none and
+        the line's product requires one.
         `tracking_resolution_already_resolved`: the sale is already resolved.
         `idempotency_key_conflict`: the `Idempotency-Key` was already used for
         a different command. Nothing is written.

@@ -38,7 +38,9 @@ const dockerOutboxSuites = includeDbBackedTests
      // RT-457 sale re-drive sweep against real Postgres.
      String.raw`/sales/sale-redrive\.integration\.spec\.ts$`,
      // RT-427 sale effects written with the intent and linked by the consumer.
-     String.raw`/sales/sale-effects\.integration\.spec\.ts$`];
+     String.raw`/sales/sale-effects\.integration\.spec\.ts$`,
+     // RT-451 S5 pre-bind voids / returns / reversals committed once by the bind.
+     String.raw`/sales/tracking-resolution\.integration\.spec\.ts$`];
 
 /** @type {import('jest').Config} */
 module.exports = {

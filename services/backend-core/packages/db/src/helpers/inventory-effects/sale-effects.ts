@@ -35,8 +35,10 @@
  *     line, never an FK error that would stall the sale;
  *   - a `tracking_unresolved` sale (row 4) gets no effect on ANY line, and
  *     neither does its void or return while it has no effect (the sale never
- *     decremented); Tracking Resolution (S5) commits its effects with its
- *     intent (DC-2);
+ *     decremented); Tracking Resolution (S5) binds an identity to each row-4
+ *     line (`tracking_resolution_lines`), sets the sale `tracked`, and then
+ *     commits its effects with its intent (DC-2) and writes the void and
+ *     return restores suppressed before the bind, through these same writers;
  *   - a void compensates the exact identity position of the effect it
  *     compensates;
  *   - a return line takes the identity of the original sale effect (else of
@@ -171,7 +173,10 @@ interface LineFactsRow {
   sale_effect_location: string | null;
   sale_effect_status: string | null;
   sale_effect_identity: string | null;
-  /** The identity of a line classified `valid` / `flagged` (RT-451 S3), of the line's own product. */
+  /**
+   * The identity of a line classified `valid` / `flagged` (RT-451 S3), or bound
+   * to an `unresolved` line by a Tracking Resolution (S5), of the line's own product.
+   */
   line_identity: string | null;
   sale_tracking_status: string | null;
 }
@@ -183,7 +188,10 @@ interface LineFactsRow {
  * product); the sale effect is the line's `sale` effect, located through
  * idx_stock_movements_tenant_event. A classified line's identity is joined
  * as an identity of the line's own product and tenant (the effect FK's
- * target), so it is NULL rather than an FK error if it is not.
+ * target), so it is NULL rather than an FK error if it is not. A row-4 line
+ * (`unresolved`) has the identity a Tracking Resolution bound to it
+ * (`tracking_resolution_lines`, RT-451 S5), joined the same way; NULL until
+ * it is bound.
  */
 function lineFactsSql(source: string, order: string): string {
   return `SELECT l.line_id, sl.id AS sale_line_id, l.quantity::text AS quantity, sl.unit,
@@ -195,7 +203,8 @@ function lineFactsSql(source: string, order: string): string {
                  e.id AS sale_effect_id, (-e.quantity)::text AS sale_effect_restore,
                  e.stocking_unit AS sale_effect_unit, e.stock_location_id AS sale_effect_location,
                  e.inventory_status AS sale_effect_status, e.tracking_identity_id AS sale_effect_identity,
-                 CASE WHEN sl.tracking_class IN ('valid', 'flagged') THEN ti.id END AS line_identity,
+                 CASE WHEN sl.tracking_class IN ('valid', 'flagged') THEN ti.id
+                      WHEN sl.tracking_class = 'unresolved' THEN bi.id END AS line_identity,
                  s.tracking_status AS sale_tracking_status
             FROM ${source} l
             JOIN sale_lines sl ON sl.id = l.sale_line_ref
@@ -204,6 +213,10 @@ function lineFactsSql(source: string, order: string): string {
             LEFT JOIN tracking_identities ti
               ON ti.id = sl.tracking_identity_id AND ti.tenant_product_ref = sl.tenant_product_ref
              AND ti.tenant_id = s.tenant_id
+            LEFT JOIN tracking_resolution_lines rl ON rl.sale_line_id = sl.id AND rl.tenant_id = s.tenant_id
+            LEFT JOIN tracking_identities bi
+              ON bi.id = rl.tracking_identity_id AND bi.tenant_product_ref = sl.tenant_product_ref
+             AND bi.tenant_id = s.tenant_id
             LEFT JOIN stock_movements e
               ON e.tenant_id = s.tenant_id AND e.event_type = 'sale'
              AND e.event_ref_id = s.id AND e.sale_line_id = sl.id

@@ -640,6 +640,23 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any intent or redemption is stored.
 
+- **Migration `0094_tracking_resolutions` (RT-451 S5).** Run
+  [`sql/tracking-resolutions-domain-grants.sql`](sql/tracking-resolutions-domain-grants.sql)
+  after `migrate up` and before the API and the worker start (the worker's
+  sale effect writer reads `tracking_resolution_lines` and has no boot check),
+  in the same step 2 of [`deploy/README.md`](../../deploy/README.md#deploy),
+  with the same `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `tracking_resolutions` and `tracking_resolution_lines`: the owner-only bind
+  (`POST /api/inventory/v1/tracking-resolutions/{saleId}/bind`) appends one
+  resolution and its line bindings, the queue read
+  (`GET /api/inventory/v1/tracking-resolutions`) and the worker's sale effect
+  writer read them. No `UPDATE` or `DELETE` policy (append-only): never grant
+  `UPDATE`, `DELETE` or `TRUNCATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0094 creates two new, empty
+  tables (no backfill) and needs no maintenance window. Its down migration
+  refuses while any resolution is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
