@@ -275,7 +275,8 @@ class PinnedBlobProbes(unittest.TestCase):
 CONNECTOR_APP = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext_connector"
 CONNECTOR = CONNECTOR_APP / "connector"
 # Every Connector module that calls Backend-Core over HTTP (RT-704 inventory), relative to CONNECTOR.
-CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py")
+CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py",
+                        "stock_import/transport.py")
 # The one module allowed to import an HTTP library: `RequestsTransport`, the HttpTransport the
 # transports above call through `self._transport` (shared since RT-1218). It takes the path as an
 # argument and has no path of its own.
@@ -381,8 +382,8 @@ class ConnectorPin(unittest.TestCase):
                            if method in ("get", "post", "put", "patch", "delete")}
         calls, unresolved = connector_calls()
         self.assertEqual(unresolved, [], "HttpTransport call whose target is not a module-level /api/ constant")
-        # The five calls of the RT-704 inventory: a transport rewrite that hides them fails here.
-        self.assertGreaterEqual(len(calls), 5, calls)
+        # The seven calls of the RT-704 inventory and RT-1287: a transport rewrite that hides them fails here.
+        self.assertGreaterEqual(len(calls), 7, calls)
         self.assertEqual(sorted(calls - served), [])
 
     def test_transport_inventory_is_complete(self):

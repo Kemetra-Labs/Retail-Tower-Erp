@@ -58,6 +58,11 @@ State this in the PR body.
   in `apps/admin-console`, committing the regenerated client; the Connector PIN by hand), as #317
   and #321 did. Never pin a branch-only commit: CI reads the pinned commit from git, and a squash
   merge drops it. Each slice is its own issue when the consumers are out of scope.
+- **A new Connector transport also touches `tools/contracts-check` (RT-1287).** `test_pins.py`
+  `ConnectorPin` fails until the new module joins `CONNECTOR_TRANSPORTS` and its contract file is
+  in the Connector PIN; add its `contracts.py` under `connector:` in `config.yaml` so the
+  field check covers it too. A file newer than the PIN's `commit:` can be pinned at its own
+  merge commit with a comment line, without repinning the other files.
 - **A default value or description edit is not a break (RT-1316, #485).** oasdiff rates
   `request-property-default-value-changed` as INFO, and
   `services/backend-core/tools/oasdiff/severity-levels.txt` does not raise it. `contracts/check`
