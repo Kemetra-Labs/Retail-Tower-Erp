@@ -4,6 +4,10 @@
  * shown ONCE. There is no impact preview, because nothing is revoked, moved or
  * retired. As with Replace and Move, an issue is non-replayable: a refused or
  * unanswered attempt is never retried with the same key.
+ *
+ * RT-1316: "cancel and issue a new code" opens this drawer with the cancelled
+ * code's store and label already filled in; the receipt details are typed again,
+ * because the pending list never carries them.
  */
 import { Banner } from "@/components/Banner";
 import { Drawer } from "@/components/Drawer";
@@ -119,12 +123,17 @@ function IssuedView({
   );
 }
 
-export function PairDrawer({ onClose }: Readonly<{ onClose: () => void }>): React.JSX.Element {
+export type PairPrefill = Pick<IssueDraft, "storeId" | "terminalLabel">;
+
+export function PairDrawer({
+  onClose,
+  prefill,
+}: Readonly<{ onClose: () => void; prefill?: PairPrefill }>): React.JSX.Element {
   const t = useT();
   const directory = useStoreDirectory(useDeviceScope().tenantId);
   const issue = useIssuePairingCode();
   const singleFlight = useSingleFlight();
-  const [draft, setDraft] = useState<IssueDraft>(EMPTY_ISSUE_DRAFT);
+  const [draft, setDraft] = useState<IssueDraft>(() => ({ ...EMPTY_ISSUE_DRAFT, ...prefill }));
   const [problems, setProblems] = useState<IssueProblems>({});
   const [notice, setNotice] = useState<Notice | undefined>();
   // The secret code lives here only, until the drawer closes.

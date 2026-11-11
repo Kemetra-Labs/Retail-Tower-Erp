@@ -2,6 +2,10 @@
  * RT-372 — The pending pairing codes as a table. The confirm before a cancel opens
  * in place, directly under the row it belongs to, with focus on the safe choice
  * (Keep code); while a cancel is pending no other row can start one.
+ *
+ * RT-1316: a plain pairing code also offers "Cancel and issue new code", the same
+ * confirm with the reissue wording. A replace or move code does not: the new code
+ * would be issued as a plain pairing and would no longer revoke the old device.
  */
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { GatedButton } from "@/components/GatedButton";
@@ -45,29 +49,32 @@ function ReplacesCell({ code }: Readonly<{ code: PairingCodeSummary }>): React.J
 /** The inline confirm before a cancel: names the code, one destructive primary. */
 function CancelConfirm({
   code,
+  reissue,
   pending,
   onConfirm,
   onKeep,
 }: Readonly<{
   code: PairingCodeSummary;
+  reissue: boolean;
   pending: boolean;
   onConfirm: () => void;
   onKeep: () => void;
 }>): React.JSX.Element {
   const t = useT();
+  const action = reissue ? "devices.codes.reissue" : "devices.codes.cancel";
   const keep = useRef<HTMLButtonElement>(null);
   // Focus lands on the safe choice when the confirm opens.
   useEffect(() => keep.current?.focus(), []);
   return (
-    <fieldset className="confirm-delete device-confirm" aria-label={t("devices.codes.cancel")}>
+    <fieldset className="confirm-delete device-confirm" aria-label={t(action)}>
       <p className="confirm-delete__msg">
-        {t.rich("devices.codes.cancelConfirm", {
+        {t.rich(reissue ? "devices.codes.reissueConfirm" : "devices.codes.cancelConfirm", {
           label: <bdi dir="auto">{code.terminalLabel}</bdi>,
         })}
       </p>
       <div className="confirm-delete__actions">
         <GatedButton type="button" className="btn-destructive" onClick={onConfirm} busy={pending}>
-          {t("devices.codes.cancel")}
+          {t(action)}
         </GatedButton>
         <button type="button" className="btn-ghost" ref={keep} onClick={onKeep} disabled={pending}>
           {t("devices.codes.cancelKeep")}
@@ -86,7 +93,7 @@ function CodeRow({
   code: PairingCodeSummary;
   directory: StoreDirectory;
   busy: boolean;
-  onCancel: (code: PairingCodeSummary) => void;
+  onCancel: (code: PairingCodeSummary, reissue?: boolean) => void;
 }>): React.JSX.Element {
   const t = useT();
   return (
@@ -105,15 +112,28 @@ function CodeRow({
         <LtrTime value={code.expiresAt} timeZone={directory.timeZoneOf(code.storeId)} />
       </td>
       <td>
-        <button
-          type="button"
-          className="btn-danger-quiet"
-          data-cancel-for={code.pairingCodeId}
-          disabled={busy}
-          onClick={() => onCancel(code)}
-        >
-          {t("devices.codes.cancel")}
-        </button>
+        <div className="device-row-actions">
+          <button
+            type="button"
+            className="btn-danger-quiet"
+            data-cancel-for={code.pairingCodeId}
+            disabled={busy}
+            onClick={() => onCancel(code)}
+          >
+            {t("devices.codes.cancel")}
+          </button>
+          {code.kind === "pair" ? (
+            <button
+              type="button"
+              className="btn-ghost"
+              data-reissue-for={code.pairingCodeId}
+              disabled={busy}
+              onClick={() => onCancel(code, true)}
+            >
+              {t("devices.codes.reissue")}
+            </button>
+          ) : null}
+        </div>
       </td>
     </tr>
   );
@@ -161,6 +181,7 @@ export function CodesTable({
                     <td colSpan={COLUMN_COUNT}>
                       <CancelConfirm
                         code={code}
+                        reissue={cancel.reissuing}
                         pending={cancel.pending}
                         onConfirm={() => void cancel.confirm(code)}
                         onKeep={cancel.keep}

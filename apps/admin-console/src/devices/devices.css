@@ -234,6 +234,63 @@
   overflow-wrap: anywhere;
 }
 
+/* RT-1316: the barcode is Ink on white in every theme (scanners need dark on light). */
+.device-barcode {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: 28rem;
+  block-size: auto;
+  padding-block: var(--space-2);
+  background: var(--color-on-ink);
+  fill: var(--color-ink);
+  border-radius: var(--radius-sm);
+}
+.device-issued__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.device-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.device-issued__copy-failed {
+  color: var(--color-danger);
+}
+
+/* RT-1316 "Print for installer": the sheet exists only while printing, and is
+   then the only thing printed. */
+.device-print-sheet {
+  display: none;
+}
+@media print {
+  body:has(> .device-print-sheet) > :not(.device-print-sheet) {
+    display: none !important;
+  }
+  .device-print-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    color: var(--color-ink);
+    background: var(--color-on-ink);
+  }
+  .device-print-sheet dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+  }
+  .device-print-sheet dd {
+    margin: 0;
+  }
+  .device-print-sheet .device-barcode {
+    max-inline-size: 12cm;
+  }
+}
+
 .device-codes-region:focus-visible {
   outline: none;
 }

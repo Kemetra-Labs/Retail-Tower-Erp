@@ -37,16 +37,14 @@ export type DeviceRetireResult = Schemas["DeviceRetireResult"];
 export type PairingCodePage = Schemas["PairingCodePage"];
 export type PairingCodeSummary = Schemas["PairingCodeSummary"];
 /**
- * `ttlMinutes` has a server default (60), so the console may omit it. The
+ * The console never sends `ttlMinutes` (RT-1316): the server default applies. The
  * printer fields are never sent (RT-1165): Backend-Core RT-1181 made them optional
  * and the pin is past it, so omitting them is valid; the Omit keeps the client from sending them.
  */
 export type PairingCodeIssueRequest = Omit<
   Schemas["PairingCodeIssueRequest"],
   "ttlMinutes" | "printerVendorId" | "printerProductId" | "printerComPort"
-> & {
-  ttlMinutes?: number;
-};
+>;
 export type PairingCodeIssued = Schemas["PairingCodeIssued"];
 export type PairingCodeCancelResult = Schemas["PairingCodeCancelResult"];
 export type PairingCodeListQuery = NonNullable<
@@ -132,7 +130,7 @@ export async function consoleIssuePairingCode(
 ) {
   const { data, error, response } = await apiClient.POST("/api/v1/pairing-codes", {
     params: { header: { "Idempotency-Key": idempotencyKey } },
-    // The generated type marks the defaulted `ttlMinutes` required; the server applies 60.
+    // The generated type marks the defaulted `ttlMinutes` required; the server applies its default.
     body: body as Schemas["PairingCodeIssueRequest"],
   });
   return { status: response.status, data, error };

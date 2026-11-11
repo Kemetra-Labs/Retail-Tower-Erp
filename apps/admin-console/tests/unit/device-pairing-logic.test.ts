@@ -3,6 +3,7 @@ import {
   EMPTY_ISSUE_DRAFT,
   type IssueDraft,
   buildIssueBody,
+  groupPairingCode,
   newIdempotencyKey,
   validateIssueDraft,
 } from "@/devices/pairingLogic";
@@ -46,7 +47,6 @@ describe("validateIssueDraft (form checks; the server re-validates everything)",
       "storeId",
       "taxRegistrationId",
       "terminalLabel",
-      "ttlMinutes",
     ]);
     expect(Object.keys(validateIssueDraft(EMPTY_ISSUE_DRAFT)).some((k) => /printer/i.test(k))).toBe(
       false,
@@ -76,25 +76,9 @@ describe("validateIssueDraft (form checks; the server re-validates everything)",
     );
   });
 
-  test("ttl is a whole number of minutes from 1 to 1440, or empty for the server default", () => {
-    expect(validateIssueDraft({ ...valid, ttlMinutes: "" })).toEqual({});
-    expect(validateIssueDraft({ ...valid, ttlMinutes: "1440" })).toEqual({});
-    for (const bad of ["0", "1441", "1.5", "abc", "-5"]) {
-      expect(validateIssueDraft({ ...valid, ttlMinutes: bad }).ttlMinutes?.key, bad).toBe(
-        "devices.issue.problem.ttl",
-      );
-    }
-  });
-});
-
-describe("Arabic-Indic digits in the ttl", () => {
-  test("are accepted and sent as the number they spell", () => {
-    expect(validateIssueDraft({ ...valid, ttlMinutes: "١٢٠" })).toEqual({});
-    expect(validateIssueDraft({ ...valid, ttlMinutes: "۱۲۰" })).toEqual({});
-    expect(buildIssueBody({ ...valid, ttlMinutes: "١٢٠" }).ttlMinutes).toBe(120);
-    expect(validateIssueDraft({ ...valid, ttlMinutes: "١٤٤١" }).ttlMinutes?.key).toBe(
-      "devices.issue.problem.ttl",
-    );
+  test("there is no ttl field: the server default applies (RT-1316)", () => {
+    expect(EMPTY_ISSUE_DRAFT).not.toHaveProperty("ttlMinutes");
+    expect(buildIssueBody(valid)).not.toHaveProperty("ttlMinutes");
   });
 });
 
@@ -116,14 +100,23 @@ describe("buildIssueBody", () => {
     expect(body).not.toHaveProperty("kind");
   });
 
-  test("optional values are trimmed and sent only when given; ttl is a number", () => {
-    const body = buildIssueBody({
-      ...valid,
-      terminalLabel: " Counter 2 ",
-      ttlMinutes: "120",
-    });
+  test("the optional label is trimmed and sent only when given", () => {
+    const body = buildIssueBody({ ...valid, terminalLabel: " Counter 2 " });
     expect(body.terminalLabel).toBe("Counter 2");
-    expect(body.ttlMinutes).toBe(120);
+  });
+});
+
+describe("groupPairingCode (display only; the code itself stays opaque)", () => {
+  test("a 16-character code reads in four groups of four", () => {
+    expect(groupPairingCode("ABCD2345EFGH6789")).toBe("ABCD-2345-EFGH-6789");
+  });
+
+  test("any length groups in fours from the start, with no validation", () => {
+    expect(groupPairingCode("")).toBe("");
+    expect(groupPairingCode("ABC")).toBe("ABC");
+    expect(groupPairingCode("ABCD")).toBe("ABCD");
+    expect(groupPairingCode("ABCDE")).toBe("ABCD-E");
+    expect(groupPairingCode("abcd1234x")).toBe("abcd-1234-x");
   });
 });
 
