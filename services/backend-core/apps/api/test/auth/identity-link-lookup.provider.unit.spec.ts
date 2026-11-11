@@ -9,7 +9,7 @@
  *
  * Docker-free: a fake `query` records the SQL and parameters.
  */
-import { activeLinkSubjectForProvider } from "../../src/auth/identity-link-lookup";
+import { activeLinkSubjectForProvider, findLiveUserByActiveLink } from "../../src/auth/identity-link-lookup";
 
 const USER_ID = "0193a000-0000-7000-8000-000000000001";
 
@@ -39,5 +39,53 @@ describe("activeLinkSubjectForProvider", () => {
   it("fails closed (null) when more than one row matches, rather than picking one", async () => {
     const { db } = fakeDb([{ subject: "a" }, { subject: "b" }]);
     expect(await activeLinkSubjectForProvider(db, USER_ID, "p")).toBeNull();
+  });
+});
+
+/**
+ * RT-1327: a provider recovery proof names its account ONLY through this lookup.
+ * Anything but exactly one live user behind an ACTIVE link of that provider is
+ * "nobody", so the confirm is refused and no account is ever reset by accident.
+ */
+describe("findLiveUserByActiveLink (RT-1327)", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: USER_ID,
+    email: "manager@tower.com",
+    display_name: null,
+    deleted_at: null,
+    operator_id: "U2subject",
+    ...over,
+  });
+  const dbWith = (rows: unknown[]) => {
+    const query = jest.fn().mockResolvedValue({ rows });
+    return { db: { query } as never, query };
+  };
+
+  it("resolves the live user of an ACTIVE link, keyed on provider and subject", async () => {
+    const { db, query } = dbWith([row()]);
+
+    expect(await findLiveUserByActiveLink(db, { providerKey: "p", subject: "U2subject" })).toEqual({
+      userId: USER_ID,
+      email: "manager@tower.com",
+    });
+
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/status\s*=\s*'active'/);
+    expect(params).toEqual(["p", "U2subject"]);
+  });
+
+  it("resolves nobody when no active link matches (unlinked or disabled)", async () => {
+    const { db } = dbWith([]);
+    expect(await findLiveUserByActiveLink(db, { providerKey: "p", subject: "x" })).toBeNull();
+  });
+
+  it("resolves nobody for a soft-deleted user", async () => {
+    const { db } = dbWith([row({ deleted_at: new Date() })]);
+    expect(await findLiveUserByActiveLink(db, { providerKey: "p", subject: "U2subject" })).toBeNull();
+  });
+
+  it("fails closed when two active links share the pair, rather than picking one", async () => {
+    const { db } = dbWith([row(), row({ id: "0193a000-0000-7000-8000-000000000002" })]);
+    expect(await findLiveUserByActiveLink(db, { providerKey: "p", subject: "U2subject" })).toBeNull();
   });
 });

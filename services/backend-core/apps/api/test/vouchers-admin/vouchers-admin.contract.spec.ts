@@ -1,12 +1,12 @@
 /**
  * RT-1101 (RT-1098 slice I-1) — the voucher issuance admin contract
- * (`vouchers-admin.openapi.yaml`), contract-only.
+ * (`vouchers-admin.openapi.yaml`); its contract-only marker was lifted by RT-1108.
  *
  * Structural / load-only, plus AJV fixtures against the contract schemas. No
  * app boot and no HTTP. What this pins:
  *
- *   1. Four operations at the planned method and path, every one marked
- *      `x-runtime-status: contract-only` with a note.
+ *   1. Four operations at the planned method and path, none marked
+ *      `x-runtime-status` (the runtime shipped with RT-1108).
  *   2. `cookieAuth` only, owner and tenant_admin roles (decision 2A).
  *   3. Issue: `count` 1 to 100 (decision 3A), idempotency key required,
  *      non-replayable, no-store response. Cancel: idempotency key required.
@@ -115,11 +115,11 @@ describe("vouchers-admin — document and operations", () => {
     expect(Object.keys(doc.paths![CANCEL]!).filter((k) => k !== "parameters")).toEqual(["post"]);
   });
 
-  it.each(OPERATIONS)("%s is contract-only, with a note and its audit action", (id, path, method, audit) => {
+  it.each(OPERATIONS)("%s is a runtime operation (RT-1108), with its audit action", (id, path, method, audit) => {
     const o = op(path, method);
     expect(o.operationId).toBe(id);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toEqual(expect.stringContaining("RT-1101"));
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(o["x-audit-action"]).toBe(audit);
   });
 

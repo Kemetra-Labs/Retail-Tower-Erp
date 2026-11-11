@@ -2,7 +2,9 @@
  * Opaque keyset cursors of the inventory safety history lists — Jira RT-1081
  * (`listTrackingHolds`, `listInventoryRecalls`,
  * `listTrackingIdentityExpiryCorrections`; inventory.yaml 1.10.0-draft) and
- * RT-451 S3 (`listSaleLineFindings`, filters `kind` then `storeId`).
+ * RT-451 S3 (`listSaleLineFindings`, filters `kind` then `storeId`) and S5
+ * (`listTrackingResolutionQueue`, filters `status` then `storeId`; its `id`
+ * is the sale id and its instant the sale's `capturedAt`).
  *
  * Each list is ordered newest first by `(<instant> DESC, id DESC)`. The repo
  * convention (`movement-list.cursor.ts`, RT-731): unsigned base64url JSON bound
@@ -29,7 +31,12 @@ export class SafetyHistoryCursorError extends Error {
   }
 }
 
-export type SafetyHistoryOperation = 'tracking_holds' | 'inventory_recalls' | 'expiry_corrections' | 'sale_line_findings';
+export type SafetyHistoryOperation =
+  | 'tracking_holds'
+  | 'inventory_recalls'
+  | 'expiry_corrections'
+  | 'sale_line_findings'
+  | 'tracking_resolution_queue';
 
 /** What a cursor is bound to: the tenant and the normalized filters, in a fixed order. */
 export interface SafetyHistoryCursorBinding {
@@ -51,7 +58,13 @@ export function instantKeySql(column: string): string {
 
 const CursorPayload = z
   .object({
-    op: z.enum(['tracking_holds', 'inventory_recalls', 'expiry_corrections', 'sale_line_findings']),
+    op: z.enum([
+      'tracking_holds',
+      'inventory_recalls',
+      'expiry_corrections',
+      'sale_line_findings',
+      'tracking_resolution_queue',
+    ]),
     tenant: z.string().regex(LOWER_UUID),
     digest: z.string().min(1),
     at: z.string().regex(KEY_INSTANT).refine(namesRealInstant),

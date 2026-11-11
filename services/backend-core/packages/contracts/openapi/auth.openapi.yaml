@@ -249,6 +249,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "503":
+          description: >
+            The identity provider (RT-1327, for an account linked to it) or the
+            public-auth rate limiter (RT-628, with `Retry-After`) is unavailable.
+            An outage is never reported as an invalid token. If the provider
+            fails after it has accepted the link, the link is spent and the user
+            requests a new one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/v1/auth/email/verify/request:
     post:
       summary: Request a verification email for the signed-in user.

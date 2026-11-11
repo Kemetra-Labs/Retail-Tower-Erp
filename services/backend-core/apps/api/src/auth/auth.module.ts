@@ -66,7 +66,7 @@ import {
   operatorTokenVerifierFactory,
 } from "./identity-provider.factory";
 import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "./external-credential.port";
-import { activeLinkSubjectForProvider } from "./identity-link-lookup";
+import { activeLinkSubjectForProvider, findLiveUserByActiveLink } from "./identity-link-lookup";
 import {
   OPERATOR_CONTEXT_RESOLVER,
   PgOperatorContextResolver,
@@ -303,6 +303,10 @@ export class AlwaysAllowRedis implements RedisLike {
             // provider leaves the user on native sign-in (review finding, RT-937).
             activeLinkSubject: (userId) =>
               activeLinkSubjectForProvider(pool, userId, externalCredential.identity.providerKey),
+            // RT-1327: a recovery proof names its account only through an ACTIVE link
+            // (ambiguous or soft-deleted resolves to nobody, so the confirm is refused).
+            findUserByLinkSubject: (subject) =>
+              findLiveUserByActiveLink(pool, { providerKey: externalCredential.identity.providerKey, subject }),
           },
           // RT-343: memberships are read on the domain pool, never the lookup pool.
           listMemberships: signInMembershipsReader(domainPool),

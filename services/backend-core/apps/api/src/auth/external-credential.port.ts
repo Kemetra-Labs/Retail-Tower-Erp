@@ -50,6 +50,44 @@ export type SetPasswordResult =
   | { readonly kind: "unavailable" }
   | { readonly kind: "unconfigured" };
 
+/**
+ * RT-1327: provider-backed recovery. The provider emails the user a one-time
+ * link that returns to the Admin Console; Backend-Core then verifies that proof
+ * and sets the new password at the provider.
+ *
+ *   - `sent`         the provider accepted the request (it sends mail only to a
+ *                    user whose email it holds as verified);
+ *   - `refused`      the provider would not send (unknown or unverified user);
+ *   - `unconfigured` no return URL is configured: fail closed, no request.
+ */
+export type SendResetResult =
+  | { readonly kind: "sent" }
+  | { readonly kind: "refused" }
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "unconfigured" };
+
+/**
+ * The provider's answer to a recovery proof. `sessionJwt` is NOT trusted by the
+ * port (the caller verifies it and matches its subject to an active link);
+ * `refreshJwt` is the one-time authority for `updatePassword` and must stay in
+ * memory: never stored, logged or returned to a client.
+ */
+export type VerifyResetResult =
+  | { readonly kind: "ok"; readonly sessionJwt: string; readonly refreshJwt: string }
+  | { readonly kind: "refused" }
+  | { readonly kind: "unavailable" };
+
+export type UpdatePasswordResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "refused" }
+  | { readonly kind: "unavailable" };
+
+/** RT-1327: the provider's answer to "sign this user out of every session". */
+export type LogoutAllResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "refused" }
+  | { readonly kind: "unavailable" };
+
 export interface ExternalCredentialPort {
   /**
    * The provider key and issuer an `external_identity_links` row for one of this
@@ -61,6 +99,14 @@ export interface ExternalCredentialPort {
   passwordSignIn(loginId: string, password: string): Promise<PasswordSignInResult>;
   /** Replace a password the user knows (old + new), revoking their other provider sessions. */
   replacePassword(loginId: string, oldPassword: string, newPassword: string): Promise<ReplacePasswordResult>;
+  /** Ask the provider to email the user a recovery link (RT-1327). Never reveals whether the user exists. */
+  sendPasswordReset(loginId: string): Promise<SendResetResult>;
+  /** Verify the one-time proof from the recovery link; a used, expired or unknown proof is `refused`. */
+  verifyResetToken(token: string): Promise<VerifyResetResult>;
+  /** Set a new password, authorized by the refresh token `verifyResetToken` returned. */
+  updatePassword(loginId: string, newPassword: string, refreshJwt: string): Promise<UpdatePasswordResult>;
+  /** Invalidate every provider refresh token of the user, this one included (RT-1327). */
+  logoutAllSessions(refreshJwt: string): Promise<LogoutAllResult>;
   /** Management: create a user whose email is verified. */
   createUser(input: CreateUserInput): Promise<CreateUserResult>;
   /** Management: read a user's id and whether a password is set. */

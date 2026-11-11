@@ -51,6 +51,8 @@ import { TrackedSellingSettingController } from "./tracked-selling/tracked-selli
 import { TrackedSellingPreconditions } from "./tracked-selling/tracked-selling-preconditions";
 import { TrackedSellingSettingService } from "./tracked-selling/tracked-selling-setting.service";
 import { TrackingIdentitiesController } from "./tracking-identities.controller";
+import { TrackingResolutionController } from "./tracking-resolution/tracking-resolution.controller";
+import { TrackingResolutionService } from "./tracking-resolution/tracking-resolution.service";
 import { TrackingIdentityReadsService } from "./tracking-identity-reads.service";
 
 /**
@@ -90,6 +92,9 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     TrackedSellingSettingController,
     // RT-451 S3: the recorded sale-line findings (cookieAuth, RolesGuard).
     SaleLineFindingsController,
+    // RT-451 S5: the Tracking Resolution queue and the owner-only bind
+    // (cookieAuth, RolesGuard; not gated by the tracked-selling switch, OD-T4).
+    TrackingResolutionController,
   ],
   providers: [
     InventoryService,
@@ -105,6 +110,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     SafetyHistoryService,
     TrackingIdentityReadsService,
     SaleLineFindingsService,
+    TrackingResolutionService,
     TrackedSellingSettingService,
     TrackedSellingPreconditions,
     RolesGuard,

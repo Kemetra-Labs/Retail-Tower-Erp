@@ -36,6 +36,7 @@ import {
   type CanActivate,
   type ExecutionContext,
   INestApplication,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -184,6 +185,8 @@ class FakeAuthService {
   public mode: "ok" | "bad-credentials" = "ok";
   public refreshMode: "ok" | "expired" = "ok";
   public confirmPasswordResetThrows = false;
+  /** RT-1327: the identity provider is down while a recovery proof is confirmed. */
+  public confirmPasswordResetUnavailable = false;
   public confirmEmailVerificationThrows = false;
 
   async signIn(_email: string, _password: string): Promise<SignInResult> {
@@ -227,6 +230,9 @@ class FakeAuthService {
   async requestPasswordReset(_email: string): Promise<void> {}
 
   async confirmPasswordReset(_token: string, _newPassword: string): Promise<void> {
+    if (this.confirmPasswordResetUnavailable) {
+      throw new ServiceUnavailableException("Identity provider unavailable");
+    }
     if (this.confirmPasswordResetThrows) {
       throw new BadRequestException("Invalid or expired token");
     }
@@ -310,6 +316,7 @@ beforeEach(() => {
   fakeAuth.mode = "ok";
   fakeAuth.refreshMode = "ok";
   fakeAuth.confirmPasswordResetThrows = false;
+  fakeAuth.confirmPasswordResetUnavailable = false;
   fakeAuth.confirmEmailVerificationThrows = false;
   authGuard.mode = "ok";
 });
@@ -2001,6 +2008,15 @@ describe("POST /api/v1/auth/password-reset/confirm", () => {
       .post("/api/v1/auth/password-reset/confirm")
       .send({ token: "bad", new_password: "supersecret123" })
       .expect(400);
+    assertConformsTo(validateError, res.body);
+  });
+
+  it("503 — identity provider outage conforms to Error schema (RT-1327)", async () => {
+    fakeAuth.confirmPasswordResetUnavailable = true;
+    const res = await http()
+      .post("/api/v1/auth/password-reset/confirm")
+      .send({ token: "provider-proof", new_password: "supersecret123" })
+      .expect(503);
     assertConformsTo(validateError, res.body);
   });
 });
