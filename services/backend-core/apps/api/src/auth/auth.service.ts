@@ -699,6 +699,13 @@ export class AuthService {
     if (!user) throw new BadRequestException(INVALID_RESET_TOKEN);
 
     const updated = await external.port.updatePassword(user.email, newPassword, proof.refreshJwt);
+    if (updated.kind === "unavailable") {
+      // Ambiguous: the provider may have applied the password before its answer was
+      // lost, and the proof is spent, so no retry can finish this reset. Fail closed:
+      // revoke as on success (never retry the write), then report the outage.
+      await this.revokeAllSessionsForUser(user.userId);
+      await this.endSupportSessions({ userId: user.userId }, null);
+    }
     if (updated.kind !== "ok") throw providerResetFailure(updated.kind);
     return user;
   }

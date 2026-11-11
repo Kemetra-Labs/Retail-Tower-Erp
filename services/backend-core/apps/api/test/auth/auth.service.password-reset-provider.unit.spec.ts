@@ -298,16 +298,20 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     expect(endSupportSessions).not.toHaveBeenCalled();
   });
 
-  it("answers a provider outage while updating with a 503, and revokes nothing", async () => {
+  it("answers a provider outage while updating with a 503, and revokes Backend-Core sessions fail-closed", async () => {
     const { service, port, endSupportSessions } = build({ update: { kind: "unavailable" } });
 
     const error = await outage(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
 
     expect(error.message).toBe(PROVIDER_UNAVAILABLE);
+    // The provider may have applied the password before the answer was lost, and the
+    // proof is spent, so no retry could finish the reset: revoke as on success.
+    expect(updateCalls).toHaveBeenCalledTimes(1);
+    expect(endSupportSessions).toHaveBeenCalledWith({ userId: USER_ID }, null);
+    // The password write itself is never retried.
+    expect(port.updatePassword).toHaveBeenCalledTimes(1);
     // Best effort: the provider session the proof opened is still ended.
     expect(port.logoutAllSessions).toHaveBeenCalledWith(REFRESH);
-    expect(updateCalls).not.toHaveBeenCalled();
-    expect(endSupportSessions).not.toHaveBeenCalled();
   });
 
   it("refuses a session token that fails verification", async () => {
