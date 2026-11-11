@@ -131,7 +131,10 @@ describe("StockImportReportSchema body rules", () => {
     expect(ok({ rows: [r], readThrough: { ...rt(r), entryIndex: 1 }, exhausted: true, readAt })).toBe(false);
     expect(ok({ rows: [r], readThrough: null, exhausted: true, readAt })).toBe(false);
     expect(ok({ rows: [r], readThrough: rt(r), exhausted: false, readAt, refusal: { reason: "unknown_warehouse" } })).toBe(false);
-    expect(ok({ rows: [{ ...r, creation: "2026-11-11T10:00:00" }], readThrough: rt(r), exhausted: true, readAt })).toBe(false);
+    // A creation without a timezone, with readThrough matching it, so only the
+    // timestamp rule can refuse it.
+    const missingTimezone = { ...r, creation: "2026-11-11T10:00:00" };
+    expect(ok({ rows: [missingTimezone], readThrough: rt(missingTimezone), exhausted: true, readAt })).toBe(false);
     expect(ok({ rows: [{ ...r, unitCost: "1" }], readThrough: rt(r), exhausted: true, readAt })).toBe(false);
     expect(ok({ rows: [], readThrough: null, exhausted: true, readAt, tenant_id: "x" })).toBe(false);
   });

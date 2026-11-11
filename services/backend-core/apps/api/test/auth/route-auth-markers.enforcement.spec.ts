@@ -22,6 +22,7 @@ import { ShiftCashUpAuthGuard } from "../../src/pos-shifts/shift-cash-up-auth.gu
 import { TrackedLotsAuthGuard } from "../../src/catalog/sales/tracked-lines/tracked-lots-auth.guard";
 import { TrackedLineValidationAuthGuard } from "../../src/catalog/sales/tracked-lines/tracked-line-validation-auth.guard";
 import { DeviceRotationAuthGuard } from "../../src/pos-terminal-pairing/device-rotation-auth.guard";
+import { RedeemVoucherAuthGuard, ValidateVoucherAuthGuard } from "../../src/vouchers-pos/voucher-cashier-auth.guard";
 import { DEVICE_ATTESTED_KEY, DEVICE_BEARER_KEY, DeviceBearer } from "../../src/auth/route-auth";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "ALL", "OPTIONS", "HEAD"];
@@ -68,6 +69,13 @@ const REVIEWED_DEVICE_ATTESTED = ["PosAuditEventsController.syncBatch"];
  * token with an `operatorUserId` claim verified as a cashier admission live at
  * the server's now; covered by tracked-line-validation.unit.spec.ts and
  * tracked-line-validation.spec.ts.
+ * RT-1112: ValidateVoucherAuthGuard and RedeemVoucherAuthGuard (posValidateVoucher,
+ * posRedeemVoucher) are device-only: PosDeviceAuthGuard, then an
+ * `operatorUserId` claim verified as a cashier admission live at the server's
+ * now (the TLV verifier, reused). Redeem first serves a stored successful
+ * same-key, same-body replay of the same device without the claim (owner
+ * decision, RT-1112 c16636). Covered by voucher-cashier-auth.guard.unit.spec.ts
+ * and vouchers-pos.http.integration.spec.ts.
  */
 const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
   SaleCaptureAuthGuard,
@@ -76,6 +84,8 @@ const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
   DeviceRotationAuthGuard,
   TrackedLotsAuthGuard,
   TrackedLineValidationAuthGuard,
+  ValidateVoucherAuthGuard,
+  RedeemVoucherAuthGuard,
 ];
 
 interface MarkedRoute {
@@ -193,6 +203,11 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       "TrackedLineValidationController.validateTrackedLine",
       // RT-451 S1: the POS lot lookup (envelope, or the device bearer alone).
       "TrackedLotsController.listTrackedLots",
+      // RT-1112: the V-A voucher authority (device bearer only; validate and
+      // redeem verify a live cashier claim, reverse takes none).
+      "VouchersPosController.redeem",
+      "VouchersPosController.reverse",
+      "VouchersPosController.validate",
     ]);
     expect(deviceAttested.length).toBeGreaterThan(0);
   });

@@ -145,6 +145,12 @@ export const POS_WRITE_RATE_LIMIT_BUCKETS = {
   // from posRotateDevice, so a refused (stale) token can never spend the
   // live till's rotation budget and 429 its real rotation.
   posRotateRefusalAudit: { limit: 20, windowMs: 60 * 60 * 1000 },
+  // RT-1112 (owner decision 3, RT-1112 c16636): FAILED voucher lookups per
+  // device on V-A validate and redeem (an unknown code or intent token). A
+  // found code gives its hit back (VoucherLookupLimiter), so a cashier who
+  // mistypes a few codes is never blocked, while enumerating codes from one
+  // till is capped at 10 guesses per 15 minutes.
+  posVoucherLookupFailure: { limit: 10, windowMs: 15 * 60 * 1000 },
 } as const satisfies Record<string, RateLimitBucket>;
 
 export interface RateLimitBucket {
