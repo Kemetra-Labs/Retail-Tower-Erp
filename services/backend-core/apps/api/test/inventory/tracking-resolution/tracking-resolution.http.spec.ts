@@ -182,7 +182,8 @@ async function walk(query: string): Promise<QueueItem[]> {
 let keySeq = 0;
 const newKey = (): string => {
   keySeq += 1;
-  return `rt451-s5-key-${keySeq}`;
+  // The production IdempotencyInterceptor accepts 16-128 printable ASCII characters.
+  return `rt451-s5-bind-key-${String(keySeq).padStart(6, "0")}`;
 };
 
 async function postBind(saleId: string, body: unknown, key: string = newKey()): Promise<request.Response> {
