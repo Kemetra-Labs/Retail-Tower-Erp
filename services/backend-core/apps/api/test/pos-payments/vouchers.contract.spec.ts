@@ -616,10 +616,25 @@ describe("pos-payments/vouchers.yaml — RT-1110 amendment", () => {
   const props = (name: string): Record<string, Record<string, unknown>> =>
     (schemas()[name]?.["properties"] ?? {}) as Record<string, Record<string, unknown>>;
 
-  it("keeps all three operations contract-only (AC4)", () => {
+  it("serves all three operations since RT-1112: no contract-only marker is left", () => {
     for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH, POS_REVERSE_PATH]) {
-      expect(postOp(path)["x-runtime-status"]).toBe("contract-only");
+      const op = postOp(path) as OperationObject & { "x-runtime-note"?: unknown };
+      expect(op["x-runtime-status"]).toBeUndefined();
+      expect(op["x-runtime-note"]).toBeUndefined();
     }
+  });
+
+  it("declares the failed-lookup 429 with a clamped Retry-After on validate and redeem only (RT-1112, ADR 0009)", () => {
+    for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH]) {
+      const tooMany = postOp(path).responses?.["429"] as
+        | { description?: string; headers?: Record<string, { schema?: Record<string, unknown> }>; content?: unknown }
+        | undefined;
+      expect(tooMany).toBeDefined();
+      expect(tooMany?.description ?? "").toContain("RATE_LIMITED");
+      expect(tooMany?.headers?.["Retry-After"]?.schema).toEqual({ type: "integer", minimum: 1, maximum: 300 });
+      expect(tooMany?.content).toEqual({ "application/json": { schema: { $ref: "#/components/schemas/Error" } } });
+    }
+    expect(postOp(POS_REVERSE_PATH).responses?.["429"]).toBeUndefined();
   });
 
   it.each(["PosValidateVoucherRequest", "PosRedeemVoucherRequest"])(

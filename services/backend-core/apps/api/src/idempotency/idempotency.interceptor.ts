@@ -104,7 +104,16 @@ function clientId(ctx: ExecutionContext): string {
 function deviceClientId(ctx: ExecutionContext): string {
   const req = ctx.switchToHttp().getRequest<{ posDeviceId?: string }>();
   if (!req.posDeviceId) throw new UnauthorizedException("Unauthorized");
-  return `device:${req.posDeviceId}`;
+  return deviceClientKey(req.posDeviceId);
+}
+
+/**
+ * The client partition of a device on a `clientScope: "device"` route. Exported
+ * for RT-1112: the V-A redeem guard looks up a stored replay with the same key
+ * before the cashier admission check.
+ */
+export function deviceClientKey(deviceId: string): string {
+  return `device:${deviceId}`;
 }
 
 function tenantId(ctx: ExecutionContext): string | null {
@@ -178,6 +187,7 @@ interface ResolvedKey {
   tenantId: string;
   storeKey: string;
   replayForbidden: boolean;
+  replayBodyOverrides: Readonly<Record<string, unknown>> | null;
   tuple: string;
   fingerprint: Buffer;
 }
@@ -277,6 +287,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
       tenantId: tId,
       storeKey,
       replayForbidden: options.replay === "forbid",
+      replayBodyOverrides: options.replayBodyOverrides ?? null,
       tuple: composeTuple(tId, storeKey),
       fingerprint: bodyFingerprint(req.body),
     };
@@ -295,7 +306,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     entry: IdempotencyEntry,
   ): Promise<Observable<unknown>> {
     await this.marker.del(key.tuple);
-    return replayOrRefuse(execCtx, key.route, key.replayForbidden, entry);
+    return replayOrRefuse(execCtx, key.route, key.replayForbidden, entry, key.replayBodyOverrides);
   }
 
   /** Same key, different body: release the marker, then 409 with its telemetry. */
@@ -446,6 +457,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
       keyFingerprint: keyFingerprint(key.headerValue),
       replayForbidden: key.replayForbidden,
       replayMarkerFields: options.replayMarkerFields ?? [],
+      replayBodyOverrides: key.replayBodyOverrides,
     };
   }
 }
@@ -472,6 +484,7 @@ interface FreshAttempt {
   /** K3: store a non-secret marker instead of the body; never replay. */
   replayForbidden: boolean;
   replayMarkerFields: readonly string[];
+  replayBodyOverrides: Readonly<Record<string, unknown>> | null;
 }
 
 async function runFresh(attempt: FreshAttempt): Promise<Observable<unknown>> {
@@ -580,7 +593,7 @@ async function lostClaim(attempt: FreshAttempt): Promise<Observable<unknown>> {
   );
   await attempt.marker.del(attempt.tuple);
   if (again.hit === true) {
-    return replayOrRefuse(attempt.execCtx, attempt.route, attempt.replayForbidden, again.entry);
+    return replayOrRefuse(attempt.execCtx, attempt.route, attempt.replayForbidden, again.entry, attempt.replayBodyOverrides);
   }
   if (again.hit === "collision") {
     throw new ConflictException({
@@ -610,13 +623,20 @@ function replayOrRefuse(
   route: string,
   replayForbidden: boolean,
   entry: IdempotencyEntry,
+  overrides: Readonly<Record<string, unknown>> | null = null,
 ): Observable<never> {
   if (replayForbidden || isNonReplayableMarker(entry.result.body)) {
     recordIdempotencyConflict({ route });
     throw idempotencyConflict(NON_REPLAYABLE_MESSAGE);
   }
   recordIdempotencyReplay({ route });
-  return replyReplay(execCtx, entry.result.status, entry.result.body);
+  return replyReplay(execCtx, entry.result.status, withReplayOverrides(entry.result.body, overrides));
+}
+
+/** RT-1112: a replayed object body with the route's `replayBodyOverrides` applied. */
+export function withReplayOverrides(body: unknown, overrides: Readonly<Record<string, unknown>> | null): unknown {
+  if (overrides === null || typeof body !== "object" || body === null || Array.isArray(body)) return body;
+  return { ...(body as Record<string, unknown>), ...overrides };
 }
 
 function replyInProgress(execCtx: ExecutionContext): Observable<never> {
