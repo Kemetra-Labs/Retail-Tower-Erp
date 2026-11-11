@@ -170,7 +170,7 @@ E2 shows the OD-2 rule: the discount goes to the **cheapest units in the whole b
 - Unlike the manual discount (F-3), the promotion fact **is stored** in a new `sale_line_promotions` table (S3), and it is returned by `readSale` and the sale history. Returns and analytics need it (§20).
 - It is part of the payload hash and the `Idempotency-Key` fingerprint, like every other line field.
 - **Server check (OD-9).** Backend-Core re-runs §6 with the cited Pack revision:
-  - It **rejects** a body that breaks arithmetic (the line invariant, rounding, or quantity 1 on reward lines), with 400.
+  - It **rejects** a body that breaks arithmetic (the line invariant, rounding, or quantity 1 on reward lines), with 422 `sale_line_pricing_invalid`, the existing RT-105 and RT-740 refusal for a line whose price does not hold. A malformed object is 400 `validation_error`.
   - It **accepts and flags for review** a sale whose offer result differs from the server's (for example, a wrong eligible set on the till). The sale happened and money was taken, so the fact is kept and the mismatch goes to the sale-review path. It is never silently re-priced.
 - **Receipt.** Under each reward line, print the offer name and the discount, for example «عرض: القطعة التانية بخصم 40% −16.00». Copy is finalised under the UX Constitution in the POS slice.
 - **ERPNext.** Nothing new is needed for the sale: a reward line is a discounted line with quantity 1, which RT-857 already posts as a visible discount (F-4). ERPNext stays out of offer authority (§20, 465).

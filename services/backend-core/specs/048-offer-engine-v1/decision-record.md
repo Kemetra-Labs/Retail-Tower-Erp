@@ -95,7 +95,7 @@ defined before offline scheduling ships.
 
 **Approved** (owner, 2026-11-11):
 
-- Arithmetic errors (line invariant, rounding, a reward line with quantity other than 1) are **400** (a till defect).
+- Arithmetic errors (line invariant, rounding, a reward line with quantity other than 1) are **rejected** as a till defect: 422 `sale_line_pricing_invalid`, the existing line-pricing refusal (RT-105, RT-740), as fixed by the RT-1335 contract. A malformed object is 400.
 - A rule-level mismatch (eligible set, `k`, which units are rewards) is **accepted and flagged** to the sale-review path. The sale happened, so its frozen facts are kept, and Backend-Core never re-prices it silently.
 
 ## OD-10 — A return that would need the customer to pay back
