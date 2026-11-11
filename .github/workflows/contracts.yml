@@ -52,7 +52,7 @@ jobs:
       # Full history: the evaluator diffs the base and head commits with git plumbing. Only
       # tools/project-graph is materialised; nothing from the checked-out tree is executed.
       - name: Checkout (history only)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -132,7 +132,7 @@ jobs:
     steps:
       # fetch-depth 0: the pinned blobs come from older commits; a shallow clone lacks them and
       # the check would fail closed on every pin.
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -175,7 +175,7 @@ jobs:
       # the Backend-Core contract at the Backend-Core release (G4). Releases and commits are read
       # from the full history checked out above; an incompatible system version fails here.
       # G5 parses pos-supported.yaml with contracts-compat's own (ESM) parser.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 

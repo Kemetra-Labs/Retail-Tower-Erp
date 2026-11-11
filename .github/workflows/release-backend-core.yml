@@ -75,7 +75,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - name: Checkout (history only, for the main-ancestry check)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -122,7 +122,7 @@ jobs:
       # The gate reads the release commit's files and runs contracts-compat's parser from the
       # same commit (the SHA resolve proved is on main); it executes nothing else from it.
       - name: Checkout the release SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -130,7 +130,7 @@ jobs:
             services/backend-core/contracts-compat
 
       - name: Setup Node (.nvmrc)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
@@ -183,19 +183,19 @@ jobs:
       migrate: ${{ steps.migrate.outputs.digest }}
     steps:
       - name: Checkout the release SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Prepare the output directory
         run: mkdir -p "$RUNNER_TEMP/images"
 
       - name: Build api (OCI layout, no push)
         id: api
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: services/backend-core
           target: api
@@ -210,7 +210,7 @@ jobs:
 
       - name: Build worker (OCI layout, no push)
         id: worker
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: services/backend-core
           target: worker
@@ -225,7 +225,7 @@ jobs:
 
       - name: Build migrate (OCI layout, no push)
         id: migrate
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: services/backend-core
           target: migrate
@@ -252,7 +252,7 @@ jobs:
           sha256sum "$RUNNER_TEMP"/images/*.oci.tar
 
       - name: Upload the images
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: backend-core-images-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/images/
@@ -271,12 +271,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout the release SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
       - name: Download the images
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: backend-core-images-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/images
@@ -308,7 +308,7 @@ jobs:
           { echo '```json'; cat "$RUNNER_TEMP/manifest/release-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the release manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: backend-core-release-manifest-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/manifest/
@@ -343,7 +343,7 @@ jobs:
       # No `ref:`: checkout uses github.sha, the tagged commit resolve proved is on main.
       # release-bundle.sh re-checks HEAD against the SHA.
       - name: Checkout the release SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
@@ -382,7 +382,7 @@ jobs:
             || fail "release-bundle.sh in $SHA has no --release-tag (RT-908 B2 must be on main first)"
 
       - name: Setup Node (.nvmrc)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
 
@@ -400,14 +400,14 @@ jobs:
             --source services/backend-core --lib services/backend-core/contracts-compat/lib
 
       - name: Download the images
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: backend-core-images-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/images
 
       # skopeo reads the same ~/.docker/config.json credentials.
       - name: Log in to GHCR
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -484,21 +484,21 @@ jobs:
           done
 
       - name: Attest build provenance (api)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-name: ghcr.io/kemetra-labs/backend-core-api
           subject-digest: ${{ needs.build.outputs.api }}
           push-to-registry: true
 
       - name: Attest build provenance (worker)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-name: ghcr.io/kemetra-labs/backend-core-worker
           subject-digest: ${{ needs.build.outputs.worker }}
           push-to-registry: true
 
       - name: Attest build provenance (migrate)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-name: ghcr.io/kemetra-labs/backend-core-migrate
           subject-digest: ${{ needs.build.outputs.migrate }}

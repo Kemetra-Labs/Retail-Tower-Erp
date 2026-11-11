@@ -65,7 +65,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout with full history
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -124,7 +124,7 @@ jobs:
 
       - name: Checkout with full history
         if: steps.arm.outputs.armed == 'true'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -137,7 +137,7 @@ jobs:
       - name: Mint a one-repository publisher token
         if: steps.arm.outputs.armed == 'true'
         id: token
-        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.MIRROR_APP_ID }}
           private-key: ${{ secrets.MIRROR_APP_PRIVATE_KEY }}

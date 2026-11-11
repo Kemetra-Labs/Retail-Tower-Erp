@@ -61,7 +61,7 @@ jobs:
       tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - name: Checkout (history only, for the main-ancestry check)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -107,7 +107,7 @@ jobs:
       # Full history and tags: the publisher walks main's first-parent line and mirrors
       # erpnext-connector/v* tags.
       - name: Checkout the release SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -165,7 +165,7 @@ jobs:
           echo "disposable mirror: baseline $base, tip $tip (tree == subtree at $SHA)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the build
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: erpnext-connector-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/connector-release/
@@ -181,12 +181,12 @@ jobs:
       contents: read
     steps:
       - name: Checkout the release SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
 
       - name: Download the build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: erpnext-connector-package-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/pkg
@@ -215,7 +215,7 @@ jobs:
           { echo '```json'; cat "$RUNNER_TEMP/manifest/release-manifest.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the release manifest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: erpnext-connector-release-manifest-${{ needs.resolve.outputs.mode }}-${{ github.run_id }}
           path: ${{ runner.temp }}/manifest/

@@ -116,7 +116,7 @@ jobs:
       # `git archive` and `git rev-parse` can read any release reachable from main.
       - name: Checkout main
         id: checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -126,7 +126,7 @@ jobs:
       - name: Checkout the legacy current release source (Kemetra/Backend-Core, read-only)
         id: legacy_source
         if: ${{ startsWith(inputs.current_release, 'backend-core-') }}
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: Kemetra/Backend-Core
           path: legacy-source
@@ -134,7 +134,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to GHCR (read-only, for attestation verification)
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -363,7 +363,7 @@ jobs:
 
       - name: Upload the planned ledger
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: deploy-lab-ledger-${{ github.run_id }}
           path: ${{ runner.temp }}/ledger/
@@ -435,7 +435,7 @@ jobs:
       # No `ref:` on purpose: the claim printer runs from the dispatched main commit.
       # Full history, so the compat re-check can read the release commit (an ancestor of main).
       - name: Checkout main
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -685,7 +685,7 @@ jobs:
 
       - name: Upload the live ledger
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: deploy-lab-live-ledger-${{ github.run_id }}
           path: ${{ runner.temp }}/live-ledger/
