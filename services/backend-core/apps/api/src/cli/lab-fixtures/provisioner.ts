@@ -107,12 +107,12 @@ export class Provisioner {
     if (mode === "status") {
       return { kind: "report", report: { ...base, outcome: "missing", actions: [], provider: "absent" } };
     }
-    const created = await this.deps.provider.createTestUser(identity.loginId, identity.displayName);
+    const created = await this.deps.provider.createTestUser(identity.loginId, identity.email, identity.displayName);
     if (created.kind === "unavailable") {
       return { kind: "report", report: { ...base, outcome: "stopped", actions: [], provider: "unavailable", reason: "provider_unavailable" } };
     }
     if (created.kind === "rejected") {
-      return { kind: "report", report: { ...base, outcome: "refused", actions: [], provider: "absent", reason: "provider_create_rejected" } };
+      return { kind: "report", report: { ...base, outcome: "refused", actions: [], provider: "absent", reason: created.code === undefined ? "provider_create_rejected" : `provider_create_rejected:${created.code}` } };
     }
     return this.verifyCreated(identity, created.userId);
   }

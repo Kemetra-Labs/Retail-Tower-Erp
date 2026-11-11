@@ -25,8 +25,14 @@ class FakeDescope implements FixtureIdentityProvider {
     return u.test ? { kind: "test_user", userId: u.userId } : { kind: "not_test_user" };
   }
 
-  async createTestUser(loginId: string): Promise<FixtureCreate> {
+  lastEmail: string | null = null;
+
+  lastName: string | null = null;
+
+  async createTestUser(loginId: string, email: string, name: string): Promise<FixtureCreate> {
     this.creates++;
+    this.lastEmail = email;
+    this.lastName = name;
     if (this.createAnswer) return this.createAnswer;
     const userId = `U-${loginId}`;
     this.users.set(loginId, { userId, test: !this.createAsNonTest });
@@ -169,6 +175,18 @@ describe("Provisioner", () => {
     expect(r).toMatchObject({ outcome, reason });
   });
 
+  it("sends the fixture's non-deliverable email on create and reports the provider code on a rejection", async () => {
+    const { descope, p } = setup();
+    const [ok] = await p.run("provision", fixtureIdentities(1));
+    expect(ok?.outcome).toBe("provisioned");
+    expect(descope.lastEmail).toBe("rtfx-cashier-001@fixtures.invalid");
+
+    const second = setup();
+    second.descope.createAnswer = { kind: "rejected", code: "E011002" };
+    const [r] = await second.p.run("provision", fixtureIdentities(1));
+    expect(r).toMatchObject({ outcome: "refused", reason: "provider_create_rejected:E011002" });
+  });
+
   it("refuses a created user that Descope does not report back as a test user", async () => {
     const { descope, store, p } = setup();
     descope.createAsNonTest = true;
@@ -180,8 +198,8 @@ describe("Provisioner", () => {
   it("stops when the re-verification after create hits an outage", async () => {
     const { descope, p } = setup();
     const original = descope.createTestUser.bind(descope);
-    descope.createTestUser = async (loginId: string) => {
-      const created = await original(loginId);
+    descope.createTestUser = async (loginId: string, email: string, name: string) => {
+      const created = await original(loginId, email, name);
       descope.outage = true;
       return created;
     };

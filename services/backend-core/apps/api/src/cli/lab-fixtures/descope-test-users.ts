@@ -72,9 +72,11 @@ export class DescopeTestUsers implements FixtureIdentityProvider {
     return this.lookupNonTest(loginId);
   }
 
-  async createTestUser(loginId: string, name: string): Promise<FixtureCreate> {
+  async createTestUser(loginId: string, email: string, name: string): Promise<FixtureCreate> {
     const sent = await this.send("POST", "/v1/mgmt/user/create/test", {
       loginId,
+      // Descope refuses a create with neither email nor phone (E011002), test user or not.
+      email,
       name,
       test: true,
       invite: false,
@@ -82,8 +84,9 @@ export class DescopeTestUsers implements FixtureIdentityProvider {
       sendSMS: false,
     });
     if (sent.kind === "failed" || isTransient(sent.res.status)) return { kind: "unavailable" };
-    if (!sent.res.ok) return { kind: "rejected" };
-    const userId = userIdOf(asRecord(await readJson(sent.res))?.["user"]);
+    const json = await readJson(sent.res);
+    if (!sent.res.ok) return rejected(json);
+    const userId = userIdOf(asRecord(json)?.["user"]);
     return userId === null ? { kind: "rejected" } : { kind: "created", userId };
   }
 
@@ -113,6 +116,12 @@ export class DescopeTestUsers implements FixtureIdentityProvider {
       (): Sent => ({ kind: "failed" }),
     );
   }
+}
+
+/** A rejection carries only a well-formed provider error code (`E` + 6 digits), never a message or body. */
+function rejected(json: unknown): FixtureCreate {
+  const code = asRecord(json)?.["errorCode"];
+  return typeof code === "string" && /^E\d{6}$/.test(code) ? { kind: "rejected", code } : { kind: "rejected" };
 }
 
 async function readJson(res: Response): Promise<unknown> {
