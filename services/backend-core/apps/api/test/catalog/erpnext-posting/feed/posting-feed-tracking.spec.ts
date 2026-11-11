@@ -18,8 +18,14 @@
  *     effect;
  *   - a batch line with no identity (captured while tracked selling was off)
  *     and a version frozen before 0095 emit no tracking fields;
- *   - an operator re-resolution after the edge map is repaired releases an
- *     `edge_map_missing` hold; one of an `expired` lot keeps it;
+ *   - a line capture classified as tracked whose version froze no tracking
+ *     (written before 0095, or by a backfill) is held, never offered without
+ *     its Batch;
+ *   - through the real operator re-resolution: re-resolving without an
+ *     edge-map row is refused as unchanged; after the edge map is repaired it
+ *     releases an `edge_map_missing` hold; an `expired` lot stays held;
+ *   - switching tracked selling on re-heads the held tracked intents, so a
+ *     Connector whose cursor moved past them is offered them again;
  *   - the projection refuses to build a held tracked line
  *     (`TrackedLineNotPostableError`) rather than offer it without its Batch.
  *
@@ -44,7 +50,13 @@ import {
   type PostingWorkItem,
   type WorkItemLine,
 } from "../../../../src/catalog/erpnext-posting/posting-work-item.projection";
-import { freezeOperatorResolution } from "../../../../src/catalog/erpnext-reconciliation/posting-resolution.writer";
+import {
+  ErpnextPostingReResolutionService,
+  ReResolveConflictError,
+} from "../../../../src/catalog/erpnext-reconciliation/posting-re-resolution.service";
+import { MembershipRepository } from "../../../../src/context/membership.repository";
+import { TrackedSellingPreconditions } from "../../../../src/inventory/tracked-selling/tracked-selling-preconditions";
+import { TrackedSellingSettingService } from "../../../../src/inventory/tracked-selling/tracked-selling-setting.service";
 import { loadOpenApiContracts } from "../../../../src/openapi/loader";
 import { ACTOR_A, STORE_A_X } from "../../__support__/isolation-harness";
 import { SALE_A_X } from "../../sales/__support__/seed-sales";
@@ -89,6 +101,10 @@ beforeAll(async () => {
     throw err;
   }
   const a = env.admin;
+  // The audited services (re-resolution, the switch) record ACTOR_A as the actor.
+  await a.query(`INSERT INTO users (id, email) VALUES ($1, 's6-actor@fixture.invalid') ON CONFLICT (id) DO NOTHING`, [
+    ACTOR_A,
+  ]);
   await a.query(
     `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by, tracking_mode)
      VALUES ($1, $3, 'S6 untracked', 'standard', $4, $4, 'none'), ($2, $3, 'S6 batch', 'standard', $4, $4, 'batch')`,
@@ -269,13 +285,28 @@ describe("RT-451 S6: tracked selling in effect", () => {
     expect(line(item!, untrackedLine)).toMatchObject({ trackingMode: "none", erpnextBatchRef: null });
   });
 
-  it("a version frozen before 0095 emits no tracking field", async () => {
+  it("a version frozen before 0095 emits no tracking field on lines capture never classified", async () => {
     if (skip) return;
     await trackedSelling(true, true);
+    await pg().admin.query(`UPDATE sale_lines SET tracking_class = NULL WHERE id = $1`, [trackedLine]);
+    try {
+      await freeze({}, {});
+      const item = await offered();
+      expect(item).not.toBeNull();
+      for (const l of item!.sale.lines) expect(Object.keys(l)).not.toContain("trackingMode");
+    } finally {
+      await pg().admin.query(`UPDATE sale_lines SET tracking_class = 'flagged' WHERE id = $1`, [trackedLine]);
+    }
+  });
+
+  it.each([
+    ["in effect", true],
+    ["not in effect", false],
+  ])("holds a classified tracked line whose version froze no tracking (%s)", async (_label, on) => {
+    if (skip) return;
+    await trackedSelling(on, on);
     await freeze({}, {});
-    const item = await offered();
-    expect(item).not.toBeNull();
-    for (const l of item!.sale.lines) expect(Object.keys(l)).not.toContain("trackingMode");
+    expect(await offered()).toBeNull();
   });
 
   it("the projection refuses to build a held tracked line (never offered without its Batch)", async () => {
@@ -306,44 +337,51 @@ describe("RT-451 S6: tracked selling in effect", () => {
   });
 });
 
-describe("RT-451 S6: operator re-resolution of a held intent", () => {
-  /** Write v(n+1) as the operator re-resolution does, point the intent at it, and return its tracked line. */
-  async function reResolve(): Promise<{ batch: string | null; hold: string | null }> {
-    const v = await runWithTenantContext(pg().app, { tenantId: TENANT_A, isPlatformAdmin: false }, async (client) => {
-      const next = await freezeOperatorResolution(client, {
+describe("RT-451 S6: operator re-resolution of a held intent (the real endpoint service)", () => {
+  function reResolve(): ReturnType<ErpnextPostingReResolutionService["reResolvePosting"]> {
+    return new ErpnextPostingReResolutionService(pg().app, new MembershipRepository(pg().app)).reResolvePosting({
+      tenantId: TENANT_A,
+      context: {
+        userId: ACTOR_A,
         tenantId: TENANT_A,
-        intentId: POST_A_PENDING,
-        kind: "sale_post",
-        saleId: SALE_A_X,
-        storeId: STORE_A_X,
-      });
-      await client.query(
-        `UPDATE erpnext_posting_status SET current_resolution_version = $2, sequence = DEFAULT WHERE id = $1`,
-        [POST_A_PENDING, next],
-      );
-      return next;
+        storeId: null,
+        isPlatformAdmin: false,
+        source: "session",
+        storeAccess: { kind: "all" },
+      },
+      actorUserId: ACTOR_A,
+      workItemRef: POST_A_PENDING,
     });
-    expect(v).not.toBeNull();
-    version = v!;
+  }
+
+  /** The tracked line's Batch and hold in the intent's current version. */
+  async function current(): Promise<{ batch: string | null; hold: string | null }> {
     const r = await pg().admin.query<{ erpnext_batch_ref: string | null; erp_hold_cause: string | null }>(
-      `SELECT erpnext_batch_ref, erp_hold_cause FROM erpnext_posting_resolution
-        WHERE intent_id = $1 AND resolution_version = $2 AND sale_line_id = $3`,
-      [POST_A_PENDING, v, trackedLine],
+      `SELECT r.erpnext_batch_ref, r.erp_hold_cause
+         FROM erpnext_posting_status s
+         JOIN erpnext_posting_resolution r
+           ON r.intent_id = s.id AND r.resolution_version = s.current_resolution_version
+        WHERE s.id = $1 AND r.sale_line_id = $2`,
+      [POST_A_PENDING, trackedLine],
     );
     return { batch: r.rows[0]!.erpnext_batch_ref, hold: r.rows[0]!.erp_hold_cause };
   }
 
-  it("stays held without an edge-map row, and is released and offered with its Batch once the edge map is repaired", async () => {
+  it("is refused as unchanged without an edge-map row, and releases the hold once the edge map is repaired", async () => {
     if (skip) return;
     await trackedSelling(true, true);
-    expect(await reResolve()).toEqual({ batch: null, hold: "edge_map_missing" });
+    await freeze(NONE, { mode: "batch", identity: I_A, hold: "edge_map_missing" });
+    await expect(reResolve()).rejects.toBeInstanceOf(ReResolveConflictError);
+    expect(await current()).toEqual({ batch: null, hold: "edge_map_missing" });
     expect(await offered()).toBeNull();
 
     await pg().admin.query(
       `INSERT INTO erpnext_tracking_map (tenant_id, tracking_identity_id, kind, erpnext_ref) VALUES ($1, $2, 'batch', 'BATCH-S6-A')`,
       [TENANT_A, I_A],
     );
-    expect(await reResolve()).toEqual({ batch: "BATCH-S6-A", hold: null });
+    const recorded = await reResolve();
+    version = recorded.resolutionVersion;
+    expect(await current()).toEqual({ batch: "BATCH-S6-A", hold: null });
     const item = await offered();
     expect(item).not.toBeNull();
     expect(line(item!, trackedLine).erpnextBatchRef).toEqual({ doctype: "Batch", name: "BATCH-S6-A" });
@@ -359,7 +397,36 @@ describe("RT-451 S6: operator re-resolution of a held intent", () => {
          FROM sales s WHERE s.id = $1`,
       [SALE_A_X, trackedLine, P_BATCH, I_A],
     );
-    expect(await reResolve()).toEqual({ batch: "BATCH-S6-A", hold: "expired" });
+    version = (await reResolve()).resolutionVersion;
+    expect(await current()).toEqual({ batch: "BATCH-S6-A", hold: "expired" });
     expect(await offered()).toBeNull();
+    await expect(reResolve()).rejects.toBeInstanceOf(ReResolveConflictError);
+    await pg().admin.query(`DELETE FROM sale_line_findings WHERE sale_line_id = $1`, [trackedLine]);
+  });
+});
+
+describe("RT-451 S6: switching tracked selling on re-heads the held tracked intents", () => {
+  const allMet = { unmet: () => Promise.resolve([]) } as unknown as TrackedSellingPreconditions;
+  const setting = (): TrackedSellingSettingService =>
+    new TrackedSellingSettingService(pg().app, new MembershipRepository(pg().app), allMet);
+
+  it("a Connector whose cursor moved past a held intent is offered it after the switch-on", async () => {
+    if (skip) return;
+    await trackedSelling(true, false);
+    await freeze(NONE, TRACKED);
+    expect(await offered()).toBeNull();
+    // The Connector's cursor has moved past every row of the tenant.
+    const max = await pg().admin.query<{ s: string }>(
+      `SELECT max(sequence)::text AS s FROM erpnext_posting_status WHERE tenant_id = $1`,
+      [TENANT_A],
+    );
+    const since = BigInt(max.rows[0]!.s);
+    const pull = () => new ErpnextPostingService(pg().app).pullPostings({ tenantId: TENANT_A, since, limit: 100 });
+    expect((await pull()).items.map((i) => i.workItemRef)).not.toContain(POST_A_PENDING);
+
+    await setting().setSetting({ tenantId: TENANT_A, userId: ACTOR_A, isPlatformAdmin: false }, true);
+    const item = (await pull()).items.find((i) => i.workItemRef === POST_A_PENDING);
+    expect(item).toBeDefined();
+    expect(line(item!, trackedLine).erpnextBatchRef).toEqual({ doctype: "Batch", name: "BATCH-S6-A" });
   });
 });

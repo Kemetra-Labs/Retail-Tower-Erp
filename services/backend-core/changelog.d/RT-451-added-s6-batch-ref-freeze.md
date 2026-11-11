@@ -9,10 +9,14 @@
   Resolution), that identity and its ERPNext Batch from the edge map. A reversal copies its
   sale's. An operator re-resolution re-freezes from the edge map as it is then. G7-9 row 3 is
   held, never offered: `expired` (from the capture finding) or `edge_map_missing` (no edge-map
-  row at the freeze). Re-resolving after the edge map is repaired releases an
-  `edge_map_missing` hold; an expired lot stays held for the owner (RT-50 B1). The posting feed
-  emits `trackingMode` (`none` / `batch`) and `erpnextBatchRef` only while tracked selling is in
-  effect for the tenant (the contract's per-tenant flag); otherwise every line is unchanged and
-  an intent with a tracked line is held. A batch line captured while tracked selling was off
+  row at the freeze), as is a line capture classified as tracked whose version froze no tracking.
+  The operator re-resolution now counts the frozen identity, Batch and hold as a change, so
+  re-resolving after the edge map is repaired releases an `edge_map_missing` hold; an expired lot
+  stays held for the owner (RT-50 B1). The posting feed emits `trackingMode` (`none` / `batch`)
+  and `erpnextBatchRef` only while tracked selling is in effect for the tenant (the contract's
+  per-tenant flag); otherwise every line is unchanged and an intent with a tracked line is held.
+  Switching tracked selling on re-heads those held intents under the feed sequence lock;
+  turning the `POS_TRACKED_SELLING_ENABLED` deploy gate off and on again needs the same re-head
+  as a deploy step. A batch line captured while tracked selling was off
   keeps today's wire (RT-451 comment 16538 item 3 is still open). Tracked selling stays off: no
   tenant can switch it on in this build.

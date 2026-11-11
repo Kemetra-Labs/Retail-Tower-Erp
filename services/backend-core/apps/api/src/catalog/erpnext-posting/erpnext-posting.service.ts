@@ -348,7 +348,12 @@ export class ErpnextPostingService {
         //     contract's per-tenant flag): the batch fields are emitted only
         //     behind it, and a batch Item offered without its Batch would be
         //     posted without one or rejected. Switching it back on must
-        //     re-head these rows, as for the RT-418 gate.
+        //     re-head these rows, as for the RT-418 gate (switching on does,
+        //     `tracked-selling-setting.service.ts`);
+        //   - a line capture classified as tracked has no frozen tracking (a
+        //     version written before 0095 or by the 0038 / catch-up backfill,
+        //     or no frozen version at all): fail closed rather than offer it
+        //     without its Batch; an operator re-resolution re-freezes it.
         // A reversal copies its sale's lineage, so it is held with its sale.
         const trackingOn = await readTrackedSellingOn(client, input.tenantId);
         const rows = await client.query<FeedRow>(
@@ -382,11 +387,15 @@ export class ErpnextPostingService {
                         OR EXISTS (SELECT 1 FROM sale_refunds f WHERE f.sale_id = s.id)
                         OR EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)))
               AND NOT EXISTS (
-                SELECT 1 FROM erpnext_posting_resolution tr
-                 WHERE tr.intent_id = erpnext_posting_status.id
+                SELECT 1 FROM sale_lines tsl
+                  LEFT JOIN erpnext_posting_resolution tr
+                    ON tr.intent_id = erpnext_posting_status.id
                    AND tr.resolution_version = erpnext_posting_status.current_resolution_version
-                   AND tr.tracking_identity_id IS NOT NULL
-                   AND (tr.erp_hold_cause IS NOT NULL OR NOT $4::boolean))
+                   AND tr.sale_line_id = tsl.id
+                 WHERE tsl.sale_id = erpnext_posting_status.sale_id
+                   AND ((tr.tracking_identity_id IS NOT NULL
+                         AND (tr.erp_hold_cause IS NOT NULL OR NOT $4::boolean))
+                        OR (tr.tracking_mode IS NULL AND tsl.tracking_class IS NOT NULL)))
             ORDER BY erpnext_posting_status.sequence
             LIMIT $2`,
           [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled(), trackingOn],

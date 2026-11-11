@@ -17,7 +17,10 @@
  *   - a row-4 line bound by a Tracking Resolution freezes the bound identity;
  *   - an edge-map row written after the freeze changes nothing (frozen, never
  *     recomputed);
- *   - a reversal copies its sale's frozen tracking (lineage).
+ *   - a reversal copies its sale's frozen tracking (lineage);
+ *   - the effect and the posting name one identity: each tracked line's S4
+ *     sale effect (`stock_movements.tracking_identity_id`) equals the
+ *     identity frozen with its posting resolution.
  *
  * Docker policy: a hard failure unless MIGRATION_TEST_ALLOW_SKIP=1.
  */
@@ -27,6 +30,7 @@ import {
   stopPgEnv,
   type PgTestEnv,
 } from "../../../../packages/db/__tests__/_helpers/postgres-container";
+import { runWithTenantContext, writeSaleLineEffects } from "@data-pulse-2/db";
 import { PostingRequestedConsumer } from "../../src/erpnext-posting/posting-requested.consumer";
 import type { OutboxEventEnvelope } from "@data-pulse-2/shared";
 
@@ -354,5 +358,38 @@ describe("RT-451 S6: the worker freezes each line's tracking with resolution v1"
     expect(reversal.size).toBe(2);
     for (const lineId of lineIds) expect(reversal.get(lineId)).toEqual(sale.get(lineId));
     expect(reversal.get(lineIds[1]!)?.erp_hold_cause).toBe("expired");
+  });
+
+  it("each tracked line's sale effect and its frozen posting name the same identity", async () => {
+    if (skip) return;
+    await pg().admin.query(
+      `INSERT INTO tenant_inventory_settings (tenant_id, updated_by, sale_effects_activated_at, sale_effects_activated_by)
+       VALUES ($1, $2, now(), $2)
+       ON CONFLICT (tenant_id) DO UPDATE SET sale_effects_activated_at = now(), sale_effects_activated_by = $2`,
+      [TENANT, ACTOR],
+    );
+    const { saleId, lineIds } = await seedSale(
+      [
+        { product: P_BATCH, identity: I_MAPPED, cls: "valid" },
+        { product: P_BATCH, identity: I_EXPIRED, cls: "flagged", finding: "expired" },
+        { product: P_NONE },
+      ],
+      "tracked",
+    );
+    await runWithTenantContext(pg().app, { tenantId: TENANT, isPlatformAdmin: false }, (client) =>
+      writeSaleLineEffects(client, { tenantId: TENANT, storeId: STORE, saleId }),
+    );
+    await postSale(saleId);
+    const effects = await pg().admin.query<{ sale_line_id: string; tracking_identity_id: string | null }>(
+      `SELECT sale_line_id, tracking_identity_id FROM stock_movements
+        WHERE tenant_id = $1 AND event_type = 'sale' AND event_ref_id = $2`,
+      [TENANT, saleId],
+    );
+    expect(effects.rows).toHaveLength(3);
+    const f = await frozen(saleId);
+    for (const e of effects.rows) {
+      expect(f.get(e.sale_line_id)?.tracking_identity_id ?? null).toBe(e.tracking_identity_id);
+    }
+    expect(new Map(effects.rows.map((e) => [e.sale_line_id, e.tracking_identity_id])).get(lineIds[0]!)).toBe(I_MAPPED);
   });
 });

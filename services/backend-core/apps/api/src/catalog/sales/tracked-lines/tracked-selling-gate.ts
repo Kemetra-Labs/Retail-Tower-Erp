@@ -16,6 +16,16 @@
  *     while this gate is on AND the tenant has switched it on: this gate
  *     never turns tracked selling on for a tenant by itself.
  *
+ * RT-451 S6: the posting feed emits `trackingMode` / `erpnextBatchRef` only
+ * while tracked selling is in effect, and holds every intent sold from a
+ * tracking identity otherwise. Switching a tenant on re-heads those rows
+ * (`tracked-selling-setting.service.ts`). Turning this gate OFF and then ON
+ * again while a tenant is switched on must re-head them as a deploy step, in
+ * the same release, under each tenant's feed sequence lock: `UPDATE
+ * erpnext_posting_status SET sequence = DEFAULT` for its pending rows whose
+ * current resolution has a line with `tracking_identity_id` set. Without it, a
+ * Connector whose cursor moved past them never sees them (the RT-418 rule).
+ *
  * Read per request (the `isPosReturnsEnabled` convention), so a test or a
  * restart-free toggle sees the current value. Deliberately NOT passed by
  * `docker-compose.prod.yml` (an RT-984 exclusion with this reason), so
