@@ -35,19 +35,6 @@ export interface CreateSecretStoreOptions {
   error?: (...args: unknown[]) => void;
 }
 
-/**
- * RT-1324 — the production refusal, typed so the startup refusal dialog can
- * name the failure class (`secret_store`) instead of matching the message.
- */
-export class SecretStoreUnavailableError extends Error {
-  constructor() {
-    super(
-      'SecretStore: production build refuses to start — safeStorage encryption is unavailable.',
-    );
-    this.name = 'SecretStoreUnavailableError';
-  }
-}
-
 export function createSecretStore(options: CreateSecretStoreOptions): SecretStore {
   const { handle, safeStorage, isPackaged } = options;
   const warn = options.warn ?? defaultWarn;
@@ -64,7 +51,9 @@ export function createSecretStore(options: CreateSecretStoreOptions): SecretStor
     error(
       '[pos-pulse] SecretStore: production build refuses to start — Electron safeStorage is unavailable on this machine.',
     );
-    throw new SecretStoreUnavailableError();
+    throw new Error(
+      'SecretStore: production build refuses to start — safeStorage encryption is unavailable.',
+    );
   }
 
   if (!available) {

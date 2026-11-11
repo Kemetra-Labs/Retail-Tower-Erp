@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  DO_NOT_DELETE,
   STARTUP_FAILURE_CLASSES,
   describeStartupFailureRefusal,
 } from '../startup-failure-refusal.js';
@@ -60,16 +61,44 @@ describe('describeStartupFailureRefusal', () => {
   });
 
   it.each(STARTUP_FAILURE_CLASSES)(
-    '%s: never offers a reset, restore or reinstall (the DB holds the pairing)',
+    '%s: never offers a reset, restore, reinstall or re-pair (the DB holds the pairing)',
     (failureClass) => {
       const body = describeStartupFailureRefusal({
         failure: { failureClass, code: undefined },
         backupsDir: BACKUPS,
       }).body;
+      const action = body.split('\n')[2];
 
-      expect(body).not.toMatch(/reinstall|restore|reset/i);
-      // Arabic: never "reinstall" (أعد تثبيت) or "restore" (استعادة / استعد).
-      expect(body).not.toMatch(/أعد تثبيت|أعِد تثبيت|استعادة|استعد/);
+      expect(body).not.toMatch(/reinstall|restore|reset|re-pair/i);
+      // The action line never says "reinstall" (أعد تثبيت), "restore" (استعادة /
+      // استعد) or "pair again" (أعد ربط); the safety line may say none happens.
+      expect(action).not.toMatch(/أعد تثبيت|أعِد تثبيت|استعادة|استعد|أعد ربط/);
+    },
+  );
+
+  it.each(STARTUP_FAILURE_CLASSES)(
+    '%s: the action line warns not to delete the POS files or unpair (disk_full included)',
+    (failureClass) => {
+      const action = describeStartupFailureRefusal({
+        failure: { failureClass, code: undefined },
+        backupsDir: BACKUPS,
+      }).body.split('\n')[2];
+
+      expect(action).toContain(DO_NOT_DELETE);
+    },
+  );
+
+  it.each(STARTUP_FAILURE_CLASSES)(
+    '%s: Arabic lines carry no Latin text (machine text stays on its own lines)',
+    (failureClass) => {
+      const arabicLines = describeStartupFailureRefusal({
+        failure: { failureClass, code: 'SQLITE_IOERR' },
+        backupsDir: BACKUPS,
+      })
+        .body.split('\n')
+        .filter((line) => ARABIC.test(line));
+
+      for (const line of arabicLines) expect(line).not.toMatch(/[A-Za-z]/);
     },
   );
 });

@@ -1,6 +1,5 @@
 import { DatabaseOpenError, machineCodeOf } from '../db/client.js';
 import { backupsDirFor } from '../db/pre-migration-snapshot.js';
-import { SecretStoreUnavailableError } from '../secrets/index.js';
 import { describeStartupFailureRefusal } from './startup-failure-refusal.js';
 import type {
   StartupFailure,
@@ -17,8 +16,9 @@ import type {
  *
  * - `classifyStartupFailure` names the failure class from the error's TYPE and
  *   `code`, never its message: a full disk (`SQLITE_FULL`, `ENOSPC`) at any
- *   stage, a `DatabaseOpenError`, the `SecretStoreUnavailableError` production
- *   refusal, else the caller's stage fallback.
+ *   stage, a `DatabaseOpenError`, a `StartupStageError` (`runStartupStage`
+ *   tags the SecretStore construction, whose production refusal is a plain
+ *   Error; `src/main/secrets/` is a no-touch layer), else the stage fallback.
  * - `showRefusalAndExit` is the one async-dialog-then-exit shape every startup
  *   refusal uses (`showMessageBox`, not the synchronous `showErrorBox`, which
  *   blocks the event loop and stalled the pino write in the packaged build).
@@ -31,6 +31,26 @@ import type {
  */
 
 const DISK_FULL_CODES: ReadonlySet<string> = new Set(['SQLITE_FULL', 'ENOSPC']);
+
+/** A startup step failed; `failureClass` names the step. The original is `cause`. */
+export class StartupStageError extends Error {
+  readonly failureClass: StartupFailureClass;
+
+  constructor(failureClass: StartupFailureClass, cause: unknown) {
+    super(`Startup step failed: ${failureClass}`, { cause });
+    this.name = 'StartupStageError';
+    this.failureClass = failureClass;
+  }
+}
+
+/** Run one startup step; any throw is rethrown as a `StartupStageError` naming it. */
+export function runStartupStage<T>(failureClass: StartupFailureClass, step: () => T): T {
+  try {
+    return step();
+  } catch (err) {
+    throw new StartupStageError(failureClass, err);
+  }
+}
 
 /** Bounds the `cause` walk; real chains here are one or two deep. */
 const MAX_CAUSE_DEPTH = 5;
@@ -55,9 +75,8 @@ export function classifyStartupFailure(
   if (diskFull !== undefined) return { failureClass: 'disk_full', code: diskFull };
 
   const code = codes[0];
-  if (chain.some((e) => e instanceof SecretStoreUnavailableError)) {
-    return { failureClass: 'secret_store', code };
-  }
+  const stage = chain.find((e): e is StartupStageError => e instanceof StartupStageError);
+  if (stage !== undefined) return { failureClass: stage.failureClass, code };
   if (chain.some((e) => e instanceof DatabaseOpenError)) {
     return { failureClass: 'database_open', code };
   }
@@ -107,23 +126,39 @@ export interface FatalStartupDeps extends RefusalDeps {
 /** The composition root's fatal-startup `.catch`: log, close, explain, exit 1. */
 export function refuseFatalStartup(err: unknown, deps: FatalStartupDeps): void {
   const logError = deps.logError ?? console.error;
-  logError('[pos-pulse] fatal startup error:', err);
+  // Nothing before the exit may throw out of here: a rejected `.catch` would
+  // leave the process up with no window, holding the single-instance lock.
+  bestEffort(() => {
+    logError('[pos-pulse] fatal startup error:', err);
+  });
   try {
     deps.closeDb();
   } catch (closeErr) {
-    logError('[pos-pulse] closing the database after a startup failure failed:', closeErr);
+    bestEffort(() => {
+      logError('[pos-pulse] closing the database after a startup failure failed:', closeErr);
+    });
   }
 
   let refusal: StartupRefusal;
   try {
     const failure = classifyStartupFailure(err);
-    logError('[pos-pulse] startup refused:', failure);
+    bestEffort(() => {
+      logError('[pos-pulse] startup refused:', failure);
+    });
     refusal = describeStartupFailureRefusal({ failure, backupsDir: resolveBackupsDir(deps.app) });
   } catch {
     deps.app.exit(1);
     return;
   }
   showRefusalAndExit(refusal, deps);
+}
+
+function bestEffort(step: () => void): void {
+  try {
+    step();
+  } catch {
+    // Logging is best effort here; the dialog and the exit are what matter.
+  }
 }
 
 function resolveBackupsDir(app: FatalStartupDeps['app']): string | undefined {

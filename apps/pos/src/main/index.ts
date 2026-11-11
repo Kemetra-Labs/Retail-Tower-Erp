@@ -104,7 +104,7 @@ import { openDatabase, readSynchronous } from './db/client.js';
 import { bindMigrationsDb, readMigrationsFromDisk } from './db/migrate.js';
 import { bindVacuumInto } from './db/pre-migration-snapshot.js';
 import { runStartupMigrations } from './app/startup-migrations.js';
-import { refuseFatalStartup, showRefusalAndExit } from './app/startup-failure.js';
+import { refuseFatalStartup, runStartupStage, showRefusalAndExit } from './app/startup-failure.js';
 import { trackPrintPipeline } from './update/print-activity.js';
 import type { UpdateService } from './update/update-service.js';
 import { createSecretStore } from './secrets/index.js';
@@ -417,11 +417,9 @@ singleInstanceReady
     // handle to validate factory wiring (production refusal will throw
     // into .catch below per R8). 002 US1 retains the reference because
     // the pairing store now consumes it.
-    const secretStore = createSecretStore({
-      handle: db,
-      safeStorage,
-      isPackaged: shippedApp,
-    });
+    const secretStore = runStartupStage('secret_store', () =>
+      createSecretStore({ handle: db, safeStorage, isPackaged: shippedApp }),
+    );
     // Note (Phase 5 R8): SecretStore still uses console.warn/error
     // placeholders. Swap to mainLogger is a deferred follow-up — out
     // of Phase 8 scope.

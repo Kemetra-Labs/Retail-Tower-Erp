@@ -47,7 +47,14 @@ export interface DescribeStartupFailureInput {
  */
 const RLM = '‏';
 
-const CALL_ADMIN = 'اتصل بمسؤول النظام، ولا تحذف ملفات نقطة البيع ولا تُلغِ ربط الجهاز قبل ذلك.';
+/**
+ * Every class carries this: the files hold unsynced sales (the `-wal` file
+ * holds committed sales not yet checkpointed), the pairing and the backups. A
+ * cashier freeing disk space must not delete them.
+ */
+export const DO_NOT_DELETE = 'لا تحذف ملفات نقطة البيع ولا تُلغِ ربط الجهاز.';
+
+const CALL_ADMIN = `اتصل بمسؤول النظام. ${DO_NOT_DELETE}`;
 
 /** What happened, then what to do, per class. */
 const CLASS_COPY: Readonly<Record<StartupFailureClass, { what: string; action: string }>> = {
@@ -61,10 +68,10 @@ const CLASS_COPY: Readonly<Record<StartupFailureClass, { what: string; action: s
   },
   disk_full: {
     what: 'لا توجد مساحة كافية على قرص هذا الجهاز لتشغيل نقطة البيع.',
-    action: 'أفرغ مساحة على القرص ثم افتح نقطة البيع. إن تكرر ذلك فاتصل بمسؤول النظام.',
+    action: `اتصل بمسؤول النظام لتحرير مساحة على القرص. ${DO_NOT_DELETE}`,
   },
   secret_store: {
-    what: 'التخزين الآمن في Windows غير متاح على هذا الجهاز، ولا تعمل نقطة البيع بدونه.',
+    what: 'التخزين الآمن لنظام التشغيل غير متاح على هذا الجهاز، ولا تعمل نقطة البيع بدونه.',
     action: CALL_ADMIN,
   },
   unknown: {
@@ -73,12 +80,16 @@ const CLASS_COPY: Readonly<Record<StartupFailureClass, { what: string; action: s
   },
 };
 
-/** Nothing here deletes data or unpairs: that much is true for every class. */
-const SAFETY = 'لم تحذف نقطة البيع أي بيانات، ولم تُلغِ ربط هذا الجهاز.';
+/**
+ * What is safe, true for every class: this refusal never restores, resets or
+ * unpairs anything. (Not "nothing was deleted or changed": a failed upgrade can
+ * leave earlier migrations applied and older snapshots pruned.)
+ */
+const SAFETY = 'لن تُجري نقطة البيع أي استعادة أو إعادة ضبط تلقائية لبيانات هذا الجهاز.';
 
-/** Conditional: a snapshot exists only if an earlier upgrade wrote one (UX-12.13). */
+/** Conditional: a snapshot exists only if an upgrade wrote one (UX-12.13). */
 const BACKUPS_HINT =
-  'إن حُفظت نسخة احتياطية قبل تحديث سابق لقاعدة البيانات، فهي في المجلد المذكور أدناه.';
+  'إن حُفظت نسخة احتياطية قبل تحديث قاعدة البيانات، فهي في المجلد المذكور أدناه.';
 
 export function describeStartupFailureRefusal(input: DescribeStartupFailureInput): StartupRefusal {
   const { failure, backupsDir } = input;

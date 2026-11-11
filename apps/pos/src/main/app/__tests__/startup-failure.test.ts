@@ -3,10 +3,12 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DatabaseOpenError } from '../../db/client.js';
-import { SecretStoreUnavailableError } from '../../secrets/index.js';
+import { createSecretStore } from '../../secrets/index.js';
 import {
+  StartupStageError,
   classifyStartupFailure,
   refuseFatalStartup,
+  runStartupStage,
   showRefusalAndExit,
   type RefusalDialog,
 } from '../startup-failure.js';
@@ -34,6 +36,36 @@ function harness(showMessageBox: RefusalDialog['showMessageBox'] = () => Promise
   return { exit, closeDb, logError, dialog, app };
 }
 
+/**
+ * The REAL SecretStore production refusal (packaged build, no safeStorage),
+ * run through the same stage wrapper as `index.ts`.
+ */
+function secretStoreRefusal(): unknown {
+  try {
+    runStartupStage('secret_store', () =>
+      createSecretStore({
+        handle: {
+          pragma: vi.fn(),
+          prepare: vi.fn(),
+          exec: vi.fn(),
+          transaction: vi.fn(),
+          close: vi.fn(),
+        },
+        safeStorage: {
+          isEncryptionAvailable: () => false,
+          encryptString: () => Buffer.alloc(0),
+          decryptString: () => '',
+        },
+        isPackaged: true,
+        error: vi.fn(),
+      }),
+    );
+  } catch (err) {
+    return err;
+  }
+  throw new Error('test setup: the SecretStore did not refuse');
+}
+
 /** Let the dialog promise settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -56,9 +88,23 @@ describe('classifyStartupFailure', () => {
     });
   });
 
-  it('maps the SecretStore production refusal to secret_store', () => {
-    expect(classifyStartupFailure(new SecretStoreUnavailableError()).failureClass).toBe(
-      'secret_store',
+  it('maps the SecretStore production refusal (tagged by runStartupStage) to secret_store', () => {
+    expect(classifyStartupFailure(secretStoreRefusal())).toEqual({
+      failureClass: 'secret_store',
+      code: undefined,
+    });
+  });
+
+  it('runStartupStage returns the step result and tags a throw with the stage', () => {
+    expect(runStartupStage('secret_store', () => 42)).toBe(42);
+    const cause = new Error('boom');
+    expect(() =>
+      runStartupStage('secret_store', () => {
+        throw cause;
+      }),
+    ).toThrow(expect.objectContaining({ failureClass: 'secret_store', cause }) as Error);
+    expect(classifyStartupFailure(new StartupStageError('database_open', cause)).failureClass).toBe(
+      'database_open',
     );
   });
 
@@ -87,7 +133,7 @@ describe('refuseFatalStartup', () => {
   it.each([
     ['database_open', new DatabaseOpenError(sqliteError('SQLITE_NOTADB')), 'SQLITE_NOTADB'],
     ['disk_full', new DatabaseOpenError(sqliteError('SQLITE_FULL')), 'SQLITE_FULL'],
-    ['secret_store', new SecretStoreUnavailableError(), undefined],
+    ['secret_store', secretStoreRefusal(), undefined],
     ['unknown', new Error('logger failed'), undefined],
   ])('%s: closes the DB, shows the refusal dialog, then exits 1', async (cls, err, code) => {
     const h = harness();
@@ -106,6 +152,19 @@ describe('refuseFatalStartup', () => {
     expect(shown?.message).toContain(BACKUPS);
     expect(h.exit).toHaveBeenCalledExactlyOnceWith(1);
     expect(h.logError).toHaveBeenCalledWith('[pos-pulse] fatal startup error:', err);
+  });
+
+  it('still shows the dialog and exits when logging itself throws', async () => {
+    const h = harness();
+    h.logError.mockImplementation(() => {
+      throw new Error('stderr closed');
+    });
+
+    refuseFatalStartup(new Error('boom'), h);
+    await settle();
+
+    expect(h.dialog.showMessageBox).toHaveBeenCalledTimes(1);
+    expect(h.exit).toHaveBeenCalledExactlyOnceWith(1);
   });
 
   it('still exits when the dialog rejects', async () => {
