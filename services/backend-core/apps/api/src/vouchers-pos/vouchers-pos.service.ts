@@ -20,7 +20,8 @@
  *   take a hit → look up the intent by `hashToken(token)` → 404
  *   `intent_token_not_found` when unknown, of another store, or consumed (the
  *   hit stays only for the first two) → 400 `intent_token_payment_attempt_mismatch`
- *   → 400 `intent_token_expired` → lock the voucher row (`FOR UPDATE`) → read its
+ *   → 400 `intent_token_expired` → lock the voucher row (`FOR UPDATE`) → the
+ *   intent consumed meanwhile (the same token, concurrently): 404 → read its
  *   state after the lock: 409 `voucher_already_redeemed`, `voucher_cancelled`,
  *   `voucher_expired`, `voucher_branch_mismatch` → consume the intent (a
  *   conditional UPDATE, database clock) → the conditional voucher UPDATE with
@@ -40,10 +41,14 @@
  *   `active` (an expired voucher too: decision 2, RT-1112 c16636) → audit
  *   `voucher.reversed`, attributed to the redeem-time cashier.
  *
- * Secrecy: the code and the token exist only in the request and (the token) the
- * validate response. Neither is logged, audited or stored; only their hashes are
- * stored. `forfeited_amount_minor` is returned by validate only and never logged
- * or audited.
+ * Secrecy: the code and the token are never logged or audited, and this
+ * service stores only their hashes. One accepted exception: the validate 200
+ * (token and `forfeited_amount_minor`) is kept by the idempotency layer for its
+ * replay, for no longer than the intent lives (`VALIDATE_REPLAY_TTL_SEC`), so a
+ * same-key retry gets the same answer (contract V-A). A stored token is
+ * single-use, bound to its store and attempt, needs a live cashier of that store
+ * to redeem, and is dead once its intent expires. The code never reaches
+ * idempotency storage (only the request body's hash does).
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { generateRawToken, hashToken } from "@data-pulse-2/auth";
@@ -72,6 +77,7 @@ import {
   INSERT_INTENT_SQL,
   INSERT_REDEMPTION_SQL,
   INTENT_BY_TOKEN_SQL,
+  INTENT_CONSUMED_SQL,
   LOCK_VOUCHER_SQL,
   REDEEM_VOUCHER_SQL,
   REDEMPTION_SQL,
@@ -200,6 +206,11 @@ export class VouchersPosService {
       if (!intent.live) throw new VoucherRefusal("intent_token_expired");
 
       await client.query(LOCK_VOUCHER_SQL, [caller.tenantId, intent.voucher_id]);
+      // The same token redeemed concurrently (a retry under a new key) waited on
+      // the lock: its own redemption consumed the intent, so it is the 404, never
+      // a `voucher_already_redeemed` that reads as another attempt's (review, PR).
+      const recheck = await client.query<{ consumed: boolean }>(INTENT_CONSUMED_SQL, [caller.tenantId, intent.id]);
+      if (recheck.rows[0]?.consumed === true) throw new VoucherRefusal("intent_token_not_found");
       const state = await voucherState(client, caller, intent.voucher_id);
       refuseUnusable(state);
 

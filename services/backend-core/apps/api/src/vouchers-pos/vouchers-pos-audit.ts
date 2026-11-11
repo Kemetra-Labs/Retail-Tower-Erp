@@ -27,16 +27,14 @@ export const VOUCHER_REVERSED_ACTION = "voucher.reversed";
 type VoucherPosAction = typeof VOUCHER_VALIDATED_ACTION | typeof VOUCHER_REDEEMED_ACTION | typeof VOUCHER_REVERSED_ACTION;
 
 /** The only metadata keys a V-A audit row may carry. */
-const VOUCHER_POS_AUDIT_FIELDS = [
-  "voucher_id",
-  "intent_id",
-  "redemption_id",
-  "payment_attempt_id",
-  "applied_amount_minor",
-  "device_id",
-  "reversed_by_device_id",
-] as const;
-type VoucherPosAuditField = (typeof VOUCHER_POS_AUDIT_FIELDS)[number];
+type VoucherPosAuditField =
+  | "voucher_id"
+  | "intent_id"
+  | "redemption_id"
+  | "payment_attempt_id"
+  | "applied_amount_minor"
+  | "device_id"
+  | "reversed_by_device_id";
 
 export interface VoucherPosAudit {
   readonly tenantId: string;

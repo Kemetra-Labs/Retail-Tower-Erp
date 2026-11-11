@@ -16,8 +16,10 @@
  *
  * Idempotency per route:
  *   - validate: the 200 carries the single-use intent token, so its replay record
- *     lives only as long as the intent (`replayTtlSec` 300 >= the 240 s TTL); a
- *     later same-key retry runs again and gets a fresh intent.
+ *     lives no longer than the intent (`replayTtlSec` = the 240 s intent TTL): a
+ *     replay never returns a dead token, and a later same-key retry runs again
+ *     and gets a fresh intent. The stored 200 holds the token (an accepted
+ *     exception to "hashes only", see the service header).
  *   - redeem: replay sets `idempotent_replayed: true` in the body (contract).
  *   - reverse: replay sets `already_reversed: true` (contract: true on every call
  *     after the first).
@@ -42,6 +44,7 @@ import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
 import { DeviceBearer } from "../auth/route-auth";
 import { Idempotent } from "../idempotency/idempotent.decorator";
 import { ContractValidationPipe } from "../vouchers-admin/vouchers-admin.dto";
+import { INTENT_TTL_SECONDS } from "./vouchers-pos.queries";
 import { RedeemVoucherAuthGuard, ValidateVoucherAuthGuard, type VoucherRequest } from "./voucher-cashier-auth.guard";
 import { rateLimitedException, VoucherLookupRateLimited } from "./voucher-lookup-limit";
 import {
@@ -58,8 +61,8 @@ import {
 import { toHttpRefusal, VoucherRefusal, type VoucherOperation } from "./vouchers-pos.errors";
 import { VouchersPosService, type CashierCaller, type DeviceCaller } from "./vouchers-pos.service";
 
-/** The validate replay window: at least the intent TTL (240 s), at most the 0092 CHECK (5 min). */
-const VALIDATE_REPLAY_TTL_SEC = 300;
+/** The validate replay window: the intent's own lifetime, so a replayed token is never a dead one. */
+const VALIDATE_REPLAY_TTL_SEC = INTENT_TTL_SECONDS;
 
 @Controller()
 export class VouchersPosController {

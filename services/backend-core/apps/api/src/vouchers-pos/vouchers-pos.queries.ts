@@ -63,6 +63,13 @@ export const INTENT_BY_TOKEN_SQL = `
 export const LOCK_VOUCHER_SQL = `SELECT id FROM vouchers WHERE tenant_id = $1 AND id = $2 FOR UPDATE`;
 
 /**
+ * `$1` tenant, `$2` intent: whether it was consumed, read again under the voucher
+ * lock (a concurrent redeem of the same token may have consumed it meanwhile).
+ */
+export const INTENT_CONSUMED_SQL = `
+  SELECT consumed_at IS NOT NULL AS consumed FROM voucher_redemption_intents WHERE tenant_id = $1 AND id = $2`;
+
+/**
  * `$1` tenant, `$2` voucher, `$3` store: the voucher's state, read after the
  * lock is held (a separate statement, so `clock_timestamp()` is read after any
  * lock wait).

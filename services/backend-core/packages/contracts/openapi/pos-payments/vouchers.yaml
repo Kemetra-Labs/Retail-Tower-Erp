@@ -262,7 +262,8 @@ paths:
           description: >
             Too Many Requests (ADR 0009; RT-1112). The device has spent its
             failed-lookup budget: about 10 lookups per 15 minutes per device that
-            found no voucher (an unknown code, or another tenant's). A lookup that finds its voucher (an unknown code, or another tenant's) does not count. The
+            found no voucher (an unknown code, or another tenant's). A lookup that
+            finds its voucher does not count. The
             limit is keyed per device and is checked after the cashier claim and
             before the lookup, so a device over its budget looks nothing up.
             `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on
@@ -412,7 +413,8 @@ paths:
           description: >
             Too Many Requests (ADR 0009; RT-1112). The device has spent its
             failed-lookup budget: about 10 lookups per 15 minutes per device that
-            found no intent (an unknown token, or one of another tenant or store). A lookup that finds its intent (an unknown token, or one of another tenant or store) does not count. The
+            found no intent (an unknown token, or one of another tenant or store).
+            A lookup that finds its intent does not count. The
             limit is keyed per device and is checked after the cashier claim and
             before the lookup, so a device over its budget looks nothing up.
             `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on

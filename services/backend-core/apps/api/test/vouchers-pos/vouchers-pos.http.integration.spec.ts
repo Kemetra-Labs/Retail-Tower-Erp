@@ -806,15 +806,18 @@ describe("failed-lookup rate limit (ADR 0009)", () => {
     const found = await seedVoucher();
     const rl = (code: string) => validateBody(code, { operatorUserId: CASHIER_RL });
     for (let i = 0; i < 10; i += 1) {
-      expectError(await validate(TOKEN_RL, rl(`MISS-${String(i).padStart(12, "0")}`)), 404, "voucher_not_found");
-      // A found code in between never spends the budget.
+      // A found code never spends the budget (its hit is given back); it runs
+      // first, because a lookup over budget is refused whatever it would find.
       expect((await validate(TOKEN_RL, rl(found.typed))).status).toBe(200);
+      expectError(await validate(TOKEN_RL, rl(`MISS-${String(i).padStart(12, "0")}`)), 404, "voucher_not_found");
     }
     const limited = await validate(TOKEN_RL, rl("MISS-LAST-00000000"));
     expectError(limited, 429, "RATE_LIMITED");
     const retryAfter = Number(limited.headers["retry-after"]);
     expect(retryAfter).toBeGreaterThanOrEqual(1);
     expect(retryAfter).toBeLessThanOrEqual(300);
+    // Over budget, even a code that exists is not looked up.
+    expectError(await validate(TOKEN_RL, rl(found.typed)), 429, "RATE_LIMITED");
     // The budget is the device's: another till still looks codes up.
     expect((await validate(TOKEN, validateBody(found.typed))).status).toBe(200);
     // Redeem's failed token lookups share it.
@@ -860,10 +863,17 @@ describe("secrecy (RT-810 section 6, RT-922 section 7)", () => {
       expect({ where, token: text.includes(token) }).toEqual({ where, token: false });
       expect({ where, forfeited: text.includes("forfeited") }).toEqual({ where, forfeited: false });
     }
-    const stored = await E().admin.query(`SELECT response_body::text AS b, request_hash FROM idempotency_keys WHERE key LIKE $1`, [`%${k}`]);
+    // Idempotency storage: never the code (only the body hash). The validate 200
+    // itself, token included, is the one accepted exception (its replay, for the
+    // intent's lifetime; vouchers-pos.service.ts header).
+    const stored = await E().admin.query(
+      `SELECT response_body::text AS b, expires_at - created_at <= interval '241 seconds' AS short FROM idempotency_keys WHERE key LIKE $1`,
+      [`%${k}`],
+    );
     expect(stored.rows.length).toBeGreaterThan(0);
     for (const row of stored.rows) {
       expect(String(row.b).toUpperCase()).not.toContain(v.code);
+      expect(row.short).toBe(true);
     }
   });
 });
