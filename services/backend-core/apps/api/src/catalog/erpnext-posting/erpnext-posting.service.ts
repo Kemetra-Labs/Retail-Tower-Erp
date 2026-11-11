@@ -5,8 +5,10 @@
  *   - `pullPostings()` — a PURE READ of `pending` `erpnext_posting_status` rows
  *     for the connector principal's tenant, cursor-ordered by the row `sequence`,
  *     each projected into a 012 `PostingWorkItem` (lines carry the DP2-resolved
- *     `erpnextItemRef`). NO status mutation → re-pulling the same `since` cursor
- *     yields the same logical set (012 idempotent replay).
+ *     `erpnextItemRef`). No status mutation of an offered row → re-pulling the
+ *     same `since` cursor yields the same logical set (012 idempotent replay).
+ *     RT-1325: a row whose work item cannot be built is never offered; it is
+ *     re-offered under the retry budget instead of failing the whole page.
  *
  * The COMPLEMENTARY write — resolving eligibility and inserting the `pending` /
  * `permanently_rejected` row — happens at row CREATION in the worker-side
@@ -16,17 +18,22 @@
  * All queries run under the caller's tenant GUC via `runWithTenantContext`
  * (tenant from the connector principal, never the body — §XII); RLS scopes rows.
  */
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../auth/auth.module";
 import { lockPostingFeedSequence, runWithTenantContext } from "@data-pulse-2/db";
 import { applyPostingSignalToEffects } from "../../inventory/effect-integration/effect-integration.transitions";
 import { recordErpnextPostingReconciliation } from "../../observability/metrics/api.metrics";
+import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
 import {
+  PostingResolutionIncompleteError,
+  ReturnTendersNotVisibleError,
+  SaleTendersNotVisibleError,
   buildWorkItem,
   type PostingWorkItem,
 } from "./posting-work-item.projection";
+import { PostingFeedReporter } from "./posting-feed-reporter";
 import { sanitizeRejectionMessage } from "./rejection-message";
 import { isFeedResponsibilitiesEnabled } from "./responsibilities-feed-gate";
 
@@ -191,6 +198,48 @@ export interface PullPostingsResult {
   readonly nextPageToken: string | null;
 }
 
+/**
+ * RT-1325 (RT-1125 R-21): the projection failures that belong to ONE row. Each
+ * is a visibility or configuration fault of that row's data (rows hidden by
+ * RLS, a missing tender / responsibility / resolution row), checked after its
+ * queries succeeded, so the transaction is still usable. None is known to be
+ * permanent: a fixed grant, policy or re-resolution makes the row buildable
+ * again. So the row is re-offered under the retry budget, ending visibly in
+ * `retry_budget_exhausted` (which the 017 repair re-offers), never offered
+ * without its data and never skipped. Anything else (a SQL error, which
+ * aborts the transaction, or an unknown bug) still fails the whole pull.
+ */
+const ROW_BUILD_FAILURES = [
+  SaleTendersNotVisibleError,
+  SaleResponsibilitiesNotVisibleError,
+  ReturnTendersNotVisibleError,
+  PostingResolutionIncompleteError,
+] as const;
+
+function isRowBuildFailure(err: unknown): err is Error {
+  return ROW_BUILD_FAILURES.some((failure) => err instanceof failure);
+}
+
+/** A feed row as the pull query returns it. */
+interface FeedRow {
+  readonly id: string;
+  readonly kind: "sale_post" | "reversal";
+  readonly sale_id: string;
+  readonly source_ref_id: string;
+  readonly source_system: string;
+  readonly external_id: string;
+  readonly payload_hash: string;
+  readonly sequence: string;
+  readonly current_resolution_version: number | null;
+}
+
+/** A page row whose work item could not be built (RT-1325). */
+interface UnbuildableRow {
+  readonly id: string;
+  readonly sequence: string;
+  readonly error: string;
+}
+
 /** The columns an ack reads from an already-terminal posting row. */
 interface TerminalRow {
   readonly status: string;
@@ -203,11 +252,20 @@ interface TerminalRow {
 
 @Injectable()
 export class ErpnextPostingService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(PG_POOL) private readonly pool: Pool,
+    // RT-1325: this file reads the rejection message, so it writes to no log
+    // itself (RT-410 G4); the feed's unbuildable-row signals go through here.
+    @Optional() private readonly feedReport?: PostingFeedReporter,
+  ) {}
 
   /**
-   * Pull a cursor-ordered page of pending posting work-items. Read-only; orders
-   * by the monotonic `sequence` (> `since`); caps at `POSTING_FEED_MAX_PAGE`.
+   * Pull a cursor-ordered page of pending posting work-items. Orders by the
+   * monotonic `sequence` (> `since`); caps at `POSTING_FEED_MAX_PAGE`. A read,
+   * except for a row whose work item cannot be built (RT-1325): that row is
+   * left out of the page and re-offered under the retry budget in the same
+   * transaction. Offered items never change, so a re-pull of the same `since`
+   * still offers the same set (012 idempotent replay).
    */
   async pullPostings(input: PullPostingsInput): Promise<PullPostingsResult> {
     const limit = Math.min(Math.max(1, input.limit), POSTING_FEED_MAX_PAGE);
@@ -242,17 +300,7 @@ export class ErpnextPostingService {
         // capture transaction (the projection keeps a second guard that throws).
         // A missing grant on sale_responsibilities fails the whole pull. Held rows are filtered here, not dropped in the projection, so
         // a page is never short; lifting a hold must re-head their sequence.
-        const rows = await client.query<{
-          id: string;
-          kind: "sale_post" | "reversal";
-          sale_id: string;
-          source_ref_id: string;
-          source_system: string;
-          external_id: string;
-          payload_hash: string;
-          sequence: string;
-          current_resolution_version: number | null;
-        }>(
+        const rows = await client.query<FeedRow>(
           `SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
                   payload_hash, sequence::text AS sequence,
                   current_resolution_version
@@ -287,21 +335,12 @@ export class ErpnextPostingService {
           [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled()],
         );
 
-        const items: PostingWorkItem[] = [];
-        // sequential: work items are built on one PoolClient (pg runs its queries one at a time); the output keeps feed order.
-        for (const row of rows.rows) {
-          const item = await buildWorkItem(client, {
-            id: row.id,
-            kind: row.kind,
-            saleId: row.sale_id,
-            sourceRefId: row.source_ref_id,
-            sourceSystem: row.source_system,
-            externalId: row.external_id,
-            payloadHash: row.payload_hash,
-            sequence: row.sequence,
-            currentResolutionVersion: row.current_resolution_version,
-          });
-          if (item) items.push(item);
+        const { items, unbuildable } = await this.buildPage(client, rows.rows);
+        // RT-1325: the cursor below advances past every row of the page, so a
+        // row left out must not stay where it was. Re-offer it in this same
+        // transaction (a failed write fails the pull: nothing is skipped).
+        if (unbuildable.length > 0) {
+          await this.reofferUnbuildable(client, input.tenantId, unbuildable);
         }
 
         const advanced =
@@ -313,6 +352,79 @@ export class ErpnextPostingService {
         return { items, cursor: advanced, nextPageToken };
       },
     );
+  }
+
+  /**
+   * Build the page's work items in feed order. A row failing with a known
+   * per-row error (`ROW_BUILD_FAILURES`) is collected instead of failing the
+   * page; any other error propagates. A `null` build (a pre-0037 row whose map
+   * was retired, or a sale / reversal event not visible) keeps its historical
+   * omission but is logged, so it is no longer silent.
+   */
+  private async buildPage(
+    client: PoolClient,
+    rows: readonly FeedRow[],
+  ): Promise<{ items: PostingWorkItem[]; unbuildable: UnbuildableRow[] }> {
+    const items: PostingWorkItem[] = [];
+    const unbuildable: UnbuildableRow[] = [];
+    // sequential: work items are built on one PoolClient (pg runs its queries one at a time); the output keeps feed order.
+    for (const row of rows) {
+      try {
+        const item = await buildWorkItem(client, {
+          id: row.id,
+          kind: row.kind,
+          saleId: row.sale_id,
+          sourceRefId: row.source_ref_id,
+          sourceSystem: row.source_system,
+          externalId: row.external_id,
+          payloadHash: row.payload_hash,
+          sequence: row.sequence,
+          currentResolutionVersion: row.current_resolution_version,
+        });
+        if (item) {
+          items.push(item);
+        } else {
+          this.feedReport?.omitted(row.id, row.kind);
+        }
+      } catch (err) {
+        if (!isRowBuildFailure(err)) throw err;
+        unbuildable.push({ id: row.id, sequence: row.sequence, error: err.name });
+      }
+    }
+    return { items, unbuildable };
+  }
+
+  /**
+   * RT-1325: re-offer each unbuildable row exactly as a `failed_transient` ack
+   * would (`applyTransient`): re-head its sequence with retry_count+1, or
+   * dead-letter it as `retry_budget_exhausted` once the budget is spent. The
+   * tenant's sequence lock is taken first, then the row lock, as in
+   * `ackOutcome` (RT-456 commit order). The row is written only if it is still
+   * `pending` at the sequence this page read: a concurrent ack or pull that
+   * moved it wins and this pull leaves it alone.
+   */
+  private async reofferUnbuildable(
+    client: PoolClient,
+    tenantId: string,
+    unbuildable: readonly UnbuildableRow[],
+  ): Promise<void> {
+    await lockPostingFeedSequence(client, tenantId);
+    for (const row of unbuildable) {
+      const cur = await client.query<{ retry_count: number }>(
+        `SELECT retry_count FROM erpnext_posting_status
+          WHERE id = $1 AND status = 'pending' AND sequence = $2::bigint
+          FOR UPDATE`,
+        [row.id, row.sequence],
+      );
+      const locked = cur.rows[0];
+      if (!locked) continue;
+      const outcome = await this.applyTransient(client, row.id, locked.retry_count);
+      if (outcome.dlqueued) {
+        this.feedReport?.deadLettered(row.id, row.error, locked.retry_count);
+      } else {
+        this.feedReport?.reoffered(row.id, row.error, locked.retry_count + 1);
+      }
+    }
   }
 
   /**

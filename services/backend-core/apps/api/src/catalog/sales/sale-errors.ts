@@ -80,9 +80,10 @@ export class SaleTenderReplayConflictError extends Error {
  * RT-77: a sale whose VISIBLE `sale_tenders` rows differ from the `sales.tender_count` capture
  * wrote in the same transaction — a visibility fault (an RLS or grant gap), not data. Thrown
  * rather than answering with a partial or empty tender list, which would misstate how the sale
- * was paid (empty means tender-unknown). On the posting feed the pull fails and its cursor does
- * not advance: a tender-bearing sale offered without its tenders is posted unpaid, terminally
- * (RT-76 INVARIANT), and omitting it would let the cursor skip past it (the RT-86 lesson).
+ * was paid (empty means tender-unknown). On the posting feed the item is never offered: a
+ * tender-bearing sale offered without its tenders is posted unpaid, terminally (RT-76 INVARIANT),
+ * and omitting it silently would let the cursor skip past it (the RT-86 lesson). Since RT-1325
+ * the feed re-offers that one row under the retry budget instead of failing the whole pull.
  */
 export class SaleTendersNotVisibleError extends Error {
   constructor(saleId: string, expected: number, visible: number) {
