@@ -1,9 +1,9 @@
 /**
  * RT-1325 guard: only routes whose handler is itself guarded against a double
- * run may opt into the short claim lease (`claimLeaseSec`). The RT-1325
- * route/guard table cleared exactly two: the Connector posting ack and POS
- * sale capture. A new opt-in fails here and needs the same review (and a row
- * in that table).
+ * run may opt into the short claim lease (`claimLeaseSec`). The owner opted in
+ * exactly one in RT-1325: the Connector posting ack. (POS sale capture is
+ * guarded too, per the RT-1325 route/guard table, but stays on the default.)
+ * A new opt-in fails here and needs the same review and an owner decision.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -23,7 +23,6 @@ const SRC = resolve(__dirname, "..", "..", "src");
 /** Every reviewed opt-in: file → the number of routes in it that opt in. */
 const REVIEWED_OPT_INS: Record<string, number> = {
   "catalog/erpnext-posting/erpnext-posting.controller.ts": 1,
-  "catalog/sales/sales.controller.ts": 1,
 };
 
 function sourceFiles(dir: string): string[] {
@@ -53,12 +52,12 @@ describe("RT-1325 — the claim lease is opt-in for reviewed routes only", () =>
     expect(optIns).toEqual(REVIEWED_OPT_INS);
   });
 
-  it("the Connector posting ack and POS sale capture use the reviewed lease", () => {
+  it("the Connector posting ack uses the reviewed lease", () => {
     expect(optionsOf(ErpnextPostingController.prototype.ackOutcome).claimLeaseSec).toBe(GUARDED_ROUTE_CLAIM_LEASE_SEC);
-    expect(optionsOf(SalesController.prototype.captureSale).claimLeaseSec).toBe(GUARDED_ROUTE_CLAIM_LEASE_SEC);
   });
 
-  it("a sibling write route (sale void) keeps the default claim lifetime", () => {
+  it("POS sale capture and its sibling void keep the default claim lifetime (owner decision)", () => {
+    expect(optionsOf(SalesController.prototype.captureSale).claimLeaseSec).toBeUndefined();
     expect(optionsOf(SalesController.prototype.recordVoid).claimLeaseSec).toBeUndefined();
   });
 });

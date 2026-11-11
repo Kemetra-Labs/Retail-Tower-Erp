@@ -59,7 +59,7 @@ import { DeviceBearer, ReportsBuildIdentity } from "../../auth/route-auth";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import type { TenantContextRequest } from "../../context/types";
-import { GUARDED_ROUTE_CLAIM_LEASE_SEC, Idempotent } from "../../idempotency/idempotent.decorator";
+import { Idempotent } from "../../idempotency/idempotent.decorator";
 import { type CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
 import {
@@ -340,13 +340,7 @@ export class SalesController {
   @DeviceBearer()
   @UseGuards(SaleCaptureAuthGuard, PosWriteRateLimitGuard)
   @PosWriteRateLimitBucket("posWriteSale")
-  // RT-1325 (RT-1125 R-03): the in-flight claim is a short lease, so an
-  // orphaned claim no longer holds a paid sale in the till's queue for 72 h.
-  // Safe because a re-run is answered by the provenance dedup (unique
-  // (tenant, source_system, external_id)) as a replay: 200 +
-  // Idempotent-Replayed, the same sale, sequentially (capture/dedup.spec.ts)
-  // and concurrently (capture-characterization.spec.ts, one 201 + one 200).
-  @Idempotent("required", { claimLeaseSec: GUARDED_ROUTE_CLAIM_LEASE_SEC })
+  @Idempotent("required")
   @Auditable("sale.captured")
   @ReportsBuildIdentity()
   async captureSale(

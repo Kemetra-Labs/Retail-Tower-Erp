@@ -69,8 +69,8 @@ export interface IdempotentOptions {
 /**
  * RT-1325: the claim lease of the routes that opt in (`claimLeaseSec`). Twice
  * the 60 s in-flight marker, far above a normal handler run, and far below
- * the 72 h default: an orphaned claim stalls a retrying till or Connector for
- * at most two minutes.
+ * the 72 h default: an orphaned claim stalls a retrying Connector for at most
+ * two minutes.
  */
 export const GUARDED_ROUTE_CLAIM_LEASE_SEC = 120;
 
