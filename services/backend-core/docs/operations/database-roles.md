@@ -608,6 +608,20 @@ A script without the marker, such as the owner-gated
   backfill) and creates one empty table; it needs no maintenance window. Its
   down migration refuses while any tracked sale data is stored.
 
+- **Migration `0091_vouchers` (RT-1107).** Run
+  [`sql/vouchers-domain-grants.sql`](sql/vouchers-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `vouchers` (issue inserts; cancel is a conditional `UPDATE` of
+  the status) and `SELECT` and `INSERT` on `voucher_eligible_stores` (fixed at
+  issue). No `DELETE` policy on either: never grant `DELETE` or `TRUNCATE`, nor
+  `UPDATE` on the eligible stores. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0091 creates two new, empty
+  tables (no backfill) and needs no maintenance window. Its down migration
+  refuses while any voucher is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
