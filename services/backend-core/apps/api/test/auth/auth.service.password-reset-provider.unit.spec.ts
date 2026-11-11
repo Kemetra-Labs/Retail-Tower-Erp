@@ -186,7 +186,7 @@ describe("AuthService.requestPasswordReset — provider-backed recovery (RT-1327
   });
 
   it.each([{ kind: "refused" }, { kind: "unavailable" }, { kind: "unconfigured" }])(
-    "stays a silent success when the provider answers $kind (unverified email, outage, no return URL)",
+    "stays a silent success when the provider answers $kind (unverified email, outage, no return URL), logging the kind only",
     async (sendReset) => {
       const { service, authTokens, emailJobs } = build({ sendReset });
 
@@ -194,8 +194,21 @@ describe("AuthService.requestPasswordReset — provider-backed recovery (RT-1327
 
       expect(authTokens.issue).not.toHaveBeenCalled();
       expect(emailJobs.enqueuePasswordReset).not.toHaveBeenCalled();
+      // Server-side only, so an operator sees a misconfigured or failing provider.
+      expect(logWarn).toHaveBeenCalledTimes(1);
+      const logged = JSON.stringify(logWarn.mock.calls);
+      expect(logged).toContain(sendReset.kind);
+      for (const secret of [EMAIL, USER_ID, SUBJECT]) expect(logged).not.toContain(secret);
     },
   );
+
+  it("logs nothing when the provider accepts the request", async () => {
+    const { service } = build();
+
+    await service.requestPasswordReset({ email: EMAIL });
+
+    expect(logWarn).not.toHaveBeenCalled();
+  });
 
   it("does not contact the provider for an unlinked user, whose legacy reset is unchanged", async () => {
     const { service, port, authTokens, emailJobs } = build({ linkSubject: null });
@@ -284,7 +297,8 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     const error = await outage(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
 
     expect(error.message).toBe(PROVIDER_UNAVAILABLE);
-    expect(port.logoutAllSessions).not.toHaveBeenCalled();
+    // Best effort: the provider session the proof opened is still ended.
+    expect(port.logoutAllSessions).toHaveBeenCalledWith(REFRESH);
     expect(updateCalls).not.toHaveBeenCalled();
     expect(endSupportSessions).not.toHaveBeenCalled();
   });
@@ -338,14 +352,29 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
 
   it.each([
     ["verify refused", { verifyReset: { kind: "refused" } as VerifyResult }],
-    ["no active link", { linkedUser: null }],
-    ["update refused", { update: { kind: "refused" } }],
-  ])("does not sign out provider sessions when %s", async (_name, overrides) => {
+    ["verify unavailable", { verifyReset: { kind: "unavailable" } as VerifyResult }],
+  ])("has no provider session to end when %s", async (_name, overrides) => {
     const { service, port } = build(overrides);
 
-    await failure(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
+    await service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }).catch(() => undefined);
 
     expect(port.logoutAllSessions).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the session token fails verification", { verifierSub: new Error("bad signature") }],
+    ["no active link", { linkedUser: null }],
+    ["update refused", { update: { kind: "refused" } }],
+  ])("still ends the provider session the proof opened when %s, and refuses with the generic 400", async (_name, overrides) => {
+    const { service, port, endSupportSessions } = build(overrides);
+
+    const error = await failure(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
+
+    expect(error.message).toBe(GENERIC);
+    expect(port.logoutAllSessions).toHaveBeenCalledTimes(1);
+    expect(port.logoutAllSessions).toHaveBeenCalledWith(REFRESH);
+    expect(updateCalls).not.toHaveBeenCalled();
+    expect(endSupportSessions).not.toHaveBeenCalled();
   });
 
   it.each([{ kind: "refused" }, { kind: "unavailable" }])(

@@ -8,8 +8,10 @@
   (`magiclink/verify`), its session token verified and matched to an ACTIVE link, and only then is
   the new password set at the provider (`password/update`). Every provider session of the user is
   then ended with the same refresh token (`logoutall`, which invalidates all of the user's refresh
-  tokens); a failed sign-out is logged and does not fail the request, because the password has
-  already changed. No local hash is written, no Admin
+  tokens); it also runs when a later step refuses, so the session the proof opened never
+  survives, and a failed sign-out is logged and does not fail the request, because the password
+  has already changed. A linked user's reset request that the provider did not send (no return
+  URL, outage, refusal) is logged server-side with its result kind only. No local hash is written, no Admin
   session is minted, and every Backend-Core session of the user is revoked; every refusal
   (invalid, expired or replayed proof, password policy refusal, no active link) is the same
   generic 400. A provider outage while verifying or updating is a 503 ("Identity provider

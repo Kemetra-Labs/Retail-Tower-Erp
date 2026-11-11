@@ -558,14 +558,18 @@ export class AuthService {
    * the provider's password only, so a local reset cannot help them. No local
    * token is issued and no local email is sent; the provider is asked to send its
    * own recovery link instead (it mails only a verified address). Every provider
-   * outcome is ignored here, so the route's 202 never discloses the link, the
-   * verification state or an outage.
+   * outcome stays inside this method, so the route's 202 never discloses the link,
+   * the verification state or an outage. Anything but `sent` is logged with its
+   * result kind only, so an operator sees a missing return URL or a failing provider.
    */
   async requestPasswordReset(input: { email: string }): Promise<void> {
     const userRow = await this.findActiveUserByEmail(input.email);
     if (!userRow) return; // silent success — no leak
     if ((await this.externalLinkSubject(userRow.id)) !== null) {
-      await this.external?.port.sendPasswordReset(userRow.email);
+      const sent = await this.external?.port.sendPasswordReset(userRow.email);
+      if (sent !== undefined && sent.kind !== "sent") {
+        log().warn({ result: sent.kind }, "provider password reset for a linked account was not sent");
+      }
       return;
     }
 
@@ -650,7 +654,9 @@ export class AuthService {
    *   3. the provider then sets the new password (its policy applies; a refusal
    *      has already consumed the link, so the user requests a new one);
    *   4. every provider session of the user is ended with the same refresh token
-   *      (`logoutall`), so a session opened with the old password does not survive;
+   *      (`logoutall`), so a session opened with the old password does not survive.
+   *      This runs whenever step 1 succeeded, also when step 2 or 3 refused, so the
+   *      session the proof itself opened never outlives this call;
    *   5. every Backend-Core session of the user is revoked, as in the legacy reset.
    *
    * No local hash is written and no session is minted: the user signs in again
@@ -668,23 +674,41 @@ export class AuthService {
     const proof = await external.port.verifyResetToken(input.rawToken);
     if (proof.kind !== "ok") throw providerResetFailure(proof.kind);
 
-    const subject = await this.verifiedSubject(external, proof.sessionJwt);
-    const user = subject === null ? null : await external.findUserByLinkSubject(subject);
-    if (!user) throw new BadRequestException(INVALID_RESET_TOKEN);
-
-    const updated = await external.port.updatePassword(user.email, input.newPassword, proof.refreshJwt);
-    if (updated.kind !== "ok") throw providerResetFailure(updated.kind);
-
-    const signedOut = await external.port.logoutAllSessions(proof.refreshJwt);
-    if (signedOut.kind !== "ok") {
-      // Fixed message and result kind only: no token, subject, email or user id.
-      log().warn({ result: signedOut.kind }, "provider sign-out after password reset failed; provider sessions may survive");
+    let user: { readonly userId: string; readonly email: string };
+    try {
+      user = await this.setProviderPassword(external, proof, input.newPassword);
+    } finally {
+      await this.endProviderSessions(external, proof.refreshJwt);
     }
 
     await this.revokeAllSessionsForUser(user.userId);
     await this.endSupportSessions({ userId: user.userId }, null);
     // The proof showed control of the address: the controller lifts its sign-in lockout (RT-625 D2).
     return user.email;
+  }
+
+  /** Steps 2 and 3 of `confirmProviderReset`: the linked live user whose provider password was set. */
+  private async setProviderPassword(
+    external: ExternalCredentials,
+    proof: { readonly sessionJwt: string; readonly refreshJwt: string },
+    newPassword: string,
+  ): Promise<{ readonly userId: string; readonly email: string }> {
+    const subject = await this.verifiedSubject(external, proof.sessionJwt);
+    const user = subject === null ? null : await external.findUserByLinkSubject(subject);
+    if (!user) throw new BadRequestException(INVALID_RESET_TOKEN);
+
+    const updated = await external.port.updatePassword(user.email, newPassword, proof.refreshJwt);
+    if (updated.kind !== "ok") throw providerResetFailure(updated.kind);
+    return user;
+  }
+
+  /** Step 4 of `confirmProviderReset`, best effort: a failure is logged, never thrown. */
+  private async endProviderSessions(external: ExternalCredentials, refreshJwt: string): Promise<void> {
+    const signedOut = await external.port.logoutAllSessions(refreshJwt).catch(() => ({ kind: "unavailable" as const }));
+    if (signedOut.kind !== "ok") {
+      // Fixed message and result kind only: no token, subject, email or user id.
+      log().warn({ result: signedOut.kind }, "provider sign-out after password reset failed; provider sessions may survive");
+    }
   }
 
   /** The subject of a provider session token that verifies, or null. */
