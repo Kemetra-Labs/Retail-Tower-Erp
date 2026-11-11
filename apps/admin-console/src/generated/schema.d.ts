@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ ddcce193fdf5ac0f6451f3d62b3b339f88472c72
+// Source: Kemetra-Labs/Retail-Tower-Erp @ b8b0681c11348227a70d5e995f5452f2a6b94b00
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -537,6 +537,15 @@ export namespace AuthSchema {
                 429: {
                     headers: {
                         "Retry-After": components["headers"]["PublicAuthRetryAfter"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The identity provider (RT-1327, for an account linked to it) or the public-auth rate limiter (RT-628, with `Retry-After`) is unavailable. An outage is never reported as an invalid token. If the provider fails after it has accepted the link, the link is spent and the user requests a new one. */
+                503: {
+                    headers: {
                         [name: string]: unknown;
                     };
                     content: {
