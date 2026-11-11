@@ -22,6 +22,7 @@ const TENANT = "/api/v1/platform/pos-pilot-tenants/{tenantId}";
 const REGISTER = "/api/v1/platform/pos-pilot-releases";
 const WITHDRAW = "/api/v1/platform/pos-pilot-releases/{releaseId}/withdraw";
 const ACTIVATE = "/api/v1/platform/pos-pilot-releases/{releaseId}/activate";
+const LIST_TENANTS = "/api/v1/platform/pos-pilot-tenants";
 
 let contract: ContractReader;
 
@@ -57,11 +58,13 @@ describe("RT-1292 pilot releases contract: operations", () => {
     ["post", REGISTER, "platformRegisterPilotRelease"],
     ["post", WITHDRAW, "platformWithdrawPilotRelease"],
     ["post", ACTIVATE, "platformActivatePilotRelease"],
+    ["get", REGISTER, "platformListPilotReleases"],
+    ["get", LIST_TENANTS, "platformListPilotTenants"],
   ] as const)("declares %s %s as %s", (method, path, operationId) => {
     expect(contract.operation(method, path)["operationId"]).toBe(operationId);
   });
 
-  it("serves all six operations: no contract-only marker (RT-1298 lifted the three registry writes)", () => {
+  it("serves all eight operations: no contract-only marker (RT-1298 lifted the registry writes, RT-1328 added the two reads)", () => {
     const all = [
       ["get", LATEST],
       ["put", TENANT],
@@ -69,6 +72,8 @@ describe("RT-1292 pilot releases contract: operations", () => {
       ["post", REGISTER],
       ["post", WITHDRAW],
       ["post", ACTIVATE],
+      ["get", REGISTER],
+      ["get", LIST_TENANTS],
     ] as const;
     for (const [method, path] of all) {
       const operation = contract.operation(method, path);
@@ -93,6 +98,67 @@ describe("RT-1292 pilot releases contract: operations", () => {
     expect(statuses("post", REGISTER)).toEqual(["200", "201", "400", "401", "403", "409", "422", "500"]);
     expect(statuses("post", WITHDRAW)).toEqual(["200", "400", "401", "403", "404", "500"]);
     expect(statuses("post", ACTIVATE)).toEqual(["200", "400", "401", "403", "404", "409", "429", "500"]);
+    expect(statuses("get", REGISTER)).toEqual(["200", "400", "401", "403", "429", "500"]);
+    expect(statuses("get", LIST_TENANTS)).toEqual(["200", "400", "401", "403", "429", "500"]);
+  });
+});
+
+describe("RT-1328 pilot releases contract: the platform-admin reads", () => {
+  /** The security scheme names of an operation. */
+  const schemesOf = (method: "get", path: `/${string}`): string[] =>
+    (contract.operation(method, path)["security"] as JsonObject[]).flatMap((requirement) => Object.keys(requirement));
+
+  const RELEASE = {
+    releaseId: "0190f5a2-3b4c-7d8e-9f01-000000002929",
+    version: "1.4.0",
+    sha256: "b".repeat(64),
+    sizeBytes: 133865024,
+    publisher: "CN=Kemetra POS PILOT",
+    signingClass: "pilot",
+    attestationRef: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/attestations/123456",
+    sourceSha: "c".repeat(40),
+    approved: true,
+    approvedBy: "kemetra-owner",
+    approvedAt: "2026-11-08T12:00:00.000Z",
+    promotionRunUrl: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/987654321",
+    artifactVersionId: "verid",
+    registeredAt: "2026-11-08T12:00:01.000Z",
+    withdrawnAt: null,
+    withdrawnBy: null,
+    activatedAt: null,
+    activatedByUserId: null,
+  };
+  const ENTRY = {
+    tenantId: "0190f5a2-3b4c-7d8e-9f01-00000000aaaa",
+    addedAt: "2026-11-08T12:00:00.000Z",
+    addedByUserId: "0190f5a2-3b4c-7d8e-9f01-00000000bbbb",
+  };
+
+  it("authenticates both reads by the session cookie only, and audits neither", () => {
+    expect(schemesOf("get", REGISTER)).toEqual(["cookieAuth"]);
+    expect(schemesOf("get", LIST_TENANTS)).toEqual(["cookieAuth"]);
+    expect(contract.operation("get", REGISTER)["x-audit-action"]).toBeUndefined();
+    expect(contract.operation("get", LIST_TENANTS)["x-audit-action"]).toBeUndefined();
+  });
+
+  it("takes no parameter on either read", () => {
+    expect(contract.operation("get", REGISTER)["parameters"]).toBeUndefined();
+    expect(contract.operation("get", LIST_TENANTS)["parameters"]).toBeUndefined();
+  });
+
+  it("answers `{ items }` of stored releases, and refuses an extra key or a presigned URL", () => {
+    expect(contract.accepts("PilotReleaseList", { items: [] })).toBe(true);
+    expect(contract.accepts("PilotReleaseList", { items: [RELEASE] })).toBe(true);
+    expect(contract.accepts("PilotReleaseList", { items: [RELEASE], next: "x" })).toBe(false);
+    expect(contract.accepts("PilotReleaseList", { items: [{ ...RELEASE, downloadUrl: "https://b.example/o?sig=1" }] })).toBe(false);
+    expect(contract.accepts("PilotReleaseList", {})).toBe(false);
+  });
+
+  it("answers `{ items }` of allowlist entries, and refuses an extra key", () => {
+    expect(contract.accepts("PilotTenantList", { items: [] })).toBe(true);
+    expect(contract.accepts("PilotTenantList", { items: [ENTRY] })).toBe(true);
+    expect(contract.accepts("PilotTenantList", { items: [{ ...ENTRY, email: "a@b.example" }] })).toBe(false);
+    expect(contract.accepts("PilotTenantList", { items: [ENTRY], total: 1 })).toBe(false);
   });
 });
 

@@ -9,6 +9,9 @@
  * NULL, target the tenant, metadata `tenantId` only) in the same transaction.
  * An unknown tenant is a foreign-key violation, read as
  * `PilotTenantNotFoundError` (404).
+ *
+ * `list` (RT-1328, `platformListPilotTenants`) reads every entry, oldest
+ * `addedAt` first, in the same platform context; it writes nothing.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
@@ -79,6 +82,16 @@ async function audit(client: PoolClient, input: PilotTenantChangeInput, action: 
 @Injectable()
 export class PilotTenantsService {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  /** Every allowlisted tenant, oldest `addedAt` first (RT-1328); a read, no audit row. */
+  async list(): Promise<PilotTenantBody[]> {
+    return await runWithTenantContext(this.pool, PLATFORM, async (client) => {
+      const res = await client.query<AllowlistRow>(
+        `SELECT ${COLUMNS} FROM pos_pilot_tenant_allowlist ORDER BY added_at ASC, tenant_id ASC`,
+      );
+      return res.rows.map(toBody);
+    });
+  }
 
   /** Add the tenant; `created` is false when it was already listed (nothing written). */
   async add(input: PilotTenantChangeInput): Promise<{ created: boolean; entry: PilotTenantBody }> {

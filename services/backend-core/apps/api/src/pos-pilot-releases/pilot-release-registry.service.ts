@@ -18,6 +18,9 @@
  *     current (a unique index), so another current release, or a withdrawn
  *     target, is refused; activating the current release again is a no-op.
  *
+ * `list` (RT-1328, `platformListPilotReleases`) reads every row, newest
+ * `registeredAt` first, in the same platform context; it writes nothing.
+ *
  * Backend-Core does not verify the attestation or download the object: the
  * promotion workflow did that before it called (D-5).
  */
@@ -165,6 +168,16 @@ export class PilotReleaseRegistryService {
         metadata: { releaseId: withdrawn.id, version: withdrawn.version, withdrawnBy: input.actor, promotionRunUrl: input.runUrl },
       });
       return toReleaseBody(withdrawn);
+    });
+  }
+
+  /** Every registry row, newest `registeredAt` first (RT-1328); a read, no audit row. */
+  async list(): Promise<PilotReleaseBody[]> {
+    return await runWithTenantContext(this.pool, PLATFORM, async (client) => {
+      const res = await client.query<ReleaseRow>(
+        `SELECT ${RELEASE_COLUMNS} FROM pos_pilot_release_registry ORDER BY registered_at DESC, id DESC`,
+      );
+      return res.rows.map(toReleaseBody);
     });
   }
 

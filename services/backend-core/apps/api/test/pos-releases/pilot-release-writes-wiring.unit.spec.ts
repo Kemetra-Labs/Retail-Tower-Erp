@@ -11,7 +11,10 @@
  *     (`SessionOnlyAdminGuard`) and then `PlatformAdminGuard`;
  *   - no handler of either controller carries a guard or a public marker of its
  *     own, so the class-level declaration is the whole story;
- *   - the three operations sit on the contract's paths and methods.
+ *   - the three operations sit on the contract's paths and methods;
+ *   - RT-1328: the registry read (`platformListPilotReleases`) sits on the
+ *     session controller, never on the public workflow controller, so the
+ *     cookie and platform-admin guards cover it.
  */
 import { RequestMethod } from "@nestjs/common";
 import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
@@ -70,10 +73,12 @@ describe("RT-1298 registry write wiring", () => {
     expect(routeOf(writes["withdraw"] as object)).toEqual({ path: ":releaseId/withdraw", method: RequestMethod.POST });
     const activation = handlers(PilotReleaseActivationController);
     expect(routeOf(activation["activate"] as object)).toEqual({ path: ":releaseId/activate", method: RequestMethod.POST });
+    // RT-1328: the read is a GET on the guarded session controller, not on the public one.
+    expect(routeOf(activation["list"] as object)).toEqual({ path: "/", method: RequestMethod.GET });
   });
 
   it("keeps each controller to exactly its routes, so the class-level guard covers all of them", () => {
     expect(Object.keys(handlers(PilotReleaseWritesController)).sort()).toEqual(["register", "withdraw"]);
-    expect(Object.keys(handlers(PilotReleaseActivationController))).toEqual(["activate"]);
+    expect(Object.keys(handlers(PilotReleaseActivationController)).sort()).toEqual(["activate", "list"]);
   });
 });
