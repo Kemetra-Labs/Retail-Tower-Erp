@@ -61,7 +61,6 @@ function guard(): PgTestEnv {
 beforeAll(async () => {
   try {
     env = await startPgEnv();
-    await applyMigrationsBefore(env, DRIZZLE_DIR, UP_NAME);
   } catch (err: unknown) {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
@@ -71,6 +70,8 @@ beforeAll(async () => {
     }
     throw new Error(`Container start failed: ${dockerSkipReason}`);
   }
+  // Setup errors from here on are real failures: never skipped.
+  await applyMigrationsBefore(env, DRIZZLE_DIR, UP_NAME);
   upSql = readFileSync(UP_PATH, "utf8");
   downSql = readFileSync(DOWN_PATH, "utf8");
   const a = env.admin;
@@ -201,6 +202,8 @@ describe("0091: vouchers constraints", () => {
       ),
     ).toBeNull();
     expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, status: "redeemed" }))).toBeNull();
+    // The largest amount a JS number holds exactly is accepted.
+    expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, amount_minor: Number.MAX_SAFE_INTEGER }))).toBeNull();
     // The contract's note is any string up to 200 characters, so '' and 200 are accepted.
     expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, note: "" }))).toBeNull();
     expect(await tryRun(INSERT_V, valuesOf({ ...ACTIVE, note: "n".repeat(200) }))).toBeNull();
@@ -210,6 +213,7 @@ describe("0091: vouchers constraints", () => {
     ["an unknown status (expired is derived, never stored)", { status: "expired" }],
     ["a zero amount", { amount_minor: 0 }],
     ["a negative amount", { amount_minor: -1 }],
+    ["an amount above the JS safe-integer bound", { amount_minor: "9007199254740992" as unknown as number }],
     ["a lower-case currency", { currency_code: "usd" }],
     ["a cancelled voucher without its cancel columns", { status: "cancelled" }],
     ["cancel columns on an active voucher", { cancelled_by_user_id: ACTOR, cancelled_at: "2026-11-11T00:00:00Z" }],

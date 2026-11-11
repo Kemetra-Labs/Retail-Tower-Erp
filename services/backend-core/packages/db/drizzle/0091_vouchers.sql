@@ -95,7 +95,9 @@ CREATE TABLE vouchers (
   note                  TEXT         NULL,
   created_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
-  CONSTRAINT vouchers_amount_minor_positive CHECK (amount_minor > 0),
+  -- Positive, and at most the JS safe-integer bound (2^53 - 1): the Drizzle column
+  -- is bigint mode "number", which loses precision above it.
+  CONSTRAINT vouchers_amount_minor_positive CHECK (amount_minor > 0 AND amount_minor <= 9007199254740991),
   CONSTRAINT vouchers_currency_code_format CHECK (currency_code ~ '^[A-Z]{3}$'),
   CONSTRAINT vouchers_status_allowed CHECK (status IN ('active', 'redeemed', 'cancelled')),
   -- The cancel columns are set together, and only for a cancelled voucher.

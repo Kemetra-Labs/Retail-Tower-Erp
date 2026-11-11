@@ -54,7 +54,8 @@ export const vouchers = pgTable(
   (t) => [
     unique("vouchers_tenant_id_uk").on(t.tenantId, t.id),
     unique("vouchers_tenant_code_hash_uk").on(t.tenantId, t.codeHash),
-    check("vouchers_amount_minor_positive", sql`${t.amountMinor} > 0`),
+    // Positive and within the JS safe-integer bound (bigint mode "number").
+    check("vouchers_amount_minor_positive", sql`${t.amountMinor} > 0 AND ${t.amountMinor} <= 9007199254740991`),
     check("vouchers_currency_code_format", sql`${t.currencyCode} ~ '^[A-Z]{3}$'`),
     check("vouchers_status_allowed", sql`${t.status} IN ('active', 'redeemed', 'cancelled')`),
     check(
