@@ -55,10 +55,14 @@ export function runStartupStage<T>(failureClass: StartupFailureClass, step: () =
 /** Bounds the `cause` walk; real chains here are one or two deep. */
 const MAX_CAUSE_DEPTH = 5;
 
+function isPresent(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
 function causeChain(err: unknown): unknown[] {
   const chain: unknown[] = [];
   let current: unknown = err;
-  while (current !== undefined && current !== null && chain.length < MAX_CAUSE_DEPTH) {
+  while (isPresent(current) && chain.length < MAX_CAUSE_DEPTH) {
     chain.push(current);
     current = current instanceof Error ? current.cause : undefined;
   }

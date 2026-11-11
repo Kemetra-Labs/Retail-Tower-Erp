@@ -154,17 +154,33 @@ describe('refuseFatalStartup', () => {
     expect(h.logError).toHaveBeenCalledWith('[pos-pulse] fatal startup error:', err);
   });
 
-  it('still shows the dialog and exits when logging itself throws', async () => {
+  const failing = (what: string) => () => {
+    throw new Error(what);
+  };
+
+  it.each<[string, (h: ReturnType<typeof harness>) => void]>([
+    ['logging itself throws', (h) => h.logError.mockImplementation(failing('stderr closed'))],
+    ['closing the DB throws', (h) => h.closeDb.mockImplementation(failing('close failed'))],
+    ['userData cannot be resolved', (h) => h.app.getPath.mockImplementation(failing('not ready'))],
+  ])('still shows the dialog and exits when %s', async (_case, breakIt) => {
     const h = harness();
-    h.logError.mockImplementation(() => {
-      throw new Error('stderr closed');
-    });
+    breakIt(h);
 
     refuseFatalStartup(new Error('boom'), h);
     await settle();
 
     expect(h.dialog.showMessageBox).toHaveBeenCalledTimes(1);
     expect(h.exit).toHaveBeenCalledExactlyOnceWith(1);
+  });
+
+  it('names no folder when userData cannot be resolved', async () => {
+    const h = harness();
+    h.app.getPath.mockImplementation(failing('not ready'));
+
+    refuseFatalStartup(new Error('boom'), h);
+    await settle();
+
+    expect(h.dialog.showMessageBox.mock.calls.at(0)?.[0].message).not.toContain('backups');
   });
 
   it('still exits when the dialog rejects', async () => {
@@ -173,32 +189,6 @@ describe('refuseFatalStartup', () => {
     refuseFatalStartup(new Error('boom'), h);
     await settle();
 
-    expect(h.exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
-
-  it('still shows the dialog and exits when closing the DB throws', async () => {
-    const h = harness();
-    h.closeDb.mockImplementation(() => {
-      throw new Error('close failed');
-    });
-
-    refuseFatalStartup(new Error('boom'), h);
-    await settle();
-
-    expect(h.dialog.showMessageBox).toHaveBeenCalledTimes(1);
-    expect(h.exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
-
-  it('still shows the dialog, without a folder, when userData cannot be resolved', async () => {
-    const h = harness();
-    h.app.getPath.mockImplementation(() => {
-      throw new Error('not ready');
-    });
-
-    refuseFatalStartup(new Error('boom'), h);
-    await settle();
-
-    expect(h.dialog.showMessageBox.mock.calls.at(0)?.[0].message).not.toContain('backups');
     expect(h.exit).toHaveBeenCalledExactlyOnceWith(1);
   });
 
