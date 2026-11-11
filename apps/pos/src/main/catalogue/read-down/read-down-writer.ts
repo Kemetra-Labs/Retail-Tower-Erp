@@ -170,10 +170,13 @@ export function createReadDownWriter(deps: CreateReadDownWriterDeps): ReadDownWr
   /**
    * Stage the full validated set in ONE transaction (#411 perf fix). The prior
    * per-row autocommit path issued ~2 INSERTs/row in autocommit mode (~100k
-   * separate WAL commits at synchronous=FULL on a 50k snapshot), which blocked the
-   * single shared main-thread connection for ~20 s — every barcode scan / lookup
-   * froze behind it (T054 §A5, perf-bringup.md §6). Wrapping the loop in one
-   * `db.transaction()` collapses those to a single commit (~20 s → ~1 s).
+   * separate WAL commits on a 50k snapshot), which blocked the single shared
+   * main-thread connection for ~20 s — every barcode scan / lookup froze behind
+   * it (T054 §A5, perf-bringup.md §6). That was measured at better-sqlite3's
+   * default synchronous=NORMAL; since RT-1324 the connection runs FULL (a WAL
+   * fsync per commit), so per-row autocommit would now cost even more. Wrapping
+   * the loop in one `db.transaction()` collapses those to a single commit
+   * (~20 s → ~1 s).
    *
    * Live tables are untouched here (staging only), so this does NOT affect FR-7
    * (the prior-catalogue-intact guarantee is a property of the promote tx alone —

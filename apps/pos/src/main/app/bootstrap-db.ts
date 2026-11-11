@@ -10,9 +10,12 @@ import type { DatabaseHandle } from '../db/client.js';
  * **What this module does NOT own.** Opening and migrating stay at the
  * composition root, inside `app.whenReady()`: the path comes from
  * `app.getPath('userData')`, the migrations directory from the shipped-app identity (RT-165),
- * and a migration failure must rethrow into the existing `.catch` that calls
- * `app.exit(1)`. Moving that would change startup semantics; this slice is
- * scoped to lifetime, not to the open sequence (plan AD-5).
+ * and every startup failure ends in an operator dialog and `app.exit(1)`
+ * (RT-1324): a failed migration or full disk is returned as a refusal by
+ * `startup-migrations.ts`, and an open or SecretStore failure throws into the
+ * `.catch`, which calls `refuseFatalStartup` (`startup-failure.ts`). Both close
+ * this handle first. Moving the open would change startup semantics; this
+ * slice is scoped to lifetime, not to the open sequence (plan AD-5).
  *
  * **Why a holder at all.** `dbHandle` was module-scope for exactly one reason:
  * `closeDbHandle()` lives outside `whenReady()` and needs a reference. All ~26

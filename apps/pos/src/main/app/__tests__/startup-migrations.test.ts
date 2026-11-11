@@ -96,19 +96,61 @@ describe('runStartupMigrations', () => {
     expect(applied.map((r) => r.name)).toEqual(['0001_a', '0002_b']);
   });
 
-  it('rethrows any other migration failure for the fatal-startup path', () => {
+  // RT-1324 (RT-1125 R-39): before, any other failure was rethrown into the
+  // fatal-startup `.catch`, which exited with no window. Now it is a refusal
+  // the composition root shows the same way as the schema-ahead one.
+  it('turns a full disk during the snapshot into a disk_full refusal naming the backups folder', () => {
+    const { db, applied } = fakeDb(['0001_a']);
+    const log = logger();
+
+    const result = runStartupMigrations({
+      db,
+      files: [file('0001_a'), file('0002_b')],
+      vacuumInto: () => {
+        throw Object.assign(new Error('database or disk is full'), { code: 'SQLITE_FULL' });
+      },
+      userDataDir,
+      now: () => new Date(),
+      logger: log,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.refusal.body).toContain('Startup failure: disk_full (SQLITE_FULL)');
+    expect(result.refusal.body).toContain(`Backups folder: ${path.join(userDataDir, 'backups')}`);
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ failureClass: 'disk_full', code: 'SQLITE_FULL' }),
+      'db:startup_migration_failed',
+    );
+    // Nothing was applied without the snapshot.
+    expect(applied.map((r) => r.name)).toEqual(['0001_a']);
+  });
+
+  it('turns a failing migration into a database_migration refusal', () => {
     const { db } = fakeDb(['0001_a']);
-    expect(() =>
-      runStartupMigrations({
-        db,
-        files: [file('0001_a'), file('0002_b')],
-        vacuumInto: () => {
-          throw new Error('SQLITE_FULL');
-        },
-        userDataDir,
-        now: () => new Date(),
-        logger: logger(),
-      }),
-    ).toThrow(/SQLITE_FULL/);
+    db.exec = (sql) => {
+      if (sql.includes('0002_b'))
+        throw Object.assign(new Error('no such table'), { code: 'SQLITE_ERROR' });
+    };
+    const log = logger();
+
+    const result = runStartupMigrations({
+      db,
+      files: [file('0001_a'), file('0002_b')],
+      vacuumInto: (target) => {
+        writeFileSync(target, 'copy');
+      },
+      userDataDir,
+      now: () => new Date('2026-10-09T00:00:00.000Z'),
+      logger: log,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.refusal.body).toContain('Startup failure: database_migration (SQLITE_ERROR)');
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ failureClass: 'database_migration', code: 'SQLITE_ERROR' }),
+      'db:startup_migration_failed',
+    );
   });
 });

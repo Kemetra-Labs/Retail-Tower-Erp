@@ -100,10 +100,11 @@ import {
 import { assessLaunchSwitches } from './app/launch-switch-guard.js';
 import { isShippedApp } from './app/shipped-app.js';
 import { acquireSingleInstance, restoreAndFocus } from './app/single-instance.js';
-import { openDatabase } from './db/client.js';
+import { openDatabase, readSynchronous } from './db/client.js';
 import { bindMigrationsDb, readMigrationsFromDisk } from './db/migrate.js';
 import { bindVacuumInto } from './db/pre-migration-snapshot.js';
 import { runStartupMigrations } from './app/startup-migrations.js';
+import { refuseFatalStartup, showRefusalAndExit } from './app/startup-failure.js';
 import { trackPrintPipeline } from './update/print-activity.js';
 import type { UpdateService } from './update/update-service.js';
 import { createSecretStore } from './secrets/index.js';
@@ -374,12 +375,12 @@ singleInstanceReady
     }
 
     // T040 + R9 — open ONE shared DB handle, run migrations, then keep
-    // the handle alive for the SecretStore. Failure during migrations
-    // rethrows into the .catch below, which calls app.exit(1).
+    // the handle alive for the SecretStore. An open failure throws into the
+    // .catch below (RT-1324: refusal dialog, then exit). `synchronous` 2 = FULL.
     const dbPath = path.join(app.getPath('userData'), 'pos-pulse.db');
     const db = openDatabase(dbPath);
     dbHolder.set(db);
-    mainLogger.info({ dbPath }, 'db:opened');
+    mainLogger.info({ dbPath, synchronous: readSynchronous(db) }, 'db:opened');
 
     // RT-320 — roll-forward safety (ADR-0006): refuse a DB a newer build has
     // migrated, and snapshot to <userData>/backups/ before pending migrations.
@@ -393,18 +394,9 @@ singleInstanceReady
       logger: mainLogger,
     });
     if (!migrated.ok) {
-      // Same async-dialog-then-exit shape as the cashier-profile refusal above.
+      // Schema ahead, or (RT-1324) a failed migration or full disk.
       closeDbHandle();
-      const exitRefused = (): void => {
-        app.exit(1);
-      };
-      void dialog
-        .showMessageBox({
-          type: 'error',
-          title: migrated.refusal.title,
-          message: migrated.refusal.body,
-        })
-        .then(exitRefused, exitRefused);
+      showRefusalAndExit(migrated.refusal, { app, dialog });
       return;
     }
     mainLogger.info({ count: files.length }, 'db:migrations-applied');
@@ -1594,13 +1586,10 @@ singleInstanceReady
     });
   })
   .catch((err: unknown) => {
-    // R3 + R4: any failure here (logger init, migrations, or
-    // SecretStore production refusal) halts launch. We deliberately
-    // keep `console.error` here rather than the logger because the
-    // logger itself may have failed to initialize.
-    console.error('[pos-pulse] fatal startup error:', err);
-    closeDbHandle();
-    app.exit(1);
+    // R3 + R4: any failure here (logger init, DB open, SecretStore production
+    // refusal) halts launch. RT-1324: with a dialog naming the failure class and
+    // the backups folder, then exit 1 (app/startup-failure.ts).
+    refuseFatalStartup(err, { app, dialog, closeDb: closeDbHandle });
   });
 
 function closeDbHandle(): void {

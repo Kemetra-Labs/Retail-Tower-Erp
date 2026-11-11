@@ -26,6 +26,14 @@ import type { DatabaseHandle } from './client.js';
  */
 
 export const SNAPSHOT_FILE_PREFIX = 'pos-pulse-pre-migration-';
+
+/**
+ * `<userData>/backups`: where snapshots are written, and the folder the
+ * startup refusal names (RT-1324). One source for both.
+ */
+export function backupsDirFor(userDataDir: string): string {
+  return path.join(userDataDir, 'backups');
+}
 export const DEFAULT_SNAPSHOT_RETENTION = 3;
 const PARTIAL_SUFFIX = '.partial';
 

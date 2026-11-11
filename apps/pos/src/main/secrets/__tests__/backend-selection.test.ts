@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
-import { createSecretStore } from '../index.js';
+import { SecretStoreUnavailableError, createSecretStore } from '../index.js';
 import type { SafeStorageLike } from '../safe-storage.js';
 import type { DatabaseHandle } from '../../db/client.js';
 
@@ -81,6 +81,15 @@ describe('createSecretStore — backend selection', () => {
         error,
       }),
     ).toThrow(/safeStorage|encryption|production/i);
+    // RT-1324: typed, so the startup refusal dialog can name the failure class.
+    expect(() =>
+      createSecretStore({
+        handle: makeStubDb(),
+        safeStorage: makeSafeStorage(false),
+        isPackaged: true,
+        error,
+      }),
+    ).toThrow(SecretStoreUnavailableError);
     // The fatal log MUST fire before the throw so operators see why.
     expect(error).toHaveBeenCalled();
   });
