@@ -41,6 +41,9 @@ import "reflect-metadata";
 
 import { resolve } from "node:path";
 
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
+
 import { loadOpenApiContracts } from "../../../src/openapi/loader";
 
 // ---------------------------------------------------------------------------
@@ -971,5 +974,82 @@ describe("erpnext-connector/posting-feed.yaml — RT-490 settle before post (1.9
     expect(text).toContain("one sent without `allocationRef` (it cannot be settled through executions)");
     expect(text).toContain("a credit return (`recordCreditSaleReversal`), which is outside RT-490");
     expect(fieldText("ReversalRef", "reversalKind")).toContain("before the return's refund obligation is settled (R-7)");
+  });
+});
+
+// ===========================================================================
+// RT-1286 (Inventory Gate 8 P2) — reserved `inventory_disposition` kind
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_disposition kind (1.11.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
+  const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
+
+  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order", () => {
+    expect(feedDoc.info?.version).toBe("1.11.0-draft");
+    expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
+    expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
+    expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
+    expect(info()).toContain("the Connector constant `WORK_ITEM_KINDS` must equal this enum");
+    expect(info()).toContain("ROLLOUT ORDER (Connector first, as for 1.10.0-draft)");
+  });
+
+  it("leaves the wire unchanged: kind stays sale_post | reversal and sale stays required", () => {
+    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
+    expect(kind?.enum?.slice().sort()).toEqual(["reversal", "sale_post"]);
+    expect(schema("PostingWorkItem")?.required).toContain("sale");
+  });
+
+  it("references the reserved schemas from no operation and no other schema", () => {
+    const text = JSON.stringify({ paths: feedDoc.paths, schemas: feedDoc.components?.schemas });
+    for (const name of RESERVED) {
+      const refs = text.split(`"#/components/schemas/${name}"`).length - 1;
+      const internal = name === "InventoryDispositionWorkItem" ? 0 : 1;
+      expect(refs).toBe(internal);
+    }
+  });
+
+  it("the reserved schemas are strict and carry the line facts the issue names", () => {
+    for (const name of RESERVED) expect(schema(name)?.additionalProperties).toBe(false);
+    expect(schema("InventoryDispositionLine")?.required?.slice().sort()).toEqual(
+      ["erpnextBatchRef", "erpnextItemRef", "lineSeq", "quantity", "unit", "warehouseRef"],
+    );
+    const type = (schema("InventoryDisposition")?.properties ?? {})["dispositionType"] as { enum?: string[] } | undefined;
+    expect(type?.enum).toEqual(["scrap", "vendor_return"]);
+  });
+
+  it("a scrap work item validates; a zero quantity or a missing Batch does not", () => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(feedDoc as object), $id: "posting-feed" });
+    const validate = ajv.compile({ $ref: "posting-feed#/components/schemas/InventoryDispositionWorkItem" });
+    const line = {
+      lineSeq: 1,
+      erpnextItemRef: { doctype: "Item", name: "PANADOL-24" },
+      erpnextBatchRef: { doctype: "Batch", name: "B-2026-11-A" },
+      quantity: "3",
+      unit: "Box",
+      warehouseRef: { doctype: "Warehouse", name: "Stores - RT" },
+    };
+    const item = (l: Record<string, unknown>) => ({
+      workItemRef: "00000000-0000-7000-8000-00000000d001",
+      kind: "inventory_disposition",
+      sourceSystem: "retail-tower",
+      externalId: "disposition:00000000-0000-7000-8000-00000000d0e1",
+      disposition: {
+        dispositionRef: "00000000-0000-7000-8000-00000000d0e1",
+        dispositionType: "scrap",
+        storeId: "00000000-0000-7000-8000-00000000570e",
+        recordedAt: "2026-11-11T08:00:00.000Z",
+        businessDate: "2026-11-11",
+        lines: [l],
+      },
+      itemCursor: "c1",
+    });
+    expect(validate(item(line))).toBe(true);
+    expect(validate(item({ ...line, quantity: "0" }))).toBe(false);
+    const { erpnextBatchRef: _batch, ...noBatch } = line;
+    expect(validate(item(noBatch))).toBe(false);
   });
 });
