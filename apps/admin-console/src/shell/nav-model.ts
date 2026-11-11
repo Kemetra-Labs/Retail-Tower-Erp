@@ -179,8 +179,19 @@ const SESSION_NAV: readonly NavGroup[] = [
   },
 ];
 
-/** The platform console's destinations (RT-780). */
-export const PLATFORM_NAV: readonly NavGroup[] = SESSION_NAV;
+/**
+ * The platform console's destinations (RT-780). RT-1329 adds the POS pilot page
+ * here only: the tenant shell's in-session nav (SESSION_NAV) stays unchanged.
+ */
+export const PLATFORM_NAV: readonly NavGroup[] = [
+  {
+    id: "platform",
+    entries: [
+      { label: "platform.nav.tenants", to: "/platform/tenants", icon: "tenant" },
+      { label: "platform.nav.posPilot", to: "/platform/pos-pilot", icon: "terminal" },
+    ],
+  },
+];
 
 /** The tenant shell's groups for a role; a group left with no entry is dropped. */
 export function tenantNav(

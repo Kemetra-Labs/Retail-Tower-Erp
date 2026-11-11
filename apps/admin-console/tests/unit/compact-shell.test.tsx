@@ -226,7 +226,8 @@ describe("platform shell compact menu", () => {
     );
     const dialog = openDrawer();
     const nav = within(dialog).getByRole("navigation", { name: "Platform" });
-    expect(labels(nav)).toEqual(["Organizations"]);
+    // RT-1329: the POS pilot page joins the platform destinations.
+    expect(labels(nav)).toEqual(["Organizations", "POS pilot"]);
     expect(within(dialog).getByText(LONG_NAME)).toBeDefined();
     expect(within(dialog).getByRole("button", { name: "Dark mode" })).toBeDefined();
     fireEvent.click(within(dialog).getByRole("button", { name: "Sign out" }));

@@ -21,6 +21,7 @@ import { money } from "./ar/money";
 import { operators } from "./ar/operators";
 import { overview } from "./ar/overview";
 import { platform } from "./ar/platform";
+import { posPilot } from "./ar/posPilot";
 import { postingRepair } from "./ar/postingRepair";
 import { productRecon } from "./ar/productRecon";
 import { saleSync } from "./ar/saleSync";
@@ -50,6 +51,7 @@ export const AR_MODULES = {
   productRecon,
   devices,
   downloadPos,
+  posPilot,
   sales,
   saleSync,
   postingRepair,
@@ -81,6 +83,7 @@ export const ar = {
   ...productRecon,
   ...devices,
   ...downloadPos,
+  ...posPilot,
   ...sales,
   ...saleSync,
   ...postingRepair,

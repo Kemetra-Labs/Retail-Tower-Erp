@@ -20,6 +20,7 @@ import { money } from "./en/money";
 import { operators } from "./en/operators";
 import { overview } from "./en/overview";
 import { platform } from "./en/platform";
+import { posPilot } from "./en/posPilot";
 import { postingRepair } from "./en/postingRepair";
 import { productRecon } from "./en/productRecon";
 import { saleSync } from "./en/saleSync";
@@ -50,6 +51,7 @@ export const EN_MODULES = {
   productRecon,
   devices,
   downloadPos,
+  posPilot,
   sales,
   saleSync,
   postingRepair,
@@ -81,6 +83,7 @@ export const en: MessagesOf<typeof ar> = {
   ...productRecon,
   ...devices,
   ...downloadPos,
+  ...posPilot,
   ...sales,
   ...saleSync,
   ...postingRepair,

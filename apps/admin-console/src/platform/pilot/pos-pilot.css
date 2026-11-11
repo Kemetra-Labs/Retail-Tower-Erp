@@ -1,0 +1,54 @@
+/* `/platform/pos-pilot` (RT-1329). Two numbered panels on the v3 detail
+ * template; tables straight under the panel head, edge to edge. Tokens only. */
+.pos-pilot {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.pos-pilot__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  margin-inline-start: auto;
+}
+.pos-pilot__mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pos-pilot__muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.pos-pilot__who {
+  display: grid;
+  gap: var(--space-1);
+}
+.pos-pilot__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.pos-pilot__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+.pos-pilot__add .field {
+  flex: 1 1 240px;
+  max-width: 480px;
+}
+.pos-pilot__confirm {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-block-end: 1px solid var(--color-border);
+}
+.pos-pilot__confirm-msg {
+  margin: 0;
+}
+.pos-pilot__confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
