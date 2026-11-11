@@ -9,6 +9,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type MessageKey, useT } from "@/i18n";
 import { formatDateTime } from "@/i18n/format";
 import { usePayerStores } from "@/payers/usePayerStores";
+import type { ScopeMembership } from "@/shell/scope-stores";
 import { useSignOut } from "@/shell/useSignOut";
 /**
  * RT-1109 vouchers page (RT-1098 slice I-4), for owner / tenant_admin only
@@ -147,13 +148,11 @@ function VoucherListBody({
   list,
   stores,
   filtered,
-  issueButton,
   onOpen,
 }: Readonly<{
   list: ReturnType<typeof useVoucherList>;
   stores: readonly Store[];
   filtered: boolean;
-  issueButton: React.ReactNode;
   onOpen: (voucherId: string) => void;
 }>): React.JSX.Element {
   const t = useT();
@@ -166,7 +165,7 @@ function VoucherListBody({
     empty = filtered ? (
       <ListState state="empty" emptyMessage={t("vouchers.list.emptyFiltered")} />
     ) : (
-      <ListState state="empty" emptyMessage={t("vouchers.list.empty")} action={issueButton} />
+      <ListState state="empty" emptyMessage={t("vouchers.list.empty")} />
     );
   }
 
@@ -255,6 +254,11 @@ export function VoucherList(): React.JSX.Element {
   if (!allowed) return <NoAccess onSignOut={signOut} />;
 
   const tenantName = rawTenant.name ?? rawTenant.id;
+  // The membership's store scope (RT-131): "specific" cannot issue for all stores.
+  const membership = context?.memberships?.find((m) => m.tenant_id === rawTenant.id) as
+    | ScopeMembership
+    | undefined;
+  const tenantWide = membership?.store_access_kind !== "specific";
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: voucherQueryKeys.all(tenantId) });
   };
@@ -279,7 +283,6 @@ export function VoucherList(): React.JSX.Element {
         list={list}
         stores={stores}
         filtered={Boolean(filters.status || filters.eligible_store_id)}
-        issueButton={issueButton}
         onOpen={setOpenId}
       />
 
@@ -287,6 +290,7 @@ export function VoucherList(): React.JSX.Element {
         <VoucherIssue
           activeTenant={{ id: rawTenant.id, name: tenantName }}
           stores={stores}
+          tenantWide={tenantWide}
           onClose={() => {
             setIssuing(false);
             refresh();

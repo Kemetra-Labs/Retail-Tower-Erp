@@ -5,7 +5,7 @@ import { FormPanel, FormSection } from "@/components/FormPage";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
 import { type MessageKey, useT } from "@/i18n";
-import { CURRENCY } from "@/i18n/format";
+import { CURRENCY, formatDateTime } from "@/i18n/format";
 import { type VoucherIssueBody, consoleIssueVouchers } from "@/lib/client";
 import { textField } from "@/lib/form-field";
 /**
@@ -27,7 +27,7 @@ import { textField } from "@/lib/form-field";
  * read of it before issuing, so the form assumes `CURRENCY` (EGP), the Admin
  * default (RT-399), and the codes view shows the currency the server returned.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { VoucherCodes } from "./VoucherCodes";
 import {
   MAX_COUNT,
@@ -35,7 +35,7 @@ import {
   type VoucherIssueDraft,
   buildIssueBody,
 } from "./voucherIssueForm";
-import { type VoucherIssueResponse, currencyDigits } from "./voucherLogic";
+import { type VoucherIssueResponse, currencyDigits, formatVoucherAmount } from "./voucherLogic";
 import { classifyIssueOutcome, newIdempotencyKey } from "./voucherOutcomes";
 
 type Store = { id: string; name?: string };
@@ -43,13 +43,19 @@ type Store = { id: string; name?: string };
 type Phase =
   | { kind: "form" }
   | { kind: "codes"; batch: VoucherIssueResponse }
-  | { kind: "uncertain"; requestId?: string };
+  | { kind: "uncertain"; attempt: VoucherIssueBody; at: string; requestId?: string };
 
 type BannerState = { variant: "danger" | "warning"; messageKey: MessageKey; requestId?: string };
 
 export interface VoucherIssueProps {
   activeTenant: { id: string; name: string };
   stores: readonly Store[];
+  /**
+   * False when the caller's membership covers only some stores: issuing for all
+   * stores needs tenant-wide scope (403 otherwise), so the form starts on, and
+   * keeps to, a store subset. The server stays the authority.
+   */
+  tenantWide: boolean;
   /** Closes the drawer; the list refreshes either way. */
   onClose: () => void;
 }
@@ -110,6 +116,9 @@ type Step = { phase: Phase } | { banner: BannerState };
 
 /** One issue attempt under a NEW key; never retried. Lost or unclear answers are uncertain. */
 async function issueOnce(body: VoucherIssueBody): Promise<Step> {
+  const uncertain = (requestId?: string): Step => ({
+    phase: { kind: "uncertain", attempt: body, at: new Date().toISOString(), requestId },
+  });
   try {
     const res = await consoleIssueVouchers(body, newIdempotencyKey());
     const outcome = classifyIssueOutcome(res);
@@ -118,9 +127,9 @@ async function issueOnce(body: VoucherIssueBody): Promise<Step> {
         // A 201 without a body lost the codes: treat it as the uncertain case.
         return res.data
           ? { phase: { kind: "codes", batch: res.data as VoucherIssueResponse } }
-          : { phase: { kind: "uncertain" } };
+          : uncertain();
       case "uncertain":
-        return { phase: { kind: "uncertain", requestId: outcome.requestId } };
+        return uncertain(outcome.requestId);
       case "session":
         return { banner: { variant: "warning", messageKey: outcome.messageKey } };
       default:
@@ -134,8 +143,38 @@ async function issueOnce(body: VoucherIssueBody): Promise<Step> {
     }
   } catch {
     // The request left and no answer came back: the batch may exist.
-    return { phase: { kind: "uncertain" } };
+    return uncertain();
   }
+}
+
+/** What the lost attempt asked for, so the operator can find its vouchers in the list. */
+function UncertainIssue({
+  phase,
+  onClose,
+}: Readonly<{ phase: Extract<Phase, { kind: "uncertain" }>; onClose: () => void }>) {
+  const t = useT();
+  const { attempt } = phase;
+  return (
+    <Drawer title={t("vouchers.issue.title")} onClose={onClose}>
+      <Banner
+        variant="warning"
+        message={t("vouchers.issue.uncertain")}
+        requestId={phase.requestId}
+      />
+      <p className="content__sub">
+        {t("vouchers.issue.uncertainAttempt", {
+          count: attempt.count,
+          amount: formatVoucherAmount(attempt.amount_minor, CURRENCY),
+          time: formatDateTime(phase.at),
+        })}
+      </p>
+      <div className="vouchers__actions">
+        <button type="button" className="btn-primary" onClick={onClose}>
+          {t("vouchers.issue.uncertainAction")}
+        </button>
+      </div>
+    </Drawer>
+  );
 }
 
 /** The standing "codes are shown once" note, then the last refusal, if any. */
@@ -158,6 +197,7 @@ function IssueNotices({ banner }: Readonly<{ banner?: BannerState }>): React.JSX
 export function VoucherIssue({
   activeTenant,
   stores,
+  tenantWide,
   onClose,
 }: Readonly<VoucherIssueProps>): React.JSX.Element {
   const t = useT();
@@ -165,8 +205,20 @@ export function VoucherIssue({
   const [errors, setErrors] = useState<VoucherDraftErrors>({});
   const [banner, setBanner] = useState<BannerState | undefined>();
   const [pending, setPending] = useState(false);
-  const [scope, setScope] = useState<"all" | "stores">("all");
+  const [scope, setScope] = useState<"all" | "stores">(tenantWide ? "all" : "stores");
   const [chosen, setChosen] = useState<string[]>([]);
+
+  // A reload or tab close while the answer is in flight, or while the codes are
+  // on screen, would lose codes that can never be shown again: ask first.
+  const atRisk = pending || phase.kind === "codes";
+  useEffect(() => {
+    if (!atRisk) return;
+    const warn = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [atRisk]);
 
   const fieldError = (field: keyof VoucherDraftErrors): string | undefined => {
     const e = errors[field];
@@ -201,22 +253,7 @@ export function VoucherIssue({
     );
   }
 
-  if (phase.kind === "uncertain") {
-    return (
-      <Drawer title={t("vouchers.issue.title")} onClose={onClose}>
-        <Banner
-          variant="warning"
-          message={t("vouchers.issue.uncertain")}
-          requestId={phase.requestId}
-        />
-        <div className="vouchers__actions">
-          <button type="button" className="btn-primary" onClick={onClose}>
-            {t("vouchers.issue.uncertainAction")}
-          </button>
-        </div>
-      </Drawer>
-    );
-  }
+  if (phase.kind === "uncertain") return <UncertainIssue phase={phase} onClose={onClose} />;
 
   const tenantLine = t.rich("vouchers.issue.scopeLine", {
     tenant: (
@@ -313,6 +350,7 @@ export function VoucherIssue({
               name="scope"
               value="all"
               checked={scope === "all"}
+              disabled={!tenantWide}
               onChange={() => setScope("all")}
             />
             {t("vouchers.issue.scopeAll")}

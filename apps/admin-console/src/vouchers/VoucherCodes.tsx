@@ -25,7 +25,8 @@ function downloadCodes(batch: VoucherIssueResponse): void {
   document.body.append(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Revoked after the browser has taken the download; at once can cancel it.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 type CopyState = "idle" | "copied" | "failed";

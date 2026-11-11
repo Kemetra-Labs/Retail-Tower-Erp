@@ -82,6 +82,10 @@ export const vouchers: MessagesOf<typeof ar> = {
     "One of the selected stores is inactive. Choose active stores. No voucher was issued.",
   "vouchers.issue.uncertain":
     "The issue result is not confirmed: the vouchers may have been issued without their codes reaching you. Do not issue again now. Open the voucher list, cancel the newest vouchers whose codes you do not have, then issue again.",
+  "vouchers.issue.uncertainAttempt": {
+    one: "The unconfirmed attempt: 1 voucher of {amount}, at {time}.",
+    other: "The unconfirmed attempt: {count} vouchers of {amount} each, at {time}.",
+  },
   "vouchers.issue.uncertainAction": "Open the voucher list",
 
   // --- Issued codes (shown once) ----------------------------------------------
@@ -137,7 +141,7 @@ export const vouchers: MessagesOf<typeof ar> = {
   // --- Form validation -----------------------------------------------------------
   "vouchers.form.countInvalid": "Enter a whole number from 1 to {max}.",
   "vouchers.form.amountRequired": "Enter the voucher value.",
-  "vouchers.form.amountInvalid": "Enter a value greater than zero.",
+  "vouchers.form.amountInvalid": "Enter a number greater than zero.",
   "vouchers.form.amountPrecision": "The value takes at most {digits} decimal places.",
   "vouchers.form.expiryInvalid": "Enter a valid date and time.",
   "vouchers.form.expiryPast": "Choose an expiry in the future.",

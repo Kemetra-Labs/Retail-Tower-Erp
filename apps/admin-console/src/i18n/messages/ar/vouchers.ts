@@ -90,6 +90,14 @@ export const vouchers = {
     "أحد المتاجر المختارة غير نشط. اختر متاجر نشطة. لم تُصدر أي قسيمة.",
   "vouchers.issue.uncertain":
     "نتيجة الإصدار غير مؤكدة: ربما صدرت القسائم دون أن تصل رموزها. لا تكرر الإصدار الآن. افتح قائمة القسائم، وألغِ أحدث القسائم التي لا تملك رموزها، ثم أصدر من جديد.",
+  "vouchers.issue.uncertainAttempt": {
+    zero: "المحاولة غير المؤكدة: لا قسائم بقيمة {amount}، في {time}.",
+    one: "المحاولة غير المؤكدة: قسيمة واحدة بقيمة {amount}، في {time}.",
+    two: "المحاولة غير المؤكدة: قسيمتان بقيمة {amount} لكل منهما، في {time}.",
+    few: "المحاولة غير المؤكدة: {count} قسائم بقيمة {amount} لكل منها، في {time}.",
+    many: "المحاولة غير المؤكدة: {count} قسيمة بقيمة {amount} لكل منها، في {time}.",
+    other: "المحاولة غير المؤكدة: {count} قسيمة بقيمة {amount} لكل منها، في {time}.",
+  },
   "vouchers.issue.uncertainAction": "فتح قائمة القسائم",
 
   // --- Issued codes (shown once) ----------------------------------------------
@@ -149,7 +157,7 @@ export const vouchers = {
   // --- Form validation -----------------------------------------------------------
   "vouchers.form.countInvalid": "أدخل عددًا صحيحًا من 1 إلى {max}.",
   "vouchers.form.amountRequired": "أدخل قيمة القسيمة.",
-  "vouchers.form.amountInvalid": "أدخل قيمة أكبر من صفر.",
+  "vouchers.form.amountInvalid": "أدخل رقمًا أكبر من صفر.",
   "vouchers.form.amountPrecision": "القيمة تقبل {digits} منازل عشرية على الأكثر.",
   "vouchers.form.expiryInvalid": "أدخل تاريخًا ووقتًا صحيحين.",
   "vouchers.form.expiryPast": "اختر تاريخ انتهاء في المستقبل.",

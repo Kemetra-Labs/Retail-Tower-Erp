@@ -288,13 +288,76 @@ describe("issue: codes shown once", () => {
   ])("%s is uncertain: no second issue is offered, the list is", async (_label, arrange) => {
     arrange();
     renderPage();
-    const drawer = await openIssueAndFill();
-    submit(drawer);
-    expect(await within(drawer).findByText(/The issue result is not confirmed/)).toBeDefined();
+    submit(await openIssueAndFill());
+    expect(await screen.findByText(/The issue result is not confirmed/)).toBeDefined();
+    const drawer = screen.getByRole("dialog", { name: "Issue vouchers" });
     expect(within(drawer).queryByRole("button", { name: "Issue the vouchers" })).toBeNull();
     expect(consoleIssueVouchers).toHaveBeenCalledTimes(1);
     fireEvent.click(within(drawer).getByRole("button", { name: "Open the voucher list" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+});
+
+describe("issue: scope and loss guards", () => {
+  beforeEach(() => {
+    for (const fn of [consoleListVouchers, consoleIssueVouchers]) fn.mockReset();
+    consoleListVouchers.mockResolvedValue({ status: 200, data: { items: [], next_cursor: null } });
+  });
+
+  test("a store-specific membership starts on selected stores; all stores is off", async () => {
+    activeContext.mockReturnValue({
+      context: {
+        ...asRole("tenant_admin").context,
+        memberships: [
+          { tenant_id: "t1", store_access_kind: "specific", accessible_store_ids: ["s1"] },
+        ],
+      },
+    });
+    renderPage();
+    const drawer = await openIssueAndFill();
+    const all = within(drawer).getByRole("radio", { name: /All stores/ }) as HTMLInputElement;
+    const subset = within(drawer).getByRole("radio", {
+      name: "Selected stores only",
+    }) as HTMLInputElement;
+    expect(all.disabled).toBe(true);
+    expect(subset.checked).toBe(true);
+    submit(drawer);
+    expect(await within(drawer).findByText("Choose at least one store.")).toBeDefined();
+    expect(consoleIssueVouchers).not.toHaveBeenCalled();
+    fireEvent.click(within(drawer).getByRole("checkbox", { name: "Maadi" }));
+    consoleIssueVouchers.mockResolvedValue(issued());
+    submit(drawer);
+    await screen.findByRole("dialog", { name: "Issued voucher codes" });
+    expect(consoleIssueVouchers.mock.calls[0][0]).toMatchObject({
+      applies_to_all_stores: false,
+      eligible_store_ids: ["s1"],
+    });
+  });
+
+  test("an uncertain issue names the lost attempt so its vouchers can be found", async () => {
+    activeContext.mockReturnValue(asRole("owner"));
+    consoleIssueVouchers.mockResolvedValue({ status: 502 });
+    renderPage();
+    submit(await openIssueAndFill("75"));
+    expect(
+      await screen.findByText(/The unconfirmed attempt: 1 voucher of 75.00 EGP, at /),
+    ).toBeDefined();
+  });
+
+  test("leaving the page while the codes are on screen asks first", async () => {
+    activeContext.mockReturnValue(asRole("owner"));
+    consoleIssueVouchers.mockResolvedValue(issued());
+    renderPage();
+    submit(await openIssueAndFill());
+    const codes = await screen.findByRole("dialog", { name: "Issued voucher codes" });
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    fireEvent.click(within(codes).getByRole("button", { name: "I saved the codes, close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const after = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false);
   });
 });
 
