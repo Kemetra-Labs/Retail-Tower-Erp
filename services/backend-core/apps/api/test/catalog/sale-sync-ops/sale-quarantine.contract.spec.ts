@@ -11,7 +11,7 @@
  *
  * Structural / load-only, plus AJV fixtures. No app boot and no HTTP. What
  * this pins:
- *   1. The four new operations at their paths, each contract-only with a note
+ *   1. The five new operations at their paths, each contract-only with a note
  *      and an audit action; no operationId collision.
  *   2. The upload: device bearer only, with the rotation headers; tenant,
  *      store and device never in the body; natural idempotency (no
@@ -25,7 +25,7 @@
  *      projection.
  *   5. The NEEDS_REPAIR operations keep no contract-only marker and
  *      `NeedsRepairItem` keeps its exact field set.
- *   6. The open owner questions are written in both files.
+ *   6. The delegated decisions (2026-11-11) are written in both files, with no open question left.
  */
 import "reflect-metadata";
 
@@ -47,11 +47,13 @@ const UPLOAD: ApiPath = "/api/pos/v1/quarantined-sales";
 const LIST: ApiPath = "/api/v1/catalog/sale-sync-ops/quarantined-sales";
 const ONE: ApiPath = "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}";
 const REPAIR: ApiPath = "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/repair";
+const WRITE_OFF: ApiPath = "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/write-off";
 
 const CONSOLE_OPS: ReadonlyArray<readonly [string, ApiPath, "get" | "post", string]> = [
   ["consoleListQuarantinedSales", LIST, "get", "sale_sync_ops.quarantine.listed"],
   ["consoleGetQuarantinedSale", ONE, "get", "sale_sync_ops.quarantine.read"],
   ["consoleRepairQuarantinedSale", REPAIR, "post", "sale_sync_ops.quarantine.repair.requested"],
+  ["consoleWriteOffQuarantinedSale", WRITE_OFF, "post", "sale_sync_ops.quarantine.written_off"],
 ];
 
 const REF = "0a000000-0000-7000-8000-000000001312";
@@ -117,6 +119,8 @@ const item = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   lastRepair: null,
   uploadConflictCount: 0,
   saleRef: null,
+  summary: { occurredAt: AT, posTotal: "125.50", currencyCode: "EGP", lineCount: 3 },
+  writeOff: null,
   ...over,
 });
 
@@ -276,8 +280,8 @@ describe("sale quarantine — the Console operations", () => {
   });
 
   it("answer a quarantine-specific non-disclosing 404 on the item routes", () => {
-    for (const path of [ONE, REPAIR]) {
-      const o = op(ops, path, path === REPAIR ? "post" : "get");
+    for (const path of [ONE, REPAIR, WRITE_OFF]) {
+      const o = op(ops, path, path === ONE ? "get" : "post");
       expect(o.responses?.["404"]).toEqual({ $ref: "#/components/responses/QuarantineNotFound" });
     }
     expect(ops.components?.responses?.["QuarantineNotFound"]?.description).toEqual(
@@ -300,17 +304,63 @@ describe("sale quarantine — the Console operations", () => {
     expect(repair.description).toEqual(expect.stringContaining("NOT the sale's capture key"));
   });
 
-  it("states the one-sale-per-provenance guarantee and that the till key is not an interceptor entry", () => {
+  it("states the one-sale-per-provenance guarantee and that the till key is not replayed (D1 wording)", () => {
     const text = String(ops.info?.description);
-    expect(text).toEqual(expect.stringContaining("At most one sale ever exists for a"));
-    expect(text).toEqual(expect.stringContaining("NOT written into any interceptor partition"));
+    expect(text).toEqual(expect.stringContaining("One sale per provenance"));
+    expect(text).toEqual(expect.stringContaining("NOT replayed or written into any interceptor partition"));
   });
 
-  it("projects an item with no money and no stored body", () => {
+  it("states the C2 repair rules: membership at occurredAt, no admission check, attribution", () => {
+    const text = String(ops.info?.description);
+    expect(text).toEqual(expect.stringContaining("member of the tenant at the sale's `occurredAt`"));
+    expect(text).toEqual(expect.stringContaining("`repair_operator_unproven`"));
+    expect(text).toEqual(expect.stringContaining("admission window is NOT"));
+    expect(text).toEqual(expect.stringContaining("`sales.device_id` is the item's `previousTerminalId`"));
+    expect(text).toEqual(expect.stringContaining("resolved, not an error"));
+  });
+
+  it("write-off: owner/tenant_admin, Idempotency-Key, a required closed note, 409 when not open", () => {
+    const w = op(ops, WRITE_OFF, "post");
+    expect(w["x-idempotency" as keyof OperationObject]).toBe("required");
+    expect(w.parameters).toEqual([
+      { $ref: "#/components/parameters/QuarantineRef" },
+      { $ref: "#/components/parameters/IdempotencyKey" },
+    ]);
+    expect(w.responses?.["409"]).toEqual({ $ref: "#/components/responses/QuarantineRepairConflict" });
+    expect(w.description).toEqual(expect.stringContaining("`owner` and `tenant_admin`"));
+    const req = validator(OPS_ID, "QuarantineWriteOffRequest");
+    expect(req({ note: "refunded in cash outside Retail Tower" })).toBe(true);
+    expect(req({})).toBe(false);
+    expect(req({ note: "" })).toBe(false);
+    expect(req({ note: "x".repeat(501) })).toBe(false);
+    expect(req({ note: "ok", storeId: STORE })).toBe(false);
+  });
+
+  it("projects no stored body; the only money is the summary's POS total (C5)", () => {
     const props = Object.keys(schema(ops, "QuarantinedSale")["properties"] as object);
     expect(props.join(",")).not.toMatch(/total|amount|saleBody|tenant/i);
+    expect(Object.keys(schema(ops, "QuarantineSaleSummary")["properties"] as object).sort()).toEqual(
+      ["currencyCode", "lineCount", "occurredAt", "posTotal"],
+    );
     const v = validator(OPS_ID, "QuarantinedSale");
     expect(v(item())).toBe(true);
+    expect(
+      v(item({ summary: { occurredAt: null, posTotal: null, currencyCode: null, lineCount: null } })),
+    ).toBe(true);
+    expect(v(item({ summary: { occurredAt: AT, posTotal: 125.5, currencyCode: "EGP", lineCount: 3 } }))).toBe(
+      false,
+    );
+    expect(
+      v(item({ summary: { occurredAt: AT, posTotal: "1", currencyCode: "EGP", lineCount: 1, lines: [] } })),
+    ).toBe(false);
+    expect(
+      v(
+        item({
+          state: "written-off",
+          writeOff: { at: AT, note: "refunded in cash outside Retail Tower" },
+        }),
+      ),
+    ).toBe(true);
     expect(
       v(
         item({
@@ -372,13 +422,26 @@ describe("sale quarantine — the NEEDS_REPAIR surface keeps its shape", () => {
   });
 });
 
-describe("sale quarantine — open owner questions are written down", () => {
+describe("sale quarantine — the delegated decisions are written down", () => {
   it.each([
-    [POS_ID, ["Retention", "another store", "never sent", "reaches the till", "body limit", "write budget"]],
-    [OPS_ID, ["Who may repair", "created_by", "sales.device_id", "payload_divergence", "Retention", "stored body"]],
-  ] as const)("%s lists its open owner questions", (id, phrases) => {
-    const text = String((id === POS_ID ? pos : ops).info?.description);
-    expect(text).toEqual(expect.stringContaining("Open owner questions"));
-    for (const phrase of phrases) expect(text).toEqual(expect.stringContaining(phrase));
+    [
+      POS_ID,
+      [
+        "decision P1",
+        "decision P2",
+        "Retention (decision P3)",
+        "decision P4",
+        "Size (decision P5)",
+        "P6 the upload has its own per-device write budget",
+        "never the 30 days",
+        "256 kB",
+      ],
+    ],
+    [OPS_ID, ["decision\n    C1", "decision C2", "decision C3", "decisions P3, C4", "decision\n    C5", "decisions P4, C6"]],
+  ] as const)("%s records its decisions and has no open question left", (id, phrases) => {
+    const text = String((id === POS_ID ? pos : ops).info?.description).replace(/\s+/g, " ");
+    expect(text).toEqual(expect.stringContaining("Claude under owner delegation, 2026-11-11"));
+    expect(text).not.toMatch(/open owner question|owner question \d/i);
+    for (const phrase of phrases) expect(text).toEqual(expect.stringContaining(phrase.replace(/\s+/g, " ")));
   });
 });

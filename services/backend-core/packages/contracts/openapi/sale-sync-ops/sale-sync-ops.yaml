@@ -67,13 +67,14 @@ info:
 
 
     **1.3.0-draft (RT-1312 Phase 3(a), additive, contract-first;
-    owner decision D1, RT-1312 comment 16359).** Three new operations, each
+    owner decision D1, RT-1312 comment 16359).** Four new operations, each
     `x-runtime-status: contract-only` until RT-1312 Phase 3(b):
 
-      5. `consoleListQuarantinedSales`  — the quarantine half of the
+      5. `consoleListQuarantinedSales`    — the quarantine half of the
          NEEDS_REPAIR queue.
-      6. `consoleGetQuarantinedSale`    — one quarantine item.
-      7. `consoleRepairQuarantinedSale` — re-ingest its stored body.
+      6. `consoleGetQuarantinedSale`      — one quarantine item.
+      7. `consoleRepairQuarantinedSale`   — re-ingest its stored body.
+      8. `consoleWriteOffQuarantinedSale` — close it without a sale.
 
     A quarantined sale is one the till could not get captured: Backend-Core
     refused its `captureSale` for good, or the till held it after a re-pair.
@@ -82,63 +83,91 @@ info:
     has no POS route). Unlike items 1 to 4, which act on a CAPTURED sale
     (`saleRef` = `sales.id`) whose processing dead-lettered, a quarantined
     sale has no `sales` row, so it has its own reference (`quarantineRef`,
-    UUIDv7), its own list and its own repair. `NeedsRepairItem` and
+    UUIDv7), its own list, repair and write-off. `NeedsRepairItem` and
     `consoleListNeedsRepair` are unchanged: widening them would break the
     closed schema the Admin Console pins. The Console shows both lists as the
     one NEEDS_REPAIR queue. Shared with items 1 to 4: the `cookieAuth`
     session, the store-scope rule (RT-193), the error envelope, the
-    `Idempotency-Key` rule and the `repair_conflict` code. The roles are
-    `owner` and `tenant_admin`, as today, until owner question 1 is
-    answered. The projections carry no money, no line amounts and not the
-    stored body, like the existing queue.
+    `Idempotency-Key` rule and the `repair_conflict` code. Roles (decision
+    C1): `owner` and `tenant_admin` only, for every quarantine operation, in
+    the pilot. The projections carry no line amounts and never the stored
+    body; an item carries a minimal `summary` (occurred time, POS total,
+    currency, line count) so an operator can identify the sale (decision
+    C5).
 
     **The repair (item 7).** It re-ingests the stored `saleBody` through the
     `captureSale` rules (`pos-sales/sales.yaml`) for the item's tenant and
     store, under the sale's original provenance `(sourceSystem, externalId)`.
-    At most one sale ever exists for a provenance: that guarantee is the
-    capture provenance dedup (FR-050, the unique `(tenant, source_system,
-    external_id)` on `sales`) and the RT-1206 same-facts rule, not an
-    interceptor replay. The capture IdempotencyInterceptor is partitioned by
-    the authenticated principal and stores only successful answers, so the
-    till's recorded `idempotencyKey` is kept with the item for audit and is
-    NOT written into any interceptor partition by the repair. So a repair
-    racing a late till retry, a second repair or a repair of a sale
-    captured meanwhile can never create a second sale. Repairs of one item
-    run one at a time: a repair that finds the item no longer `open` is 409
-    `repair_conflict`. The repair's outcome is one of three, always
-    returned as 200 with the updated item: `captured` (a new sale; the item
-    leaves the queue), `already-captured` (a sale with this provenance and
-    the same facts exists; the item leaves the queue) or `refused` (the
-    capture rules refused it again; the item stays `open` with the new
-    status and code). Repair never edits the stored body: a body that can
-    never be captured as sent (for example a `payload_divergence`) needs an
-    owner decision (question 3). Each repair writes one audit row naming the
-    repairer.
 
-    **Evolution.** `QuarantineState` and `QuarantineRepair.outcome` may gain
-    a value (owner question 3). Adding a value to a response enum is a
-    breaking change under bc/oasdiff and needs its own `[GATED: contract]`
-    change with an acknowledgement; a client treats a value it does not
-    know as unknown, never as `open`.
+      - **One sale per provenance.** The guarantee is the capture provenance
+        dedup (FR-050, the unique `(tenant, source_system, external_id)` on
+        `sales`) and the RT-1206 same-facts rule, not an interceptor replay.
+        The capture IdempotencyInterceptor is partitioned by the
+        authenticated principal and stores only successful answers, so the
+        till's recorded `idempotencyKey` is kept with the item for audit
+        only and is NOT replayed or written into any interceptor partition
+        (D1 wording narrowed under owner delegation, 2026-11-11; the intent,
+        no duplicate sale, is unchanged). So a repair racing a late till
+        retry, a second repair or a repair of a sale captured meanwhile can
+        never create a second sale.
+      - **Checks (decision C2).** Every sale-fact check of `captureSale`
+        re-runs: the body shape (400), the RT-1206 same-facts rule (409) and
+        every 422, payer and role check. The cashier admission window is NOT
+        re-checked: the repairer's audited session stands in for it. Instead,
+        when the body names an `operatorUserId`, that user must have been a
+        member of the tenant at the sale's `occurredAt`, including a member
+        deactivated or removed since (a later removal never blocks
+        repairing a historical sale). When that membership cannot be proven,
+        the repair is refused with `errorCode`
+        `repair_operator_unproven` (no `httpStatus`, it is not a capture
+        answer) and the item can only be written off.
+      - **Attribution (decision C2).** `created_by` is the body's
+        `operatorUserId`; when the body names none, the repairer.
+        `sales.device_id` is the item's `previousTerminalId`, else the
+        uploading device, even if that device is revoked since (a historical
+        fact).
+      - **Outcomes.** Always 200 with the updated item: `captured` (a new
+        sale; the item leaves the queue), `already-captured` (a sale with
+        this provenance and the same facts already exists; the item is
+        resolved, not an error) or `refused` (the item stays `open` with the
+        new status and code). A body whose facts differ from the sale
+        already captured for its provenance (the RT-1206 409) can never be
+        captured: the item stays `open` and can only be written off.
+      - Repairs and write-offs of one item run one at a time: one that finds
+        the item no longer `open` is 409 `repair_conflict`. Repair never
+        edits the stored body. Each repair writes one audit row naming the
+        repairer.
 
-    **Open owner questions (not decided by this draft; the runtime waits
-    for them).** (1) Who may repair: `owner` and `tenant_admin`, as the
-    existing repair, or also `store_manager` for its stores? (2) Which
-    capture checks the repair re-runs, and who the sale's operator
-    (`created_by`) and device (`sales.device_id`) are. The stored body may
-    carry the cashier's `operatorUserId` (RT-224 device path), whose
-    cashier admission window has usually closed by repair time (the RT-1125
-    R-02 case of an outage over 12 h): does the repair re-check the
-    admission and refuse, or does the repairer's session stand in for it,
-    with the cashier still recorded as the seller? Is the device the
-    uploader, the earlier pairing's device (`previousTerminalId`, possibly
-    revoked) or none? (3) A terminal close without re-ingest (for example
-    "written off, handled outside Retail Tower") for a body that can never
-    be captured, such as a `payload_divergence`: wanted, and by whom?
-    (4) Retention of quarantined bodies and items. (5) Whether the Console
-    may see the stored body or a money summary (the existing queue shows
-    neither). (6) How the repair result reaches the till, if at all. The
-    POS-side questions are in `pos-sales/sale-quarantine.yaml`.
+    **The write-off (item 8, decision C3).** Closes an `open` item without a
+    sale, for a body that can never be captured (for example a
+    `payload_divergence`, or an operator whose membership cannot be proven)
+    and is handled outside Retail Tower. `owner` and `tenant_admin` only,
+    with a required reason note, audited, `Idempotency-Key` required. The
+    item becomes `written-off` for good; no sale, posting or stock effect is
+    created.
+
+    **Retention (decisions P3, C4).** An `open` item keeps its stored body
+    indefinitely. A `captured` or `already-captured` item has its body
+    purged 30 days after resolution (the sale fact is then the record). A
+    `written-off` item keeps its body under the normal audit retention,
+    never the 30 days: for a paid sale that was never recorded, it is the
+    only evidence. Item metadata (no body) follows the audit retention.
+
+    **The till (decisions P4, C6).** No repair or write-off result goes back
+    to the till in v1. After its upload is accepted, the till keeps its row
+    marked quarantined and stops counting it in the heartbeat; this queue
+    is the source of truth.
+
+    **Evolution.** Adding a value to a response enum (`QuarantineState`,
+    `QuarantineRepair.outcome`) is a breaking change under bc/oasdiff and
+    needs its own `[GATED: contract]` change with an acknowledgement; a
+    client treats a value it does not know as unknown, never as `open`.
+
+    **Decisions.** Every shape question of the first draft is decided
+    (Claude under owner delegation, 2026-11-11, recorded on RT-1312): C1
+    roles, C2 checks and attribution, C3 write-off, C4 retention, C5
+    summary, C6 no till result, as above. The POS-side decisions are in
+    `pos-sales/sale-quarantine.yaml`.
 
 servers:
   - url: https://api.example.com
@@ -398,14 +427,18 @@ paths:
 
         200 with the updated item for every capture outcome: `captured` and
         `already-captured` resolve the item (`saleRef` set); `refused` keeps
-        it `open` and records the capture's status and code in `lastRepair`.
-        An item that is not `open` is 409 `repair_conflict`, deterministic,
-        no side effect; repairs of one item run one at a time.
+        it `open` and records the capture's status and code in `lastRepair`
+        (or `repair_operator_unproven` when the body's operator was not a
+        tenant member at `occurredAt`, decision C2). A body whose facts
+        differ from the captured sale stays `open` and can only be written
+        off. An item that is not `open` is 409 `repair_conflict`,
+        deterministic, no side effect; repairs and write-offs of one item run
+        one at a time.
         `Idempotency-Key` is REQUIRED and is the Console request's own key
         (the existing IdempotencyInterceptor): an identical retry replays the
-        stored answer; it is NOT the sale's capture key. Which capture checks
-        re-run, and the sale's operator and device, are open owner questions
-        (info description, 1.3.0-draft).
+        stored answer; it is NOT the sale's capture key. The checks that
+        re-run and the sale's operator and device are decision C2 (info
+        description, 1.3.0-draft).
       parameters:
         - $ref: "#/components/parameters/QuarantineRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -414,6 +447,62 @@ paths:
           description: >
             The repair ran. Returns the item with its new `state` and
             `lastRepair`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuarantinedSale"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenOrOriginRejected"
+        "404":
+          $ref: "#/components/responses/QuarantineNotFound"
+        "409":
+          $ref: "#/components/responses/QuarantineRepairConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/write-off:
+    post:
+      summary: Close a quarantined sale without a sale (written off, handled outside Retail Tower).
+      operationId: consoleWriteOffQuarantinedSale
+      x-idempotency: required
+      tags: [sale-sync-ops]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1312 Phase 3(a) publishes the contract only. There is no
+        controller, service, table or migration for this route until RT-1312
+        Phase 3(b).
+      x-audit-action: sale_sync_ops.quarantine.written_off
+      description: >
+        Decision C3. Closes an `open` quarantine item for good, without a
+        sale: no `sales` row, posting intent or stock effect is created. For
+        a body that can never be captured (a `payload_divergence`, an
+        operator whose tenant membership at `occurredAt` cannot be proven)
+        and that is handled outside Retail Tower. `owner` and `tenant_admin`
+        only (C1); the reason note is required and audited with the writer.
+        The stored body is then kept under the normal audit retention (P3).
+        An item that is not `open` is 409 `repair_conflict`, deterministic,
+        no side effect. `Idempotency-Key` is REQUIRED (the existing
+        IdempotencyInterceptor): an identical retry replays the stored
+        answer; the same key with a different note is 409
+        `idempotency_key_conflict`.
+      parameters:
+        - $ref: "#/components/parameters/QuarantineRef"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuarantineWriteOffRequest"
+      responses:
+        "200":
+          description: The item, now `written-off`.
           content:
             application/json:
               schema:
@@ -519,7 +608,7 @@ components:
       required: false
       schema:
         type: string
-        enum: [open, captured, already-captured]
+        enum: [open, captured, already-captured, written-off]
         default: open
       description: >
         1.3.0-draft. Which items to list; `open` (the queue) when omitted.
@@ -708,11 +797,13 @@ components:
     # -----------------------------------------------------------------------
     QuarantineState:
       type: string
-      enum: [open, captured, already-captured]
+      enum: [open, captured, already-captured, written-off]
       description: >
-        Set by Backend-Core only. `open`: waiting for a repair. `captured`: a
-        repair captured the stored body as a new sale. `already-captured`: a
-        repair found the sale already captured with the same facts. The same
+        Set by Backend-Core only. `open`: waiting for a repair or a
+        write-off. `captured`: a repair captured the stored body as a new
+        sale. `already-captured`: a repair found the sale already captured
+        with the same facts (resolved, not an error). `written-off`: closed
+        by `consoleWriteOffQuarantinedSale`, without a sale. The same
         values as `QuarantineState` in `pos-sales/sale-quarantine.yaml`. May
         gain a value (see "Evolution"); treat an unknown value as unknown.
     QuarantineErrorCode:
@@ -751,7 +842,10 @@ components:
           type: [integer, "null"]
           minimum: 400
           maximum: 499
-          description: The capture status of a `refused` outcome; null otherwise.
+          description: >
+            The capture status of a `refused` outcome; null otherwise, and
+            null for `repair_operator_unproven` (the repair's own check, not
+            a capture answer).
         errorCode:
           $ref: "#/components/schemas/QuarantineErrorCode"
     QuarantinedSale:
@@ -774,10 +868,13 @@ components:
         - lastRepair
         - uploadConflictCount
         - saleRef
+        - summary
+        - writeOff
       description: >
         Wire projection of one quarantine item. Carries no `tenant_id`
-        (implicit in the session scope), no money, no line amounts and not
-        the stored body.
+        (implicit in the session scope), no line amounts and never the
+        stored body; the only money is the POS total in `summary`
+        (decision C5).
       properties:
         quarantineRef:
           type: string
@@ -839,8 +936,75 @@ components:
           format: uuid
           description: >
             The captured sale (`sales.id`) once the item is `captured` or
-            `already-captured`; null while `open`. Readable with
-            `consoleGetSaleSyncStatus`.
+            `already-captured`; null while `open` and when `written-off`.
+            Readable with `consoleGetSaleSyncStatus`.
+        summary:
+          $ref: "#/components/schemas/QuarantineSaleSummary"
+        writeOff:
+          description: The write-off; null unless the item is `written-off`.
+          anyOf:
+            - $ref: "#/components/schemas/QuarantineWriteOff"
+            - type: "null"
+    QuarantineSaleSummary:
+      type: object
+      additionalProperties: false
+      required: [occurredAt, posTotal, currencyCode, lineCount]
+      description: >
+        Decision C5. A minimal summary read from the stored body so an
+        operator can identify the sale; never the raw body. Each field is
+        null when the stored body does not carry it in a valid form (the
+        body is not validated on upload). The summary of a `captured` or
+        `already-captured` item stays after its body is purged.
+      properties:
+        occurredAt:
+          type: [string, "null"]
+          format: date-time
+          description: The body's `occurredAt` (the sale time the till recorded).
+        posTotal:
+          type: [string, "null"]
+          pattern: "^-?[0-9]{1,15}(\\.[0-9]{1,4})?$"
+          description: >
+            The body's `posTotal`, an exact decimal string as on the capture
+            wire, never a float.
+        currencyCode:
+          type: [string, "null"]
+          pattern: "^[A-Z]{3}$"
+          description: The body's ISO-4217 `currencyCode`.
+        lineCount:
+          type: [integer, "null"]
+          minimum: 0
+          description: The number of entries in the body's `lines`.
+    QuarantineWriteOff:
+      type: object
+      additionalProperties: false
+      required: [at, note]
+      description: Decision C3. The write-off of an item.
+      properties:
+        at:
+          type: string
+          format: date-time
+          description: Backend-Core server clock when the item was written off.
+        note:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            The writer's reason note, as entered. The writer is in the audit
+            row, not here.
+    QuarantineWriteOffRequest:
+      type: object
+      additionalProperties: false
+      required: [note]
+      description: Decision C3. The write-off request. Closed.
+      properties:
+        note:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            Required reason the sale is closed without capture (for example
+            "refunded in cash outside Retail Tower"). Free text from a
+            signed-in operator; no card data.
     QuarantinedSalePage:
       type: object
       additionalProperties: false
@@ -949,7 +1113,8 @@ components:
     QuarantineRepairConflict:
       description: >
         repair_conflict (409, 1.3.0-draft) — the quarantine item is not
-        `open` (already resolved, possibly by a concurrent repair).
+        `open` (already resolved or written off, possibly by a concurrent
+        repair or write-off).
         Deterministic, no side effect. Same `error.code` as `RepairConflict`.
       content:
         application/json:

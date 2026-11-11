@@ -10,8 +10,8 @@ info:
     till uploads the sale's capture body and the reason to Backend-Core.
     Backend-Core keeps it in a quarantine list that the Console shows next to
     the NEEDS_REPAIR queue, and a Console repair re-ingests the stored body
-    under the sale's original provenance (`sale-sync-ops/sale-sync-ops.yaml`
-    1.3.0-draft). There is no POS-local override (DP3): the till only
+    under the sale's original provenance, or a Console write-off closes it
+    without a sale (`sale-sync-ops/sale-sync-ops.yaml` 1.3.0-draft). There is no POS-local override (DP3): the till only
     reports; it never repairs, re-keys or re-sends the sale itself.
 
 
@@ -59,7 +59,8 @@ info:
     A `permanent` row the till never sent, because it could not build a
     sendable body (an unrepresentable tender, a corrupt frozen discount, a
     failed wire transform), has no capture body and is NOT covered by this
-    version (owner question 1).
+    version (decision P1): it stays visible in the heartbeat `dead_letter`
+    count.
 
 
     **The stored body.** `saleBody` is the capture request body as the till
@@ -75,13 +76,13 @@ info:
     strings, equal the upload's (else 400). The capture rules apply only
     when the Console repairs the item.
 
-    **Size.** Every route keeps the API's default JSON body limit (100 kB,
-    `json-body-limits.ts`, RT-1284) unless a route is given its own. Over it
-    the answer is 413 `payload_too_large` before validation. The upload
-    wraps a capture body, so a capture body close to 100 kB cannot be
-    uploaded under the default, and neither can a sale whose capture was
-    itself refused with 413. Whether this route gets a larger route-scoped
-    limit is owner question 5; this draft declares the 413.
+    **Size (decision P5).** This route has its own route-scoped JSON body
+    limit of 256 kB (the RT-1284 pattern in `json-body-limits.ts`; every
+    other route keeps the 100 kB default). The upload wraps a capture body,
+    so every capture body up to about 250 kB can be quarantined, including
+    one whose capture was refused with 413. A larger upload is 413
+    `payload_too_large` before validation: terminal for the till, still
+    visible in the heartbeat count, handled by support.
 
 
     **The reason is the till's claim.** `reason` records what the till saw.
@@ -98,10 +99,12 @@ info:
     item's store is the uploading device's store. `previousTerminalId` names
     the earlier pairing's device (`devices.id`, the pairing `terminal_id`);
     Backend-Core records it and checks that it is a device of the same
-    tenant (else 400, non-disclosing). Whether a sale from an earlier
-    pairing in ANOTHER store may be uploaded at all is owner question 2;
-    until it is decided, the till uploads only rows of its current tenant
-    and branch, which is the only set it counts today.
+    tenant (else 400, non-disclosing). Scope (decision P2): v1 covers the
+    till's current tenant and branch only. Held rows from an earlier
+    pairing in ANOTHER store are never uploaded: they stay held on the till
+    and keep counting in the heartbeat `held_previous_pairing` figure until
+    a support flow exists. (Pilot runbook: re-pairing a till to another
+    branch strands its held rows.)
 
 
     **Idempotency.** Natural, on the sale's provenance `(tenant,
@@ -131,17 +134,21 @@ info:
     already captured (or refused, if the facts differ).
 
 
-    **What the till does with the answer.** 200 or 201: the sale is
-    quarantined; the till records that locally (Phase 3(c)), never re-sends
-    it to `captureSale` (a support reset of the row, such as RT-225's, skips
-    a quarantined row) and never uploads it again. 400, 409 or 413: terminal
+    **What the till does with the answer.** 200 or 201 (decision P4): the
+    sale is quarantined. The till keeps its local row and marks it
+    quarantined (Phase 3(c)); it never deletes it, never re-sends it to
+    `captureSale` (a support reset of the row, such as RT-225's, skips a
+    quarantined row) and never uploads it again. From then on the till no
+    longer counts the row in the heartbeat `sale_queue.dead_letter` (or
+    `held_previous_pairing`) figure: the Console quarantine queue is the
+    source of truth. 400, 409 or 413: terminal
     for this upload; the till keeps the row dead-lettered or held, logs the
     code, and does not retry automatically (the heartbeat `sale_queue` counts
     still show it). 401, 404 (an older Backend-Core without the route), 429,
     5xx or no answer: transient; the till retries later with backoff
     (honouring `Retry-After` on a 429). The upload never changes the till's
-    sale, outbox or receipt. Whether a quarantined row still counts in the
-    heartbeat `sale_queue.dead_letter` is owner question 4.
+    sale, outbox or receipt. Backend-Core sends no repair result back to
+    the till in v1 (decision P4).
 
 
     **Rollout order.** Backend-Core ships the runtime first. A POS sends this
@@ -158,26 +165,32 @@ info:
     per-device rate limit, 500.
 
 
-    **Evolution.** `QuarantineState` may gain a value if owner question 3 of
-    `sale-sync-ops.yaml` 1.3.0-draft adds a terminal close. Adding a value
-    to a response enum is a breaking change under bc/oasdiff and needs its
+    **Retention (decision P3).** The stored body holds money and possibly
+    personal data (the receipt operator name, payer refs). An `open` item
+    keeps it indefinitely. A `captured` or `already-captured` item has its
+    body purged 30 days after resolution (the sale fact is then the
+    record). A `written-off` item keeps its body under the normal audit
+    retention, never the 30 days: for a paid sale that was never recorded,
+    it is the only evidence. Item metadata (no body) follows the audit
+    retention.
+
+
+    **Evolution.** Adding a value to a response enum such as
+    `QuarantineState` is a breaking change under bc/oasdiff and needs its
     own `[GATED: contract]` change with an acknowledgement; a client treats
     a value it does not know as unknown, never as `open`.
 
 
-    **Open owner questions (not decided by this draft).** (1) Sales the till
-    never sent (no capture body): in or out? (2) Sales from an earlier
-    pairing in another store or tenant, and whether RT-138 L6 allows a
-    Console repair to capture a sale from an earlier pairing at all.
-    (3) Retention of quarantined bodies, which hold money and possibly
-    personal data (the receipt operator name, payer refs). (4) How the
-    repair result reaches the till, if at all, and whether a quarantined row
-    still counts as a dead-letter in the heartbeat. (5) A larger
-    route-scoped body limit for this upload (the RT-1284 precedent), or
-    accept that bodies near 100 kB cannot be quarantined. (6) Whether the
-    upload has its own per-device write budget or shares `captureSale`'s,
-    where a backlog after a re-pair could slow live capture. The
-    Console-side questions are in `sale-sync-ops/sale-sync-ops.yaml`
+    **Decisions (Claude under owner delegation, 2026-11-11, RT-1312).** The
+    shape questions of the first draft are decided: P1 never-sent sales are
+    out of v1; P2 same tenant and branch only, other-store held rows stay
+    held; P3 retention as above; P4 no result channel, the till keeps the
+    row marked quarantined and stops counting it; P5 a 256 kB route limit;
+    P6 the upload has its own per-device write budget. RT-138 L6 does not
+    forbid a Console repair of an earlier pairing's sale in the same store:
+    the server-mediated, audited repair is the sanctioned path, and L6
+    forbids only the till replaying it under the new identity. The
+    Console-side decisions are in `sale-sync-ops/sale-sync-ops.yaml`
     1.3.0-draft.
 
 servers:
@@ -437,12 +450,13 @@ components:
         or not sent. A machine label only, never the message.
     QuarantineState:
       type: string
-      enum: [open, captured, already-captured]
+      enum: [open, captured, already-captured, written-off]
       description: >
         The quarantine item's state, set by Backend-Core only. `open`: waiting
         for a Console repair. `captured`: a Console repair captured the stored
         body as a new sale. `already-captured`: a Console repair found the
-        sale already captured with the same facts. The full Console
+        sale already captured with the same facts (resolved, not an error).
+        `written-off`: closed by a Console write-off, without a sale. The full Console
         projection is `QuarantinedSale` in `sale-sync-ops/sale-sync-ops.yaml`.
         May gain a value (see "Evolution"); treat an unknown value as unknown.
     QuarantineReceipt:
@@ -526,16 +540,19 @@ components:
             $ref: "#/components/schemas/Error"
     PayloadTooLarge:
       description: >
-        413 `payload_too_large`: the request body is over the JSON body limit
-        (100 kB by default, RT-1284), refused before validation. Nothing is
-        stored. Terminal for the till (owner question 5).
+        413 `payload_too_large`: the request body is over this route's JSON
+        body limit (256 kB, decision P5, RT-1284 pattern), refused before
+        validation. Nothing is stored. Terminal for the till; the row stays
+        visible in the heartbeat count and goes to support.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
     TooManyRequests:
       description: >
-        429: the device's write budget is spent (ADR 0009, keyed per device).
+        429: the device's write budget for this upload is spent (ADR 0009,
+        keyed per device). Its own bucket, separate from `captureSale`'s
+        (decision P6), so an upload backlog never slows live capture.
         Transient: the till retries after `Retry-After`, never treats it as a
         refusal.
       headers:
