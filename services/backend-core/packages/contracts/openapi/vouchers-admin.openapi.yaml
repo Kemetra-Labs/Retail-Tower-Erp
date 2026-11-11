@@ -108,7 +108,9 @@ paths:
         body. A request still in progress under the key is 425. A caller that
         lost the response lists the newest vouchers with `consoleListVouchers`,
         cancels the ones it cannot recover, and issues again with a new key.
-        Never retry with the same key.
+        Never retry with the same key. The key is held for the platform's
+        idempotency replay window, 72 hours after the first request; a key
+        reused after that window is treated as new and issues a new batch.
 
 
         **Eligibility.** `applies_to_all_stores: true` requires
@@ -173,8 +175,8 @@ paths:
         "409":
           description: >
             `store_inactive` (an eligible store exists but is inactive), or
-            `idempotency_key_conflict` (the same key was used before; terminal,
-            generate a new key).
+            `idempotency_key_conflict` (the same key was used before within the
+            72-hour replay window; terminal, generate a new key).
           content:
             application/json:
               schema:
