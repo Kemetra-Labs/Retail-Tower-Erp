@@ -10,6 +10,8 @@
  *   POST  /api/v1/catalog/products/{productId}/identifiers/retire               consoleRetireProductIdentifier
  *   PUT   /api/v1/catalog/products/{productId}/store-overrides/{storeId}        consoleUpsertStoreOverride
  *   POST  /api/v1/catalog/products/{productId}/store-overrides/{storeId}/retire consoleRetireStoreOverride
+ *   POST  /api/v1/catalog/brands                                                consoleCreateCatalogBrand (RT-1334)
+ *   PATCH /api/v1/catalog/brands/{brandId}                                      consoleRenameCatalogBrand (RT-1334)
  *
  * Auth: the reads' chain. `SessionOnlyAdminGuard` (every bearer is 401; a
  * cookie write without a trusted `Origin` is 403 `origin_rejected`, RT-430),
@@ -18,7 +20,9 @@
  * `store_manager` for the availability of a store in its scope. The tenant
  * and the actor are the session's (§XII).
  *
- * The create is `@Idempotent("required")`. Every audit row is written by the
+ * The brand writes are `owner` / `tenant_admin` and answer with the brand.
+ *
+ * The creates are `@Idempotent("required")`. Every audit row is written by the
  * service in the write's transaction, so no handler carries `@Auditable`.
  * Every write answers with the product detail, `Cache-Control: no-store`.
  */
@@ -46,22 +50,27 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import type { TenantContextRequest } from "../../context/types";
 import { Idempotent } from "../../idempotency/idempotent.decorator";
-import type { ConsoleCatalogProductDetail } from "./console-catalog.projections";
-import { ProductIdParamSchema } from "./console-catalog.query";
+import type { ConsoleCatalogBrand, ConsoleCatalogProductDetail } from "./console-catalog.projections";
+import { BrandIdParamSchema, ProductIdParamSchema } from "./console-catalog.query";
 import { CatalogProductNotFoundError, CatalogStoreNotInScopeError } from "./console-catalog.service";
 import {
+  CreateCatalogBrandBodySchema,
   CreateCatalogProductBodySchema,
   ProductIdentifierKeySchema,
+  RenameCatalogBrandBodySchema,
   RetireBodySchema,
   UpdateCatalogProductBodySchema,
   UpsertStoreOverrideBodySchema,
+  type CreateCatalogBrandBody,
   type CreateCatalogProductBody,
   type ProductIdentifierKeyBody,
+  type RenameCatalogBrandBody,
   type RetireBody,
   type UpdateCatalogProductBody,
   type UpsertStoreOverrideBody,
 } from "./console-catalog.write-bodies";
 import {
+  CatalogBrandNotFoundError,
   CatalogWriteRefusedError,
   ConsoleCatalogWriteService,
   type CatalogWriteInput,
@@ -70,6 +79,7 @@ import {
 const PRODUCTS = "api/v1/catalog/products";
 const PRODUCT = `${PRODUCTS}/:productId`;
 const OVERRIDE = `${PRODUCT}/store-overrides/:storeId`;
+const BRANDS = "api/v1/catalog/brands";
 
 /** The one 404 body of this surface, equal to the `RolesGuard` refusal (FR-ISO-4). */
 const NOT_FOUND = { code: "not_found", message: "Not Found" } as const;
@@ -80,6 +90,8 @@ const REFUSAL_MESSAGES: Readonly<Record<CatalogWriteRefusedError["code"], string
   alias_conflict: "The identifier is already in use.",
   price_override_present: "The override has a price, which this surface does not change.",
   category_unavailable: "The category is not available.",
+  brand_unavailable: "The brand is not available.",
+  brand_name_conflict: "An active brand already has this name.",
   override_empty: "The override would hold no overridden field. Retire it instead.",
   tax_override_forbidden: "Only an owner or tenant admin may change a store tax override.",
 };
@@ -187,6 +199,35 @@ export class ConsoleCatalogWriteController {
     const store = parseId(storeId, "storeId");
     return mapErrors(() => this.service.retireOverride(writer(request), { productId: id, storeId: store }, body));
   }
+
+  /** RT-1334 — create a brand. */
+  @Post(BRANDS)
+  @HttpCode(201)
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin")
+  @Idempotent("required")
+  @Header("Cache-Control", "no-store")
+  createBrand(
+    @Req() request: TenantContextRequest,
+    @Body(new ZodValidationPipe(CreateCatalogBrandBodySchema)) body: CreateCatalogBrandBody,
+  ): Promise<ConsoleCatalogBrand> {
+    return mapErrors(() => this.service.createBrand(writer(request), body));
+  }
+
+  /** RT-1334 — rename a brand. */
+  @Patch(`${BRANDS}/:brandId`)
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin")
+  @Header("Cache-Control", "no-store")
+  renameBrand(
+    @Req() request: TenantContextRequest,
+    @Param("brandId") brandId: string,
+    @Body(new ZodValidationPipe(RenameCatalogBrandBodySchema)) body: RenameCatalogBrandBody,
+  ): Promise<ConsoleCatalogBrand> {
+    const parsed = BrandIdParamSchema.safeParse(brandId);
+    if (!parsed.success) throw new BadRequestException({ code: "validation_error", message: "brandId must be a valid UUID" });
+    return mapErrors(() => this.service.renameBrand(writer(request), { brandId: parsed.data }, body));
+  }
 }
 
 /** A request-shape error, checked before any read: it discloses nothing. */
@@ -211,7 +252,11 @@ async function mapErrors<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (err) {
-    if (err instanceof CatalogProductNotFoundError || err instanceof CatalogStoreNotInScopeError) {
+    if (
+      err instanceof CatalogProductNotFoundError ||
+      err instanceof CatalogStoreNotInScopeError ||
+      err instanceof CatalogBrandNotFoundError
+    ) {
       throw new NotFoundException(NOT_FOUND);
     }
     if (err instanceof CatalogWriteRefusedError) {

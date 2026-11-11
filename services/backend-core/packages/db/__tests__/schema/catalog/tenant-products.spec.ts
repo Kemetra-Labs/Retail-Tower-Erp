@@ -200,6 +200,22 @@ describe("schema/catalog/tenant_products (T318)", () => {
     expect(categoryFk!.onDelete).toBe("set null");
   });
 
+  it("`brand_id` is a NULLABLE uuid with no Drizzle FK (RT-1334: the composite SET NULL (brand_id) FK lives in 0095 SQL)", () => {
+    expect(tenantProducts).toBeDefined();
+    const cols = getTableColumns(tenantProducts) as Record<
+      string,
+      { name: string; getSQLType: () => string; notNull: boolean }
+    >;
+    expect(cols["brandId"]?.name).toBe("brand_id");
+    expect(cols["brandId"]?.getSQLType()).toBe("uuid");
+    // A product has at most one brand, and may have none.
+    expect(cols["brandId"]?.notNull).toBe(false);
+    // A Drizzle composite `set null` would also null `tenant_id` (NOT NULL),
+    // so the FK is declared in SQL only; never as a Drizzle FK.
+    const fks = getTableConfig(tenantProducts).foreignKeys as ForeignKey[];
+    expect(fks.some((fk) => fk.reference().columns.some((col) => col.name === "brand_id"))).toBe(false);
+  });
+
   it("`tax_category` is `text NOT NULL` (Q11 — opaque tax classification)", () => {
     expect(tenantProducts).toBeDefined();
     const cols = getTableColumns(tenantProducts) as Record<

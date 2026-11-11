@@ -20,6 +20,10 @@
  *   [34..49] filter digest   [50..] name (UTF-8)
  *
  * so the longest one stays under the contract's 4096 characters.
+ *
+ * RT-1334 added the `brand_id` filter. It joins the filter digest only when it
+ * is set, so a cursor issued before the filter existed (or without it) keeps
+ * its digest and stays valid across the deploy.
  */
 import { createHash } from "node:crypto";
 
@@ -52,6 +56,7 @@ export const CatalogProductListQuerySchema = z
       .optional(),
     status: z.enum(PRODUCT_STATUS_FILTERS).optional(),
     category_id: UuidSchema.optional(),
+    brand_id: UuidSchema.optional(),
     store_id: UuidSchema.optional(),
     cursor: z
       .string()
@@ -73,12 +78,17 @@ export type CatalogProductListQuery = z.infer<typeof CatalogProductListQuerySche
 
 export const ProductIdParamSchema = UuidSchema;
 
+/** RT-1334: the `brandId` path parameter (lower case). */
+export const BrandIdParamSchema = UuidSchema;
+
 /** Every list filter (null = not filtered); the cursor is bound to all of them. */
 export interface CatalogProductFilters {
   readonly q: string | null;
   readonly status: ProductStatusFilter;
   /** Lower case. */
   readonly categoryId: string | null;
+  /** Lower case. RT-1334. */
+  readonly brandId: string | null;
   /** Lower case. */
   readonly storeId: string | null;
 }
@@ -88,6 +98,7 @@ export function catalogFiltersOf(query: CatalogProductListQuery): CatalogProduct
     q: query.q ?? null,
     status: query.status ?? "active",
     categoryId: query.category_id ?? null,
+    brandId: query.brand_id ?? null,
     storeId: query.store_id ?? null,
   };
 }
@@ -128,7 +139,9 @@ function uuidOf(bytes: Buffer): string {
 }
 
 function digestOf(filters: CatalogProductFilters): Buffer {
-  const ordered = [OPERATION, filters.q, filters.status, filters.categoryId, filters.storeId];
+  const ordered: (string | null)[] = [OPERATION, filters.q, filters.status, filters.categoryId, filters.storeId];
+  // Appended only when set: a cursor without it keeps its pre-RT-1334 digest.
+  if (typeof filters.brandId === "string") ordered.push("brand_id", filters.brandId);
   return createHash("sha256").update(JSON.stringify(ordered), "utf8").digest().subarray(0, DIGEST_BYTES);
 }
 

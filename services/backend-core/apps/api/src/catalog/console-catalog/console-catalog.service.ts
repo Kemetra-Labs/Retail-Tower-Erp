@@ -31,6 +31,8 @@
  *     detect the next page. No trigram index (O-8): the name match scans the
  *     tenant's products that pass the status and category filters.
  *   - No audit write (O-6).
+ *   - RT-1334: a product's brand (`brandId` / `brandName`, the name also of a
+ *     retired brand), the `brand_id` filter, and the tenant's active brands.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
@@ -48,11 +50,14 @@ import {
   type ResolvedStoreColumns,
 } from "../store-resolution/store-product-resolution";
 import {
+  toBrand,
   toCategory,
   toDetail,
   toStoreView,
   toSummary,
+  type BrandRow,
   type CategoryRow,
+  type ConsoleCatalogBrand,
   type ConsoleCatalogCategory,
   type ConsoleCatalogProductDetail,
   type ConsoleCatalogProductPage,
@@ -127,7 +132,7 @@ function primaryIdentifierSql(type: "sku" | "barcode"): string {
         )`;
 }
 
-/** The `ProductSummaryRow` columns over `tp` and `cat`. */
+/** The `ProductSummaryRow` columns over `tp`, `cat` and `br`. */
 const PRODUCT_SUMMARY_COLUMNS_SQL = `
         tp.id::text AS product_id,
         tp.name,
@@ -135,6 +140,8 @@ const PRODUCT_SUMMARY_COLUMNS_SQL = `
         tp.retired_at,
         tp.category_id::text AS category_id,
         cat.name AS category_name,
+        tp.brand_id::text AS brand_id,
+        br.name AS brand_name,
         ${primaryIdentifierSql("sku")} AS primary_sku,
         ${primaryIdentifierSql("barcode")} AS primary_barcode,
         tp.default_price::text AS default_price,
@@ -143,14 +150,18 @@ const PRODUCT_SUMMARY_COLUMNS_SQL = `
         tp.tracking_mode,
         tp.updated_at`;
 
-const CATEGORY_JOIN_SQL = `
+/** The category (`cat`) and, RT-1334, the brand (`br`) of `tp`; either may be absent. */
+const TAXONOMY_JOIN_SQL = `
       LEFT JOIN tenant_product_categories cat
-        ON cat.id = tp.category_id AND cat.tenant_id = tp.tenant_id`;
+        ON cat.id = tp.category_id AND cat.tenant_id = tp.tenant_id
+      LEFT JOIN tenant_product_brands br
+        ON br.id = tp.brand_id AND br.tenant_id = tp.tenant_id`;
 
 /**
  * One list page. $1 tenant, $2 q (null = none), $3 identifier stores (null =
  * every store), $4 category, $5 name pattern, $6..$8 keyset (null = first
- * page), $9 limit, $10 the `storeView` store (only with `withStore`).
+ * page), $9 limit, $10 brand (RT-1334), $11 the `storeView` store (only with
+ * `withStore`).
  */
 function listSql(status: ProductStatusFilter, withStore: boolean): string {
   return `
@@ -172,6 +183,7 @@ function listSql(status: ProductStatusFilter, withStore: boolean): string {
        WHERE tp.tenant_id = $1::uuid
          AND ${STATUS_SQL[status]}
          AND ($4::uuid IS NULL OR tp.category_id = $4::uuid)
+         AND ($10::uuid IS NULL OR tp.brand_id = $10::uuid)
     ),
     page AS (
       SELECT c.id, c.name, c.match_rank
@@ -185,8 +197,8 @@ function listSql(status: ProductStatusFilter, withStore: boolean): string {
            ${PRODUCT_SUMMARY_COLUMNS_SQL}${withStore ? "," + RESOLVED_STORE_COLUMNS_SQL : ""}
       FROM page
       JOIN tenant_products tp ON tp.id = page.id AND tp.tenant_id = $1::uuid
-      ${CATEGORY_JOIN_SQL}
-      ${withStore ? storeOverrideJoinSql("$10::uuid") : ""}
+      ${TAXONOMY_JOIN_SQL}
+      ${withStore ? storeOverrideJoinSql("$11::uuid") : ""}
      ORDER BY page.match_rank, page.name, page.id`;
 }
 
@@ -197,7 +209,7 @@ const DETAIL_SQL = `
            tp.source_global_product_id::text AS source_global_product_id,
            tp.created_at
       FROM tenant_products tp
-      ${CATEGORY_JOIN_SQL}
+      ${TAXONOMY_JOIN_SQL}
      WHERE tp.tenant_id = $1::uuid AND tp.id = $2::uuid`;
 
 /** $1 tenant, $2 product, $3 scoped store ids (null = tenant-wide). */
@@ -224,6 +236,13 @@ const CATEGORIES_SQL = `
      WHERE tenant_id = $1::uuid AND retired_at IS NULL
      ORDER BY name, id`;
 
+/** RT-1334: $1 tenant. Also the single-brand read of the brand writes ($2 brand). */
+export const BRANDS_SQL = `
+    SELECT id::text AS brand_id, name, updated_at
+      FROM tenant_product_brands
+     WHERE tenant_id = $1::uuid AND retired_at IS NULL AND ($2::uuid IS NULL OR id = $2::uuid)
+     ORDER BY name, id`;
+
 /** A live store of the tenant; a soft-deleted one is the non-disclosing 404 (owner decision on RT-730). */
 const STORE_IN_TENANT_SQL = `SELECT 1 FROM stores WHERE id = $1::uuid AND tenant_id = $2::uuid AND deleted_at IS NULL`;
 
@@ -231,7 +250,7 @@ type ListRow = ProductSummaryRow & Partial<ResolvedStoreColumns> & { match_rank:
 
 /** The `listSql` parameters, in placeholder order. */
 function listParams(input: ListCatalogProductsInput, scope: StoreScope, keyset: CatalogProductKeyset | null): unknown[] {
-  const { q, categoryId, storeId } = input.filters;
+  const { q, categoryId, brandId, storeId } = input.filters;
   // Store-scoped identifiers count only for the `store_id` store, else for the scope (null = every store).
   const identifierStores = storeId === null ? scopeStoreIds(scope) : [storeId];
   const params: unknown[] = [
@@ -244,6 +263,7 @@ function listParams(input: ListCatalogProductsInput, scope: StoreScope, keyset: 
     keyset?.name ?? null,
     keyset?.productId ?? null,
     input.limit + 1,
+    brandId,
   ];
   if (storeId !== null) params.push(storeId);
   return params;
@@ -327,6 +347,14 @@ export class ConsoleCatalogReadService {
     return await this.inTenant(input, async (client) => {
       const r = await client.query<CategoryRow>(CATEGORIES_SQL, [input.tenantId]);
       return r.rows.map(toCategory);
+    });
+  }
+
+  /** RT-1334: the tenant's active brands, flat, by name. */
+  async listBrands(input: ScopedCatalogReadInput): Promise<ConsoleCatalogBrand[]> {
+    return await this.inTenant(input, async (client) => {
+      const r = await client.query<BrandRow>(BRANDS_SQL, [input.tenantId, null]);
+      return r.rows.map(toBrand);
     });
   }
 

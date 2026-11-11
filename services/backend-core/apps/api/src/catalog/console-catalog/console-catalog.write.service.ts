@@ -33,6 +33,13 @@
  *     `updatedAt`, so a stale precondition can never match it.
  *   - A unique-index race on an identifier is `alias_conflict`; on an
  *     override it is `stale_write`. Both roll the transaction back.
+ *   - RT-1334 (brands): a product's `brandId` must name an active brand of the
+ *     tenant (`brand_unavailable`); the composite FK of 0095 is the backstop.
+ *     A brand create or rename to a name an active brand of the tenant holds
+ *     is `brand_name_conflict`, read from the partial unique index (so a race
+ *     is refused the same way). A rename takes `expectedUpdatedAt` and the
+ *     same strictly-later `updatedAt` rule as a product. Both are audited in
+ *     their transaction; neither touches the POS change log.
  */
 import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
@@ -43,16 +50,19 @@ import { PG_POOL } from "../../auth/auth.module";
 import { MembershipRepository } from "../../context/membership.repository";
 import { inStoreScope, readScope } from "../../context/operator-store-scope";
 import type { StoreScope } from "../../context/store-scope";
-import type { ConsoleCatalogProductDetail } from "./console-catalog.projections";
+import { toBrand, type BrandRow, type ConsoleCatalogBrand, type ConsoleCatalogProductDetail } from "./console-catalog.projections";
 import {
+  BRANDS_SQL,
   CatalogProductNotFoundError,
   CatalogStoreNotInScopeError,
   ConsoleCatalogReadService,
   type ScopedCatalogReadInput,
 } from "./console-catalog.service";
 import type {
+  CreateCatalogBrandBody,
   CreateCatalogProductBody,
   ProductIdentifierKeyBody,
+  RenameCatalogBrandBody,
   RetireBody,
   UpdateCatalogProductBody,
   UpsertStoreOverrideBody,
@@ -64,6 +74,8 @@ export type CatalogWriteRefusalCode =
   | "alias_conflict"
   | "price_override_present"
   | "category_unavailable"
+  | "brand_unavailable"
+  | "brand_name_conflict"
   | "override_empty"
   | "tax_override_forbidden";
 
@@ -73,6 +85,8 @@ const REFUSAL_STATUS: Readonly<Record<CatalogWriteRefusalCode, 403 | 409 | 422>>
   alias_conflict: 409,
   price_override_present: 409,
   category_unavailable: 422,
+  brand_unavailable: 422,
+  brand_name_conflict: 409,
   override_empty: 422,
   tax_override_forbidden: 403,
 };
@@ -91,6 +105,19 @@ export class CatalogWriteRefusedError extends Error {
 export interface CatalogWriteInput extends ScopedCatalogReadInput {
   readonly actorUserId: string;
   readonly requestId: string | null;
+}
+
+/** RT-1334: a brand that is absent, of another tenant or retired → the non-disclosing 404. */
+export class CatalogBrandNotFoundError extends Error {
+  constructor() {
+    super("brand not found");
+    this.name = "CatalogBrandNotFoundError";
+  }
+}
+
+/** The brand a rename addresses (path `brandId`, already parsed). */
+export interface BrandTarget {
+  readonly brandId: string;
 }
 
 /** The product a write addresses (path `productId`, already parsed). */
@@ -114,6 +141,10 @@ const TAX_OVERRIDE_ROLES: ReadonlySet<string> = new Set(["owner", "tenant_admin"
 const PRODUCT_TARGET = "tenant_product";
 const IDENTIFIER_TARGET = "product_alias";
 const OVERRIDE_TARGET = "store_product_override";
+const BRAND_TARGET = "tenant_product_brand";
+
+/** The 0095 partial unique index: one ACTIVE brand per (tenant, name). */
+const BRAND_NAME_INDEX = "UQ_idx_tenant_product_brands_tenant_name";
 
 /** Reruns of a write whose transaction began in the row's `updated_at` millisecond. */
 const ADVANCE_ATTEMPTS = 5;
@@ -130,9 +161,16 @@ interface ProductLockRow {
   readonly name: string;
   readonly description: string | null;
   readonly category_id: string | null;
+  readonly brand_id: string | null;
   readonly tax_category: string;
   readonly is_active: boolean;
   readonly retired: boolean;
+  readonly updated_ms: string;
+  readonly can_advance: boolean;
+}
+
+interface BrandLockRow {
+  readonly name: string;
   readonly updated_ms: string;
   readonly can_advance: boolean;
 }
@@ -155,7 +193,7 @@ const UPDATED_MS_SQL = `
          date_trunc('milliseconds', now()) > date_trunc('milliseconds', updated_at) AS can_advance`;
 
 const LOCK_PRODUCT_SQL = `
-  SELECT name, description, category_id::text AS category_id, tax_category, is_active,
+  SELECT name, description, category_id::text AS category_id, brand_id::text AS brand_id, tax_category, is_active,
          retired_at IS NOT NULL AS retired,${UPDATED_MS_SQL}
     FROM tenant_products
    WHERE tenant_id = $1::uuid AND id = $2::uuid
@@ -164,6 +202,16 @@ const LOCK_PRODUCT_SQL = `
 const CATEGORY_USABLE_SQL = `
   SELECT 1 FROM tenant_product_categories
    WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL`;
+
+const BRAND_USABLE_SQL = `
+  SELECT 1 FROM tenant_product_brands
+   WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL`;
+
+const LOCK_BRAND_SQL = `
+  SELECT name,${UPDATED_MS_SQL}
+    FROM tenant_product_brands
+   WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL
+     FOR UPDATE`;
 
 const LIVE_STORE_SQL = `SELECT 1 FROM stores WHERE id = $1::uuid AND tenant_id = $2::uuid AND deleted_at IS NULL`;
 
@@ -175,6 +223,11 @@ const LOCK_OVERRIDE_SQL = `
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "23505";
+}
+
+/** A unique violation of the active-brand-name index (any other 23505 propagates). */
+function isBrandNameConflict(err: unknown): boolean {
+  return isUniqueViolation(err) && (err as { constraint?: unknown }).constraint === BRAND_NAME_INDEX;
 }
 
 @Injectable()
@@ -190,24 +243,29 @@ export class ConsoleCatalogWriteService {
     return await this.write(input, async (client) => {
       const categoryId = body.categoryId ?? null;
       if (categoryId !== null) await this.requireUsableCategory(client, input, { categoryId });
+      const brandId = body.brandId ?? null;
+      if (brandId !== null) await this.requireUsableBrand(client, input, { brandId });
       const productId = newId();
       const fields = {
         name: body.name,
         description: body.description ?? null,
         categoryId,
+        brandId,
         taxCategory: body.taxCategory,
         isActive: body.isActive ?? true,
       };
       await client.query(
         `INSERT INTO tenant_products
-           (id, tenant_id, name, description, category_id, is_active, tax_category, created_by, updated_by, correlation_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9)`,
+           (id, tenant_id, name, description, category_id, brand_id, is_active, tax_category, created_by, updated_by,
+            correlation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)`,
         [
           productId,
           input.tenantId,
           fields.name,
           fields.description,
           fields.categoryId,
+          fields.brandId,
           fields.isActive,
           fields.taxCategory,
           input.actorUserId,
@@ -225,6 +283,68 @@ export class ConsoleCatalogWriteService {
     });
   }
 
+  /** RT-1334 consoleCreateCatalogBrand — a new active brand; a taken active name is `brand_name_conflict`. */
+  async createBrand(input: CatalogWriteInput, body: CreateCatalogBrandBody): Promise<ConsoleCatalogBrand> {
+    return await this.write(input, async (client) => {
+      const brandId = newId();
+      try {
+        await client.query(
+          `INSERT INTO tenant_product_brands (id, tenant_id, name, created_by) VALUES ($1, $2, $3, $4)`,
+          [brandId, input.tenantId, body.name, input.actorUserId],
+        );
+      } catch (err) {
+        if (isBrandNameConflict(err)) throw new CatalogWriteRefusedError("brand_name_conflict");
+        throw err;
+      }
+      await this.audit(client, input, {
+        action: "catalog.brand.create",
+        targetType: BRAND_TARGET,
+        targetId: brandId,
+        storeId: null,
+        metadata: { brand_id: brandId, new: { name: body.name } },
+      });
+      return this.brandIn(client, input, brandId);
+    });
+  }
+
+  /**
+   * RT-1334 consoleRenameCatalogBrand — the name of one active brand of the
+   * tenant (else the 404), under `expectedUpdatedAt`; a name another active
+   * brand holds is `brand_name_conflict`. Its products keep the brand.
+   */
+  async renameBrand(
+    input: CatalogWriteInput,
+    target: BrandTarget,
+    body: RenameCatalogBrandBody,
+  ): Promise<ConsoleCatalogBrand> {
+    const { brandId } = target;
+    return await this.write(input, async (client) => {
+      const r = await client.query<BrandLockRow>(LOCK_BRAND_SQL, [input.tenantId, brandId]);
+      const current = r.rows[0];
+      if (current === undefined) throw new CatalogBrandNotFoundError();
+      requireExpected(current, body);
+      requireAdvance(current);
+      try {
+        await client.query(`UPDATE tenant_product_brands SET name = $3 WHERE tenant_id = $1::uuid AND id = $2::uuid`, [
+          input.tenantId,
+          brandId,
+          body.name,
+        ]);
+      } catch (err) {
+        if (isBrandNameConflict(err)) throw new CatalogWriteRefusedError("brand_name_conflict");
+        throw err;
+      }
+      await this.audit(client, input, {
+        action: "catalog.brand.rename",
+        targetType: BRAND_TARGET,
+        targetId: brandId,
+        storeId: null,
+        metadata: { brand_id: brandId, old: { name: current.name }, new: { name: body.name } },
+      });
+      return this.brandIn(client, input, brandId);
+    });
+  }
+
   /** consoleUpdateCatalogProduct — the given simple fields; never price, status or tracking. */
   async updateProduct(
     input: CatalogWriteInput,
@@ -239,12 +359,16 @@ export class ConsoleCatalogWriteService {
       if (typeof body.categoryId === "string") {
         await this.requireUsableCategory(client, input, { categoryId: body.categoryId });
       }
+      if (typeof body.brandId === "string") {
+        await this.requireUsableBrand(client, input, { brandId: body.brandId });
+      }
       requireAdvance(current);
 
       const before: ProductFields = {
         name: current.name,
         description: current.description,
         categoryId: current.category_id,
+        brandId: current.brand_id,
         taxCategory: current.tax_category,
         isActive: current.is_active,
       };
@@ -252,8 +376,8 @@ export class ConsoleCatalogWriteService {
       const after = applyPatch(before, patch);
       await client.query(
         `UPDATE tenant_products
-            SET name = $3, description = $4, category_id = $5, tax_category = $6, is_active = $7,
-                updated_by = $8, correlation_id = $9
+            SET name = $3, description = $4, category_id = $5, brand_id = $6, tax_category = $7, is_active = $8,
+                updated_by = $9, correlation_id = $10
           WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         [
           input.tenantId,
@@ -261,6 +385,7 @@ export class ConsoleCatalogWriteService {
           after.name,
           after.description,
           after.categoryId,
+          after.brandId,
           after.taxCategory,
           after.isActive,
           input.actorUserId,
@@ -523,6 +648,24 @@ export class ConsoleCatalogWriteService {
     return row;
   }
 
+  /** RT-1334: the brand must be an active brand of the tenant, else 422 `brand_unavailable`. */
+  private async requireUsableBrand(
+    client: PoolClient,
+    input: CatalogWriteInput,
+    brand: { readonly brandId: string },
+  ): Promise<void> {
+    const r = await client.query(BRAND_USABLE_SQL, [input.tenantId, brand.brandId]);
+    if (r.rowCount === 0) throw new CatalogWriteRefusedError("brand_unavailable");
+  }
+
+  /** The brand as the contract renders it, read in the write's transaction. */
+  private async brandIn(client: PoolClient, input: CatalogWriteInput, brandId: string): Promise<ConsoleCatalogBrand> {
+    const r = await client.query<BrandRow>(BRANDS_SQL, [input.tenantId, brandId]);
+    const row = r.rows[0];
+    if (row === undefined) throw new CatalogBrandNotFoundError();
+    return toBrand(row);
+  }
+
   private async requireUsableCategory(
     client: PoolClient,
     input: CatalogWriteInput,
@@ -596,6 +739,7 @@ interface ProductFields extends Record<string, unknown> {
   readonly name: string;
   readonly description: string | null;
   readonly categoryId: string | null;
+  readonly brandId: string | null;
   readonly taxCategory: string;
   readonly isActive: boolean;
 }

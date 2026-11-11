@@ -74,6 +74,12 @@ const CATALOG_MODULES: ReadonlyArray<
     "unknownItems",
     "unknown_items",
   ],
+  // RT-1334 (0095, spec 048 S1): the brand taxonomy.
+  [
+    "../../../src/schema/catalog/tenant-product-brands",
+    "tenantProductBrands",
+    "tenant_product_brands",
+  ],
 ] as const;
 
 describe("packages/db/src/schema/catalog/* — per-file independent import (T325)", () => {

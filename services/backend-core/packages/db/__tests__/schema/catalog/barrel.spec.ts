@@ -38,6 +38,7 @@ const CATALOG_TABLE_EXPORTS: ReadonlyArray<readonly [string, string]> = [
   ["globalProducts", "global_products"],
   ["tenantProducts", "tenant_products"],
   ["tenantProductCategories", "tenant_product_categories"],
+  ["tenantProductBrands", "tenant_product_brands"],
   ["storeProductOverrides", "store_product_overrides"],
   ["productAliases", "product_aliases"],
   ["priceHistory", "price_history"],
@@ -49,12 +50,14 @@ const CATALOG_TABLE_EXPORTS: ReadonlyArray<readonly [string, string]> = [
 // (003); `catalog-change-log` is the 010 read-down change-log (spec 010
 // data-model §3); `erpnext-item-map` is the 013 product-master identity mapping
 // (spec 013 data-model §2); `erpnext-posting-resolution` is the RT-330 frozen
-// posting resolution (migration 0037). Any extra `./catalog/<module>` line in the barrel
+// posting resolution (migration 0037); `tenant-product-brands` is the RT-1334
+// brand taxonomy (migration 0095, spec 048 S1). Any extra `./catalog/<module>` line in the barrel
 // signals an unsanctioned table leaking through the public API.
 const EXPECTED_CATALOG_MODULES: readonly string[] = [
   "global-products",
   "tenant-products",
   "tenant-product-categories",
+  "tenant-product-brands",
   "store-product-overrides",
   "product-aliases",
   "price-history",

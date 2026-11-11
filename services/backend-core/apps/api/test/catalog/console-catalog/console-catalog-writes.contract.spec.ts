@@ -19,6 +19,9 @@
  *   4. The conflict / precondition codes (`stale_write`, `alias_conflict`,
  *      `product_retired`, `price_override_present`, `override_empty`).
  *   5. AJV fixtures: valid bodies pass, each invalid one fails.
+ *
+ * RT-1334 (1.2.0-draft, additive): the two brand writes (create, rename),
+ * `brandId` on the product create / update and the `brand_unavailable` 422.
  */
 import "reflect-metadata";
 
@@ -38,6 +41,8 @@ const CONTRACT_ID = "console-catalog";
 const PRODUCTS = "/api/v1/catalog/products";
 const PRODUCT = "/api/v1/catalog/products/{productId}";
 const OVERRIDE = "/api/v1/catalog/products/{productId}/store-overrides/{storeId}";
+const BRANDS = "/api/v1/catalog/brands";
+const BRAND = "/api/v1/catalog/brands/{brandId}";
 
 type Method = "post" | "patch" | "put";
 interface WriteOp {
@@ -117,12 +122,34 @@ const WRITES: readonly WriteOp[] = [
   },
 ];
 
+/** RT-1334: the brand writes (`owner` / `tenant_admin`), answering with the brand. */
+const BRAND_WRITES: readonly Omit<WriteOp, "slice">[] = [
+  {
+    id: "consoleCreateCatalogBrand",
+    method: "post",
+    path: BRANDS,
+    audit: "catalog.brand.create",
+    ok: "201",
+    responses: [...BASE, "409", "425"],
+  },
+  {
+    id: "consoleRenameCatalogBrand",
+    method: "patch",
+    path: BRAND,
+    audit: "catalog.brand.rename",
+    ok: "200",
+    responses: [...BASE, "409"],
+  },
+];
+
 const REQUEST_SCHEMAS = [
   "CreateCatalogProductRequest",
   "UpdateCatalogProductRequest",
   "RetireRequest",
   "ProductIdentifierKey",
   "UpsertStoreOverrideRequest",
+  "CreateCatalogBrandRequest",
+  "RenameCatalogBrandRequest",
 ] as const;
 type RequestSchema = (typeof REQUEST_SCHEMAS)[number];
 
@@ -138,13 +165,15 @@ beforeAll(() => {
   ajv.addSchema(doc as object, CONTRACT_ID);
 });
 
-function op(w: WriteOp): OperationObject {
+type AnyWrite = Pick<WriteOp, "id" | "method" | "path">;
+
+function op(w: AnyWrite): OperationObject {
   const found = (doc.paths?.[w.path] as Record<string, OperationObject> | undefined)?.[w.method];
   if (!found) throw new Error(`${w.method.toUpperCase()} ${w.path} not declared`);
   return found;
 }
 
-function params(w: WriteOp): ParameterObject[] {
+function params(w: AnyWrite): ParameterObject[] {
   return (op(w).parameters ?? []).map((p) =>
     p.$ref ? doc.components!.parameters![p.$ref.replace("#/components/parameters/", "")]! : p,
   );
@@ -160,15 +189,15 @@ interface ResponseShape {
   readonly content?: Record<string, { readonly schema?: unknown }>;
 }
 
-function response(w: WriteOp, status: string): ResponseShape {
+function response(w: AnyWrite, status: string): ResponseShape {
   return (op(w).responses?.[status] ?? {}) as ResponseShape;
 }
 
-function statuses(w: WriteOp): string[] {
+function statuses(w: AnyWrite): string[] {
   return Object.keys(op(w).responses ?? {}).sort();
 }
 
-function responseDescription(w: WriteOp, status: string): string {
+function responseDescription(w: AnyWrite, status: string): string {
   const name = ref(op(w).responses?.[status]).replace("#/components/responses/", "");
   return String(doc.components?.responses?.[name]?.description ?? "");
 }
@@ -181,20 +210,21 @@ function validator(name: RequestSchema): ValidateFunction {
 
 const STORE_ID = "0190f5a2-3b4c-7d8e-9f01-000000000002";
 const CATEGORY_ID = "0190f5a2-3b4c-7d8e-9f01-000000000003";
+const BRAND_ID = "0190f5a2-3b4c-7d8e-9f01-000000000004";
 const AT = "2026-10-19T09:00:00.123Z";
 
 // ===========================================================================
 // 1. Operations
 // ===========================================================================
 describe("console-catalog writes — operations", () => {
-  it("declares the seven writes at their paths and methods", () => {
-    for (const w of WRITES) expect(op(w).operationId).toBe(w.id);
+  it("declares the seven product writes and the two brand writes at their paths and methods", () => {
+    for (const w of [...WRITES, ...BRAND_WRITES]) expect(op(w).operationId).toBe(w.id);
     const methods = Object.entries(doc.paths ?? {}).flatMap(([path, item]) =>
       Object.keys(item)
         .filter((m) => m !== "get" && m !== "parameters")
         .map((m) => `${m} ${path}`),
     );
-    expect(methods.sort()).toEqual(WRITES.map((w) => `${w.method} ${w.path}`).sort());
+    expect(methods.sort()).toEqual([...WRITES, ...BRAND_WRITES].map((w) => `${w.method} ${w.path}`).sort());
   });
 
   it("serves every write: none is marked contract-only (RT-738 runtime)", () => {
@@ -347,6 +377,16 @@ describe("console-catalog writes — conflicts", () => {
     expect(responseDescription(create, "422")).toMatch(/category_unavailable/);
     expect(responseDescription(create, "409")).toMatch(/idempotency_key_conflict/);
   });
+
+  it("refuses an unusable brand on the product create and update with 422 brand_unavailable (RT-1334)", () => {
+    for (const id of ["consoleCreateCatalogProduct", "consoleUpdateCatalogProduct"]) {
+      const w = WRITES.find((x) => x.id === id)!;
+      expect(ref(response(w, "422"))).toBe("#/components/responses/ProductReferenceUnavailable");
+      expect(responseDescription(w, "422")).toMatch(/category_unavailable/);
+      expect(responseDescription(w, "422")).toMatch(/brand_unavailable/);
+      expect(op(w).description).toMatch(/brand_unavailable/);
+    }
+  });
 });
 
 // ===========================================================================
@@ -368,6 +408,18 @@ describe("console-catalog writes — AJV fixtures", () => {
     expect(create({ name: "x".repeat(501), taxCategory: "standard" })).toBe(false);
     expect(create({ name: "Water", taxCategory: "x".repeat(51) })).toBe(false);
     expect(create({ name: "Water" })).toBe(false);
+  });
+
+  it("create and update: take an optional, nullable brandId (RT-1334)", () => {
+    const create = validator("CreateCatalogProductRequest");
+    expect(create({ name: "Water", taxCategory: "standard", brandId: BRAND_ID })).toBe(true);
+    expect(create({ name: "Water", taxCategory: "standard", brandId: null })).toBe(true);
+    expect(create({ name: "Water", taxCategory: "standard", brandId: "nike" })).toBe(false);
+    const update = validator("UpdateCatalogProductRequest");
+    // brandId alone is a field to change, and null clears it.
+    expect(update({ expectedUpdatedAt: AT, brandId: BRAND_ID })).toBe(true);
+    expect(update({ expectedUpdatedAt: AT, brandId: null })).toBe(true);
+    expect(update({ expectedUpdatedAt: AT, brandName: "Nike" })).toBe(false);
   });
 
   it("update: needs expectedUpdatedAt and at least one field", () => {
@@ -412,5 +464,78 @@ describe("console-catalog writes — AJV fixtures", () => {
     expect(upsert({ expectedUpdatedAt: null })).toBe(false);
     expect(upsert({ expectedUpdatedAt: null, isActive: true, price: { amount: "1.00", currencyCode: "EGP" } })).toBe(false);
     expect(upsert({ expectedUpdatedAt: null, taxCategory: " " })).toBe(false);
+  });
+});
+
+// ===========================================================================
+// 6. RT-1334 brand writes
+// ===========================================================================
+describe("console-catalog writes — brands (RT-1334)", () => {
+  it("names one audit action per brand write, is served (not contract-only) and collides with no operationId", () => {
+    for (const w of BRAND_WRITES) {
+      expect(op(w)["x-audit-action"]).toBe(w.audit);
+      expect(op(w)["x-runtime-status"]).toBeUndefined();
+      expect(op(w)["x-runtime-note"]).toBeUndefined();
+      expect(otherOperationIds.has(w.id)).toBe(false);
+    }
+    expect(doc.info?.description).toMatch(/`catalog\.brand\.create` \(the new name\) and `catalog\.brand\.rename`/);
+  });
+
+  it("answers its success status and exactly its error statuses, the brand with no-store, and the brand 404", () => {
+    for (const w of BRAND_WRITES) {
+      expect({ id: w.id, statuses: statuses(w) }).toEqual({ id: w.id, statuses: [w.ok, ...w.responses].sort() });
+      const success = response(w, w.ok);
+      expect(success.headers?.["Cache-Control"]).toEqual({ $ref: "#/components/headers/CacheControlNoStore" });
+      expect(ref(success.content?.["application/json"]?.schema)).toBe("#/components/schemas/ConsoleCatalogBrand");
+      expect(ref(response(w, "404"))).toBe("#/components/responses/BrandNotFound");
+      expect(responseDescription(w, "403")).toMatch(/origin_rejected/);
+      expect(params(w).filter((p) => /tenant/i.test(p.name ?? ""))).toEqual([]);
+    }
+    const notFound = String(doc.components?.responses?.["BrandNotFound"]?.description);
+    expect(notFound).toMatch(/non-disclosing/);
+    expect(notFound).toMatch(/another tenant/);
+    expect(notFound).toMatch(/retired brand/);
+  });
+
+  it("takes Idempotency-Key on the create only, and the brand id on the rename path", () => {
+    const [create, rename] = BRAND_WRITES as [AnyWrite, AnyWrite];
+    expect(params(create).map((p) => [p.name, p.in])).toEqual([["Idempotency-Key", "header"]]);
+    expect((op(create) as Record<string, unknown>)["x-idempotency"]).toBe("required");
+    expect(params(rename).map((p) => [p.name, p.in])).toEqual([["brandId", "path"]]);
+    expect((op(rename) as Record<string, unknown>)["x-idempotency"]).toBeUndefined();
+    expect(response(create, "201").headers?.["Idempotent-Replayed"]).toEqual({
+      $ref: "#/components/headers/IdempotentReplayed",
+    });
+  });
+
+  it("refuses a taken active name with a non-disclosing 409 brand_name_conflict, and a stale rename with stale_write", () => {
+    const [create, rename] = BRAND_WRITES as [AnyWrite, AnyWrite];
+    expect(responseDescription(create, "409")).toMatch(/brand_name_conflict/);
+    expect(responseDescription(create, "409")).toMatch(/idempotency_key_conflict/);
+    expect(responseDescription(create, "409")).toMatch(/never names it/);
+    expect(responseDescription(rename, "409")).toMatch(/brand_name_conflict/);
+    expect(responseDescription(rename, "409")).toMatch(/stale_write/);
+  });
+
+  it("limits the brand writes to owner / tenant_admin and the list to the read roles", () => {
+    expect(doc.info?.description).toMatch(/the create and the rename are\s+`owner` \/ `tenant_admin`/);
+    for (const w of BRAND_WRITES) expect(op(w).description).toMatch(/Roles `owner` \/\s+`tenant_admin`/);
+  });
+
+  it("brand bodies: a 1..200 non-blank name with no NUL; the rename needs expectedUpdatedAt", () => {
+    const create = validator("CreateCatalogBrandRequest");
+    expect(create({ name: "Nike" })).toBe(true);
+    expect(create({ name: "x".repeat(200) })).toBe(true);
+    expect(create({ name: "x".repeat(201) })).toBe(false);
+    expect(create({ name: "" })).toBe(false);
+    expect(create({ name: "   " })).toBe(false);
+    expect(create({ name: "a\u0000b" })).toBe(false);
+    expect(create({ name: "Nike", tenantId: BRAND_ID })).toBe(false);
+    expect(create({})).toBe(false);
+    const rename = validator("RenameCatalogBrandRequest");
+    expect(rename({ expectedUpdatedAt: AT, name: "Nike Inc" })).toBe(true);
+    expect(rename({ name: "Nike Inc" })).toBe(false);
+    expect(rename({ expectedUpdatedAt: AT })).toBe(false);
+    expect(rename({ expectedUpdatedAt: AT, name: "Nike", retiredAt: AT })).toBe(false);
   });
 });

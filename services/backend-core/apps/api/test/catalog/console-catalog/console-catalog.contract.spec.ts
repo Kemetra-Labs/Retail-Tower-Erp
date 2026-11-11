@@ -18,6 +18,10 @@
  *   4. Projections are strict, carry no user id or ERP mapping, and use
  *      exact-decimal string money.
  *   5. AJV fixtures: valid payloads pass, each invalid one fails.
+ *
+ * RT-1334 (1.2.0-draft, additive): the brand list read, the product's
+ * `brandId` / `brandName` and the `brand_id` filter. The brand writes are
+ * pinned in console-catalog-writes.contract.spec.ts.
  */
 import "reflect-metadata";
 
@@ -39,18 +43,21 @@ const CONTRACT_ID = "console-catalog";
 const LIST_PATH = "/api/v1/catalog/products";
 const DETAIL_PATH = "/api/v1/catalog/products/{productId}";
 const CATEGORIES_PATH = "/api/v1/catalog/categories";
+const BRANDS_PATH = "/api/v1/catalog/brands";
 
 const OPERATIONS: ReadonlyArray<{ id: string; path: ApiPath }> = [
   { id: "consoleListCatalogProducts", path: LIST_PATH },
   { id: "consoleGetCatalogProduct", path: DETAIL_PATH },
   { id: "consoleListCatalogCategories", path: CATEGORIES_PATH },
+  { id: "consoleListCatalogBrands", path: BRANDS_PATH },
 ];
 
 type SchemaName =
   | "ConsoleCatalogProductPage"
   | "ConsoleCatalogProductSummary"
   | "ConsoleCatalogProductDetail"
-  | "ConsoleCatalogCategoryList";
+  | "ConsoleCatalogCategoryList"
+  | "ConsoleCatalogBrandList";
 
 let doc: OpenApiDocument;
 let api: ContractReader;
@@ -75,6 +82,7 @@ function validator(name: SchemaName): ValidateFunction {
 const PRODUCT_ID = "0190f5a2-3b4c-7d8e-9f01-23456789abcd";
 const STORE_ID = "0190f5a2-3b4c-7d8e-9f01-000000000002";
 const CATEGORY_ID = "0190f5a2-3b4c-7d8e-9f01-000000000003";
+const BRAND_ID = "0190f5a2-3b4c-7d8e-9f01-000000000004";
 
 const SUMMARY = {
   productId: PRODUCT_ID,
@@ -82,6 +90,8 @@ const SUMMARY = {
   status: "active",
   categoryId: CATEGORY_ID,
   categoryName: "Drinks",
+  brandId: BRAND_ID,
+  brandName: "Nile",
   primarySku: "SKU-1",
   primaryBarcode: "000123456789",
   defaultPrice: { amount: "8.50", currencyCode: "EGP" },
@@ -123,14 +133,14 @@ const DETAIL = {
 // 1. Document + operations
 // ===========================================================================
 describe("console-catalog — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.1.0-draft (RT-738 writes, additive)", () => {
+  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-1334 brands, additive)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.1.0-draft");
+    expect(doc.info?.version).toBe("1.2.0-draft");
   });
 
-  it("declares the three reads as the only GET operations (the RT-738 writes are pinned in console-catalog-writes.contract.spec.ts)", () => {
+  it("declares the four reads as the only GET operations (the writes are pinned in console-catalog-writes.contract.spec.ts)", () => {
     const gets = Object.entries(doc.paths ?? {}).filter(([, item]) => "get" in item).map(([path]) => path);
-    expect(gets.sort()).toEqual([LIST_PATH, DETAIL_PATH, CATEGORIES_PATH].sort());
+    expect(gets.sort()).toEqual([LIST_PATH, DETAIL_PATH, CATEGORIES_PATH, BRANDS_PATH].sort());
     for (const { id, path } of OPERATIONS) {
       expect(api.get(path).operationId).toBe(id);
       expect(api.get(path).requestBody).toBeUndefined();
@@ -199,9 +209,9 @@ describe("console-catalog — auth and read scope", () => {
 // 3. List filters, cursor and page bounds
 // ===========================================================================
 describe("console-catalog — list parameters", () => {
-  it("declares exactly q, status, category_id, store_id, cursor and limit, all optional", () => {
+  it("declares exactly q, status, category_id, brand_id, store_id, cursor and limit, all optional", () => {
     const params = api.params(LIST_PATH);
-    expect(params.map((p) => p.name).sort()).toEqual(["category_id", "cursor", "limit", "q", "status", "store_id"]);
+    expect(params.map((p) => p.name).sort()).toEqual(["brand_id", "category_id", "cursor", "limit", "q", "status", "store_id"]);
     for (const p of params) {
       expect(p.in).toBe("query");
       expect(p.required).toBe(false);
@@ -227,13 +237,19 @@ describe("console-catalog — list parameters", () => {
   });
 
   it("binds the opaque cursor to every filter", () => {
-    expect(api.param(LIST_PATH, "cursor").description).toMatch(/`q`, `status`,\s+`category_id`, `store_id`/);
+    expect(api.param(LIST_PATH, "cursor").description).toMatch(/`q`, `status`,\s+`category_id`, `brand_id`, `store_id`/);
+  });
+
+  it("filters by brand (RT-1334): a uuid, and a brand the tenant does not have matches nothing", () => {
+    expect(api.param(LIST_PATH, "brand_id").schema).toEqual({ type: "string", format: "uuid" });
+    expect(api.param(LIST_PATH, "brand_id").description).toMatch(/matches nothing \(an empty 200\)/);
   });
 
   it("takes only the product id on the detail and nothing on the categories list", () => {
     expect(api.params(DETAIL_PATH).map((p) => [p.name, p.in])).toEqual([["productId", "path"]]);
     expect(api.param(DETAIL_PATH, "productId").schema).toEqual({ type: "string", format: "uuid" });
     expect(api.params(CATEGORIES_PATH)).toEqual([]);
+    expect(api.params(BRANDS_PATH)).toEqual([]);
   });
 });
 
@@ -252,6 +268,8 @@ describe("console-catalog — projections", () => {
       "Money",
       "ConsoleCatalogCategory",
       "ConsoleCatalogCategoryList",
+      "ConsoleCatalogBrand",
+      "ConsoleCatalogBrandList",
     ]) {
       expect(api.schema(name).additionalProperties).toBe(false);
     }
@@ -269,11 +287,29 @@ describe("console-catalog — projections", () => {
     expect(page({ items: [], nextCursor: null })).toBe(true);
   });
 
-  it("accepts a product with no category, price or identifiers", () => {
+  it("accepts a product with no category, brand, price or identifiers", () => {
     const summary = validator("ConsoleCatalogProductSummary");
     expect(
-      summary({ ...SUMMARY, categoryId: null, categoryName: null, primarySku: null, primaryBarcode: null, defaultPrice: null }),
+      summary({
+        ...SUMMARY,
+        categoryId: null,
+        categoryName: null,
+        brandId: null,
+        brandName: null,
+        primarySku: null,
+        primaryBarcode: null,
+        defaultPrice: null,
+      }),
     ).toBe(true);
+  });
+
+  it("requires brandId and brandName on every summary (RT-1334), null without a brand", () => {
+    const summary = validator("ConsoleCatalogProductSummary");
+    const { brandId: _id, ...noBrandId } = SUMMARY;
+    const { brandName: _name, ...noBrandName } = SUMMARY;
+    expect(summary(noBrandId)).toBe(false);
+    expect(summary(noBrandName)).toBe(false);
+    expect(summary({ ...SUMMARY, brandId: "not-a-uuid" })).toBe(false);
   });
 
   it("rejects float money, a negative amount, an unknown status and an extra field", () => {
@@ -306,5 +342,15 @@ describe("console-catalog — projections", () => {
     expect(list({ items: [{ categoryId: CATEGORY_ID, name: "Drinks", description: null, updatedAt: "x", parentId: null }] })).toBe(
       false,
     );
+  });
+
+  it("accepts the flat brand list (RT-1334): no parent, no description", () => {
+    const list = validator("ConsoleCatalogBrandList");
+    const brand = { brandId: BRAND_ID, name: "Nile", updatedAt: "2026-10-01T09:00:00.000Z" };
+    expect(list({ items: [brand] })).toBe(true);
+    expect(list({ items: [] })).toBe(true);
+    expect(list({ items: [{ ...brand, parentId: null }] })).toBe(false);
+    expect(list({ items: [{ ...brand, description: null }] })).toBe(false);
+    expect(list({ items: [{ ...brand, name: "" }] })).toBe(false);
   });
 });
