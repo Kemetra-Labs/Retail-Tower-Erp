@@ -7,7 +7,7 @@
 | **Primary repository** | `Kemetra-Labs/Retail-Tower-Erp`, `services/backend-core/` (the authority). Consumers: `apps/admin-console/`, `apps/pos/`, `integrations/erpnext-connector/` |
 | **Baseline** | `origin/main` @ `2beff6d` (2026-11-11) |
 | **Decisions honoured** | Confluence RETAIL 23134209 (owner-approved 2026-10-07) §11 and §16–21; Pricing decisions (Confluence RETAIL 23855106) 465, 537, 542, 610, 645 as routed to RT-286 by `docs/planning/rt-282-pricing-backlog-draft.md` |
-| **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-5 approved by the owner on 2026-11-11; OD-6 to OD-12 proposed |
+| **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-10 and OD-12 permissions approved by the owner on 2026-11-11; OD-11 open (Connector slice); OD-12 guardrail deferral proposed |
 | **Status** | DRAFT for owner review |
 
 ## 1. Objective
@@ -215,7 +215,7 @@ is due, work from day one.
 - **Validate → Preview → Publish / Schedule.** The preview shows the eligible-set count and a sample, overlaps with other offers (OD-7 refuses them), and a simulation box: "cart of these prices → result" (§18).
 - **Pause** (emergency, with a required reason and audit), **End**, **Archive**. Pausing never deletes history (§21).
 - **Brands.** A list and an editor next to categories, plus a brand field on the product form (S1).
-- **Permissions (OD-12).** `offers.manage` and `offers.publish` go to owner and tenant_admin; `offers.pause` also goes to store_manager for their stores. These are evaluated through the Policy engine (RT-284), not a separate authority model (§21).
+- **Permissions (OD-12).** `offers.manage` and `offers.publish` go to owner and tenant_admin; `offers.pause` also goes to store_manager for their own stores only, with a required reason and audit; resuming a paused offer needs `offers.publish`. These are evaluated through the Policy engine (RT-284), not a separate authority model (§21).
 
 ## 11. Delivery slices (follow-ups to create after owner approval)
 
@@ -233,6 +233,6 @@ is due, work from day one.
 
 ## 12. Acceptance criteria for this Planning item
 
-1. The owner has ratified OD-1 to OD-5, and decided or accepted OD-6 to OD-12.
+1. The owner has accepted the OD-12 guardrail deferral, and OD-11 is decided in slice S8. OD-1 to OD-10 and the OD-12 permissions are approved (2026-11-11) and recorded on RT-286.
 2. Each slice in §11 exists as an RT issue that passes OS §4A, with no duplicate of an existing issue.
 3. The durable decisions are reflected on the Confluence promotions page (23134209), or on a child page linked from RT-286.
