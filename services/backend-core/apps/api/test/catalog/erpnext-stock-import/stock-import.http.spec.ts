@@ -746,3 +746,84 @@ describe("stockImportReportRows — body rules (400)", () => {
     await post(tokenA, item.requestRef, report([])).expect(201);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Independent-review fixes (RT-1288)
+// ---------------------------------------------------------------------------
+
+describe("review fixes", () => {
+  it("never compensates an original that was not imported (no stock-out of a receipt never booked)", async () => {
+    if (skip) return;
+    const LATE_ITEM = "ERP-ITEM-1288-LATE";
+    const original = row({ voucherNo: "MAT-PRE-LATE", detail: "late-1", item: LATE_ITEM, qty: "6", cancelled: true });
+    await importA([original]);
+    expect(await findingsOf(original["ledgerEntryRef"] as string)).toEqual(["unknown_item"]);
+    // The item is mapped afterwards; the voucher's cancellation (reverse row) now resolves.
+    const product = newId();
+    await env!.admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by) VALUES ($1, $2, 'Late', 'standard', $3, $3)`,
+      [product, TENANT_A, ACTOR_A],
+    );
+    await env!.admin.query(
+      `INSERT INTO erpnext_item_map (id, tenant_id, tenant_product_id, erpnext_item_ref, state, suggestion_source, confirmed_by, confirmed_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'confirmed', 'manual', $4, now())`,
+      [TENANT_A, product, LATE_ITEM, ACTOR_A],
+    );
+    const reverse = row({ voucherNo: "MAT-PRE-LATE", detail: "late-1", item: LATE_ITEM, qty: "-6", cancelled: true });
+    await importA([reverse]);
+    expect(await findingsOf(reverse["ledgerEntryRef"] as string)).toEqual(["duplicate_effect_key"]);
+    expect(await effectsByKeyPrefix("Purchase%20Receipt:MAT-PRE-LATE:")).toBe(0);
+  });
+
+  it("links the cancel effect to the effect it compensates", async () => {
+    if (skip) return;
+    const original = row({ voucherNo: "MAT-PRE-CMP", detail: "cmp-1", qty: "2", cancelled: true });
+    const reverse = row({ voucherNo: "MAT-PRE-CMP", detail: "cmp-1", qty: "-2", cancelled: true });
+    await importA([original, reverse]);
+    const o = (await rowRecord(original["ledgerEntryRef"] as string))!;
+    const v = (await rowRecord(reverse["ledgerEntryRef"] as string))!;
+    const r = await env!.admin.query(`SELECT compensates_effect_id FROM stock_movements WHERE id = $1`, [v.effect_id]);
+    expect(r.rows[0].compensates_effect_id).toBe(o.effect_id);
+  });
+
+  it("stores the ERP document as {doctype, name} and keeps erpConfirmedAt's contract meaning in the positions read", async () => {
+    if (skip) return;
+    const r = row({ voucherNo: "MAT-PRE-DOC" });
+    await importA([r]);
+    const rec = (await rowRecord(r["ledgerEntryRef"] as string))!;
+    const i = await env!.admin.query(`SELECT erp_document_ref FROM inventory_effect_integration WHERE effect_id = $1`, [rec.effect_id]);
+    expect(JSON.parse(i.rows[0].erp_document_ref as string)).toEqual({ doctype: "Purchase Receipt", name: "MAT-PRE-DOC" });
+    const positions = await runWithTenantContext(env!.app, { tenantId: TENANT_A, isPlatformAdmin: false }, (c) =>
+      readPendingAwarePositions(c, STORE_A_X),
+    );
+    // No `confirmed` effect exists in this store: an external effect's creation is not a posted-ack time.
+    expect(positions.every((p) => p.latestErpConfirmedAt === null)).toBe(true);
+  });
+
+  it("records an over-long key as unkeyable_row and refuses an entryIndex above INTEGER (400)", async () => {
+    if (skip) return;
+    const arabic = "م".repeat(140);
+    const long = row({ voucherType: arabic, voucherNo: arabic, detail: arabic, item: ITEM_A });
+    await importA([long]);
+    expect(await findingsOf(long["ledgerEntryRef"] as string)).toEqual(["unkeyable_row"]);
+    const item = await openRequest(tokenA, WH_A);
+    const big = report([row({ index: 2_147_483_648 })]);
+    expect((await post(tokenA, item.requestRef, big).expect(400)).body.error.code).toBe("validation_error");
+    await post(tokenA, item.requestRef, report([])).expect(201);
+  });
+
+  it("offers an open page below the caller's cursor again once it is two minutes old", async () => {
+    if (skip) return;
+    const item = await openRequest(tokenA, WH_A);
+    const later = "ffffffff-ffff-7fff-bfff-ffffffffffff";
+    const ahead = await http().get(`${FEED}?since=${later}`).set("Authorization", `Bearer ${tokenA}`).expect(200);
+    expect(ahead.body.items).toEqual([]);
+    await env!.admin.query(`UPDATE erp_stock_import_pages SET issued_at = now() - interval '3 minutes' WHERE id = $1`, [
+      item.requestRef,
+    ]);
+    const again = await http().get(`${FEED}?since=${later}`).set("Authorization", `Bearer ${tokenA}`).expect(200);
+    expect(again.body.items.map((i: Item) => i.requestRef)).toContain(item.requestRef);
+    expect(again.body.cursor).toBe(later);
+    await post(tokenA, item.requestRef, report([])).expect(201);
+  });
+});

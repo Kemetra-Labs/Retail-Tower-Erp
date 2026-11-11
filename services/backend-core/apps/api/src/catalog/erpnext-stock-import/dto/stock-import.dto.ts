@@ -31,9 +31,12 @@ export {
 } from "../../erpnext-bin-view/dto/pull-requests-query.dto";
 
 /** RFC 3339 date-time WITH an offset (`creation` and `readAt`). */
-const DateTimeSchema = z.string().datetime({ offset: true });
+const DateTimeSchema = z.string().max(64).datetime({ offset: true });
 
 const text = (max: number) => z.string().min(1).max(max);
+
+/** `erp_stock_import_rows.entry_index` is an INTEGER: a larger index is a 400, not a 500. */
+const MAX_ENTRY_INDEX = 2_147_483_647;
 
 const ItemRefSchema = z.object({ doctype: z.literal("Item"), name: text(140) }).strict();
 const BatchRefSchema = z.object({ doctype: z.literal("Batch"), name: text(140) }).strict();
@@ -42,14 +45,14 @@ const ReadThroughSchema = z
   .object({
     creation: DateTimeSchema,
     ledgerEntryRef: text(140),
-    entryIndex: z.number().int().min(0),
+    entryIndex: z.number().int().min(0).max(MAX_ENTRY_INDEX),
   })
   .strict();
 
 const RowSchema = z
   .object({
     ledgerEntryRef: text(140),
-    entryIndex: z.number().int().min(0),
+    entryIndex: z.number().int().min(0).max(MAX_ENTRY_INDEX),
     voucherType: text(140),
     voucherNo: text(140),
     voucherDetailNo: text(140).nullable(),

@@ -56,6 +56,9 @@ import {
   journalQuantity,
 } from "./stock-import.rules";
 
+/** The effect journal's `external_id` bound (0096 `effect_key` CHECK). */
+const MAX_EFFECT_KEY_LENGTH = 2000;
+
 type Outcome = "imported" | "covered" | "retail_provenance" | "zero_quantity" | "awaiting_identity" | "finding";
 type FindingKind =
   | "unattributed_erp_movement"
@@ -93,6 +96,8 @@ interface Decision {
   readonly identityId: string | null;
   readonly eventType?: ErpInventoryEventType;
   readonly quantity?: string;
+  /** The original effect a cancellation's reverse row compensates (DC-6). */
+  readonly compensates?: string | null;
 }
 
 const finding = (
@@ -202,6 +207,11 @@ async function decide(
   if (row.hasRetailProvenance) return { outcome: "retail_provenance", ...none };
   if (covered) return { outcome: "covered", ...none };
   if (base === null) return finding("unkeyable_row");
+  // Percent-encoded non-ASCII names can exceed the journal's key bound: a
+  // finding, never a 500 that stalls the warehouse's feed.
+  if (cancelKey(base).length > MAX_EFFECT_KEY_LENGTH) {
+    return finding("unkeyable_row", {}, { reason: "key_too_long", length: base.length });
+  }
   const eventType = erpOwnedEventType(row);
   if (eventType === null) return finding("unattributed_erp_movement", { effectKey: base }, { purpose: row.purpose });
   const product = await resolveProduct(client, row.erpnextItemRef.name);
@@ -218,14 +228,17 @@ async function decide(
   if (tracking.kind === "mismatch") return finding("tracking_mismatch", withProduct, { reason: tracking.reason });
   if (tracking.kind === "awaiting") return { outcome: "awaiting_identity", ...withProduct, identityId: null };
   const key = await keyFor(client, base, row);
-  if (key === null) return finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId });
+  if (key.kind === "duplicate") {
+    return finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId }, { reason: key.reason });
+  }
   return {
     outcome: "imported",
-    effectKey: key,
+    effectKey: key.key,
     productId: product.id,
     identityId: tracking.identityId,
     eventType,
     quantity,
+    compensates: key.compensates,
   };
 }
 
@@ -283,20 +296,36 @@ async function resolveTracking(client: PoolClient, product: ProductFacts, row: S
   return { kind: "ok", identityId: identity.id };
 }
 
+type KeyChoice =
+  | { readonly kind: "key"; readonly key: string; readonly compensates: string | null }
+  | { readonly kind: "duplicate"; readonly reason: string };
+
 /**
- * The key this row imports under, or null for a duplicate. A key already
- * recorded from another ledger position means either the reverse row of a
- * cancellation (DC-6: `cancel` key, once) or a real duplicate.
+ * The key this row imports under (DC-4, DC-6). A row whose base key is already
+ * recorded from another ledger position is either the reverse row of a
+ * cancellation, imported once under the `cancel` key and compensating the
+ * original's effect, or a real duplicate. The reverse row compensates only an
+ * original that moved stock in Retail Tower's books: an imported one (its
+ * effect) or a covered one (the anchor's Bin holds it). An original that was a
+ * finding, awaited its identity or moved nothing gave no stock to take back,
+ * so its reverse row is a finding too, never a stock-out of a receipt that was
+ * never imported.
  */
-async function keyFor(client: PoolClient, base: string, row: StockImportRowInput): Promise<string | null> {
-  const r = await client.query<{ effect_key: string }>(
-    `SELECT DISTINCT effect_key FROM erp_stock_import_rows WHERE effect_key = ANY($1::text[])`,
+async function keyFor(client: PoolClient, base: string, row: StockImportRowInput): Promise<KeyChoice> {
+  const r = await client.query<{ effect_key: string; outcome: string; effect_id: string | null }>(
+    `SELECT effect_key, outcome, effect_id FROM erp_stock_import_rows
+      WHERE effect_key = ANY($1::text[])
+      ORDER BY recorded_at, id`,
     [[base, cancelKey(base)]],
   );
-  const seen = new Set(r.rows.map((x) => x.effect_key));
-  if (!seen.has(base)) return base;
-  if (row.isCancelled && !seen.has(cancelKey(base))) return cancelKey(base);
-  return null;
+  const original = r.rows.find((x) => x.effect_key === base);
+  if (original === undefined) return { kind: "key", key: base, compensates: null };
+  if (!row.isCancelled) return { kind: "duplicate", reason: "key_exists" };
+  if (r.rows.some((x) => x.effect_key === cancelKey(base))) return { kind: "duplicate", reason: "cancel_exists" };
+  if (original.outcome !== "imported" && original.outcome !== "covered") {
+    return { kind: "duplicate", reason: `original_${original.outcome}` };
+  }
+  return { kind: "key", key: cancelKey(base), compensates: original.effect_id };
 }
 
 /** The landing status of an identity-grain effect: its active hold, recall over quality (G7-4). */
@@ -329,10 +358,10 @@ async function writeEffect(
     `INSERT INTO stock_movements
        (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason,
         occurred_at, received_at, source_system, external_id, created_by, origin, event_type, event_ref_id,
-        stock_location_id, inventory_status, tracking_identity_id)
+        stock_location_id, inventory_status, tracking_identity_id, compensates_effect_id)
      VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8,
              $9::timestamptz, clock_timestamp(), $10, $11, $12, 'erp_external', $13, $14,
-             $15, $16, $17)
+             $15, $16, $17, $18)
      ON CONFLICT (tenant_id, source_system, external_id)
        WHERE source_system IS NOT NULL AND external_id IS NOT NULL
        DO NOTHING
@@ -355,6 +384,7 @@ async function writeEffect(
       ctx.primaryLocationId,
       status,
       d.identityId,
+      d.compensates ?? null,
     ],
   );
   const effectId = inserted.rows[0]?.id ?? null;
@@ -362,7 +392,8 @@ async function writeEffect(
   await client.query(
     `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, erp_document_ref, erp_confirmed_at)
      VALUES ($1, $2, 'external', $3, $4::timestamptz)`,
-    [effectId, ctx.tenantId, row.voucherNo, row.creation],
+    // {doctype, name} JSON text, as erpnext_posting_status writes it.
+    [effectId, ctx.tenantId, JSON.stringify({ doctype: row.voucherType, name: row.voucherNo }), row.creation],
   );
   return effectId;
 }
@@ -401,7 +432,7 @@ async function recordRow(
       row.actualQty,
       row.stockUom,
       d.outcome,
-      d.effectKey,
+      d.effectKey !== null && d.effectKey.length <= MAX_EFFECT_KEY_LENGTH ? d.effectKey : null,
       d.productId,
       d.identityId,
       effectId,

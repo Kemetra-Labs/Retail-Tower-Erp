@@ -60,6 +60,14 @@ export const STOCK_IMPORT_OVERLAP_SECONDS = 3600 + STOCK_IMPORT_SETTLE_SECONDS;
 const STOCK_IMPORT_PAGE_MAX_ROWS = 100;
 /** The least time between one run's end and the next run's start, per warehouse. */
 const STOCK_IMPORT_RUN_INTERVAL_SECONDS = 300;
+/**
+ * An open page whose id is not after the caller's `since` is offered again once
+ * it is this old. Page ids are UUIDv7 from the API clock, and a page committed
+ * after a pull already returned a later id would otherwise wait for the page
+ * timeout (review finding, RT-1288). Re-pulling a page is harmless: its
+ * `requestRef` is stable and its report is recorded once.
+ */
+const STOCK_IMPORT_REOFFER_SECONDS = 120;
 /** How long an issued page may wait for its report before its run is failed. */
 const STOCK_IMPORT_PAGE_TIMEOUT_SECONDS = 3600;
 const FEED_MAX_PAGE = 500;
@@ -202,10 +210,11 @@ export class ErpnextStockImportService {
            FROM erp_stock_import_pages p
            JOIN erp_stock_import_runs r ON r.id = p.run_id
           WHERE p.recorded_at IS NULL AND r.status = 'running'
-            AND ($1::uuid IS NULL OR p.id > $1::uuid)
+            AND ($1::uuid IS NULL OR p.id > $1::uuid
+                 OR p.issued_at < now() - make_interval(secs => $3))
           ORDER BY p.id
           LIMIT $2`,
-        [since, limit],
+        [since, limit, STOCK_IMPORT_REOFFER_SECONDS],
       );
       const items = r.rows.map(
         (row): StockImportRequestWire => ({
@@ -222,13 +231,21 @@ export class ErpnextStockImportService {
           itemCursor: row.page_id,
         }),
       );
-      const advanced = items.length > 0 ? items[items.length - 1]!.requestRef : null;
+      // Never move the cursor back: a re-offered laggard sorts below `since`.
+      const last = items.length > 0 ? items[items.length - 1]!.requestRef.toLowerCase() : null;
+      const advanced = last !== null && since !== null && last < since.toLowerCase() ? since : last;
       return { items, cursor: advanced, nextPageToken: items.length === limit ? advanced : null };
     });
   }
 
-  /** Close the running runs whose page timed out or whose warehouse map is no longer active. */
+  /**
+   * Close the running runs whose page timed out or whose warehouse map is no
+   * longer active. The running runs are locked in id order first, so two
+   * concurrent pulls (or a pull and a report) wait for each other instead of
+   * deadlocking.
+   */
   private async failStaleRuns(client: PoolClient): Promise<void> {
+    await client.query(`SELECT id FROM erp_stock_import_runs WHERE status = 'running' ORDER BY id FOR UPDATE`);
     await client.query(
       `UPDATE erp_stock_import_runs r
           SET status = 'failed', ended_at = now(),
@@ -388,6 +405,11 @@ export class ErpnextStockImportService {
       // The run was opened for an activated tenant; an anchor that is gone now
       // cannot classify anything. Nothing is imported; the rows are re-read later.
       await this.closeRun(client, page.run_id, "failed", "not_activated");
+      // Its rows were not ingested: the next run must not start after them.
+      await client.query(
+        `UPDATE erp_stock_import_pages SET read_through = NULL, read_through_creation = NULL WHERE id = $1`,
+        [page.page_id],
+      );
       return;
     }
     await ingestRows(

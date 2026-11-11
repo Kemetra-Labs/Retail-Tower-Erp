@@ -70,7 +70,9 @@ moves AS (
          COALESCE(sum(mv.quantity) FILTER (WHERE i.state IN ('pending', 'rejected', 'reconciliation_required')), 0)
            AS pending_erp,
          COALESCE(sum(mv.quantity) FILTER (WHERE i.state IS NULL OR i.state = 'not_posted'), 0) AS pending_retail,
-         max(i.erp_confirmed_at) AS latest_confirmed_at,
+         -- Of a confirmed effect only: an external (ERP-origin, RT-1288) effect
+         -- stores its SLE creation there too, which is not a posted-ack time.
+         max(i.erp_confirmed_at) FILTER (WHERE i.state = 'confirmed') AS latest_confirmed_at,
          min(mv.stocking_unit) AS unit
     FROM anchor
     JOIN stock_movements mv ON mv.store_id = anchor.store_id AND ${SINCE_ANCHOR}
