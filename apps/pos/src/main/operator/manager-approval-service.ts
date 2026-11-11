@@ -57,6 +57,17 @@ import type { OperatorSessionRecord } from './session-manager.js';
 /** C7: an approval lapses this long after it was issued. */
 export const APPROVAL_TTL_MS = 120_000;
 
+/**
+ * RT-1326 (RT-1125 R-37) — wrong approver PINs one request may spend. A
+ * request is one cashier session asking for one action kind on one subject.
+ * Past the cap the request is refused, without consulting the PIN store,
+ * until `APPROVAL_TRY_WINDOW_MS` after the first counted failure; a granted
+ * approval or a new session starts afresh. The PIN store's own lockout and
+ * disable-after-three-lockouts guard are unchanged.
+ */
+export const APPROVAL_TRY_CAP = 3;
+export const APPROVAL_TRY_WINDOW_MS = 5 * 60 * 1000;
+
 /** The policy an approval was checked against (RT-114 reconciliation 2026-10-07). */
 export const APPROVAL_POLICY_VERSION = 'rt114-2026-10-07';
 
@@ -272,11 +283,83 @@ function recordedRequesterUserId(
   return isRecoveryKind(kind) ? null : requesterUserIdOf(session);
 }
 
+/**
+ * RT-1326: every failed approver PIN, and every request refused at the cap,
+ * names the requesting session (actor) and its `users.id`, the approver
+ * handle tried and the request's failure count. Never the PIN.
+ */
+function failedTryAudit(
+  session: OperatorSessionRecord,
+  scope: ManagerPinScope,
+  input: ManagerApprovalRequest,
+  failedTries: number,
+  outcome: 'approver_refused' | 'attempts_exhausted',
+): {
+  session: OperatorSessionRecord;
+  scope: ManagerPinScope;
+  category: 'manager_approval.refused';
+  approverUserId: null;
+  payload: Record<string, unknown>;
+} {
+  return {
+    session,
+    scope,
+    category: 'manager_approval.refused',
+    approverUserId: null,
+    payload: {
+      action_kind: input.action_kind,
+      subject_ref: input.subject_ref,
+      approver_ref: input.approver_ref,
+      requester_user_id: recordedRequesterUserId(input.action_kind, session),
+      failed_tries: failedTries,
+      outcome,
+    },
+  };
+}
+
+/**
+ * RT-1326: failed approver PINs per request (session, kind, subject). An entry
+ * past `APPROVAL_TRY_WINDOW_MS` from its first failure counts as zero.
+ */
+function createApprovalTryCounter(now: () => string): {
+  spent(key: string): number;
+  fail(key: string): number;
+  clear(key: string): void;
+} {
+  const entries = new Map<string, { failed: number; firstAtMs: number }>();
+  return {
+    spent(key) {
+      const entry = entries.get(key);
+      if (entry === undefined) return 0;
+      if (Date.parse(now()) - entry.firstAtMs > APPROVAL_TRY_WINDOW_MS) {
+        entries.delete(key);
+        return 0;
+      }
+      return entry.failed;
+    },
+    fail(key) {
+      const entry = entries.get(key) ?? { failed: 0, firstAtMs: Date.parse(now()) };
+      const next = { ...entry, failed: entry.failed + 1 };
+      entries.set(key, next);
+      return next.failed;
+    },
+    clear(key) {
+      entries.delete(key);
+    },
+  };
+}
+
+/** RT-1326: one approval request is one session, one action kind, one subject. */
+function triesKey(session: OperatorSessionRecord, input: ManagerApprovalRequest): string {
+  return JSON.stringify([session.id, input.action_kind, input.subject_ref]);
+}
+
 export function createManagerApprovalService(
   deps: ManagerApprovalServiceDeps,
 ): ManagerApprovalService {
   const ttlMs = deps.ttlMs ?? APPROVAL_TTL_MS;
   const newId = deps.newId ?? randomUUID;
+  const tries = createApprovalTryCounter(deps.now);
 
   /** Steps 1 and 2: the live session and its terminal scope, or a refusal. */
   function admit(
@@ -361,17 +444,20 @@ export function createManagerApprovalService(
       const before = resolve(kind, input.subject_ref, session);
       if (before === null) return refused('approval_invalid');
 
+      // RT-1326: past the cap the PIN store is not consulted at all.
+      const key = triesKey(session, input);
+      const spent = tries.spent(key);
+      if (spent >= APPROVAL_TRY_CAP) {
+        audit(failedTryAudit(session, scope, input, spent, 'attempts_exhausted'));
+        return refused('approval_attempts_exhausted');
+      }
+
       const approver = await verifyApprover(input, session, scope, before.sellerUserId);
       if (approver === null) {
-        audit({
-          session,
-          scope,
-          category: 'manager_approval.refused',
-          approverUserId: null,
-          payload: { action_kind: kind, subject_ref: input.subject_ref },
-        });
+        audit(failedTryAudit(session, scope, input, tries.fail(key), 'approver_refused'));
         return refused('approval_unavailable');
       }
+      tries.clear(key);
       if (movedDuringVerify(input, session, before)) return refused('approval_stale');
 
       const approvalId = insertApproval({ input, session, scope, before, approver });

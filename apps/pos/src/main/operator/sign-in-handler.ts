@@ -445,7 +445,47 @@ export function makeShiftDismissKey(
 }
 
 export class CashierSignInHandler {
+  /**
+   * RT-1326 (RT-1125 R-17) — one PIN attempt at a time per cashier PIN row.
+   * An attempt reads the row, awaits Argon2, then writes the count it computed;
+   * run concurrently, every attempt would read the same count. Sign-in and the
+   * same-operator unlock share the row, so they share this queue.
+   */
+  private readonly pinQueues = new Map<string, Promise<unknown>>();
+
   constructor(private readonly deps: CashierSignInHandlerDeps) {}
+
+  /** Runs `task` after every earlier attempt on the same PIN row has settled. */
+  private serialisedAttempt<T>(scope: PinScope, task: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify([
+      scope.tenant_id,
+      scope.branch_id,
+      scope.terminal_id,
+      scope.cashier_clerk_user_id,
+    ]);
+    const run = (this.pinQueues.get(key) ?? Promise.resolve()).then(task);
+    const settled = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.pinQueues.set(key, settled);
+    void settled.then(() => {
+      if (this.pinQueues.get(key) === settled) this.pinQueues.delete(key);
+    });
+    return run;
+  }
+
+  /** Load the PIN row, verify, persist the lockout state: one serialised attempt. */
+  private attemptPin(
+    scope: PinScope,
+    pin: string,
+  ): Promise<{ row: LoadedPinRow; refusal: OperatorRefusal | null } | OperatorRefusal> {
+    return this.serialisedAttempt(scope, async () => {
+      const loaded = this.loadPinRow(scope);
+      if ('kind' in loaded) return loaded;
+      return { row: loaded, refusal: await this.verifyPinAndUpdateLockout(pin, loaded, scope) };
+    });
+  }
 
   /**
    * RT-117 (RT-116 §2.4) — verify a cashier's PIN on this terminal WITHOUT
@@ -465,9 +505,8 @@ export class CashierSignInHandler {
       terminal_id: pairingStatus.terminal_id,
       cashier_clerk_user_id,
     };
-    const loaded = this.loadPinRow(scope);
-    if ('kind' in loaded) return loaded;
-    return await this.verifyPinAndUpdateLockout(pin, loaded, scope);
+    const attempt = await this.attemptPin(scope, pin);
+    return 'kind' in attempt ? attempt : attempt.refusal;
   }
 
   async signIn(req: CashierSignInRequest): Promise<SignInResponse> {
@@ -486,14 +525,13 @@ export class CashierSignInHandler {
       cashier_clerk_user_id: req.cashier_clerk_user_id,
     };
 
-    // 2–4. Fetch sealed pin row, PR-4 scope guard, unseal pin material.
-    const loaded = this.loadPinRow(scope);
-    if ('kind' in loaded) return loaded;
-    const pinRow = loaded;
-
-    // 5. Verify PIN — verifyPinWithWindow handles PR-3 expired-lockout reset
-    const pinRefusal = await this.verifyPinAndUpdateLockout(req.pin, pinRow, scope);
-    if (pinRefusal !== null) return pinRefusal;
+    // 2–5. Fetch the sealed pin row (PR-4 scope guard, unseal) and verify the
+    // PIN (verifyPinWithWindow handles the PR-3 expired-lockout reset), as one
+    // attempt serialised per PIN row (RT-1326).
+    const attempt = await this.attemptPin(scope, req.pin);
+    if ('kind' in attempt) return attempt;
+    if (attempt.refusal !== null) return attempt.refusal;
+    const pinRow = attempt.row;
     // RT-444 — after the PIN (an unverified person learns nothing), before admission.
     const candidate = { operator_id: req.cashier_clerk_user_id, role: 'cashier' as const };
     const notAdmitted = admissionRefusal(this.deps.sessionAdmission, 'check', candidate);

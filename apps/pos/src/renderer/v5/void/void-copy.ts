@@ -59,6 +59,9 @@ const REFUSALS: Readonly<Record<SaleVoidRefusalReason | ManagerApprovalRefusalRe
   // the four-eyes rule so the cashier knows another manager is needed.
   approval_unavailable:
     'تعذّر التأكيد: الرقم السري غير صحيح أو غير مفعّل، أو أن المؤكِّد هو طالب الإلغاء أو بائع الفاتورة. يجب أن يؤكد مدير آخر.',
+  // RT-1326: three wrong approver PINs on this request.
+  approval_attempts_exhausted:
+    'أُدخل رقم سري خاطئ ثلاث مرات لهذا الطلب. انتظر خمس دقائق ثم اطلب الموافقة من جديد.',
   not_applicable: 'لا يحتاج هذا الإجراء إلى تأكيد.',
   // Backend-Core refusals (terminal, shown on the queued void).
   void_outside_business_day:
