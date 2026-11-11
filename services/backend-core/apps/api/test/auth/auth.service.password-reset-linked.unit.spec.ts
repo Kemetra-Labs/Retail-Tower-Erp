@@ -2,12 +2,12 @@
  * auth.service.password-reset-linked.unit.spec.ts — RT-1262 (auth review F-001).
  *
  * A user with an ACTIVE external identity link signs in with the provider's
- * password only (RT-937 D-A); the local hash is never read for them. Until the
- * provider-backed recovery of RT-937 item 3 exists, the legacy local reset must
- * not act on such a user:
+ * password only (RT-937 D-A); the local hash is never read for them. The legacy
+ * local reset must not act on such a user (provider-backed recovery, RT-1327, is
+ * pinned in `auth.service.password-reset-provider`):
  *
- *   - request: no token is issued and no email is sent (the route still answers
- *     202, decided by the controller, so nothing reveals the link);
+ *   - request: no LOCAL token is issued and no LOCAL email is sent (the route
+ *     still answers 202, decided by the controller, so nothing reveals the link);
  *   - confirm: the token is consumed, then refused with the same generic 400 as
  *     an invalid token. No hash is written, no session is revoked, and no address
  *     is returned (so the controller clears no sign-in lockout);
@@ -102,9 +102,14 @@ function build(linkSubject: string | null) {
     {
       endSupportSessions,
       externalCredentials: {
-        port: {} as ExternalCredentialPort,
+        // RT-1327: a linked user's request is now handed to the provider (the legacy
+        // token and email stay unissued); the provider paths have their own spec.
+        port: {
+          sendPasswordReset: jest.fn().mockResolvedValue({ kind: "sent" }),
+        } as unknown as ExternalCredentialPort,
         verifier: { verify: jest.fn() } as OperatorTokenVerifier,
         activeLinkSubject,
+        findUserByLinkSubject: jest.fn().mockResolvedValue(null),
       },
     },
   );

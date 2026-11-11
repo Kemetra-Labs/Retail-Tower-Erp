@@ -102,6 +102,10 @@ services:
       DESCOPE_PROJECT_ID: ${DESCOPE_PROJECT_ID:?DESCOPE_PROJECT_ID required (Descope project id)}
       DESCOPE_JWT_ISSUER: ${DESCOPE_JWT_ISSUER:-}
       DESCOPE_JWT_AUDIENCE: ${DESCOPE_JWT_AUDIENCE:-}
+      # RT-1327: Admin Console origin the Descope recovery link returns to
+      # (<origin>/reset-password). Same value as the worker's. Empty leaves provider
+      # password recovery off (no link is sent; the route still answers 202).
+      CONSOLE_BASE_URL: ${CONSOLE_BASE_URL:-}
       # RT-1122: session-token age cap in seconds; empty keeps the 8 h 30 min default.
       DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS: ${DESCOPE_JWT_MAX_TOKEN_AGE_SECONDS:-}
       # RT-937 Admin sign-in and invite acceptance. A secret kept in backend.env;

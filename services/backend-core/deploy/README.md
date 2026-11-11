@@ -891,7 +891,7 @@ the email. This change does not alter memberships or Descope.
 | `EMAIL_TRANSPORT` | same | `ses` in production. `noop` or unset is accepted only outside production. |
 | `EMAIL_FROM` | same | One address on the verified SES domain, for example `no-reply@<domain>`. It must match the IAM user's `ses:FromAddress` condition. |
 | `SES_REGION` | same | The region of the verified SES identity (`us-east-1` for the lab). |
-| `CONSOLE_BASE_URL` | same | The Admin Console origin over https, with no path, query or credentials. |
+| `CONSOLE_BASE_URL` | same, and to the api (RT-1327) | The Admin Console origin over https, with no path, query or credentials. The api builds the Descope password-recovery return URL, `<CONSOLE_BASE_URL>/reset-password`, from it; empty or invalid leaves provider recovery off (no link is sent, the route still answers 202). |
 | `EMAIL_SES_ACCESS_KEY_ID`, `EMAIL_SES_SECRET_ACCESS_KEY` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | **Secret.** The key of an IAM user allowed only `ses:SendEmail` on the domain identity, pinned to `EMAIL_FROM`. Only the worker container receives it. |
 
 - **Fail closed:** with `NODE_ENV=production`, the worker refuses to boot (`EmailConfigError`

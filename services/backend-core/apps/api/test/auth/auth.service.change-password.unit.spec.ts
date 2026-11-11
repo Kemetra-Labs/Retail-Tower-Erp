@@ -90,6 +90,7 @@ function build(opts: {
       port,
       verifier,
       activeLinkSubject: jest.fn().mockResolvedValue(opts.linkSubject === undefined ? SUBJECT : opts.linkSubject),
+      findUserByLinkSubject: jest.fn().mockResolvedValue(null),
     },
   });
   return { service, sessions, port, verifier, endSupportSessions };

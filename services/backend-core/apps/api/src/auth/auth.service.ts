@@ -147,6 +147,14 @@ export interface ExternalCredentials {
   readonly verifier: OperatorTokenVerifier;
   /** The subject of the user's ACTIVE external link, or null when the user has none. */
   readonly activeLinkSubject: (userId: string) => Promise<string | null>;
+  /**
+   * RT-1327: the live user whose ACTIVE link to this provider has this subject, or
+   * null (unlinked, disabled, soft-deleted or ambiguous). A recovery proof
+   * authenticates only through this lookup.
+   */
+  readonly findUserByLinkSubject: (
+    subject: string,
+  ) => Promise<{ readonly userId: string; readonly email: string } | null>;
 }
 
 /** Audit action strings emitted from the sign-in flow (per `tasks.md` T230). */
@@ -530,15 +538,20 @@ export class AuthService {
    * an active user, issue a one-shot reset token and enqueue the email
    * job; otherwise do nothing. The controller returns 202 either way.
    *
-   * RT-1262: a user with an ACTIVE external identity link signs in with the
-   * provider's password only, so a local reset cannot help them. Nothing is
-   * issued or sent until provider-backed recovery exists (RT-937 item 3). The
-   * route still answers 202, so the link is not disclosed.
+   * RT-1262 / RT-1327: a user with an ACTIVE external identity link signs in with
+   * the provider's password only, so a local reset cannot help them. No local
+   * token is issued and no local email is sent; the provider is asked to send its
+   * own recovery link instead (it mails only a verified address). Every provider
+   * outcome is ignored here, so the route's 202 never discloses the link, the
+   * verification state or an outage.
    */
   async requestPasswordReset(input: { email: string }): Promise<void> {
     const userRow = await this.findActiveUserByEmail(input.email);
     if (!userRow) return; // silent success — no leak
-    if ((await this.externalLinkSubject(userRow.id)) !== null) return;
+    if ((await this.externalLinkSubject(userRow.id)) !== null) {
+      await this.external?.port.sendPasswordReset(userRow.email);
+      return;
+    }
 
     const rawToken = generateRawToken();
     await this.requireAuthTokens().issue(rawToken, {
@@ -586,7 +599,9 @@ export class AuthService {
       input.rawToken,
       AUTH_TOKEN_SCOPES.passwordReset,
     );
-    if (!tokenRow || tokenRow.userId === null) {
+    // RT-1327: a token Backend-Core does not hold is the provider's recovery proof.
+    if (!tokenRow) return this.confirmProviderReset(input);
+    if (tokenRow.userId === null) {
       throw new BadRequestException(INVALID_RESET_TOKEN);
     }
     const userId = tokenRow.userId;
@@ -606,6 +621,52 @@ export class AuthService {
     // RT-625 D2: the address whose sign-in lockout the controller lifts. Null
     // when no live user took the new password (nothing to clear).
     return updated[0]?.email ?? null;
+  }
+
+  /**
+   * RT-1327: complete a provider-backed recovery. The provider owns the one-time
+   * proof, so nothing here validates the token itself:
+   *
+   *   1. the provider consumes the proof and returns a session (a used, expired
+   *      or unknown proof is refused; an outage is also the generic 400, because
+   *      the contract has no 503 and the user can simply request a new link);
+   *   2. that session token must verify, and its subject must be an ACTIVE link
+   *      of a live user (the link, not the provider's answer, names the account);
+   *   3. the provider then sets the new password (its policy applies; a refusal
+   *      has already consumed the link, so the user requests a new one);
+   *   4. every Backend-Core session of the user is revoked, as in the legacy reset.
+   *
+   * No local hash is written and no session is minted: the user signs in again
+   * through `POST /auth/signin`. The refresh token lives only in this call. Every
+   * failure is the same generic 400, so nothing reveals which step refused.
+   */
+  private async confirmProviderReset(input: { rawToken: string; newPassword: string }): Promise<string> {
+    const external = this.external;
+    if (!external) throw new BadRequestException(INVALID_RESET_TOKEN);
+
+    const proof = await external.port.verifyResetToken(input.rawToken);
+    if (proof.kind !== "ok") throw new BadRequestException(INVALID_RESET_TOKEN);
+
+    const subject = await this.verifiedSubject(external, proof.sessionJwt);
+    const user = subject === null ? null : await external.findUserByLinkSubject(subject);
+    if (!user) throw new BadRequestException(INVALID_RESET_TOKEN);
+
+    const updated = await external.port.updatePassword(user.email, input.newPassword, proof.refreshJwt);
+    if (updated.kind !== "ok") throw new BadRequestException(INVALID_RESET_TOKEN);
+
+    await this.revokeAllSessionsForUser(user.userId);
+    await this.endSupportSessions({ userId: user.userId }, null);
+    // The proof showed control of the address: the controller lifts its sign-in lockout (RT-625 D2).
+    return user.email;
+  }
+
+  /** The subject of a provider session token that verifies, or null. */
+  private async verifiedSubject(external: ExternalCredentials, sessionJwt: string): Promise<string | null> {
+    try {
+      return (await external.verifier.verify(sessionJwt)).sub;
+    } catch {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------
