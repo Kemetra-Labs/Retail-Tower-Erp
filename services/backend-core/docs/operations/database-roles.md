@@ -624,6 +624,22 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any voucher is stored.
 
+- **Migration `0092_voucher_redemptions` (RT-1111).** Run
+  [`sql/voucher-redemptions-domain-grants.sql`](sql/voucher-redemptions-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `voucher_redemption_intents` and `voucher_redemptions`, plus column-level
+  `UPDATE` only: `voucher_redemption_intents (consumed_at)` (redeem consumes
+  the intent) and `voucher_redemptions (reversed_at, reversed_by_device_id)`
+  (reverse). The boot check reads the columns from `domainRequiredColumns`. No
+  `DELETE` policy on either table: never grant `DELETE` or `TRUNCATE`, nor a
+  wider `UPDATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0092 creates two new, empty
+  tables (no backfill) and needs no maintenance window. Its down migration
+  refuses while any intent or redemption is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

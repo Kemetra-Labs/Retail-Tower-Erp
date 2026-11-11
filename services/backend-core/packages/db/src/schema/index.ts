@@ -68,3 +68,5 @@ export * from "./platform-support-sessions";
 export * from "./tenant-branding";
 export * from "./vouchers/vouchers";
 export * from "./vouchers/voucher-eligible-stores";
+export * from "./vouchers/voucher-redemption-intents";
+export * from "./vouchers/voucher-redemptions";
