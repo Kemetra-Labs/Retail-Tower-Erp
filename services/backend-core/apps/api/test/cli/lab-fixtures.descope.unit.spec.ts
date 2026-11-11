@@ -105,7 +105,7 @@ describe("DescopeTestUsers.findFixtureUser", () => {
 describe("DescopeTestUsers.createTestUser", () => {
   it("creates a passwordless test user with no mail, SMS or invite", async () => {
     const { users, calls } = client([json(200, { user: { userId: "U7" } })]);
-    await expect(users.createTestUser("rtfx-cashier-007", "RT Fixture Cashier 007")).resolves.toEqual({
+    await expect(users.createTestUser("rtfx-cashier-007", "rtfx-cashier-007@fixtures.invalid", "RT Fixture Cashier 007")).resolves.toEqual({
       kind: "created",
       userId: "U7",
     });
@@ -113,6 +113,7 @@ describe("DescopeTestUsers.createTestUser", () => {
     const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
     expect(body).toEqual({
       loginId: "rtfx-cashier-007",
+      email: "rtfx-cashier-007@fixtures.invalid",
       name: "RT Fixture Cashier 007",
       test: true,
       invite: false,
@@ -120,7 +121,6 @@ describe("DescopeTestUsers.createTestUser", () => {
       sendSMS: false,
     });
     expect(body).not.toHaveProperty("password");
-    expect(body).not.toHaveProperty("email");
   });
 
   it.each([
@@ -130,8 +130,25 @@ describe("DescopeTestUsers.createTestUser", () => {
     [new Error("down"), "unavailable"],
   ])("maps the answer to %#", async (answer, kind) => {
     const { users } = client([answer]);
-    await expect(users.createTestUser("x", "n")).resolves.toEqual({ kind });
+    await expect(users.createTestUser("x", "x@fixtures.invalid", "n")).resolves.toEqual({ kind });
   });
+});
+
+describe("DescopeTestUsers.createTestUser rejection codes", () => {
+  it("keeps a well-formed provider error code and nothing else", async () => {
+    const { users } = client([json(400, { errorCode: "E011002", errorDescription: "Missing email or phone", message: "secret-ish" })]);
+    const result = await users.createTestUser("x", "x@fixtures.invalid", "n");
+    expect(result).toEqual({ kind: "rejected", code: "E011002" });
+    expect(JSON.stringify(result)).not.toContain("Missing email");
+  });
+
+  it.each([[{ errorCode: "oops" }], [{ errorCode: 11002 }], [{ errorCode: "E01100" }], [{}]])(
+    "drops a malformed or missing code (%j)",
+    async (body) => {
+      const { users } = client([json(400, body)]);
+      await expect(users.createTestUser("x", "x@fixtures.invalid", "n")).resolves.toEqual({ kind: "rejected" });
+    },
+  );
 });
 
 describe("DescopeTestUsers construction", () => {
