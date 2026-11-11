@@ -1,7 +1,7 @@
--- Domain-role grants for catalog brands (RT-1334, migration 0095).
+-- Domain-role grants for catalog brands (RT-1334, migration 0097).
 -- See docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0095 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0097 and BEFORE the
 -- API image that needs it is rolled, as the migration owner (or any role
 -- allowed to grant on this table). This file holds NO credential. Give psql
 -- the connection through libpq environment variables

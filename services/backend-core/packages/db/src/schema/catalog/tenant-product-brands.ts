@@ -13,7 +13,7 @@
  * `tenant_products.brand_id`.
  *
  * RLS: ENABLE + FORCE by `tenant_id`, SELECT / INSERT / UPDATE policies and no
- * DELETE policy. Policies live in `0095_tenant_product_brands.sql`.
+ * DELETE policy. Policies live in `0097_tenant_product_brands.sql`.
  */
 import { sql } from "drizzle-orm";
 import {

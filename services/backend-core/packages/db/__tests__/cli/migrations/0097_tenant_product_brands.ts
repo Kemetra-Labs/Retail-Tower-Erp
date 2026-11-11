@@ -1,5 +1,5 @@
 /**
- * 0095_tenant_product_brands (RT-1334, RT-286 S1): [the tenant_product_brands
+ * 0097_tenant_product_brands (RT-1334, RT-286 S1): [the tenant_product_brands
  * table, its policies (3), the tenant_products.brand_id column, its validated
  * composite FK].
  */
@@ -8,7 +8,7 @@ import { countColumns, countPolicies, countTables, type MigrationEntry } from ".
 const TABLES = ["tenant_product_brands"];
 
 export const MIGRATION: MigrationEntry = {
-  id: "0095_tenant_product_brands",
+  id: "0097_tenant_product_brands",
   probe: {
     measure: async (db) => [
       await countTables(db, TABLES),

@@ -1,8 +1,8 @@
 /**
- * RT-1334 (RT-286 spec 048 slice S1): `0095_tenant_product_brands` migration
+ * RT-1334 (RT-286 spec 048 slice S1): `0097_tenant_product_brands` migration
  * test.
  *
- * Validates `packages/db/drizzle/0095_tenant_product_brands.sql` (+ `.down.sql`)
+ * Validates `packages/db/drizzle/0097_tenant_product_brands.sql` (+ `.down.sql`)
  * on a real PostgreSQL 16 (Testcontainers), applied on top of every earlier
  * migration with a product already in the catalog (the UPGRADE path):
  *   - FORCE RLS on `tenant_product_brands` and the exact policy set (SELECT,
@@ -32,9 +32,9 @@ import { applyMigrationsBefore, asApp, asMigrationOwner, errorCode, runSqlFile }
 import { ensureAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP_NAME = "0095_tenant_product_brands.sql";
+const UP_NAME = "0097_tenant_product_brands.sql";
 const UP_PATH = resolve(DRIZZLE_DIR, UP_NAME);
-const DOWN_PATH = resolve(DRIZZLE_DIR, "0095_tenant_product_brands.down.sql");
+const DOWN_PATH = resolve(DRIZZLE_DIR, "0097_tenant_product_brands.down.sql");
 
 const id = (n: string): string => `09500000-0000-7000-8000-0000000${n}`;
 const TENANT_A = id("0a001");
@@ -73,7 +73,7 @@ beforeAll(async () => {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
       // eslint-disable-next-line no-console
-      console.warn(`\n[0095-tenant-product-brands.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
+      console.warn(`\n[0097-tenant-product-brands.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
       return;
     }
     throw new Error(`Container start failed: ${dockerSkipReason}`);
@@ -145,14 +145,14 @@ async function runFileWithEmptyGuc(path: string, role: string): Promise<string |
   }
 }
 
-describe("0095: files exist", () => {
+describe("0097: files exist", () => {
   it("up + down migration files are present", () => {
     expect(existsSync(UP_PATH)).toBe(true);
     expect(existsSync(DOWN_PATH)).toBe(true);
   });
 });
 
-describe("0095: RLS and policies", () => {
+describe("0097: RLS and policies", () => {
   it("forces RLS on tenant_product_brands with SELECT, INSERT and UPDATE policies and no DELETE policy", async () => {
     if (skip()) return;
     const rls = await guard().admin.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
@@ -172,7 +172,7 @@ describe("0095: RLS and policies", () => {
   });
 });
 
-describe("0095: brand constraints", () => {
+describe("0097: brand constraints", () => {
   it("bounds the name to 1..200 characters", async () => {
     if (skip()) return;
     expect(await tryRun(INSERT_BRAND, [BRAND_A, TENANT_A, "x".repeat(200), ACTOR])).toBeNull();
@@ -202,7 +202,7 @@ describe("0095: brand constraints", () => {
   });
 });
 
-describe("0095: tenant_products.brand_id", () => {
+describe("0097: tenant_products.brand_id", () => {
   it("is a nullable uuid that existing products hold as NULL", async () => {
     if (skip()) return;
     const col = await guard().admin.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
@@ -273,7 +273,7 @@ describe("0095: tenant_products.brand_id", () => {
   });
 });
 
-describe("0095: tenant isolation (AC1, FORCE RLS)", () => {
+describe("0097: tenant isolation (AC1, FORCE RLS)", () => {
   it("lets the app role read and change only its own tenant's brands, never delete one", async () => {
     if (skip()) return;
     await seedBrands();
@@ -326,7 +326,7 @@ describe("0095: tenant isolation (AC1, FORCE RLS)", () => {
   });
 });
 
-describe("0095: UP -> DOWN -> UP", () => {
+describe("0097: UP -> DOWN -> UP", () => {
   const exists = async (table: string): Promise<boolean> =>
     (await guard().admin.query<{ t: string | null }>(`SELECT to_regclass($1)::text AS t`, [table])).rows[0]!.t !== null;
   const hasBrandColumn = async (): Promise<boolean> =>

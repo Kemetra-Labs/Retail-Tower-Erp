@@ -657,7 +657,7 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any resolution is stored.
 
-- **Migration `0095_tenant_product_brands` (RT-1334, RT-286 S1).** Run
+- **Migration `0097_tenant_product_brands` (RT-1334, RT-286 S1).** Run
   [`sql/tenant-product-brands-domain-grants.sql`](sql/tenant-product-brands-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
@@ -669,7 +669,7 @@ A script without the marker, such as the owner-gated
   new: the domain role already reads and writes `tenant_products`. Without the
   grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup
   role must hold no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
-  0095 creates one new, empty table and adds a nullable column (no backfill);
+  0097 creates one new, empty table and adds a nullable column (no backfill);
   it needs no maintenance window. Its down migration refuses while any brand
   is stored.
 

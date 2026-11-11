@@ -200,7 +200,7 @@ describe("schema/catalog/tenant_products (T318)", () => {
     expect(categoryFk!.onDelete).toBe("set null");
   });
 
-  it("`brand_id` is a NULLABLE uuid with no Drizzle FK (RT-1334: the composite SET NULL (brand_id) FK lives in 0095 SQL)", () => {
+  it("`brand_id` is a NULLABLE uuid with no Drizzle FK (RT-1334: the composite SET NULL (brand_id) FK lives in 0097 SQL)", () => {
     expect(tenantProducts).toBeDefined();
     const cols = getTableColumns(tenantProducts) as Record<
       string,

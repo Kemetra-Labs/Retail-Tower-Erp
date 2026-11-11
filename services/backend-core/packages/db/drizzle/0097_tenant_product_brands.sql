@@ -1,15 +1,16 @@
--- 0095_tenant_product_brands.sql
+-- 0097_tenant_product_brands.sql
 --
 -- Product Brand in the Tenant Catalog (Jira RT-1334, RT-286 spec 048 slice
--- S1). [GATED: migration]. 0093 is held by an open PR (RT-1312, #508) and
--- 0094 is taken (RT-451 S5), so this takes 0095.
+-- S1). [GATED: migration]. 0093 is held by an open PR (RT-1312, #508), 0094
+-- is taken (RT-451 S5), 0095 is reserved for RT-451 S6 and 0096 is held by an
+-- open PR (RT-1288, #516), so this takes 0097.
 --
 -- Source-of-truth artifacts:
 --   - services/backend-core/specs/048-offer-engine-v1/spec.md (Brand, F-6, S1)
 --   - packages/contracts/openapi/catalog/console-catalog.yaml
 --       (`consoleListCatalogBrands`, `consoleCreateCatalogBrand`,
 --        `consoleRenameCatalogBrand`, `brandId` / `brandName` / `brand_id`)
---   - packages/db/__tests__/migration/0095-tenant-product-brands.spec.ts
+--   - packages/db/__tests__/migration/0097-tenant-product-brands.spec.ts
 --
 -- 1. `tenant_product_brands` — a flat (non-hierarchical) brand taxonomy owned
 --    by a tenant, shaped like `tenant_product_categories` (0007): a name of 1
@@ -47,7 +48,7 @@
 --
 -- Deploy window: none. The table is new and empty; the column is nullable with
 -- no default, no existing writer names it, and the previous release keeps
--- working. Apply 0095 and the grants script before the API that uses them.
+-- working. Apply 0097 and the grants script before the API that uses them.
 --
 -- Lock impact:
 --   - In the transaction: `tenant_products` takes ACCESS EXCLUSIVE for the
@@ -61,7 +62,7 @@
 --     does not block reads or writes (the 0077 pattern). Every existing
 --     brand_id is NULL, so nothing can fail it.
 --
--- Reversal: 0095_tenant_product_brands.down.sql REFUSES while any brand exists
+-- Reversal: 0097_tenant_product_brands.down.sql REFUSES while any brand exists
 -- (it would lose catalog master data and every product's brand); otherwise it
 -- drops the column, then the table.
 

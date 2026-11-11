@@ -1,5 +1,5 @@
 /**
- * RT-1334 (0095, RT-286 spec 048 S1): the console catalog brand runtime lists
+ * RT-1334 (0097, RT-286 spec 048 S1): the console catalog brand runtime lists
  * and creates brands (SELECT + INSERT) and renames one (column-level UPDATE on
  * `name` only, RT-1249 mechanism), so the domain role can never move a brand
  * to another tenant or rewrite `created_by`. No DELETE policy; never DELETE or

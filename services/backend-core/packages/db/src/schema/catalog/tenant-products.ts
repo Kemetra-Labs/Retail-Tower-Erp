@@ -17,7 +17,7 @@
  *         table; `ON DELETE SET NULL` so retiring a category does not
  *         retire its products.
  *   - Q11: `tax_category` is `text NOT NULL` opaque label.
- *   - 0095 (RT-1334, RT-286 S1): `brand_id` names at most one brand of the
+ *   - 0097 (RT-1334, RT-286 S1): `brand_id` names at most one brand of the
  *         same tenant (`tenant_product_brands`). The FK is composite,
  *         `(tenant_id, brand_id)` -> `(tenant_id, id)`, with
  *         `ON DELETE SET NULL (brand_id)`; it is declared in SQL only, because
@@ -85,7 +85,7 @@ export const tenantProducts = pgTable(
     // ---- 0045 (RT-448): Tracking Profile (G7-1) ------------------------------
     trackingMode: text("tracking_mode").notNull().default("none"),
     expiryRequired: boolean("expiry_required").notNull().default(false),
-    // ---- 0095 (RT-1334): brand (FK in SQL only, see the header) ---------------
+    // ---- 0097 (RT-1334): brand (FK in SQL only, see the header) ---------------
     brandId: uuid("brand_id"),
   },
   (t) => [

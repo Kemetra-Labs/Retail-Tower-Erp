@@ -74,7 +74,7 @@ const CATALOG_MODULES: ReadonlyArray<
     "unknownItems",
     "unknown_items",
   ],
-  // RT-1334 (0095, spec 048 S1): the brand taxonomy.
+  // RT-1334 (0097, spec 048 S1): the brand taxonomy.
   [
     "../../../src/schema/catalog/tenant-product-brands",
     "tenantProductBrands",

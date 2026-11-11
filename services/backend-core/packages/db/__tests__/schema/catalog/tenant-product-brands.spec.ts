@@ -5,7 +5,7 @@
  * no parent and no description, `retired_at` as the active flag, active names
  * unique per tenant (partial unique index), and `(tenant_id, id)` unique as
  * the composite FK target of `tenant_products.brand_id`. The SQL truth is
- * `0095_tenant_product_brands.sql` (its own migration spec runs it).
+ * `0097_tenant_product_brands.sql` (its own migration spec runs it).
  */
 import { getTableColumns, getTableName } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";

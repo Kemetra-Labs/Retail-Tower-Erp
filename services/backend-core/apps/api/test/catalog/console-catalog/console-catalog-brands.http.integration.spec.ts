@@ -1,6 +1,6 @@
 /**
  * RT-1334 (RT-286 spec 048 slice S1) — catalog brands over HTTP against real
- * Postgres (Testcontainers, every migration including 0095, the NOBYPASSRLS
+ * Postgres (Testcontainers, every migration including 0097, the NOBYPASSRLS
  * `app_test` pool holding only the production grants of
  * `tenant-product-brands.grants.ts`: SELECT, INSERT and UPDATE (name)) and the
  * real module graph (`SessionOnlyAdminGuard`, `TenantContextGuard`,

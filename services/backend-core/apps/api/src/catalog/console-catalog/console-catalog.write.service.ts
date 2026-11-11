@@ -34,7 +34,7 @@
  *   - A unique-index race on an identifier is `alias_conflict`; on an
  *     override it is `stale_write`. Both roll the transaction back.
  *   - RT-1334 (brands): a product's `brandId` must name an active brand of the
- *     tenant (`brand_unavailable`); the composite FK of 0095 is the backstop.
+ *     tenant (`brand_unavailable`); the composite FK of 0097 is the backstop.
  *     A brand create or rename to a name an active brand of the tenant holds
  *     is `brand_name_conflict`, read from the partial unique index (so a race
  *     is refused the same way). A rename takes `expectedUpdatedAt` and the
@@ -143,7 +143,7 @@ const IDENTIFIER_TARGET = "product_alias";
 const OVERRIDE_TARGET = "store_product_override";
 const BRAND_TARGET = "tenant_product_brand";
 
-/** The 0095 partial unique index: one ACTIVE brand per (tenant, name). */
+/** The 0097 partial unique index: one ACTIVE brand per (tenant, name). */
 const BRAND_NAME_INDEX = "UQ_idx_tenant_product_brands_tenant_name";
 
 /** Reruns of a write whose transaction began in the row's `updated_at` millisecond. */

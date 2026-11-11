@@ -51,7 +51,7 @@ const CATALOG_TABLE_EXPORTS: ReadonlyArray<readonly [string, string]> = [
 // data-model §3); `erpnext-item-map` is the 013 product-master identity mapping
 // (spec 013 data-model §2); `erpnext-posting-resolution` is the RT-330 frozen
 // posting resolution (migration 0037); `tenant-product-brands` is the RT-1334
-// brand taxonomy (migration 0095, spec 048 S1). Any extra `./catalog/<module>` line in the barrel
+// brand taxonomy (migration 0097, spec 048 S1). Any extra `./catalog/<module>` line in the barrel
 // signals an unsanctioned table leaking through the public API.
 const EXPECTED_CATALOG_MODULES: readonly string[] = [
   "global-products",

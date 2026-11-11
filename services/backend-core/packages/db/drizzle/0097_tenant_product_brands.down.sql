@@ -1,6 +1,6 @@
--- 0095_tenant_product_brands.down.sql
+-- 0097_tenant_product_brands.down.sql
 --
--- RT-1334 (RT-286 S1) -- rollback for 0095_tenant_product_brands.sql.
+-- RT-1334 (RT-286 S1) -- rollback for 0097_tenant_product_brands.sql.
 --
 -- Drops `tenant_products.brand_id` (with its FK and index), then
 -- `tenant_product_brands` (with its indexes, trigger, policies and grants). A
@@ -22,7 +22,7 @@
 -- dropped table); every DROP is IF EXISTS.
 --
 -- Supports the UP -> DOWN -> UP round-trip exercised by
--- packages/db/__tests__/migration/0095-tenant-product-brands.spec.ts and the
+-- packages/db/__tests__/migration/0097-tenant-product-brands.spec.ts and the
 -- full-chain down in packages/db/__tests__/cli/migrate.spec.ts.
 
 BEGIN;
@@ -48,7 +48,7 @@ BEGIN
     rows_found := rows_found + n;
   END LOOP;
   IF rows_found > 0 THEN
-    RAISE EXCEPTION '0095 down refused: % brand(s) exist; the table has no DELETE policy, so a superuser must remove the rows (after a backup) before rollback', rows_found;
+    RAISE EXCEPTION '0097 down refused: % brand(s) exist; the table has no DELETE policy, so a superuser must remove the rows (after a backup) before rollback', rows_found;
   END IF;
 END
 $$;
