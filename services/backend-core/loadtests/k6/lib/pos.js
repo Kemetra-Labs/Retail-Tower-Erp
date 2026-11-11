@@ -128,6 +128,13 @@ function linesPerSale() {
  * `operatorUserId` for the device scheme. `sourceSystem` marks k6 rows so the
  * reconciliation script can find exactly this run's sales.
  */
+/**
+ * The sale-line unit. Tills send `unit` (the unit the lab Connector maps to an
+ * ERPNext UOM); RT-317 S0 showed `each` is refused as `UnmappedUnit`. A product
+ * in LOAD_PRODUCTS may carry its own `unit`; LOAD_UNIT overrides the default.
+ */
+const DEFAULT_UNIT = (__ENV.LOAD_UNIT || "unit").trim() || "unit";
+
 export function saleBody(terminal, products, currency, occurredAt, runId) {
   const lines = [];
   let total = 0;
@@ -143,7 +150,7 @@ export function saleBody(terminal, products, currency, occurredAt, runId) {
       currencyCode: currency,
       quantity: String(qty),
       lineAmount: fromCents(amount),
-      unit: "each",
+      unit: p.unit || DEFAULT_UNIT,
       tenantProductRef: p.ref,
     });
   }
