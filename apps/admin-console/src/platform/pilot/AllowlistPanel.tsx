@@ -7,6 +7,7 @@
 import { Banner } from "@/components/Banner";
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel, PanelBody } from "@/components/DetailPanel";
+import { isolate } from "@/components/FilterBar";
 import { GatedButton } from "@/components/GatedButton";
 import { DateTime, type T, useT } from "@/i18n";
 import { useId, useState } from "react";
@@ -31,7 +32,9 @@ import {
 
 type Kind = AddKind | RemoveKind;
 
-function noticeOf(t: T, outcome: WriteOutcome<Kind>, name: string): PilotNotice {
+function noticeOf(t: T, outcome: WriteOutcome<Kind>, raw: string): PilotNotice {
+  // A name in either script (or an id) in plain text: isolated so it never reorders.
+  const name = isolate(raw);
   switch (outcome.kind) {
     case "added":
       return { variant: "success", message: t("posPilot.add.done", { name }) };
@@ -46,9 +49,22 @@ function noticeOf(t: T, outcome: WriteOutcome<Kind>, name: string): PilotNotice 
   }
 }
 
-function TenantName({ row }: Readonly<{ row: AllowlistRow }>) {
+/** One name per tenant everywhere on the page: name, else slug, else id. */
+function labelOf(tenant: { name?: string; slug?: string }, id: string): string {
+  return tenant.name ?? tenant.slug ?? id;
+}
+
+function TenantName({ row, namesKnown }: Readonly<{ row: AllowlistRow; namesKnown: boolean }>) {
   const t = useT();
   if (row.name) return <bdi>{row.name}</bdi>;
+  // Names not read yet (or the read failed): the id alone, never "unknown".
+  if (!namesKnown) {
+    return (
+      <bdi dir="ltr" className="pos-pilot__mono">
+        {row.tenantId}
+      </bdi>
+    );
+  }
   return (
     <span className="pos-pilot__who">
       <span>{t("posPilot.allowlist.unknownTenant")}</span>
@@ -61,8 +77,13 @@ function TenantName({ row }: Readonly<{ row: AllowlistRow }>) {
 
 function AllowlistTable({
   rows,
+  namesKnown,
   onRemove,
-}: Readonly<{ rows: AllowlistRow[]; onRemove: (row: AllowlistRow) => void }>) {
+}: Readonly<{
+  rows: AllowlistRow[];
+  namesKnown: boolean;
+  onRemove: (row: AllowlistRow) => void;
+}>) {
   const t = useT();
   const captionId = useCaptionId();
   return (
@@ -82,7 +103,7 @@ function AllowlistTable({
           {rows.map((row) => (
             <tr key={row.tenantId} className="data-table__row data-table__row--static">
               <td>
-                <TenantName row={row} />
+                <TenantName row={row} namesKnown={namesKnown} />
               </td>
               <td>
                 <DateTime value={row.addedAt} />
@@ -92,7 +113,7 @@ function AllowlistTable({
                   type="button"
                   className="btn-danger-quiet"
                   aria-label={t("posPilot.allowlist.removeFor", {
-                    name: row.name ?? row.tenantId,
+                    name: labelOf(row, row.tenantId),
                   })}
                   onClick={() => onRemove(row)}
                 >
@@ -107,22 +128,34 @@ function AllowlistTable({
   );
 }
 
+type Directory = ReturnType<typeof useTenantDirectory>;
+
 function AddTenant({
   tenants,
-  directoryFailed,
+  directory,
   pending,
   onAdd,
 }: Readonly<{
   tenants: (DirectoryTenant & { id: string })[];
-  directoryFailed: boolean;
+  directory: Directory;
   pending: boolean;
   onAdd: (tenant: DirectoryTenant & { id: string }) => void;
 }>) {
   const t = useT();
   const selectId = useId();
   const [picked, setPicked] = useState("");
-  if (directoryFailed) {
-    return <p className="pos-pilot__muted">{t("posPilot.add.directoryFailed")}</p>;
+  if (directory.isLoading) {
+    return <p className="pos-pilot__muted">{t("posPilot.add.loading")}</p>;
+  }
+  if (directory.error) {
+    return (
+      <div className="pos-pilot__add">
+        <p className="pos-pilot__muted">{t("posPilot.add.directoryFailed")}</p>
+        <GatedButton className="btn-secondary" onClick={directory.refetch}>
+          {t("posPilot.retry")}
+        </GatedButton>
+      </div>
+    );
   }
   if (tenants.length === 0) return <p className="pos-pilot__muted">{t("posPilot.add.none")}</p>;
   const chosen = tenants.find((x) => x.id === picked);
@@ -148,7 +181,7 @@ function AddTenant({
           <option value="">{t("posPilot.add.placeholder")}</option>
           {tenants.map((x) => (
             <option key={x.id} value={x.id}>
-              {x.name ?? x.slug ?? x.id}
+              {labelOf(x, x.id)}
             </option>
           ))}
         </select>
@@ -173,6 +206,7 @@ export function AllowlistPanel(): React.JSX.Element {
 
   const pilot = list.items ?? [];
   const known = directory.tenants ?? [];
+  const namesKnown = !directory.isLoading && !directory.error;
 
   async function settle<K extends Kind>(run: Promise<WriteOutcome<K>>, name: string) {
     const outcome = await run;
@@ -189,31 +223,33 @@ export function AllowlistPanel(): React.JSX.Element {
         <PanelBody>
           <AddTenant
             tenants={addableTenants(known, pilot)}
-            directoryFailed={Boolean(directory.error)}
+            directory={directory}
             pending={add.pending}
             onAdd={(tenant) => {
               setNotice(null);
-              void settle(add.run(tenant.id), tenant.name ?? tenant.id);
+              void settle(add.run(tenant.id), labelOf(tenant, tenant.id));
             }}
           />
         </PanelBody>
       ) : null}
       {removing ? (
         <PilotConfirm
+          key={removing.tenantId}
           label={t("posPilot.remove.label")}
           prompt={t.rich("posPilot.remove.prompt", {
             name: (
               <strong>
-                <bdi>{removing.name ?? removing.tenantId}</bdi>
+                <bdi>{labelOf(removing, removing.tenantId)}</bdi>
               </strong>
             ),
           })}
           confirmLabel={t("posPilot.remove.confirm")}
           tone="destructive"
           pending={remove.pending}
+          returnFocusId="pos-pilot-allowlist"
           onConfirm={() => {
             const row = removing;
-            void settle(remove.run(row.tenantId), row.name ?? row.tenantId).then(() =>
+            void settle(remove.run(row.tenantId), labelOf(row, row.tenantId)).then(() =>
               setRemoving(null),
             );
           }}
@@ -230,7 +266,10 @@ export function AllowlistPanel(): React.JSX.Element {
         {(items) => (
           <AllowlistTable
             rows={allowlistRows(items, known)}
+            namesKnown={namesKnown}
             onRemove={(row) => {
+              // A pending write keeps its own prompt: no retargeting mid-flight.
+              if (remove.pending) return;
               setNotice(null);
               setRemoving(row);
             }}

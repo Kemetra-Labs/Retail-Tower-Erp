@@ -32,13 +32,15 @@ export const posPilot: MessagesOf<typeof ar> = {
   "posPilot.activate.label": "Confirm release activation",
   "posPilot.activate.prompt":
     "Activate version {version}? It becomes the current pilot release, the only one Download POS can offer allowlisted organizations. It can't be undone here: only the promotion workflow can withdraw it.",
+  "posPilot.activate.promptBlocked":
+    "Activate version {version}? Version {current} is current, so the activation will be refused and nothing will change, unless the promotion workflow has withdrawn it.",
   "posPilot.activate.confirm": "Confirm activation",
   "posPilot.activate.done": "Version {version} is now the current release.",
   "posPilot.activate.currentExists":
     "Another release is current. The promotion workflow must withdraw it before {version} can be activated. Nothing changed.",
   "posPilot.activate.withdrawn":
     "Version {version} is withdrawn and can't be activated. Nothing changed.",
-  "posPilot.activate.notFound": "This release no longer exists. The list was refreshed.",
+  "posPilot.activate.notFound": "This release no longer exists. The list is being read again.",
 
   "posPilot.allowlist.panelTitle": "Allowlisted organizations",
   "posPilot.allowlist.caption": "Pilot allowlist",
@@ -59,7 +61,9 @@ export const posPilot: MessagesOf<typeof ar> = {
   "posPilot.add.directoryFailed": "Couldn't load the organizations, so none can be added now.",
   "posPilot.add.done": "{name} was added to the pilot.",
   "posPilot.add.alreadyListed": "{name} was already on the allowlist. Nothing changed.",
-  "posPilot.add.tenantNotFound": "This organization no longer exists. The lists were refreshed.",
+  "posPilot.add.tenantNotFound":
+    "This organization no longer exists. The lists are being read again.",
+  "posPilot.add.loading": "Loading organizations…",
 
   "posPilot.remove.label": "Confirm organization removal",
   "posPilot.remove.prompt":

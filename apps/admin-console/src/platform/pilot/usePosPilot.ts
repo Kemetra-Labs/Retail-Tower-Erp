@@ -6,9 +6,11 @@
  * directory does. Tenant names come from that same directory read
  * (`useTenantDirectory`); there is no second `listTenants` call.
  *
- * A write is sent once (the query client never retries a mutation). Whatever it
- * answers, both lists are read again, so the tables always show the server's
- * state after the attempt, never an optimistic guess.
+ * A write is sent once (the query client never retries a mutation). After any
+ * answer that may have changed something, both lists are read again, so the
+ * tables show the server's state, never an optimistic guess. A 429 or 403 wrote
+ * nothing, and re-reading into a running Retry-After would only spend more of
+ * the same budget, so those leave the lists as they are.
  */
 import {
   platformActivatePilotRelease,
@@ -65,9 +67,10 @@ async function readItems<T>(
   if (res.status >= 400) {
     throw new PilotReadFailure({ kind: "failed", requestId: requestIdOf(res.error) });
   }
-  // Never trust the shape: anything but an `items` array is no rows, not a crash.
+  // A 200 without an `items` array is unknown, never an authoritative empty list.
   const items = res.data?.items;
-  return Array.isArray(items) ? (items as T[]) : [];
+  if (!Array.isArray(items)) throw new PilotReadFailure({ kind: "failed" });
+  return items as T[];
 }
 
 function readErrorOf(error: Error | null): PilotReadError | undefined {
@@ -112,6 +115,7 @@ function useWrite<K extends string>(
       return { ...classify(res), seq: res.status === 429 ? res.rateLimitSeq : undefined };
     },
     onSettled: (outcome) => {
+      if (outcome && (outcome.kind === "rateLimited" || outcome.kind === "notPermitted")) return;
       void qc.invalidateQueries({ queryKey: pilotReleasesKey });
       void qc.invalidateQueries({ queryKey: pilotTenantsKey });
       if (outcome && outcome.kind === refreshDirectoryOn) {

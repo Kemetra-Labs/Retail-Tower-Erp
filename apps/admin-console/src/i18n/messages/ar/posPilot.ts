@@ -26,7 +26,7 @@ export const posPilot = {
   "posPilot.releases.state.current": "الحالي",
   "posPilot.releases.state.withdrawn": "مسحوب",
   "posPilot.releases.notApproved": "غير معتمد",
-  "posPilot.releases.size": "{size} م.ب",
+  "posPilot.releases.size": "{size} ميجابايت",
   "posPilot.releases.evidence.run": "تشغيل الترقية",
   "posPilot.releases.evidence.attestation": "الإثبات",
   "posPilot.releases.activate": "تفعيل",
@@ -38,12 +38,14 @@ export const posPilot = {
   "posPilot.activate.label": "تأكيد تفعيل الإصدار",
   "posPilot.activate.prompt":
     "تفعيل الإصدار {version}؟ سيصبح إصدار التجربة الحالي، وهو الإصدار الوحيد الذي يمكن أن تعرضه صفحة تنزيل نقطة البيع على المؤسسات المسموح لها. لا يمكن التراجع عنه من هنا: سحبه يتم من سير عمل الترقية فقط.",
+  "posPilot.activate.promptBlocked":
+    "تفعيل الإصدار {version}؟ الإصدار {current} هو الحالي الآن، لذلك سيُرفض التفعيل ولن يتغيّر شيء، إلا إذا كان سير عمل الترقية قد سحبه.",
   "posPilot.activate.confirm": "تأكيد التفعيل",
   "posPilot.activate.done": "الإصدار {version} هو الإصدار الحالي الآن.",
   "posPilot.activate.currentExists":
     "يوجد إصدار حالي آخر. يجب أن يسحبه سير عمل الترقية قبل تفعيل {version}. لم يتغيّر شيء.",
   "posPilot.activate.withdrawn": "الإصدار {version} مسحوب ولا يمكن تفعيله. لم يتغيّر شيء.",
-  "posPilot.activate.notFound": "لم يعد هذا الإصدار موجودًا. حُدّثت القائمة.",
+  "posPilot.activate.notFound": "لم يعد هذا الإصدار موجودًا. يُعاد تحميل القائمة.",
 
   "posPilot.allowlist.panelTitle": "المؤسسات المسموح لها",
   "posPilot.allowlist.caption": "قائمة السماح للتجربة",
@@ -64,7 +66,8 @@ export const posPilot = {
   "posPilot.add.directoryFailed": "تعذّر تحميل قائمة المؤسسات، فلا يمكن إضافة مؤسسة الآن.",
   "posPilot.add.done": "أُضيفت {name} إلى التجربة.",
   "posPilot.add.alreadyListed": "{name} في قائمة السماح من قبل. لم يتغيّر شيء.",
-  "posPilot.add.tenantNotFound": "لم تعد هذه المؤسسة موجودة. حُدّثت القوائم.",
+  "posPilot.add.tenantNotFound": "لم تعد هذه المؤسسة موجودة. يُعاد تحميل القوائم.",
+  "posPilot.add.loading": "جارٍ تحميل المؤسسات…",
 
   "posPilot.remove.label": "تأكيد إزالة المؤسسة",
   "posPilot.remove.prompt": "إزالة {name} من التجربة؟ لن تجد تنزيلًا لنقطة البيع حتى تُضاف مرة أخرى.",

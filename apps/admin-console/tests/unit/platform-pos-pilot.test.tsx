@@ -39,7 +39,7 @@ vi.mock("@/lib/pilot-platform-queries", () => ({
 
 import { ActiveContextProvider } from "@/context/ActiveContextProvider";
 import { createQueryClient } from "@/lib/query";
-import { resetRateLimit } from "@/lib/rate-limit";
+import { reportRateLimited, resetRateLimit } from "@/lib/rate-limit";
 import { PLATFORM_NAV, tenantNav } from "@/shell/nav-model";
 import { platformRoutes } from "@/shell/platformRoutes";
 import { loadPlatformPages } from "./platform-pages";
@@ -69,7 +69,7 @@ const release = (id: string, version: string, over: Record<string, unknown> = {}
   releaseId: id,
   version,
   sha256: "abcdef012345".padEnd(64, "0"),
-  sizeBytes: 104_857_600,
+  sizeBytes: 100_000_000,
   publisher: "CN=Kemetra Pilot",
   signingClass: "pilot",
   attestationRef: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/attestations/42",
@@ -125,6 +125,10 @@ function mount(path = "/platform/pos-pilot"): void {
     </QueryClientProvider>,
   );
 }
+
+/** Messages isolate names and versions (FSI/LRI…PDI); match the visible text. */
+const plain = { normalizer: (s: string) => s.replace(/[\u2066-\u2069]/g, "").trim() };
+const notice = (message: string) => screen.findByText(message, plain);
 
 const releasesTable = () => screen.findByRole("table", { name: "Pilot releases" });
 const allowlistTable = () => screen.findByRole("table", { name: "Pilot allowlist" });
@@ -223,18 +227,82 @@ describe("releases", () => {
     expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Cancel" }));
     expect(activate).not.toHaveBeenCalled();
     fireEvent.click(within(confirm).getByRole("button", { name: "Confirm activation" }));
-    expect(await screen.findByText("Version 0.1.3 is now the current release.")).toBeDefined();
+    expect(await notice("Version 0.1.3 is now the current release.")).toBeDefined();
     expect(activate).toHaveBeenCalledWith(R013);
     expect(activate).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(listReleases).toHaveBeenCalledTimes(2));
   });
 
-  test("cancel sends nothing", async () => {
+  test("cancel sends nothing and returns focus to the Activate button", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "Activate version 0.1.3" }));
+    const invoker = await screen.findByRole("button", { name: "Activate version 0.1.3" });
+    invoker.focus();
+    fireEvent.click(invoker);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("region", { name: "Confirm release activation" })).toBeNull();
     expect(activate).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(invoker);
+  });
+
+  test("while another release is current, the confirm says the activation will be refused", async () => {
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Activate version 0.1.3" }));
+    const confirm = screen.getByRole("region", { name: "Confirm release activation" });
+    expect(confirm.textContent).toContain("Version 0.1.2 is current");
+    expect(confirm.textContent).toContain("will be refused");
+  });
+
+  test("with no current release, the confirm promises the activation and focus lands on the panel after it", async () => {
+    listReleases.mockResolvedValue(ok({ items: [release(R013, "0.1.3")] }));
+    activate.mockResolvedValue({ status: 200 });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Activate version 0.1.3" }));
+    const confirm = screen.getByRole("region", { name: "Confirm release activation" });
+    expect(confirm.textContent).toContain("It becomes the current pilot release");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Confirm activation" }));
+    expect(await notice("Version 0.1.3 is now the current release.")).toBeDefined();
+    expect(document.activeElement?.id).toBe("pos-pilot-releases");
+  });
+
+  test("404: the release is gone, the list is read again", async () => {
+    activate.mockResolvedValue(res(404, "not_found"));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Activate version 0.1.3" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm activation" }));
+    expect(
+      await notice("This release no longer exists. The list is being read again."),
+    ).toBeDefined();
+    await waitFor(() => expect(listReleases).toHaveBeenCalledTimes(2));
+  });
+
+  test("a write 429: one message (the shell banner skips it), and no re-read into the window", async () => {
+    activate.mockImplementation(async () => ({
+      ...res(429, "rate_limited"),
+      rateLimitSeq: reportRateLimited(30),
+    }));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Activate version 0.1.3" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm activation" }));
+    expect(
+      await notice("That didn't go through because of too many requests. Try again shortly."),
+    ).toBeDefined();
+    expect(screen.queryByText("Too many requests")).toBeNull();
+    expect(listReleases).toHaveBeenCalledTimes(1);
+    expect(activate).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 403 read says not permitted, with no retry", async () => {
+    listReleases.mockResolvedValue(res(403, "forbidden"));
+    mount();
+    expect(await screen.findByText("You aren't permitted to do this.")).toBeDefined();
+    expect(screen.queryAllByRole("button", { name: "Try again" })).toHaveLength(0);
+  });
+
+  test("a 200 without items is a failure, never an empty registry", async () => {
+    listReleases.mockResolvedValue(ok({}));
+    mount();
+    expect(await screen.findByText("Couldn't load the releases.")).toBeDefined();
+    expect(screen.queryByText("No registered releases")).toBeNull();
   });
 
   test.each([
@@ -248,7 +316,7 @@ describe("releases", () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Activate version 0.1.3" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm activation" }));
-    expect(await screen.findByText(message)).toBeDefined();
+    expect(await notice(message)).toBeDefined();
     expect(activate).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(listReleases).toHaveBeenCalledTimes(2));
   });
@@ -302,7 +370,7 @@ describe("allowlist", () => {
     expect(submit).toHaveProperty("disabled", true);
     fireEvent.change(select, { target: { value: RAYAN } });
     fireEvent.click(submit);
-    expect(await screen.findByText("Rayan Trading was added to the pilot.")).toBeDefined();
+    expect(await notice("Rayan Trading was added to the pilot.")).toBeDefined();
     expect(addTenant).toHaveBeenCalledWith(RAYAN);
     await waitFor(() => expect(listPilotTenants).toHaveBeenCalledTimes(2));
   });
@@ -314,14 +382,14 @@ describe("allowlist", () => {
     fireEvent.change(select, { target: { value: DELTA } });
     fireEvent.click(screen.getByRole("button", { name: "Add to pilot" }));
     expect(
-      await screen.findByText("Delta Markets was already on the allowlist. Nothing changed."),
+      await notice("Delta Markets was already on the allowlist. Nothing changed."),
     ).toBeDefined();
 
     addTenant.mockResolvedValueOnce(res(404, "tenant_not_found"));
     fireEvent.change(screen.getByLabelText("Add an organization"), { target: { value: DELTA } });
     fireEvent.click(screen.getByRole("button", { name: "Add to pilot" }));
     expect(
-      await screen.findByText("This organization no longer exists. The lists were refreshed."),
+      await notice("This organization no longer exists. The lists are being read again."),
     ).toBeDefined();
     await waitFor(() => expect(listTenants).toHaveBeenCalledTimes(2));
   });
@@ -335,29 +403,49 @@ describe("allowlist", () => {
     expect(within(confirm).getByText("Nile Pharma")).toBeDefined();
     expect(removeTenant).not.toHaveBeenCalled();
     fireEvent.click(within(confirm).getByRole("button", { name: "Confirm removal" }));
-    expect(await screen.findByText("Nile Pharma was removed from the pilot.")).toBeDefined();
+    expect(await notice("Nile Pharma was removed from the pilot.")).toBeDefined();
     expect(removeTenant).toHaveBeenCalledWith(NILE);
     expect(removeTenant).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(listPilotTenants).toHaveBeenCalledTimes(2));
   });
 
-  test("a failed tenant list blocks Add with a reason but keeps the allowlist", async () => {
-    listTenants.mockResolvedValue(res(500, "system_failure"));
+  test("a failed tenant list blocks Add with a reason and a retry; rows keep their ids", async () => {
+    listTenants.mockResolvedValueOnce(res(500, "system_failure"));
     mount();
     expect(
       await screen.findByText("Couldn't load the organizations, so none can be added now."),
     ).toBeDefined();
-    expect(await allowlistTable()).toBeDefined();
+    const table = await allowlistTable();
+    expect(within(table).getByText(NILE)).toBeDefined();
+    expect(within(table).queryByText("Unknown organization")).toBeNull();
     expect(screen.queryByLabelText("Add an organization")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("Add an organization")).toBeDefined();
+    expect(within(await allowlistTable()).getByText("Nile Pharma")).toBeDefined();
   });
 
-  test("a 429 on the allowlist read is said once and not retried", async () => {
-    listPilotTenants.mockResolvedValue(res(429, "rate_limited"));
+  test("while the tenant names load: no 'all listed', no 'unknown'; ids only", async () => {
+    listTenants.mockReturnValue(new Promise(() => {}));
+    mount();
+    const table = await allowlistTable();
+    expect(screen.getByText("Loading organizations…")).toBeDefined();
+    expect(screen.queryByText("Every organization is on the allowlist.")).toBeNull();
+    expect(within(table).queryByText("Unknown organization")).toBeNull();
+    expect(within(table).getByText(NILE)).toBeDefined();
+  });
+
+  test("a 429 on the allowlist read is said once (claimed) and not retried", async () => {
+    listPilotTenants.mockImplementation(async () => ({
+      ...res(429, "rate_limited"),
+      rateLimitSeq: reportRateLimited(30),
+    }));
     mount();
     expect(
       await screen.findByText(
         "That didn't go through because of too many requests. Try again shortly.",
       ),
     ).toBeDefined();
+    expect(screen.queryByText("Too many requests")).toBeNull();
     expect(listPilotTenants).toHaveBeenCalledTimes(1);
   });
 });

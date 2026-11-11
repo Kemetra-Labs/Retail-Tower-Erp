@@ -40,12 +40,14 @@ export function shortSha(sha256: string): string {
 }
 
 const EVIDENCE_ORIGIN = "https://github.com";
+const EVIDENCE_REPO = "/Kemetra-Labs/Retail-Tower-Erp/";
 
 /** An evidence URL as a link only when it is an https GitHub URL (the contract's patterns). */
 export function evidenceHref(value: string): string | undefined {
   try {
     const url = new URL(value);
-    return url.origin === EVIDENCE_ORIGIN && url.protocol === "https:" ? url.href : undefined;
+    const ours = url.origin === EVIDENCE_ORIGIN && url.pathname.startsWith(EVIDENCE_REPO);
+    return ours ? url.href : undefined;
   } catch {
     return undefined;
   }

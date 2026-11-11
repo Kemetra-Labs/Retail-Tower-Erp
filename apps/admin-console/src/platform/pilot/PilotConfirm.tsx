@@ -3,6 +3,10 @@
  * follows consequence). It names the exact release or organization and the
  * consequence, focuses Cancel first (safe default) and holds one primary. Not
  * `ConfirmDelete`: neither action is a soft-delete an administrator restores.
+ *
+ * Focus on close (UX-11.8): Cancel returns it to the button that opened the
+ * step; after a confirmed write the invoker may be gone (the row became current
+ * or was removed), so it goes to the panel heading named by `returnFocusId`.
  */
 import { GatedButton } from "@/components/GatedButton";
 import { type T, useT } from "@/i18n";
@@ -16,15 +20,32 @@ export interface PilotConfirmProps {
   confirmLabel: string;
   tone: "primary" | "destructive";
   pending: boolean;
+  /** The element (a panel heading) that takes focus after a confirmed write. */
+  returnFocusId: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
+function focusById(id: string): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+  el.focus();
+}
+
 export function PilotConfirm(props: Readonly<PilotConfirmProps>): React.JSX.Element {
-  const { label, prompt, confirmLabel, tone, pending, onConfirm, onCancel } = props;
+  const { label, prompt, confirmLabel, tone, pending, returnFocusId, onConfirm, onCancel } = props;
   const t = useT();
   const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => cancelRef.current?.focus(), []);
+  const confirmedRef = useRef(false);
+  useEffect(() => {
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    cancelRef.current?.focus();
+    return () => {
+      if (!confirmedRef.current && invoker?.isConnected) invoker.focus();
+      else focusById(returnFocusId);
+    };
+  }, [returnFocusId]);
   return (
     <section className="pos-pilot__confirm" aria-label={label}>
       <p className="pos-pilot__confirm-msg">{prompt}</p>
@@ -32,7 +53,10 @@ export function PilotConfirm(props: Readonly<PilotConfirmProps>): React.JSX.Elem
         <GatedButton
           type="button"
           className={tone === "primary" ? "btn-primary" : "btn-destructive"}
-          onClick={onConfirm}
+          onClick={() => {
+            confirmedRef.current = true;
+            onConfirm();
+          }}
           busy={pending}
         >
           {confirmLabel}

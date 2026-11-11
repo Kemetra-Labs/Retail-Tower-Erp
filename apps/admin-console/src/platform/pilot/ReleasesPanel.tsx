@@ -7,6 +7,7 @@
 import { Banner } from "@/components/Banner";
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel } from "@/components/DetailPanel";
+import { ltr } from "@/components/FilterBar";
 import { DateTime, type T, formatNumber, useT } from "@/i18n";
 import type { PilotRelease } from "@/lib/pilot-platform-types";
 import { useState } from "react";
@@ -16,13 +17,16 @@ import { PilotListBody } from "./PilotListBody";
 import { type ActivateKind, canActivate, evidenceHref, releaseState, shortSha } from "./pilotLogic";
 import { type WriteOutcome, useActivateRelease, usePilotReleases } from "./usePosPilot";
 
-const MB = 1024 * 1024;
+/** Decimal megabytes, one decimal place. */
+const MB = 1_000_000;
 
 function sizeOf(t: T, bytes: number): string {
   return t("posPilot.releases.size", { size: formatNumber(Math.round((bytes / MB) * 10) / 10) });
 }
 
-function noticeOf(t: T, outcome: WriteOutcome<ActivateKind>, version: string): PilotNotice {
+function noticeOf(t: T, outcome: WriteOutcome<ActivateKind>, raw: string): PilotNotice {
+  // Machine data in a plain-text message: isolated LTR so it never reorders in Arabic.
+  const version = ltr(raw);
   switch (outcome.kind) {
     case "activated":
       return { variant: "success", message: t("posPilot.activate.done", { version }) };
@@ -35,6 +39,27 @@ function noticeOf(t: T, outcome: WriteOutcome<ActivateKind>, version: string): P
     default:
       return commonNotice(t, outcome);
   }
+}
+
+const machine = (value: string) => (
+  <strong>
+    <bdi dir="ltr">{value}</bdi>
+  </strong>
+);
+
+/**
+ * The confirm names the version and its consequence. While the list shows another
+ * release as current, it says the server will refuse (409 `release_current_exists`)
+ * instead of promising an activation; it is still sent, as the list may be stale.
+ */
+function activatePrompt(t: T, release: PilotRelease, current: PilotRelease | undefined) {
+  if (current && current.releaseId !== release.releaseId) {
+    return t.rich("posPilot.activate.promptBlocked", {
+      version: machine(release.version),
+      current: machine(current.version),
+    });
+  }
+  return t.rich("posPilot.activate.prompt", { version: machine(release.version) });
 }
 
 function EvidenceLink({ href, label }: Readonly<{ href: string; label: string }>) {
@@ -162,6 +187,8 @@ export function ReleasesPanel(): React.JSX.Element {
   const [claimSeq, setClaimSeq] = useState<number | undefined>(undefined);
   useClaimRateLimit(claimSeq);
 
+  const current = list.items?.find((r) => releaseState(r) === "current");
+
   async function confirm(release: PilotRelease): Promise<void> {
     const outcome = await activate.run(release.releaseId);
     setClaimSeq(outcome.seq);
@@ -181,17 +208,13 @@ export function ReleasesPanel(): React.JSX.Element {
       ) : null}
       {confirming ? (
         <PilotConfirm
+          key={confirming.releaseId}
           label={t("posPilot.activate.label")}
-          prompt={t.rich("posPilot.activate.prompt", {
-            version: (
-              <strong>
-                <bdi dir="ltr">{confirming.version}</bdi>
-              </strong>
-            ),
-          })}
+          prompt={activatePrompt(t, confirming, current)}
           confirmLabel={t("posPilot.activate.confirm")}
           tone="primary"
           pending={activate.pending}
+          returnFocusId="pos-pilot-releases"
           onConfirm={() => void confirm(confirming)}
           onCancel={() => setConfirming(null)}
         />
@@ -207,6 +230,8 @@ export function ReleasesPanel(): React.JSX.Element {
           <ReleasesTable
             releases={releases}
             onActivate={(r) => {
+              // A pending write keeps its own prompt: no retargeting mid-flight.
+              if (activate.pending) return;
               setNotice(null);
               setConfirming(r);
             }}

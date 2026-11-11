@@ -71,6 +71,10 @@ const pilot = (tenantId: string) => ({
   addedByUserId: "0190f000-0000-7000-8000-0000000000aa",
 });
 
+/** The page isolates versions (LRI) and names (FSI) inside messages, as FilterBar does. */
+const LTR = (v: string) => `⁦${v}⁩`;
+const FSI = (v: string) => `⁨${v}⁩`;
+
 const json = (status: number, body?: unknown) => ({
   status,
   contentType: "application/json",
@@ -186,7 +190,9 @@ test("activate: confirm step, one call, the success message; axe on the confirm"
   await expectNoAxeViolations(page, "activate confirm");
   expect(server.activations).toHaveLength(0);
   await confirm.getByRole("button", { name: t("posPilot.activate.confirm") }).click();
-  await expect(page.getByText(t("posPilot.activate.done", { version: "0.1.3" }))).toBeVisible();
+  await expect(
+    page.getByText(t("posPilot.activate.done", { version: LTR("0.1.3") })),
+  ).toBeVisible();
   expect(server.activations).toEqual([
     expect.stringContaining(`/api/v1/platform/pos-pilot-releases/${R013}/activate`),
   ]);
@@ -205,7 +211,7 @@ for (const code of ["release_current_exists", "release_withdrawn"] as const) {
       code === "release_current_exists"
         ? "posPilot.activate.currentExists"
         : "posPilot.activate.withdrawn";
-    await expect(page.getByText(t(key, { version: "0.1.3" }))).toBeVisible();
+    await expect(page.getByText(t(key, { version: LTR("0.1.3") }))).toBeVisible();
     expect(server.activations).toHaveLength(1);
     await expectNoAxeViolations(page, `activate ${code}`);
   });
@@ -216,7 +222,9 @@ test("add from the tenant list, then remove behind a confirm", async ({ page, t 
   await openPage(page, t);
   await page.getByLabel(t("posPilot.add.label")).selectOption(FAJR);
   await page.getByRole("button", { name: t("posPilot.add.submit") }).click();
-  await expect(page.getByText(t("posPilot.add.done", { name: "سوبرماركت الفجر" }))).toBeVisible();
+  await expect(
+    page.getByText(t("posPilot.add.done", { name: FSI("سوبرماركت الفجر") })),
+  ).toBeVisible();
   expect(server.adds).toEqual([FAJR]);
   const allowlist = page.getByRole("table", { name: t("posPilot.allowlist.caption") });
   await expect(allowlist.getByText("سوبرماركت الفجر")).toBeVisible();
@@ -227,7 +235,9 @@ test("add from the tenant list, then remove behind a confirm", async ({ page, t 
   const confirm = page.getByRole("region", { name: t("posPilot.remove.label") });
   await expectNoAxeViolations(page, "remove confirm");
   await confirm.getByRole("button", { name: t("posPilot.remove.confirm") }).click();
-  await expect(page.getByText(t("posPilot.remove.done", { name: "Nile Pharma" }))).toBeVisible();
+  await expect(
+    page.getByText(t("posPilot.remove.done", { name: FSI("Nile Pharma") })),
+  ).toBeVisible();
   expect(server.removes).toEqual([NILE]);
   await expect(allowlist.getByText("Nile Pharma")).toHaveCount(0);
 });

@@ -19,6 +19,37 @@ export interface PilotList<I> {
   refetch: () => void;
 }
 
+function ReadError({
+  error,
+  failedMessage,
+  onRetry,
+}: Readonly<{ error: PilotReadError; failedMessage: string; onRetry: () => void }>) {
+  const t = useT();
+  if (error.kind === "not-permitted") {
+    // A retry cannot help a 403 (UX-12.8).
+    return (
+      <PanelBody>
+        <Banner variant="danger" message={t("posPilot.notPermitted")} />
+      </PanelBody>
+    );
+  }
+  const limited = error.kind === "rate-limited";
+  return (
+    <PanelBody>
+      <Banner
+        variant={limited ? "warning" : "danger"}
+        message={limited ? t("posPilot.rateLimited") : failedMessage}
+        requestId={limited ? undefined : error.requestId}
+        action={
+          <GatedButton className="btn-secondary" onClick={onRetry}>
+            {t("posPilot.retry")}
+          </GatedButton>
+        }
+      />
+    </PanelBody>
+  );
+}
+
 export function PilotListBody<I>({
   list,
   loadingLabel,
@@ -34,7 +65,6 @@ export function PilotListBody<I>({
   emptyHint: string;
   children: (items: I[]) => React.ReactNode;
 }>): React.JSX.Element {
-  const t = useT();
   const { error } = list;
   useClaimRateLimit(error?.kind === "rate-limited" ? error.seq : undefined);
 
@@ -46,26 +76,7 @@ export function PilotListBody<I>({
     );
   }
   if (error) {
-    const message =
-      error.kind === "rate-limited"
-        ? t("posPilot.rateLimited")
-        : error.kind === "not-permitted"
-          ? t("posPilot.notPermitted")
-          : failedMessage;
-    return (
-      <PanelBody>
-        <Banner
-          variant={error.kind === "rate-limited" ? "warning" : "danger"}
-          message={message}
-          requestId={error.kind === "failed" ? error.requestId : undefined}
-          action={
-            <GatedButton className="btn-secondary" onClick={list.refetch}>
-              {t("posPilot.retry")}
-            </GatedButton>
-          }
-        />
-      </PanelBody>
-    );
+    return <ReadError error={error} failedMessage={failedMessage} onRetry={list.refetch} />;
   }
   const items = list.items ?? [];
   if (items.length === 0) {

@@ -80,6 +80,7 @@ describe("shortSha and evidenceHref", () => {
       "https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/1",
     );
     expect(evidenceHref("javascript:alert(1)")).toBeUndefined();
+    expect(evidenceHref("https://github.com/someone-else/repo/actions/runs/1")).toBeUndefined();
     expect(evidenceHref("http://github.com/x")).toBeUndefined();
     expect(evidenceHref("https://evil.example/github.com/")).toBeUndefined();
     expect(evidenceHref("not a url")).toBeUndefined();
@@ -114,8 +115,10 @@ describe("allowlistRows", () => {
 });
 
 describe("addableTenants", () => {
-  test("lists directory tenants not on the allowlist, by name", () => {
-    expect(addableTenants(directory, [pilot(T1)]).map((t) => t.id)).toEqual([T2, T3]);
+  test("lists directory tenants not on the allowlist, sorted by name", () => {
+    const unsorted = [directory[2], directory[0], directory[1]];
+    expect(addableTenants(unsorted, [pilot(T1)]).map((t) => t.id)).toEqual([T2, T3]);
+    expect(addableTenants(unsorted, []).map((t) => t.id)).toEqual([T1, T2, T3]);
   });
   test("an empty directory leaves nothing to add", () => {
     expect(addableTenants([], [])).toEqual([]);
