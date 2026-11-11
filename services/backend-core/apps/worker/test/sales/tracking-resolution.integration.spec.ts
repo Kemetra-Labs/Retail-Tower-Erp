@@ -136,14 +136,15 @@ async function voidSale(saleId: string): Promise<string> {
 }
 
 /** A one-unit return as `SaleReturnsService` writes it. */
-async function returnOne(saleId: string, lineId: string): Promise<string> {
+async function returnOne(saleId: string, lineId: string, opts: { deferred?: boolean } = {}): Promise<string> {
   const returnId = nextId();
+  const deferred = opts.deferred === true;
   await inTenant(async (c) => {
     await c.query(
       `INSERT INTO sale_returns (id, sale_id, tenant_id, store_id, return_seq, business_date, currency_code,
-                                 return_total, source_system, external_id, payload_hash, created_by)
-       VALUES ($1, $2, $3, $4, 1, current_date, 'USD', 0, $5, $6, $7, $8)`,
-      [returnId, saleId, TENANT, STORE, SOURCE, `ret-${returnId}`, "0".repeat(64), ACTOR],
+                                 return_total, source_system, external_id, payload_hash, created_by, posting_deferred)
+       VALUES ($1, $2, $3, $4, 1, current_date, 'USD', 10, $5, $6, $7, $8, $9)`,
+      [returnId, saleId, TENANT, STORE, SOURCE, `ret-${returnId}`, "0".repeat(64), ACTOR, deferred],
     );
     await c.query(
       `INSERT INTO sale_return_lines (id, return_id, sale_line_id, tenant_id, store_id, quantity, line_amount,
@@ -158,15 +159,45 @@ async function returnOne(saleId: string, lineId: string): Promise<string> {
       returnId,
       resolveLandingStatus: async () => "sellable",
     });
-    await emitReversal(c, saleId, returnId);
+    // RT-787 R-7: a settle-before-post return emits nothing at acceptance.
+    if (!deferred) await emitReversal(c, saleId, returnId);
   });
   return returnId;
 }
 
-/** A refund: no effect (847, 851), only its reversal intent. */
+/** The refund execution that settles a deferred return, and its reversal intent (`RefundExecutionsService`). */
+async function settle(saleId: string, returnId: string): Promise<void> {
+  await inTenant(async (c) => {
+    const allocationRef = nextId();
+    const allocation = await c.query<{ id: string }>(
+      `INSERT INTO sale_return_tenders (return_id, tenant_id, store_id, ordinal, method, amount, allocation_ref, instrument)
+       VALUES ($1, $2, $3, 0, 'cash', 10, $4, 'cash') RETURNING id`,
+      [returnId, TENANT, STORE, allocationRef],
+    );
+    await c.query(
+      `INSERT INTO refund_executions
+         (execution_ref, return_id, allocation_id, sale_id, tenant_id, store_id, allocation_ref, amount, outcome,
+          evidence_method, paid_at, shift_ref, source_system, external_id, payload_hash, created_by, settles_return)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 10, 'settled', 'drawer', now(), $8, $9, $10, $11, $12, true)`,
+      [nextId(), returnId, allocation.rows[0]!.id, saleId, TENANT, STORE, allocationRef, nextId(), SOURCE,
+       `exec-${returnId}`, "0".repeat(64), ACTOR],
+    );
+    await emitReversal(c, saleId, returnId);
+  });
+}
+
+/** A refund as `recordRefund` writes it: no effect (847, 851), its row and its reversal intent. */
 async function refund(saleId: string): Promise<string> {
   const refundId = nextId();
-  await inTenant((c) => emitReversal(c, saleId, refundId));
+  await inTenant(async (c) => {
+    await c.query(
+      `INSERT INTO sale_refunds (id, sale_id, tenant_id, store_id, pos_refund_amount, currency_code, source_system,
+                                 external_id, payload_hash, created_by)
+       VALUES ($1, $2, $3, $4, 1, 'USD', $5, $6, $7, $8)`,
+      [refundId, saleId, TENANT, STORE, SOURCE, `refund-${refundId}`, "0".repeat(64), ACTOR],
+    );
+    await emitReversal(c, saleId, refundId);
+  });
   return refundId;
 }
 
@@ -430,5 +461,52 @@ describe("a void sent with an upper-case saleRef (review M1)", () => {
     expect(outcome.reEmittedReversals).toEqual([voidId]);
     await drain(sale.saleId);
     expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [voidId] });
+  });
+});
+
+describe("the reversals are rebuilt from the sale's records, not the outbox (owner decision, RT-451 c16638)", () => {
+  it("still posts a void whose outbox row retention has purged, exactly once", async () => {
+    if (skip()) return;
+    const sale = await seedSale(false);
+    await processSale(sale.saleId);
+    const voidId = await voidSale(sale.saleId);
+    await drain(sale.saleId, { deadLetter: true });
+    // The 365-day retention sweep deletes the dead-lettered row.
+    await pg().admin.query(`DELETE FROM outbox_events WHERE payload->>'source_ref_id' = $1`, [voidId]);
+    expect(await deliveryStates(sale.saleId, voidId)).toEqual([]);
+
+    const outcome = await bind(sale.saleId, sale.lineId);
+    expect(outcome.reEmittedReversals).toEqual([voidId]);
+    await drain(sale.saleId);
+    expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [voidId] });
+    expect(await stockNet(sale.saleId)).toEqual([{ identity: IDENTITY, status: "sellable", net: "0.000000" }]);
+  });
+
+  it("leaves a deferred return that is not settled yet to its settling execution, which then posts it once", async () => {
+    if (skip()) return;
+    const sale = await seedSale(false);
+    await processSale(sale.saleId);
+    const returnId = await returnOne(sale.saleId, sale.lineId, { deferred: true });
+    const outcome = await bind(sale.saleId, sale.lineId);
+    expect(outcome.reEmittedReversals).toEqual([]);
+    await drain(sale.saleId);
+    expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [] });
+
+    await settle(sale.saleId, returnId);
+    await drain(sale.saleId);
+    expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [returnId] });
+  });
+
+  it("re-emits a deferred return settled before the bind, once", async () => {
+    if (skip()) return;
+    const sale = await seedSale(false);
+    await processSale(sale.saleId);
+    const returnId = await returnOne(sale.saleId, sale.lineId, { deferred: true });
+    await settle(sale.saleId, returnId);
+    await drain(sale.saleId, { deadLetter: true });
+    const outcome = await bind(sale.saleId, sale.lineId);
+    expect(outcome.reEmittedReversals).toEqual([returnId]);
+    await drain(sale.saleId);
+    expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [returnId] });
   });
 });

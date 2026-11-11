@@ -23,28 +23,32 @@
  *      reversals create `sale_voids` / `sale_returns` rows, so they are
  *      covered. Every effect keeps its DC-1 key: a restore already written is
  *      not written twice.
- *   3. The reversal intents emitted before the bind (c16556 Q1.1). The posting
- *      consumer defers a reversal until its sale's `sale_post` row exists
- *      (RT-173), so each one is retrying or dead-lettered. This re-emits, ONCE
- *      per `source_ref_id`, the same `erpnext.posting.requested` payload the
- *      void / refund / return / credit reversal emitted, for every reversal of
- *      the sale with no posting row yet. It never creates a reversal for an
- *      event that did not emit one: the set is read from the sale's own
- *      emitted intents. Downstream the O-3 unique `(tenant_id,
- *      source_ref_id)` keeps the consumer insert idempotent, so an original
- *      that is still retrying and its re-emission make one posting row: each
- *      reversal is posted exactly once. A dead-lettered original stays as the
- *      record of the failed attempts (RT-207).
+ *   3. The reversal intents of the events recorded before the bind (c16556
+ *      Q1.1). The posting consumer defers a reversal until its sale's
+ *      `sale_post` row exists (RT-173), so each one is retrying,
+ *      dead-lettered, or already purged by outbox retention (365 days). The
+ *      set is therefore rebuilt from the sale's own records, never from the
+ *      outbox (owner decision, RT-451 comment 16638), with the producers'
+ *      own emit rules:
+ *        - every `sale_voids` row (`recordVoid`, a credit reversal of kind
+ *          void): `source_ref_id` = the void id;
+ *        - every `sale_refunds` row (`recordRefund`): the refund id;
+ *        - every `sale_returns` row (`recordReturn`, a credit reversal of kind
+ *          return) whose posting was emitted: at acceptance unless
+ *          `posting_deferred`, else by the refund execution that
+ *          `settles_return` (RT-787 R-7): the return id. A deferred return
+ *          not settled yet has emitted nothing, and its settling execution
+ *          will emit it, so it is left alone here.
+ *      Each one with no posting row yet is emitted ONCE more, with the same
+ *      `erpnext.posting.requested` payload its producer emitted. Downstream
+ *      the O-3 unique `(tenant_id, source_ref_id)` keeps the consumer insert
+ *      idempotent, so an original that is still retrying and this emission
+ *      make one posting row: each reversal is posted exactly once. A
+ *      dead-lettered original stays as the record of the failed attempts
+ *      (RT-207).
  *
- * The outbox read is bounded by the sale's creation (an intent of the sale
- * cannot be older), on `outbox_events_tenant_occurred_at_idx`. The payload's
- * `sale_id` is the `saleRef` the till sent, in any case (the routes accept
- * any UUID case), so it is compared case-insensitively. Pre-bind intents are
- * never `delivered` (the consumer cannot deliver a reversal without its
- * `sale_post` row); outbox retention purges `failed` / `dead_lettered` rows
- * 365 days after processing, so a sale left unresolved longer than that has
- * lost its pre-bind reversal intents and the bind cannot re-emit them (known
- * limit, RT-451 S5 review M2).
+ * Every read is by the sale id on the tables' own sale indexes, so nothing
+ * scans the outbox while the bind holds the sale lock.
  */
 import type { PoolClient } from "pg";
 
@@ -76,8 +80,8 @@ export interface ResolvedSaleOutcome {
 /** Commit what the bind owes a resolved sale. See the module comment. */
 export async function commitResolvedSale(client: PoolClient, input: ResolvedSaleInput): Promise<ResolvedSaleOutcome> {
   const scope = { tenantId: input.tenantId, storeId: input.storeId, saleId: input.saleId };
-  const sale = await client.query<{ processed: boolean; created_at: Date }>(
-    `SELECT processed_at IS NOT NULL AS processed, created_at FROM sales WHERE id = $1 AND store_id = $2`,
+  const sale = await client.query<{ processed: boolean }>(
+    `SELECT processed_at IS NOT NULL AS processed FROM sales WHERE id = $1 AND store_id = $2`,
     [input.saleId, input.storeId],
   );
   const row = sale.rows[0];
@@ -106,17 +110,19 @@ export async function commitResolvedSale(client: PoolClient, input: ResolvedSale
   }
 
   const pending = await client.query<{ source_ref_id: string }>(
-    `SELECT DISTINCT o.payload->>'source_ref_id' AS source_ref_id
-       FROM outbox_events o
-      WHERE o.tenant_id = $1
-        AND o.occurred_at >= $3::timestamptz - interval '1 day'
-        AND o.event_type = $4
-        AND o.payload->>'kind' = 'reversal'
-        AND lower(o.payload->>'sale_id') = lower($2::text)
-        AND NOT EXISTS (SELECT 1 FROM erpnext_posting_status p
-                         WHERE p.tenant_id = $1 AND p.source_ref_id::text = lower(o.payload->>'source_ref_id'))
+    `SELECT x.id::text AS source_ref_id
+       FROM (SELECT v.id FROM sale_voids v WHERE v.sale_id = $2
+             UNION ALL
+             SELECT f.id FROM sale_refunds f WHERE f.sale_id = $2
+             UNION ALL
+             SELECT r.id FROM sale_returns r
+              WHERE r.sale_id = $2
+                AND (NOT r.posting_deferred
+                     OR EXISTS (SELECT 1 FROM refund_executions e WHERE e.return_id = r.id AND e.settles_return))
+            ) AS x
+      WHERE NOT EXISTS (SELECT 1 FROM erpnext_posting_status p WHERE p.tenant_id = $1 AND p.source_ref_id = x.id)
       ORDER BY 1`,
-    [input.tenantId, input.saleId, row.created_at, OUTBOX_EVENT_TYPES.ERPNEXT_POSTING_REQUESTED],
+    [input.tenantId, input.saleId],
   );
   const reEmittedReversals = pending.rows.map((r) => r.source_ref_id);
   for (const sourceRefId of reEmittedReversals) await emitPosting(client, input, "reversal", sourceRefId);

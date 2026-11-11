@@ -11,7 +11,9 @@
   identities with its `sale_post` intent (or leaves both to the worker for a sale not yet
   processed), writes the void and return restores suppressed before the bind, and re-emits
   once each reversal intent the sale's voids, returns, refunds and credit reversals emitted
-  before it, so every one is posted exactly once (RT-451 comment 16556 Q1). Refusals: 404
+  before it, so every one is posted exactly once (RT-451 comment 16556 Q1). That set is
+  rebuilt from `sale_voids`, `sale_refunds` and `sale_returns` with their producers' emit rules,
+  never from the outbox, so a purged outbox row loses nothing (owner decision, comment 16638). Refusals: 404
   (unknown sale or identity, another tenant, outside the store scope, never unresolved, a
   serial identity), 400 (not exactly the unresolved lines, blank note), 409 (another
   product's identity, held now or at `occurredAt`, expired or missing a required expiry,
