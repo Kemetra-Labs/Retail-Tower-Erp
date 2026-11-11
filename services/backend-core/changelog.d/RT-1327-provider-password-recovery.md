@@ -10,11 +10,14 @@
   then ended with the same refresh token (`logoutall`, which invalidates all of the user's refresh
   tokens); a failed sign-out is logged and does not fail the request, because the password has
   already changed. No local hash is written, no Admin
-  session is minted, and every Backend-Core session of the user is revoked; every failure
-  (invalid, expired or replayed proof, outage, password policy refusal, no active link) is the same
-  generic 400. Unlinked users keep the local reset. The recovery link returns to
+  session is minted, and every Backend-Core session of the user is revoked; every refusal
+  (invalid, expired or replayed proof, password policy refusal, no active link) is the same
+  generic 400. A provider outage while verifying or updating is a 503 ("Identity provider
+  unavailable"), as for sign-in and password change; the contract now declares 503 on
+  `password-reset/confirm` (it also covers the RT-628 rate-limiter outage the route already
+  answered with 503). Unlinked users keep the local reset. The recovery link returns to
   `<CONSOLE_BASE_URL>/reset-password?t=<proof>`: the api reads the same origin-only https
   `CONSOLE_BASE_URL` as the worker, and without it no provider reset is sent (fail closed). The
-  deploy config must pass `CONSOLE_BASE_URL` to the api service (owner-gated). No OpenAPI change.
+  deploy config must pass `CONSOLE_BASE_URL` to the api service (owner-gated). The only OpenAPI change is the added 503 above.
   For RT-807: the Admin page at `/reset-password` posts `{ token: <t>, new_password }` to the
   existing confirm route, removes `t` from the URL at once, and on 204 goes to `/signin`.

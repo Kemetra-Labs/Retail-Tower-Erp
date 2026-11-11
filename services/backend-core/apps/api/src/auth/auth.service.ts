@@ -55,6 +55,16 @@ import { recordAuthFailure } from "../observability/metrics/api.metrics";
 import type { ExternalCredentialPort } from "./external-credential.port";
 import type { OperatorTokenVerifier } from "./operator-token-verifier";
 
+/**
+ * RT-1327: a provider-reset step that did not succeed. An outage is a 503 (the
+ * contract's confirm route declares it), a refusal the generic invalid-token 400.
+ */
+function providerResetFailure(kind: "refused" | "unavailable"): BadRequestException | ServiceUnavailableException {
+  return kind === "unavailable"
+    ? new ServiceUnavailableException("Identity provider unavailable")
+    : new BadRequestException(INVALID_RESET_TOKEN);
+}
+
 let serviceLogger: Logger | null = null;
 function log(): Logger {
   serviceLogger ??= createLogger({ service: "api.auth", level: process.env["LOG_LEVEL"] ?? "info" });
@@ -634,8 +644,7 @@ export class AuthService {
    * proof, so nothing here validates the token itself:
    *
    *   1. the provider consumes the proof and returns a session (a used, expired
-   *      or unknown proof is refused; an outage is also the generic 400, because
-   *      the contract has no 503 and the user can simply request a new link);
+   *      or unknown proof is refused);
    *   2. that session token must verify, and its subject must be an ACTIVE link
    *      of a live user (the link, not the provider's answer, names the account);
    *   3. the provider then sets the new password (its policy applies; a refusal
@@ -646,23 +655,25 @@ export class AuthService {
    *
    * No local hash is written and no session is minted: the user signs in again
    * through `POST /auth/signin`. The refresh token lives only in this call. Every
-   * failure up to step 3 is the same generic 400, so nothing reveals which step
-   * refused. A failed step 4 is logged and does not fail the request: the password
-   * is already changed and the link spent, so a 400 would mislead the user.
+   * refusal up to step 3 is the same generic 400, so nothing reveals which step
+   * refused. A provider outage at step 1 or 3 is a 503, as for sign-in and
+   * password change: an outage is not an invalid link. An outage at step 3 comes
+   * after the link was consumed, so the user then needs a new link. A failed step 4
+   * is logged and does not fail the request: the password is already changed.
    */
   private async confirmProviderReset(input: { rawToken: string; newPassword: string }): Promise<string> {
     const external = this.external;
     if (!external) throw new BadRequestException(INVALID_RESET_TOKEN);
 
     const proof = await external.port.verifyResetToken(input.rawToken);
-    if (proof.kind !== "ok") throw new BadRequestException(INVALID_RESET_TOKEN);
+    if (proof.kind !== "ok") throw providerResetFailure(proof.kind);
 
     const subject = await this.verifiedSubject(external, proof.sessionJwt);
     const user = subject === null ? null : await external.findUserByLinkSubject(subject);
     if (!user) throw new BadRequestException(INVALID_RESET_TOKEN);
 
     const updated = await external.port.updatePassword(user.email, input.newPassword, proof.refreshJwt);
-    if (updated.kind !== "ok") throw new BadRequestException(INVALID_RESET_TOKEN);
+    if (updated.kind !== "ok") throw providerResetFailure(updated.kind);
 
     const signedOut = await external.port.logoutAllSessions(proof.refreshJwt);
     if (signedOut.kind !== "ok") {

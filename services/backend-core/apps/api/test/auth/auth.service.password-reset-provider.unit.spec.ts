@@ -20,7 +20,7 @@
  * Docker-free: hand-written fakes, no DB, no network. Mocks prove branching and
  * non-leakage only; provider expiry and replay need live evidence.
  */
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, HttpException, ServiceUnavailableException } from "@nestjs/common";
 import { AuthService } from "../../src/auth/auth.service";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
@@ -79,6 +79,8 @@ const PROOF = "provider-recovery-proof";
 const REFRESH = "provider-refresh-jwt";
 const SESSION_JWT = "provider-session-jwt";
 const GENERIC = "Invalid or expired token";
+/** The same 503 message sign-in and password change use for a provider outage. */
+const PROVIDER_UNAVAILABLE = "Identity provider unavailable";
 
 type VerifyResult =
   | { kind: "ok"; sessionJwt: string; refreshJwt: string }
@@ -153,6 +155,15 @@ async function failure(p: Promise<unknown>): Promise<BadRequestException> {
   );
   expect(error).toBeInstanceOf(BadRequestException);
   return error as BadRequestException;
+}
+
+async function outage(p: Promise<unknown>): Promise<ServiceUnavailableException> {
+  const error = await p.then(
+    () => null,
+    (e: unknown) => e,
+  );
+  expect(error).toBeInstanceOf(ServiceUnavailableException);
+  return error as ServiceUnavailableException;
 }
 
 beforeEach(() => {
@@ -256,14 +267,26 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     expect(endSupportSessions).not.toHaveBeenCalled();
   });
 
-  it("answers a provider outage while verifying with the same generic 400, and changes nothing", async () => {
-    const { service, port } = build({ verifyReset: { kind: "unavailable" } });
+  it("answers a provider outage while verifying with a 503, not the invalid-proof 400, and changes nothing", async () => {
+    const { service, port, endSupportSessions } = build({ verifyReset: { kind: "unavailable" } });
 
-    const error = await failure(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
+    const error = await outage(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
 
-    expect(error.message).toBe(GENERIC);
+    expect(error.message).toBe(PROVIDER_UNAVAILABLE);
     expect(port.updatePassword).not.toHaveBeenCalled();
     expect(updateCalls).not.toHaveBeenCalled();
+    expect(endSupportSessions).not.toHaveBeenCalled();
+  });
+
+  it("answers a provider outage while updating with a 503, and revokes nothing", async () => {
+    const { service, port, endSupportSessions } = build({ update: { kind: "unavailable" } });
+
+    const error = await outage(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
+
+    expect(error.message).toBe(PROVIDER_UNAVAILABLE);
+    expect(port.logoutAllSessions).not.toHaveBeenCalled();
+    expect(updateCalls).not.toHaveBeenCalled();
+    expect(endSupportSessions).not.toHaveBeenCalled();
   });
 
   it("refuses a session token that fails verification", async () => {
@@ -287,8 +310,8 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     expect(updateCalls).not.toHaveBeenCalled();
   });
 
-  it.each([{ kind: "refused" }, { kind: "unavailable" }])(
-    "revokes no session and returns no address when the provider update answers $kind (policy, reuse, outage)",
+  it.each([{ kind: "refused" }])(
+    "revokes no session and returns no address when the provider update answers $kind (policy, reuse)",
     async (update) => {
       const { service, endSupportSessions } = build({ update });
 
@@ -317,7 +340,6 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     ["verify refused", { verifyReset: { kind: "refused" } as VerifyResult }],
     ["no active link", { linkedUser: null }],
     ["update refused", { update: { kind: "refused" } }],
-    ["update unavailable", { update: { kind: "unavailable" } }],
   ])("does not sign out provider sessions when %s", async (_name, overrides) => {
     const { service, port } = build(overrides);
 
@@ -372,11 +394,17 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
     ["bad session token", { verifierSub: new Error("bad signature") }],
     ["no active link", { linkedUser: null }],
     ["update refused", { update: { kind: "refused" } }],
+    ["update unavailable", { update: { kind: "unavailable" } }],
   ])("leaks no credential or identity information in the %s failure", async (_name, overrides) => {
     const { service } = build(overrides);
 
-    const error = await failure(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
-    const text = JSON.stringify([error.message, error.getResponse()]);
+    const error = await service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }).then(
+      () => null,
+      (e: unknown) => e as HttpException,
+    );
+    expect(error).toBeInstanceOf(HttpException);
+    if (error === null) return;
+    const text = JSON.stringify([error.message, error.getResponse(), logWarn.mock.calls]);
 
     for (const secret of [PROOF, REFRESH, SESSION_JWT, SUBJECT, EMAIL, NEW_PASSWORD, USER_ID]) {
       expect(text).not.toContain(secret);
