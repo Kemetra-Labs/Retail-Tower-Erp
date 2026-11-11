@@ -2,7 +2,9 @@
 -- migration 0094). See docs/operations/database-roles.md.
 --
 -- Run ONCE per environment, AFTER `migrate up` has applied 0094 and BEFORE the
--- API image that needs it is rolled, as the migration owner (or any role
+-- API and worker images that need it are rolled (the worker's sale effect
+-- writer reads tracking_resolution_lines for every sale, void and return, and
+-- has no boot check), as the migration owner (or any role
 -- allowed to grant on these tables). This file holds NO credential. Give psql
 -- the connection through libpq environment variables
 -- (PGHOST/PGUSER/PGPASSWORD/...; see deploy/grants.env.example), never as a URL

@@ -677,6 +677,22 @@ describe('RT-451 S5 bindTrackingResolution — success', () => {
     expect(await writes(s.saleId)).toEqual(before);
   });
 
+  it('refuses the same key used concurrently for two sales with a 409, writing only one (review m1)', async () => {
+    if (skipped()) return;
+    const a = await seedUnresolved({ minutesAgo: 5 });
+    const b = await seedUnresolved({ minutesAgo: 5 });
+    const key = newKey();
+    const [ra, rb] = await Promise.all([
+      postBind(a.saleId, bindBody([[a.lineIds[0]!, I_OK]]), key),
+      postBind(b.saleId, bindBody([[b.lineIds[0]!, I_OK]]), key),
+    ]);
+    expect([ra.status, rb.status].sort()).toEqual([200, 409]);
+    const refused = ra.status === 409 ? ra : rb;
+    expect(refused.body.error.code).toBe('idempotency_key_conflict');
+    const resolved = (await writes(a.saleId))['resolutions'] as number;
+    expect(resolved + ((await writes(b.saleId))['resolutions'] as number)).toBe(1);
+  });
+
   it('never reads or binds across tenants', async () => {
     if (skipped()) return;
     const a = await seedUnresolved({ minutesAgo: 5 });

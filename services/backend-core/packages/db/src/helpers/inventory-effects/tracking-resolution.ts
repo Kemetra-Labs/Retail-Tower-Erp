@@ -37,9 +37,14 @@
  *      record of the failed attempts (RT-207).
  *
  * The outbox read is bounded by the sale's creation (an intent of the sale
- * cannot be older), on `outbox_events_tenant_occurred_at_idx`. Pre-bind
- * intents are never `delivered` (the consumer cannot deliver a reversal
- * without its `sale_post` row), so retention cannot have removed them.
+ * cannot be older), on `outbox_events_tenant_occurred_at_idx`. The payload's
+ * `sale_id` is the `saleRef` the till sent, in any case (the routes accept
+ * any UUID case), so it is compared case-insensitively. Pre-bind intents are
+ * never `delivered` (the consumer cannot deliver a reversal without its
+ * `sale_post` row); outbox retention purges `failed` / `dead_lettered` rows
+ * 365 days after processing, so a sale left unresolved longer than that has
+ * lost its pre-bind reversal intents and the bind cannot re-emit them (known
+ * limit, RT-451 S5 review M2).
  */
 import type { PoolClient } from "pg";
 
@@ -107,9 +112,9 @@ export async function commitResolvedSale(client: PoolClient, input: ResolvedSale
         AND o.occurred_at >= $3::timestamptz - interval '1 day'
         AND o.event_type = $4
         AND o.payload->>'kind' = 'reversal'
-        AND o.payload->>'sale_id' = $2::text
+        AND lower(o.payload->>'sale_id') = lower($2::text)
         AND NOT EXISTS (SELECT 1 FROM erpnext_posting_status p
-                         WHERE p.tenant_id = $1 AND p.source_ref_id::text = o.payload->>'source_ref_id')
+                         WHERE p.tenant_id = $1 AND p.source_ref_id::text = lower(o.payload->>'source_ref_id'))
       ORDER BY 1`,
     [input.tenantId, input.saleId, row.created_at, OUTBOX_EVENT_TYPES.ERPNEXT_POSTING_REQUESTED],
   );

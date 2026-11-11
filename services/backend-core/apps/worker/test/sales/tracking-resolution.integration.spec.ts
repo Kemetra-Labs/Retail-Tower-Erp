@@ -69,10 +69,14 @@ const skip = (): boolean => env === null;
 
 function nextId(): string {
   seq += 1;
-  return `01900000-0000-7000-8000-${(0x451600000000 + seq).toString(16)}`;
+  return `0a900000-0000-7000-8000-${(0x451600000000 + seq).toString(16)}`;
 }
 
 const quiet = { warn: jest.fn(), error: jest.fn() };
+
+/** The case the till sends its `saleRef` in (review M1: any UUID case is accepted). */
+let upperCaseSaleRef = false;
+const saleRefCase = (saleId: string): string => (upperCaseSaleRef ? saleId.toUpperCase() : saleId);
 
 const inTenant = <T>(fn: (c: PoolClient) => Promise<T>): Promise<T> =>
   runWithTenantContext(pg().app, { tenantId: TENANT, isPlatformAdmin: false }, fn);
@@ -109,7 +113,8 @@ async function emitReversal(c: PoolClient, saleId: string, sourceRefId: string):
     eventType: OUTBOX_EVENT_TYPES.ERPNEXT_POSTING_REQUESTED,
     tenantId: TENANT,
     storeId: STORE,
-    payload: { sale_id: saleId, store_id: STORE, kind: "reversal", source_ref_id: sourceRefId },
+    // The routes pass the till's `saleRef` through in whatever UUID case it sent.
+    payload: { sale_id: saleRefCase(saleId), store_id: STORE, kind: "reversal", source_ref_id: sourceRefId },
     correlationId: null,
   });
 }
@@ -209,7 +214,7 @@ async function drain(saleId: string, opts: { deadLetter?: boolean } = {}): Promi
   for (let pass = 0; pass < 5; pass += 1) {
     const pending = await pg().admin.query<OutboxRow>(
       `SELECT event_id, payload, attempts, occurred_at FROM outbox_events
-        WHERE event_type = 'erpnext.posting.requested' AND payload->>'sale_id' = $1
+        WHERE event_type = 'erpnext.posting.requested' AND lower(payload->>'sale_id') = $1
           AND delivery_state IN ('pending', 'failed')
         ORDER BY occurred_at, event_id`,
       [saleId],
@@ -269,7 +274,7 @@ async function postingRows(saleId: string): Promise<{ sale_post: string[]; rever
 async function deliveryStates(saleId: string, sourceRefId: string): Promise<string[]> {
   const r = await pg().admin.query<{ delivery_state: string }>(
     `SELECT delivery_state FROM outbox_events
-      WHERE payload->>'sale_id' = $1 AND payload->>'source_ref_id' = $2 ORDER BY occurred_at, event_id`,
+      WHERE lower(payload->>'sale_id') = $1 AND payload->>'source_ref_id' = $2 ORDER BY occurred_at, event_id`,
     [saleId, sourceRefId],
   );
   return r.rows.map((x) => x.delivery_state);
@@ -404,6 +409,26 @@ describe("a sale the worker has not processed yet", () => {
     await processSale(sale.saleId);
     await drain(sale.saleId);
     expect(await stockNet(sale.saleId)).toEqual([{ identity: IDENTITY, status: "sellable", net: "0.000000" }]);
+    expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [voidId] });
+  });
+});
+
+describe("a void sent with an upper-case saleRef (review M1)", () => {
+  afterEach(() => {
+    upperCaseSaleRef = false;
+  });
+
+  it("is still re-emitted once and posted once after the bind", async () => {
+    if (skip()) return;
+    const sale = await seedSale(false);
+    await processSale(sale.saleId);
+    upperCaseSaleRef = true;
+    const voidId = await voidSale(sale.saleId);
+    await drain(sale.saleId, { deadLetter: true });
+    expect(await deliveryStates(sale.saleId, voidId)).toEqual(["dead_lettered"]);
+    const outcome = await bind(sale.saleId, sale.lineId);
+    expect(outcome.reEmittedReversals).toEqual([voidId]);
+    await drain(sale.saleId);
     expect(await postingRows(sale.saleId)).toEqual({ sale_post: [sale.saleId], reversal: [voidId] });
   });
 });

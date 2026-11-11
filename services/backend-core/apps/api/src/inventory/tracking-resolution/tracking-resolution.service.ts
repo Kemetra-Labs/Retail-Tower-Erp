@@ -399,7 +399,12 @@ export class TrackingResolutionService {
       const identities = await lockBoundIdentities(client, input.tenantId, cmd);
       await assertBindable(client, input.tenantId, sale, cmd, productOfLine, identities);
 
-      const resolution = await insertResolution(client, input, sale, cmd);
+      const resolution = await insertResolution(client, input, sale, cmd).catch((err: unknown) => {
+        // The same key used concurrently for another sale: the fingerprint
+        // index refuses the second command (nothing of it is written).
+        if (isUniqueViolation(err, 'uq_tracking_resolutions_tenant_fingerprint')) throw idempotencyConflict();
+        throw err;
+      });
       await client.query(
         `INSERT INTO tracking_resolution_lines
            (sale_line_id, tenant_id, resolution_id, tenant_product_ref, tracking_identity_id)
@@ -643,6 +648,11 @@ function toUnresolvedLineBody(row: UnresolvedLineRow): UnresolvedLineBody {
     quantity: row.quantity,
     unit: row.unit,
   };
+}
+
+function isUniqueViolation(err: unknown, constraint: string): boolean {
+  const e = err as { code?: string; constraint?: string } | null;
+  return e?.code === '23505' && e.constraint === constraint;
 }
 
 /** `limit` clamped to 1-200, 50 when absent. */
