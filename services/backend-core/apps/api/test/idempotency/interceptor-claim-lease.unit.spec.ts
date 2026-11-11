@@ -36,13 +36,27 @@ const KEY = "rt1325-aaaaaaaaaaaaaaaaaa";
 const TENANT = "13250000-0000-4000-8000-000000000101";
 const USER = "13250000-0000-4000-8000-000000000103";
 
+const LEASE_SEC = 90;
+const HOUR_MS = 60 * 60 * 1000;
+
 @Controller()
 class LeaseController {
   public fail: Error | null = null;
+  public calls = 0;
 
   @Post("lease")
   @Idempotent("required")
   create(@Res({ passthrough: true }) res: Response): { ok: true } {
+    this.calls += 1;
+    if (this.fail) throw this.fail;
+    res.status(HttpStatus.CREATED);
+    return { ok: true };
+  }
+
+  @Post("leased")
+  @Idempotent("required", { claimLeaseSec: LEASE_SEC })
+  createLeased(@Res({ passthrough: true }) res: Response): { ok: true } {
+    this.calls += 1;
     if (this.fail) throw this.fail;
     res.status(HttpStatus.CREATED);
     return { ok: true };
@@ -93,6 +107,7 @@ describe("IdempotencyInterceptor claim lifetime (RT-1325, RT-1125 R-03)", () => 
 
   beforeEach(() => {
     controller.fail = null;
+    controller.calls = 0;
     store.findOrCreate.mockReset().mockResolvedValue({ hit: false, entry: null });
     store.claim.mockReset().mockResolvedValue("inserted");
     store.releaseClaim.mockReset().mockResolvedValue(undefined);
@@ -106,8 +121,60 @@ describe("IdempotencyInterceptor claim lifetime (RT-1325, RT-1125 R-03)", () => 
     for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r));
   }
 
-  const post = () =>
-    request(app.getHttpServer()).post("/lease").set("Idempotency-Key", KEY).send({ a: 1 });
+  const post = (path = "/lease") =>
+    request(app.getHttpServer()).post(path).set("Idempotency-Key", KEY).send({ a: 1 });
+
+  function saveExpiries(): { replay: Date; claim: Date } {
+    const call = store.save.mock.calls[0]!;
+    return { replay: call[6] as Date, claim: call[7] as Date };
+  }
+
+  it("default route: the claim lifetime is unchanged (the claim expires with the 72 h replay record)", async () => {
+    const before = Date.now();
+    const res = await post();
+    await settle();
+    expect(res.status).toBe(201);
+    const claim = claimExpiry().getTime();
+    expect(claim).toBeGreaterThanOrEqual(before + 72 * HOUR_MS);
+    expect(claim).toBeLessThanOrEqual(Date.now() + 72 * HOUR_MS);
+    expect(saveExpiries().replay.getTime()).toBe(claim);
+    expect(saveExpiries().claim.getTime()).toBe(claim);
+  });
+
+  it("opt-in route: the claim is a short lease, and the saved result still gets the full replay TTL", async () => {
+    const before = Date.now();
+    const res = await post("/leased");
+    await settle();
+    expect(res.status).toBe(201);
+    const claim = claimExpiry().getTime();
+    expect(claim).toBeGreaterThanOrEqual(before + LEASE_SEC * 1000);
+    expect(claim).toBeLessThanOrEqual(Date.now() + LEASE_SEC * 1000);
+    const { replay, claim: fence } = saveExpiries();
+    expect(replay.getTime()).toBeGreaterThanOrEqual(before + 72 * HOUR_MS);
+    // The completion is fenced to this request's own claim.
+    expect(fence.getTime()).toBe(claim);
+  });
+
+  it("opt-in route: a failed handler releases only its own claim (fenced by the claim's expiry)", async () => {
+    controller.fail = new Error("handler boom");
+    await post("/leased");
+    await settle();
+    expect(store.releaseClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ claimExpiresAt: claimExpiry() }),
+    );
+  });
+
+  it("app clock ahead of the database: a lost claim on a lapsed lease retries once, then answers 425", async () => {
+    // findOrCreate (app clock) sees the claim as expired; the claim insert
+    // (database now()) still sees it live. Without a bound this loops.
+    store.claim.mockReset().mockResolvedValue("conflict");
+    const res = await post("/leased");
+    await settle();
+    expect(res.status).toBe(425);
+    expect(res.headers["retry-after"]).toBe("2");
+    expect(store.claim).toHaveBeenCalledTimes(2);
+    expect(controller.calls).toBe(0);
+  });
 
   function claimExpiry(): Date {
     return (store.claim.mock.calls[0]?.[0] as { expiresAt: Date }).expiresAt;

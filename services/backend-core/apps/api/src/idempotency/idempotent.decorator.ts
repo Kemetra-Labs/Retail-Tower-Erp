@@ -30,6 +30,20 @@ export interface IdempotentOptions {
   /** Override the 60s default in-flight marker TTL (seconds). */
   inflightTtlSec?: number;
   /**
+   * RT-1325 (RT-1125 R-03): the lifetime of the Postgres in-flight claim, as a
+   * lease (seconds). Default: the claim lives as long as the replay record
+   * (72 h, or `replayTtlSec`), so an orphaned claim (process killed, failed
+   * release, failed save) answers 425 for that long. With a lease it lapses
+   * after `claimLeaseSec` and a retry re-runs the handler; the saved result
+   * still gets the full replay TTL.
+   *
+   * Opt in ONLY a route whose handler is itself guarded against a double run,
+   * both concurrent (a slow handler outliving the lease) and sequential (the
+   * first run committed but its result was never saved): see the route/guard
+   * table on RT-1325. A route without such a guard keeps the default.
+   */
+  claimLeaseSec?: number;
+  /**
    * `"forbid"` — the response carries credential material and is never
    * stored or replayed (RT-82 K3). The key stays occupied, so the handler
    * never runs twice; a same-key retry answers `409 idempotency_key_conflict`.
@@ -51,6 +65,14 @@ export interface IdempotentOptions {
    */
   clientScope?: "device";
 }
+
+/**
+ * RT-1325: the claim lease of the routes that opt in (`claimLeaseSec`). Twice
+ * the 60 s in-flight marker, far above a normal handler run, and far below
+ * the 72 h default: an orphaned claim stalls a retrying till or Connector for
+ * at most two minutes.
+ */
+export const GUARDED_ROUTE_CLAIM_LEASE_SEC = 120;
 
 export const IDEMPOTENT_POLICY_KEY = "dp2:idempotent:policy";
 export const IDEMPOTENT_OPTIONS_KEY = "dp2:idempotent:options";

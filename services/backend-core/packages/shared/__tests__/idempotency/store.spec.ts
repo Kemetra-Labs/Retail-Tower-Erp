@@ -575,6 +575,33 @@ describe("IdempotencyKeyStore", () => {
       expect(outcome).toBe("conflict");
     });
 
+    it("RT-1325: save fences the completion to the claim it made (claimExpiresAt reaches the writer)", async () => {
+      const pgWriter = makePgWriter();
+      const store = new IdempotencyKeyStore({ redis: makeRedis(), pgWriter, pgReader: makePgReader() });
+      const replayExpiry = new Date("2099-01-04T00:00:00.000Z");
+      const claimExpiry = new Date("2099-01-01T00:02:00.000Z");
+      await store.save(TENANT_A, STORE_1, CLIENT, KEY, FP_A, RESULT_A, replayExpiry, claimExpiry);
+      expect(pgWriter.calls[0]!.expiresAt).toEqual(replayExpiry);
+      expect(pgWriter.calls[0]!.claimExpiresAt).toEqual(claimExpiry);
+    });
+
+    it("RT-1325: releaseClaim fences the release to the claim it made", async () => {
+      const released: unknown[] = [];
+      const store = new IdempotencyKeyStore({
+        redis: makeRedis(),
+        pgWriter: {
+          async insert() { /* unused */ },
+          async release(row) { released.push(row); },
+        },
+        pgReader: makePgReader(),
+      });
+      const claimExpiry = new Date("2099-01-01T00:02:00.000Z");
+      await store.releaseClaim({ tenantId: TENANT_A, storeId: STORE_1, clientId: CLIENT, key: KEY, claimExpiresAt: claimExpiry });
+      expect(released).toEqual([
+        { tenantId: TENANT_A, storeId: STORE_1, clientId: CLIENT, key: KEY, claimExpiresAt: claimExpiry },
+      ]);
+    });
+
     it("claim is unsupported when the tenant id is not a uuid", async () => {
       let called = false;
       const store = new IdempotencyKeyStore({

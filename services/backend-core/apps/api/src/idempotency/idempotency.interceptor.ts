@@ -440,6 +440,8 @@ export class IdempotencyInterceptor implements NestInterceptor {
         options.replayTtlSec !== undefined
           ? options.replayTtlSec * 1000
           : 72 * 60 * 60 * 1000, // 72h default
+      claimLeaseMs: options.claimLeaseSec !== undefined ? options.claimLeaseSec * 1000 : null,
+      claimRetried: false,
       hit,
       keyFingerprint: keyFingerprint(key.headerValue),
       replayForbidden: key.replayForbidden,
@@ -461,6 +463,10 @@ interface FreshAttempt {
   storeKey: string;
   fingerprint: Buffer;
   replayTtlMs: number;
+  /** RT-1325: the claim lease (`claimLeaseSec`); null = the claim lives as long as the replay record. */
+  claimLeaseMs: number | null;
+  /** RT-1325: a lost claim was already retried once (bounds the app/DB clock-skew loop). */
+  claimRetried: boolean;
   hit: false | "in_progress";
   keyFingerprint: string;
   /** K3: store a non-secret marker instead of the body; never replay. */
@@ -474,26 +480,34 @@ async function runFresh(attempt: FreshAttempt): Promise<Observable<unknown>> {
     recordIdempotencyInProgress({ route: attempt.route });
     return replyInProgress(attempt.execCtx);
   }
-  const expiresAt = new Date(Date.now() + attempt.replayTtlMs);
+  const now = Date.now();
+  // The saved result's replay expiry (72 h default, or `replayTtlSec`).
+  const expiresAt = new Date(now + attempt.replayTtlMs);
+  // RT-1325 (R-03): the claim's own expiry. Default: the same as the replay
+  // record (unchanged). An opted-in route claims for a short lease only, so
+  // an orphaned claim stops answering 425 once it lapses. The claim's expiry
+  // also identifies it: release and completion below touch only this claim.
+  const claimExpiresAt = attempt.claimLeaseMs === null ? expiresAt : new Date(now + attempt.claimLeaseMs);
   const claimed = await attempt.store.claim({
     tenantId: attempt.tenantId,
     storeId: null,
     clientId: attempt.clientId,
     key: attempt.storeKey,
     fingerprint: attempt.fingerprint,
-    expiresAt,
+    expiresAt: claimExpiresAt,
   });
   if (claimed === "conflict") return lostClaim(attempt);
   const keyFp = attempt.keyFingerprint;
   // RT-1325: both degraded paths below leave the claim in place until it
   // expires (retries answer 425 until then); the log says when.
-  const degraded = { route: attempt.route, key_fingerprint: keyFp, claim_expires_at: expiresAt.toISOString() };
+  const degraded = { route: attempt.route, key_fingerprint: keyFp, claim_expires_at: claimExpiresAt.toISOString() };
   return attempt.next.handle().pipe(
         catchError((err: unknown) => from(attempt.store.releaseClaim({
           tenantId: attempt.tenantId,
           storeId: null,
           clientId: attempt.clientId,
           key: attempt.storeKey,
+          claimExpiresAt,
         }).catch((releaseErr: unknown) => {
           // RT-1325 (R-03): a failed release must not replace the handler's
           // own error (a 4xx would become a 500), and must not be silent.
@@ -528,6 +542,7 @@ async function runFresh(attempt: FreshAttempt): Promise<Observable<unknown>> {
               attempt.fingerprint,
               result,
               expiresAt,
+              claimExpiresAt,
             ).catch((err: unknown) => {
               // ADR 0010 D1 (audit M-5): the replay-record save is best-effort, but
               // a SILENT failure hides that idempotency is degraded — a later retry
@@ -574,11 +589,15 @@ async function lostClaim(attempt: FreshAttempt): Promise<Observable<unknown>> {
         "The provided Idempotency-Key has already been used for a different request body. Generate a new key.",
     });
   }
-  if (again.hit === "in_progress") {
+  // RT-1325: the lookup uses the app clock and the claim insert the database
+  // clock. When the app runs ahead, a claim the lookup sees as lapsed is still
+  // live for the insert: miss, conflict, miss, conflict… Retry the claim once
+  // (the winner may have released it), then answer 425 like a live claim.
+  if (again.hit === "in_progress" || attempt.claimRetried) {
     recordIdempotencyInProgress({ route: attempt.route });
     return replyInProgress(attempt.execCtx);
   }
-  return runFresh({ ...attempt, hit: false });
+  return runFresh({ ...attempt, hit: false, claimRetried: true });
 }
 
 /**
