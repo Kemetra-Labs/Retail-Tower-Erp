@@ -93,7 +93,7 @@ export interface RefusalDialog {
 }
 
 /** The slice of Electron's `app` a refusal needs. */
-export interface RefusalApp {
+interface RefusalApp {
   exit(code: number): void;
 }
 
