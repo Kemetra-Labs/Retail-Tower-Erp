@@ -74,11 +74,18 @@ export class PgIdempotencyMirror implements PgMirrorWriter, PgMirrorReader {
     );
   }
 
+  /**
+   * RT-1325: with `claimExpiresAt`, only the caller's own claim is dropped. A
+   * claim is identified by the expiry it was written with (no owner column,
+   * no migration): after a lapsed claim is taken over (`claim` rewrites
+   * `expires_at`), the first claimant's late release no longer matches.
+   */
   async release(row: {
     tenantId: string;
     storeId: string | null;
     clientId: string;
     key: string;
+    claimExpiresAt?: Date;
   }): Promise<void> {
     if (!isTenantUuid(row.tenantId)) return;
     await runWithTenantContext(
@@ -89,14 +96,22 @@ export class PgIdempotencyMirror implements PgMirrorWriter, PgMirrorReader {
           `DELETE FROM idempotency_keys
             WHERE tenant_id = $1 AND client_id = $2 AND key = $3
               AND store_id IS NOT DISTINCT FROM $4
-              AND response_status = 0`,
-          [row.tenantId, row.clientId, row.key, row.storeId],
+              AND response_status = 0
+              AND ($5::timestamptz IS NULL OR expires_at = $5::timestamptz)`,
+          [row.tenantId, row.clientId, row.key, row.storeId, row.claimExpiresAt ?? null],
         );
       },
     );
   }
 
-  async insert(row: MirrorRow & { result: StoredResult }): Promise<void> {
+  /**
+   * Complete the caller's claim with its result (`expiresAt` = the full replay
+   * TTL), or insert the completed row when there was no claim. RT-1325: with
+   * `claimExpiresAt`, only the caller's own claim is completed; a claim taken
+   * over after it lapsed falls through to the checks below (a same-body
+   * completion is then a no-op, the taker completes its own).
+   */
+  async insert(row: MirrorRow & { result: StoredResult; claimExpiresAt?: Date }): Promise<void> {
     if (!isTenantUuid(row.tenantId)) return;
     await runWithTenantContext(
       this.pool,
@@ -112,7 +127,8 @@ export class PgIdempotencyMirror implements PgMirrorWriter, PgMirrorReader {
               AND client_id = $6
               AND key = $7
               AND store_id IS NOT DISTINCT FROM $8
-              AND response_status = 0`,
+              AND response_status = 0
+              AND ($9::timestamptz IS NULL OR expires_at = $9::timestamptz)`,
           [
             row.result.status,
             JSON.stringify(row.result.body ?? null),
@@ -122,6 +138,7 @@ export class PgIdempotencyMirror implements PgMirrorWriter, PgMirrorReader {
             row.clientId,
             row.key,
             row.storeId,
+            row.claimExpiresAt ?? null,
           ],
         );
         if ((updated.rowCount ?? 0) > 0) return;

@@ -35,6 +35,7 @@ import { AuthModule } from "../../auth/auth.module";
 import { ContextModule } from "../../context/context.module";
 import { ErpnextPostingController } from "./erpnext-posting.controller";
 import { ErpnextPostingService } from "./erpnext-posting.service";
+import { PostingFeedReporter } from "./posting-feed-reporter";
 
 /**
  * Wires the DP2 side of the 012 posting-feed contract. 015-US1-FEED adds the
@@ -46,7 +47,7 @@ import { ErpnextPostingService } from "./erpnext-posting.service";
 @Module({
   imports: [AuthModule, AuditModule, ContextModule],
   controllers: [ErpnextPostingController],
-  providers: [ErpnextPostingService],
+  providers: [ErpnextPostingService, PostingFeedReporter],
   exports: [ErpnextPostingService],
 })
 export class ErpnextPostingModule {}

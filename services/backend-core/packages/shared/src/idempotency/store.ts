@@ -42,6 +42,11 @@ export interface PgMirrorWriter {
     fingerprint: Buffer;
     result: StoredResult;
     expiresAt: Date;
+    /**
+     * RT-1325: the expiry of the claim this request wrote. When set, only that
+     * claim is completed: a claim taken over after it lapsed is left alone.
+     */
+    claimExpiresAt?: Date;
   }): Promise<void>;
   /**
    * Insert the in-flight claim before the handler runs.
@@ -57,12 +62,16 @@ export interface PgMirrorWriter {
     fingerprint: Buffer;
     expiresAt: Date;
   }): Promise<void>;
-  /** Drop an in-flight claim so a failed handler can be retried. */
+  /**
+   * Drop an in-flight claim so a failed handler can be retried. RT-1325: with
+   * `claimExpiresAt`, only the claim this request wrote is dropped.
+   */
   release?(row: {
     tenantId: string;
     storeId: string | null;
     clientId: string;
     key: string;
+    claimExpiresAt?: Date;
   }): Promise<void>;
 }
 
@@ -247,6 +256,8 @@ export class IdempotencyKeyStore {
     storeId: string | null;
     clientId: string;
     key: string;
+    /** RT-1325: release only the claim with this expiry (the caller's own). */
+    claimExpiresAt?: Date;
   }): Promise<void> {
     if (!this.pgWriter.release || !isUuid(input.tenantId)) return;
     await this.pgWriter.release(input);
@@ -257,6 +268,8 @@ export class IdempotencyKeyStore {
    *
    * Writes to Redis (with TTL) and to the Postgres mirror.
    * `expiresAt` defaults to now + defaultTtlMs if not provided.
+   * RT-1325: `claimExpiresAt` fences the Postgres completion to the claim the
+   * caller wrote (see {@link PgMirrorWriter.insert}).
    */
   async save(
     tenantId: string,
@@ -266,6 +279,7 @@ export class IdempotencyKeyStore {
     fingerprint: Buffer,
     result: StoredResult,
     expiresAt?: Date,
+    claimExpiresAt?: Date,
   ): Promise<void> {
     const now = this.clock();
     const resolvedExpiry = expiresAt ?? new Date(now.getTime() + this.defaultTtlMs);
@@ -285,6 +299,7 @@ export class IdempotencyKeyStore {
       fingerprint,
       result,
       expiresAt: resolvedExpiry,
+      ...(claimExpiresAt === undefined ? {} : { claimExpiresAt }),
     });
 
     const rkey = redisKey(tenantId, storeId, clientId, key);

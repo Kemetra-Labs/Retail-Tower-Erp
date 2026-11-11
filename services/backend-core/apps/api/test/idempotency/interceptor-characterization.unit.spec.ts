@@ -289,9 +289,10 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     expect(store.claim).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: TENANT, storeId: null, clientId: USER, key: storeKey("/char"),
     }));
+    // RT-1325: the trailing Date fences the completion to this request's claim.
     expect(store.save).toHaveBeenCalledWith(
       TENANT, null, USER, storeKey("/char"), bodyFingerprint({ a: 1, b: 2 }),
-      { status: 201, body: { ok: true, n: 1 } }, expect.any(Date),
+      { status: 201, body: { ok: true, n: 1 } }, expect.any(Date), expect.any(Date),
     );
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));
     expect(marker.del).toHaveBeenCalledTimes(1);
@@ -623,8 +624,10 @@ describe("IdempotencyInterceptor characterization matrix (RT-1223)", () => {
     await settle();
     expect(res.status).toBe(500);
     expect(res.body).toEqual(errorBody("internal_error", "Internal Server Error"));
+    // RT-1325: `claimExpiresAt` fences the release to this request's claim.
     expect(store.releaseClaim).toHaveBeenCalledWith({
       tenantId: TENANT, storeId: null, clientId: USER, key: storeKey("/char"),
+      claimExpiresAt: expect.any(Date),
     });
     expect(store.save).not.toHaveBeenCalled();
     expect(marker.del).toHaveBeenCalledWith(tuple("/char"));

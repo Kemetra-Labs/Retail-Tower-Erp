@@ -109,7 +109,7 @@ describe("posting-feed.yaml — projected work items validate against PostingWor
     expectValid(item);
   });
 
-  it("a return whose tender rows are not visible is never emitted without them (the pull fails)", async () => {
+  it("a return whose tender rows are not visible is never emitted without them (its build throws)", async () => {
     await expect(
       project([
         { rows: [{ reversal_kind: "return", recorded_at: AT, business_date: "2026-06-07" }] },

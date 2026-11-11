@@ -42,7 +42,7 @@ import { Auditable } from "../../audit/auditable.decorator";
 import type { AuthedRequest } from "../../auth/auth.guard";
 import { ConnectorAuthGuard } from "../../auth/connector-auth.guard";
 import { ConnectorEnvironmentGuard } from "../../auth/connector-environment.guard";
-import { Idempotent } from "../../idempotency/idempotent.decorator";
+import { GUARDED_ROUTE_CLAIM_LEASE_SEC, Idempotent } from "../../idempotency/idempotent.decorator";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import {
   OutcomeAckBodySchema,
@@ -118,9 +118,17 @@ export class ErpnextPostingController {
    * already-terminal row. A first-time record returns 201; a service-level echo
    * returns 200 with `Idempotent-Replayed: true`. A cross-tenant/foreign ref →
    * non-disclosing 404 `not_found`; a contradicting re-ack → 409.
+   *
+   * RT-1325 (RT-1125 R-03): the in-flight claim is a short lease, so an
+   * orphaned claim no longer stalls the Connector's cursor on this item for
+   * 72 h. Safe because a re-run is guarded: the row is locked `FOR UPDATE`
+   * and a terminal row echoes (posted / rejected / reconciliation, and a
+   * `failed_transient` whose first run spent the budget), so no second ERP
+   * document is recorded. Accepted effect: a re-run `failed_transient` on a
+   * pending row spends one more retry (RT-1325 decision).
    */
   @Post("postings/:workItemRef/outcome")
-  @Idempotent("required")
+  @Idempotent("required", { claimLeaseSec: GUARDED_ROUTE_CLAIM_LEASE_SEC })
   @Auditable("erpnext.posting.outcome.recorded")
   @HttpCode(201)
   async ackOutcome(

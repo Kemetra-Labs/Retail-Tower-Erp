@@ -34,8 +34,9 @@ export { SaleTendersNotVisibleError } from "../sales/sale-errors";
 /**
  * RT-330: a row names a frozen resolution version that does not cover every
  * one of its sale lines. Every writer inserts all lines in one statement, so
- * this is an invariant breach: the pull fails loudly rather than omit the row
- * and advance the cursor past it (the RT-316 strand).
+ * this is an invariant breach: the build fails loudly rather than omit the row
+ * and let the cursor pass it (the RT-316 strand). Since RT-1325 the feed
+ * re-offers that row under the retry budget instead of failing the whole pull.
  */
 export class PostingResolutionIncompleteError extends Error {
   constructor(workItemRef: string, version: number) {
@@ -82,8 +83,9 @@ export interface ReturnWorkLine {
 /**
  * RT-86: a `return` whose recorded refund tenders are not visible to the feed. Capture always
  * stores >= 1 (RT-73), so this is a visibility fault (e.g. an RLS policy mismatch), not data.
- * Thrown rather than omitting the item: the pull fails and its cursor does not advance, so the
- * return is neither offered without its tenders nor skipped past (Codex P1/P2, PR #652).
+ * Thrown rather than omitting the item, so the return is neither offered without its tenders nor
+ * skipped past (Codex P1/P2, PR #652). Since RT-1325 the feed re-offers that one row under the
+ * retry budget instead of failing the whole pull.
  */
 export class ReturnTendersNotVisibleError extends Error {
   constructor(returnId: string) {
@@ -273,7 +275,8 @@ export async function buildWorkItem(
   );
 
   // A FROZEN row (RT-330) always resolves every line; a gap is an invariant
-  // breach and fails the pull loudly rather than stranding the row.
+  // breach and fails this build loudly rather than stranding the row (the feed
+  // then re-offers it under the retry budget, RT-1325).
   //
   // A pre-0037 row WITHOUT a frozen resolution keeps the live join. If its item
   // map was retired since creation, a line's `erpnext_item_ref` is NULL; we MUST
