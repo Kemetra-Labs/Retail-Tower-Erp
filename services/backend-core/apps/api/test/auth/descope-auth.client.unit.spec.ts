@@ -15,12 +15,15 @@
  */
 import {
   DescopeAuthClient,
+  descopeAuthFactory,
+  resetRedirectUrlFromEnv,
   type DescopeFetch,
 } from "../../src/auth/descope-auth.client";
 
 const PROJECT_ID = "P2abcdefghijklmnopqrstuvwxyz";
 const MGMT_KEY = "K2-management-key-value";
 const SECRET_PASSWORD = "Correct-Horse-Battery-9!";
+const RESET_REDIRECT = "https://console.example.test/reset-password";
 
 interface Call {
   url: string;
@@ -36,7 +39,7 @@ function jsonResponse(status: number, body: unknown): Response {
 
 function clientWith(
   respond: (call: Call) => Response | Promise<Response>,
-  opts: { managementKey?: string | null } = {},
+  opts: { managementKey?: string | null; resetRedirectUrl?: string | null } = {},
 ): { client: DescopeAuthClient; calls: Call[] } {
   const calls: Call[] = [];
   const fetchImpl: DescopeFetch = (input, init = {}) => {
@@ -47,6 +50,8 @@ function clientWith(
   const client = new DescopeAuthClient({
     projectId: PROJECT_ID,
     managementKey: opts.managementKey === undefined ? MGMT_KEY : opts.managementKey,
+    resetRedirectUrl:
+      opts.resetRedirectUrl === undefined ? RESET_REDIRECT : opts.resetRedirectUrl,
     fetch: fetchImpl,
   });
   return { client, calls };
@@ -146,6 +151,185 @@ describe("DescopeAuthClient.replacePassword", () => {
   it("refuses a 200 with no session JWT", async () => {
     const { client } = clientWith(() => jsonResponse(200, {}));
     expect(await client.replacePassword("a@b.co", "x", "y")).toEqual({ kind: "refused" });
+  });
+});
+
+describe("DescopeAuthClient.sendPasswordReset (RT-1327)", () => {
+  it("posts the loginId and the configured return URL with the project id as bearer", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, { maskedEmail: "m***@b.co" }));
+
+    const result = await client.sendPasswordReset("manager@tower.com");
+
+    expect(result).toEqual({ kind: "sent" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/password/reset");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.redirect).toBe("error");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      loginId: "manager@tower.com",
+      redirectUrl: RESET_REDIRECT,
+    });
+  });
+
+  it("fails closed as unconfigured, with no request, when no return URL is configured", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, {}), { resetRedirectUrl: null });
+    expect(await client.sendPasswordReset("a@b.co")).toEqual({ kind: "unconfigured" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([400, 401, 404])("maps a %i answer (unknown or unverified user) to a bare refusal", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, { errorCode: "E062108" }));
+    expect(await client.sendPasswordReset("a@b.co")).toEqual({ kind: "refused" });
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.sendPasswordReset("a@b.co")).toEqual({ kind: "unavailable" });
+  });
+
+  it("maps a transport failure to unavailable", async () => {
+    const { client } = clientWith(() => {
+      throw new Error("connect failed");
+    });
+    expect(await client.sendPasswordReset("a@b.co")).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("resetRedirectUrlFromEnv (RT-1327)", () => {
+  it("builds the return URL from a bare https origin, tolerating a trailing slash", () => {
+    expect(resetRedirectUrlFromEnv("https://console.example.test")).toBe("https://console.example.test/reset-password");
+    expect(resetRedirectUrlFromEnv(" https://console.example.test/ ")).toBe("https://console.example.test/reset-password");
+    expect(resetRedirectUrlFromEnv("https://localhost:5173")).toBe("https://localhost:5173/reset-password");
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["blank", "  "],
+    ["http", "http://console.example.test"],
+    ["not a URL", "console.example.test"],
+    ["with a path", "https://console.example.test/admin"],
+    ["with a query", "https://console.example.test/?next=//evil.test"],
+    ["with a fragment", "https://console.example.test/#x"],
+    ["with credentials", "https://user:pw@console.example.test"],
+  ])("fails closed (null) for a value that is %s", (_name, raw) => {
+    expect(resetRedirectUrlFromEnv(raw)).toBeNull();
+  });
+});
+
+describe("DescopeAuthClient.verifyResetToken (RT-1327)", () => {
+  const PROOF = "opaque-magic-link-token";
+
+  it("posts the one-time token and returns the session and refresh JWTs", async () => {
+    const { client, calls } = clientWith(() =>
+      jsonResponse(200, { sessionJwt: "sess-1", refreshJwt: "refresh-1", user: { userId: "U1" } }),
+    );
+
+    const result = await client.verifyResetToken(PROOF);
+
+    expect(result).toEqual({ kind: "ok", sessionJwt: "sess-1", refreshJwt: "refresh-1" });
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/magiclink/verify");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ token: PROOF });
+  });
+
+  it("never returns the user object", async () => {
+    const { client } = clientWith(() =>
+      jsonResponse(200, { sessionJwt: "sess-1", refreshJwt: "refresh-1", user: { userId: "U1", email: "a@b.co" } }),
+    );
+    const out = JSON.stringify(await client.verifyResetToken(PROOF));
+    expect(out).not.toContain("U1");
+    expect(out).not.toContain("a@b.co");
+  });
+
+  it.each([400, 401, 403, 404])("maps a %i answer (invalid, expired or replayed proof) to a refusal", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, { errorCode: "E061003" }));
+    expect(await client.verifyResetToken(PROOF)).toEqual({ kind: "refused" });
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.verifyResetToken(PROOF)).toEqual({ kind: "unavailable" });
+  });
+
+  it("refuses a 200 that lacks the session JWT or the refresh JWT", async () => {
+    const noRefresh = clientWith(() => jsonResponse(200, { sessionJwt: "sess-1" }));
+    expect(await noRefresh.client.verifyResetToken(PROOF)).toEqual({ kind: "refused" });
+    const noSession = clientWith(() => jsonResponse(200, { refreshJwt: "refresh-1" }));
+    expect(await noSession.client.verifyResetToken(PROOF)).toEqual({ kind: "refused" });
+  });
+});
+
+describe("DescopeAuthClient.updatePassword (RT-1327)", () => {
+  it("posts the new password with projectId:refreshJwt as bearer", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, {}));
+
+    const result = await client.updatePassword("manager@tower.com", SECRET_PASSWORD, "refresh-1");
+
+    expect(result).toEqual({ kind: "ok" });
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/password/update");
+    expect(calls[0]?.init.redirect).toBe("error");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}:refresh-1`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
+      loginId: "manager@tower.com",
+      newPassword: SECRET_PASSWORD,
+    });
+  });
+
+  it("maps a refusal (policy, reuse, bad token) to refused with no body or password in the result", async () => {
+    const { client } = clientWith(() => jsonResponse(400, { errorCode: "E062108", message: SECRET_PASSWORD }));
+    const result = await client.updatePassword("a@b.co", SECRET_PASSWORD, "refresh-1");
+    expect(result).toEqual({ kind: "refused" });
+    expect(JSON.stringify(result)).not.toContain(SECRET_PASSWORD);
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.updatePassword("a@b.co", "x", "refresh-1")).toEqual({ kind: "unavailable" });
+  });
+
+  it("maps a transport failure to unavailable without leaking the password or the refresh token", async () => {
+    const { client } = clientWith(() => {
+      throw Object.assign(new Error(`failed ${SECRET_PASSWORD} refresh-1`), { cause: { body: SECRET_PASSWORD } });
+    });
+    const result = await client.updatePassword("a@b.co", SECRET_PASSWORD, "refresh-1");
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain("refresh-1");
+  });
+});
+
+describe("DescopeAuthClient.logoutAllSessions (RT-1327)", () => {
+  it("posts an empty body to logoutall with projectId:refreshJwt as bearer", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, {}));
+
+    const result = await client.logoutAllSessions("refresh-1");
+
+    expect(result).toEqual({ kind: "ok" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/logoutall");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.redirect).toBe("error");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}:refresh-1`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({});
+  });
+
+  it.each([400, 401, 403])("maps a %i answer to refused", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, { errorCode: "E061005" }));
+    expect(await client.logoutAllSessions("refresh-1")).toEqual({ kind: "refused" });
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.logoutAllSessions("refresh-1")).toEqual({ kind: "unavailable" });
+  });
+
+  it("maps a transport failure to unavailable without leaking the refresh token", async () => {
+    const { client } = clientWith(() => {
+      throw Object.assign(new Error("failed refresh-1"), { cause: { header: "refresh-1" } });
+    });
+    const result = await client.logoutAllSessions("refresh-1");
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain("refresh-1");
   });
 });
 
@@ -269,5 +453,75 @@ describe("DescopeAuthClient construction", () => {
           fetch: () => Promise.resolve(jsonResponse(200, {})),
         }),
     ).toThrow(/DESCOPE_PROJECT_ID/);
+  });
+});
+
+describe("descopeAuthFactory without DESCOPE_PROJECT_ID (RT-1327)", () => {
+  const saved = process.env["DESCOPE_PROJECT_ID"];
+  beforeEach(() => {
+    delete process.env["DESCOPE_PROJECT_ID"];
+  });
+  afterAll(() => {
+    if (saved === undefined) delete process.env["DESCOPE_PROJECT_ID"];
+    else process.env["DESCOPE_PROJECT_ID"] = saved;
+  });
+
+  // No provider is wired, so a reset token Backend-Core does not hold cannot be a
+  // provider proof: it is refused (the confirm route's 400), never reported as an
+  // outage (503). Otherwise every unknown or replayed local token would be a 503.
+  it("refuses a recovery proof instead of reporting an outage", async () => {
+    expect(await descopeAuthFactory().verifyResetToken("any-token")).toEqual({ kind: "refused" });
+  });
+
+  it("sends no provider reset", async () => {
+    expect(await descopeAuthFactory().sendPasswordReset("a@b.co")).toEqual({ kind: "unconfigured" });
+  });
+});
+
+describe("provider password recovery switch DESCOPE_PASSWORD_RECOVERY_ENABLED (RT-1327)", () => {
+  const KEYS = ["DESCOPE_PROJECT_ID", "CONSOLE_BASE_URL", "DESCOPE_PASSWORD_RECOVERY_ENABLED"] as const;
+  const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+  beforeEach(() => {
+    process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+    process.env["CONSOLE_BASE_URL"] = "https://console.example.test";
+    delete process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"];
+  });
+  afterAll(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("is off when unset, even with a valid CONSOLE_BASE_URL: no return URL, so nothing is sent", async () => {
+    const port = descopeAuthFactory();
+    expect(Reflect.get(port, "resetRedirectUrl")).toBeNull();
+    expect(await port.sendPasswordReset("a@b.co")).toEqual({ kind: "unconfigured" });
+  });
+
+  it.each(["false", "1", "yes", "TRUE ", "on", ""])("stays off for %p", (value) => {
+    process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = value;
+    expect(Reflect.get(descopeAuthFactory(), "resetRedirectUrl")).toBeNull();
+  });
+
+  it("is on only for `true`, and then uses <CONSOLE_BASE_URL>/reset-password", () => {
+    process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = "true";
+    expect(Reflect.get(descopeAuthFactory(), "resetRedirectUrl")).toBe("https://console.example.test/reset-password");
+  });
+
+  it("stays off when switched on but CONSOLE_BASE_URL is invalid", () => {
+    process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = "true";
+    process.env["CONSOLE_BASE_URL"] = "http://console.example.test";
+    expect(Reflect.get(descopeAuthFactory(), "resetRedirectUrl")).toBeNull();
+  });
+});
+
+describe("DescopeAuthClient.verifyResetToken with recovery off (RT-1327)", () => {
+  it("refuses any proof without contacting the provider", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, { sessionJwt: "s", refreshJwt: "r" }), {
+      resetRedirectUrl: null,
+    });
+    expect(await client.verifyResetToken("any-token")).toEqual({ kind: "refused" });
+    expect(calls).toHaveLength(0);
   });
 });

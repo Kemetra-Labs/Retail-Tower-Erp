@@ -106,7 +106,7 @@ function build(opts: {
     .mockResolvedValue(opts.linkSubject === undefined ? SUBJECT : opts.linkSubject);
   const service = new AuthService({} as never, sessions as unknown as SessionRepository, undefined, undefined, {
     auditEnqueuer: audit,
-    externalCredentials: { port, verifier, activeLinkSubject },
+    externalCredentials: { port, verifier, activeLinkSubject, findUserByLinkSubject: jest.fn().mockResolvedValue(null) },
   });
   return { service, sessions, audit, port, verifier, activeLinkSubject };
 }

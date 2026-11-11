@@ -81,6 +81,20 @@ export async function findUserByActiveLink(
 }
 
 /**
+ * Predicate (a), for provider-backed recovery (RT-1327): the LIVE user whose
+ * ACTIVE link is `ref`, or null. Unlike {@link findUserByActiveLink}, a
+ * soft-deleted user resolves to nobody: a recovery proof must never reset the
+ * password of a disabled account. Ambiguity fails closed (null) as there.
+ */
+export async function findLiveUserByActiveLink(
+  db: LinkQueryable,
+  ref: IdentityRef,
+): Promise<{ readonly userId: string; readonly email: string } | null> {
+  const row = await findUserByActiveLink(db, ref);
+  return row === null || row.deleted_at !== null ? null : { userId: row.id, email: row.email };
+}
+
+/**
  * Predicate (a), batched: the subject of each given user's ACTIVE link, by user
  * id. A user with no active link is absent from the map — rosters and
  * eligibility filter on "has an active link". One active link per user is a

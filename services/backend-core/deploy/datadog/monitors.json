@@ -122,6 +122,23 @@
     }
   },
   {
+    "key": "p2-api-provider-signout-fail",
+    "name": "backend-api provider sign-out after password reset failed (lab)",
+    "type": "query alert",
+    "query": "sum(last_30m):sum:dp2.auth_provider_signout_failure.count{env:staging,service:backend-api}.as_count() > 0",
+    "message": "{{#is_alert}}{{value}} provider sign-out(s) after a Descope password reset failed in 30 minutes, even after one retry. Descope sessions opened with the old password may still be valid for those users. The reset itself succeeded.{{/is_alert}}\n{{#is_no_data}}No provider sign-out counter from backend-api for 60 minutes. The counter is exported at 0 when nothing fails, so this means the api scrape is broken. No telemetry is not healthy.{{/is_no_data}}\n{{#is_recovery}}No failed provider sign-outs in the last 30 minutes.{{/is_recovery}}\n\nTriage: the api error log line \"provider sign-out after password reset failed\" (result kind only), then Descope status. To end a user's sessions by hand, sign them out of all sessions in the Descope console.\nRunbook: services/backend-core/deploy/datadog/README.md in Kemetra-Labs/Retail-Tower-Erp (RT-1327).\n__ALERT_RECIPIENTS__",
+    "tags": ["env:staging", "service:backend-api", "rt:rt-1327", "priority:p2", "managed-by:deploy-datadog"],
+    "priority": 2,
+    "options": {
+      "thresholds": { "critical": 0 },
+      "notify_no_data": true,
+      "no_data_timeframe": 60,
+      "require_full_window": false,
+      "notify_audit": false,
+      "include_tags": false
+    }
+  },
+  {
     "key": "p2-lab02-postgres",
     "name": "lab-02 Postgres connections high or unreachable",
     "type": "query alert",

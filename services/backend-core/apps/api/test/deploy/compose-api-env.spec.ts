@@ -243,6 +243,24 @@ describe("RT-984 production compose passes every API env setting", () => {
           return Reflect.get(descopeAuthFactory(), "managementKey");
         },
       ],
+      [
+        "CONSOLE_BASE_URL",
+        () => {
+          process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+          // Switch on, so this probe exercises CONSOLE_BASE_URL itself.
+          process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"] = "true";
+          return Reflect.get(descopeAuthFactory(), "resetRedirectUrl");
+        },
+      ],
+      [
+        "DESCOPE_PASSWORD_RECOVERY_ENABLED",
+        () => {
+          process.env["DESCOPE_PROJECT_ID"] = PROJECT_ID;
+          // A valid origin, so only the switch decides whether recovery is on.
+          process.env["CONSOLE_BASE_URL"] = "https://console.example.test";
+          return Reflect.get(descopeAuthFactory(), "resetRedirectUrl");
+        },
+      ],
       ["CONSOLE_SENTRY_DSN", () => resolveForwardTarget(process.env)],
       ["POS_SENTRY_DSN", () => resolvePosTelemetryTarget(process.env)],
       ["POS_TELEMETRY_REF_KEY", () => resolveRefKey(process.env)],

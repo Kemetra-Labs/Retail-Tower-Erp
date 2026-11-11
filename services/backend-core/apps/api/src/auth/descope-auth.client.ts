@@ -9,6 +9,10 @@
  * Calls (`https://api.descope.com`, US default region):
  *   - `POST /v1/auth/password/signin`     Bearer <projectId>
  *   - `POST /v1/auth/password/replace`    Bearer <projectId>
+ *   - `POST /v1/auth/password/reset`      Bearer <projectId>   (RT-1327: provider mails the recovery link)
+ *   - `POST /v1/auth/magiclink/verify`    Bearer <projectId>   (RT-1327: consume the link's one-time token)
+ *   - `POST /v1/auth/password/update`     Bearer <projectId>:<refreshJwt> (RT-1327)
+ *   - `POST /v1/auth/logoutall`           Bearer <projectId>:<refreshJwt> (RT-1327: end every provider session)
  *   - `POST /v1/mgmt/user/create`         Bearer <projectId>:<managementKey>
  *   - `GET  /v1/mgmt/user?loginId=`       Bearer <projectId>:<managementKey>
  *   - `POST /v1/mgmt/user/password/set/active` Bearer <projectId>:<managementKey>
@@ -46,21 +50,67 @@ import type {
   CreateUserResult,
   ExternalCredentialPort,
   LoadUserResult,
+  LogoutAllResult,
   PasswordSignInResult,
   ReplacePasswordResult,
+  SendResetResult,
   SetPasswordResult,
+  UpdatePasswordResult,
+  VerifyResetResult,
 } from "./external-credential.port";
 
 export type DescopeFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** The Admin Console page the recovery link returns to (RT-807 builds it; it posts the link's `t` to confirm). */
+const RESET_RETURN_PATH = "/reset-password";
+
 export interface DescopeAuthClientOptions {
   readonly projectId: string;
   /** `DESCOPE_MANAGEMENT_KEY`; null or empty leaves every Management call `unconfigured`. */
   readonly managementKey: string | null;
+  /**
+   * Absolute return URL of the recovery link. Null or absent means provider
+   * recovery is off: `sendPasswordReset` is `unconfigured` and `verifyResetToken`
+   * refuses every proof without a request.
+   */
+  readonly resetRedirectUrl?: string | null;
   readonly fetch: DescopeFetch;
   readonly timeoutMs?: number;
+}
+
+/**
+ * The recovery return URL from `CONSOLE_BASE_URL` (the same origin-only https
+ * value the worker's invitation links use), or null when it is unset or not a
+ * bare https origin. Never taken from a request.
+ */
+export function resetRedirectUrlFromEnv(raw: string | undefined): string | null {
+  const value = (raw ?? "").trim();
+  if (value === "") return null;
+  try {
+    const url = new URL(value);
+    const bareOrigin =
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.pathname === "/" &&
+      url.search === "" &&
+      url.hash === "";
+    return bareOrigin ? `${url.origin}${RESET_RETURN_PATH}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * RT-1327 owner decision: `DESCOPE_PASSWORD_RECOVERY_ENABLED` holds provider
+ * recovery off until the Console `/reset-password` page (RT-807) and the
+ * provider's approved domains are ready. On only for exactly `true`, so the
+ * worker's required `CONSOLE_BASE_URL` alone never turns it on.
+ */
+export function providerRecoveryEnabledFromEnv(raw: string | undefined): boolean {
+  return raw === "true";
 }
 
 /** The value as a plain property bag, or null for a non-object. */
@@ -83,6 +133,7 @@ export class DescopeAuthClient implements ExternalCredentialPort {
   readonly identity: { readonly providerKey: string; readonly issuer: string };
   private readonly projectId: string;
   private readonly managementKey: string | null;
+  private readonly resetRedirectUrl: string | null;
   private readonly fetchImpl: DescopeFetch;
   private readonly timeoutMs: number;
 
@@ -94,6 +145,7 @@ export class DescopeAuthClient implements ExternalCredentialPort {
     };
     const key = (options.managementKey ?? "").trim();
     this.managementKey = key === "" ? null : key;
+    this.resetRedirectUrl = options.resetRedirectUrl ?? null;
     this.fetchImpl = options.fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -113,6 +165,50 @@ export class DescopeAuthClient implements ExternalCredentialPort {
       newPassword,
       revokeOtherSessions: true,
     });
+  }
+
+  /** `POST /v1/auth/password/reset`: the provider mails a one-time link that returns to the Admin Console. */
+  async sendPasswordReset(loginId: string): Promise<SendResetResult> {
+    if (this.resetRedirectUrl === null) return { kind: "unconfigured" };
+    const sent = await this.send("POST", "/v1/auth/password/reset", this.projectId, {
+      loginId,
+      redirectUrl: this.resetRedirectUrl,
+    });
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    return sent.res.ok ? { kind: "sent" } : { kind: "refused" };
+  }
+
+  /** `POST /v1/auth/magiclink/verify`: consumes the link's one-time token and yields the user's session. */
+  async verifyResetToken(token: string): Promise<VerifyResetResult> {
+    // Recovery off: no link was sent, so no proof can be legitimate; never ask the provider.
+    if (this.resetRedirectUrl === null) return { kind: "refused" };
+    const sent = await this.send("POST", "/v1/auth/magiclink/verify", this.projectId, { token });
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    if (!sent.res.ok) return { kind: "refused" };
+    const body = asRecord(await this.readJson(sent.res));
+    const sessionJwt = nonEmptyString(body?.["sessionJwt"]);
+    const refreshJwt = nonEmptyString(body?.["refreshJwt"]);
+    return sessionJwt === null || refreshJwt === null ? { kind: "refused" } : { kind: "ok", sessionJwt, refreshJwt };
+  }
+
+  /** `POST /v1/auth/password/update`, authorized by `<projectId>:<refreshJwt>` as the SDK does. */
+  async updatePassword(loginId: string, newPassword: string, refreshJwt: string): Promise<UpdatePasswordResult> {
+    const sent = await this.send("POST", "/v1/auth/password/update", `${this.projectId}:${refreshJwt}`, {
+      loginId,
+      newPassword,
+    });
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    return sent.res.ok ? { kind: "ok" } : { kind: "refused" };
+  }
+
+  /**
+   * `POST /v1/auth/logoutall`: Descope documents that a success invalidates all of
+   * the user's refresh tokens, so sessions opened with the old password end too.
+   */
+  async logoutAllSessions(refreshJwt: string): Promise<LogoutAllResult> {
+    const sent = await this.send("POST", "/v1/auth/logoutall", `${this.projectId}:${refreshJwt}`, {});
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    return sent.res.ok ? { kind: "ok" } : { kind: "refused" };
   }
 
   async createUser(input: CreateUserInput): Promise<CreateUserResult> {
@@ -228,6 +324,12 @@ export function descopeAuthFactory(): ExternalCredentialPort {
       identity: { providerKey: DESCOPE_PROVIDER_KEY, issuer: UNCONFIGURED_ISSUER },
       passwordSignIn: unavailable,
       replacePassword: unavailable,
+      sendPasswordReset: unconfigured,
+      // No provider: a token Backend-Core does not hold cannot be a provider proof,
+      // so it is refused (400), never an outage (503) (RT-1327).
+      verifyResetToken: () => Promise.resolve({ kind: "refused" as const }),
+      updatePassword: unavailable,
+      logoutAllSessions: unavailable,
       createUser: unconfigured,
       loadUser: unconfigured,
       setActivePassword: unconfigured,
@@ -236,6 +338,9 @@ export function descopeAuthFactory(): ExternalCredentialPort {
   return new DescopeAuthClient({
     projectId,
     managementKey: process.env["DESCOPE_MANAGEMENT_KEY"] ?? null,
+    resetRedirectUrl: providerRecoveryEnabledFromEnv(process.env["DESCOPE_PASSWORD_RECOVERY_ENABLED"])
+      ? resetRedirectUrlFromEnv(process.env["CONSOLE_BASE_URL"])
+      : null,
     fetch: (input, init) => fetch(input, init),
   });
 }

@@ -156,6 +156,14 @@ ALERT ONLY, never enforced (RT-574 issue 5d: an enforced global cap would itself
 |---|---|---|---|
 | `auth_signin_failure_total` | counter | `cause` ∈ {`invalid_credentials` (the sign-in reached the credential check and failed it: unknown email, wrong password, SSO-only or deleted, one cause as the response is one 401), `rate_limited` (refused 429 by the per-account or per-IP sign-in bucket)}. A limiter outage (503) and a non-authentication error count nothing. No email, IP, user or tenant label | RT-626 / RT-574 5d |
 
+### Provider sign-out failure signal (RT-1327)
+
+ALERT ONLY. Emitted by `AuthService` after a provider-backed password reset, when Descope `logoutall` still fails after one retry (an outage is retried once, a refusal is not), so Descope sessions opened with the old password may survive. The reset response does not change. Both series are exported at 0 from boot; the Datadog monitor `p2-api-provider-signout-fail` (`deploy/datadog/monitors.json`, `dp2.auth_provider_signout_failure.count`) alerts on any failure.
+
+| Signal | Type | Labels (low-cardinality only) | Source |
+|---|---|---|---|
+| `auth_provider_signout_failure_total` | counter | `result` ∈ {`refused`, `unavailable`}. No email, user, subject, tenant or token label | RT-1327 |
+
 ## 1.4 AI gateway signals (RT-655)
 
 Emitted by `AiGateway.run` (apps/api/src/ai). No vendor adapter exists yet: with the default wiring the gateway denies before any provider request, so `ai_gateway_provider_call_total` stays at zero until an approved route is allowlisted. Per-tenant cost and usage are NOT metrics; they live in the usage ledger owned by RT-663 (AD-AI-PROV-001 D-6).
