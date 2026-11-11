@@ -22,8 +22,30 @@
  * Positions (G4-6): a sale line leaves the store's primary location as
  * `sellable`; a void compensates at the exact position of the sale-line
  * effect it compensates (`compensates_effect_id`); a return line lands at the
- * store's primary location in the tenant's return landing status. Tracking
- * stays NULL (Gate 7 / RT-451). A refund has no effect (847, 851).
+ * store's primary location in the tenant's return landing status. A refund
+ * has no effect (847, 851).
+ *
+ * Tracked effects (RT-451 S4; RT-50 G7-9, G7-10, Q9). The writers read the
+ * classification S3 capture persisted (`sales.tracking_status`,
+ * `sale_lines.tracking_class` / `tracking_identity_id`), never the live
+ * tracked-selling switch:
+ *   - a `batch` line classified `valid` or `flagged` (G7-9 rows 1 to 3) moves
+ *     at its identity (`stock_movements.tracking_identity_id`); the identity
+ *     is joined as one of the line's own product, so a mismatch is a skipped
+ *     line, never an FK error that would stall the sale;
+ *   - a `tracking_unresolved` sale (row 4) gets no effect on ANY line, and
+ *     neither does its void or return while it has no effect (the sale never
+ *     decremented); Tracking Resolution (S5) commits its effects with its
+ *     intent (DC-2);
+ *   - a void compensates the exact identity position of the effect it
+ *     compensates;
+ *   - a return line takes the identity of the original sale effect (else of
+ *     the classified sale line) and lands in `return_inspection` whatever the
+ *     tenant's landing policy (Q9), or in `recall_hold` when the identity has
+ *     EVER been under a recall hold (owner answer 2026-11-11, RT-451 comment
+ *     16538; ruling B). The identities are locked FOR KEY SHARE first, so a
+ *     recall in flight (FOR UPDATE) commits before the recall state is read.
+ * Serial lines stay skipped (RT-50 Q11).
  *
  * Flag (Q4): nothing is written unless the tenant's
  * `sale_effects_activated_at` is set — except a void or return of a sale that
@@ -111,7 +133,12 @@ interface EffectRow {
   readonly compensatesEffectId: string | null;
   readonly stockLocationId: string | null;
   readonly inventoryStatus: string;
+  /** The tracking identity the effect moves; NULL at the product grain. */
+  readonly trackingIdentityId: string | null;
 }
+
+/** `sales.tracking_status` of a sale with a G7-9 row-4 line (RT-451 S3). */
+const TRACKING_UNRESOLVED = "tracking_unresolved";
 
 /** The owning Business Event of a batch of effects. */
 interface EventHeader {
@@ -141,6 +168,10 @@ interface LineFactsRow {
   sale_effect_unit: string | null;
   sale_effect_location: string | null;
   sale_effect_status: string | null;
+  sale_effect_identity: string | null;
+  /** The identity of a line classified `valid` / `flagged` (RT-451 S3), of the line's own product. */
+  line_identity: string | null;
+  sale_tracking_status: string | null;
 }
 
 /**
@@ -148,7 +179,9 @@ interface LineFactsRow {
  * over a sale's lines or a return's lines. Each is joined to its sale line and
  * sale ($1 sale, $2 store). The established unit is read per (store,
  * product); the sale effect is the line's `sale` effect, located through
- * idx_stock_movements_tenant_event.
+ * idx_stock_movements_tenant_event. A classified line's identity is joined
+ * as an identity of the line's own product and tenant (the effect FK's
+ * target), so it is NULL rather than an FK error if it is not.
  */
 function lineFactsSql(source: string, order: string): string {
   return `SELECT l.line_id, sl.id AS sale_line_id, l.quantity::text AS quantity, sl.unit,
@@ -159,11 +192,16 @@ function lineFactsSql(source: string, order: string): string {
                    LIMIT 1) AS established_unit,
                  e.id AS sale_effect_id, (-e.quantity)::text AS sale_effect_restore,
                  e.stocking_unit AS sale_effect_unit, e.stock_location_id AS sale_effect_location,
-                 e.inventory_status AS sale_effect_status
+                 e.inventory_status AS sale_effect_status, e.tracking_identity_id AS sale_effect_identity,
+                 CASE WHEN sl.tracking_class IN ('valid', 'flagged') THEN ti.id END AS line_identity,
+                 s.tracking_status AS sale_tracking_status
             FROM ${source} l
             JOIN sale_lines sl ON sl.id = l.sale_line_ref
             JOIN sales s ON s.id = sl.sale_id
             LEFT JOIN tenant_products tp ON tp.id = sl.tenant_product_ref
+            LEFT JOIN tracking_identities ti
+              ON ti.id = sl.tracking_identity_id AND ti.tenant_product_ref = sl.tenant_product_ref
+             AND ti.tenant_id = s.tenant_id
             LEFT JOIN stock_movements e
               ON e.tenant_id = s.tenant_id AND e.event_type = 'sale'
              AND e.event_ref_id = s.id AND e.sale_line_id = sl.id
@@ -175,14 +213,23 @@ function lineFactsSql(source: string, order: string): string {
 const SALE_LINES_SOURCE = `(SELECT id AS line_id, quantity, id AS sale_line_ref FROM sale_lines WHERE sale_id = $1)`;
 const SALE_LINES_ORDER = `sl.line_seq NULLS LAST, sl.id`;
 
+/** The identity a sale or void line moves when it has no sale effect: its classified identity. */
+const classifiedIdentity = (row: LineFactsRow): string | null => row.line_identity;
+
+/** The part of an effect a writer decides; `decideLines` fills in the line's own facts. */
+type EffectPlacement = Omit<EffectRow, "quantity" | "unit" | "tenantProductRef" | "saleLineId" | "trackingIdentityId">;
+
 /**
  * Decide every line in order. The unit a written line uses becomes the
  * product's established unit for the lines after it, so two lines of one
- * product in two units never both reach the 0016 guard.
+ * product in two units never both reach the 0016 guard. `identityOf` names
+ * the identity a line would move; the decision keeps it only for a `batch`
+ * line, and `build` sees the kept one.
  */
 function decideLines(
   rows: readonly LineFactsRow[],
-  build: (row: LineFactsRow) => Omit<EffectRow, "quantity" | "unit" | "tenantProductRef" | "saleLineId">,
+  identityOf: (row: LineFactsRow) => string | null,
+  build: (row: LineFactsRow, trackingIdentityId: string | null) => EffectPlacement,
   sign: 1 | -1,
 ): { effects: EffectRow[]; skipped: SkippedEffectLine[] } {
   const established = new Map<string, string>();
@@ -196,21 +243,27 @@ function decideLines(
       unit: row.unit,
       trackingMode: row.tracking_mode,
       establishedUnit: (product !== null ? established.get(product) : undefined) ?? row.established_unit,
+      trackingIdentityId: identityOf(row),
     };
     const decision = decideEffectLine(facts);
     if (decision.kind === "skip") skipped.push({ lineId: row.line_id, reason: decision.reason });
     if (decision.kind !== "write" || product === null) continue;
     established.set(product, row.unit);
     effects.push({
-      ...build(row),
+      ...build(row, decision.trackingIdentityId),
       quantity: sign < 0 ? `-${row.quantity}` : row.quantity,
       unit: row.unit,
       tenantProductRef: product,
       saleLineId: row.sale_line_id,
+      trackingIdentityId: decision.trackingIdentityId,
     });
   }
   return { effects, skipped };
 }
+
+/** Whether the facts are of a `tracking_unresolved` sale (G7-9 row 4). */
+const isUnresolvedSale = (rows: readonly LineFactsRow[]): boolean =>
+  rows.some((r) => r.sale_tracking_status === TRACKING_UNRESOLVED);
 
 /**
  * Append the effects, their `not_posted` integration records and one
@@ -224,17 +277,17 @@ async function appendEffects(client: Client, h: EventHeader, rows: readonly Effe
        (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref,
         occurred_at, source_system, external_id, sale_id, sale_line_id, terminal_event_ref,
         created_by, origin, event_type, event_ref_id, compensates_effect_id,
-        stock_location_id, inventory_status)
+        stock_location_id, inventory_status, tracking_identity_id)
      SELECT r.id, $1, $2, r.movement_type, r.quantity, r.unit, r.product,
             $3, $4, r.external_id, $5, r.sale_line_id, $6,
             $7, 'retail', $8, $9, r.compensates,
             COALESCE(r.location,
                      (SELECT id FROM stock_locations WHERE store_id = $2 AND kind = 'primary')),
-            r.status
+            r.status, r.identity
        FROM unnest($10::uuid[], $11::text[], $12::numeric[], $13::text[], $14::uuid[],
-                   $15::text[], $16::uuid[], $17::uuid[], $18::uuid[], $19::text[])
+                   $15::text[], $16::uuid[], $17::uuid[], $18::uuid[], $19::text[], $20::uuid[])
             AS r(id, movement_type, quantity, unit, product, external_id, sale_line_id,
-                 compensates, location, status)
+                 compensates, location, status, identity)
      ON CONFLICT (tenant_id, source_system, external_id)
        WHERE source_system IS NOT NULL AND external_id IS NOT NULL
        DO NOTHING
@@ -260,6 +313,7 @@ async function appendEffects(client: Client, h: EventHeader, rows: readonly Effe
       rows.map((r) => r.compensatesEffectId),
       rows.map((r) => r.stockLocationId),
       rows.map((r) => r.inventoryStatus),
+      rows.map((r) => r.trackingIdentityId),
     ],
   );
   const ids = inserted.rows.map((r) => r.id);
@@ -297,24 +351,31 @@ export interface SaleEffectsInput {
 
 /**
  * One `outbound` effect per sale line (`-q`, primary / sellable,
- * `sale_line:<id>`). Call it once, when the sale first becomes processed, in
- * the transaction that emits its `sale_post` intent.
+ * `sale_line:<id>`; at the identity for a classified batch line). Call it
+ * once, when the sale first becomes processed, in the transaction that emits
+ * its `sale_post` intent. A `tracking_unresolved` sale gets none (G7-9 row 4).
  */
 export async function writeSaleLineEffects(client: Client, input: SaleEffectsInput): Promise<SaleEffectsOutcome> {
   const none: SaleEffectsOutcome = { event: "sale", written: [], skipped: [] };
   if (!(await readSaleEffectsActivation(client, input.tenantId))) return none;
-  const header = await client.query<{ source_system: string; occurred_at: Date; created_by: string }>(
-    `SELECT source_system, occurred_at, created_by FROM sales WHERE id = $1 AND store_id = $2`,
+  const header = await client.query<{
+    source_system: string;
+    occurred_at: Date;
+    created_by: string;
+    tracking_status: string | null;
+  }>(
+    `SELECT source_system, occurred_at, created_by, tracking_status FROM sales WHERE id = $1 AND store_id = $2`,
     [input.saleId, input.storeId],
   );
   const sale = header.rows[0];
-  if (!sale) return none;
+  if (!sale || sale.tracking_status === TRACKING_UNRESOLVED) return none;
   const facts = await client.query<LineFactsRow>(
     lineFactsSql(SALE_LINES_SOURCE, SALE_LINES_ORDER),
     [input.saleId, input.storeId],
   );
   const { effects, skipped } = decideLines(
     facts.rows,
+    classifiedIdentity,
     (row) => ({
       externalId: saleLineEffectKey(row.sale_line_id),
       movementType: "outbound",
@@ -355,8 +416,10 @@ export interface VoidEffectsInput extends SaleEffectsInput {
  * the position of the effect it compensates (`void:<voidId>:<saleLineId>`,
  * `compensates_effect_id`). A sale with no effect yet (processed before
  * activation, or not processed yet) is restored per line at primary /
- * sellable, without a compensated effect. Both effect sets always stand;
- * nothing is netted (DC-6, Q5).
+ * sellable (at a classified batch line's identity), without a compensated
+ * effect. Both effect sets always stand; nothing is netted (DC-6, Q5). A
+ * `tracking_unresolved` sale with no effect gets no restore: it never
+ * decremented (G7-9 row 4).
  */
 export async function writeVoidEffects(client: Client, input: VoidEffectsInput): Promise<SaleEffectsOutcome> {
   const none: SaleEffectsOutcome = { event: "sale_void", written: [], skipped: [] };
@@ -385,10 +448,12 @@ export async function writeVoidEffects(client: Client, input: VoidEffectsInput):
       compensatesEffectId: r.sale_effect_id,
       stockLocationId: r.sale_effect_location,
       inventoryStatus: r.sale_effect_status!,
+      trackingIdentityId: r.sale_effect_identity,
     }));
-  } else if (active) {
+  } else if (active && !isUnresolvedSale(facts.rows)) {
     ({ effects, skipped } = decideLines(
       facts.rows,
+      classifiedIdentity,
       (row) => ({
         externalId: voidEffectKey(input.voidId, row.sale_line_id),
         movementType: "inbound",
@@ -435,9 +500,56 @@ export interface ReturnEffectsInput extends SaleEffectsInput {
 }
 
 /**
+ * G7-10: a return line moves the identity its sale line moved — the original
+ * sale effect's when there is one (the position that actually left), else
+ * the classified line's. A client never supplies it.
+ */
+const returnIdentity = (row: LineFactsRow): string | null =>
+  row.sale_effect_id !== null ? row.sale_effect_identity : row.line_identity;
+
+/** The distinct identities the return's batch lines would move, in id order (the recall's lock order). */
+function trackedReturnIdentities(rows: readonly LineFactsRow[]): string[] {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const identity = returnIdentity(row);
+    if (row.tracking_mode === "batch" && identity !== null) ids.add(identity);
+  }
+  return [...ids].sort();
+}
+
+/**
+ * Lock the identities FOR KEY SHARE (in id order), THEN read which have ever
+ * had a recall hold, active or released (owner answer 2026-11-11, RT-451
+ * comment 16538; ruling B). A recall locks its identities FOR UPDATE until it
+ * commits, so this waits for a recall in flight and the read, a later
+ * statement, sees its hold: a returned unit never lands in
+ * `return_inspection` after the recall moved that status into `recall_hold`.
+ * FOR KEY SHARE needs UPDATE on tracking_identities, which the API's domain
+ * role has (inventory-safety grants); only the API writes returns.
+ */
+async function lockAndReadEverRecalled(client: Client, identityIds: readonly string[]): Promise<Set<string>> {
+  if (identityIds.length === 0) return new Set();
+  await client.query(`SELECT id FROM tracking_identities WHERE id = ANY($1::uuid[]) ORDER BY id FOR KEY SHARE`, [
+    identityIds,
+  ]);
+  const r = await client.query<{ tracking_identity_id: string }>(
+    `SELECT DISTINCT tracking_identity_id FROM tracking_holds
+      WHERE tracking_identity_id = ANY($1::uuid[]) AND kind = 'recall_hold'`,
+    [identityIds],
+  );
+  return new Set(r.rows.map((row) => row.tracking_identity_id));
+}
+
+/** Q9 / G7-10: where a tracked return line lands, whatever the tenant's landing policy. */
+const trackedReturnLanding = (identity: string, everRecalled: ReadonlySet<string>): string =>
+  everRecalled.has(identity) ? "recall_hold" : "return_inspection";
+
+/**
  * One `+q` effect per return line, at the store's primary location in the
  * tenant's return landing status (`return_line:<id>`; Q6 / Q7). Written when
- * the tenant is active, or for a line whose sale line has an effect.
+ * the tenant is active, or for a line whose sale line has an effect. A
+ * tracked line lands at its identity in `return_inspection` whatever the
+ * landing policy (Q9), or in `recall_hold` under a recall ever placed.
  */
 export async function writeReturnEffects(client: Client, input: ReturnEffectsInput): Promise<SaleEffectsOutcome> {
   const none: SaleEffectsOutcome = { event: "sale_return", written: [], skipped: [] };
@@ -457,15 +569,20 @@ export async function writeReturnEffects(client: Client, input: ReturnEffectsInp
     ),
     [input.saleId, input.storeId, input.returnId],
   );
-  const eligible = active ? facts.rows : facts.rows.filter((r) => r.sale_effect_id !== null);
+  // A `tracking_unresolved` sale never decremented: only a line whose sale
+  // effect exists (bound by Tracking Resolution) is restored.
+  const eligible =
+    active && !isUnresolvedSale(facts.rows) ? facts.rows : facts.rows.filter((r) => r.sale_effect_id !== null);
+  const recalled = await lockAndReadEverRecalled(client, trackedReturnIdentities(eligible));
   const { effects, skipped } = decideLines(
     eligible,
-    (row) => ({
+    returnIdentity,
+    (row, identity) => ({
       externalId: returnLineEffectKey(row.line_id),
       movementType: "inbound",
       compensatesEffectId: null,
       stockLocationId: null,
-      inventoryStatus: landingStatus,
+      inventoryStatus: identity === null ? landingStatus : trackedReturnLanding(identity, recalled),
     }),
     1,
   );

@@ -281,6 +281,78 @@ describe("flag ON", () => {
     expect(effect!.posting_status_id).not.toBeNull();
   });
 
+  describe("tracked selling (RT-451 S4; sales.yaml G7-9)", () => {
+    const LOT = "01900000-0000-7000-8000-000000451e41";
+
+    /** A sale as S3 capture stores it while tracked selling is on. */
+    async function seedTrackedSale(
+      status: "tracked" | "tracking_unresolved",
+      lines: ReadonlyArray<{ product: string; identityId: string | null; cls: "valid" | "unresolved" | null }>,
+    ): Promise<string> {
+      const saleId = nextId();
+      await pg().admin.query(
+        `INSERT INTO sales (id, tenant_id, store_id, currency_code, pos_total, occurred_at, business_date,
+                            source_system, external_id, payload_hash, created_by, tracking_status)
+         VALUES ($1, $2, $3, 'USD', 0, now(), current_date, 'pos-427', $4, $5, $6, $7)`,
+        [saleId, TENANT, STORE, `ext-${saleId}`, "a".repeat(64), ACTOR, status],
+      );
+      for (const l of lines) {
+        await pg().admin.query(
+          `INSERT INTO sale_lines (id, sale_id, tenant_id, store_id, line_name, unit_price, currency_code,
+                                   quantity, line_amount, unit, tenant_product_ref,
+                                   tracking_identity_id, tracking_code, tracking_selection,
+                                   tracking_class, tracking_unresolved_reason)
+           VALUES (gen_random_uuid(), $1, $2, $3, 'x', 0, 'USD', 2, 0, 'ea', $4,
+                   $5, CASE WHEN $5::uuid IS NOT NULL THEN 'LOT-W' END,
+                   CASE WHEN $5::uuid IS NOT NULL THEN 'scanned' END,
+                   $6, CASE WHEN $6 = 'unresolved' THEN 'tracking_missing' END)`,
+          [saleId, TENANT, STORE, l.product, l.identityId, l.cls],
+        );
+      }
+      return saleId;
+    }
+
+    beforeAll(async () => {
+      if (!env) return;
+      await pg().admin.query(
+        `INSERT INTO tracking_identities (id, tenant_id, tenant_product_ref, kind, code, expiry_date)
+         VALUES ($1, $2, $3, 'batch', 'LOT-W', current_date + 30)`,
+        [LOT, TENANT, TRACKED],
+      );
+    });
+
+    it("a tracking_unresolved sale is processed with no effect on any line and no ERP posting intent", async () => {
+      if (skip()) return;
+      const saleId = await seedTrackedSale("tracking_unresolved", [
+        { product: MAPPED, identityId: null, cls: null },
+        { product: TRACKED, identityId: null, cls: "unresolved" },
+      ]);
+      const result = await processor().process({ saleId, tenantId: TENANT, storeId: STORE });
+      expect(result.applied).toBe(true);
+      expect(await processedAt(saleId)).not.toBeNull();
+      expect(await effects(saleId)).toEqual([]);
+      expect(await outboxTypes(saleId)).toEqual([]);
+      expect(logger.warn).not.toHaveBeenCalled();
+      // A re-run stays a no-op.
+      expect((await processor().process({ saleId, tenantId: TENANT, storeId: STORE })).applied).toBe(false);
+      expect(await outboxTypes(saleId)).toEqual([]);
+    });
+
+    it("a resolved tracked sale writes the line at its identity with the intent, atomically", async () => {
+      if (skip()) return;
+      const saleId = await seedTrackedSale("tracked", [{ product: TRACKED, identityId: LOT, cls: "valid" }]);
+      await processor().process({ saleId, tenantId: TENANT, storeId: STORE });
+      const r = await pg().admin.query<{ quantity: string; tracking_identity_id: string | null }>(
+        `SELECT quantity::text AS quantity, tracking_identity_id FROM stock_movements
+          WHERE event_type = 'sale' AND event_ref_id = $1`,
+        [saleId],
+      );
+      expect(r.rows).toEqual([{ quantity: "-2.0000", tracking_identity_id: LOT }]);
+      expect(await outboxTypes(saleId)).toEqual(["erpnext.posting.requested", "inventory.movement.created"]);
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+  });
+
   it("another tenant never sees or writes these effects", async () => {
     if (skip()) return;
     await activate(TENANT_B);

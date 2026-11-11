@@ -24,6 +24,9 @@
  *      whose effect cannot be written exactly is skipped, never stalls the
  *      sale, and is reported after commit (warn log + metric, owner decision
  *      2). With the flag OFF nothing else changes.
+ *   5. RT-451 S4 (sales.yaml G7-9 row 4): a `tracking_unresolved` sale is
+ *      processed (step 3) but gets no Inventory effect on any line and no
+ *      `sale_post` intent; Tracking Resolution (S5) commits both later.
  *
  * Layered architecture (mirrors AuditFanoutProcessor)
  * ---------------------------------------------------
@@ -130,9 +133,17 @@ export class SaleProcessingNotFoundError extends Error {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `sales.tracking_status` of a sale with a G7-9 row-4 line (RT-451 S3). */
+const TRACKING_UNRESOLVED = "tracking_unresolved";
+
 interface ProcessRow {
   mismatch_flag: boolean;
   processed_at: Date;
+}
+
+/** The first-processing UPDATE's row, with the sale's G7-9 status (RT-451 S3). */
+interface ClaimedRow extends ProcessRow {
+  tracking_status: string | null;
 }
 
 export class SaleProcessingProcessor {
@@ -189,7 +200,7 @@ export class SaleProcessingProcessor {
           // posting feed is a separate downstream concern (Connector-owned;
           // architecture boundary POS → DP-2 → Connector → ERPNext). Crossing
           // that wire would violate the invariant.
-          const updated = await client.query<ProcessRow>(
+          const updated = await client.query<ClaimedRow>(
             `UPDATE sales AS s
                 SET mismatch_flag = (
                       round(
@@ -209,12 +220,26 @@ export class SaleProcessingProcessor {
               WHERE s.id = $1
                 AND s.store_id = $2
                 AND s.processed_at IS NULL
-            RETURNING mismatch_flag, processed_at`,
+            RETURNING mismatch_flag, processed_at, tracking_status`,
             [job.saleId, job.storeId],
           );
 
           if (updated.rows[0]) {
             const row = updated.rows[0];
+
+            // RT-451 S4 (sales.yaml G7-9 row 4): a `tracking_unresolved` sale is
+            // processed, but gets no Inventory effect on any line and no ERP
+            // posting intent. Tracking Resolution (S5, DC-2) commits both
+            // together later; this `processed_at IS NULL` branch never runs
+            // again for the sale, so it never emits them.
+            if (row.tracking_status === TRACKING_UNRESOLVED) {
+              return {
+                saleId: job.saleId,
+                mismatchFlag: row.mismatch_flag,
+                processedAt: row.processed_at.toISOString(),
+                applied: true,
+              };
+            }
 
             // RT-427 (DC-1 / DC-2): the sale's Inventory Effects, in this same
             // transaction as the intent below. A no-op while the tenant is OFF.
