@@ -208,6 +208,11 @@ export interface PullPostingsResult {
  * `retry_budget_exhausted` (which the 017 repair re-offers), never offered
  * without its data and never skipped. Anything else (a SQL error, which
  * aborts the transaction, or an unknown bug) still fails the whole pull.
+ *
+ * Breaker: the same failure on two or more rows of one page points at a
+ * systemic fault (a policy or grant gap hits every affected row), not one bad
+ * row. Spending every row's budget would dead-letter the backlog, so that page
+ * fails the pull as before, with no write, and the feed halts until fixed.
  */
 const ROW_BUILD_FAILURES = [
   SaleTendersNotVisibleError,
@@ -218,6 +223,25 @@ const ROW_BUILD_FAILURES = [
 
 function isRowBuildFailure(err: unknown): err is Error {
   return ROW_BUILD_FAILURES.some((failure) => err instanceof failure);
+}
+
+/** RT-1325 breaker: the first error whose class failed two or more rows of the page. */
+function systemicFailure(unbuildable: readonly UnbuildableRow[]): Error | null {
+  const seen = new Set<string>();
+  for (const row of unbuildable) {
+    if (seen.has(row.error.name)) return unbuildable.find((r) => r.error.name === row.error.name)!.error;
+    seen.add(row.error.name);
+  }
+  return null;
+}
+
+/** What the feed did with an unbuildable row, reported after the commit. */
+interface FeedRowReport {
+  readonly kind: "omitted" | "reoffered" | "dead_lettered";
+  readonly id: string;
+  /** The row kind (omitted) or the error class name (re-offered, dead-lettered). */
+  readonly detail: string;
+  readonly retryCount: number;
 }
 
 /** A feed row as the pull query returns it. */
@@ -237,7 +261,7 @@ interface FeedRow {
 interface UnbuildableRow {
   readonly id: string;
   readonly sequence: string;
-  readonly error: string;
+  readonly error: Error;
 }
 
 /** The columns an ack reads from an already-terminal posting row. */
@@ -270,7 +294,7 @@ export class ErpnextPostingService {
   async pullPostings(input: PullPostingsInput): Promise<PullPostingsResult> {
     const limit = Math.min(Math.max(1, input.limit), POSTING_FEED_MAX_PAGE);
 
-    return await runWithTenantContext(
+    const { page, reports } = await runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
@@ -335,13 +359,16 @@ export class ErpnextPostingService {
           [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled()],
         );
 
-        const { items, unbuildable } = await this.buildPage(client, rows.rows);
+        const { items, unbuildable, omitted } = await this.buildPage(client, rows.rows);
         // RT-1325: the cursor below advances past every row of the page, so a
         // row left out must not stay where it was. Re-offer it in this same
         // transaction (a failed write fails the pull: nothing is skipped).
-        if (unbuildable.length > 0) {
-          await this.reofferUnbuildable(client, input.tenantId, unbuildable);
-        }
+        // The same failure on several rows is systemic: fail as before.
+        const systemic = systemicFailure(unbuildable);
+        if (systemic) throw systemic;
+        const reoffered = unbuildable.length > 0
+          ? await this.reofferUnbuildable(client, input.tenantId, unbuildable)
+          : [];
 
         const advanced =
           rows.rows.length > 0
@@ -349,9 +376,21 @@ export class ErpnextPostingService {
             : null;
         const nextPageToken = rows.rows.length === limit ? advanced : null;
 
-        return { items, cursor: advanced, nextPageToken };
+        return {
+          page: { items, cursor: advanced, nextPageToken },
+          reports: [...omitted, ...reoffered],
+        };
       },
     );
+    // Reported only once committed: a rolled-back pull re-offered nothing.
+    for (const report of reports) this.report(report);
+    return page;
+  }
+
+  private report(r: FeedRowReport): void {
+    if (r.kind === "omitted") this.feedReport?.omitted(r.id, r.detail);
+    else if (r.kind === "reoffered") this.feedReport?.reoffered(r.id, r.detail, r.retryCount);
+    else this.feedReport?.deadLettered(r.id, r.detail, r.retryCount);
   }
 
   /**
@@ -364,9 +403,10 @@ export class ErpnextPostingService {
   private async buildPage(
     client: PoolClient,
     rows: readonly FeedRow[],
-  ): Promise<{ items: PostingWorkItem[]; unbuildable: UnbuildableRow[] }> {
+  ): Promise<{ items: PostingWorkItem[]; unbuildable: UnbuildableRow[]; omitted: FeedRowReport[] }> {
     const items: PostingWorkItem[] = [];
     const unbuildable: UnbuildableRow[] = [];
+    const omitted: FeedRowReport[] = [];
     // sequential: work items are built on one PoolClient (pg runs its queries one at a time); the output keeps feed order.
     for (const row of rows) {
       try {
@@ -384,22 +424,24 @@ export class ErpnextPostingService {
         if (item) {
           items.push(item);
         } else {
-          this.feedReport?.omitted(row.id, row.kind);
+          omitted.push({ kind: "omitted", id: row.id, detail: row.kind, retryCount: 0 });
         }
       } catch (err) {
         if (!isRowBuildFailure(err)) throw err;
-        unbuildable.push({ id: row.id, sequence: row.sequence, error: err.name });
+        unbuildable.push({ id: row.id, sequence: row.sequence, error: err });
       }
     }
-    return { items, unbuildable };
+    return { items, unbuildable, omitted };
   }
 
   /**
    * RT-1325: re-offer each unbuildable row exactly as a `failed_transient` ack
    * would (`applyTransient`): re-head its sequence with retry_count+1, or
    * dead-letter it as `retry_budget_exhausted` once the budget is spent. The
-   * tenant's sequence lock is taken first, then the row lock, as in
-   * `ackOutcome` (RT-456 commit order). The row is written only if it is still
+   * tenant's sequence lock is taken before any row lock, as in `ackOutcome`
+   * (RT-456 commit order). It is not this transaction's first statement, which
+   * is safe here only because the page reads before it take no row locks (the
+   * projection never locks). The row is written only if it is still
    * `pending` at the sequence this page read: a concurrent ack or pull that
    * moved it wins and this pull leaves it alone.
    */
@@ -407,7 +449,8 @@ export class ErpnextPostingService {
     client: PoolClient,
     tenantId: string,
     unbuildable: readonly UnbuildableRow[],
-  ): Promise<void> {
+  ): Promise<FeedRowReport[]> {
+    const reports: FeedRowReport[] = [];
     await lockPostingFeedSequence(client, tenantId);
     for (const row of unbuildable) {
       const cur = await client.query<{ retry_count: number }>(
@@ -419,12 +462,13 @@ export class ErpnextPostingService {
       const locked = cur.rows[0];
       if (!locked) continue;
       const outcome = await this.applyTransient(client, row.id, locked.retry_count);
-      if (outcome.dlqueued) {
-        this.feedReport?.deadLettered(row.id, row.error, locked.retry_count);
-      } else {
-        this.feedReport?.reoffered(row.id, row.error, locked.retry_count + 1);
-      }
+      reports.push(
+        outcome.dlqueued
+          ? { kind: "dead_lettered", id: row.id, detail: row.error.name, retryCount: locked.retry_count }
+          : { kind: "reoffered", id: row.id, detail: row.error.name, retryCount: locked.retry_count + 1 },
+      );
     }
+    return reports;
   }
 
   /**
@@ -532,6 +576,12 @@ export class ErpnextPostingService {
     // A post from a superseded resolution is never confirmed as posted — not
     // even on a row a current-version post already completed.
     if (!isStaleResolution(input, row) && this.sameLogicalOutcome(row, input)) {
+      return { replayed: true, outcome: this.project(input.workItemRef, row) };
+    }
+    // RT-1325: a `failed_transient` that spent the last retry dead-lettered the
+    // row itself. Its re-run (the claim lease lapsed before the result was
+    // saved) answers what the first run answered, never a 409 operator alarm.
+    if (input.outcome === "failed_transient" && row.rejection_category === "retry_budget_exhausted") {
       return { replayed: true, outcome: this.project(input.workItemRef, row) };
     }
     throw new AckConflictError();

@@ -19,11 +19,14 @@ import { ROOT_LOGGER } from "../../common/logging.interceptor";
 export class PostingFeedReporter {
   constructor(@Optional() @Inject(ROOT_LOGGER) private readonly log?: Pick<Logger, "warn">) {}
 
-  /** A `null` build: left out of the page, the row stays pending (historical omission). */
+  /**
+   * A `null` build: left out of the page (historical omission). The cursor
+   * passes it, so it is stranded until repaired or re-headed.
+   */
   omitted(workItemRef: string, kind: string): void {
     this.log?.warn(
       { work_item_ref: workItemRef, kind },
-      "posting feed: work item omitted (its sale, lines or reversal event did not resolve); the row stays pending",
+      "posting feed: work item omitted (its sale, lines or reversal event did not resolve); the cursor passed it, so the pending row is stranded until it is repaired or re-headed",
     );
   }
 

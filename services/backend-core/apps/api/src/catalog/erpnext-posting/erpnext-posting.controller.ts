@@ -122,9 +122,10 @@ export class ErpnextPostingController {
    * RT-1325 (RT-1125 R-03): the in-flight claim is a short lease, so an
    * orphaned claim no longer stalls the Connector's cursor on this item for
    * 72 h. Safe because a re-run is guarded: the row is locked `FOR UPDATE`
-   * and a terminal row echoes (posted / rejected / reconciliation), so no
-   * second ERP document is recorded. Accepted effect: a re-run
-   * `failed_transient` spends one more retry (RT-1325 decision).
+   * and a terminal row echoes (posted / rejected / reconciliation, and a
+   * `failed_transient` whose first run spent the budget), so no second ERP
+   * document is recorded. Accepted effect: a re-run `failed_transient` on a
+   * pending row spends one more retry (RT-1325 decision).
    */
   @Post("postings/:workItemRef/outcome")
   @Idempotent("required", { claimLeaseSec: GUARDED_ROUTE_CLAIM_LEASE_SEC })

@@ -42,10 +42,12 @@ describe("RT-1325 — the claim lease is opt-in for reviewed routes only", () =>
   it("only the reviewed files set claimLeaseSec on a route", () => {
     const optIns: Record<string, number> = {};
     for (const path of sourceFiles(SRC)) {
-      const uses = readFileSync(path, "utf8")
+      const code = readFileSync(path, "utf8")
         .split("\n")
         .filter((line) => !/^\s*(\*|\/\/)/.test(line))
-        .filter((line) => /@Idempotent\(.*claimLeaseSec/.test(line)).length;
+        .join("\n");
+      // A decorator call, possibly over several lines, naming claimLeaseSec.
+      const uses = code.match(/@Idempotent\((?:[^()]|\([^()]*\))*?claimLeaseSec/g)?.length ?? 0;
       if (uses > 0) optIns[relative(SRC, path).replace(/\\/g, "/")] = uses;
     }
     expect(optIns).toEqual(REVIEWED_OPT_INS);
@@ -56,7 +58,7 @@ describe("RT-1325 — the claim lease is opt-in for reviewed routes only", () =>
     expect(optionsOf(SalesController.prototype.captureSale).claimLeaseSec).toBe(GUARDED_ROUTE_CLAIM_LEASE_SEC);
   });
 
-  it("the posting feed pull and the ack's siblings keep the default claim lifetime", () => {
+  it("a sibling write route (sale void) keeps the default claim lifetime", () => {
     expect(optionsOf(SalesController.prototype.recordVoid).claimLeaseSec).toBeUndefined();
   });
 });

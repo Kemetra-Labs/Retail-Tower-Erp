@@ -243,7 +243,7 @@ describe("buildWorkItem — RT-77 sale tenders", () => {
     await expect(buildWorkItem(client, STATUS_ROW)).rejects.toThrow(SaleTendersNotVisibleError);
   });
 
-  it("fails the pull on a partial tender set too (one of two visible)", async () => {
+  it("refuses to build it on a partial tender set too (one of two visible)", async () => {
     const client = fakeClient([
       { rows: [TENDERED_SALE] },
       { rows: [LINE_ROW] },

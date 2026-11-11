@@ -17,6 +17,7 @@ import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } fro
 import {
   AckConflictError,
   ErpnextPostingService,
+  POSTING_RETRY_BUDGET,
 } from "../../../../src/catalog/erpnext-posting/erpnext-posting.service";
 import {
   POSTING_STATUS_FIXTURE_IDS,
@@ -119,6 +120,22 @@ describe("posting ack double run (RT-1325)", () => {
     const winner = (results.find((r) => r.status === "fulfilled") as PromiseFulfilledResult<{ outcome: { documentRef: unknown } }>).value;
     const stored = await row();
     expect(JSON.parse(stored.document_ref!)).toEqual(winner.outcome.documentRef);
+  });
+
+  it("a re-run failed_transient whose first run spent the last retry echoes the dead-letter, never a 409", async () => {
+    if (skip) return;
+    await env!.admin.query(`UPDATE erpnext_posting_status SET retry_count = $2 WHERE id = $1`, [
+      POST_A_PENDING,
+      POSTING_RETRY_BUDGET,
+    ]);
+    const s = svc();
+    const transient = { tenantId: TENANT_A, workItemRef: POST_A_PENDING, outcome: "failed_transient" as const };
+    const first = await s.ackOutcome(transient);
+    expect(first.outcome.outcome).toBe("permanently_rejected");
+    expect(first.outcome.dlqueued).toBe(true);
+    const again = await s.ackOutcome(transient);
+    expect(again.replayed).toBe(true);
+    expect(again.outcome).toEqual(first.outcome);
   });
 
   it("accepted effect: a double-run failed_transient spends one more retry and nothing else", async () => {

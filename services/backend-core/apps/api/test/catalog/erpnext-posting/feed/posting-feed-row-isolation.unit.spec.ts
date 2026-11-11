@@ -14,6 +14,9 @@
  *     sequence the page read (a concurrent ack or pull wins, nothing else);
  *   - an unclassified error (a SQL error, which aborts the transaction, or an
  *     unknown bug) still fails the whole pull, as before;
+ *   - breaker: the same error on two or more rows of a page is systemic, so the
+ *     pull fails as before instead of spending every row's budget;
+ *   - signals are logged only once the pull committed;
  *   - a `null` build is still omitted but is now logged;
  *   - a page with no failure writes nothing (the pure-read path is unchanged).
  */
@@ -205,16 +208,30 @@ describe("pullPostings row isolation (RT-1325, RT-1125 R-21)", () => {
     expect(client.calls.map((c) => c.sql)).toContain("COMMIT");
   });
 
-  it("isolates every failing row on the page, each under the one sequence lock", async () => {
+  it("isolates rows failing with DIFFERENT errors, each under the one sequence lock", async () => {
     build.mockImplementation(async (_c, row) => {
-      if (row.id === ROW_C) return item(row.id, row.sequence);
-      throw new SaleTendersNotVisibleError(row.id, 1, 0);
+      if (row.id === ROW_A) throw new SaleTendersNotVisibleError(row.id, 1, 0);
+      if (row.id === ROW_B) throw new PostingResolutionIncompleteError(row.id, 1);
+      return item(row.id, row.sequence);
     });
     const page = await pull();
     expect(page.items.map((i) => i.workItemRef)).toEqual([ROW_C]);
     expect(page.cursor).toBe("13");
     expect(client.statements(/pg_advisory_xact_lock/)).toHaveLength(1);
     expect(client.statements(/^\s*UPDATE erpnext_posting_status/).map((c) => c.params[0])).toEqual([ROW_A, ROW_B]);
+  });
+
+  it("breaker: the SAME error on two rows of a page is systemic, so the pull fails as before, with no write", async () => {
+    const first = new SaleTendersNotVisibleError(ROW_A, 1, 0);
+    build.mockImplementation(async (_c, row) => {
+      if (row.id === ROW_A) throw first;
+      if (row.id === ROW_C) throw new SaleTendersNotVisibleError(row.id, 1, 0);
+      return item(row.id, row.sequence);
+    });
+    await expect(pull()).rejects.toBe(first);
+    expect(client.calls.map((c) => c.sql)).toContain("ROLLBACK");
+    expect(client.statements(/pg_advisory_xact_lock|FOR UPDATE|^\s*UPDATE/)).toHaveLength(0);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("an unclassified error (a SQL error aborts the transaction) still fails the whole pull, with no write", async () => {
@@ -244,6 +261,8 @@ describe("pullPostings row isolation (RT-1325, RT-1125 R-21)", () => {
     };
     await expect(pull()).rejects.toBe(boom);
     expect(client.calls.map((c) => c.sql)).toContain("ROLLBACK");
+    // Reported only after a commit: nothing claims a re-offer that rolled back.
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("a null build is still omitted, and now logged", async () => {

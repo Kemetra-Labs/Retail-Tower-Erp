@@ -4,5 +4,8 @@
   visibility fault (tenders, responsibilities, return tenders or frozen resolution not visible)
   is left out of the page and re-offered in the same transaction under the existing retry
   budget, ending as `permanently_rejected` / `retry_budget_exhausted` (repairable on the 017
-  surface). It is never offered without its data and never skipped. A SQL or unknown error
-  still fails the pull. A row omitted because it did not resolve is now warn-logged.
+  surface). It is never offered without its data and never skipped. The same failure on two or
+  more rows of one page is treated as systemic and still fails the pull (no budget spent), as
+  does a SQL or unknown error. A row omitted because it did not resolve is now warn-logged. A
+  re-run `failed_transient` ack whose first run spent the last retry echoes the dead-letter
+  instead of answering 409.
