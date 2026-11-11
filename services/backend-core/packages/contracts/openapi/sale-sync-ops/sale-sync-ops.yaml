@@ -125,14 +125,19 @@ info:
         `operatorUserId`; when the body names none, the repairer.
         `sales.device_id` is the item's `previousTerminalId`, else the
         uploading device, even if that device is revoked since (a historical
-        fact).
+        fact). Both are devices of the item's store (the upload checks it),
+        and the sale is captured into the item's store only.
       - **Outcomes.** Always 200 with the updated item: `captured` (a new
         sale; the item leaves the queue), `already-captured` (a sale with
         this provenance and the same facts already exists; the item is
         resolved, not an error) or `refused` (the item stays `open` with the
         new status and code). A body whose facts differ from the sale
         already captured for its provenance (the RT-1206 409) can never be
-        captured: the item stays `open` and can only be written off.
+        captured: the item stays `open` and can only be written off. A
+        provenance already captured in ANOTHER store is `refused` with
+        `httpStatus` 404 and `errorCode` `not_found` (non-disclosing, whatever
+        `captureSale` itself answers for that case today, RT-1224) and can
+        likewise only be written off.
       - Repairs and write-offs of one item run one at a time: one that finds
         the item no longer `open` is 409 `repair_conflict`. Repair never
         edits the stored body. Each repair writes one audit row naming the
@@ -913,7 +918,11 @@ components:
         previousTerminalId:
           type: [string, "null"]
           format: uuid
-          description: Held items only, the earlier pairing's `devices.id`; null otherwise.
+          description: >
+            The earlier pairing's `devices.id` when the till recorded the sale
+            under an earlier pairing (always for held items); null otherwise.
+            A device of the item's store. The repair records it as the sale's
+            device (decision C2).
         repairCount:
           type: integer
           minimum: 0
@@ -962,10 +971,11 @@ components:
           description: The body's `occurredAt` (the sale time the till recorded).
         posTotal:
           type: [string, "null"]
-          pattern: "^-?[0-9]{1,15}(\\.[0-9]{1,4})?$"
+          pattern: "^[0-9]{1,15}(\\.[0-9]{1,4})?$"
           description: >
-            The body's `posTotal`, an exact decimal string as on the capture
-            wire, never a float.
+            The body's `posTotal`, an exact non-negative decimal string as on
+            the capture request (`NonNegativeDecimalAmount`), never a float;
+            null when the stored value is not one.
         currencyCode:
           type: [string, "null"]
           pattern: "^[A-Z]{3}$"

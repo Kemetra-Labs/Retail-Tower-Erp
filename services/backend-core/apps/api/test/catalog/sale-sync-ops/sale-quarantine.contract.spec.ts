@@ -5,8 +5,8 @@
  * Two files:
  *   - `pos-sales/sale-quarantine.yaml` 1.0.0-draft: `posQuarantineSale`, the
  *     till's upload of a refused or held sale over the device bearer;
- *   - `sale-sync-ops/sale-sync-ops.yaml` 1.3.0-draft: the Console list, read
- *     and repair of quarantined sales, added beside the NEEDS_REPAIR
+ *   - `sale-sync-ops/sale-sync-ops.yaml` 1.3.0-draft: the Console list, read,
+ *     repair and write-off of quarantined sales, added beside the NEEDS_REPAIR
  *     operations.
  *
  * Structural / load-only, plus AJV fixtures. No app boot and no HTTP. What
@@ -177,10 +177,15 @@ describe("sale quarantine — the POS upload", () => {
     );
   });
 
-  it("compares a repeat upload by the RT-1206 sale facts, store first", () => {
-    const text = String(pos.info?.description);
+  it("compares a repeat upload by every field capture leaves out of payload_hash, store first", () => {
+    const text = String(pos.info?.description).replace(/\s+/g, " ");
     expect(text).toEqual(expect.stringContaining("RT-1206 rule"));
+    for (const field of ["operatorUserId", "admissionCheckAt", "receipt", "safetyRevision", "safetySyncedAt"]) {
+      expect(text).toEqual(expect.stringContaining(`\`${field}\``));
+    }
+    expect(text).toEqual(expect.stringContaining("stores a digest of those facts at the first upload"));
     expect(text).toEqual(expect.stringContaining("The store scope is decided first"));
+    expect(text).toEqual(expect.stringContaining("device of the uploading device's tenant AND store"));
   });
 
   it("declares the device token rotation headers on 200 and 201", () => {
@@ -242,7 +247,8 @@ describe("sale quarantine — the reason", () => {
   it("accepts a non-retryable 4xx or null, never a retried status", () => {
     expect(reason()({ kind: "refused", httpStatus: 422, errorCode: "sale_tender_mismatch" })).toBe(true);
     expect(reason()({ kind: "refused", httpStatus: null, errorCode: null })).toBe(true);
-    for (const status of [401, 404, 425, 429, 500, 399]) {
+    expect(reason()({ kind: "refused", httpStatus: 404, errorCode: "not_found" })).toBe(true);
+    for (const status of [401, 425, 429, 500, 399]) {
       expect(reason()({ kind: "refused", httpStatus: status, errorCode: null })).toBe(false);
     }
     expect(reason()({ kind: "refused", httpStatus: 422, errorCode: "Free Text!" })).toBe(false);
@@ -374,6 +380,9 @@ describe("sale quarantine — the Console operations", () => {
     expect(v(item({ saleBody: {} }))).toBe(false);
     expect(v(item({ state: "dismissed" }))).toBe(false);
     expect(v(item({ tillErrorCode: "Not A Label" }))).toBe(false);
+    expect(v(item({ summary: { occurredAt: AT, posTotal: "-1.00", currencyCode: "EGP", lineCount: 1 } }))).toBe(
+      false,
+    );
   });
 
   it("pages at most 200 items, with a UUIDv7 cursor", () => {
@@ -384,8 +393,11 @@ describe("sale quarantine — the Console operations", () => {
     });
   });
 
-  it("keeps the state and reason values equal in both files", () => {
+  it("keeps the state and reason values equal in both files and in the list filter", () => {
     expect(schema(ops, "QuarantineState")["enum"]).toEqual(schema(pos, "QuarantineState")["enum"]);
+    expect(ops.components?.parameters?.["QuarantineStateQuery"]).toMatchObject({
+      schema: { enum: schema(ops, "QuarantineState")["enum"] },
+    });
     const kind = (schema(pos, "QuarantineReason")["properties"] as Record<string, Record<string, unknown>>)["kind"]!;
     expect(schema(ops, "QuarantineReasonKind")["enum"]).toEqual(kind["enum"]);
     expect(schema(ops, "QuarantineErrorCode")["pattern"]).toEqual(schema(pos, "ErrorCodeLabel")["pattern"]);
