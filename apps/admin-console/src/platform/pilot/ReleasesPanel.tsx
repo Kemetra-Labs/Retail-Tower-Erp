@@ -5,7 +5,6 @@
  * an inline confirm naming the version. There is no Withdraw control (D-5a).
  */
 import { Banner } from "@/components/Banner";
-import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel } from "@/components/DetailPanel";
 import { ltr } from "@/components/FilterBar";
 import { DateTime, type T, formatNumber, useT } from "@/i18n";
@@ -14,6 +13,7 @@ import { useState } from "react";
 import { useClaimRateLimit } from "../rateLimitOwner";
 import { PilotConfirm, type PilotNotice, commonNotice } from "./PilotConfirm";
 import { PilotListBody } from "./PilotListBody";
+import { PilotTable } from "./PilotTable";
 import { type ActivateKind, canActivate, evidenceHref, releaseState, shortSha } from "./pilotLogic";
 import { type WriteOutcome, useActivateRelease, usePilotReleases } from "./usePosPilot";
 
@@ -142,8 +142,7 @@ function ReleasesTable({
   onActivate,
 }: Readonly<{ releases: PilotRelease[]; onActivate: (r: PilotRelease) => void }>) {
   const t = useT();
-  const captionId = useCaptionId();
-  const cols = [
+  const keys = [
     "version",
     "state",
     "registered",
@@ -153,28 +152,17 @@ function ReleasesTable({
     "evidence",
     "action",
   ] as const;
+  const columns = keys.map((key) => ({
+    key,
+    label: t(`posPilot.releases.col.${key}`),
+    num: key === "size",
+  }));
   return (
-    <DataTableScroll captionId={captionId}>
-      <table className="data-table data-table--strips">
-        <caption id={captionId} className="data-table__caption">
-          {t("posPilot.releases.caption")}
-        </caption>
-        <thead>
-          <tr>
-            {cols.map((c) => (
-              <th key={c} scope="col" className={c === "size" ? "num" : undefined}>
-                {t(`posPilot.releases.col.${c}`)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {releases.map((r) => (
-            <ReleaseRow key={r.releaseId} release={r} onActivate={onActivate} />
-          ))}
-        </tbody>
-      </table>
-    </DataTableScroll>
+    <PilotTable caption={t("posPilot.releases.caption")} columns={columns}>
+      {releases.map((r) => (
+        <ReleaseRow key={r.releaseId} release={r} onActivate={onActivate} />
+      ))}
+    </PilotTable>
   );
 }
 

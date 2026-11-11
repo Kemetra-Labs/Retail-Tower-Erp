@@ -5,7 +5,6 @@
  * inline confirm naming the organization and its consequence.
  */
 import { Banner } from "@/components/Banner";
-import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { DetailPanel, PanelBody } from "@/components/DetailPanel";
 import { isolate } from "@/components/FilterBar";
 import { GatedButton } from "@/components/GatedButton";
@@ -15,6 +14,7 @@ import { useClaimRateLimit } from "../rateLimitOwner";
 import { useTenantDirectory } from "../tenants/useTenantDirectory";
 import { PilotConfirm, type PilotNotice, commonNotice } from "./PilotConfirm";
 import { PilotListBody } from "./PilotListBody";
+import { PilotTable } from "./PilotTable";
 import {
   type AddKind,
   type AllowlistRow,
@@ -85,46 +85,35 @@ function AllowlistTable({
   onRemove: (row: AllowlistRow) => void;
 }>) {
   const t = useT();
-  const captionId = useCaptionId();
+  const columns = (["tenant", "added", "action"] as const).map((key) => ({
+    key,
+    label: t(`posPilot.allowlist.col.${key}`),
+  }));
   return (
-    <DataTableScroll captionId={captionId}>
-      <table className="data-table data-table--strips">
-        <caption id={captionId} className="data-table__caption">
-          {t("posPilot.allowlist.caption")}
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("posPilot.allowlist.col.tenant")}</th>
-            <th scope="col">{t("posPilot.allowlist.col.added")}</th>
-            <th scope="col">{t("posPilot.allowlist.col.action")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.tenantId} className="data-table__row data-table__row--static">
-              <td>
-                <TenantName row={row} namesKnown={namesKnown} />
-              </td>
-              <td>
-                <DateTime value={row.addedAt} />
-              </td>
-              <td>
-                <button
-                  type="button"
-                  className="btn-danger-quiet"
-                  aria-label={t("posPilot.allowlist.removeFor", {
-                    name: labelOf(row, row.tenantId),
-                  })}
-                  onClick={() => onRemove(row)}
-                >
-                  {t("posPilot.allowlist.remove")}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </DataTableScroll>
+    <PilotTable caption={t("posPilot.allowlist.caption")} columns={columns}>
+      {rows.map((row) => (
+        <tr key={row.tenantId} className="data-table__row data-table__row--static">
+          <td>
+            <TenantName row={row} namesKnown={namesKnown} />
+          </td>
+          <td>
+            <DateTime value={row.addedAt} />
+          </td>
+          <td>
+            <button
+              type="button"
+              className="btn-danger-quiet"
+              aria-label={t("posPilot.allowlist.removeFor", {
+                name: labelOf(row, row.tenantId),
+              })}
+              onClick={() => onRemove(row)}
+            >
+              {t("posPilot.allowlist.remove")}
+            </button>
+          </td>
+        </tr>
+      ))}
+    </PilotTable>
   );
 }
 
