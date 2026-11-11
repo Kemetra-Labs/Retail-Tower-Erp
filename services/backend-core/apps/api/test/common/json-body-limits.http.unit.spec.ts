@@ -35,6 +35,7 @@ import request from "supertest";
 
 import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
 import { connectorSnapshotCallerAuthorizer } from "../../src/auth/connector-snapshot-preauth";
+import { posDeviceCallerAuthorizer } from "../../src/auth/device-body-preauth";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import { SnapshotReportBodySchema, type SnapshotReportBody } from "../../src/catalog/erpnext-bin-view/dto/snapshot-report.dto";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
@@ -42,11 +43,14 @@ import {
   BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES,
   BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES,
   isBinViewSnapshotJson,
+  isQuarantineUploadJson,
+  QUARANTINE_UPLOAD_JSON_LIMIT_BYTES,
   registerJsonBodyParsers,
   type SnapshotBodyGate,
   type SnapshotCallerAuthorizer,
 } from "../../src/common/json-body-limits";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
+import type { DeviceRepository } from "../../src/pos-operators/device.repository";
 import { CONTRACTS_DIR } from "../_helpers/openapi-routes";
 
 const REQUEST_REF = "0190f0f0-0000-7000-8000-0000000012a4";
@@ -66,6 +70,12 @@ class ProbeController {
     @Body(new ZodValidationPipe(SnapshotReportBodySchema)) body: SnapshotReportBody,
   ): { entries: number } {
     return { entries: body.entries.length };
+  }
+
+  @Post("api/pos/v1/quarantined-sales")
+  @HttpCode(200)
+  quarantine(@Body() body: { pad?: string }): { padLength: number } {
+    return { padLength: body.pad?.length ?? -1 };
   }
 
   @Post("api/v1/rt-1284-probe/echo")
@@ -133,7 +143,7 @@ describe("RT-1284 JSON body limits", () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    gate = registerJsonBodyParsers(app, admitAll);
+    gate = registerJsonBodyParsers(app, admitAll, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     maximal = maximalAsciiTrackedWindow();
@@ -264,7 +274,7 @@ describe("RT-1284 concurrency bound on large snapshot bodies", () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    gate = registerJsonBodyParsers(app, admitAll);
+    gate = registerJsonBodyParsers(app, admitAll, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.listen(0, "127.0.0.1");
     port = (app.getHttpServer().address() as AddressInfo).port;
@@ -426,7 +436,7 @@ describe("malformed JSON", () => {
   it("still gets 400 on both routes", async () => {
     const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
     const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
-    registerJsonBodyParsers(app, admitAll);
+    registerJsonBodyParsers(app, admitAll, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.init();
     try {
@@ -526,7 +536,7 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
     gate = registerJsonBodyParsers(app, (req, res) => {
       lastAuthorized = req;
       return authorize(req, res);
-    });
+    }, admitAll);
     app.useGlobalFilters(new GlobalExceptionFilter());
     await app.listen(0, "127.0.0.1");
     port = (app.getHttpServer().address() as AddressInfo).port;
@@ -624,5 +634,131 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
     // Let the authorizer's remaining lookup and the gate's continuation run.
     for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
     expect(gate.inFlight()).toBe(0);
+  });
+});
+
+describe("RT-1312 posQuarantineSale: a 256 kB route limit, read only after the device guard (decision P5)", () => {
+  const QUARANTINE_PATH = "/api/pos/v1/quarantined-sales";
+  const LIVE = "live-device-token";
+  const devices = {
+    async findActiveByAttestationWithExpiry(raw: string) {
+      return raw === LIVE
+        ? {
+            id: "0190f0f0-0000-7000-8000-00000000d001",
+            tenantId: "0190f0f0-0000-7000-8000-00000000aaaa",
+            storeId: "0190f0f0-0000-7000-8000-00000000bbbb",
+            expiresAt: null,
+            presentedPreviousUntil: null,
+          }
+        : null;
+    },
+  } as unknown as DeviceRepository;
+
+  let app: NestExpressApplication;
+  let port: number;
+  let authorizations = 0;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
+    app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+    const authorize = posDeviceCallerAuthorizer(devices);
+    registerJsonBodyParsers(app, admitAll, (req, res) => {
+      authorizations += 1;
+      return authorize(req, res);
+    });
+    app.useGlobalFilters(new GlobalExceptionFilter());
+    await app.listen(0, "127.0.0.1");
+    port = (app.getHttpServer().address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  /** `{"pad":"…"}` of exactly `bytes` bytes. */
+  const padded = (bytes: number): string => {
+    const overhead = Buffer.byteLength('{"pad":""}');
+    return `{"pad":"${"x".repeat(bytes - overhead)}"}`;
+  };
+  const post = (body: string, token: string | null = LIVE) => {
+    const r = request(app.getHttpServer()).post(QUARANTINE_PATH).set("Content-Type", "application/json");
+    return (token === null ? r : r.set("Authorization", `Bearer ${token}`)).send(body);
+  };
+
+  it("is 256 kB", () => {
+    expect(QUARANTINE_UPLOAD_JSON_LIMIT_BYTES).toBe(262_144);
+  });
+
+  it("parses a body of exactly 256 kB from a live device", async () => {
+    const res = await post(padded(QUARANTINE_UPLOAD_JSON_LIMIT_BYTES));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ padLength: QUARANTINE_UPLOAD_JSON_LIMIT_BYTES - Buffer.byteLength('{"pad":""}') });
+  });
+
+  it("refuses 256 kB + 1 byte with 413 payload_too_large", async () => {
+    const res = await post(padded(QUARANTINE_UPLOAD_JSON_LIMIT_BYTES + 1));
+    expect(res.status).toBe(413);
+    expect((res.body as { error: { code: string } }).error.code).toBe("payload_too_large");
+  });
+
+  it("keeps 100 kB on every other route", async () => {
+    const res = await request(app.getHttpServer())
+      .post(OTHER_PATH)
+      .set("Content-Type", "application/json")
+      .send(padded(DEFAULT_LIMIT_BYTES + 1));
+    expect(res.status).toBe(413);
+  });
+
+  it.each([
+    ["no credential", {}],
+    ["an unknown bearer", { authorization: "Bearer not-a-device" }],
+  ])("refuses %s with 401 before reading a large body (Connection: close)", async (_label, headers) => {
+    const upload = openPost(port, QUARANTINE_PATH, 200 * 1024, headers);
+    upload.req.flushHeaders(); // not one body byte is sent
+    const res = await Promise.race([
+      upload.response,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("no answer before the body was sent")), 5000)),
+    ]).finally(() => upload.req.destroy());
+    expect(res.status).toBe(401);
+    expect(res.headers["connection"]).toBe("close");
+    expect((JSON.parse(res.body) as { error: { code: string } }).error.code).toBe("unauthorized");
+  });
+
+  it("does not pre-authenticate a body of at most 100 kB (the route's guard handles it after parsing)", async () => {
+    const before = authorizations;
+    const res = await post(padded(DEFAULT_LIMIT_BYTES), null);
+    // The probe route has no guard; the real controller's PosDeviceAuthGuard refuses it.
+    expect(res.status).toBe(200);
+    expect(authorizations).toBe(before);
+  });
+
+  it("has no concurrency bound: three large uploads at once are all parsed", async () => {
+    const results = await Promise.all(Array.from({ length: 3 }, () => post(padded(200 * 1024))));
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200]);
+  });
+});
+
+describe("isQuarantineUploadJson", () => {
+  const req = (method: string, path: string, contentType?: string) =>
+    ({ method, path, headers: contentType === undefined ? {} : { "content-type": contentType } }) as Parameters<
+      typeof isQuarantineUploadJson
+    >[0];
+
+  it.each([
+    ["POST", "/api/pos/v1/quarantined-sales", "application/json"],
+    ["POST", "/api/pos/v1/quarantined-sales/", "application/json; charset=utf-8"],
+    ["POST", "/API/POS/V1/QUARANTINED-SALES", "Application/JSON"],
+  ])("takes %s %s (%s)", (method, path, contentType) => {
+    expect(isQuarantineUploadJson(req(method, path, contentType))).toBe(true);
+  });
+
+  it.each([
+    ["GET", "/api/pos/v1/quarantined-sales", "application/json"],
+    ["POST", "/api/pos/v1/quarantined-sales", "text/plain"],
+    ["POST", "/api/pos/v1/quarantined-sales/x", "application/json"],
+    ["POST", "/api/pos/v1/sales", "application/json"],
+    ["POST", SNAPSHOT_PATH, "application/json"],
+  ])("leaves %s %s (%s) to its own parser", (method, path, contentType) => {
+    expect(isQuarantineUploadJson(req(method, path, contentType))).toBe(false);
   });
 });

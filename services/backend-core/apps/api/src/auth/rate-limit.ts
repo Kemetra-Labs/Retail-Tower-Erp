@@ -118,6 +118,11 @@ export const RATE_LIMIT_BUCKETS = {
 export const POS_WRITE_RATE_LIMIT_BUCKETS = {
   posWriteSale: { limit: 300, windowMs: 60 * 60 * 1000 },
   posWriteSettlementIntent: { limit: 120, windowMs: 60 * 60 * 1000 },
+  // RT-1312 Phase 3(b) (decision P6): the sale quarantine upload, its own
+  // bucket so an upload backlog never slows live capture. A till uploads each
+  // refused or held sale once (plus a retry after a lost answer), so this is
+  // far above a real backlog drain and only bounds a misbehaving device.
+  posWriteSaleQuarantine: { limit: 120, windowMs: 60 * 60 * 1000 },
   // RT-17: the shift cash-up writes (open, pay-in / pay-out, close). A shift
   // is one open, a few movements and one close per terminal, so this sits
   // far above a real till's rate, including an offline backlog drain.

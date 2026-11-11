@@ -45,6 +45,17 @@
  * Worst case is about 2 x 32 MiB x the parse overhead. Only an authorized
  * connector can hold a slot (RT-1295), so an unauthenticated caller can no
  * longer block real inventory snapshots.
+ *
+ * Second route-scoped limit (RT-1312 Phase 3(b), decision P5): the POS sale
+ * quarantine upload `posQuarantineSale` (`POST /api/pos/v1/quarantined-sales`,
+ * `pos-sales/sale-quarantine.yaml`) gets 256 kB, because it wraps a whole
+ * capture body (up to about 250 kB), including one whose capture was refused
+ * with 413. As RT-1284 requires for a raised limit, a large upload body (above
+ * 100 kB, chunked or compressed) is read only after its caller passes the
+ * route's device guard on its headers alone (`auth/device-body-preauth.ts`).
+ * There is NO concurrency bound on this route (the contract has no 503): 256
+ * kB per request costs about the same as the many concurrent 100 kB bodies any
+ * route already accepts, and only an authenticated device gets that far.
  */
 import { PayloadTooLargeException } from "@nestjs/common";
 import { errorEnvelope, newId } from "@data-pulse-2/shared";
@@ -72,6 +83,12 @@ const BIN_VIEW_SNAPSHOT_RETRY_AFTER_SECONDS = 5;
 const BIN_VIEW_SNAPSHOT_PATH_RE =
   /^\/api\/connector\/v1\/erpnext\/bin-view-requests\/[^/]+\/snapshot\/?$/i;
 
+/** 256 kB (decision P5), in bytes. */
+export const QUARANTINE_UPLOAD_JSON_LIMIT_BYTES = 256 * 1024;
+
+/** `posQuarantineSale`, case-insensitive with an optional trailing slash, as Express routing is. */
+const QUARANTINE_UPLOAD_PATH_RE = /^\/api\/pos\/v1\/quarantined-sales\/?$/i;
+
 type RoutedRequest = IncomingMessage & { path?: string };
 
 /** The media type of `Content-Type`, lower-cased, without parameters. */
@@ -94,6 +111,16 @@ export function isBinViewSnapshotJson(req: RoutedRequest): boolean {
     req.method === "POST" &&
     typeof req.path === "string" &&
     BIN_VIEW_SNAPSHOT_PATH_RE.test(req.path) &&
+    mediaType(req) === "application/json"
+  );
+}
+
+/** True for a JSON body on `POST posQuarantineSale` (the same media-type test as the snapshot route). */
+export function isQuarantineUploadJson(req: RoutedRequest): boolean {
+  return (
+    req.method === "POST" &&
+    typeof req.path === "string" &&
+    QUARANTINE_UPLOAD_PATH_RE.test(req.path) &&
     mediaType(req) === "application/json"
   );
 }
@@ -227,29 +254,67 @@ function createSnapshotBodyGate(
 }
 
 /**
+ * For a large `posQuarantineSale` body: `authorize` the caller from its headers
+ * first (the RT-1295 rule for a raised limit). A refusal goes to the global
+ * exception filter (the shared 401 envelope) with `Connection: close`, so the
+ * unread body is dropped with the connection. No concurrency bound (see the
+ * header). Any other request, and a body of at most 100 kB, passes untouched:
+ * the route's own guard still runs before the handler.
+ */
+function createQuarantineUploadPreauth(authorize: SnapshotCallerAuthorizer) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!isQuarantineUploadJson(req) || !isLargeBody(req)) {
+      next();
+      return;
+    }
+    authorize(req, res).then(
+      () => {
+        if (req.destroyed || res.destroyed || res.writableEnded || res.headersSent) return;
+        next();
+      },
+      (err: unknown) => {
+        if (req.destroyed || res.destroyed || res.writableEnded || res.headersSent) return;
+        res.setHeader("Connection", "close");
+        next(err);
+      },
+    );
+  };
+}
+
+/**
  * Registers the JSON parsers. Call before `app.init()` / `app.listen()`.
  *
  * 0. The pre-authentication and concurrency gate for large
  *    `binViewReportSnapshot` bodies (`authorize`: RT-1295; production passes
  *    `connectorSnapshotCallerAuthorizer`).
- * 1. The route-scoped 32 MiB parser for `binViewReportSnapshot`.
+ *    The pre-authentication of large `posQuarantineSale` bodies
+ *    (`authorizeQuarantineUpload`: RT-1312; production passes
+ *    `posDeviceCallerAuthorizer`).
+ * 1. The route-scoped 32 MiB parser for `binViewReportSnapshot`, then the
+ *    route-scoped 256 kB parser for `posQuarantineSale`.
  * 2. The default parser (100 kB) for every other route. It must be registered
  *    here: Nest skips its own default JSON parser at init once any
  *    `jsonParser` is registered, and body-parser skips a body that an earlier
  *    parser already read, so the order above holds.
- * 3. `jsonBodyTooLargeAs413`, so a body above either limit gets 413, not 500.
+ * 3. `jsonBodyTooLargeAs413`, so a body above any limit gets 413, not 500.
  *
  * Nest still registers its default urlencoded parser at init, unchanged.
  */
 export function registerJsonBodyParsers(
   app: NestExpressApplication,
   authorize: SnapshotCallerAuthorizer,
+  authorizeQuarantineUpload: SnapshotCallerAuthorizer,
 ): SnapshotBodyGate {
   const gate = createSnapshotBodyGate(authorize);
   app.use(gate);
+  app.use(createQuarantineUploadPreauth(authorizeQuarantineUpload));
   app.useBodyParser("json", {
     limit: BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES,
     type: isBinViewSnapshotJson,
+  });
+  app.useBodyParser("json", {
+    limit: QUARANTINE_UPLOAD_JSON_LIMIT_BYTES,
+    type: isQuarantineUploadJson,
   });
   app.useBodyParser("json");
   app.use(jsonBodyTooLargeAs413);

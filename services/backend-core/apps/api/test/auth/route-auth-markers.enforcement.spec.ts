@@ -180,6 +180,8 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       "SaleHistoryController.listSaleHistory",
       "SaleHistoryController.readSaleHistoryDetail",
       "SaleHistoryController.recordSaleReprint",
+      // RT-1312 Phase 3(b): the sale quarantine upload (device bearer only).
+      "SaleQuarantineController.upload",
       // RT-224 (Option B): captureSale accepts the device bearer as an
       // alternative to the operator envelope; SaleCaptureAuthGuard runs both.
       "SalesController.captureSale",
