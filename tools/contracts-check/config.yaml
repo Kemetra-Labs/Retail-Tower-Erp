@@ -64,6 +64,12 @@ connector:
     enums: {}
     patterns: {}
     local: {}
+  # RT-1287: the ERP-origin stock import reader (consumes RT-1286's stock-import.yaml).
+  - module: integrations/erpnext-connector/retail_tower_erpnext_connector/connector/stock_import/contracts.py
+    contract: erpnext-connector/stock-import.yaml
+    enums: {}
+    patterns: {}
+    local: {}
 
 # Copies of one file that must stay byte-identical.
 identical:
