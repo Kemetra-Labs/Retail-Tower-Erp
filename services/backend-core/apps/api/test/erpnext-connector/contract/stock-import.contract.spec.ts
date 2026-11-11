@@ -9,7 +9,7 @@
  * Loaded with an explicit `dir`, like `stock-view.contract.spec.ts`, because
  * the production loader's directory scan is non-recursive (R9). Structural
  * checks pin the transport (pull + idempotent report, connectorBearer,
- * non-disclosing 404, strict bodies, no valuation, contract-only markers);
+ * non-disclosing 404, strict bodies, no valuation, no contract-only marker since RT-1288);
  * Ajv (JSON Schema 2020-12, the OpenAPI 3.1 dialect) validates instances,
  * because the refusal rule is an `if`/`then`. The last section proves the
  * acceptance criterion that the DC-4 key
@@ -121,9 +121,9 @@ const operations = (): OperationObject[] =>
 // 1. Document and transport
 // ===========================================================================
 describe("erpnext-connector/stock-import.yaml — document (RT-1286)", () => {
-  it("is OpenAPI 3.1 at 1.0.0-draft and cites the gate, the planning record and the consumers", () => {
+  it("is OpenAPI 3.1 at 1.0.1-draft and cites the gate, the planning record and the consumers", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.0-draft");
+    expect(doc.info?.version).toBe("1.0.1-draft");
     expect(info()).toContain("RT-1286 (Inventory Gate 8 follow-up P2; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("Confluence page 70680596, §3 row (b)");
     expect(info()).toContain("the Connector reader is RT-1287 and the Backend-Core ingestion is RT-1288");
@@ -163,12 +163,12 @@ describe("erpnext-connector/stock-import.yaml — document (RT-1286)", () => {
     expect(op(REPORT_PATH, "post").operationId).toBe("stockImportReportRows");
   });
 
-  it("marks both operations contract-only with a note naming RT-1287 and RT-1288", () => {
+  it("is served by RT-1288: neither operation keeps a contract-only marker (1.0.1-draft)", () => {
     for (const o of operations()) {
-      expect(o["x-runtime-status"]).toBe("contract-only");
-      expect(flat(o["x-runtime-note"])).toContain("RT-1287");
-      expect(flat(o["x-runtime-note"])).toContain("RT-1288");
+      expect(o["x-runtime-status"]).toBeUndefined();
+      expect(o["x-runtime-note"]).toBeUndefined();
     }
+    expect(info()).toContain("1.0.1-draft lifts their contract-only markers; wording only, no shape change");
   });
 
   it("uses the connector namespace and the connectorBearer machine scheme only", () => {

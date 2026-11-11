@@ -55,6 +55,20 @@ import type { IncomingMessage } from "node:http";
 /** 32 MiB, in bytes. */
 export const BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES = 32 * 1024 * 1024;
 
+/**
+ * RT-1288: the stock-import report `stockImportReportRows`
+ * (`POST /api/connector/v1/erpnext/stock-import-requests/{requestRef}/report`,
+ * `erpnext-connector/stock-import.yaml`). Largest legal report: 100 rows, every
+ * string at its maximum length (140 characters; the contract's 18 row fields).
+ * As the Connector sends it (`json.dumps`, `ensure_ascii=True`) that is about
+ * 0.24 MB with ASCII names and about 1.2 MB with Arabic names (`\uXXXX`), both
+ * above the 100 kB default, which would refuse a legal page with 413 before
+ * validation. 2 MiB covers both with a margin. It shares the pre-authentication
+ * and the concurrency bound of the bin-view snapshot (RT-1295): a body above
+ * 100 kB is read only after its caller passes the route's guards.
+ */
+export const STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES = 2 * 1024 * 1024;
+
 /** body-parser's default JSON limit, "100kb" = 102,400 bytes. */
 const DEFAULT_JSON_LIMIT_BYTES = 100 * 1024;
 
@@ -71,6 +85,10 @@ const BIN_VIEW_SNAPSHOT_RETRY_AFTER_SECONDS = 5;
  */
 const BIN_VIEW_SNAPSHOT_PATH_RE =
   /^\/api\/connector\/v1\/erpnext\/bin-view-requests\/[^/]+\/snapshot\/?$/i;
+
+/** `stockImportReportRows` (RT-1288), matched as the snapshot path is. */
+const STOCK_IMPORT_REPORT_PATH_RE =
+  /^\/api\/connector\/v1\/erpnext\/stock-import-requests\/[^/]+\/report\/?$/i;
 
 type RoutedRequest = IncomingMessage & { path?: string };
 
@@ -96,6 +114,21 @@ export function isBinViewSnapshotJson(req: RoutedRequest): boolean {
     BIN_VIEW_SNAPSHOT_PATH_RE.test(req.path) &&
     mediaType(req) === "application/json"
   );
+}
+
+/** True for a JSON body on `POST stockImportReportRows` (RT-1288; see `isBinViewSnapshotJson`). */
+export function isStockImportReportJson(req: RoutedRequest): boolean {
+  return (
+    req.method === "POST" &&
+    typeof req.path === "string" &&
+    STOCK_IMPORT_REPORT_PATH_RE.test(req.path) &&
+    mediaType(req) === "application/json"
+  );
+}
+
+/** A connector report route with a raised limit: the large-body gate applies to both. */
+function isLargeLimitConnectorJson(req: RoutedRequest): boolean {
+  return isBinViewSnapshotJson(req) || isStockImportReportJson(req);
 }
 
 /** body-parser's error for a body above `limit` (an http-errors 413). */
@@ -181,7 +214,7 @@ function createSnapshotBodyGate(
   const gone = (req: Request, res: Response): boolean =>
     req.destroyed || res.destroyed || res.writableEnded || res.headersSent;
   const gate = (req: Request, res: Response, next: NextFunction): void => {
-    if (!isBinViewSnapshotJson(req) || !isLargeBody(req)) {
+    if (!isLargeLimitConnectorJson(req) || !isLargeBody(req)) {
       next();
       return;
     }
@@ -232,7 +265,8 @@ function createSnapshotBodyGate(
  * 0. The pre-authentication and concurrency gate for large
  *    `binViewReportSnapshot` bodies (`authorize`: RT-1295; production passes
  *    `connectorSnapshotCallerAuthorizer`).
- * 1. The route-scoped 32 MiB parser for `binViewReportSnapshot`.
+ * 1. The route-scoped 32 MiB parser for `binViewReportSnapshot`, then the
+ *    2 MiB parser for `stockImportReportRows` (RT-1288).
  * 2. The default parser (100 kB) for every other route. It must be registered
  *    here: Nest skips its own default JSON parser at init once any
  *    `jsonParser` is registered, and body-parser skips a body that an earlier
@@ -250,6 +284,10 @@ export function registerJsonBodyParsers(
   app.useBodyParser("json", {
     limit: BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES,
     type: isBinViewSnapshotJson,
+  });
+  app.useBodyParser("json", {
+    limit: STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES,
+    type: isStockImportReportJson,
   });
   app.useBodyParser("json");
   app.use(jsonBodyTooLargeAs413);
