@@ -30,12 +30,6 @@ name: Admin-Console cross-browser cloud smoke
 
 permissions: read-all
 
-# RT-1318: manual runs share one BrowserStack Open Source entitlement, so queue them instead of
-# running two at once. Never cancel a run in progress: it would kill a live cloud session.
-concurrency:
-  group: admin-cross-browser-cloud
-  cancel-in-progress: false
-
 defaults:
   run:
     working-directory: apps/admin-console
