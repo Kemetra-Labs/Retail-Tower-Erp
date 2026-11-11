@@ -27,8 +27,9 @@ info:
 
 
     **Auth and tenant.** The HUMAN `cookieAuth` scheme (httpOnly
-    `dp2_session`) only. The intended guard order is `DashboardAuthGuard`
-    (which carries the RT-430 Origin check on cookie-authenticated POSTs, the
+    `dp2_session`) only. The guard order is `SessionOnlyAdminGuard` (the
+    cookie session only: any bearer, including a `dashboard_api` token, is
+    401; it carries the RT-430 Origin check on cookie-authenticated POSTs, the
     CSRF defence for `consoleIssueVouchers` and `consoleCancelVoucher`), then
     `TenantContextGuard`, then `RolesGuard`. No bearer, device or operator
     credential is accepted here. The tenant is the session's active tenant and
@@ -39,6 +40,19 @@ info:
     **Roles (decision 2A).** `owner` and `tenant_admin` only, on all four
     operations. A `store_manager`, or any other role, is 403 `forbidden`.
     Widening a read to another role later is additive.
+
+
+    **Store scope (RT-1108, decision of 2026-11-11).** The role never widens
+    a membership (RT-131). A caller whose membership covers only some stores
+    is bounded by it. Issuing for specific stores requires every listed store
+    to be in the caller's scope; a store outside it is the same non-disclosing
+    404 `store_not_found` as an absent store. Issuing for all stores
+    (`applies_to_all_stores: true`) requires tenant-wide scope, else 403
+    `forbidden`. List, get and cancel cover only vouchers the caller has
+    authority over: a store-subset voucher whose eligible stores are all in
+    scope, or an all-stores voucher for a tenant-wide caller. Any other
+    voucher reads as 404 `voucher_not_found` and never appears in a list.
+    Tenant-wide members are not affected.
 
 
     **Codes are secret (RT-922 §5.3).** The server generates the code; the
@@ -101,7 +115,9 @@ paths:
         `eligible_store_ids` to be omitted or empty, else 400
         `validation_failure`. `applies_to_all_stores: false` requires a
         non-empty `eligible_store_ids`. A store that is not a store of the
-        tenant, or is soft-deleted, is 404 `store_not_found` (non-disclosing).
+        tenant, is soft-deleted, or is outside the caller's store scope, is 404
+        `store_not_found` (non-disclosing). `applies_to_all_stores: true` from a
+        caller without tenant-wide scope is 403 `forbidden`.
         A store that exists but is inactive is 409 `store_inactive`. Currency is
         the tenant default and is returned as `currency_code`.
       operationId: consoleIssueVouchers
@@ -633,7 +649,9 @@ components:
         maximum: 3600
   responses:
     Unauthorized:
-      description: No valid session cookie (`401`). 401 semantics are owned by spec 028.
+      description: >
+        No valid session cookie, or any bearer credential (`401`). 401
+        semantics are owned by spec 028.
       content:
         application/json:
           schema:
@@ -641,7 +659,9 @@ components:
     Forbidden:
       description: >
         `forbidden`: the session user is not an `owner` or `tenant_admin` of the
-        active tenant (decision 2A; this includes `store_manager`). Also
+        active tenant (decision 2A; this includes `store_manager`), or, on
+        `consoleIssueVouchers`, asks for all stores without tenant-wide store
+        scope. Also
         `origin_rejected` (RT-430) on the two POSTs: the request is
         authenticated by the `dp2_session` cookie and its `Origin` header is
         missing, or is neither the API's own origin nor listed in
@@ -653,7 +673,8 @@ components:
     VoucherNotFound:
       description: >
         `voucher_not_found`. Non-disclosing: the same body for a voucher of
-        another tenant and for one that never existed.
+        another tenant, a voucher outside the caller's store scope, and one
+        that never existed.
       content:
         application/json:
           schema:

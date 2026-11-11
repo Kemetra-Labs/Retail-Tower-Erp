@@ -6,6 +6,10 @@
   `idempotency_key_conflict`); `consoleListVouchers` and `consoleGetVoucher` read
   vouchers with the effective status (`expired` derived at read time) and never a
   code; `consoleCancelVoucher` cancels with one conditional update. Owner and
-  tenant admin only. The contract's `x-runtime-status: contract-only` marker is
-  lifted. Audit: `voucher.issued`, `voucher.cancelled` (never a code), reads
-  `vouchers.listed` and `vouchers.read`.
+  tenant admin only, on the cookie session only (`SessionOnlyAdminGuard`: any
+  bearer is 401). The caller's store scope bounds every operation (RT-131): a
+  store outside it is 404 `store_not_found`, an all-stores batch needs
+  tenant-wide scope (else 403 `forbidden`), and a voucher outside it reads as
+  404 `voucher_not_found`. The contract's `x-runtime-status: contract-only`
+  marker is lifted. Audit: `voucher.issued`, `voucher.cancelled` (never a code),
+  reads `vouchers.listed` and `vouchers.read`.
