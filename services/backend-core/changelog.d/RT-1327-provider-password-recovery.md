@@ -6,7 +6,10 @@
   return URL) stays a silent 202. `password-reset/confirm` keeps its request body: a token the
   service does not hold is treated as the provider's one-time proof, verified at the provider
   (`magiclink/verify`), its session token verified and matched to an ACTIVE link, and only then is
-  the new password set at the provider (`password/update`). No local hash is written, no Admin
+  the new password set at the provider (`password/update`). Every provider session of the user is
+  then ended with the same refresh token (`logoutall`, which invalidates all of the user's refresh
+  tokens); a failed sign-out is logged and does not fail the request, because the password has
+  already changed. No local hash is written, no Admin
   session is minted, and every Backend-Core session of the user is revoked; every failure
   (invalid, expired or replayed proof, outage, password policy refusal, no active link) is the same
   generic 400. Unlinked users keep the local reset. The recovery link returns to

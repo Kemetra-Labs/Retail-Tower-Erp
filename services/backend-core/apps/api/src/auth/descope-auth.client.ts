@@ -12,6 +12,7 @@
  *   - `POST /v1/auth/password/reset`      Bearer <projectId>   (RT-1327: provider mails the recovery link)
  *   - `POST /v1/auth/magiclink/verify`    Bearer <projectId>   (RT-1327: consume the link's one-time token)
  *   - `POST /v1/auth/password/update`     Bearer <projectId>:<refreshJwt> (RT-1327)
+ *   - `POST /v1/auth/logoutall`           Bearer <projectId>:<refreshJwt> (RT-1327: end every provider session)
  *   - `POST /v1/mgmt/user/create`         Bearer <projectId>:<managementKey>
  *   - `GET  /v1/mgmt/user?loginId=`       Bearer <projectId>:<managementKey>
  *   - `POST /v1/mgmt/user/password/set/active` Bearer <projectId>:<managementKey>
@@ -49,6 +50,7 @@ import type {
   CreateUserResult,
   ExternalCredentialPort,
   LoadUserResult,
+  LogoutAllResult,
   PasswordSignInResult,
   ReplacePasswordResult,
   SendResetResult,
@@ -183,6 +185,16 @@ export class DescopeAuthClient implements ExternalCredentialPort {
     return sent.res.ok ? { kind: "ok" } : { kind: "refused" };
   }
 
+  /**
+   * `POST /v1/auth/logoutall`: Descope documents that a success invalidates all of
+   * the user's refresh tokens, so sessions opened with the old password end too.
+   */
+  async logoutAllSessions(refreshJwt: string): Promise<LogoutAllResult> {
+    const sent = await this.send("POST", "/v1/auth/logoutall", `${this.projectId}:${refreshJwt}`, {});
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    return sent.res.ok ? { kind: "ok" } : { kind: "refused" };
+  }
+
   async createUser(input: CreateUserInput): Promise<CreateUserResult> {
     if (this.managementKey === null) return { kind: "unconfigured" };
     const sent = await this.send("POST", "/v1/mgmt/user/create", this.managementBearer(this.managementKey), {
@@ -299,6 +311,7 @@ export function descopeAuthFactory(): ExternalCredentialPort {
       sendPasswordReset: unconfigured,
       verifyResetToken: unavailable,
       updatePassword: unavailable,
+      logoutAllSessions: unavailable,
       createUser: unconfigured,
       loadUser: unconfigured,
       setActivePassword: unconfigured,

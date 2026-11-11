@@ -26,7 +26,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { newId } from "@data-pulse-2/shared";
+import { createLogger, newId, type Logger } from "@data-pulse-2/shared";
 import {
   generateRawToken,
   hashPassword,
@@ -54,6 +54,12 @@ import type { AuditJobPayload } from "../audit/audit-job.types";
 import { recordAuthFailure } from "../observability/metrics/api.metrics";
 import type { ExternalCredentialPort } from "./external-credential.port";
 import type { OperatorTokenVerifier } from "./operator-token-verifier";
+
+let serviceLogger: Logger | null = null;
+function log(): Logger {
+  serviceLogger ??= createLogger({ service: "api.auth", level: process.env["LOG_LEVEL"] ?? "info" });
+  return serviceLogger;
+}
 
 /**
  * Pre-computed argon2id PHC string used for the constant-time path when
@@ -634,11 +640,15 @@ export class AuthService {
    *      of a live user (the link, not the provider's answer, names the account);
    *   3. the provider then sets the new password (its policy applies; a refusal
    *      has already consumed the link, so the user requests a new one);
-   *   4. every Backend-Core session of the user is revoked, as in the legacy reset.
+   *   4. every provider session of the user is ended with the same refresh token
+   *      (`logoutall`), so a session opened with the old password does not survive;
+   *   5. every Backend-Core session of the user is revoked, as in the legacy reset.
    *
    * No local hash is written and no session is minted: the user signs in again
    * through `POST /auth/signin`. The refresh token lives only in this call. Every
-   * failure is the same generic 400, so nothing reveals which step refused.
+   * failure up to step 3 is the same generic 400, so nothing reveals which step
+   * refused. A failed step 4 is logged and does not fail the request: the password
+   * is already changed and the link spent, so a 400 would mislead the user.
    */
   private async confirmProviderReset(input: { rawToken: string; newPassword: string }): Promise<string> {
     const external = this.external;
@@ -653,6 +663,12 @@ export class AuthService {
 
     const updated = await external.port.updatePassword(user.email, input.newPassword, proof.refreshJwt);
     if (updated.kind !== "ok") throw new BadRequestException(INVALID_RESET_TOKEN);
+
+    const signedOut = await external.port.logoutAllSessions(proof.refreshJwt);
+    if (signedOut.kind !== "ok") {
+      // Fixed message and result kind only: no token, subject, email or user id.
+      log().warn({ result: signedOut.kind }, "provider sign-out after password reset failed; provider sessions may survive");
+    }
 
     await this.revokeAllSessionsForUser(user.userId);
     await this.endSupportSessions({ userId: user.userId }, null);

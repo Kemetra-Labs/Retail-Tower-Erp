@@ -82,6 +82,12 @@ export type UpdatePasswordResult =
   | { readonly kind: "refused" }
   | { readonly kind: "unavailable" };
 
+/** RT-1327: the provider's answer to "sign this user out of every session". */
+export type LogoutAllResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "refused" }
+  | { readonly kind: "unavailable" };
+
 export interface ExternalCredentialPort {
   /**
    * The provider key and issuer an `external_identity_links` row for one of this
@@ -99,6 +105,8 @@ export interface ExternalCredentialPort {
   verifyResetToken(token: string): Promise<VerifyResetResult>;
   /** Set a new password, authorized by the refresh token `verifyResetToken` returned. */
   updatePassword(loginId: string, newPassword: string, refreshJwt: string): Promise<UpdatePasswordResult>;
+  /** Invalidate every provider refresh token of the user, this one included (RT-1327). */
+  logoutAllSessions(refreshJwt: string): Promise<LogoutAllResult>;
   /** Management: create a user whose email is verified. */
   createUser(input: CreateUserInput): Promise<CreateUserResult>;
   /** Management: read a user's id and whether a password is set. */

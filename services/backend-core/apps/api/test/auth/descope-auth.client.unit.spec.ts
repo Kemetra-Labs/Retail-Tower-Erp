@@ -297,6 +297,41 @@ describe("DescopeAuthClient.updatePassword (RT-1327)", () => {
   });
 });
 
+describe("DescopeAuthClient.logoutAllSessions (RT-1327)", () => {
+  it("posts an empty body to logoutall with projectId:refreshJwt as bearer", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, {}));
+
+    const result = await client.logoutAllSessions("refresh-1");
+
+    expect(result).toEqual({ kind: "ok" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/logoutall");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.redirect).toBe("error");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}:refresh-1`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({});
+  });
+
+  it.each([400, 401, 403])("maps a %i answer to refused", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, { errorCode: "E061005" }));
+    expect(await client.logoutAllSessions("refresh-1")).toEqual({ kind: "refused" });
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.logoutAllSessions("refresh-1")).toEqual({ kind: "unavailable" });
+  });
+
+  it("maps a transport failure to unavailable without leaking the refresh token", async () => {
+    const { client } = clientWith(() => {
+      throw Object.assign(new Error("failed refresh-1"), { cause: { header: "refresh-1" } });
+    });
+    const result = await client.logoutAllSessions("refresh-1");
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain("refresh-1");
+  });
+});
+
 describe("DescopeAuthClient management calls", () => {
   it("fail closed as unconfigured, with no request, when the management key is unset", async () => {
     for (const managementKey of [null, ""]) {

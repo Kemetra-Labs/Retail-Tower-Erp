@@ -59,6 +59,13 @@ jest.mock("@data-pulse-2/auth", () => ({
   hashToken: jest.fn(),
 }));
 
+/** The service's logger: a provider-session revocation failure is logged here, never surfaced. */
+const logWarn = jest.fn();
+jest.mock("@data-pulse-2/shared", () => ({
+  ...jest.requireActual<Record<string, unknown>>("@data-pulse-2/shared"),
+  createLogger: jest.fn(() => ({ warn: logWarn, info: jest.fn(), error: jest.fn(), debug: jest.fn() })),
+}));
+
 import { generateRawToken, hashPassword } from "@data-pulse-2/auth";
 
 const mockHashPassword = hashPassword as jest.MockedFunction<typeof hashPassword>;
@@ -86,6 +93,7 @@ interface Overrides {
   verifierSub?: string | Error;
   linkedUser?: { userId: string; email: string } | null;
   update?: { kind: string };
+  logoutAll?: { kind: string };
   noExternal?: boolean;
 }
 
@@ -105,6 +113,7 @@ function build(o: Overrides = {}) {
       .fn()
       .mockResolvedValue(o.verifyReset ?? { kind: "ok", sessionJwt: SESSION_JWT, refreshJwt: REFRESH }),
     updatePassword: jest.fn().mockResolvedValue(o.update ?? { kind: "ok" }),
+    logoutAllSessions: jest.fn().mockResolvedValue(o.logoutAll ?? { kind: "ok" }),
   };
   const verify = jest.fn().mockImplementation(() => {
     const sub = o.verifierSub ?? SUBJECT;
@@ -288,6 +297,51 @@ describe("AuthService.confirmPasswordReset — provider recovery proof (RT-1327)
       expect(error.message).toBe(GENERIC);
       expect(updateCalls).not.toHaveBeenCalled();
       expect(endSupportSessions).not.toHaveBeenCalled();
+    },
+  );
+
+  it("signs the user out of every provider session with the same refresh token, only after the update", async () => {
+    const { service, port } = build();
+
+    await service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD });
+
+    expect(port.logoutAllSessions).toHaveBeenCalledTimes(1);
+    expect(port.logoutAllSessions).toHaveBeenCalledWith(REFRESH);
+    const updateOrder = port.updatePassword.mock.invocationCallOrder[0] ?? Infinity;
+    const logoutOrder = port.logoutAllSessions.mock.invocationCallOrder[0] ?? -Infinity;
+    expect(logoutOrder).toBeGreaterThan(updateOrder);
+    expect(logWarn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["verify refused", { verifyReset: { kind: "refused" } as VerifyResult }],
+    ["no active link", { linkedUser: null }],
+    ["update refused", { update: { kind: "refused" } }],
+    ["update unavailable", { update: { kind: "unavailable" } }],
+  ])("does not sign out provider sessions when %s", async (_name, overrides) => {
+    const { service, port } = build(overrides);
+
+    await failure(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD }));
+
+    expect(port.logoutAllSessions).not.toHaveBeenCalled();
+  });
+
+  it.each([{ kind: "refused" }, { kind: "unavailable" }])(
+    "still succeeds and revokes Backend-Core sessions when the provider sign-out answers $kind, logging a fixed warning",
+    async (logoutAll) => {
+      const { service, endSupportSessions } = build({ logoutAll });
+
+      // The password is already changed and the link spent: a 400 here would lie to the user.
+      await expect(service.confirmPasswordReset({ rawToken: PROOF, newPassword: NEW_PASSWORD })).resolves.toBe(EMAIL);
+
+      expect(updateCalls).toHaveBeenCalledTimes(1);
+      expect(endSupportSessions).toHaveBeenCalledWith({ userId: USER_ID }, null);
+      expect(logWarn).toHaveBeenCalledTimes(1);
+      const logged = JSON.stringify(logWarn.mock.calls);
+      expect(logged).toContain(logoutAll.kind);
+      for (const secret of [PROOF, REFRESH, SESSION_JWT, SUBJECT, EMAIL, NEW_PASSWORD, USER_ID]) {
+        expect(logged).not.toContain(secret);
+      }
     },
   );
 
