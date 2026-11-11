@@ -45,7 +45,9 @@
  *     EVER been under a recall hold (owner answer 2026-11-11, RT-451 comment
  *     16538; ruling B). The identities are locked FOR KEY SHARE first, so a
  *     recall in flight (FOR UPDATE) commits before the recall state is read.
- * Serial lines stay skipped (RT-50 Q11).
+ * Serial lines stay skipped (RT-50 Q11). Every identity-grain batch locks
+ * its identities FOR KEY SHARE in id order before its INSERT, the order the
+ * safety commands lock them, so it never deadlocks with a recall or hold.
  *
  * Flag (Q4): nothing is written unless the tenant's
  * `sale_effects_activated_at` is set — except a void or return of a sale that
@@ -266,12 +268,32 @@ const isUnresolvedSale = (rows: readonly LineFactsRow[]): boolean =>
   rows.some((r) => r.sale_tracking_status === TRACKING_UNRESOLVED);
 
 /**
+ * Lock the tracking identities FOR KEY SHARE in id order. Safety commands
+ * (recall, hold, expiry correction) lock identities FOR UPDATE in id order
+ * (`lockIdentities`), and an identity-grain effect's FK check takes KEY SHARE
+ * on its identity; taking them here first, in the same order, means a
+ * multi-identity effect batch waits for a command instead of deadlocking
+ * with it. FOR KEY SHARE needs UPDATE on tracking_identities and its 0072
+ * UPDATE policy: the domain role, which both the API and the worker use,
+ * holds both (inventory-safety grants).
+ */
+async function lockIdentitiesForKeyShare(client: Client, identityIds: readonly string[]): Promise<void> {
+  const ids = [...new Set(identityIds)].sort();
+  if (ids.length === 0) return;
+  await client.query(`SELECT id FROM tracking_identities WHERE id = ANY($1::uuid[]) ORDER BY id FOR KEY SHARE`, [ids]);
+}
+
+/**
  * Append the effects, their `not_posted` integration records and one
  * `inventory.movement.created` event. Returns the ids actually written: a row
  * whose provenance key already exists is a DC-1 replay and is left alone.
  */
 async function appendEffects(client: Client, h: EventHeader, rows: readonly EffectRow[]): Promise<string[]> {
   if (rows.length === 0) return [];
+  await lockIdentitiesForKeyShare(
+    client,
+    rows.flatMap((r) => (r.trackingIdentityId === null ? [] : [r.trackingIdentityId])),
+  );
   const inserted = await client.query<{ id: string }>(
     `INSERT INTO stock_movements
        (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref,
@@ -529,9 +551,7 @@ function trackedReturnIdentities(rows: readonly LineFactsRow[]): string[] {
  */
 async function lockAndReadEverRecalled(client: Client, identityIds: readonly string[]): Promise<Set<string>> {
   if (identityIds.length === 0) return new Set();
-  await client.query(`SELECT id FROM tracking_identities WHERE id = ANY($1::uuid[]) ORDER BY id FOR KEY SHARE`, [
-    identityIds,
-  ]);
+  await lockIdentitiesForKeyShare(client, identityIds);
   const r = await client.query<{ tracking_identity_id: string }>(
     `SELECT DISTINCT tracking_identity_id FROM tracking_holds
       WHERE tracking_identity_id = ANY($1::uuid[]) AND kind = 'recall_hold'`,

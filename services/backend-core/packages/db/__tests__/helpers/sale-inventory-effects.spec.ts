@@ -512,6 +512,20 @@ describe("tracked effects (RT-451 S4; RT-50 G7-9, G7-10, Q9)", () => {
   const valid = (identityId: string): LineTracking => ({ identityId, class: "valid" });
   const returnTo = (status: string) => async (): Promise<string> => status;
 
+  /** Whether some backend ends up waiting on a lock `holder` holds (polls up to 10 s). */
+  async function waitUntilBlockedBy(holder: PoolClient): Promise<boolean> {
+    const pid = (await holder.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)).rows[0]!.pid;
+    for (let i = 0; i < 200; i += 1) {
+      const r = await pg().admin.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`,
+        [pid],
+      );
+      if (r.rows[0]!.n > 0) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  }
+
   beforeAll(async () => {
     if (!env) return;
     await setActivation(A, true);
@@ -573,6 +587,54 @@ describe("tracked effects (RT-451 S4; RT-50 G7-9, G7-10, Q9)", () => {
     });
     expect(byLine.get(lineIds[1]!)).toMatchObject({ quantity: "-1.0000", tracking_identity_id: I_LOT });
     expect(byLine.get(lineIds[2]!)).toMatchObject({ quantity: "-1.0000", tracking_identity_id: null });
+  });
+
+  it("skips a classified line whose identity is another product's, with no FK error stalling the sale", async () => {
+    if (skip()) return;
+    const { saleId, lineIds } = await seedSale(
+      A,
+      [
+        { product: P_TRACKED, quantity: "1", tracking: valid(I_SERIAL) },
+        { product: P_EACH, quantity: "1" },
+      ],
+      "tracked",
+    );
+    const outcome = await asTenant(A, (c) => writeSaleLineEffects(c, { tenantId: TENANT, storeId: STORE, saleId }));
+    expect(outcome.written).toHaveLength(1);
+    expect(outcome.skipped).toEqual([{ lineId: lineIds[0], reason: "tracked_product" }]);
+    expect((await effectsOf({ eventRefId: saleId })).map((e) => e.sale_line_id)).toEqual([lineIds[1]]);
+  });
+
+  it("locks a sale's identities in id order first, so it never deadlocks with a safety command", async () => {
+    if (skip()) return;
+    // Lines in DESCENDING identity order: without the id-ordered pre-lock, the
+    // INSERT's FK checks would take KEY SHARE on I_RECALLED, then wait for I_LOT.
+    expect(I_LOT < I_RECALLED).toBe(true);
+    const { saleId } = await seedSale(
+      A,
+      [
+        { product: P_TRACKED, quantity: "1", tracking: valid(I_RECALLED) },
+        { product: P_TRACKED, quantity: "1", tracking: valid(I_LOT) },
+      ],
+      "tracked",
+    );
+    const command = await pg().admin.connect();
+    try {
+      // What a safety command does (`lockIdentities`): FOR UPDATE in id order.
+      await command.query("BEGIN");
+      await command.query(`SELECT id FROM tracking_identities WHERE id = $1 FOR UPDATE`, [I_LOT]);
+      const writing = asTenant(A, (c) => writeSaleLineEffects(c, { tenantId: TENANT, storeId: STORE, saleId }));
+      expect(await waitUntilBlockedBy(command)).toBe(true);
+      // The writer holds no identity yet, so the command's next lock is granted
+      // at once instead of ending in a deadlock (40P01).
+      await command.query(`SET LOCAL lock_timeout = '3s'`);
+      await command.query(`SELECT id FROM tracking_identities WHERE id = $1 FOR UPDATE`, [I_RECALLED]);
+      await command.query("COMMIT");
+      expect((await writing).written).toHaveLength(2);
+    } finally {
+      await command.query("ROLLBACK").catch(() => undefined);
+      command.release();
+    }
   });
 
   it("keeps skipping an unclassified tracked line (switched off) and a serial line (Q11)", async () => {
@@ -750,17 +812,11 @@ describe("tracked effects (RT-451 S4; RT-50 G7-9, G7-10, Q9)", () => {
       const returning = asTenant(A, (c) =>
         writeReturnEffects(c, { tenantId: TENANT, storeId: STORE, saleId, returnId, resolveLandingStatus: returnTo("sellable") }),
       );
-      // Wait until the return blocks on the identity lock, then commit the recall.
-      for (let i = 0; i < 100; i += 1) {
-        const waiting = await pg().admin.query<{ n: number }>(
-          `SELECT count(*)::int AS n FROM pg_stat_activity
-            WHERE usename = 'app_test' AND wait_event_type = 'Lock'`,
-        );
-        if (waiting.rows[0]!.n > 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
+      // Wait until the return blocks on the recall's lock, then commit the recall.
+      const blocked = await waitUntilBlockedBy(recall);
       await recall.query("COMMIT");
       await returning;
+      expect(blocked).toBe(true);
     } finally {
       await recall.query("ROLLBACK").catch(() => undefined);
       recall.release();
