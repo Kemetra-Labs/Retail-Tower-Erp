@@ -31,6 +31,7 @@ import { MembershipRepository } from "../context/membership.repository";
 import { callerStoreScope, scopeStoreIds } from "../context/operator-store-scope";
 import type { ResolvedContext } from "../context/types";
 import {
+  toUtcInstant,
   toVoucher,
   VOUCHER_PAGE_SIZE_DEFAULT,
   type VoucherBody,
@@ -168,8 +169,8 @@ export class VouchersAdminService {
         query.status ?? null,
         query.batch_id ?? null,
         query.eligible_store_id ?? null,
-        query.expires_from ?? null,
-        query.expires_before ?? null,
+        toUtcInstant(query.expires_from),
+        toUtcInstant(query.expires_before),
         keyset?.createdAtKey ?? null,
         keyset?.voucherId ?? null,
         limit + 1,

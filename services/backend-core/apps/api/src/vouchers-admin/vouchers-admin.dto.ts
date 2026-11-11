@@ -81,6 +81,17 @@ export const VoucherListQuerySchema = z
 
 export type VoucherListQuery = z.infer<typeof VoucherListQuerySchema>;
 
+/**
+ * An `instant` as a UTC ISO string for a `timestamptz` parameter. The validator
+ * accepts any `±HH:MM` offset the Date parser takes (up to ±23:59), but Postgres
+ * refuses a displacement past ±15:59 with 22009, which is not an input-error
+ * code and so was a 500 (Schemathesis gate, RT-1108). Normalizing first sends
+ * Postgres only `Z` instants, as the issue path already does for `expires_at`.
+ */
+export function toUtcInstant(value: string | undefined): string | null {
+  return value === undefined ? null : new Date(value).toISOString();
+}
+
 /** Parses with a schema; a failure is a 400 `validation_failure` that names no value. */
 export class ContractValidationPipe<TSchema extends ZodTypeAny> implements PipeTransform {
   constructor(private readonly schema: TSchema) {}

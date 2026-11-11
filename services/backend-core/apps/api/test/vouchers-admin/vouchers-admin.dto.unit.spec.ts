@@ -6,6 +6,7 @@ import { BadRequestException } from "@nestjs/common";
 
 import {
   ContractValidationPipe,
+  toUtcInstant,
   toVoucher,
   VoucherIdParamSchema,
   VoucherIssueSchema,
@@ -90,6 +91,18 @@ describe("VoucherListQuerySchema", () => {
     ["an unknown parameter", { tenant_id: STORE }],
   ])("refuses %s", (_label, query) => {
     expect(VoucherListQuerySchema.safeParse(query).success).toBe(false);
+  });
+});
+
+describe("toUtcInstant", () => {
+  it("sends Postgres a Z instant even for an offset past ±15:59 (a 22009 500 before)", () => {
+    const parsed = VoucherListQuerySchema.parse({ expires_from: "2030-01-01T00:00:00+20:00", expires_before: "2030-01-01T00:00:00-23:59" });
+    expect(toUtcInstant(parsed.expires_from)).toBe("2029-12-31T04:00:00.000Z");
+    expect(toUtcInstant(parsed.expires_before)).toBe("2030-01-01T23:59:00.000Z");
+  });
+
+  it("keeps an absent filter absent", () => {
+    expect(toUtcInstant(undefined)).toBeNull();
   });
 });
 
