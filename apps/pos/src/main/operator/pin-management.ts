@@ -56,6 +56,8 @@ import {
 import { requireRole } from './role-enforcement.js';
 import { hashPin } from './pin-credential.js';
 import { sealPinMaterial } from './pin-seal.js';
+import { withCashierPinRowLock } from './cashier-pin-row-lock.js';
+import type { PinScope } from './pin-lockout.js';
 import type {
   CashierPinProvisionedPayload,
   CashierPinResetPayload,
@@ -79,6 +81,11 @@ interface PinRecordRow {
 
 type PrepareRun = { run(...p: unknown[]): unknown };
 type PrepareGet = { get(...p: unknown[]): PinRecordRow | undefined };
+
+/** The row key, in the order every cashier_pin_records statement here binds it. */
+function rowParams(scope: PinScope): [string, string, string, string] {
+  return [scope.tenant_id, scope.branch_id, scope.terminal_id, scope.cashier_clerk_user_id];
+}
 
 // ─── Refusal sentinels ────────────────────────────────────────────────────
 
@@ -211,44 +218,21 @@ export class PinManagementHandler {
     const { tenant_id, branch_id, terminal_id } = pairingStatus;
     const { target_cashier_id } = req;
 
-    // Verify the cashier has an existing pin record on this terminal.
-    // If no record exists, the manager cannot reset an uninitialized PIN
-    // (the cashier must be onboarded first — invalid_input).
-    const existing = (
-      this.deps.db.prepare(
-        `SELECT failed_attempt_count, lockout_until
-           FROM cashier_pin_records
-          WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
-      ) as PrepareGet
-    ).get(tenant_id, branch_id, terminal_id, target_cashier_id);
-
-    if (existing === undefined) {
-      this.log('info', 'reset_cashier_pin.refused', 'invalid_input');
-      return REFUSE_INVALID;
-    }
-
-    // Hash the new PIN — plaintext is consumed here and never stored.
-    const raw = await hashPin(req.new_pin);
-    const sealed = sealPinMaterial(raw, this.deps.safeStorage);
-
-    // Upsert: overwrite hash/salt, reset lockout state.
-    (
-      this.deps.db.prepare(
-        `UPDATE cashier_pin_records
-            SET pin_hash = ?, pin_salt = ?,
-                failed_attempt_count = 0, lockout_until = NULL,
-                created_by_operator_id = ?
-          WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
-      ) as PrepareRun
-    ).run(
-      sealed.pin_hash,
-      sealed.pin_salt,
-      activeSession.operator_id,
+    // RT-1326: read, hash and write under the row's lock, so a cashier
+    // attempt in flight on this row cannot interleave with the reset.
+    const rowScope = {
       tenant_id,
       branch_id,
       terminal_id,
-      target_cashier_id,
+      cashier_clerk_user_id: target_cashier_id,
+    };
+    const reset = await withCashierPinRowLock(rowScope, () =>
+      this.resetRow(rowScope, req.new_pin, activeSession.operator_id),
     );
+    if (!reset) {
+      this.log('info', 'reset_cashier_pin.refused', 'invalid_input');
+      return REFUSE_INVALID;
+    }
 
     // Emit audit event — PIN value MUST NOT appear in payload (PR-1).
     const payload: CashierPinResetPayload = {
@@ -485,29 +469,17 @@ export class PinManagementHandler {
     const { tenant_id, branch_id, terminal_id } = pairingStatus;
     const { target_cashier_id } = req;
 
-    const existing = (
-      this.deps.db.prepare(
-        `SELECT failed_attempt_count, lockout_until
-           FROM cashier_pin_records
-          WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
-      ) as PrepareGet
-    ).get(tenant_id, branch_id, terminal_id, target_cashier_id);
-
-    const notLockedOut =
-      existing === undefined ||
-      existing.lockout_until === null ||
-      new Date(existing.lockout_until) <= new Date();
-
-    if (existing !== undefined) {
-      // Clear lockout state unconditionally.
-      (
-        this.deps.db.prepare(
-          `UPDATE cashier_pin_records
-              SET failed_attempt_count = ?, lockout_until = ?
-            WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
-        ) as PrepareRun
-      ).run(0, null, tenant_id, branch_id, terminal_id, target_cashier_id);
-    }
+    // RT-1326: under the row's lock, so a cashier attempt in flight cannot
+    // write its stale failure count over the unlock.
+    const rowScope = {
+      tenant_id,
+      branch_id,
+      terminal_id,
+      cashier_clerk_user_id: target_cashier_id,
+    };
+    const notLockedOut = await withCashierPinRowLock(rowScope, () =>
+      Promise.resolve(this.unlockRow(rowScope)),
+    );
 
     // Emit audit event regardless of prior lockout state (support trail).
     const payload: CashierPinUnlockPayload = {
@@ -536,6 +508,61 @@ export class PinManagementHandler {
 
     this.log('info', 'unlock_cashier.success', undefined);
     return { kind: 'unlocked', audit_event_id: req.event_id };
+  }
+
+  /**
+   * RT-1326 — the reset's read-modify-write, run under the row's lock. Verify
+   * the cashier has a PIN record on this terminal (the manager cannot reset an
+   * uninitialised PIN: the cashier must be onboarded first), hash the new PIN
+   * (the plaintext is consumed here and never stored), then overwrite the
+   * hash and salt and reset the lockout state. False when there is no record.
+   */
+  private async resetRow(scope: PinScope, newPin: string, operatorId: string): Promise<boolean> {
+    if (this.readLockout(scope) === undefined) return false;
+    const sealed = sealPinMaterial(await hashPin(newPin), this.deps.safeStorage);
+    (
+      this.deps.db.prepare(
+        `UPDATE cashier_pin_records
+            SET pin_hash = ?, pin_salt = ?,
+                failed_attempt_count = 0, lockout_until = NULL,
+                created_by_operator_id = ?
+          WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
+      ) as PrepareRun
+    ).run(sealed.pin_hash, sealed.pin_salt, operatorId, ...rowParams(scope));
+    return true;
+  }
+
+  /**
+   * RT-1326 — the unlock's read-modify-write, run under the row's lock. Clears
+   * the lockout state unconditionally; true when the cashier was not locked
+   * out (or has no record), which the caller answers as `state_invalid`.
+   */
+  private unlockRow(scope: PinScope): boolean {
+    const existing = this.readLockout(scope);
+    const notLockedOut =
+      existing === undefined ||
+      existing.lockout_until === null ||
+      new Date(existing.lockout_until) <= new Date();
+    if (existing !== undefined) {
+      (
+        this.deps.db.prepare(
+          `UPDATE cashier_pin_records
+              SET failed_attempt_count = ?, lockout_until = ?
+            WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
+        ) as PrepareRun
+      ).run(0, null, ...rowParams(scope));
+    }
+    return notLockedOut;
+  }
+
+  private readLockout(scope: PinScope): PinRecordRow | undefined {
+    return (
+      this.deps.db.prepare(
+        `SELECT failed_attempt_count, lockout_until
+           FROM cashier_pin_records
+          WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ? AND cashier_clerk_user_id = ?`,
+      ) as PrepareGet
+    ).get(...rowParams(scope));
   }
 
   /**

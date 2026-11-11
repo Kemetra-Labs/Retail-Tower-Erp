@@ -62,6 +62,9 @@ const REFUSALS: Readonly<Record<RecoveryRefusalReason | ManagerApprovalRefusalRe
   approval_invalid: 'التأكيد غير صالح لهذا الإجراء. أكّد مرة أخرى.',
   approval_stale: 'تغيّر البيع منذ التأكيد. حدّث القائمة وأكّد مرة أخرى.',
   approval_unavailable: 'الرقم السري غير صحيح أو غير مفعّل.',
+  // RT-1326: three wrong approver PINs on this request.
+  approval_attempts_exhausted:
+    'أُدخل رقم سري خاطئ ثلاث مرات لهذا الطلب. انتظر خمس دقائق ثم اطلب الموافقة من جديد.',
   not_applicable: 'لا يحتاج هذا الإجراء إلى تأكيد.',
   confirmation_required: 'أكّد إرجاع المبلغ أولًا.',
   cash_insufficient: 'النقدية أقل من المتبقي.',

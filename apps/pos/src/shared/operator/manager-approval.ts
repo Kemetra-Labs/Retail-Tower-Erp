@@ -48,6 +48,9 @@ export const APPROVAL_REFUSAL_REASONS = [
   'approval_unavailable',
   // The subject changed between the request and the action.
   'approval_stale',
+  // RT-1326: this request already spent its wrong approver PINs; raise it
+  // again after a few minutes. The PIN was not checked.
+  'approval_attempts_exhausted',
 ] as const;
 
 export type ManagerApprovalRefusalReason = (typeof APPROVAL_REFUSAL_REASONS)[number];

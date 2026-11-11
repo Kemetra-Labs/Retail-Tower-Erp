@@ -59,6 +59,9 @@ export const DISCOUNT_COPY = Object.freeze({
   noManagers:
     'لا يوجد مدير برقم سري على هذا الجهاز. يحفظ المدير رقمه من شاشة حالة الوردية بعد تسجيل دخوله.',
   approverInvalid: 'لم تُقبل موافقة المدير. تحقّق من اسم المدير ورقمه السري.',
+  // RT-1326: three wrong approver PINs on this request.
+  approvalTriesExhausted:
+    'أُدخل رقم سري خاطئ ثلاث مرات لهذا الطلب. انتظر خمس دقائق ثم اطلب الموافقة من جديد.',
   unavailable: 'تعذّر تنفيذ الطلب على هذا الجهاز. حاول مرة أخرى.',
 });
 
@@ -116,6 +119,9 @@ export function approvalRefusalCopy(reason: ManagerApprovalRefusalReason): Disco
     return { message: DISCOUNT_COPY.approverInvalid, place: 'approval' };
   }
   if (reason === 'approval_stale') return { message: DISCOUNT_COPY.approvalStale, place: 'stale' };
+  if (reason === 'approval_attempts_exhausted') {
+    return { message: DISCOUNT_COPY.approvalTriesExhausted, place: 'approval' };
+  }
   if (reason === 'approval_invalid') {
     return { message: DISCOUNT_COPY.approvalInvalid, place: 'approval' };
   }

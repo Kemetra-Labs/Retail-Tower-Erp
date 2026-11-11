@@ -35,6 +35,7 @@ import {
 } from './offline-admission.js';
 import { unsealPinMaterial } from './pin-seal.js';
 import { verifyPinWithWindow, rowMatchesScope, type PinScope } from './pin-lockout.js';
+import { withCashierPinRowLock } from './cashier-pin-row-lock.js';
 import type { PinRow } from './pin-credential.js';
 import { ProtoSessionStore } from './takeover-handler.js';
 import { tillClockSkewed } from './till-clock.js';
@@ -448,6 +449,22 @@ export class CashierSignInHandler {
   constructor(private readonly deps: CashierSignInHandlerDeps) {}
 
   /**
+   * Load the PIN row, verify, persist the lockout state: one attempt, under
+   * the row's lock (RT-1326), so sign-in and the same-operator unlock never
+   * interleave on one row.
+   */
+  private attemptPin(
+    scope: PinScope,
+    pin: string,
+  ): Promise<{ row: LoadedPinRow; refusal: OperatorRefusal | null } | OperatorRefusal> {
+    return withCashierPinRowLock(scope, async () => {
+      const loaded = this.loadPinRow(scope);
+      if ('kind' in loaded) return loaded;
+      return { row: loaded, refusal: await this.verifyPinAndUpdateLockout(pin, loaded, scope) };
+    });
+  }
+
+  /**
    * RT-117 (RT-116 §2.4) — verify a cashier's PIN on this terminal WITHOUT
    * creating a session. Used for same-operator unlock of a locked session.
    * Same row lookup, scope guard, unseal and 004 lockout rules as sign-in.
@@ -465,9 +482,8 @@ export class CashierSignInHandler {
       terminal_id: pairingStatus.terminal_id,
       cashier_clerk_user_id,
     };
-    const loaded = this.loadPinRow(scope);
-    if ('kind' in loaded) return loaded;
-    return await this.verifyPinAndUpdateLockout(pin, loaded, scope);
+    const attempt = await this.attemptPin(scope, pin);
+    return 'kind' in attempt ? attempt : attempt.refusal;
   }
 
   async signIn(req: CashierSignInRequest): Promise<SignInResponse> {
@@ -486,14 +502,13 @@ export class CashierSignInHandler {
       cashier_clerk_user_id: req.cashier_clerk_user_id,
     };
 
-    // 2–4. Fetch sealed pin row, PR-4 scope guard, unseal pin material.
-    const loaded = this.loadPinRow(scope);
-    if ('kind' in loaded) return loaded;
-    const pinRow = loaded;
-
-    // 5. Verify PIN — verifyPinWithWindow handles PR-3 expired-lockout reset
-    const pinRefusal = await this.verifyPinAndUpdateLockout(req.pin, pinRow, scope);
-    if (pinRefusal !== null) return pinRefusal;
+    // 2–5. Fetch the sealed pin row (PR-4 scope guard, unseal) and verify the
+    // PIN (verifyPinWithWindow handles the PR-3 expired-lockout reset), as one
+    // attempt serialised per PIN row (RT-1326).
+    const attempt = await this.attemptPin(scope, req.pin);
+    if ('kind' in attempt) return attempt;
+    if (attempt.refusal !== null) return attempt.refusal;
+    const pinRow = attempt.row;
     // RT-444 — after the PIN (an unverified person learns nothing), before admission.
     const candidate = { operator_id: req.cashier_clerk_user_id, role: 'cashier' as const };
     const notAdmitted = admissionRefusal(this.deps.sessionAdmission, 'check', candidate);
