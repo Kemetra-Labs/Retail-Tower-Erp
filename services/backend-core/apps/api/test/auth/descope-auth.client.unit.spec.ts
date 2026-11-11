@@ -15,6 +15,7 @@
  */
 import {
   DescopeAuthClient,
+  descopeAuthFactory,
   resetRedirectUrlFromEnv,
   type DescopeFetch,
 } from "../../src/auth/descope-auth.client";
@@ -452,5 +453,27 @@ describe("DescopeAuthClient construction", () => {
           fetch: () => Promise.resolve(jsonResponse(200, {})),
         }),
     ).toThrow(/DESCOPE_PROJECT_ID/);
+  });
+});
+
+describe("descopeAuthFactory without DESCOPE_PROJECT_ID (RT-1327)", () => {
+  const saved = process.env["DESCOPE_PROJECT_ID"];
+  beforeEach(() => {
+    delete process.env["DESCOPE_PROJECT_ID"];
+  });
+  afterAll(() => {
+    if (saved === undefined) delete process.env["DESCOPE_PROJECT_ID"];
+    else process.env["DESCOPE_PROJECT_ID"] = saved;
+  });
+
+  // No provider is wired, so a reset token Backend-Core does not hold cannot be a
+  // provider proof: it is refused (the confirm route's 400), never reported as an
+  // outage (503). Otherwise every unknown or replayed local token would be a 503.
+  it("refuses a recovery proof instead of reporting an outage", async () => {
+    expect(await descopeAuthFactory().verifyResetToken("any-token")).toEqual({ kind: "refused" });
+  });
+
+  it("sends no provider reset", async () => {
+    expect(await descopeAuthFactory().sendPasswordReset("a@b.co")).toEqual({ kind: "unconfigured" });
   });
 });

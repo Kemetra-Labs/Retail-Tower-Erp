@@ -309,7 +309,9 @@ export function descopeAuthFactory(): ExternalCredentialPort {
       passwordSignIn: unavailable,
       replacePassword: unavailable,
       sendPasswordReset: unconfigured,
-      verifyResetToken: unavailable,
+      // No provider: a token Backend-Core does not hold cannot be a provider proof,
+      // so it is refused (400), never an outage (503) (RT-1327).
+      verifyResetToken: () => Promise.resolve({ kind: "refused" as const }),
       updatePassword: unavailable,
       logoutAllSessions: unavailable,
       createUser: unconfigured,
