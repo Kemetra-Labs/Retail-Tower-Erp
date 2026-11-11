@@ -36,7 +36,8 @@ LOAD_TERMINALS=3                      # 1, 3 or 10 (max 10)
 LOAD_TERMINAL_1_TOKEN=op://<vault>/<item>/device-token-1
 LOAD_TERMINAL_1_CASHIER_ID=<users.id of cashier 1>
 ...                                   # up to LOAD_TERMINAL_10_*
-LOAD_PRODUCTS=[{"ref":"<product id>","name":"<name>","price":"12.50"}, ...]
+LOAD_PRODUCTS=[{"ref":"<product id>","name":"<name>","price":"12.50"}, ...]  # optional per-product "unit"
+LOAD_UNIT=unit                        # sale-line unit; default `unit` (what tills send; `each` is not mapped in the lab ERP)
 LOAD_CURRENCY=EGP                     # the tenant currency
 LOAD_SALES_PER_HOUR=<owner-set>       # pos-terminals.js only
 LOAD_BURST_SALES=<K>  LOAD_OFFLINE_MINUTES=<M>   # offline-burst.js only
