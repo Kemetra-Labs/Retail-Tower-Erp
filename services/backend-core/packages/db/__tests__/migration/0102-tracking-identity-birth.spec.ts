@@ -385,10 +385,13 @@ describe("0102: UP -> DOWN -> UP", () => {
     const e = guard();
     await e.admin.query(downSql);
     expect(await exists()).toBe(false);
-    const check = await e.admin.query<{ def: string }>(
-      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'erpnext_reconciliation_result_class_valid'`,
+    const check = await e.admin.query<{ def: string; validated: boolean }>(
+      `SELECT pg_get_constraintdef(oid) AS def, convalidated AS validated
+         FROM pg_constraint WHERE conname = 'erpnext_reconciliation_result_class_valid'`,
     );
     expect(check.rows[0]!.def).not.toContain("tracking_mismatch");
+    // Validated again, as 0066 left it (the 0066 probe reads a validated CHECK).
+    expect(check.rows[0]!.validated).toBe(true);
     expect(check.rows[0]!.def).toContain("uom_mismatch");
     const col = await e.admin.query(
       `SELECT 1 FROM information_schema.columns WHERE table_name = 'erp_stock_import_rows' AND column_name = 'event_type'`,

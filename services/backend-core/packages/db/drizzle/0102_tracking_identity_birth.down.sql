@@ -75,3 +75,9 @@ ALTER TABLE erpnext_reconciliation_result
     )) NOT VALID;
 
 COMMIT;
+
+-- Validated again after the commit, as 0066 left it (SHARE UPDATE EXCLUSIVE:
+-- reads and writes continue). The guard above refused any `tracking_mismatch`
+-- row, so every row satisfies the restored CHECK.
+ALTER TABLE erpnext_reconciliation_result
+  VALIDATE CONSTRAINT erpnext_reconciliation_result_class_valid;

@@ -7,8 +7,9 @@
 -- [GATED: migration] authorized on RT-453 comment 16685 (2026-11-12), under the
 -- owner's delegation of 2026-11-11; coordinator decisions in comment 16686 (the
 -- lot code is the ERPNext Batch name; the `tracking_mismatch` class). Applying
--- it to a lab or live database is a separate owner step. Number 0102: 0093 is
--- held by #508, 0094-0098 are on main, 0099 by #519, 0100 and 0101 by #522.
+-- it to a lab or live database is a separate owner step. Number 0102: 0093,
+-- 0094-0098, 0100 and 0101 are on main (0100 and 0101 from #522), and 0099 is
+-- held by #519.
 --
 -- Source of truth:
 --   - RT-50 comments 11763 / 11764 (G7-2, G7-3, G7-12) and 11765 (approval);
