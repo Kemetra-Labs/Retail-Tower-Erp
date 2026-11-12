@@ -531,9 +531,12 @@ jobs:
     # runner on PR #14 (RT-841): setup about 1 minute + db 10.8 + worker 2.5 minutes.
     timeout-minutes: 20
     steps:
+      # fetch-depth 0 (RT-1344): the migration number gate lists the PR's base branch tip
+      # (origin/<base>), and persist-credentials false rules out a later fetch.
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Enable corepack and pin pnpm
@@ -563,7 +566,12 @@ jobs:
       - name: Pre-pull postgres:16-alpine
         run: docker pull postgres:16-alpine
 
+      # RT-1344: on a pull request, migration-numbers.spec.ts requires the PR's new drizzle
+      # migrations to be exactly the next numbers after the base branch tip as of this run.
+      # On push to main the spec still fails any number used twice.
       - name: Test @data-pulse-2/db (migrations + Testcontainers)
+        env:
+          MIGRATION_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
         run: pnpm --filter @data-pulse-2/db test
 
       # WORKER_INCLUDE_DB_TESTS=1 lifts the default exclusion of the three Testcontainers-backed
