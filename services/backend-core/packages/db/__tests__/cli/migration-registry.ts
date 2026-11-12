@@ -22,7 +22,8 @@ export interface ResolvedMigrations {
   readonly probes: ReadonlyMap<string, MigrationProbe>;
 }
 
-const UP_FILE = /^(\d{4}_[a-z0-9_]+)\.sql$/;
+/** An up migration file name; group 1 is the id. Shared with migration-numbers.ts (RT-1344). */
+export const UP_FILE = /^(\d{4}_[a-z0-9_]+)\.sql$/;
 const DOWN_FILE = /^(\d{4}_[a-z0-9_]+)\.down\.sql$/;
 
 const same = (a: readonly string[], b: readonly string[]): boolean =>

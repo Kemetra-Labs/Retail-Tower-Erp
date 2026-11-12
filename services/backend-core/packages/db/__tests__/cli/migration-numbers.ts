@@ -9,21 +9,21 @@
  * only numbers above the base tip are constrained.
  */
 import { execFileSync } from "node:child_process";
-import { DRIZZLE_DIR } from "./migration-registry";
-
-const UP_FILE = /^(\d{4})_[a-z0-9_]+\.sql$/;
-const DOWN_FILE = /\.down\.sql$/;
+import { DRIZZLE_DIR, UP_FILE } from "./migration-registry";
 
 interface Migration {
   readonly id: string;
   readonly number: number;
 }
 
-/** The up migrations in a directory listing; down files and other names are skipped. */
+/**
+ * The up migrations in a directory listing. The file-name rule is the registry's own UP_FILE,
+ * so the two guards cannot drift; down files (`<id>.down.sql`) and other names do not match it.
+ */
 function ups(files: readonly string[]): Migration[] {
   return files.flatMap((file) => {
-    const match = DOWN_FILE.test(file) ? null : UP_FILE.exec(file);
-    return match ? [{ id: file.replace(/\.sql$/, ""), number: Number(match[1]) }] : [];
+    const id = UP_FILE.exec(file)?.[1];
+    return id === undefined ? [] : [{ id, number: Number(id.slice(0, 4)) }];
   });
 }
 
