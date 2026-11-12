@@ -679,8 +679,10 @@ paths:
         "422":
           description: >
             `offer_store_not_in_scope` (a named store is not a paused store
-            of the offer), or `offer_store_offer_limit_exceeded` (a store
-            would have more than 200 live offers).
+            of the offer), `offer_store_offer_limit_exceeded` (a store
+            would have more than 200 live offers), or
+            `offer_eligible_set_too_large` (the rules, read from the current
+            catalog, now match more products than a Pack can carry).
           content:
             application/json:
               schema:
@@ -1732,7 +1734,9 @@ components:
       required: [offerId, offerVersion, nameAr, state, sharedProductCount, sharedProductSample]
       description: >
         Another offer whose eligible set shares products with this one, in a
-        shared store, during an overlapping window (OD-7).
+        store both hold (OD-7). Whatever the windows: the Pack holds a product
+        once per store, so two live offers on the same product and store
+        conflict even when their windows are disjoint.
       properties:
         offerId: { type: string, format: uuid }
         offerVersion:

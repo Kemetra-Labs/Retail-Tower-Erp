@@ -30,7 +30,7 @@ import type { StoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
 import { canRead, holdsCapability, isStoreBounded, type OfferCapability } from "./offer-capabilities";
 import { insertOfferAudit } from "./offer-audit";
-import { eligibleProductIds, ruleSetsOf, sampleProducts } from "./offer-eligibility";
+import { ELIGIBLE_SET_LIMIT, eligibleProductIds, ruleSetsOf, sampleProducts } from "./offer-eligibility";
 import { OfferRefusedError } from "./offer-errors";
 import {
   loadLiveOffers,
@@ -427,6 +427,8 @@ export class OffersService {
     const full = await loadTenantOffers(client, tenantId, at.loaded.now);
     const others = await loadLiveOffers(client, tenantId, full, { excludeOfferId: at.header.id });
     const eligible = await eligibleProductIds(client, tenantId, ruleSetsOf(record.definition));
+    // The set is resolved from the current catalog: a paused offer may have grown past the Pack bound since publish.
+    if (eligible.length > ELIGIBLE_SET_LIMIT) throw new OfferRefusedError("offer_eligible_set_too_large");
     const scoped = scopeStores(record, at.loaded.stores).map((s) => s.id);
     const back = lifting.some((p) => p.storeId === null) ? scoped : scoped.filter((s) => lifting.some((p) => p.storeId === s));
     const counts = new Map<string, number>();

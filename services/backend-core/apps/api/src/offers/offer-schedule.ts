@@ -112,6 +112,11 @@ export function windowClosed(window: ResolvedWindow, now: Date): boolean {
   return window.endsAt !== null && window.endsAt.getTime() <= now.getTime();
 }
 
+/** A window whose end does not come after its start (two local times in one DST gap resolve to one instant): never open. */
+export function windowEmpty(window: ResolvedWindow): boolean {
+  return window.endsAt !== null && window.endsAt.getTime() <= window.startsAt.getTime();
+}
+
 export function windowOpen(window: ResolvedWindow, now: Date): boolean {
   return window.startsAt.getTime() <= now.getTime() && !windowClosed(window, now);
 }

@@ -20,7 +20,7 @@ import type { PoolClient } from "pg";
 
 import { ELIGIBLE_SET_LIMIT, eligibleProductIds, findInvalidReferences, ruleSetsOf } from "./offer-eligibility";
 import { stateOf, type LiveOffer, type LoadedTenantOffers } from "./offer-live";
-import { resolveWindow, windowClosed } from "./offer-schedule";
+import { resolveWindow, windowClosed, windowEmpty } from "./offer-schedule";
 import type { OfferConflictBody } from "./offer-errors";
 import type { OfferDefinition } from "./offers.dto";
 
@@ -117,7 +117,7 @@ export async function checkDefinition(
   // A window whose end does not come after its start in the store's zone (two local times in one DST gap resolve to the
   // same instant) is never open: it holds nothing, so an offer empty in every store is refused as elapsed.
   const holding = windows
-    .filter((w) => !windowClosed(w.window, loaded.now) && (w.window.endsAt === null || w.window.endsAt.getTime() > w.window.startsAt.getTime()))
+    .filter((w) => !windowClosed(w.window, loaded.now) && !windowEmpty(w.window))
     .map((w) => w.id);
   if (scoped.length > 0 && holding.length === 0) {
     issues.push({ code: "offer_schedule_elapsed", field: "/schedule/endsAt", message: "The offer has already ended in every store of its scope." });

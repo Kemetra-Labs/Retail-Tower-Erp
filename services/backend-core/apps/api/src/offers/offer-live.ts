@@ -17,7 +17,7 @@
 import type { PoolClient } from "pg";
 
 import { ELIGIBLE_SET_LIMIT, eligibleProductIds, ruleSetsOf } from "./offer-eligibility";
-import { deriveState, resolveWindow, windowClosed, type ResolvedWindow } from "./offer-schedule";
+import { deriveState, resolveWindow, windowClosed, windowEmpty, type ResolvedWindow } from "./offer-schedule";
 import {
   loadLiveStores,
   loadOfferHeaders,
@@ -116,7 +116,7 @@ export async function loadLiveOffers(
     if (record === undefined || header.archivedAt !== null || header.endedAt !== null) continue;
     const scoped = scopeStores(record, loaded.stores);
     const windows = new Map(scoped.map((s) => [s.id, resolveWindow(record.definition.schedule, s.timezone)]));
-    const holding = scoped.filter((s) => !windowClosed(windows.get(s.id)!, loaded.now)).map((s) => s.id);
+    const holding = scoped.filter((s) => !windowClosed(windows.get(s.id)!, loaded.now) && !windowEmpty(windows.get(s.id)!)).map((s) => s.id);
     if (holding.length === 0) continue;
     const mine = loaded.pauses.filter((p) => p.offerId === header.id);
     const ids = await eligibleProductIds(client, tenantId, ruleSetsOf(record.definition));

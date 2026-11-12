@@ -76,6 +76,19 @@ function evaluateCited(facts: VersionFacts, minorUnit: number, cart: ReadonlyArr
   }
 }
 
+/** The till put a discount on a different unit than the server's evaluation did, even when the totals agree. */
+function allocationDiffers(
+  members: ReadonlyArray<{ readonly line: PromotedLine; readonly index: number }>,
+  rewards: ReadonlyArray<{ readonly lineRef: string; readonly discountAmount: string }>,
+  minorUnit: number,
+): boolean {
+  const expected = new Map<string, bigint>();
+  for (const r of rewards) expected.set(r.lineRef, (expected.get(r.lineRef) ?? 0n) + scaled(r.discountAmount, minorUnit));
+  const recorded = new Map(members.map((m) => [String(m.index), scaled(m.line.promotion.discountAmount, minorUnit)] as const));
+  const lines = new Set([...expected.keys(), ...recorded.keys()]);
+  return [...lines].some((ref) => (expected.get(ref) ?? 0n) !== (recorded.get(ref) ?? 0n));
+}
+
 /** The units of the lines that take part in an evaluation (whole quantities of eligible lines). */
 const eligibleUnits = (cart: ReadonlyArray<CartLine>): bigint =>
   cart.reduce((sum, c) => sum + (c.eligible ? (wholeUnits(c.quantity) ?? 0n) : 0n), 0n);
@@ -150,7 +163,9 @@ export async function planSalePromotions(
     if (work > MAX_EVALUATED_UNITS) throw new SaleLinePricingInvalidError();
     const expected = evaluateCited(facts, exponent, cart);
     const recorded = members.reduce((sum, m) => sum + scaled(m.line.promotion.discountAmount, exponent), 0n);
-    if (formatMinor(recorded, exponent) !== expected.totalDiscount) reasons.add("discount_differs_from_server_evaluation");
+    if (formatMinor(recorded, exponent) !== expected.totalDiscount || allocationDiffers(members, expected.rewards, exponent)) {
+      reasons.add("discount_differs_from_server_evaluation");
+    }
     // A unit the server counted as taking part but the till did not cite has no fact row: its later return would
     // settle without the offer. Flagged for review (OD-9), the sale is accepted.
     if (expected.applications > 0 && hasUncitedParticipant(cart, members)) reasons.add("participant_not_cited");

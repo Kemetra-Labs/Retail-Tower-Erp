@@ -3577,9 +3577,12 @@ components:
             RT-1335 (spec 048 §9, OD-3): per automatic offer of the sale, the
             discount the customer no longer earns on the units they keep,
             deducted from `returnTotal`. Absent when no offer is clawed back
-            and from a Backend-Core that predates RT-1337. OD-11 is decided
-            (option A, RT-1340): an accepted return carries an entry for each
-            offer whose clawback is above 0.
+            and from a Backend-Core that predates RT-1337. The RT-1337 runtime
+            refuses a return whose clawback is above 0, so it is never present
+            yet (see `recordReturn`, Automatic offers). OD-11 is decided
+            (option A, RT-1340); once the posting feed and the Connector support
+            it and the refusal lifts, an accepted return will carry an entry for
+            each offer whose clawback is above 0.
     PromotionClawback:
       type: object
       additionalProperties: false

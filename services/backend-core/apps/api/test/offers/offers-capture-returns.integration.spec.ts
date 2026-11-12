@@ -304,6 +304,24 @@ describe("captureSale with an automatic-offer promotion", () => {
     expect((await sql(`SELECT line_amount::text AS a FROM sale_lines WHERE sale_id = $1 ORDER BY line_seq`, [res.body.saleRef])).map((r) => r["a"])).toEqual(["100.0000", "48.0000", "60.0000"]);
   });
 
+  it("flags a wrong reward allocation even when the total discount matches (OD-9)", async () => {
+    if (skip()) return;
+    const o = await seedOffer({ products: 4 });
+    // 1+1 at 40%, unit prices 100, 90, 80, 10: the server rewards the 80 (32.00) and the 10 (4.00) = 36.00.
+    // The till put all 36.00 on the 90 line: same total, different units.
+    const res = await capture(
+      body([
+        { product: o.productIds[0]!, unitPrice: "100.00", lineAmount: "100.00", promotion: cite(o, "0.00") },
+        { product: o.productIds[1]!, unitPrice: "90.00", lineAmount: "54.00", promotion: cite(o, "36.00") },
+        { product: o.productIds[2]!, unitPrice: "80.00", lineAmount: "80.00", promotion: cite(o, "0.00") },
+        { product: o.productIds[3]!, unitPrice: "10.00", lineAmount: "10.00", promotion: cite(o, "0.00") },
+      ]),
+    );
+    expect(res.status).toBe(201);
+    const flags = await reviewRows(res.body.saleRef);
+    expect(flags[0]!.metadata.findings[0]).toMatchObject({ recordedDiscount: "36.00", expectedDiscount: "36.00", reasons: ["discount_differs_from_server_evaluation"] });
+  });
+
   it("flags a cited product outside the eligible set, and one with no product reference", async () => {
     if (skip()) return;
     const o = await seedOffer({ products: 1 });
