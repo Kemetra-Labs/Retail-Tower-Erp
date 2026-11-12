@@ -27,6 +27,16 @@
  * Both outputs are non-negative whole minor units and add up exactly to their totals.
  */
 
+import { scaled, wholeUnits } from "./offer-decimal";
+
+/** A stored return or sale line breaks an invariant the capture guard enforces (never reachable from valid data). */
+export class ReturnPromotionInvariantError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReturnPromotionInvariantError";
+  }
+}
+
 /** One returned line of a sale that cites an offer version, in sale line order. */
 export interface AllocationLine {
   readonly lineRef: string;
@@ -36,6 +46,36 @@ export interface AllocationLine {
   readonly lineAmount: bigint;
   /** The frozen discount of the units returned now, in minor units (0 on a non-reward line). */
   readonly discountReturned: bigint;
+}
+
+/**
+ * The one builder of an `AllocationLine`, used by admission (`sale-return-promotions.ts`) and by the feed
+ * projection (`erpnext-posting/return-promotion-shares.ts`) so both read the same inputs: only a promoted
+ * line is read at the minor unit, and it must divide exactly (capture guard).
+ */
+export function allocationLineOf(args: {
+  readonly lineRef: string;
+  readonly offerKey: string;
+  /** Units sold on the sale line, and units returned now (exact-decimal strings). */
+  readonly sold: string;
+  readonly returned: string;
+  /** The returned `lineAmount` and the promotion's frozen discount of the WHOLE sale line. */
+  readonly lineAmount: string;
+  readonly discountAmount: string;
+  readonly minorUnit: number;
+}): AllocationLine {
+  const sold = wholeUnits(args.sold);
+  const now = wholeUnits(args.returned);
+  const discount = scaled(args.discountAmount, args.minorUnit);
+  if (sold === null || sold === 0n || now === null || discount % sold !== 0n) {
+    throw new ReturnPromotionInvariantError(`line ${args.lineRef} is not a whole promoted quantity`);
+  }
+  return {
+    lineRef: args.lineRef,
+    offerKey: args.offerKey,
+    lineAmount: scaled(args.lineAmount, args.minorUnit),
+    discountReturned: (discount / sold) * now,
+  };
 }
 
 export interface ReturnAllocationInput {

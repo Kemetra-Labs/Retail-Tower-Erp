@@ -26,8 +26,13 @@
  */
 import type { PoolClient } from "pg";
 
-import { scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
-import { allocateReturnPromotion, type AllocationLine } from "../../offers/evaluator/offer-return-allocation";
+import { formatColumnAmount, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import {
+  allocateReturnPromotion,
+  allocationLineOf,
+  ReturnPromotionInvariantError,
+  type AllocationLine,
+} from "../../offers/evaluator/offer-return-allocation";
 import { minorUnitExponent } from "../sales/iso4217-minor-units";
 
 /** The `NonNegativeDecimalAmount` scale of the feed (4 fractional digits). */
@@ -39,18 +44,7 @@ export interface ReturnLinePromotionShare {
   readonly promotionGiveBackAmount?: string;
 }
 
-/** A stored return whose rows cannot be the result of an admitted return (never reachable from valid data). */
-export class ReturnPromotionInvariantError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ReturnPromotionInvariantError";
-  }
-}
-
-function feedAmount(minor: bigint, minorUnit: number): string {
-  const value = (minor * 10n ** BigInt(FEED_SCALE - minorUnit)).toString().padStart(FEED_SCALE + 1, "0");
-  return `${value.slice(0, -FEED_SCALE)}.${value.slice(-FEED_SCALE)}`;
-}
+export { ReturnPromotionInvariantError };
 
 const sumOf = (m: ReadonlyMap<string, bigint>): bigint => [...m.values()].reduce((a, v) => a + v, 0n);
 
@@ -137,21 +131,18 @@ export async function loadReturnPromotionShares(
   const minorUnit = minorUnitExponent(first.currency_code);
   if (minorUnit === null) throw new ReturnPromotionInvariantError(`return ${returnId} has a currency without a minor unit`);
 
-  // Only promoted lines are read at the minor unit: a promoted line divides exactly (capture guard), others may not.
-  const allocationLines: AllocationLine[] = lines.rows.map((r) => {
-    const sold = wholeUnits(r.sold);
-    const now = wholeUnits(r.quantity);
-    const discount = scaled(r.discount, minorUnit);
-    if (sold === null || sold === 0n || now === null || discount % sold !== 0n) {
-      throw new ReturnPromotionInvariantError(`return ${returnId} line ${r.line_ref} is not a whole promoted quantity`);
-    }
-    return {
+  // The same builder as admission; only promoted lines are read at the minor unit.
+  const allocationLines: AllocationLine[] = lines.rows.map((r) =>
+    allocationLineOf({
       lineRef: r.line_ref,
       offerKey: `${r.offer_id}:${r.offer_version}`,
-      lineAmount: scaled(r.line_amount, minorUnit),
-      discountReturned: (discount / sold) * now,
-    };
-  });
+      sold: r.sold,
+      returned: r.quantity,
+      lineAmount: r.line_amount,
+      discountAmount: r.discount,
+      minorUnit,
+    }),
+  );
 
   const clawbackByOffer = new Map<string, bigint>(claw.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.amount, minorUnit)] as const));
   const giveBackByOffer = await deriveGiveBacks(client, returnId, minorUnit, allocationLines);
@@ -175,8 +166,8 @@ export async function loadReturnPromotionShares(
     const g = allocation.giveBack.get(l.lineRef);
     if (c === undefined && g === undefined) continue;
     shares.set(l.lineRef, {
-      ...(c === undefined ? {} : { promotionClawbackAmount: feedAmount(c, minorUnit) }),
-      ...(g === undefined ? {} : { promotionGiveBackAmount: feedAmount(g, minorUnit) }),
+      ...(c === undefined ? {} : { promotionClawbackAmount: formatColumnAmount(c, minorUnit) }),
+      ...(g === undefined ? {} : { promotionGiveBackAmount: formatColumnAmount(g, minorUnit) }),
     });
   }
   return shares;

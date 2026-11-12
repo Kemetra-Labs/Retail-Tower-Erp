@@ -28,8 +28,13 @@
  */
 import type { PoolClient } from "pg";
 
-import { scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
-import { allocateReturnPromotion, ReturnPromotionOverflowError, type AllocationLine } from "../../offers/evaluator/offer-return-allocation";
+import { formatColumnAmount, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import {
+  allocateReturnPromotion,
+  allocationLineOf,
+  ReturnPromotionOverflowError,
+  type AllocationLine,
+} from "../../offers/evaluator/offer-return-allocation";
 import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
 import { minorUnitExponent } from "./iso4217-minor-units";
 import { PromotionClawbackExceedsRefundError, PromotionReturnRequiresClawbackError } from "./sale-reversal";
@@ -65,12 +70,6 @@ const NO_PROMOTION_SETTLEMENT: ReturnPromotionSettlement = { clawbacks: [], give
 /** Records `value` under `key` when it is above 0. */
 function setWhenPositive(into: Map<string, bigint>, key: string, value: bigint): void {
   if (value > 0n) into.set(key, value);
-}
-
-/** Minor units as a column-scale (4) amount string. */
-function columnAmount(minor: bigint, minorUnit: number): string {
-  const v = (minor * 10n ** BigInt(4 - minorUnit)).toString().padStart(5, "0");
-  return `${v.slice(0, -4)}.${v.slice(-4)}`;
 }
 
 /** The clawbacks and the give-back of one return (none when the sale has no promoted line or the return needs none). */
@@ -153,7 +152,7 @@ export async function settleReturnPromotions(
     giveBack += s.giveBack;
     setWhenPositive(giveBackByOffer, `${first.offerId}:${first.offerVersion}`, s.giveBack);
     if (s.clawback !== null && s.clawback > 0n) {
-      clawbacks.push({ offerId: first.offerId, offerVersion: first.offerVersion, amount: columnAmount(s.clawback, exponent) });
+      clawbacks.push({ offerId: first.offerId, offerVersion: first.offerVersion, amount: formatColumnAmount(s.clawback, exponent) });
       clawbackByOffer.set(`${first.offerId}:${first.offerVersion}`, s.clawback);
     }
   }
@@ -166,7 +165,7 @@ export async function settleReturnPromotions(
   if (!CONNECTOR_POSTS_PROMOTION_RETURNS && (rewardReturned || giveBack > 0n || clawbacks.length > 0)) {
     throw new PromotionReturnRequiresClawbackError();
   }
-  return { clawbacks, giveBack: columnAmount(giveBack, exponent) };
+  return { clawbacks, giveBack: formatColumnAmount(giveBack, exponent) };
 }
 
 /** The per-line split the feed carries: refused when the returned lines cannot hold it (the customer would pay back, OD-10). */
@@ -179,17 +178,20 @@ function assertReturnedLinesHold(args: {
   readonly giveBackByOffer: ReadonlyMap<string, bigint>;
 }): void {
   // Only the promoted lines: a non-promoted line (for example a manually discounted partial return) may be priced below the minor unit.
-  const amountOf = new Map(
-    args.returned.filter((l) => args.returnedNow.has(l.lineRef)).map((l) => [l.lineRef, scaled(l.lineAmount, args.exponent)] as const),
-  );
+  const amountText = new Map(args.returned.filter((l) => args.returnedNow.has(l.lineRef)).map((l) => [l.lineRef, l.lineAmount] as const));
   const allocationLines: AllocationLine[] = args.lines
     .filter((l) => args.returnedNow.has(l.lineRef))
-    .map((l) => ({
-      lineRef: l.lineRef,
-      offerKey: `${l.offerId}:${l.offerVersion}`,
-      lineAmount: amountOf.get(l.lineRef) ?? 0n,
-      discountReturned: (scaled(l.discountAmount, args.exponent) / wholeUnits(l.quantity)!) * args.returnedNow.get(l.lineRef)!,
-    }));
+    .map((l) =>
+      allocationLineOf({
+        lineRef: l.lineRef,
+        offerKey: `${l.offerId}:${l.offerVersion}`,
+        sold: l.quantity,
+        returned: String(args.returnedNow.get(l.lineRef)!),
+        lineAmount: amountText.get(l.lineRef) ?? "0",
+        discountAmount: l.discountAmount,
+        minorUnit: args.exponent,
+      }),
+    );
   try {
     allocateReturnPromotion({ lines: allocationLines, clawbackByOffer: args.clawbackByOffer, giveBackByOffer: args.giveBackByOffer });
   } catch (error) {
