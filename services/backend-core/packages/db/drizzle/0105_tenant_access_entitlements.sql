@@ -98,8 +98,9 @@ CREATE TABLE IF NOT EXISTS tenant_access_entitlements (
 );
 
 -- One forward path (see the header): the tenant never changes, `unrestricted`
--- never goes back, the provisioning result and an unlock request are never
--- cleared or rewritten, and `updated_at` moves on every change.
+-- needs an unlock request recorded first and never goes back, the provisioning
+-- result and an unlock request are never cleared or rewritten, and
+-- `updated_at` moves on every change.
 CREATE OR REPLACE FUNCTION tenant_access_entitlements_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -111,6 +112,13 @@ BEGIN
   END IF;
   IF OLD.state = 'unrestricted' AND NEW.state <> 'unrestricted' THEN
     RAISE EXCEPTION 'tenant_access_entitlements: an unrestricted tenant is never restricted again here'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- `restricted` -> `unrestricted` needs an unlock request that was already
+  -- recorded on the stored row: a single UPDATE cannot set the request and the
+  -- provisioning result together.
+  IF OLD.state = 'restricted' AND NEW.state = 'unrestricted' AND OLD.unlock_requested_at IS NULL THEN
+    RAISE EXCEPTION 'tenant_access_entitlements: an unlock must be requested before provisioning is recorded'
       USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.state = 'unrestricted'
@@ -144,10 +152,14 @@ CREATE POLICY tenant_access_entitlements_tenant_select ON tenant_access_entitlem
       ELSE current_setting('app.current_tenant', true)::uuid END);
 
 -- No tenant self-lift: only a platform admin, inside the target tenant's
--- context, may create or change the row.
+-- context, may create or change the row. A row is only ever CREATED as a plain
+-- `restricted` one (no unlock request, no provisioning result): the forward
+-- path to `unrestricted` is the UPDATE the trigger above guards.
 CREATE POLICY tenant_access_entitlements_platform_insert ON tenant_access_entitlements
   FOR INSERT WITH CHECK (
     current_setting('app.is_platform_admin', true) = 'true'
+    AND state = 'restricted'
+    AND unlock_requested_at IS NULL
     AND tenant_id = CASE
       WHEN current_setting('app.current_tenant', true) = '' THEN NULL
       ELSE current_setting('app.current_tenant', true)::uuid END);

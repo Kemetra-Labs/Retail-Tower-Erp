@@ -112,6 +112,8 @@ describe("posPairTerminal while restricted", () => {
     const terminalId = issued.body.terminalId as string;
 
     await restrict(h.env().admin, TENANT_A);
+    // More refusals than the per-code attempt budget (5): none is charged to the code.
+    for (let i = 0; i < 7; i++) expect((await pair(code)).status).toBe(404);
     const refused = await pair(code);
     const unknown = await pair(UNKNOWN_CODE);
     // The same answer as an unknown code: status, code and message (the request id is per request).
@@ -128,6 +130,11 @@ describe("posPairTerminal while restricted", () => {
       [issued.body.pairingCodeId],
     );
     expect(stored.rows[0]!.status).toBe("pending");
+    const attempts = await h.env().admin.query<{ attempt_count: number }>(
+      `SELECT attempt_count FROM pairing_codes WHERE id = $1`,
+      [issued.body.pairingCodeId],
+    );
+    expect(attempts.rows[0]!.attempt_count).toBe(0);
     const devices = await h.env().admin.query<{ n: string }>(`SELECT count(*)::text AS n FROM devices WHERE id = $1`, [terminalId]);
     expect(devices.rows[0]!.n).toBe("0");
 

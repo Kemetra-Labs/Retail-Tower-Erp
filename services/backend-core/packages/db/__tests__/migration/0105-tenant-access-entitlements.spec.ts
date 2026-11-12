@@ -269,6 +269,21 @@ describe("0105: the forward-only trigger", () => {
     );
   });
 
+  it("a single UPDATE cannot set the unlock request and the provisioning result together (23514)", async () => {
+    if (skip()) return;
+    const a = guard().admin;
+    await insertRestricted(guard(), TENANT_A);
+    await expectCode(
+      a.query(
+        `UPDATE ${T} SET state = 'unrestricted', unlock_requested_at = now(), unlock_requested_by_user_id = $2,
+                provisioned_at = now(), provisioned_by_user_id = $2, provisioning_source = 'manual_platform'
+          WHERE tenant_id = $1`,
+        [TENANT_A, ADMIN_USER],
+      ),
+      "23514",
+    );
+  });
+
   it("the provisioning result is never rewritten once unrestricted (23514)", async () => {
     if (skip()) return;
     const a = guard().admin;
@@ -303,6 +318,19 @@ describe("0105: tenant isolation under FORCE RLS as the app role", () => {
     expect(unset.rows).toEqual([]);
     const empty = await asTenant("", false, (c) => c.query(`SELECT tenant_id FROM ${T}`));
     expect(empty.rows).toEqual([]);
+  });
+
+  it("a platform admin can create only a plain restricted row, never an unrestricted or pre-unlocked one (RLS 42501)", async () => {
+    if (skip()) return;
+    const unrestricted = `INSERT INTO ${T} (tenant_id, state, unlock_requested_at, unlock_requested_by_user_id, provisioned_at, provisioned_by_user_id, provisioning_source)
+       VALUES ($1, 'unrestricted', now(), $2, now(), $2, 'manual_platform')`;
+    await expectCode(asTenant(TENANT_A, true, (c) => c.query(unrestricted, [TENANT_A, ADMIN_USER])), "42501");
+    await expectCode(
+      asTenant(TENANT_A, true, (c) =>
+        c.query(`INSERT INTO ${T} (tenant_id, state, unlock_requested_at, unlock_requested_by_user_id) VALUES ($1, 'restricted', now(), $2)`, [TENANT_A, ADMIN_USER]),
+      ),
+      "42501",
+    );
   });
 
   it("a tenant, even its owner, can never insert a row (RLS 42501)", async () => {

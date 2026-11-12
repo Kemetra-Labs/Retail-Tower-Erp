@@ -72,7 +72,7 @@ describe("PairingService — closed result union", () => {
     }
   });
 
-  it("a restricted tenant → invalid (the unknown-code answer), before the burn, with the attempt still counted (RT-1353)", async () => {
+  it("a restricted tenant → invalid (the unknown-code answer), before the attempt count and the burn (RT-1353)", async () => {
     const burnAndProvision = jest.fn();
     const recordAttempt = jest.fn().mockResolvedValue(1);
     const svc = serviceWith({
@@ -82,7 +82,7 @@ describe("PairingService — closed result union", () => {
       burnAndProvision,
     });
     expect((await svc.pair("code-123456")).kind).toBe("invalid");
-    expect(recordAttempt).toHaveBeenCalledTimes(1);
+    expect(recordAttempt).not.toHaveBeenCalled();
     expect(burnAndProvision).not.toHaveBeenCalled();
   });
 
