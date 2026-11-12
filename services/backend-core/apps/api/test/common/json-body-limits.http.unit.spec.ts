@@ -37,12 +37,18 @@ import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
 import { connectorSnapshotCallerAuthorizer } from "../../src/auth/connector-snapshot-preauth";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import { SnapshotReportBodySchema, type SnapshotReportBody } from "../../src/catalog/erpnext-bin-view/dto/snapshot-report.dto";
+import {
+  StockImportReportSchema,
+  type StockImportReport,
+} from "../../src/catalog/erpnext-stock-import/dto/stock-import.dto";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import {
   BIN_VIEW_SNAPSHOT_JSON_LIMIT_BYTES,
   BIN_VIEW_SNAPSHOT_MAX_LARGE_BODIES,
   isBinViewSnapshotJson,
+  isStockImportReportJson,
   registerJsonBodyParsers,
+  STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES,
   type SnapshotBodyGate,
   type SnapshotCallerAuthorizer,
 } from "../../src/common/json-body-limits";
@@ -66,6 +72,15 @@ class ProbeController {
     @Body(new ZodValidationPipe(SnapshotReportBodySchema)) body: SnapshotReportBody,
   ): { entries: number } {
     return { entries: body.entries.length };
+  }
+
+  @Post("api/connector/v1/erpnext/stock-import-requests/:requestRef/report")
+  @HttpCode(200)
+  stockImport(
+    @Param("requestRef") _requestRef: string,
+    @Body(new ZodValidationPipe(StockImportReportSchema)) body: StockImportReport,
+  ): { rows: number } {
+    return { rows: body.rows.length };
   }
 
   @Post("api/v1/rt-1284-probe/echo")
@@ -106,6 +121,47 @@ function maximalAsciiTrackedWindow(): string {
     readAt: "2026-11-08T12:00:00.000+02:00",
   };
   return pythonStyleJson(body);
+}
+
+const STOCK_IMPORT_PATH = `/api/connector/v1/erpnext/stock-import-requests/${REQUEST_REF}/report`;
+
+/**
+ * RT-1288: the largest legal stock-import report (stock-import.yaml: 100 rows,
+ * every string at its maximum length), with every name in Arabic, as the
+ * Connector sends it (`json.dumps`, `ensure_ascii=True`: `\uXXXX` escapes).
+ */
+function maximalArabicStockImportReport(): string {
+  const name = (prefix: string, i: number) => `${prefix}${i}`.padEnd(140, "\u0645");
+  const creation = "2026-11-11T10:00:00.123456+02:00";
+  const rows = Array.from({ length: 100 }, (_, i) => ({
+    ledgerEntryRef: name("L", i),
+    entryIndex: 2147483647,
+    voucherType: name("T", i),
+    voucherNo: name("N", i),
+    voucherDetailNo: name("D", i),
+    purpose: name("P", i),
+    isReturn: true,
+    returnAgainst: name("R", i),
+    postingDate: "2026-11-11",
+    postingTime: "23:59:59.999999",
+    creation,
+    isCancelled: true,
+    actualQty: `-${"9".repeat(15)}.${"9".repeat(6)}`,
+    stockUom: name("U", i),
+    erpnextItemRef: { doctype: "Item", name: name("I", i) },
+    erpnextBatchRef: { doctype: "Batch", name: name("B", i) },
+    hasRetailProvenance: false,
+    correctionRef: name("C", i),
+  }));
+  const last = rows[rows.length - 1]!;
+  const body = {
+    rows,
+    readThrough: { creation, ledgerEntryRef: last.ledgerEntryRef, entryIndex: last.entryIndex },
+    exhausted: false,
+    readAt: "2026-11-11T12:00:00.000Z",
+    refusal: null,
+  };
+  return pythonStyleJson(body).replace(/[\u0080-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 }
 
 /** JSON with Python `json.dumps` default separators (", " and ": "). */
@@ -194,6 +250,55 @@ describe("RT-1284 JSON body limits", () => {
   it("another route refuses the maximal window that binViewReportSnapshot accepts", async () => {
     const res = await post(OTHER_PATH, maximal);
     expect(res.status).toBe(413);
+  });
+});
+
+describe("RT-1288 stockImportReportRows body limit", () => {
+  let app: NestExpressApplication;
+  let maximal: string;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({ controllers: [ProbeController] }).compile();
+    app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+    registerJsonBodyParsers(app, admitAll);
+    app.useGlobalFilters(new GlobalExceptionFilter());
+    await app.init();
+    maximal = maximalArabicStockImportReport();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  const post = (path: string, body: string) =>
+    request(app.getHttpServer()).post(path).set("Content-Type", "application/json").send(body);
+
+  it("the limit is 2 MiB and covers the largest legal report with Arabic names", () => {
+    expect(STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES).toBe(2_097_152);
+    expect(Buffer.byteLength(maximal)).toBeGreaterThan(DEFAULT_LIMIT_BYTES);
+    expect(Buffer.byteLength(maximal)).toBeLessThan(STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES);
+  });
+
+  it("accepts that report on stockImportReportRows (it would be 413 under the 100 kB default)", async () => {
+    const res = await post(STOCK_IMPORT_PATH, maximal);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ rows: 100 });
+  });
+
+  it("refuses 2 MiB + 1 byte with 413, and another route still refuses the report", async () => {
+    const tooLarge = await post(STOCK_IMPORT_PATH, padTo(maximal, STOCK_IMPORT_REPORT_JSON_LIMIT_BYTES + 1));
+    expect(tooLarge.status).toBe(413);
+    expect(tooLarge.body.error.code).toBe("payload_too_large");
+    expect((await post(OTHER_PATH, maximal)).status).toBe(413);
+  });
+
+  it("matches only POST application/json on the report path", () => {
+    const req = (method: string, path: string, contentType: string) =>
+      ({ method, path, headers: { "content-type": contentType } }) as Parameters<typeof isStockImportReportJson>[0];
+    expect(isStockImportReportJson(req("POST", STOCK_IMPORT_PATH, "application/json"))).toBe(true);
+    expect(isStockImportReportJson(req("GET", STOCK_IMPORT_PATH, "application/json"))).toBe(false);
+    expect(isStockImportReportJson(req("POST", SNAPSHOT_PATH, "application/json"))).toBe(false);
+    expect(isStockImportReportJson(req("POST", STOCK_IMPORT_PATH, "text/plain"))).toBe(false);
   });
 });
 
@@ -543,8 +648,8 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
   });
 
   /** Sends only the headers of a large snapshot upload; fails if no answer comes before the body. */
-  async function headersOnly(headers: Record<string, string>): Promise<RawResponse> {
-    const upload = openPost(port, SNAPSHOT_PATH, LARGE, headers);
+  async function headersOnly(headers: Record<string, string>, path = SNAPSHOT_PATH): Promise<RawResponse> {
+    const upload = openPost(port, path, LARGE, headers);
     upload.req.flushHeaders(); // not one body byte is sent
     return Promise.race([
       upload.response,
@@ -564,6 +669,15 @@ describe("RT-1295 pre-authentication before a large snapshot body is read", () =
     expect(res.headers["connection"]).toBe("close");
     const body = JSON.parse(res.body) as { error: { code: string } };
     expect(body.error.code).toBe(status === 401 ? "unauthorized" : "forbidden");
+    expect(gate.inFlight()).toBe(0);
+  });
+
+  it.each([
+    ["no credential", {}, 401],
+    ["a connector of another environment", { authorization: "Bearer connector-dev" }, 403],
+  ] as const)("RT-1288: refuses %s on a large stockImportReportRows body before reading it (%i)", async (_label, headers, status) => {
+    const res = await headersOnly({ ...headers }, STOCK_IMPORT_PATH);
+    expect(res.status).toBe(status);
     expect(gate.inFlight()).toBe(0);
   });
 
