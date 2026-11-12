@@ -1,8 +1,9 @@
 /**
  * JSON request-body limits (RT-1284).
  *
- * Every route keeps body-parser's default JSON limit (100 kB). One route gets a
- * larger, route-scoped limit: the stock-view snapshot report
+ * Every route keeps body-parser's default JSON limit (100 kB). Three routes get
+ * larger, route-scoped limits (the others are described below). The first is
+ * the stock-view snapshot report
  * `binViewReportSnapshot`
  * (`POST /api/connector/v1/erpnext/bin-view-requests/{requestRef}/snapshot`,
  * `erpnext-connector/stock-view.yaml` 1.4.0-draft). A legal report window is far
@@ -46,7 +47,7 @@
  * connector can hold a slot (RT-1295), so an unauthenticated caller can no
  * longer block real inventory snapshots.
  *
- * Second route-scoped limit (RT-1312 Phase 3(b), decision P5): the POS sale
+ * Another route-scoped limit (RT-1312 Phase 3(b), decision P5): the POS sale
  * quarantine upload `posQuarantineSale` (`POST /api/pos/v1/quarantined-sales`,
  * `pos-sales/sale-quarantine.yaml`) gets 256 kB, because it wraps a whole
  * capture body (up to about 250 kB), including one whose capture was refused

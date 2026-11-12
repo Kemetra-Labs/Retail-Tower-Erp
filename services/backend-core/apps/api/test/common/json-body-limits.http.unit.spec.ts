@@ -308,6 +308,7 @@ describe("RT-1288 stockImportReportRows body limit", () => {
     expect(isStockImportReportJson(req("POST", STOCK_IMPORT_PATH, "application/json"))).toBe(true);
     expect(isStockImportReportJson(req("GET", STOCK_IMPORT_PATH, "application/json"))).toBe(false);
     expect(isStockImportReportJson(req("POST", SNAPSHOT_PATH, "application/json"))).toBe(false);
+    expect(isStockImportReportJson(req("POST", "/api/pos/v1/quarantined-sales", "application/json"))).toBe(false);
     expect(isStockImportReportJson(req("POST", STOCK_IMPORT_PATH, "text/plain"))).toBe(false);
   });
 });
@@ -872,6 +873,7 @@ describe("isQuarantineUploadJson", () => {
     ["POST", "/api/pos/v1/quarantined-sales/x", "application/json"],
     ["POST", "/api/pos/v1/sales", "application/json"],
     ["POST", SNAPSHOT_PATH, "application/json"],
+    ["POST", STOCK_IMPORT_PATH, "application/json"],
   ])("leaves %s %s (%s) to its own parser", (method, path, contentType) => {
     expect(isQuarantineUploadJson(req(method, path, contentType))).toBe(false);
   });
