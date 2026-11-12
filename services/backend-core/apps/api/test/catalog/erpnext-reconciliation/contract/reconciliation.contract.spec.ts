@@ -255,7 +255,7 @@ describe("erpnext-reconciliation/reconciliation.yaml — projections (READ-NOT-M
     expect(cls.sort()).toEqual([
       "dp2_only", "erp_snapshot_stale", "erpnext_only", "expected_pending_erp",
       "expected_pending_retail", "match", "negative_balance_flagged",
-      "quantity_divergence", "unmapped_item", "unmapped_store", "uom_mismatch",
+      "quantity_divergence", "tracking_mismatch", "unmapped_item", "unmapped_store", "uom_mismatch",
     ]);
     // The 015 posting categories must NOT leak into the 017 result class.
     for (const posting of ["validation", "closed_period", "unmapped_account", "retry_budget_exhausted"]) {
@@ -601,7 +601,6 @@ describe("reconciliation.yaml — RT-177 description-only edits (D3)", () => {
   });
 
   it("RT-1061 (RT-977 D3): 1.6.0-draft names consoleGetSale.erpPostingFailure as the second reader, same readers", () => {
-    expect(doc.info?.version).toBe("1.6.0-draft");
     const reason = String(looseSchema("PostingBacklogItem").properties?.["reason"]?.["description"]).replace(/\s+/g, " ");
     expect(reason).toContain("`console-sales` `consoleGetSale.erpPostingFailure`");
     expect(reason).toContain("limited to `owner` and `tenant_admin`, and to a human platform-admin session through the `RolesGuard` bypass (never a token principal)");
@@ -609,5 +608,26 @@ describe("reconciliation.yaml — RT-177 description-only edits (D3)", () => {
     expect(String((doc.info as { description?: string } | undefined)?.description)).toContain(
       "1.6.0-draft (RT-1061, RT-977 decision D3, description only)",
     );
+  });
+});
+
+describe("erpnext-reconciliation/reconciliation.yaml — RT-453 tracking grain (1.7.0-draft)", () => {
+  it("is the 1.7.0 draft, with an additive version note citing the authorization", () => {
+    expect(doc.info?.version).toBe("1.7.0-draft");
+    const description = String((doc.info as { description?: string } | undefined)?.description).replace(/\s+/g, " ");
+    expect(description).toContain("1.7.0-draft (RT-453, RT-50 G7-12, additive;");
+    expect(description).toContain("RT-453 comment 16685");
+  });
+
+  it("adds tracking_mismatch and documents the identity-grain detail and the reasons", () => {
+    const cls = schema("ReconciliationResult")?.properties?.["mismatchClass"] as
+      | { enum?: string[]; description?: string }
+      | undefined;
+    expect(cls?.enum).toContain("tracking_mismatch");
+    const text = String(cls?.description).replace(/\s+/g, " ");
+    expect(text).toContain("`detail.grain` `tracking_identity`");
+    for (const reason of ["tracking_evidence_missing", "erp_flags_disagree", "batch_without_identity", "untracked_effects"]) {
+      expect(text).toContain(reason);
+    }
   });
 });

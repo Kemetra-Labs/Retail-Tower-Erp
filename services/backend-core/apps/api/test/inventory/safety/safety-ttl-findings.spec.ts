@@ -17,8 +17,9 @@
  * tenant's data never appears.
  *
  * The role read is a fake (`findRoleCodeForUserInTenant`); the scope rule is
- * the real `callerStoreScope`. Identities and positions are SEEDED: nothing
- * writes them until RT-453 (F6). Docker policy: hard failure unless
+ * the real `callerStoreScope`. Identities (with their edge maps) and
+ * positions are SEEDED; the tracking-consistency checks (RT-453) have their
+ * own spec. Docker policy: hard failure unless
  * MIGRATION_TEST_ALLOW_SKIP=1.
  */
 import 'reflect-metadata';
@@ -82,7 +83,15 @@ async function newIdentity(expiry: string | null, tenantId = TENANT_A, product =
      VALUES ($1, $2, 'batch', $3, $4::date) RETURNING id::text AS id`,
     [tenantId, product, `FIND-${next()}`, expiry],
   );
-  return r.rows[0]!.id;
+  const identity = r.rows[0]!.id;
+  // With its ERP edge map, as an ERP-born identity has (RT-453); without it the
+  // identity would also be a `tracking_consistency` finding.
+  await admin.query(
+    `INSERT INTO erpnext_tracking_map (tenant_id, tracking_identity_id, kind, erpnext_ref)
+     SELECT tenant_id, id, kind, code FROM tracking_identities WHERE id = $1`,
+    [identity],
+  );
+  return identity;
 }
 
 /** One identity-grain effect (the fixture RT-451 will write for real). */

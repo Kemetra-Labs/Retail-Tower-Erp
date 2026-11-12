@@ -312,13 +312,17 @@ async function appendEffects(client: Client, h: EventHeader, rows: readonly Effe
        (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref,
         occurred_at, source_system, external_id, sale_id, sale_line_id, terminal_event_ref,
         created_by, origin, event_type, event_ref_id, compensates_effect_id,
-        stock_location_id, inventory_status, tracking_identity_id)
+        stock_location_id, inventory_status, tracking_identity_id, received_at)
      SELECT r.id, $1, $2, r.movement_type, r.quantity, r.unit, r.product,
             $3, $4, r.external_id, $5, r.sale_line_id, $6,
             $7, 'retail', $8, $9, r.compensates,
             COALESCE(r.location,
                      (SELECT id FROM stock_locations WHERE store_id = $2 AND kind = 'primary')),
-            r.status, r.identity
+            r.status, r.identity,
+            -- RT-453: read after the settings key SHARED (readSaleEffectsActivation),
+            -- not the transaction start, so a writer that waited across a
+            -- per-identity anchor is received after it (SINCE_IDENTITY_ANCHOR).
+            clock_timestamp()
        FROM unnest($10::uuid[], $11::text[], $12::numeric[], $13::text[], $14::uuid[],
                    $15::text[], $16::uuid[], $17::uuid[], $18::uuid[], $19::text[], $20::uuid[])
             AS r(id, movement_type, quantity, unit, product, external_id, sale_line_id,

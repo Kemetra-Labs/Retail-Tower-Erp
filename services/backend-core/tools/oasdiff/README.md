@@ -68,8 +68,11 @@ RT-367 consumer:POS C2 intentional (owner-approved; POS maps the code in RT-591)
 `consumer-impact.mjs` reads each consumer's PIN file **in the checked-out tree**
 (`apps/pos`, `apps/admin-console`, `integrations/erpnext-connector`, each under
 `contracts/backend-core/PIN`, no network) and builds the consumer's set of API
-paths from the pinned files **at the consumer's own PIN commit**, read with
-`git show <commit>:<source>/<file>` from the repository root (what it built against, so a path the PR removes still counts). Then:
+paths from the **pinned blobs**, read with `git cat-file blob <blob-sha>` from
+the repository root (what it built against, so a path the PR removes still counts).
+A file may be pinned at a later commit than the PIN's `commit:` line (RT-1287), so
+the blob, not `<commit>:<path>`, is the source; a pinned blob missing from the
+repository is a consumer error that names the blob and the file (RT-453). Then:
 
 - If a consumer pins the line's API path, the line must carry that consumer's tag
   and a Jira key (`RT-<n>`). `consumer:none` on such a path is a violation.

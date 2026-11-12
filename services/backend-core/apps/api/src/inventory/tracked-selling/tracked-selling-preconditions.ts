@@ -49,10 +49,34 @@ const CHECKS: Readonly<Record<TrackedSellingPrecondition, Check>> = {
   // G7-11 (RT-452): the Connector's batch posting. Its bench evidence is not a
   // signal this server can read, so it stays unmet until one exists.
   erp_batch_posting_verified: notYetConfirmable,
-  // G7-12 (RT-453): the per-identity anchor. Not built yet.
-  identity_anchor: notYetConfirmable,
-  // RT-428 / RT-453: reconciliation at the tracking grain. Not built yet.
-  tracking_grain_reconciliation: notYetConfirmable,
+  // G7-12 (RT-453): every live store has its per-identity anchor (taken by the
+  // operator CLI `inventory-effects anchor-identities`).
+  identity_anchor: async (client) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM stores WHERE deleted_at IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM stores s WHERE s.deleted_at IS NULL
+                                AND NOT EXISTS (SELECT 1 FROM inventory_identity_anchors a
+                                                 WHERE a.store_id = s.id)) AS met`,
+    );
+    return r.rows[0]?.met === true;
+  },
+  // RT-428 / RT-453: reconciliation at the tracking grain is in place: every
+  // live store has an identity anchor and a 017 stock run completed after it
+  // (that run compared the store's tracked products at identity grain).
+  tracking_grain_reconciliation: async (client) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM stores WHERE deleted_at IS NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM stores s
+                 WHERE s.deleted_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM erpnext_reconciliation_run run
+                      WHERE run.store_id = s.id AND run.kind = 'stock' AND run.status = 'completed'
+                        AND run.finished_at > (SELECT max(a.activated_at) FROM inventory_identity_anchors a
+                                                WHERE a.store_id = s.id))) AS met`,
+    );
+    return r.rows[0]?.met === true;
+  },
 };
 
 /** The Q13 precondition checks (a provider, so a test can stand in for the build's signals). */

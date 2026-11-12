@@ -26,12 +26,19 @@
  * result means another invocation already finished the run → skip result inserts
  * (the 008 `processed_at IS NULL` convergence precedent). No money column anywhere.
  */
-import { isStorePendingAware, runWithTenantContext } from "@data-pulse-2/db";
+import {
+  applyTrackingMasterEvidence,
+  hasIdentityAnchor,
+  isStorePendingAware,
+  runWithTenantContext,
+  type TrackingMasterSummary,
+} from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
 import type { PendingAwareClass } from "./pending-aware-classify";
 import { pendingAwareLines } from "./pending-aware-run";
+import { TRACKING_MISMATCH_CLASS, trackingGrainLines } from "./tracking-grain-run";
 
 /**
  * The connector ERPNext-Bin view seam (R3). `tenant_product_ref` → ERPNext Bin
@@ -90,7 +97,7 @@ const UNMAPPED_INSERT_BATCH = 1000;
  * 014's mismatch-class vocabulary (014 data-model §6.2), plus the RT-428
  * pending-aware classes (927–929, UOM) of a store with activated sale effects.
  */
-type MismatchClass = PendingAwareClass | "unmapped_store" | "erpnext_only";
+type MismatchClass = PendingAwareClass | "unmapped_store" | "erpnext_only" | typeof TRACKING_MISMATCH_CLASS;
 
 /** One classified per-product line of a run, before it is persisted. */
 interface ResultLine {
@@ -103,6 +110,8 @@ export interface ReconciliationRunResult {
   readonly runId: string;
   readonly status: "completed" | "skipped";
   readonly counts: Readonly<Record<string, number>>;
+  /** RT-453: what the run's tracking master read birthed or corrected (absent when skipped / unmapped). */
+  readonly identities?: TrackingMasterSummary;
 }
 
 interface OnHandRow {
@@ -122,7 +131,14 @@ export class ReconciliationRunProcessor {
    * 014 mapping, DP2 on-hand (009), and the connector Bin view; persists one
    * classified result per item; flips the run running→completed (guarded).
    */
-  process(input: { runId: string; tenantId: string }): Promise<ReconciliationRunResult> {
+  async process(input: { runId: string; tenantId: string }): Promise<ReconciliationRunResult> {
+    // (0) RT-453 (G7-3): birth the identities the run's tracking master read
+    // names, and apply the expiry it carries through the governed correction,
+    // in a SHORT transaction of its own before the compare (so a Batch born
+    // now is compared at its identity, and the tenant's birth lock is not held
+    // for the whole run while stock-import reports wait on it). Idempotent:
+    // a re-delivered run finds every identity existing.
+    const identities = await this.birthIdentities(input);
     return runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
@@ -165,7 +181,7 @@ export class ReconciliationRunProcessor {
         // (2) RT-428: a store of a tenant with activated sale effects compares
         // like with like (DC-7); every other store keeps the legacy compare.
         const lines = (await isStorePendingAware(client, storeId))
-          ? await pendingAwareLines(client, { runId: input.runId, storeId, binView })
+          ? await this.pendingAwareWithTrackingGrain(client, { runId: input.runId, storeId, binView })
           : await this.legacyLines(client, storeId, binView);
 
         const counts: Record<string, number> = {};
@@ -191,9 +207,53 @@ export class ReconciliationRunProcessor {
         await this.insertUnmappedErpnextOnly(client, { ...input, unmapped: binReport.unmapped, counts });
 
         await this.complete(client, input.runId);
-        return { runId: input.runId, status: "completed", counts };
+        return { runId: input.runId, status: "completed", counts, ...(identities === undefined ? {} : { identities }) };
       },
     );
+  }
+
+  /** The tracking master births of a running run with a complete report; undefined when it named no tracked Batch. */
+  private birthIdentities(input: { runId: string; tenantId: string }): Promise<TrackingMasterSummary | undefined> {
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client) => {
+        const run = await client.query<{ status: string }>(
+          `SELECT status FROM erpnext_reconciliation_run WHERE id = $1 AND kind = 'stock'`,
+          [input.runId],
+        );
+        if (run.rows[0]?.status !== "running") return undefined;
+        const summary = await applyTrackingMasterEvidence(client, { tenantId: input.tenantId, runId: input.runId });
+        const touched = summary.born + summary.existing + summary.expiryCorrected + summary.refused.length;
+        return touched === 0 ? undefined : summary;
+      },
+    );
+  }
+
+  /**
+   * RT-428 product-grain lines; and RT-453 (G7-12): once the store has a
+   * per-identity anchor, every batch-tracked product reconciles at tracking
+   * grain instead (its identity lines and its tracking-mismatch line replace
+   * its product line).
+   */
+  private async pendingAwareWithTrackingGrain(
+    client: PoolClient,
+    input: { runId: string; storeId: string; binView: ReadonlyMap<string, string> },
+  ): Promise<ResultLine[]> {
+    const product = await pendingAwareLines(client, input);
+    if (!(await hasIdentityAnchor(client, input.storeId))) return product;
+    const mapped = await this.confirmedProducts(client);
+    const tracking = await trackingGrainLines(client, { runId: input.runId, storeId: input.storeId, mapped });
+    return [...product.filter((l) => !tracking.trackedProducts.has(l.sourceRefId)), ...tracking.lines];
+  }
+
+  /** Products with a confirmed, active 013 item map. */
+  private async confirmedProducts(client: PoolClient): Promise<ReadonlySet<string>> {
+    const r = await client.query<{ product: string }>(
+      `SELECT DISTINCT tenant_product_id::text AS product FROM erpnext_item_map
+        WHERE state = 'confirmed' AND retired_at IS NULL`,
+    );
+    return new Set(r.rows.map((row) => row.product));
   }
 
   /**

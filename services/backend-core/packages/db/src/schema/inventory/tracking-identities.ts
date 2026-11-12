@@ -15,7 +15,7 @@
  * this table and the frozen posting resolution, never in Inventory contracts.
  *
  * Effects reference an identity through `stock_movements.tracking_identity_id`.
- * Nothing writes either table yet: identity birth is RT-453.
+ * Identity birth from ERP evidence writes both (RT-453, `helpers/inventory-effects/identity-birth.ts`).
  *
  * RLS: ENABLE + FORCE on both; SELECT + INSERT tenant policies, NO UPDATE /
  * DELETE policy. The composite FKs, the guard trigger and the policies are

@@ -17,6 +17,19 @@ describe("parseInventoryEffectsArgs", () => {
     expect(parseInventoryEffectsArgs(["activate", "--dry-run", "--tenant", T, "--actor", U])).toMatchObject({ dryRun: true });
   });
 
+  it("parses anchor-identities (RT-453) with and without --dry-run", () => {
+    expect(parseInventoryEffectsArgs(["anchor-identities", "--tenant", T, "--actor", U])).toEqual({
+      kind: "anchor-identities",
+      tenantId: T.toLowerCase(),
+      actorId: U,
+      dryRun: false,
+    });
+    expect(parseInventoryEffectsArgs(["anchor-identities", "--tenant", T, "--actor", U, "--dry-run"])).toMatchObject({
+      dryRun: true,
+    });
+    expect(() => parseInventoryEffectsArgs(["anchor-identities", "--tenant", T])).toThrow(/--actor/);
+  });
+
   it("parses compare", () => {
     expect(parseInventoryEffectsArgs(["compare", "--tenant", T])).toEqual({ kind: "compare", tenantId: T.toLowerCase() });
   });

@@ -42,7 +42,9 @@ const dockerOutboxSuites = includeDbBackedTests
      // RT-451 S5 pre-bind voids / returns / reversals committed once by the bind.
      String.raw`/sales/tracking-resolution\.integration\.spec\.ts$`,
      // RT-451 S6 tracking frozen with the posting resolution (0095).
-     String.raw`/erpnext-posting/posting-resolution-tracking\.integration\.spec\.ts$`];
+     String.raw`/erpnext-posting/posting-resolution-tracking\.integration\.spec\.ts$`,
+     // RT-453 identity birth in the 017 run and tracking-grain reconciliation.
+     String.raw`/erpnext-reconciliation/tracking-grain-run\.spec\.ts$`];
 
 /** @type {import('jest').Config} */
 module.exports = {

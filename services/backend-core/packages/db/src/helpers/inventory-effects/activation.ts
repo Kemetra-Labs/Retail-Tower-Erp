@@ -93,7 +93,7 @@ SELECT count(*)::int FROM outbox_events o
                                AND p.source_ref_id::text = o.payload->>'source_ref_id')))`;
 
 /** Per live store: its stock map, primary location and newest usable snapshot. */
-const STORE_FACTS_SQL = `
+export const STORE_FACTS_SQL = `
 WITH snap AS (
   SELECT DISTINCT ON (r.store_id) r.store_id, r.id, r.summary->'bin_view_report' AS report
     FROM erpnext_reconciliation_run r
@@ -120,7 +120,7 @@ SELECT s.id AS store_id,
  WHERE s.deleted_at IS NULL
  ORDER BY s.id`;
 
-interface StoreFactsRow {
+export interface StoreFactsRow {
   store_id: string;
   mapped_ref: string | null;
   primary_location_id: string;
@@ -138,9 +138,12 @@ function refused(code: ActivationRefusalCode, storeIds: readonly string[] = []):
   return { kind: "refused", refusal: { code, storeIds } };
 }
 
-/** The first failing precondition, in decision-3 order, or null. */
-function preconditionRefusal(stores: readonly StoreFactsRow[]): ActivationOutcome | null {
-  if (stores.length === 0) return refused("no_stores");
+/**
+ * The first failing store precondition, in decision-3 order, or null. Shared
+ * with the per-identity anchor (RT-453), which is taken under the same rules.
+ */
+export function storePreconditionRefusal(stores: readonly StoreFactsRow[]): ActivationRefusal | null {
+  if (stores.length === 0) return { code: "no_stores", storeIds: [] };
   const failing = (test: (s: StoreFactsRow) => boolean): string[] => stores.filter(test).map((s) => s.store_id);
   const checks: Array<[ActivationRefusalCode, (s: StoreFactsRow) => boolean]> = [
     ["store_unmapped", (s) => s.mapped_ref === null],
@@ -151,9 +154,15 @@ function preconditionRefusal(stores: readonly StoreFactsRow[]): ActivationOutcom
   ];
   for (const [code, test] of checks) {
     const ids = failing(test);
-    if (ids.length > 0) return refused(code, ids);
+    if (ids.length > 0) return { code, storeIds: ids };
   }
-  return stores[0]!.undelivered > 0 ? refused("posting_intents_undelivered") : null;
+  return stores[0]!.undelivered > 0 ? { code: "posting_intents_undelivered", storeIds: [] } : null;
+}
+
+/** The first failing precondition, in decision-3 order, or null. */
+function preconditionRefusal(stores: readonly StoreFactsRow[]): ActivationOutcome | null {
+  const refusal = storePreconditionRefusal(stores);
+  return refusal === null ? null : refused(refusal.code, refusal.storeIds);
 }
 
 /**
