@@ -340,3 +340,54 @@ describe('RT-1294 CI release script', () => {
     );
   });
 });
+
+describe('RT-1347 the pilot lane stamp: exactly one, and nothing else (RT-1345 D1, D5)', () => {
+  const workflow = read('../../.github/workflows/release-pos-pilot.yml');
+  const buildJob = /^ {2}build:\n([\s\S]*?)(?=^ {2}[a-z][a-z0-9_-]*:\n)/m.exec(workflow)?.[1] ?? '';
+  const verify = read('scripts/pilot/verify-pilot-lane-config.ts');
+  const code = (text: string): string =>
+    text
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'))
+      .join('\n');
+
+  it('the stamp lives in the build job of the release workflow and nowhere else', () => {
+    expect(buildJob).not.toBe('');
+    expect(buildJob).toContain('POS_LANE_CONFIG_LANE: pilot');
+    expect(workflow.match(/POS_LANE_CONFIG_/g)).toHaveLength(
+      buildJob.match(/POS_LANE_CONFIG_/g)?.length ?? -1,
+    );
+  });
+
+  it('takes the two public values from repository variables: no secret, no environment on the build job', () => {
+    expect(buildJob).toContain('vars.POS_PILOT_LANE_API_BASE_URL');
+    expect(buildJob).toContain('vars.POS_PILOT_LANE_DESCOPE_PROJECT_ID');
+    expect(buildJob).not.toMatch(/secrets\./);
+    expect(code(buildJob)).not.toMatch(/^ {4}environment:/m);
+  });
+
+  it('leaves the update origin and channel empty for the pilot lane, and bakes no update feed', () => {
+    expect(buildJob).toMatch(/POS_LANE_CONFIG_UPDATE_ORIGIN: ""/);
+    expect(buildJob).toMatch(/POS_LANE_CONFIG_UPDATE_CHANNEL: ""/);
+    expect(code(workflow)).not.toMatch(
+      /ELECTRON_UPDATE_FEED_URL|POS_PULSE_UPDATE_CHANNEL|bake-app-update|app-update\.yml/,
+    );
+  });
+
+  it('the signing path and the pilot builder config carry no lane configuration of their own', () => {
+    const script = read('scripts/pilot/ci/release-pilot-installer.ps1');
+    expect(script).not.toMatch(/POS_LANE_CONFIG|lane-config/);
+    expect(read('electron-builder.pilot.yml')).not.toMatch(/POS_LANE_CONFIG|lane-config/);
+    expect(read('electron-builder.yml')).not.toMatch(/lane-config|extraResources/);
+  });
+
+  it('the packaged-file check refuses an update origin and channel and reads no secret', () => {
+    expect(verify).toMatch(/updateOrigin must be absent/);
+    expect(verify).toMatch(/updateChannel must be absent/);
+    expect(verify).toMatch(/config\.lane !== 'pilot'/);
+    // The only environment value it reads is the GitHub step-output file.
+    const reads = [...verify.matchAll(/env\[(?:'|")(\w+)(?:'|")\]/g)].map((m) => m[1]);
+    expect(reads).toEqual(['GITHUB_OUTPUT']);
+    expect(verify).not.toMatch(/\b(?:fetch|https?\.request|spawn|exec)\w*\(/);
+  });
+});

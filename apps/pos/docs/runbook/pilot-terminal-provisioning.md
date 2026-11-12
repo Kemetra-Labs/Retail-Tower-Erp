@@ -62,9 +62,18 @@ other `POS_LANE_CONFIG_*` name, a missing lane, a wrong shape or a secret-lookin
 value **fails the build** with the input name (never its value). At start-up the
 POS applies the same checks: a file that fails them is **refused entirely** (none of
 it is applied), with one `lane_config.refused` log line naming the reason and the
-field. The release workflow that supplies these inputs from GitHub variables is
-RT-1347; until a release carries them, the pilot build is still provisioned through
-the environment (§2 to §5).
+field. The pilot release workflow (`release-pos-pilot.yml`, RT-1347) supplies these
+inputs for the pilot lane only: `POS_LANE_CONFIG_LANE=pilot`, the API address and the
+Descope project id from the repository variables `POS_PILOT_LANE_API_BASE_URL` and
+`POS_PILOT_LANE_DESCOPE_PROJECT_ID` (public values; not committed), and an **empty**
+update origin and channel (the pilot lane has no updater until RT-1345 D5 is approved).
+The build job stops before installing anything if either variable is blank, the stamp
+step refuses a malformed value, and `scripts/pilot/verify-pilot-lane-config.ts` then
+reads `dist/lane-config.json` back out of the packaged `app.asar` and refuses anything
+but lane `pilot` with both values present and no update origin or channel. The SHA-256
+of that file is recorded in the release manifest (`lane_config.digest`). A pilot release
+built from a `main` that includes RT-1347 therefore carries the file; one built before
+it does not, and is still provisioned through the environment (§2 to §5).
 
 | Surface | Packaged behaviour (verified at `main@4881eb6`; baked file added by RT-1346) |
 | :-- | :-- |
@@ -359,8 +368,8 @@ environment a POS launched from the same session would receive.
 
 > **Baked configuration (RT-1346).** This block checks the **environment channel**
 > and still requires `VITE_API_BASE_URL` and `DESCOPE_PROJECT_ID` in Machine scope.
-> It does not know about a baked `lane-config.json`: no pilot release carries one
-> until RT-1347 lands, and the readiness check for a baked build belongs to the
+> It does not know about a baked `lane-config.json`: pilot releases built after
+> RT-1347 carry one, and the readiness check for a baked build belongs to the
 > verification RT-1349. Until then, a terminal that relies on a baked file is not
 > checked by this block.
 

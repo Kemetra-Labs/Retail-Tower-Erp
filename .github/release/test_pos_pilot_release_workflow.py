@@ -291,5 +291,118 @@ class ReleasePosPilot(unittest.TestCase):
             self.assertNotEqual(run(manifest).returncode, 0, label)
 
 
+class ReleasePosPilotLaneConfig(unittest.TestCase):
+    """RT-1347 (RT-1345 D1, S2): the pilot build stamps its public lane configuration from repository variables.
+
+    Exactly one stamp and nothing else: lane `pilot`, the API base URL and the Descope project id from variables
+    (never secrets, never an environment on the build job), the update origin and channel left empty (D5 is not
+    approved), the packaged lane-config.json verified before signing, and its digest recorded in the manifest.
+    """
+
+    text = read(WORKFLOWS / "release-pos-pilot.yml")
+    API_VAR = "POS_PILOT_LANE_API_BASE_URL"
+    DESCOPE_VAR = "POS_PILOT_LANE_DESCOPE_PROJECT_ID"
+    VERIFY = "scripts/pilot/verify-pilot-lane-config.ts"
+    BUILD_STEP = "Build (renderer + main + preload)"
+
+    def build_step_env(self, name: str) -> dict[str, str]:
+        """The `env:` entries of the build job's step whose name starts with `name`."""
+        match = re.search(rf"^      - name: {re.escape(name)}.*?\n(.*?)(?=^      - name: |\Z)", job(self.text, "build"), re.M | re.S)
+        self.assertIsNotNone(match, name)
+        block = re.search(r"^        env:\n((?:          .*\n)+)", match.group(1), re.M)
+        self.assertIsNotNone(block, name)
+        return dict(re.findall(r"^          (\w+): (.*)$", block.group(1), re.M))
+
+    def test_the_build_stamps_lane_pilot_and_the_two_public_values_from_repository_variables(self):
+        env = self.build_step_env(self.BUILD_STEP)
+        self.assertEqual(env["POS_LANE_CONFIG_LANE"], "pilot")
+        self.assertEqual(env["POS_LANE_CONFIG_API_BASE_URL"], "${{ vars." + self.API_VAR + " }}")
+        self.assertEqual(env["POS_LANE_CONFIG_DESCOPE_PROJECT_ID"], "${{ vars." + self.DESCOPE_VAR + " }}")
+
+    def test_the_update_origin_and_channel_stay_empty_for_the_pilot_lane(self):
+        # RT-1345 D5 is not approved: no update origin, no channel, no feed, anywhere in this workflow.
+        env = self.build_step_env(self.BUILD_STEP)
+        self.assertEqual(env["POS_LANE_CONFIG_UPDATE_ORIGIN"], '""')
+        self.assertEqual(env["POS_LANE_CONFIG_UPDATE_CHANNEL"], '""')
+        self.assertEqual(sorted(env), sorted(
+            ["POS_LANE_CONFIG_LANE", "POS_LANE_CONFIG_API_BASE_URL", "POS_LANE_CONFIG_DESCOPE_PROJECT_ID",
+             "POS_LANE_CONFIG_UPDATE_ORIGIN", "POS_LANE_CONFIG_UPDATE_CHANNEL"]))
+        for name in ("ELECTRON_UPDATE_FEED_URL", "POS_PULSE_UPDATE_CHANNEL", "app-update.yml"):
+            self.assertNotIn(name, code(self.text), name)
+
+    def test_the_stamp_reaches_the_build_job_only_and_through_variables_not_secrets(self):
+        self.assertEqual(len(re.findall(r"POS_LANE_CONFIG_LANE:", self.text)), 1)
+        for name in ("resolve", "sign-dry-run", "sign-release", "manifest", "publish"):
+            self.assertNotIn("POS_LANE_CONFIG", job(self.text, name), name)
+            self.assertNotIn("vars." + self.API_VAR, job(self.text, name), name)
+        # The only repository variables this workflow reads: the leaf pin (signing job) and the two lane values.
+        self.assertEqual(sorted(set(re.findall(r"\$\{\{ vars\.(\w+) \}\}", self.text))),
+                         sorted(["POS_PILOT_LEAF_SHA1", self.API_VAR, self.DESCOPE_VAR]))
+        self.assertEqual(len(re.findall(r"\$\{\{ secrets\.", self.text)), len(SECRETS))
+        # No environment on the build job (repository variables), and none added anywhere.
+        self.assertNotIn("environment:", code(job(self.text, "build")))
+        self.assertEqual(len(re.findall(r"^    environment:", code(self.text), re.M)), 2)
+
+    def test_the_pilot_values_are_checked_before_anything_is_installed_or_built(self):
+        build = job(self.text, "build")
+        order = [build.index(f"name: {n}") for n in
+                 ("Check the pilot lane variables", "Install dependencies", self.BUILD_STEP,
+                  "Package (Windows --dir, unsigned)", "Verify the packaged pilot lane configuration",
+                  "Upload win-unpacked")]
+        self.assertEqual(order, sorted(order))
+        env = self.build_step_env("Check the pilot lane variables")
+        self.assertEqual(env, {self.API_VAR: "${{ vars." + self.API_VAR + " }}", self.DESCOPE_VAR: "${{ vars." + self.DESCOPE_VAR + " }}"})
+
+    @unittest.skipUnless(HAVE_BASH, "bash is needed")
+    def test_a_blank_or_missing_variable_fails_the_check_and_names_the_variable_not_a_value(self):
+        script = step_script(job(self.text, "build"), "Check the pilot lane variables")
+        good = {self.API_VAR: "https://api.pilot.example", self.DESCOPE_VAR: "P2abcdefghijklmnopqrstuvwxyz"}
+
+        def run(env: dict[str, str]) -> subprocess.CompletedProcess:
+            return subprocess.run([BASH, "-c", script], capture_output=True, text=True, check=False,
+                                  env={"PATH": os.environ.get("PATH", ""), **env})
+
+        accepted = run(good)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        for label, env in {
+            "both missing": {},
+            "api blank": {**good, self.API_VAR: ""},
+            "api spaces": {**good, self.API_VAR: "   \t "},
+            "descope blank": {**good, self.DESCOPE_VAR: ""},
+            "descope spaces": {**good, self.DESCOPE_VAR: " "},
+        }.items():
+            result = run(env)
+            self.assertNotEqual(result.returncode, 0, label)
+            blank = [n for n in (self.API_VAR, self.DESCOPE_VAR) if env.get(n, "").strip() == ""]
+            for name in blank:
+                self.assertIn(name, result.stdout + result.stderr, label)
+            for value in good.values():
+                self.assertNotIn(value, result.stdout + result.stderr, label)
+
+    def test_the_packaged_file_is_verified_before_the_upload_and_its_digest_leaves_the_build_job(self):
+        build = job(self.text, "build")
+        verify = re.search(r"^      - name: Verify the packaged pilot lane configuration.*?\n(.*?)(?=^      - name: |\Z)", build, re.M | re.S)
+        self.assertIsNotNone(verify)
+        self.assertIn("id: lane", verify.group(1))
+        self.assertIn("npx tsx " + self.VERIFY, verify.group(1))
+        self.assertRegex(build, r"(?m)^    outputs:\n      lane_config_digest: \$\{\{ steps\.lane\.outputs\.lane_config_digest \}\}$")
+        self.assertNotIn("secrets.", build)
+
+    def test_the_manifest_records_the_digest_of_the_stamped_file_and_still_one_artifact(self):
+        manifest = job(self.text, "manifest")
+        script = step_script(manifest, "Write the release manifest")
+        self.assertRegex(script, r'--lane-config-digest "\$LANE_CONFIG_DIGEST"')
+        self.assertIn("LANE_CONFIG_DIGEST: ${{ needs.build.outputs.lane_config_digest }}", manifest)
+        self.assertRegex(script, r"\^sha256:\[0-9a-f\]\{64\}\$")
+        self.assertEqual(script.count("--artifact "), 1)
+        self.assertNotIn("--artifact-digest", script)
+        # The release stays three assets: the digest travels inside the manifest.
+        self.assertIn('"$EXE" "$EXE.sha256" release-manifest.json', step_script(job(self.text, "publish"), "Create the GitHub release"))
+
+    def test_the_pilot_still_ships_no_update_configuration(self):
+        self.assertIn("The installer ships no update configuration", self.text)
+        self.assertIn("updater=none", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,9 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
 - **No auto-update.** The installer ships no `resources/app-update.yml`, so the updater refuses to run
   (`publisher_not_pinned`). A new version reaches a terminal by installing the new pilot installer over the old
   one, followed by the readiness check in `pilot-terminal-provisioning.md` §6.
+- **Carries its lane configuration (RT-1347).** The build stamps lane `pilot`, the pilot Backend-Core API
+  address and the Descope project id into the app (`pilot-terminal-provisioning.md` §2), so the installed POS
+  pairs and signs in without Windows environment variables. It carries **no** update origin or channel.
 
 ## 2. One-time owner setup
 
@@ -61,7 +64,17 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
    and a moved or deleted tag changes what a published release points at.
 5. **Confirm the identity is final** before the first signed installer: `appId` `com.kemetralabs.retailtower.pos` (RT-1314) and
    `productName` `POS Pulse` (RT-234 §11.2).
-6. **Run a dry run** (Actions → release-pos-pilot → Run workflow, `dry_run` true, on `main`). It signs with an
+6. **Set the two lane variables** (Settings → Secrets and variables → Actions → **Variables**, repository level,
+   not an environment: the build job has none). Both are public values that stay out of the repository, and both
+   are **required**: a run stops in `pilot/build` before installing anything when either is blank or unset.
+   - `POS_PILOT_LANE_API_BASE_URL`: the pilot Backend-Core base URL (`https`, no credentials, query or fragment).
+   - `POS_PILOT_LANE_DESCOPE_PROJECT_ID`: the Descope project id that Backend-Core uses on the pilot environment
+     (US region project, the `P…` id).
+
+   After the build the workflow reads `lane-config.json` back out of the packaged `app.asar` and refuses a file
+   that is not lane `pilot` with exactly those two values, and the release manifest records its SHA-256
+   (`lane_config.digest`).
+7. **Run a dry run** (Actions → release-pos-pilot → Run workflow, `dry_run` true, on `main`). It signs with an
    ephemeral certificate, reads no secret and publishes nothing. It proves the build, the signature checks, the
    timestamp endpoint and the silent install and uninstall, and that the installed app has no `app-update.yml`.
 
@@ -120,6 +133,9 @@ and the lockfile; a leaked key is handled by the revocation steps above. The sam
 | other signtool timestamp failure | The timestamp server was unreachable; re-run the failed job. A pilot signature is never left untimestamped. |
 | `the PFX leaf … is not the pinned one` | `POS_PILOT_LEAF_SHA1` does not equal the PFX's certificate; fix the variable or re-export. |
 | `has resources\app-update.yml` | A build baked an update configuration; the pilot installer must ship none. Find what wrote it. |
+| `the repository variable(s) POS_PILOT_LANE_… are not set or are blank` | `pilot/build` found a lane variable blank (§2 step 6). Set it as a repository variable, then re-run the failed jobs. |
+| `[stamp-lane-config] REFUSED (invalid_value: POS_LANE_CONFIG_…)` | The named variable holds a value the POS validator refuses (not `https`, a credential or query in the URL, a malformed or regional Descope id). The log names the input, never the value. |
+| `::error title=Pilot lane configuration::…` | The packaged app's `lane-config.json` is not exactly the pilot stamp: missing, lane not `pilot`, a value missing, or an update origin or channel present. The message names the field, not the value. |
 | `publish` says an environment is unprotected | Fix the tag pattern or the reviewer on the named environment (§2 steps 2 and 3). Signing may already have run: check the run before approving anything. |
 | `this script writes to the certificate stores and runs on a GitHub-hosted runner only` | The signing script was started somewhere other than a GitHub-hosted runner; it refuses so that no key or trusted certificate is left behind. |
 | `pilot certificate cleanup failed` | The runner could not remove a certificate. A hosted runner is discarded anyway; do not reuse the runner. |

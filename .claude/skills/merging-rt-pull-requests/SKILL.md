@@ -80,6 +80,29 @@ Do not build a polling loop. In the desktop app, use the `ccd_pr` status tools a
 terminal session, check once later or ask the owner to ping. A head pushed seconds ago has no
 `required` yet; `gh pr checks` can still show the previous head's results.
 
+## Red checks that are ratchets or history, not your logic (RT-1347, 2026-11-12)
+
+- **gitleaks scans the whole PR history, not the tip.** A secret-shaped test fixture (a token, a JWT, a PEM
+  header, a key id) written as a literal in any commit of the branch keeps `gitleaks` red, and a fix commit on
+  top does not clear it. Build such values at run time (`'gh' + 'p_' + 'x'.repeat(36)`) from the first commit,
+  and use `example` or `.invalid` hosts. If a literal already landed in a commit: re-land the work on a clean
+  branch from `origin/main` (new branch, new PR, one clean commit; close the old PR). Never force-push to
+  rewrite the old branch; the owner's rule is no force-push.
+- **The POS ratchets fail `pos/static`.** `knip` (an unused file or export, or an unlisted dependency) and
+  `jscpd` (duplicate clones in `src/`) are counted against `scripts/code-health.baseline.json`, and the size
+  of `src/main/index.ts` against `scripts/index-size.baseline` (RT-893: it may only shrink). A new helper goes
+  in its own module, not in `index.ts`; new `scripts/pilot/**` and `scripts/*.ts` files are knip entries, so
+  their exports are never flagged. Do not import a package that is only a transitive dependency (for example
+  `@electron/asar`): knip reports it unlisted, and adding it is a gated lockfile change. Local checks:
+  `node scripts/check-index-size.mjs` and `node scripts/check-code-health.mjs` (the latter needs knip from
+  `npm ci`; `npx knip` fetches a different version and is only a hint). Never lower a jscpd baseline from a
+  Windows run (see `troubleshooting-windows-dev`).
+- **The CircleCI trigger tool returned "Route Not Found" for the POS project slugs tried on 2026-11-12.** Do
+  not loop over more slugs, and do not read it as a failed suite: nothing ran, so no preflight evidence
+  exists and nothing counts against the 30-per-day cap that you can see. Say so on the issue (which slugs,
+  the exact message) and ask the owner for the project slug. GitHub `required` on the PR branch is still the
+  gate; without a preflight, rely on the local light checks and that run.
+
 ## Red checks from GitHub release downloads
 
 Many jobs download a pinned tool from `github.com/<org>/<repo>/releases/download/...` (gitleaks,
@@ -111,6 +134,8 @@ Electron for the POS jobs). When GitHub's release downloads fail, all of them go
 
 ## Common mistakes
 
+- Putting a secret-shaped literal in a test fixture, then trying to fix it with a later commit (gitleaks reads
+  the history).
 - Waiting for "no remote run in progress" while other sessions keep queueing.
 - Reporting a DB spec as passed from a green job or per-test time alone.
 - Reading `gh run list --commit <sha>` with the default limit and concluding "no push run".

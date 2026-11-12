@@ -15,6 +15,9 @@ PIN = ("repo: Kemetra-Labs/Retail-Tower-Erp\ncommit: {c}\n"
        "source: services/backend-core/packages/contracts/openapi\nfile: a.yaml 0123\n")
 
 
+LANE = ["--lane-config-digest", "sha256:" + "c" * 64]
+
+
 def sh(repo, *args):
     return subprocess.run(["git", "-C", repo, *args], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -116,7 +119,7 @@ class ManifestTest(unittest.TestCase):
     def test_pilot_product_records_signing_pilot_and_its_own_tag(self):
         # RT-1294: the pilot installer is its own product of the same tree: its tag is pos-pilot/vX.Y.Z and its
         # manifest says `signing: pilot`, set by the product, never by an input.
-        rc, m, _ = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}", "--tag", "pos-pilot/v1.2.3", mode="release")
+        rc, m, _ = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}", *LANE, "--tag", "pos-pilot/v1.2.3", mode="release")
         self.assertEqual(rc, 0)
         self.assertEqual(m["product"], "pos-pilot")
         self.assertEqual(m["tag"], "pos-pilot/v1.2.3")
@@ -126,18 +129,41 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(m["contract_snapshot"]["consumer_pin"]["commit"], "a" * 40)
 
     def test_pilot_dry_run_also_says_pilot(self):
-        rc, m, _ = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}")
+        rc, m, _ = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}", *LANE)
         self.assertEqual(rc, 0)
         self.assertEqual(m["signing"], "pilot")
         self.assertIsNone(m["tag"])
 
     def test_pilot_tags_and_lab_tags_never_cross(self):
-        art = ["--artifact", f"a={self.art}"]
+        art = ["--artifact", f"a={self.art}", *LANE]
         self.assertEqual(self.run_main("pos-pilot", *art, "--tag", "pos/v1.2.3", mode="release")[0], 2)
         self.assertEqual(self.run_main("pos", *art, "--tag", "pos-pilot/v1.2.3", mode="release")[0], 2)
         self.assertEqual(self.run_main("pos-pilot", *art, mode="release")[0], 2)  # release without a tag
         self.assertEqual(self.run_main("pos-pilot", *art, "--tag", "pos-pilot/v1.2.3")[0], 2)  # dry-run with a tag
         self.assertEqual(self.run_main("pos-pilot", *art, "--compat-verdict", "PASS")[0], 2)  # compat is BC only
+
+    def test_pilot_manifest_records_the_lane_config_digest_outside_the_artifacts(self):
+        # RT-1347: the SHA-256 of the stamped lane-config.json is a top-level field. It is NOT an artifact: the
+        # release holds exactly the installer, its .sha256 and the manifest, the publish and promote checks
+        # require exactly one artifact, and the provenance subjects are built from the artifacts.
+        rc, m, out = self.run_main("pos-pilot", "--artifact", f"pos-installer={self.art}", *LANE)
+        self.assertEqual(rc, 0)
+        self.assertEqual(m["lane_config"], {"lane": "pilot", "file": "lane-config.json", "digest": "sha256:" + "c" * 64})
+        self.assertEqual([a["name"] for a in m["artifacts"]], ["pos-installer"])
+        provenance = json.loads(pathlib.Path(out, "provenance.intoto.json").read_text())
+        self.assertEqual([s["name"] for s in provenance["subject"]], ["pos-installer"])
+
+    def test_pilot_manifest_refuses_a_missing_or_malformed_lane_config_digest(self):
+        art = ["--artifact", f"pos-installer={self.art}"]
+        self.assertEqual(self.run_main("pos-pilot", *art)[0], 2)  # fails closed: no digest, no manifest
+        for bad in ("", "abc", "sha256:xyz", "sha256:" + "C" * 64, "sha256:" + "c" * 63, "sha1:" + "c" * 40, "c" * 64):
+            self.assertEqual(self.run_main("pos-pilot", *art, "--lane-config-digest", bad)[0], 2, bad)
+
+    def test_only_the_pilot_product_takes_a_lane_config_digest(self):
+        for product in ("pos", "admin-console", "backend-core", "erpnext-connector"):
+            extra = ["--compat-verdict", "PASS"] if product == "backend-core" else []
+            self.assertEqual(self.run_main(product, "--artifact", f"a={self.art}", *extra, *LANE)[0], 2, product)
+            self.assertNotIn("lane_config", self.run_main(product, "--artifact", f"a={self.art}", *extra)[1], product)
 
     def test_only_the_pilot_product_carries_a_signing_field(self):
         art = ["--artifact", f"a={self.art}"]
