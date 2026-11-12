@@ -363,7 +363,11 @@ describe("consoleIssueVouchers", () => {
 
     const retry = await issue(SES_OWNER_ALL, ALL, key);
     expectError(retry, 409, "idempotency_key_conflict");
-    expect(JSON.stringify(retry.body)).not.toMatch(/[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}/);
+    // The random request_id can hold four all-digit groups, so the code-shape check skips it (RT-1342).
+    const retryError = (retry.body as { error: Record<string, unknown> }).error;
+    const retryErrorWithoutRequestId = Object.fromEntries(Object.entries(retryError).filter(([key]) => key !== "request_id"));
+    expect(JSON.stringify(retryErrorWithoutRequestId)).not.toMatch(/[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}/);
+    for (const v of issued.vouchers) expect(JSON.stringify(retry.body)).not.toContain(v.code);
     const changed = await issue(SES_OWNER_ALL, { ...ALL, count: 4 }, key);
     expectError(changed, 409, "idempotency_key_conflict");
     expect(await voucherCount()).toBe(before + 3);
