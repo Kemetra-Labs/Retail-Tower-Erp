@@ -129,11 +129,34 @@ interface PositionDbRow {
   legacy_on_hand: string;
 }
 
-function toPosition(row: PositionDbRow): PendingAwarePosition {
+/** The position terms a product-grain and an identity-grain (RT-453) position share. */
+export type PositionTerms = Pick<
+  PendingAwarePosition,
+  | "anchorQuantity"
+  | "operationalPosition"
+  | "pendingErp"
+  | "pendingRetail"
+  | "expectedErpBook"
+  | "latestErpConfirmedAt"
+  | "operationalUnit"
+  | "erpStockUom"
+>;
+
+/** The shared terms of a position row (the column names both position reads select). */
+export function positionTerms(
+  row: Pick<
+    PositionDbRow,
+    | "anchor_quantity"
+    | "operational_position"
+    | "pending_erp"
+    | "pending_retail"
+    | "expected_erp_book"
+    | "latest_confirmed_at"
+    | "unit"
+    | "erp_stock_uom"
+  >,
+): PositionTerms {
   return {
-    storeId: row.store_id,
-    tenantProductRef: row.tenant_product_ref,
-    anchorGeneration: row.generation,
     anchorQuantity: row.anchor_quantity,
     operationalPosition: row.operational_position,
     pendingErp: row.pending_erp,
@@ -142,6 +165,15 @@ function toPosition(row: PositionDbRow): PendingAwarePosition {
     latestErpConfirmedAt: row.latest_confirmed_at?.toISOString() ?? null,
     operationalUnit: row.unit,
     erpStockUom: row.erp_stock_uom,
+  };
+}
+
+function toPosition(row: PositionDbRow): PendingAwarePosition {
+  return {
+    storeId: row.store_id,
+    tenantProductRef: row.tenant_product_ref,
+    anchorGeneration: row.generation,
+    ...positionTerms(row),
     legacyOnHand: row.legacy_on_hand,
   };
 }

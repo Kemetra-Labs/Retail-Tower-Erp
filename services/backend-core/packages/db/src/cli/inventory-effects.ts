@@ -15,6 +15,15 @@
  *     the latest complete Bin snapshot (`compareAnchorsToBin`). Not
  *     pending-aware; the full reconciliation is RT-428.
  *
+ *   anchor-identities --tenant <uuid> --actor <uuid> [--dry-run]
+ *     RT-453 (G7-12, DC-8): takes the per-identity Inventory Anchor of every
+ *     store from its latest complete Bin snapshot's batch-wise evidence, in one
+ *     transaction (`anchorTrackedIdentities`). Refuses (exit 4, nothing
+ *     written) while sale effects are off, a store's snapshot fails the RT-427
+ *     preconditions, a tracked product's entry lacks tracking evidence or
+ *     disagrees with its profile, or a reported Batch has no identity yet. It
+ *     switches nothing on: tracked selling stays a separate owner act (Q13).
+ *
  *   equivalence --tenant <uuid>
  *     Read-only dual-read report for the cutover (RT-428; 977, 980): per
  *     store and product, the legacy raw SUM and the pending-aware expected
@@ -34,17 +43,23 @@
  *   DATABASE_URL=postgres://... node dist/cli/inventory-effects.js activate --tenant <t> --actor <u> --dry-run
  *
  * Exit codes: 0 success · 1 SQL/runtime error · 2 DATABASE_URL missing ·
- *             3 invalid arguments · 4 activation refused.
+ *             3 invalid arguments · 4 activation or identity anchor refused.
  */
 import { Client } from "pg";
 
 import { activateSaleEffects, compareAnchorsToBin } from "../helpers/inventory-effects/activation";
+import { anchorTrackedIdentities } from "../helpers/inventory-effects/identity-anchor";
 import { buildCutoverEquivalenceReport } from "../helpers/inventory-effects/pending-aware";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type InventoryEffectsCommand =
-  | { readonly kind: "activate"; readonly tenantId: string; readonly actorId: string; readonly dryRun: boolean }
+  | {
+      readonly kind: "activate" | "anchor-identities";
+      readonly tenantId: string;
+      readonly actorId: string;
+      readonly dryRun: boolean;
+    }
   | { readonly kind: "compare" | "equivalence"; readonly tenantId: string };
 
 function flag(argv: readonly string[], name: string): string | undefined {
@@ -61,9 +76,9 @@ function uuidFlag(argv: readonly string[], name: string): string {
 /** Parse the command line; throws an Error naming the problem. */
 export function parseInventoryEffectsArgs(argv: readonly string[]): InventoryEffectsCommand {
   const [command] = argv;
-  if (command === "activate") {
+  if (command === "activate" || command === "anchor-identities") {
     return {
-      kind: "activate",
+      kind: command,
       tenantId: uuidFlag(argv, "tenant"),
       actorId: uuidFlag(argv, "actor"),
       dryRun: argv.includes("--dry-run"),
@@ -71,7 +86,7 @@ export function parseInventoryEffectsArgs(argv: readonly string[]): InventoryEff
   }
   if (command === "compare" || command === "equivalence") return { kind: command, tenantId: uuidFlag(argv, "tenant") };
   throw new Error(
-    "usage: inventory-effects activate --tenant <uuid> --actor <uuid> [--dry-run] | compare --tenant <uuid> | equivalence --tenant <uuid>",
+    "usage: inventory-effects activate --tenant <uuid> --actor <uuid> [--dry-run] | anchor-identities --tenant <uuid> --actor <uuid> [--dry-run] | compare --tenant <uuid> | equivalence --tenant <uuid>",
   );
 }
 
@@ -92,12 +107,14 @@ async function run(client: Client, cmd: InventoryEffectsCommand): Promise<number
   try {
     await client.query(`SELECT set_config('app.current_tenant', $1, true)`, [cmd.tenantId]);
     await client.query(`SELECT set_config('app.is_platform_admin', 'false', true)`);
-    if (cmd.kind !== "activate") return await runReadOnly(client, cmd);
-    const outcome = await activateSaleEffects(client, { tenantId: cmd.tenantId, actorId: cmd.actorId });
-    const commit = outcome.kind === "activated" && !cmd.dryRun;
-    await client.query(commit ? "COMMIT" : "ROLLBACK");
+    if (!("actorId" in cmd)) return await runReadOnly(client, cmd);
+    const input = { tenantId: cmd.tenantId, actorId: cmd.actorId };
+    const outcome =
+      cmd.kind === "activate" ? await activateSaleEffects(client, input) : await anchorTrackedIdentities(client, input);
+    const ok = outcome.kind !== "refused";
+    await client.query(ok && !cmd.dryRun ? "COMMIT" : "ROLLBACK");
     console.log(JSON.stringify({ tenantId: cmd.tenantId, dryRun: cmd.dryRun, outcome }, null, 2));
-    return outcome.kind === "activated" ? 0 : 4;
+    return ok ? 0 : 4;
   } catch (err) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw err;

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.13.0-draft"
+  version: "1.14.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -213,7 +213,8 @@ info:
     expiry date, G7-5). `expiring_lot` is reserved: the near-expiry window
     is a policy value that stays off until RT-50 B1, so it is never emitted
     in 1.8.0. A store_manager sees only its own stores' findings. The
-    identity import that gives these reads anything to find is RT-453 (F6).
+    identity import that gives these reads anything to find is RT-453 (F6),
+    which ships in 1.14.0.
 
 
     **1.9.0-draft (RT-451 Step 0, additive, contract-only; [GATED] owner
@@ -312,6 +313,20 @@ info:
     `SafetyReasonCodeInput` list of the hold, recall and expiry-correction
     commands (RT-451 comment 16535, S5 question). Neither operation is gated
     by the tracked-selling switch (OD-T4).
+
+    **1.14.0-draft (RT-453, wording only, no shape change; [GATED: contract]
+    authorization RT-453 comment 16685, within the `tracking_consistency`
+    kind reserved by RT-1081).** Tracking identities are now born from ERP
+    evidence (G7-3): the Connector tracking master read recorded with a 017
+    stock run, and ERP-origin stock import rows carrying a Batch. The
+    identity reads therefore have rows to return. `listInventorySafetyFindings`
+    now emits `tracking_consistency` with all four `check` values. An expiry
+    change carried by ERP evidence is recorded as an expiry correction with
+    `reasonCode` `erp_evidence`. Its `createdBy` is the 017 stock run whose
+    tracking master read carried the new expiry (an internal actor
+    reference, not a user). `identity_anchor` and
+    `tracking_grain_reconciliation` are now confirmed from the server's own
+    data. No operation, field, status code or enum changes.
 
 servers:
   - url: https://api.datapulse.example
@@ -491,8 +506,9 @@ paths:
         RT-448 (RT-50 Gate 7 G7-2): the tenant's tracking identities of the
         path product, ordered by `kind`, then `expiryDate` (earliest first,
         none last), then `code`. Identities are tenant-wide, not store-scoped.
-        Read-only: identities are ERP-born (G7-3) and nothing in this version
-        creates one, so the list is empty until identity birth lands (RT-453).
+        Read-only: identities are ERP-born (G7-3). Since 1.14.0 (RT-453) they
+        are born from the Connector tracking master read and from ERP-origin
+        stock import rows carrying a Batch; no operation here creates one.
         Owner / tenant-admin only; a product outside the caller's tenant, and a
         caller without the role, is a non-disclosing 404. Keyset-paged: a
         serial product has one identity per unit. `cursor` is the opaque
@@ -950,10 +966,10 @@ paths:
         governed `sellable → expired` status move. `expiring_lot` (warning)
         is reserved and never emitted in 1.8.0: the near-expiry window is a
         policy value that stays off until RT-50 B1. `tracking_consistency`
-        (critical, 1.10.0, OD-8) is reserved: a tracked product or identity
-        whose records disagree, one finding per `check` grain; each `check`
-        is emitted only once the runtime producing its data ships (RT-451,
-        RT-453), so 1.10.0 emits none. Order: severity, then
+        (critical, 1.10.0, OD-8): a tracked product or identity whose records
+        disagree, one finding per `check` grain. 1.10.0 to 1.13.0 emitted
+        none. Since 1.14.0 (RT-453) all four checks are emitted (see
+        `TrackingConsistencyFinding`). Order: severity, then
         kind, then ids. Owner and tenant_admin see the tenant (their
         membership's stores); a store_manager sees only findings in its
         store scope: a hold appears when the held identity has stock in one
@@ -2056,8 +2072,11 @@ components:
         `erp_tracking_import`: ERP-origin stock import with tracking is in
         place, so newly received lots exist (RT-293). `erp_batch_posting_verified`:
         the ERPNext-Connector posts batch-tracked lines with the batch ref
-        (G7-11, RT-452). `identity_anchor`: the per-identity anchor is set
-        (G7-12, RT-453). `tracking_grain_reconciliation`: tracking-grain
+        (G7-11, RT-452). `identity_anchor`: every live store has its
+        per-identity anchor (G7-12, RT-453; taken by the operator).
+        `tracking_grain_reconciliation`: every live store has a stock
+        reconciliation run completed after that anchor (RT-453). Before
+        1.14.0 it read: tracking-grain
         reconciliation is in place (RT-428).
     TrackedSellingSetting:
       type: object
@@ -2216,11 +2235,19 @@ components:
       additionalProperties: false
       required: [kind, severity, check, tenantProductRef, trackingIdentityId, storeId, stockingUnit]
       description: >
-        RT-50 G7-12 (956), reserved in 1.10.0-draft (RT-1081): a tracked
-        product or identity whose records disagree, one finding per check
-        grain (identity; product × store × unit; identity × store × unit;
-        product). Each `check` is emitted only once the runtime that
-        produces its data has shipped; 1.10.0 emits none. A store_manager
+        RT-50 G7-12 (956), reserved in 1.10.0-draft (RT-1081), emitted from
+        1.14.0-draft (RT-453): a tracked product or identity whose records
+        disagree, one finding per check grain (identity; product × store ×
+        unit; identity × store × unit; product). `identity_without_edge_map`:
+        an identity with no ERP edge-map row. `untracked_effect_on_tracked_product`:
+        an effect without an identity on a product whose tracking mode is not
+        `none`. `serial_position_out_of_range`: a serial identity's position
+        at a store, summed over its locations and statuses, is outside {0, 1}.
+        `profile_erp_flag_mismatch`: the ERP Item flags reported with a
+        store's latest complete Bin snapshot disagree with the Tracking
+        Profile (`batch` needs `hasBatchNo`, `serial` needs `hasSerialNo`,
+        `none` needs neither, and `expiryRequired` needs `hasExpiryDate`); an
+        entry without tracking evidence is not compared. A store_manager
         sees a finding only when `storeId` is in its scope; a tenant-wide
         finding (`storeId` null) is owner / tenant_admin only.
       properties:
@@ -2665,7 +2692,11 @@ components:
         createdBy:
           type: string
           format: uuid
-          description: The acting principal's user id (an internal actor reference, not PII).
+          description: >
+            The acting principal's user id (an internal actor reference, not
+            PII). For a correction carried by ERP evidence (`reasonCode`
+            `erp_evidence`, RT-453), it is the stock reconciliation run whose
+            tracking master read carried the new expiry, not a user.
         createdAt: { type: string, format: date-time }
     TrackingIdentityExpiryCorrectionResult:
       type: object

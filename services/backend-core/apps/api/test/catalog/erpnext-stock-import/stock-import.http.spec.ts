@@ -64,6 +64,9 @@ const PRODUCT_BATCH = "0a000000-0000-7000-8000-000000128801";
 const IDENTITY_LOT1 = "0a000000-0000-7000-8000-000000128811";
 const IDENTITY_OTHER = "0a000000-0000-7000-8000-000000128812";
 const PRODUCT_OTHER = "0a000000-0000-7000-8000-000000128802";
+/** RT-453: a batch product whose profile requires an expiry (its unknown Batch waits for the tracking master read). */
+const ITEM_EXP = "ERP-ITEM-453-EXP";
+const PRODUCT_EXP = "0a000000-0000-7000-8000-000000045301";
 const CONNECTOR_A = "01900000-0000-7000-8000-000000128a01";
 const CONNECTOR_B = "01900000-0000-7000-8000-000000128b01";
 const ACTOR_USER = "01900000-0000-7000-8000-000000128c01";
@@ -145,12 +148,14 @@ beforeAll(async () => {
     await a.query(
       `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by, tracking_mode, expiry_required, is_active, retired_at)
        VALUES ($1, $3, 'Lot product', 'standard', $4, $4, 'batch', false, true, NULL),
-              ($2, $3, 'Other lot product', 'standard', $4, $4, 'batch', false, true, NULL)`,
-      [PRODUCT_BATCH, PRODUCT_OTHER, TENANT_A, ACTOR_A],
+              ($2, $3, 'Other lot product', 'standard', $4, $4, 'batch', false, true, NULL),
+              ($5, $3, 'Expiry lot product', 'standard', $4, $4, 'batch', true, true, NULL)`,
+      [PRODUCT_BATCH, PRODUCT_OTHER, TENANT_A, ACTOR_A, PRODUCT_EXP],
     );
     for (const [tenant, product, item, actor] of [
       [TENANT_A, PRODUCT_A_ACTIVE, ITEM_A, ACTOR_A],
       [TENANT_A, PRODUCT_BATCH, ITEM_BATCH, ACTOR_A],
+      [TENANT_A, PRODUCT_EXP, ITEM_EXP, ACTOR_A],
       [TENANT_B, PRODUCT_B_ACTIVE, ITEM_B, ACTOR_B],
     ] as const) {
       await a.query(
@@ -601,17 +606,156 @@ describe("stockImportReportRows — tracking", () => {
     expect(e).toEqual(expect.objectContaining({ inventory_status: "quality_hold", tracking_identity_id: IDENTITY_LOT1 }));
   });
 
-  it("hands an unknown Batch to identity birth (no effect) and refuses another product's Batch", async () => {
+  it("refuses another product's Batch and a tracked row without a Batch", async () => {
     if (skip) return;
-    const unknownLot = row({ item: ITEM_BATCH, batch: "LOT-NEW" });
     const foreignLot = row({ item: ITEM_BATCH, batch: "LOT-OTHER" });
     const noLot = row({ item: ITEM_BATCH });
-    await importA([unknownLot, foreignLot, noLot]);
-    const u = (await rowRecord(unknownLot["ledgerEntryRef"] as string))!;
-    expect(u.outcome).toBe("awaiting_identity");
-    expect(u.effect_id).toBeNull();
+    await importA([foreignLot, noLot]);
     expect(await findingsOf(foreignLot["ledgerEntryRef"] as string)).toEqual(["tracking_mismatch"]);
     expect(await findingsOf(noLot["ledgerEntryRef"] as string)).toEqual(["tracking_mismatch"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-453: identity birth from an import row, and the awaiting-row re-drive
+// ---------------------------------------------------------------------------
+
+describe("stockImportReportRows — identity birth (RT-453, G7-3)", () => {
+  async function identityOfBatch(batch: string): Promise<{ id: string; code: string; product: string; expiry: string | null } | undefined> {
+    const r = await env!.admin.query(
+      `SELECT i.id, i.code, i.tenant_product_ref AS product, i.expiry_date::text AS expiry
+         FROM erpnext_tracking_map m JOIN tracking_identities i ON i.id = m.tracking_identity_id
+        WHERE m.tenant_id = $1 AND m.erpnext_ref = $2`,
+      [TENANT_A, batch],
+    );
+    return r.rows[0];
+  }
+
+  async function resolutionOf(ledgerEntryRef: string) {
+    const r = await env!.admin.query(
+      `SELECT res.outcome, res.effect_key, res.effect_id, res.tracking_identity_id
+         FROM erp_stock_import_row_resolutions res JOIN erp_stock_import_rows r ON r.id = res.row_id
+        WHERE r.ledger_entry_ref = $1`,
+      [ledgerEntryRef],
+    );
+    return r.rows as Array<{ outcome: string; effect_key: string | null; effect_id: string | null; tracking_identity_id: string }>;
+  }
+
+  /** What the tracking master read would birth (identity + edge map), done by hand for the API test. */
+  async function bornByMasterRead(batch: string, expiry: string): Promise<string> {
+    const id = newId();
+    await env!.admin.query(
+      `INSERT INTO tracking_identities (id, tenant_id, tenant_product_ref, kind, code, expiry_date, origin)
+       VALUES ($1, $2, $3, 'batch', $4, $5::date, 'erp_external')`,
+      [id, TENANT_A, PRODUCT_EXP, batch, expiry],
+    );
+    await env!.admin.query(
+      `INSERT INTO erpnext_tracking_map (id, tenant_id, tracking_identity_id, kind, erpnext_ref)
+       VALUES (gen_random_uuid(), $1, $2, 'batch', $3)`,
+      [TENANT_A, id, batch],
+    );
+    return id;
+  }
+
+  it("births an unknown Batch of a product needing no expiry from the row, and imports at it", async () => {
+    if (skip) return;
+    const r = row({ item: ITEM_BATCH, batch: "LOT-NEW", qty: "4" });
+    await importA([r]);
+    const born = await identityOfBatch("LOT-NEW");
+    expect(born).toEqual({ id: expect.any(String), code: "LOT-NEW", product: PRODUCT_BATCH, expiry: null });
+    const rec = (await rowRecord(r["ledgerEntryRef"] as string))!;
+    expect(rec.outcome).toBe("imported");
+    expect(rec.tracking_identity_id).toBe(born!.id);
+    expect(await effect(rec.effect_id!)).toEqual(
+      expect.objectContaining({ tracking_identity_id: born!.id, inventory_status: "sellable", quantity: "4.0000" }),
+    );
+    const birth = await env!.admin.query(
+      `SELECT b.source, b.import_row_id = r.id AS names_row, b.erpnext_item_ref, b.erpnext_batch_ref
+         FROM tracking_identity_births b JOIN erp_stock_import_rows r ON r.ledger_entry_ref = $1
+        WHERE b.tracking_identity_id = $2`,
+      [r["ledgerEntryRef"], born!.id],
+    );
+    expect(birth.rows).toEqual([
+      { source: "stock_import", names_row: true, erpnext_item_ref: ITEM_BATCH, erpnext_batch_ref: "LOT-NEW" },
+    ]);
+    // A second receipt of the same Batch finds the identity: never a second birth.
+    await importA([row({ item: ITEM_BATCH, batch: "LOT-NEW", qty: "1" })]);
+    const count = await env!.admin.query(`SELECT count(*)::int AS n FROM erpnext_tracking_map WHERE erpnext_ref = 'LOT-NEW'`);
+    expect(count.rows[0].n).toBe(1);
+  });
+
+  it("refuses a Batch name that is not a lot code (never invented, never trimmed)", async () => {
+    if (skip) return;
+    const r = row({ item: ITEM_BATCH, batch: "LOT-PAD " });
+    await importA([r]);
+    expect(await findingsOf(r["ledgerEntryRef"] as string)).toEqual(["tracking_mismatch"]);
+    expect(await identityOfBatch("LOT-PAD ")).toBeUndefined();
+  });
+
+  it("parks an expiry-required product's unknown Batch, then imports it once the identity is born", async () => {
+    if (skip) return;
+    const r = row({ item: ITEM_EXP, batch: "EXP-1", qty: "3" });
+    await importA([r]);
+    const rec = (await rowRecord(r["ledgerEntryRef"] as string))!;
+    expect(rec.outcome).toBe("awaiting_identity");
+    expect(rec.effect_id).toBeNull();
+    expect(await identityOfBatch("EXP-1")).toBeUndefined();
+    // The next report finds nothing to resolve yet.
+    await importA([]);
+    expect(await resolutionOf(r["ledgerEntryRef"] as string)).toEqual([]);
+
+    const identity = await bornByMasterRead("EXP-1", "2027-05-31");
+    await importA([]);
+    const [res] = await resolutionOf(r["ledgerEntryRef"] as string);
+    expect(res).toEqual(expect.objectContaining({ outcome: "imported", tracking_identity_id: identity }));
+    expect(await effect(res!.effect_id!)).toEqual(
+      expect.objectContaining({
+        tracking_identity_id: identity,
+        event_type: "erp_procurement_receipt",
+        origin: "erp_external",
+        quantity: "3.0000",
+        state: "external",
+      }),
+    );
+    // The 0096 row record is unchanged; a later report resolves nothing twice.
+    expect((await rowRecord(r["ledgerEntryRef"] as string))!.outcome).toBe("awaiting_identity");
+    await importA([]);
+    expect(await resolutionOf(r["ledgerEntryRef"] as string)).toHaveLength(1);
+  });
+
+  it("resolves a parked receipt and its cancellation in recording order (the reverse row compensates)", async () => {
+    if (skip) return;
+    const original = row({ item: ITEM_EXP, batch: "EXP-CXL", voucherNo: "MAT-PRE-453-CXL", detail: "cxl-1", qty: "5" });
+    const reverse = row({
+      item: ITEM_EXP,
+      batch: "EXP-CXL",
+      voucherNo: "MAT-PRE-453-CXL",
+      detail: "cxl-1",
+      qty: "-5",
+      cancelled: true,
+    });
+    await importA([original, reverse]);
+    expect((await rowRecord(original["ledgerEntryRef"] as string))!.outcome).toBe("awaiting_identity");
+    expect((await rowRecord(reverse["ledgerEntryRef"] as string))!.outcome).toBe("awaiting_identity");
+    await bornByMasterRead("EXP-CXL", "2027-05-31");
+    await importA([]);
+    const [o] = await resolutionOf(original["ledgerEntryRef"] as string);
+    const [v] = await resolutionOf(reverse["ledgerEntryRef"] as string);
+    expect(o!.outcome).toBe("imported");
+    expect(v!.outcome).toBe("imported");
+    expect(v!.effect_key).toBe(`${o!.effect_key}:cancel`);
+    const compensates = await env!.admin.query(`SELECT compensates_effect_id FROM stock_movements WHERE id = $1`, [v!.effect_id]);
+    expect(compensates.rows[0].compensates_effect_id).toBe(o!.effect_id);
+  });
+
+  it("records the event type on every classified row (0102)", async () => {
+    if (skip) return;
+    const r = row({ item: ITEM_EXP, batch: "EXP-ET", voucherType: "Stock Reconciliation", purpose: "Opening Stock" });
+    await importA([r]);
+    const et = await env!.admin.query(`SELECT outcome, event_type FROM erp_stock_import_rows WHERE ledger_entry_ref = $1`, [
+      r["ledgerEntryRef"],
+    ]);
+    expect(et.rows).toEqual([{ outcome: "awaiting_identity", event_type: "erp_opening_stock" }]);
   });
 });
 

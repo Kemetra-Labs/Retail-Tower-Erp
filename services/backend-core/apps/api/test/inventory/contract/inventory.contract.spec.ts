@@ -1025,7 +1025,8 @@ describe("inventory/inventory.yaml — RT-1081 tracking Console reads and TR-5",
       "serial_position_out_of_range",
       "profile_erp_flag_mismatch",
     ]);
-    expect(op("listInventorySafetyFindings").description).toMatch(/1\.10\.0 emits none/);
+    // RT-453 (1.14.0): the four checks are emitted; earlier versions emitted none.
+    expect(op("listInventorySafetyFindings").description).toMatch(/1\.10\.0 to 1\.13\.0 emitted\s+none/);
   });
 
   it("TR-5: the three commands take the fixed reason list; projections keep the pattern", () => {
@@ -1306,8 +1307,7 @@ describe("inventory/inventory.yaml — RT-451 S5 Tracking Resolution runtime", (
   const op = (path: string, method: string): Op => (inventoryDoc.paths?.[path]?.[method] ?? {}) as Op;
   const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
 
-  it("is the 1.13.0 draft, with a version note citing the owner approval", () => {
-    expect(inventoryDoc.info?.version).toBe("1.13.0-draft");
+  it("keeps the 1.13.0 version note citing the owner approval", () => {
     expect(inventoryDoc.info?.description).toContain("**1.13.0-draft (RT-451 S5, wording only, no shape change;");
     expect(inventoryDoc.info?.description).toContain("RT-451 comment 16535");
   });
@@ -1330,5 +1330,41 @@ describe("inventory/inventory.yaml — RT-451 S5 Tracking Resolution runtime", (
   it("keeps the bind's reasonCode on the SafetyReasonCode pattern (no shape change)", () => {
     expect(schemaText("BindTrackingResolutionCommand")).toContain("#/components/schemas/SafetyReasonCode\"");
     expect(schemaText("SafetyReasonCode")).toContain("`bindTrackingResolution` takes this pattern with a required note");
+  });
+});
+
+// ===========================================================================
+// RT-453 — identity birth, the tracking-consistency findings and the Q13
+// anchor checks (1.14.0-draft, wording only; RT-453 comment 16685)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-453 identity birth and tracking consistency", () => {
+  type Op = OperationObject & { description?: string };
+  const findings = (): string =>
+    ((inventoryDoc.paths?.["/api/inventory/v1/safety/findings"]?.["get"] ?? {}) as Op).description ?? "";
+  const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
+
+  it("is the 1.14.0 draft, with a wording-only version note citing the authorization", () => {
+    expect(inventoryDoc.info?.version).toBe("1.14.0-draft");
+    const description = inventoryDoc.info?.description ?? "";
+    expect(description).toContain("**1.14.0-draft (RT-453, wording only, no shape change;");
+    expect(description).toContain("RT-453 comment 16685");
+  });
+
+  it("emits all four tracking-consistency checks from 1.14.0", () => {
+    expect(findings()).toContain("Since 1.14.0 (RT-453) all four checks are emitted");
+    const finding = schemaText("TrackingConsistencyFinding");
+    expect(finding).toContain("emitted from");
+    expect(finding).toContain("profile_erp_flag_mismatch");
+  });
+
+  it("names the ERP-evidence expiry correction's reason and actor", () => {
+    expect(schemaText("TrackingIdentityExpiryCorrection")).toContain("erp_evidence");
+    expect(inventoryDoc.info?.description ?? "").toContain("`reasonCode` `erp_evidence`");
+  });
+
+  it("states how the two RT-453 Q13 preconditions are confirmed", () => {
+    const precondition = schemaText("TrackedSellingPrecondition");
+    expect(precondition).toContain("every live store has its");
+    expect(precondition).toContain("completed after that anchor");
   });
 });

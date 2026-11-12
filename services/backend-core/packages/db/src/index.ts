@@ -65,6 +65,34 @@ export {
   type AnchoredStore,
 } from "./helpers/inventory-effects/activation";
 export {
+  applyTrackingMasterEvidence,
+  birthBatchIdentity,
+  correctExpiryFromErpEvidence,
+  ERP_EVIDENCE_REASON_CODE,
+  IDENTITY_BIRTH_LOCK_NAMESPACE,
+  lockIdentityBirth,
+  lotCodeFromBatchName,
+  recordIdentityBirth,
+  type BatchBirthInput,
+  type BirthEvidence,
+  type BirthOutcome,
+  type BirthRefusal,
+  type TrackingMasterSummary,
+} from "./helpers/inventory-effects/identity-birth";
+export {
+  anchorTrackedIdentities,
+  hasIdentityAnchor,
+  readIdentityPositions,
+  readUntrackedTrackedEffects,
+  SINCE_IDENTITY_ANCHOR,
+  type AnchoredIdentityStore,
+  type AnchorTrackedIdentitiesInput,
+  type IdentityAnchorOutcome,
+  type IdentityAnchorRefusal,
+  type IdentityAnchorRefusalCode,
+  type IdentityPosition,
+} from "./helpers/inventory-effects/identity-anchor";
+export {
   buildCutoverEquivalenceReport,
   isStorePendingAware,
   readPendingAwarePositions,
