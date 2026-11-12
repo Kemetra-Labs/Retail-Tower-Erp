@@ -14,7 +14,7 @@ import { Banner } from "@/components/Banner";
 import { Drawer } from "@/components/Drawer";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
-import { useT } from "@/i18n";
+import { type MessageKey, useT } from "@/i18n";
 import type { ReleaseTrackingHoldCommand, SafetyReasonCodeInput } from "@/lib/tracking-queries";
 import { useState } from "react";
 import { Machine } from "../inventory/parts";
@@ -43,7 +43,9 @@ export function ReasonFields({
   errors,
   onReason,
   onNote,
+  noteAlwaysRequired = false,
 }: Readonly<{
+  noteAlwaysRequired?: boolean;
   idPrefix: string;
   reason: SafetyReasonCodeInput | "";
   note: string;
@@ -75,7 +77,7 @@ export function ReasonFields({
       <NoteField
         id={`${idPrefix}-note`}
         note={note}
-        required={noteRequired(reason)}
+        required={noteAlwaysRequired || noteRequired(reason)}
         error={errors.note}
         onNote={onNote}
       />
@@ -124,14 +126,20 @@ function NoteField({
 export function WriteResult({
   outcome,
   recorded,
-}: Readonly<{ outcome: WriteOutcome | null; recorded: string }>): React.JSX.Element | null {
+  notFoundHint,
+}: Readonly<{
+  outcome: WriteOutcome | null;
+  recorded: string;
+  /** The line for a 404 when it does not mean «batches not imported yet» (the bind). */
+  notFoundHint?: MessageKey;
+}>): React.JSX.Element | null {
   const t = useT();
   if (!outcome) return null;
   if (outcome.kind === "recorded") return <Banner variant="success" message={recorded} />;
   if (outcome.kind === "failed") {
     return <Banner variant="danger" message={t("tracking.write.failed")} />;
   }
-  const hint = refusalHint(outcome);
+  const hint = refusalHint(outcome, notFoundHint);
   const waited =
     outcome.status === 429 && outcome.retryAfter
       ? t("inventory.error.rateLimitedFor", { count: outcome.retryAfter })
@@ -152,6 +160,39 @@ export function WriteResult({
           {t.rich("tracking.write.code", { code: <Machine value={outcome.code} /> })}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** A command drawer's buttons: submit and cancel, or only Close once it is recorded. */
+export function DrawerActions({
+  recorded,
+  pending,
+  submitLabel,
+  onClose,
+}: Readonly<{
+  recorded: boolean;
+  pending: boolean;
+  submitLabel: string;
+  onClose: () => void;
+}>): React.JSX.Element {
+  const t = useT();
+  return (
+    <div className="tracking__actions">
+      {recorded ? (
+        <button type="button" className="btn-secondary" onClick={onClose}>
+          {t("tracking.write.close")}
+        </button>
+      ) : (
+        <>
+          <GatedButton type="submit" className="btn-primary" disabled={pending}>
+            {pending ? t("common.loading") : submitLabel}
+          </GatedButton>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={pending}>
+            {t("tracking.write.cancel")}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -205,27 +246,12 @@ export function PlaceHoldDrawer({
           outcome={write.outcome}
           recorded={t("tracking.placeHold.recorded", { code })}
         />
-        <div className="tracking__actions">
-          {recorded ? (
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              {t("tracking.write.close")}
-            </button>
-          ) : (
-            <>
-              <GatedButton type="submit" className="btn-primary" disabled={write.pending}>
-                {write.pending ? t("common.loading") : t("tracking.placeHold.submit")}
-              </GatedButton>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={onClose}
-                disabled={write.pending}
-              >
-                {t("tracking.write.cancel")}
-              </button>
-            </>
-          )}
-        </div>
+        <DrawerActions
+          recorded={recorded}
+          pending={write.pending}
+          submitLabel={t("tracking.placeHold.submit")}
+          onClose={onClose}
+        />
       </form>
     </Drawer>
   );

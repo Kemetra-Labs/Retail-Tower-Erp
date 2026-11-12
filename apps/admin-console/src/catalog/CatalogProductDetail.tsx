@@ -38,6 +38,7 @@ import { Notice } from "./CatalogPager";
 import { ProductIdentifiers } from "./ProductIdentifiers";
 import { ProductRetire } from "./ProductRetire";
 import { type OverrideOutcome, StoreOverrideDrawer } from "./StoreOverrideDrawer";
+import { TrackingProfileSection } from "./TrackingProfileSection";
 import { inventoryPath, isProductId } from "./catalogDetailLogic";
 import { canReadCatalog, statusBadgeClass, statusKey } from "./catalogLogic";
 import { canWriteCatalog } from "./productFormLogic";
@@ -201,6 +202,12 @@ function Loaded({
       <DetailGrid>
         <TenantValues product={product} />
       </DetailGrid>
+      <TrackingProfileSection
+        productId={summary.productId}
+        trackingMode={summary.trackingMode}
+        tenantId={scope.tenantId}
+        role={scope.role}
+      />
       <ProductIdentifiers
         product={product}
         writableTenantId={canWrite ? scope.tenantId : null}
