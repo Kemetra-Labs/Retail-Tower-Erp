@@ -100,8 +100,8 @@ async function insertSale(tenant: string, store: string, saleId = id(`0a2${Strin
     `INSERT INTO sales
        (id, tenant_id, store_id, currency_code, pos_total, occurred_at, business_date,
         source_system, external_id, payload_hash, created_by, tender_count)
-     VALUES ($1, $2, $3, 'EGP', 50, '2026-11-12T10:00:00Z', '2026-11-12', 'pos-1', $1::text, $4, $5, 1)`,
-    [saleId, tenant, store, "c".repeat(64), ACTOR],
+     VALUES ($1, $2, $3, 'EGP', 50, '2026-11-12T10:00:00Z', '2026-11-12', 'pos-1', $6, $4, $5, 1)`,
+    [saleId, tenant, store, "c".repeat(64), ACTOR, `stv-${saleId}`],
   );
   return saleId;
 }
