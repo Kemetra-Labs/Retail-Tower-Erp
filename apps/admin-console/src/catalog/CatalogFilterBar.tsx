@@ -1,3 +1,5 @@
+import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
+import { type MessageKey, useT } from "@/i18n";
 /**
  * RT-765 catalog filters (CAT-C1a, RT-752 AC 4), laid out by the shared
  * FilterBar (RT-960). Search text, status (default «نشط») and category; Apply
@@ -7,8 +9,7 @@
  * quick-sale code keeps its leading zeros and every space, so a pasted trailing
  * space is a miss, not something silently fixed.
  */
-import { FilterBar, type FilterChip, FilterField, isolate } from "@/components/FilterBar";
-import { type MessageKey, useT } from "@/i18n";
+import type { CatalogBrand } from "@/lib/brand-queries";
 import type { CatalogCategory } from "@/lib/catalog-queries";
 import { useState } from "react";
 import {
@@ -27,6 +28,10 @@ export interface CatalogFilterBarProps {
   categories: readonly CatalogCategory[];
   categoriesLoading: boolean;
   categoriesFailed: boolean;
+  /** RT-1338: the tenant's brands, for the brand filter. */
+  brands: readonly CatalogBrand[];
+  brandsLoading: boolean;
+  brandsFailed: boolean;
   /** Errors already present in the applied filters (a hand-edited URL). */
   initialErrors: FilterErrors;
   onApply: (filters: CatalogFilters) => void;
@@ -67,9 +72,41 @@ function CategoryOptions({
   );
 }
 
+/** The brand options, plus the applied one when the list does not carry it (a retired brand). */
+function BrandOptions({
+  brands,
+  appliedId,
+  loading,
+  failed,
+}: Readonly<{
+  brands: readonly CatalogBrand[];
+  appliedId: string;
+  loading: boolean;
+  failed: boolean;
+}>): React.JSX.Element {
+  const t = useT();
+  const known = brands.some((b) => b.brandId.toLowerCase() === appliedId);
+  const missing = appliedId !== "" && !known;
+  let missingKey: MessageKey = "catalog.filter.brandStale";
+  if (loading) missingKey = "catalog.filter.brandLoading";
+  else if (failed) missingKey = "catalog.filter.brandSelected";
+  return (
+    <>
+      <option value="">{t("catalog.filter.brandAll")}</option>
+      {brands.map((b) => (
+        <option key={b.brandId} value={b.brandId.toLowerCase()}>
+          {b.name}
+        </option>
+      ))}
+      {missing ? <option value={appliedId}>{t(missingKey)}</option> : null}
+    </>
+  );
+}
+
 function useChips(
   applied: CatalogFilters,
   categories: readonly CatalogCategory[],
+  brands: readonly CatalogBrand[],
   onApply: (filters: CatalogFilters) => void,
 ): FilterChip[] {
   const t = useT();
@@ -99,6 +136,16 @@ function useChips(
       onRemove: () => onApply({ ...applied, categoryId: "" }),
     });
   }
+  if (applied.brandId !== "") {
+    const name =
+      brands.find((b) => b.brandId.toLowerCase() === applied.brandId)?.name ??
+      t("catalog.filter.brandSelected");
+    chips.push({
+      key: "brand",
+      label: `${t("catalog.filter.brand")}: ${isolate(name)}`,
+      onRemove: () => onApply({ ...applied, brandId: "" }),
+    });
+  }
   return chips;
 }
 
@@ -107,6 +154,9 @@ export function CatalogFilterBar({
   categories,
   categoriesLoading,
   categoriesFailed,
+  brands,
+  brandsLoading,
+  brandsFailed,
   initialErrors,
   onApply,
   onClear,
@@ -114,7 +164,7 @@ export function CatalogFilterBar({
   const t = useT();
   const [draft, setDraft] = useState<CatalogFilters>(applied);
   const [errors, setErrors] = useState<FilterErrors>(initialErrors);
-  const chips = useChips(applied, categories, onApply);
+  const chips = useChips(applied, categories, brands, onApply);
 
   // The URL is the source of truth: when the applied filters change from outside
   // (Back, a deep link, a tenant change, a removed chip) the draft follows. The
@@ -161,6 +211,11 @@ export function CatalogFilterBar({
           {categoriesFailed ? (
             <p id="cf-category-note" className="filter-bar__note-line">
               {t("catalog.filter.categoriesFailed")}
+            </p>
+          ) : null}
+          {brandsFailed ? (
+            <p id="cf-brand-note" className="filter-bar__note-line">
+              {t("catalog.filter.brandsFailed")}
             </p>
           ) : null}
         </>
@@ -213,6 +268,23 @@ export function CatalogFilterBar({
             appliedId={draft.categoryId}
             loading={categoriesLoading}
             failed={categoriesFailed}
+          />
+        </select>
+      </FilterField>
+      <FilterField id="cf-brand" label={t("catalog.filter.brand")} error={message(errors.brand)}>
+        <select
+          id="cf-brand"
+          className="input"
+          aria-invalid={errors.brand ? true : undefined}
+          aria-describedby={brandsFailed ? "cf-brand-note" : undefined}
+          value={draft.brandId}
+          onChange={(e) => set("brandId")(e.target.value)}
+        >
+          <BrandOptions
+            brands={brands}
+            appliedId={draft.brandId}
+            loading={brandsLoading}
+            failed={brandsFailed}
           />
         </select>
       </FilterField>

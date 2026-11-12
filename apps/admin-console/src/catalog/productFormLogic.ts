@@ -31,11 +31,15 @@ export const TAX_CATEGORY_MAX = 50;
 /** The form's `categoryId` when the product has none («بدون فئة»). */
 export const NO_CATEGORY = "";
 
+/** The form's `brandId` when the product has none (RT-1338, «بدون علامة تجارية»). */
+export const NO_BRAND = "";
+
 /** What the person sees and edits. Raw: nothing here is trimmed or nulled yet. */
 export interface ProductFormValues {
   name: string;
   description: string;
   categoryId: string;
+  brandId: string;
   taxCategory: string;
   isActive: boolean;
 }
@@ -46,6 +50,7 @@ export function formValuesOf(product: CatalogProductDetail): ProductFormValues {
     name: summary.name,
     description: product.description ?? "",
     categoryId: summary.categoryId ?? NO_CATEGORY,
+    brandId: summary.brandId ?? NO_BRAND,
     taxCategory: summary.taxCategory,
     isActive: summary.status === "active",
   };
@@ -54,7 +59,7 @@ export function formValuesOf(product: CatalogProductDetail): ProductFormValues {
 // --- Validation: what the client may prevent --------------------------------------------
 
 /** The fields that can carry an error, in the order of the form. */
-export const FIELD_ORDER = ["name", "description", "categoryId", "taxCategory"] as const;
+export const FIELD_ORDER = ["name", "description", "categoryId", "brandId", "taxCategory"] as const;
 export type ProductField = (typeof FIELD_ORDER)[number];
 export type ProductFieldErrors = Partial<Record<ProductField, MessageKey>>;
 
@@ -90,6 +95,8 @@ export interface ProductPatch {
   name?: string;
   description?: string | null;
   categoryId?: string | null;
+  /** RT-1338: `null` clears the brand. */
+  brandId?: string | null;
   taxCategory?: string;
   isActive?: boolean;
 }
@@ -112,6 +119,7 @@ export function buildPatch(base: ProductFormValues, typed: ProductFormValues): P
     name: trimmedChange(base.name, typed.name),
     description: descriptionChange(base.description, typed.description),
     categoryId: typed.categoryId === base.categoryId ? undefined : categoryOf(typed.categoryId),
+    brandId: typed.brandId === base.brandId ? undefined : categoryOf(typed.brandId),
     taxCategory: trimmedChange(base.taxCategory, typed.taxCategory),
     isActive: typed.isActive === base.isActive ? undefined : typed.isActive,
   });
@@ -206,6 +214,20 @@ export function extraCategoryOptions(
 }
 
 /**
+ * RT-1338: the brand options a select needs beyond the tenant's list: the product's own brand when
+ * the list omits it (retired, or the list is loading or failed). A controlled select that lacks the
+ * option for its value would silently show another one.
+ */
+export function extraBrandOption(
+  brands: readonly { brandId: string }[],
+  current: { id: string; name: string | null } | null,
+  listKnown: boolean,
+): { id: string; name: string; retired: boolean } | null {
+  if (current === null || brands.some((b) => b.brandId === current.id)) return null;
+  return { id: current.id, name: current.name ?? current.id, retired: listKnown };
+}
+
+/**
  * After a `stale_write` the product is read again. Typed values are kept only
  * for the fields the person edited; every other field takes the fresh server
  * value, so the next patch cannot revert somebody else's change to a stale
@@ -221,6 +243,7 @@ export function mergeReload(
     description:
       typed.description !== oldBase.description ? typed.description : freshBase.description,
     categoryId: typed.categoryId !== oldBase.categoryId ? typed.categoryId : freshBase.categoryId,
+    brandId: typed.brandId !== oldBase.brandId ? typed.brandId : freshBase.brandId,
     taxCategory:
       typed.taxCategory !== oldBase.taxCategory ? typed.taxCategory : freshBase.taxCategory,
     isActive: typed.isActive !== oldBase.isActive ? typed.isActive : freshBase.isActive,
@@ -291,11 +314,14 @@ export function mapProductWriteError(failure: ProductWriteFailure): ProductWrite
     case 409:
       return conflict(failure);
     case 422:
-      return {
-        kind: "field",
-        field: "categoryId",
-        messageKey: "catalog.form.error.categoryUnavailable",
-      };
+      // RT-1338: `brand_unavailable` returns to the brand field; every other 422 is the category.
+      return code === "brand_unavailable"
+        ? { kind: "field", field: "brandId", messageKey: "catalog.form.error.brandUnavailable" }
+        : {
+            kind: "field",
+            field: "categoryId",
+            messageKey: "catalog.form.error.categoryUnavailable",
+          };
     case 429:
       return banner("warning", "catalog.write.error.rateLimited", requestId);
     default:

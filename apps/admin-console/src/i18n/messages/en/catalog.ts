@@ -49,12 +49,14 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.list.col.barcode": "Barcode",
   "catalog.list.col.category": "Category",
   "catalog.list.col.availability": "Store availability",
+  "catalog.list.col.brand": "Brand",
   "catalog.list.col.taxCategory": "Tax category",
   "catalog.list.col.tracking": "Tracking",
   "catalog.list.col.updatedAt": "Updated",
 
   // --- Values ----------------------------------------------------------------
   "catalog.value.noPrice": "No price",
+  "catalog.value.noBrand": "No brand",
   "catalog.value.noCategory": "No category",
   "catalog.status.active": "Active",
   "catalog.status.inactive": "Inactive",
@@ -91,6 +93,13 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.filter.categoryStale": "Unavailable category",
   "catalog.filter.categorySelected": "Selected category",
   "catalog.filter.categoriesFailed": "Categories could not be loaded.",
+  "catalog.filter.brand": "Brand",
+  "catalog.filter.brandAll": "All brands",
+  "catalog.filter.brandLoading": "Loading…",
+  "catalog.filter.brandStale": "Unavailable brand",
+  "catalog.filter.brandSelected": "Selected brand",
+  "catalog.filter.brandsFailed": "Brands could not be loaded.",
+  "catalog.filter.brandInvalid": "The brand in the link is not valid.",
   "catalog.filter.qTooLong": "Search text can be at most 100 characters.",
   "catalog.filter.categoryInvalid": "The category in the link is not valid.",
 
@@ -98,6 +107,7 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.summary.q": "search “{q}”",
   "catalog.summary.status": "status: {status}",
   "catalog.summary.category": "category: {category}",
+  "catalog.summary.brand": "brand: {brand}",
   "catalog.summary.join": ", ",
 
   // --- Detail (RT-766, CAT-C1b) -----------------------------------------------
@@ -117,6 +127,7 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.detail.field.status": "Status",
   "catalog.detail.field.description": "Description",
   "catalog.detail.field.category": "Category",
+  "catalog.detail.field.brand": "Brand",
   "catalog.detail.field.taxCategory": "Tax category",
   "catalog.detail.field.tenantAvailability": "Tenant availability",
   "catalog.detail.field.availability": "Availability",
@@ -262,6 +273,10 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.form.categoryRetired": "{name} (retired)",
   "catalog.form.categoryUnavailableOption": "{name} (unavailable)",
   "catalog.form.categoriesFailed": "Categories could not be loaded. The current category is kept.",
+  "catalog.form.brand": "Brand",
+  "catalog.form.brandNone": "No brand",
+  "catalog.form.brandUnavailableOption": "{name} (unavailable)",
+  "catalog.form.brandsFailed": "Brands could not be loaded. The current brand stays as it is.",
   "catalog.form.taxCategory": "Tax category",
   "catalog.form.taxCategoryHint":
     "A short code, up to 50 characters, for example standard. It is kept as typed, apart from spaces at the ends.",
@@ -278,6 +293,9 @@ export const catalog: MessagesOf<typeof ar> = {
     "The tax category can be at most 50 characters. Shorten it.",
   "catalog.form.error.categoryUnavailable":
     "This category is no longer available. Choose another category, or no category.",
+
+  "catalog.form.error.brandUnavailable":
+    "This brand is no longer available. Choose another brand or leave the item without one.",
 
   "catalog.write.error.validation":
     "The server rejected these values. Check the name, description and tax category, then try again.",

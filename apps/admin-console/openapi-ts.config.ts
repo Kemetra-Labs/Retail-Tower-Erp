@@ -526,6 +526,17 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "VouchersAdmin",
     path: "services/backend-core/packages/contracts/openapi/vouchers-admin.openapi.yaml",
   },
+  // Offer Engine V1 (RT-1335 contract #514, RT-1337 runtime #528; RT-1338 / RT-286 S6): the ten
+  // Console operations `consoleListOffers` .. `consoleListOfferVersions`, wrapped in
+  // src/lib/offer-queries.ts for the Offers screens. The POS read in the same document
+  // (`posGetOfferPack`) is composed, not called. Consume-only; no YAML authored here. NEW SOURCE
+  // at the repin cea37a4f7 -> fd54d9819 (RT-1338, `main` after RT-1337 #528). Of the 38 other
+  // sources only `console-sales.openapi.yaml` moved (additive `SaleHistoryLine.promotion`, RT-1335);
+  // `catalog/console-catalog.yaml` already carried the brand operations (RT-1334) at cea37a4f7.
+  {
+    name: "Offers",
+    path: "services/backend-core/packages/contracts/openapi/offers.openapi.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */

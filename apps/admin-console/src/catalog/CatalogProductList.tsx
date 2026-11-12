@@ -13,6 +13,7 @@
  * active store's name comes from the client's scope, so it stays in the note
  * below the band. Every result state sits in one panel (`catalog-v4`).
  */
+import { type BrandListState, useCatalogBrands } from "@/brands/useBrands";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useT } from "@/i18n";
 import type { CatalogProduct } from "@/lib/catalog-queries";
@@ -101,6 +102,7 @@ function Shell({
 function describeFilters(
   filters: CatalogFilters,
   categoryLabel: string,
+  brandLabel: string,
   t: ReturnType<typeof useT>,
 ): React.ReactNode {
   const parts: { key: string; node: React.ReactNode }[] = [
@@ -124,6 +126,14 @@ function describeFilters(
             node: t.rich("catalog.summary.category", {
               category: <bdi dir="auto">{categoryLabel}</bdi>,
             }),
+          },
+        ]),
+    ...(filters.brandId === ""
+      ? []
+      : [
+          {
+            key: "brand",
+            node: t.rich("catalog.summary.brand", { brand: <bdi dir="auto">{brandLabel}</bdi> }),
           },
         ]),
   ];
@@ -152,6 +162,17 @@ function categoryLabelOf(
   return t(unknownYet ? "catalog.filter.categorySelected" : "catalog.filter.categoryStale");
 }
 
+/** RT-1338: the same rule for the brand filter's label. */
+function brandLabelOf(brands: BrandListState, brandId: string, t: ReturnType<typeof useT>): string {
+  const known = brands.brands.find((b) => b.brandId.toLowerCase() === brandId)?.name;
+  if (known) return known;
+  return t(
+    brands.isLoading || brands.failed
+      ? "catalog.filter.brandSelected"
+      : "catalog.filter.brandStale",
+  );
+}
+
 /** The filters the URL asks for, and the query they make (none when refused or invalid). */
 function useAppliedFilters(scope: CatalogScope, search: URLSearchParams, filtersOwned: boolean) {
   const filters = filtersFromSearch(search);
@@ -177,6 +198,7 @@ function CatalogContent({
   const { filters, errors, query } = useAppliedFilters(scope, search, filtersOwned);
   const list = useCatalogList(scope, query);
   const categories = useCatalogCategories(tenantId, true);
+  const brands = useCatalogBrands(tenantId, true);
   const stamp = stampFor(tenantId);
   const clearFilters = () => setSearch(new URLSearchParams(), stamp);
   return (
@@ -186,6 +208,9 @@ function CatalogContent({
         categories={categories.categories}
         categoriesLoading={categories.isLoading}
         categoriesFailed={categories.failed}
+        brands={brands.brands}
+        brandsLoading={brands.isLoading}
+        brandsFailed={brands.failed}
         initialErrors={errors}
         onApply={(next) => setSearch(filtersToSearch(next), stamp)}
         onClear={clearFilters}
@@ -195,7 +220,12 @@ function CatalogContent({
           list={list}
           storeInScope={Boolean(scope.activeStoreId)}
           filtered={!isDefaultFilters(filters)}
-          summary={describeFilters(filters, categoryLabelOf(categories, filters.categoryId, t), t)}
+          summary={describeFilters(
+            filters,
+            categoryLabelOf(categories, filters.categoryId, t),
+            brandLabelOf(brands, filters.brandId, t),
+            t,
+          )}
           searching={filters.q !== ""}
           onOpen={(row: CatalogProduct) => navigate(`/catalog/products/${row.productId}`)}
           onClearFilters={clearFilters}

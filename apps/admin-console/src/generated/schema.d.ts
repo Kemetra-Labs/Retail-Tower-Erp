@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ cea37a4f7183b8ce635f6bc37ea29c844aee18f4
+// Source: Kemetra-Labs/Retail-Tower-Erp @ fd54d9819ebb103e621a5353be3b9390840578ad
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -41,6 +41,7 @@
 // - services/backend-core/packages/contracts/openapi/pos-pilot-releases.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/pos-device-health.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/vouchers-admin.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/offers.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -7464,6 +7465,14 @@ export namespace ConsoleSalesSchema {
                 unit: string;
                 /** @description Cumulative quantity returned on this line ("0" when none). */
                 returnedQuantity: string;
+                /** @description RT-1337 (spec 048 §8): the automatic-offer fact the line was captured with (`CaptureSaleLinePromotion` of `pos-sales/sales.yaml`), echoed as stored. Present only on a line that took part in an offer; optional, never in `required`. */
+                promotion?: {
+                    /** Format: uuid */
+                    offerId: string;
+                    offerVersion: number;
+                    packRevision: number;
+                    discountAmount: components["schemas"]["DecimalAmount"];
+                };
             };
             /** @description A captured tender line (RT-10 D1); the amount is NET of change, as captured. */
             SaleTenderView: {
@@ -19606,6 +19615,1328 @@ export namespace VouchersAdminSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations;
+export namespace OffersSchema {
+    export interface paths {
+        "/api/v1/offers": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the tenant's offers, newest first.
+             * @description Keyset-paginated list of the session tenant's offers, newest first (`createdAt`, then `offerId`). Roles: `owner`, `tenant_admin`, `store_manager` (only offers whose store scope includes one of their stores). Filters combine with AND. `state` is the derived state.
+             */
+            get: operations["consoleListOffers"];
+            put?: never;
+            /**
+             * Create an offer with its first draft.
+             * @description Creates an offer in state `draft` whose draft is `definition` (`draftRevision` 1). Capability `offers.manage`: roles `owner`, `tenant_admin`. The body must be a complete `OfferDefinition`; shape rules (including an `include` that names nothing) are 400 `validation_error`. Whether the referenced products, categories, brands and stores exist, and what the eligible set is, are checked by `consolePreviewOffer` and `consolePublishOffer`, not here, so a draft can be saved while the catalog is still being prepared. A same-key retry with the same body replays the stored 201 (`Idempotent-Replayed: true`).
+             */
+            post: operations["consoleCreateOfferDraft"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Read one offer, its draft and its current version.
+             * @description The offer's derived state, its draft (null when there is none), a summary of its current published version (null before the first publish), the whole-offer pause and the store pauses. Roles: `owner`, `tenant_admin`, `store_manager` (own-store offers only; any other offer is the same 404 as one that does not exist).
+             */
+            get: operations["consoleGetOffer"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/draft": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Replace the offer's draft (optimistic concurrency).
+             * @description Replaces the draft with `definition` and increments `draftRevision`. Capability `offers.manage`: roles `owner`, `tenant_admin`. `expectedDraftRevision` is the `draftRevision` the caller last read, or `null` to start the next draft of a published offer that has none; any other value is 409 `offer_draft_changed_concurrently` and nothing is written. A draft can be edited while the offer is `draft`, `scheduled`, `active` or `paused`; tills keep applying the published version until the next publish. On an `ended` or `archived` offer it is 409 `offer_state_invalid`. Shape rules are 400 `validation_error`, as on create. A same-key retry with the same body replays the stored 200.
+             */
+            put: operations["consoleUpdateOfferDraft"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/preview": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Validate and preview the draft; changes nothing.
+             * @description Validate → Preview (§18). Resolves the offer's current draft against the catalog and the other offers, and changes nothing: no state, no version, no Pack revision. Capability `offers.manage`: roles `owner`, `tenant_admin`. When `expectedDraftRevision` is sent and is not the current one, it is 409 `offer_draft_changed_concurrently`. An offer with no draft is 409 `offer_state_invalid`.
+             *
+             *     The 200 reports every issue a publish would refuse for, in `issues` (codes from `OfferErrorCode`), so a preview with an empty `issues` list and no `conflicts` is publishable at that moment: `offer_reference_invalid` (a product, category, brand or store id that is not of the tenant, or is deleted; every brand id until the RT-1334 brands exist), `offer_eligible_set_empty`, `offer_eligible_set_too_large`, `offer_schedule_elapsed`, `offer_store_offer_limit_exceeded`. It returns the eligible-set count and a sample of up to 20 products (§5.2 rule 5), and the conflicts with other `scheduled`, `active` or `paused` offers (OD-7). An optional `simulation` (a list of cart unit prices) is evaluated with the spec 048 §6 algorithm and the draft's parameters, and returns the result a till would compute.
+             */
+            post: operations["consolePreviewOffer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/publish": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Publish the draft as a new immutable version.
+             * @description Publishes the draft named by `expectedDraftRevision` as the offer's next version (`version` 1, 2, …), which is immutable from then on; the draft is consumed (`draft` becomes null). Capability `offers.publish`: roles `owner`, `tenant_admin`. The offer becomes `scheduled` or `active` according to its schedule; a `paused` offer stays paused and the new version applies from its resume. A new Pack revision follows for every store in scope.
+             *
+             *     Refusals, in this order, with nothing written: 409 `offer_state_invalid` (the offer is `ended` or `archived`); 409 `offer_draft_changed_concurrently` (no draft, or not the expected revision); 422 `offer_reference_invalid`, `offer_schedule_elapsed` (`endsAt` is already past in every store of the scope), `offer_eligible_set_empty`, `offer_eligible_set_too_large` (more than 20000 products, the Pack bound) or `offer_store_offer_limit_exceeded` (a store of the scope would have more than 200 live offers); then 409 `offer_conflict` (OD-7), whose body lists each conflicting offer and the number of shared products. A same-key retry with the same body replays the stored 200.
+             */
+            post: operations["consolePublishOffer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/pause": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Pause the whole offer, or only some stores (emergency stop).
+             * @description Capability `offers.pause`. Without `storeIds` the whole offer is paused (`state` becomes `paused`): roles `owner`, `tenant_admin`; a `store_manager` is 403 `forbidden`. With `storeIds` only those stores are paused (`pausedStores`); `owner` and `tenant_admin` may name any store of the offer's scope, and a `store_manager` only stores within their own store scope (any other is 404 `store_not_found`, non-disclosing). A store that is of the tenant but outside the offer's scope is 422 `offer_store_not_in_scope`. `reason` is required (1 to 500 characters, no PII) and is recorded on the audit row. Pausing never deletes history (§21).
+             *
+             *     Only a `scheduled` or `active` offer can be paused (a store pause also on a `paused` one); any other state is 409 `offer_state_invalid`. Pausing what is already paused is 200 with no change and no second audit row. A new Pack revision without the paused offer (or without it for the paused stores) follows at once. A till that is offline keeps applying the Pack it holds until it reads the new revision; Backend-Core judges such a sale against the Pack revision it cites (§19).
+             */
+            post: operations["consolePauseOffer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/resume": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Resume a paused offer, or some paused stores.
+             * @description Capability `offers.publish` (OD-12): roles `owner`, `tenant_admin`; a `store_manager` cannot resume, even a store they paused (403 `forbidden`). Without `storeIds` it lifts the whole-offer pause and every store pause; with `storeIds` it lifts only those store pauses (a named store that is not paused is 422 `offer_store_not_in_scope`). The offer returns to `scheduled`, `active` or `ended` according to its schedule. A resume is re-checked for conflicts like a publish (409 `offer_conflict`, OD-7), and for the store limit (422 `offer_store_offer_limit_exceeded`: a store would have more than 200 live offers). A resume of an offer with no pause is 409 `offer_state_invalid`. A new Pack revision follows.
+             */
+            post: operations["consoleResumeOffer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/end": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * End the offer now; it cannot be resumed.
+             * @description Capability `offers.manage`: roles `owner`, `tenant_admin`. Ends a `scheduled`, `active` or `paused` offer at the server time: it is `ended` from then on and leaves the Pack (a new revision follows). An `ended` offer cannot be resumed or published again; a new offer is created instead. Ending an offer that is already `ended` is 200 with no change and no second audit row. A `draft` or `archived` offer is 409 `offer_state_invalid`. Sales already captured keep their frozen facts (§20).
+             */
+            post: operations["consoleEndOffer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/archive": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Archive an ended offer.
+             * @description Capability `offers.manage`: roles `owner`, `tenant_admin`. Only an `ended` offer can be archived; any other state is 409 `offer_state_invalid`. Archiving hides the offer from the default lists of the Admin Console and keeps every version, so the frozen facts of past sales still resolve (§21). Archiving an offer that is already `archived` is 200 with no change and no second audit row.
+             */
+            post: operations["consoleArchiveOffer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/offers/{offer_id}/versions": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * List the offer's published versions, newest first.
+             * @description Keyset-paginated, newest `version` first. Each version is immutable and carries its full definition and the size of the eligible set it was published with. Roles: `owner`, `tenant_admin`, `store_manager` (own-store offers only).
+             */
+            get: operations["consoleListOfferVersions"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/pos/v1/store/offer-pack": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the paired terminal's current Offer Pack.
+             * @description Spec 048 §7, OD-6, OD-8. The current Pack revision of the device's own tenant and store: every offer version that is `scheduled` or `active` for this store and not paused for it, with its parameters, its schedule resolved to absolute instants for this store, its offline policy and its **materialised eligible set** (product ids). An offer whose eligible set for this store is empty (after a catalog change, or re-materialisation) is omitted from the Pack. **Invariant the till may rely on:** a product id appears in at most one offer's `eligibleProductIds` in a Pack (OD-7; on re-materialisation the offer published earliest keeps the product, tie the lower `offerId`). Tenant and store come only from the device row; no query parameter is accepted. Send `If-None-Match` with the last `ETag`; an unchanged Pack is `304` with no body. The body may be large (an offer over a whole category can carry about 10 000 product ids); the response may be compressed when the request accepts it.
+             *
+             *     **How the till applies it.** The till evaluates every offer with the spec 048 §6 algorithm (the golden vectors in `packages/contracts/fixtures/offers/golden-vectors.json`), matching product ids only; it never resolves a category or brand rule and never invents one (§19). A line with a manual discount, or with a non-whole quantity, never takes part (OD-5, F-9). Each sale line that takes part cites `offerId`, `offerVersion` and `packRevision` in `CaptureSaleLine.promotion` (`pos-sales/sales.yaml` 1.22.0-draft).
+             *
+             *     **Trusted time (OD-8).** The till never applies a scheduled offer by trusting the workstation wall clock. Its "now" is `issuedAt` (the server time of the last successful read: the body's `issuedAt` on a 200, the `X-Server-Time` header on a 304) plus the time elapsed since that read on a monotonic clock. An offer applies only while that "now" is at or after `startsAt` and before `endsAt` (when set).
+             *
+             *     **Freshness.** The Pack is fresh for `freshnessWindowHours` (a tenant setting, 1 to 72, default 24) after the last successful read, 200 or 304, measured on the same monotonic clock. A stale Pack applies no offer while the till is offline; online the till reads it again first.
+             *
+             *     **Restart.** A restart loses the monotonic clock, so until the next successful read the till can neither compute "now" nor prove the Pack fresh: it treats the Pack as stale and applies no offer. This is fail-safe: the customer pays the regular price, and the cashier sees «العرض غير متاح بدون اتصال».
+             *
+             *     **Offline policy.** `allow_cached` (the V1 default) applies the offer from a fresh Pack online and offline; `online_only` applies it only while the till reaches Backend-Core and captures the sale online (the RT-284 P-F vocabulary).
+             *
+             *     **Revalidation on sync.** Backend-Core judges a sale against the Pack revision it cites, not against the current offers: a sale is not invalid because the offer has since been paused or ended (§19). A rule-level mismatch with the server's evaluation is accepted and flagged for review (OD-9); see `captureSale`.
+             *
+             *     This operation is one of the RT-719 build identity reporting operations and one of the RT-639 rotate-hint operations of `pos-terminal-pairing.openapi.yaml` (it names itself there, from RT-1337).
+             *
+             *     **Source of the Pack fields.** `packRevision` is the latest tenant revision that changed this store's Pack (0 before any), so an unrelated revision of another store does not change the ETag. `freshnessWindowHours` is 24: no tenant setting exists yet. `currencyCode` is the single currency of the store's resolved prices (the store override's, else the product default's). When they use no currency or more than one, no currency is guessed: `currencyCode` is `XXX` (ISO 4217, no currency) and `offers` is empty, so the till applies no offer; there is no store or tenant currency setting yet. A deleted store is a 404.
+             */
+            get: operations["posGetOfferPack"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Non-negative exact-decimal amount as a string (gate A.6, never a float), with no more fractional digits than the currency's ISO-4217 minor unit. */
+            DecimalAmount: string;
+            /** @description ISO-4217 alphabetic currency code. */
+            CurrencyCode: string;
+            /** @description A whole percent from `1` to `100` as a string, the same domain and pattern as the RT-740 manual percent discount. `100` makes the reward unit free. */
+            WholePercent: string;
+            /**
+             * @description The derived lifecycle state (§16; see the info description). `scheduled`, `active` and `ended` follow from the schedule and the server time when read.
+             * @enum {string}
+             */
+            OfferState: "draft" | "scheduled" | "active" | "paused" | "ended" | "archived";
+            /**
+             * @description The only offer type of V1 (spec 048 §3.1).
+             * @constant
+             */
+            OfferType: "buy_x_get_y_percent";
+            /**
+             * @description RT-284 P-F vocabulary. `allow_cached` (the V1 default for automatic offers) applies the offer from a fresh Pack online and offline; `online_only` applies it only on an online sale.
+             * @default allow_cached
+             * @enum {string}
+             */
+            OfflinePolicy: "allow_cached" | "online_only";
+            UuidList: string[];
+            /** @description Spec 048 §5.1. "Buy one, get the second at 40% off" is `buyQuantity` 1, `getQuantity` 1, `percentOff` "40", `rewardSelection` `cheapest`. The reward of each application goes to the cheapest eligible units of the whole basket (OD-2), and the discount of a reward unit is `percentOff`% of its unit price, rounded half up once at the currency minor unit (OD-28-3). */
+            BuyXGetYPercentParameters: {
+                /** @description X, the units that trigger one application. */
+                buyQuantity: number;
+                /** @description Y, the reward units of one application. */
+                getQuantity: number;
+                percentOff: components["schemas"]["WholePercent"];
+                /**
+                 * @description The only value in V1. A field of the offer, never implicit (§17).
+                 * @constant
+                 */
+                rewardSelection: "cheapest";
+                /** @description Null means unlimited. */
+                maxApplicationsPerSale: number | null;
+                /**
+                 * @description The only value in V1: the regular unit price the POS shows, after the store override (§16 price basis).
+                 * @constant
+                 */
+                priceBasis: "resolved_store_price";
+            };
+            /** @description Products, categories and brands, each a list of ids of the tenant. An omitted list is empty. A product with no category, or no brand, never matches a category or brand rule. Brand ids refer to the catalog brands of RT-1334 (S1), which are not live yet: until they are, any brand id is `offer_reference_invalid` at preview and publish. */
+            EligibilitySet: {
+                productIds?: components["schemas"]["UuidList"];
+                categoryIds?: string[];
+                brandIds?: string[];
+            };
+            /** @description The include set. It must name at least one product, category or brand (§5.2 rule 1: a whole-catalog offer is out of V1), else 400 `validation_error`. */
+            EligibilityInclude: components["schemas"]["EligibilitySet"] & ({
+                productIds: unknown;
+            } | {
+                categoryIds: unknown;
+            } | {
+                brandIds: unknown;
+            });
+            /** @description Spec 048 §5.2. A product is eligible when it matches ANY include entry and NO exclude entry: exclusion always wins, whatever its dimension (OD-1). Retired or inactive products are never eligible. Backend-Core resolves the set (OD-6); the result is the eligible set of the version, materialised into each Pack revision. */
+            Eligibility: {
+                include: components["schemas"]["EligibilityInclude"];
+                exclude?: components["schemas"]["EligibilitySet"];
+            };
+            /** @description Either the whole chain (`allStores: true`, which includes stores added later) or an explicit list of stores, which never grows by itself. */
+            StoreScope: {
+                /** @constant */
+                allStores: true;
+            } | {
+                storeIds: string[];
+            };
+            /** @description The offer window, `[startsAt, endsAt)`; no `endsAt` means open-ended. Spec 041 §4.3 conventions. `store_local` (the default for authoring): `startsAt` and `endsAt` are local date-times without an offset (`2026-12-01T00:00` or `2026-12-01T00:00:00`), interpreted in each store's IANA timezone, so the offer opens at local midnight in every store; a local time in a spring-forward gap resolves to the first valid instant after it, and one that occurs twice to the earlier occurrence. `absolute`: RFC 3339 instants with an offset, the same for every store. `endsAt` must be after `startsAt` (400 `validation_error`). */
+            OfferSchedule: {
+                /** @enum {string} */
+                timeBasis: "store_local" | "absolute";
+                startsAt: string;
+                endsAt?: string | null;
+            } & (unknown & unknown);
+            /** @description Everything a version freezes (spec 048 §4): names, type, parameters, eligibility rules, store scope, schedule and offline policy. V1 offers are exclusive (OD-5): a line with a manual discount never takes part, and a unit belongs to at most one offer (OD-7). */
+            OfferDefinition: {
+                /** @description Arabic name, shown to the cashier and on the receipt. */
+                nameAr: string;
+                /** @description Optional English name. */
+                nameEn?: string | null;
+                type: components["schemas"]["OfferType"];
+                parameters: components["schemas"]["BuyXGetYPercentParameters"];
+                eligibility: components["schemas"]["Eligibility"];
+                storeScope: components["schemas"]["StoreScope"];
+                schedule: components["schemas"]["OfferSchedule"];
+                offlinePolicy?: components["schemas"]["OfflinePolicy"];
+            };
+            OfferDraftCreateRequest: {
+                definition: components["schemas"]["OfferDefinition"];
+            };
+            OfferDraftUpdateRequest: {
+                /** @description The `draftRevision` the caller last read, or null when the offer has no draft (after a publish). */
+                expectedDraftRevision: number | null;
+                definition: components["schemas"]["OfferDefinition"];
+            };
+            OfferPreviewRequest: {
+                /** @description Optional. When sent, the preview is refused if the draft moved on. */
+                expectedDraftRevision?: number;
+                simulation?: components["schemas"]["OfferSimulationRequest"];
+            };
+            /** @description A cart to evaluate with the draft's parameters (§10 "cart of these prices → result"). A line without `productId` is treated as an eligible unit price; a line with one is eligible when the product is in the draft's eligible set. Lines are taken in the order sent, which breaks price ties (§6 step 2). */
+            OfferSimulationRequest: {
+                currencyCode: components["schemas"]["CurrencyCode"];
+                lines: components["schemas"]["OfferSimulationLine"][];
+            };
+            OfferSimulationLine: {
+                unitPrice: components["schemas"]["DecimalAmount"];
+                /** @default 1 */
+                quantity: number;
+                /** Format: uuid */
+                productId?: string;
+            };
+            OfferPublishRequest: {
+                /** @description The draft revision that was previewed and is to be published. */
+                expectedDraftRevision: number;
+            };
+            OfferPauseRequest: {
+                /** @description Why the offer is paused. Required, recorded on the audit row. No PII. */
+                reason: string;
+                /** @description Absent: pause the whole offer (`owner`, `tenant_admin`). Present: pause only these stores (also `store_manager`, within their own store scope). */
+                storeIds?: string[];
+            };
+            OfferResumeRequest: {
+                /** @description Absent: lift every pause. Present: lift only these store pauses. */
+                storeIds?: string[];
+            };
+            OfferDraft: {
+                /** @description The optimistic-concurrency token of the draft. */
+                draftRevision: number;
+                definition: components["schemas"]["OfferDefinition"];
+                /** Format: date-time */
+                updatedAt: string;
+                /** Format: uuid */
+                updatedByUserId: string;
+            };
+            /** @description An immutable published version (§16). For a `store_manager` the server filters `definition.storeScope.storeIds` to the caller's own stores. */
+            OfferVersion: {
+                version: number;
+                definition: components["schemas"]["OfferDefinition"];
+                /** Format: date-time */
+                publishedAt: string;
+                /** Format: uuid */
+                publishedByUserId: string;
+                /** @description The size of the eligible set at publish; the materialised set can change with the catalog (OD-6). */
+                eligibleSetCount: number;
+            };
+            OfferPause: {
+                /** Format: date-time */
+                pausedAt: string;
+                /** Format: uuid */
+                pausedByUserId: string;
+                reason: string;
+            };
+            OfferStorePause: {
+                /** Format: uuid */
+                storeId: string;
+                /** Format: date-time */
+                pausedAt: string;
+                /** Format: uuid */
+                pausedByUserId: string;
+                reason: string;
+            };
+            /** @description One offer as read on the Console. For a `store_manager` the server filters `storeScope.storeIds` (in `draft` and `currentVersion`) and `pausedStores` to the caller's own stores: another store's id, pause reason and pausing user are never returned. An all-stores offer reads `allStores: true`. */
+            Offer: {
+                /** Format: uuid */
+                offerId: string;
+                state: components["schemas"]["OfferState"];
+                /** @description The draft of the next version, or null. */
+                draft: null | components["schemas"]["OfferDraft"];
+                /** @description The latest published version, or null before the first publish. */
+                currentVersion: null | components["schemas"]["OfferVersion"];
+                /** @description The whole-offer pause, or null. */
+                pause: null | components["schemas"]["OfferPause"];
+                /** @description The store-level pauses; empty when none. */
+                pausedStores: components["schemas"]["OfferStorePause"][];
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                /**
+                 * Format: date-time
+                 * @description When the offer was ended explicitly; null otherwise (a window that closed by itself leaves it null).
+                 */
+                endedAt: string | null;
+                /** Format: date-time */
+                archivedAt: string | null;
+                /** @description OD-7 clarification: the earlier-published live offers that kept products this offer's rules also match, after a catalog change. Those products are not in this offer's Pack eligible set for the stores concerned. Empty when none. */
+                rematerialisationConflicts: components["schemas"]["OfferRematerialisationConflict"][];
+            };
+            OfferRematerialisationConflict: {
+                /**
+                 * Format: uuid
+                 * @description The earlier-published offer that kept the products.
+                 */
+                offerId: string;
+                offerVersion: number;
+                nameAr: string;
+                /** @description Products removed from this offer's eligible set in at least one store because the other offer keeps them. */
+                removedProductCount: number;
+                removedProductSample: string[];
+            };
+            /** @description One row of the offers list. Names, schedule and scope are those of the current version, or of the draft before the first publish. For a `store_manager` the server filters `storeScope.storeIds` to the caller's own stores; an all-stores offer reads `allStores: true`. */
+            OfferSummary: {
+                /** Format: uuid */
+                offerId: string;
+                state: components["schemas"]["OfferState"];
+                nameAr: string;
+                nameEn: string | null;
+                currentVersion: number | null;
+                hasDraft: boolean;
+                schedule: components["schemas"]["OfferSchedule"];
+                storeScope: components["schemas"]["StoreScope"];
+                /** Format: date-time */
+                updatedAt: string;
+                /** @description The number of entries of `Offer.rematerialisationConflicts`. */
+                rematerialisationConflictCount: number;
+            };
+            OfferPage: {
+                items: components["schemas"]["OfferSummary"][];
+                /** @description Opaque cursor for the next page; null on the last page. */
+                nextCursor: string | null;
+            };
+            OfferVersionPage: {
+                items: components["schemas"]["OfferVersion"][];
+                /** @description Opaque cursor for the next page; null on the last page. */
+                nextCursor: string | null;
+            };
+            /** @description Another offer whose eligible set shares products with this one, in a store both hold (OD-7). Whatever the windows: the Pack holds a product once per store, so two live offers on the same product and store conflict even when their windows are disjoint. */
+            OfferConflict: {
+                /** Format: uuid */
+                offerId: string;
+                offerVersion: number;
+                nameAr: string;
+                /** @enum {string} */
+                state: "scheduled" | "active" | "paused";
+                sharedProductCount: number;
+                /** @description Up to 20 of the shared product ids. */
+                sharedProductSample: string[];
+            };
+            OfferPreviewIssue: {
+                /** @enum {string} */
+                code: "offer_reference_invalid" | "offer_eligible_set_empty" | "offer_eligible_set_too_large" | "offer_schedule_elapsed" | "offer_store_offer_limit_exceeded";
+                /** @description A JSON pointer into the definition, such as `/eligibility/include/brandIds/0`, when the issue has one. */
+                field?: string | null;
+                /** @description Non-disclosing; never names another tenant's data. */
+                message: string;
+            };
+            OfferEligibleProduct: {
+                /** Format: uuid */
+                productId: string;
+                sku: string | null;
+                name: string;
+            };
+            /** @description One line after the §6 step-6 split: each reward unit is its own line with quantity 1 and `lineAmount = unitPrice − discountAmount`; the rest of the source line keeps `lineAmount = unitPrice × quantity`. */
+            OfferSimulationResultLine: {
+                /** @description The 0-based index of the request line this line came from. */
+                lineIndex: number;
+                unitPrice: components["schemas"]["DecimalAmount"];
+                quantity: number;
+                eligible: boolean;
+                discountAmount: components["schemas"]["DecimalAmount"];
+                lineAmount: components["schemas"]["DecimalAmount"];
+            };
+            OfferSimulationResult: {
+                currencyCode: components["schemas"]["CurrencyCode"];
+                /** @description `k` of §6 step 3. */
+                applications: number;
+                totalDiscount: components["schemas"]["DecimalAmount"];
+                total: components["schemas"]["DecimalAmount"];
+                lines: components["schemas"]["OfferSimulationResultLine"][];
+            };
+            OfferPreview: {
+                /** Format: uuid */
+                offerId: string;
+                draftRevision: number;
+                /** @description True when `issues` and `conflicts` are both empty at this moment. */
+                publishable: boolean;
+                issues: components["schemas"]["OfferPreviewIssue"][];
+                eligibleSet: {
+                    count: number;
+                    sample: components["schemas"]["OfferEligibleProduct"][];
+                };
+                conflicts: components["schemas"]["OfferConflict"][];
+                /** @description The simulation result, or null when no simulation was sent. */
+                simulation: null | components["schemas"]["OfferSimulationResult"];
+            };
+            OfferPack: {
+                /** @description The tenant-wide, monotonically increasing Pack revision. `0` when the tenant has never published an offer (`offers` is empty). A sale line cites it in `CaptureSaleLine.promotion.packRevision`. */
+                packRevision: number;
+                /**
+                 * Format: date-time
+                 * @description The server time of this response (OD-8); equal to `X-Server-Time`. Not part of the ETag.
+                 */
+                issuedAt: string;
+                /**
+                 * @description The tenant's Pack freshness window (OD-8).
+                 * @default 24
+                 */
+                freshnessWindowHours: number;
+                /** @description The store's IANA timezone, used to resolve `store_local` schedules. */
+                storeTimezone: string;
+                currencyCode: components["schemas"]["CurrencyCode"];
+                offers: components["schemas"]["PackOffer"][];
+            };
+            PackOffer: {
+                /** Format: uuid */
+                offerId: string;
+                offerVersion: number;
+                nameAr: string;
+                nameEn?: string | null;
+                type: components["schemas"]["OfferType"];
+                parameters: components["schemas"]["BuyXGetYPercentParameters"];
+                /**
+                 * Format: date-time
+                 * @description The window start resolved to an absolute instant for this store.
+                 */
+                startsAt: string;
+                /**
+                 * Format: date-time
+                 * @description The window end resolved for this store; null when open-ended.
+                 */
+                endsAt: string | null;
+                /** @enum {string} */
+                offlinePolicy: "allow_cached" | "online_only";
+                /** @description The materialised eligible set of this version for this store in this Pack revision (OD-6): the till matches product ids only. Never empty (an offer with an empty set is omitted), and disjoint from every other offer's set in the same Pack (OD-7). */
+                eligibleProductIds: string[];
+            };
+            /**
+             * @description The closed error set of this surface: the offer and idempotency codes, plus the two platform codes `origin_rejected` (RT-430) and `rate_limited` (RT-574).
+             * @enum {string}
+             */
+            OfferErrorCode: "validation_error" | "forbidden" | "offer_not_found" | "store_not_found" | "offer_state_invalid" | "offer_draft_changed_concurrently" | "offer_conflict" | "offer_reference_invalid" | "offer_schedule_elapsed" | "offer_eligible_set_empty" | "offer_eligible_set_too_large" | "offer_store_offer_limit_exceeded" | "offer_store_not_in_scope" | "idempotency_key_required" | "idempotency_key_malformed" | "idempotency_key_conflict" | "origin_rejected" | "rate_limited";
+            /** @description The canonical error envelope (code, message, request_id). `code` is a free string, as in the sibling contracts: the platform guards answer 401, 403 and 500 with codes this contract does not own, and a client must not fail to decode one it does not know. The offer-domain 400, 404, 409 and 422 bodies use `OfferError`, whose `code` is the closed set. */
+            Error: {
+                error: {
+                    code: string;
+                    /** @description Non-disclosing; never carries another tenant's data. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                };
+            };
+            /** @description The error envelope of the offer-domain 400, 404, 409 and 422 responses. `code` is one of the closed `OfferErrorCode` set. `conflicts` is present only with `offer_conflict`. */
+            OfferError: {
+                error: {
+                    code: components["schemas"]["OfferErrorCode"];
+                    /** @description Non-disclosing; never carries another tenant's data. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                    /** @description The validation issues of a 400 `validation_error` (the platform envelope's optional `details`): paths and rule names for the request's own fields, never data of another tenant. Present on a 400 only. */
+                    details?: Record<string, never>[];
+                    conflicts?: components["schemas"]["OfferConflict"][];
+                };
+            };
+            /** @description The platform idempotency interceptor's 425 body (not the canonical envelope). */
+            IdempotencyInProgress: {
+                /** @enum {string} */
+                error: "idempotency_in_progress";
+                retryAfterSec: number;
+            };
+        };
+        responses: {
+            /** @description 400 `validation_error`: a malformed path id, query parameter, cursor or body. Checked before any database read. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description 400: `validation_error` (a malformed path id or body, an unknown key, a bound exceeded, an `include` that names nothing, an `endsAt` not after `startsAt`, a schedule value that does not fit its `timeBasis`), `idempotency_key_required` or `idempotency_key_malformed`. Checked before any database read. */
+            WriteValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description No valid session cookie (`401`). 401 semantics are owned by spec 028. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `forbidden`: the session user's role does not hold the operation's capability (OD-12): a role other than `owner`, `tenant_admin` or `store_manager` on any operation, or a `store_manager` on any operation other than the three reads and a store-level pause (create, edit, preview, publish, resume, end, archive, and a whole-offer pause without `storeIds`). Also `origin_rejected` (RT-430) on the POST and PUT operations: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+            Forbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `offer_not_found`. Non-disclosing: the same body for an offer of another tenant, an offer outside a `store_manager`'s stores and one that never existed. */
+            OfferNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description `store_not_found`: the store is not a store of the tenant, or is outside a `store_manager`'s store scope. Non-disclosing. */
+            StoreNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description `offer_not_found` (see `OfferNotFound`), or `store_not_found`: a named store is not a store of the tenant, or is outside a `store_manager`'s store scope. Non-disclosing. */
+            OfferOrStoreNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description `offer_state_invalid` (the transition is not allowed from the offer's current state), or `idempotency_key_conflict` (the same key with a different request). Nothing is written. */
+            StateConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description `idempotency_key_conflict`: the same key was used with a different body. Terminal for that key. */
+            IdempotencyConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description 422 on publish: `offer_reference_invalid`, `offer_schedule_elapsed`, `offer_eligible_set_empty`, `offer_eligible_set_too_large` or `offer_store_offer_limit_exceeded` (see `consolePublishOffer`). `consolePreviewOffer` reports the same issues in its 200. Nothing is written. */
+            DefinitionUnprocessable: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OfferError"];
+                };
+            };
+            /** @description Too Early (425): a request with this `Idempotency-Key` is still in progress. Retrying after `Retry-After` seconds with the same key and body is safe: it replays the stored response. The body is the platform's `IdempotencyInProgress`, not the canonical envelope. */
+            InProgress: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgress"];
+                };
+            };
+            /** @description 400 `validation_error`: a malformed `If-None-Match`, or an unknown query parameter. Checked before any database read. */
+            DeviceValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 401 `unauthorized`: a missing, invalid or revoked device token, or a non-device credential. Non-disclosing. */
+            DeviceUnauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 500 `internal_error`: an unexpected server error, recorded server-side under `request_id` and never returned. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message; its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosBuildCommit: string;
+            /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosAppVersion: string;
+            /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+            PosContractPin: string;
+            /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+            OfferId: string;
+            /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+            IdempotencyKey: string;
+            /** @description Opaque keyset cursor from a prior page's `nextCursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_error`. */
+            Cursor: string;
+            /** @description Maximum items per page. The server may return fewer. */
+            PageSize: number;
+            /** @description The last `ETag` received (one strong tag, as the schema says); omit it when the cached Pack was lost. The server is lenient beyond the schema, per RFC 9110 `If-None-Match`: it also accepts `*` and a comma-separated list of entity-tags, weak (`W/`) or strong, compares weakly, and answers `304` on any match. Anything that is not a well-formed list is `400`. */
+            IfNoneMatch: string;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description Present with value `true` when this response replays an earlier request with the same key. */
+            IdempotentReplayed: "true";
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+            /** @description Strong ETag: the quoted lowercase hex SHA-256 of the canonical JSON (keys sorted, no whitespace) of the Pack body without `issuedAt`. It changes whenever any other field changes (a new `packRevision`, the store's timezone or freshness window), never only because time passed. */
+            ETag: string;
+            /** @description Always `no-cache, private`; the POS revalidates every read. */
+            CacheControl: "no-cache, private";
+            /** @description The server time of this response (RFC 3339, UTC), on the 200 and the 304. On a 200 it equals the body's `issuedAt`. It is the till's trusted-time anchor (OD-8); it is not part of the ETag. */
+            ServerTime: string;
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleListOffers: {
+            parameters: {
+                query?: {
+                    /** @description Only offers in this derived state. */
+                    state?: components["schemas"]["OfferState"];
+                    /** @description Only offers whose store scope includes this store (an all-stores offer included). A store that is not of the tenant, or outside a `store_manager`'s scope, is 404 `store_not_found`. */
+                    store_id?: string;
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_error`. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description Maximum items per page. The server may return fewer. */
+                    page_size?: components["parameters"]["PageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of offers. `nextCursor` is null on the last page. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferPage"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["StoreNotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleCreateOfferDraft: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OfferDraftCreateRequest"];
+                };
+            };
+            responses: {
+                /** @description The offer and its first draft. */
+                201: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["IdempotencyConflict"];
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetOffer: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The offer. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleUpdateOfferDraft: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OfferDraftUpdateRequest"];
+                };
+            };
+            responses: {
+                /** @description The offer with its new draft revision. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                /** @description `offer_draft_changed_concurrently` (the draft moved on since the caller read it), `offer_state_invalid` (the offer is `ended` or `archived`), or `idempotency_key_conflict` (the same key with a different body). Nothing is written. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferError"];
+                    };
+                };
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consolePreviewOffer: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OfferPreviewRequest"];
+                };
+            };
+            responses: {
+                /** @description The preview of the current draft. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferPreview"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                /** @description `offer_draft_changed_concurrently` or `offer_state_invalid` (the offer has no draft). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferError"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consolePublishOffer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OfferPublishRequest"];
+                };
+            };
+            responses: {
+                /** @description The offer with its new current version. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                /** @description `offer_state_invalid`, `offer_draft_changed_concurrently`, `offer_conflict` (with `error.conflicts`), or `idempotency_key_conflict`. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferError"];
+                    };
+                };
+                422: components["responses"]["DefinitionUnprocessable"];
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consolePauseOffer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OfferPauseRequest"];
+                };
+            };
+            responses: {
+                /** @description The offer with its pauses. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferOrStoreNotFound"];
+                409: components["responses"]["StateConflict"];
+                /** @description `offer_store_not_in_scope`: a named store is not in the offer's store scope. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferError"];
+                    };
+                };
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleResumeOffer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OfferResumeRequest"];
+                };
+            };
+            responses: {
+                /** @description The offer after the resume. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferOrStoreNotFound"];
+                /** @description `offer_state_invalid` (nothing is paused), `offer_conflict` (with `error.conflicts`), or `idempotency_key_conflict`. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferError"];
+                    };
+                };
+                /** @description `offer_store_not_in_scope` (a named store is not a paused store of the offer), `offer_store_offer_limit_exceeded` (a store would have more than 200 live offers), or `offer_eligible_set_too_large` (the rules, read from the current catalog, now match more products than a Pack can carry). */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferError"];
+                    };
+                };
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleEndOffer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The ended offer. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                409: components["responses"]["StateConflict"];
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleArchiveOffer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every Console write: 16 to 128 printable ASCII characters with no whitespace (UUIDv7 recommended), as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; the same key with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The archived offer. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Offer"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                409: components["responses"]["StateConflict"];
+                425: components["responses"]["InProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleListOfferVersions: {
+            parameters: {
+                query?: {
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_error`. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description Maximum items per page. The server may return fewer. */
+                    page_size?: components["parameters"]["PageSize"];
+                };
+                header?: never;
+                path: {
+                    /** @description An offer of the session's tenant (and, for a `store_manager`, one whose scope includes one of their stores); anything else is the non-disclosing 404 `offer_not_found`. A malformed id is 400 `validation_error`. */
+                    offer_id: components["parameters"]["OfferId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of versions. `nextCursor` is null on the last page. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferVersionPage"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["OfferNotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        posGetOfferPack: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @description RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Build-Commit"?: components["parameters"]["PosBuildCommit"];
+                    /** @description RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-App-Version"?: components["parameters"]["PosAppVersion"];
+                    /** @description RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See "Build identity report (RT-719)" in `pos-terminal-pairing.openapi.yaml`. */
+                    "X-POS-Contract-Pin"?: components["parameters"]["PosContractPin"];
+                    /** @description The last `ETag` received (one strong tag, as the schema says); omit it when the cached Pack was lost. The server is lenient beyond the schema, per RFC 9110 `If-None-Match`: it also accepts `*` and a comma-separated list of entity-tags, weak (`W/`) or strong, compares weakly, and answers `304` on any match. Anything that is not a well-formed list is `400`. */
+                    "If-None-Match"?: components["parameters"]["IfNoneMatch"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The current Offer Pack of the device's store. */
+                200: {
+                    headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        ETag: components["headers"]["ETag"];
+                        "Cache-Control": components["headers"]["CacheControl"];
+                        "X-Server-Time": components["headers"]["ServerTime"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OfferPack"];
+                    };
+                };
+                /** @description Unchanged since the `If-None-Match` ETag. No body. The read still counts as a successful read for trusted time and freshness, from `X-Server-Time`. */
+                304: {
+                    headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        ETag: components["headers"]["ETag"];
+                        "Cache-Control": components["headers"]["CacheControl"];
+                        "X-Server-Time": components["headers"]["ServerTime"];
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["DeviceValidationFailure"];
+                401: components["responses"]["DeviceUnauthorized"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations;

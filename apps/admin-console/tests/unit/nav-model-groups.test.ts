@@ -33,6 +33,7 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(entries("stock")).toEqual([
       "/catalog/products",
       "/unknown-items",
+      "/catalog/brands",
       "/inventory",
       "/tracking",
       "/stock-discrepancies",
@@ -54,14 +55,15 @@ describe("tenant navigation groups (RT-1291)", () => {
       "/tenants",
       "/payer-accounts",
       "/vouchers",
+      "/offers",
     ]);
   });
 
   test("a role sees the same set of entries as before; only the grouping changed", () => {
-    // RT-1109 added Vouchers for owner and tenant_admin.
-    expect(paths("owner")).toHaveLength(19);
-    expect(paths("tenant_admin")).toHaveLength(19);
-    expect(paths("store_manager")).toHaveLength(14);
+    // RT-1109 added Vouchers for owner and tenant_admin; RT-1338 added Brands and Offers.
+    expect(paths("owner")).toHaveLength(21);
+    expect(paths("tenant_admin")).toHaveLength(21);
+    expect(paths("store_manager")).toHaveLength(16);
     expect(paths("cashier")).toEqual(["/", "/audit", "/stores", "/operators", "/tenants"]);
   });
 
@@ -71,7 +73,7 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(paths("owner", { hasTrackedProducts: true, trackedSellingOn: false })).not.toContain(
       "/tracking",
     );
-    expect(paths("owner", {})).toHaveLength(18);
+    expect(paths("owner", {})).toHaveLength(20);
   });
 
   test("a group left with no entry is dropped, and a support session lists no tenant group", () => {

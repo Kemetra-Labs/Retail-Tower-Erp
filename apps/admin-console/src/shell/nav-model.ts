@@ -1,9 +1,11 @@
+import { canReadBrands } from "@/brands/brandLogic";
 import { canReadCatalog } from "@/catalog/catalogLogic";
 import type { IconNameFor } from "@/components/icons/Icon";
 import { canReadDevices } from "@/devices/deviceLogic";
 import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import type { MessageKey } from "@/i18n";
 import { canReadInventory } from "@/inventory/inventoryLogic";
+import { canReadOffers } from "@/offers/offerLogic";
 import { canReadPayers } from "@/payers/payerAccess";
 import { canUseProductReconciliation } from "@/product-reconciliation/productReconLogic";
 import { canOpenAnyReport } from "@/reports/reportsLogic";
@@ -106,6 +108,8 @@ const TENANT_NAV: readonly GatedGroup[] = [
         icon: "unknownItem",
         canRead: canReadUnknownItems,
       },
+      // RT-1338: the flat brands that classify the items (and that offers can target).
+      { label: "brands.nav.label", to: "/catalog/brands", icon: "product", canRead: canReadBrands },
       // RT-728: the read-only movement ledger, locations and on-hand.
       {
         label: "inventory.nav.label",
@@ -170,6 +174,8 @@ const TENANT_NAV: readonly GatedGroup[] = [
       { label: "payers.nav.label", to: "/payer-accounts", icon: "cash", canRead: canReadPayers },
       // RT-1109: promotional vouchers, owner / tenant_admin only (decision 2A).
       { label: "vouchers.nav.label", to: "/vouchers", icon: "cash", canRead: canReadVouchers },
+      // RT-1338: automatic offers (RT-286): owner / tenant_admin manage, store_manager reads and pauses.
+      { label: "offers.nav.label", to: "/offers", icon: "cash", canRead: canReadOffers },
     ],
   },
 ];

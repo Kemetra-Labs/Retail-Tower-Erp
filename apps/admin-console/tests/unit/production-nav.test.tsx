@@ -76,6 +76,7 @@ describe("production navigation", () => {
       "Devices",
       "Items",
       "Unknown items",
+      "Brands",
       "Stock movements",
       "Stock discrepancies",
       "Connection & sync",
@@ -87,6 +88,7 @@ describe("production navigation", () => {
       "Tenants",
       "Payer accounts",
       "Vouchers",
+      "Offers",
       "Sign out",
     ]);
     expect(Array.from(nav.querySelectorAll(".nav-section"), (h) => h.textContent)).toEqual([

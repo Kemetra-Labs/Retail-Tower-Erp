@@ -8,6 +8,7 @@ export const PRODUCT_2 = "0190f000-0000-7000-8000-0000000007b2";
 export const PRODUCT_3 = "0190f000-0000-7000-8000-0000000007b3";
 export const CATEGORY_1 = "0190f000-0000-7000-8000-0000000007c1";
 export const CATEGORY_2 = "0190f000-0000-7000-8000-0000000007c2";
+export const BRAND_1 = "0190f000-0000-7000-8000-0000000007d1";
 
 export function ctx(role = "owner", tenantId: string | null = "t1", activeStoreId?: string) {
   return {
@@ -26,6 +27,8 @@ export function product(over: Record<string, unknown> = {}): CatalogProduct {
     status: "active",
     categoryId: CATEGORY_1,
     categoryName: "Beverages",
+    brandId: null,
+    brandName: null,
     primarySku: "SKU-0042",
     primaryBarcode: "0012345678905",
     defaultPrice: { amount: "10.5000", currencyCode: "EGP" },

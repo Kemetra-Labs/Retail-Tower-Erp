@@ -9,6 +9,7 @@ import { aiPlan } from "./ar/aiPlan";
 import { audit } from "./ar/audit";
 import { auth } from "./ar/auth";
 import { branding } from "./ar/branding";
+import { brands } from "./ar/brands";
 import { cashPolicy } from "./ar/cashPolicy";
 import { catalog } from "./ar/catalog";
 import { common } from "./ar/common";
@@ -18,6 +19,7 @@ import { erp } from "./ar/erp";
 import { inventory } from "./ar/inventory";
 import { metrics } from "./ar/metrics";
 import { money } from "./ar/money";
+import { offers } from "./ar/offers";
 import { operators } from "./ar/operators";
 import { overview } from "./ar/overview";
 import { platform } from "./ar/platform";
@@ -67,6 +69,8 @@ export const AR_MODULES = {
   tracking,
   trackedSelling,
   vouchers,
+  brands,
+  offers,
 };
 
 export const ar = {
@@ -100,4 +104,6 @@ export const ar = {
   ...tracking,
   ...trackedSelling,
   ...vouchers,
+  ...brands,
+  ...offers,
 };

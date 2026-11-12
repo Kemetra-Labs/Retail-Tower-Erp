@@ -95,6 +95,11 @@ function catalogColumns(t: T, storeInScope: boolean): DataTableColumn<CatalogPro
       header: t("catalog.list.col.category"),
       cell: (p) => p.categoryName ?? t("catalog.value.noCategory"),
     },
+    {
+      key: "brand",
+      header: t("catalog.list.col.brand"),
+      cell: (p) => p.brandName ?? t("catalog.value.noBrand"),
+    },
   ];
   if (storeInScope) {
     columns.push({
