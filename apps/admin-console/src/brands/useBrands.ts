@@ -58,7 +58,7 @@ export function useCreateBrand(tenantId: string | null) {
   return useMutation({
     mutationFn: async (name: string): Promise<BrandWriteOutcome> => {
       const res = await consoleCreateCatalogBrand(name, attempt.current.keyFor(name));
-      const outcome = classifyBrandWrite(res);
+      const outcome = classifyBrandWrite(res, "create");
       if (outcome.kind !== "uncertain") attempt.current.settle();
       return outcome;
     },
@@ -82,6 +82,7 @@ export function useRenameBrand(tenantId: string | null) {
     mutationFn: async (input: RenameInput): Promise<BrandWriteOutcome> =>
       classifyBrandWrite(
         await consoleRenameCatalogBrand(input.brandId, input.name, input.expectedUpdatedAt),
+        "rename",
       ),
     onSuccess: (outcome) => {
       if (outcome.kind === "ok" || outcome.kind === "stale" || outcome.kind === "gone") {

@@ -196,14 +196,22 @@ describe("brands (RT-1334 contract)", () => {
 
   test("create and rename answers: a name clash returns to the field; stale and gone reload; a 5xx keeps the key", () => {
     const brand = { brandId: "b1", name: "Nike", updatedAt: "2026-11-12T10:00:00Z" };
-    expect(classifyBrandWrite({ status: 201, data: brand })).toEqual({ kind: "ok", brand });
-    expect(classifyBrandWrite(err(409, "brand_name_conflict"))).toMatchObject({
+    expect(classifyBrandWrite({ status: 201, data: brand }, "create")).toEqual({
+      kind: "ok",
+      brand,
+    });
+    expect(classifyBrandWrite(err(409, "brand_name_conflict"), "create")).toMatchObject({
       kind: "nameTaken",
     });
-    expect(classifyBrandWrite(err(409, "stale_write"))).toMatchObject({ kind: "stale" });
-    expect(classifyBrandWrite(err(404, "not_found"))).toMatchObject({ kind: "gone" });
-    expect(classifyBrandWrite(err(500, "x"))).toMatchObject({ kind: "uncertain" });
-    expect(classifyBrandWrite(err(429, "rate_limited"))).toMatchObject({
+    expect(classifyBrandWrite(err(409, "stale_write"), "rename")).toMatchObject({ kind: "stale" });
+    expect(classifyBrandWrite(err(404, "not_found"), "rename")).toMatchObject({ kind: "gone" });
+    // A create 404 is the role refusal, never "the brand vanished".
+    expect(classifyBrandWrite(err(404, "not_found"), "create")).toMatchObject({
+      kind: "failed",
+      messageKey: "brands.write.error.forbidden",
+    });
+    expect(classifyBrandWrite(err(500, "x"), "create")).toMatchObject({ kind: "uncertain" });
+    expect(classifyBrandWrite(err(429, "rate_limited"), "create")).toMatchObject({
       kind: "failed",
       messageKey: "brands.write.error.rateLimited",
     });

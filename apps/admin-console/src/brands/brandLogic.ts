@@ -54,6 +54,7 @@ const FAILURE_KEYS: Record<number, MessageKey> = {
 /** Where a create or rename answer goes. A 5xx or no answer is uncertain: the key is kept. */
 export function classifyBrandWrite(
   result: WrapperResult & { data?: CatalogBrand },
+  op: "create" | "rename",
 ): BrandWriteOutcome {
   const requestId = errorRequestIdOf(result.error);
   const code = errorCodeOf(result.error);
@@ -62,7 +63,12 @@ export function classifyBrandWrite(
     return { kind: "nameTaken", requestId };
   }
   if (result.status === 409 && code === "stale_write") return { kind: "stale", requestId };
-  if (result.status === 404) return { kind: "gone", requestId };
+  // A rename 404 is a brand that is gone; a create 404 is the non-disclosing refusal of the role.
+  if (result.status === 404) {
+    return op === "rename"
+      ? { kind: "gone", requestId }
+      : { kind: "failed", messageKey: "brands.write.error.forbidden", requestId };
+  }
   if (result.status === 425 || result.status >= 500) {
     return { kind: "uncertain", messageKey: "brands.write.error.uncertain", requestId };
   }
