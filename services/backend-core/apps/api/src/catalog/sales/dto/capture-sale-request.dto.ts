@@ -336,22 +336,52 @@ const tenderLineIdentity = {
   sequence: z.number().int().min(1).max(32767).optional(),
 };
 
-export const SaleTenderSchema = z.discriminatedUnion("method", [
-  z.object({ method: z.literal("cash"), amount: decimalAmount, ...tenderLineIdentity }).strict(),
-  z
-    .object({
-      method: z.literal("card_external"),
-      amount: decimalAmount,
-      reference: z
-        .string()
-        .regex(/^[A-Z0-9]{1,6}$/, "must be a short card terminal reference")
-        .optional(),
-      ...tenderLineIdentity,
-    })
-    .strict(),
+const CashTenderSchema = z.object({ method: z.literal("cash"), amount: decimalAmount, ...tenderLineIdentity }).strict();
+
+const CardExternalTenderSchema = z
+  .object({
+    method: z.literal("card_external"),
+    amount: decimalAmount,
+    reference: z
+      .string()
+      .regex(/^[A-Z0-9]{1,6}$/, "must be a short card terminal reference")
+      .optional(),
+    ...tenderLineIdentity,
+  })
+  .strict();
+
+/**
+ * RT-1114 (RT-1098 R-4a, decision 4A: a voucher is a tender): the voucher pays
+ * `amount` of the sale through the redemption `redemptionId` names (V-A's
+ * `redemption_id`, returned by `posRedeemVoucher`). REQUIRED on a voucher and
+ * accepted on no other method (a strict object each, so a cash or card tender
+ * carrying it is a 400). No `reference`. Whether the redemption is real, live,
+ * of this tenant and store, unused and for exactly this amount is the
+ * service's 422 `sale_voucher_tender_invalid`.
+ */
+const VoucherTenderSchema = z
+  .object({
+    method: z.literal("voucher"),
+    amount: decimalAmount,
+    redemptionId: z.string().uuid("must be a uuid"),
+    ...tenderLineIdentity,
+  })
+  .strict();
+
+/** The RT-10 D2 tender methods: what capture accepts while voucher tenders are off. */
+export const SaleTenderSchema = z.discriminatedUnion("method", [CashTenderSchema, CardExternalTenderSchema]);
+
+/**
+ * RT-1114: the same, plus `voucher`. Selected only while
+ * `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default off until R-4b is deployed).
+ */
+export const SaleTenderWithVoucherSchema = z.discriminatedUnion("method", [
+  CashTenderSchema,
+  CardExternalTenderSchema,
+  VoucherTenderSchema,
 ]);
 
-type SaleTenderInput = z.infer<typeof SaleTenderSchema>;
+type SaleTenderInput = z.infer<typeof SaleTenderWithVoucherSchema>;
 
 /** True when `values` holds a repeat; `undefined` entries are ignored. */
 function hasRepeat(values: ReadonlyArray<string | number | undefined>): boolean {
@@ -363,15 +393,22 @@ function hasRepeat(values: ReadonlyArray<string | number | undefined>): boolean 
  * The per-sale tender rules (contract RT-359), each a 400: `tenderRef` and
  * `sequence` are unique within the sale; more than one tender of a method is
  * accepted only when `allowSameMethod` (the RT-360 deploy gate) AND every
- * entry carries a `tenderRef`.
+ * entry carries a `tenderRef`. RT-1114: with `allowVoucher` (its deploy gate)
+ * the list also takes `voucher` tenders, and a `redemptionId` is unique within
+ * the sale (one redemption pays one tender).
  */
-function tenderList(allowSameMethod: boolean) {
+function tenderList(allowSameMethod: boolean, allowVoucher = false) {
   const rules = (ts: SaleTenderInput[], ctx: z.RefinementCtx): void => {
     if (hasRepeat(ts.map((t) => t.tenderRef))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "tenderRef must be unique within the sale" });
     }
     if (hasRepeat(ts.map((t) => t.sequence))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequence must be unique within the sale" });
+    }
+    // A uuid is case-insensitive (zod accepts either case; Postgres compares the value), so the
+    // repeat check lower-cases it: a repeat in another case is the same redemption (400, not 500).
+    if (hasRepeat(ts.map((t) => (t.method === "voucher" ? t.redemptionId.toLowerCase() : undefined)))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "redemptionId must be unique within the sale" });
     }
     if (!hasRepeat(ts.map((t) => t.method))) return;
     if (!allowSameMethod) {
@@ -384,7 +421,10 @@ function tenderList(allowSameMethod: boolean) {
     }
   };
   // RT-1051: the length is checked before any tender (zod GHSA-mrhx-c7xc-m3w5).
-  return boundedArray(MAX_CAPTURE_TENDERS, z.array(SaleTenderSchema).min(1).superRefine(rules)).optional();
+  const tender: z.ZodType<SaleTenderInput, z.ZodTypeDef, unknown> = allowVoucher
+    ? SaleTenderWithVoucherSchema
+    : SaleTenderSchema;
+  return boundedArray(MAX_CAPTURE_TENDERS, z.array(tender).min(1).superRefine(rules)).optional();
 }
 
 /**
@@ -411,8 +451,27 @@ export const CaptureSaleRequestWithSameMethodTendersSchema = CaptureSaleRequestO
   .strict()
   .superRefine(checkAdmissionCheckAt);
 
-export type CaptureSaleRequestDto = z.infer<typeof CaptureSaleRequestWithTendersSchema>;
-export type SaleTenderDto = z.infer<typeof SaleTenderSchema>;
+/**
+ * RT-1114 — the tender-aware body that also accepts `voucher` tenders. Selected
+ * only while `POS_SALE_VOUCHER_TENDER_ENABLED` is on as well (after R-4b,
+ * RT-1330, is deployed; default off).
+ */
+export const CaptureSaleRequestWithVoucherTendersSchema = CaptureSaleRequestObject.extend({
+  tenders: tenderList(false, true),
+})
+  .strict()
+  .superRefine(checkAdmissionCheckAt);
+
+/** RT-1114 — same-method split tenders (RT-360) and `voucher` tenders together. */
+export const CaptureSaleRequestWithSameMethodVoucherTendersSchema = CaptureSaleRequestObject.extend({
+  tenders: tenderList(true, true),
+})
+  .strict()
+  .superRefine(checkAdmissionCheckAt);
+
+/** The widest capture body: every gated tender shape, so the service handles each one. */
+export type CaptureSaleRequestDto = z.infer<typeof CaptureSaleRequestWithSameMethodVoucherTendersSchema>;
+export type SaleTenderDto = z.infer<typeof SaleTenderWithVoucherSchema>;
 export type CaptureSaleLineDto = z.infer<typeof CaptureSaleLineSchema>;
 export type CaptureSaleLineDiscountDto = z.infer<typeof CaptureSaleLineDiscountSchema>;
 export type CaptureSaleReceiptDto = z.infer<typeof CaptureSaleReceiptSchema>;

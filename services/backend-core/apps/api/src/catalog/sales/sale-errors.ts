@@ -36,6 +36,19 @@ export class SaleTenderMismatchError extends Error {
 }
 
 /**
+ * RT-1114 (RT-1098 R-4a): a first capture whose `voucher` tender does not name
+ * a live, unused redemption of this tenant and store for exactly its amount in
+ * the sale's currency (→ 422 `sale_voucher_tender_invalid`, one body for every
+ * cause). Nothing is recorded.
+ */
+export class SaleVoucherTenderInvalidError extends Error {
+  constructor() {
+    super("a voucher tender does not reference a valid redemption");
+    this.name = "SaleVoucherTenderInvalidError";
+  }
+}
+
+/**
  * RT-105 (RT-87 decision D): a first capture whose line breaks the price
  * invariant — money beyond the currency's minor unit, `lineAmount ≠ unitPrice ×
  * quantity`, or a fractional quantity (→ 422 `sale_line_pricing_invalid`).
