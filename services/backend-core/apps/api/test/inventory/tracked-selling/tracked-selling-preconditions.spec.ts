@@ -210,21 +210,25 @@ describe('erp_tracking_import (RT-1288)', () => {
     expect(await met(TENANT_A)).toBe(false);
   });
 
-  it("never counts another tenant's mappings and runs", async () => {
-    if (skipped()) return;
-    expect(await met(TENANT_B)).toBe(false);
-    const mapB = await map(TENANT_B, STORE_B_X, 'WH-TRACK-B');
-    await run(TENANT_B, STORE_B_X, mapB, 'WH-TRACK-B', 'completed');
-    // Tenant A is unchanged by tenant B's completed run.
-    expect(await met(TENANT_A)).toBe(false);
-  });
-
   it('is met once every live store has a completed run on its mapped stock warehouse', async () => {
     if (skipped()) return;
     await run(TENANT_A, STORE_A_Y, mapIds[STORE_A_Y]!, WH_Y, 'completed');
     expect(await met(TENANT_A)).toBe(true);
     // The other preconditions are not touched by it.
     expect(await unmet(TENANT_A)).toContain('erp_batch_posting_verified');
+  });
+
+  it("never counts another tenant's mappings and runs, in either direction", async () => {
+    if (skipped()) return;
+    // Tenant A is met now (both stores imported). Tenant B has two live stores: one imported,
+    // one unmapped, so B stays unmet whatever A's completed runs say.
+    expect(await met(TENANT_A)).toBe(true);
+    expect(await met(TENANT_B)).toBe(false);
+    const mapB = await map(TENANT_B, STORE_B_X, 'WH-TRACK-B');
+    await run(TENANT_B, STORE_B_X, mapB, 'WH-TRACK-B', 'completed');
+    expect(await met(TENANT_B)).toBe(false);
+    // B's completed run does not leak into A: A is still met, and B's own run is not counted for A.
+    expect(await met(TENANT_A)).toBe(true);
   });
 
   it('is unmet again when a store is re-mapped: the old run belongs to the retired mapping', async () => {
