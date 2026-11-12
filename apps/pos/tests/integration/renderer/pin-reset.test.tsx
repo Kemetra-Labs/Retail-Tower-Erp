@@ -270,9 +270,11 @@ describe('T061 — operator:reset-cashier-pin IPC (manager PIN reset integration
       new_pin: '8888',
     });
     const evt = emit.mock.calls[0][0] as AuditEvent;
-    const serialised = JSON.stringify(evt);
-    expect(serialised).not.toContain('8888');
-    expect(serialised).not.toContain('new_pin');
+    expect(JSON.stringify(evt)).not.toContain('new_pin');
+    // The random event_id and the created_at timestamp can contain the PIN digits by chance (RT-1342).
+    const randomFields = new Set(['event_id', 'created_at']);
+    const rest = Object.fromEntries(Object.entries(evt).filter(([key]) => !randomFields.has(key)));
+    expect(JSON.stringify(rest)).not.toContain('8888');
   });
 
   it('manager operator_id is attributed in the audit event', async () => {

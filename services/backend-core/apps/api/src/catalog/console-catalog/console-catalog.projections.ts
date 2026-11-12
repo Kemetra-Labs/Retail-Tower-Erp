@@ -28,6 +28,9 @@ export interface ConsoleCatalogProductSummary {
   readonly status: ProductStatus;
   readonly categoryId: string | null;
   readonly categoryName: string | null;
+  /** RT-1334. */
+  readonly brandId: string | null;
+  readonly brandName: string | null;
   readonly primarySku: string | null;
   readonly primaryBarcode: string | null;
   readonly defaultPrice: Money | null;
@@ -75,6 +78,13 @@ export interface ConsoleCatalogCategory {
   readonly updatedAt: string;
 }
 
+/** RT-1334: one active brand. */
+export interface ConsoleCatalogBrand {
+  readonly brandId: string;
+  readonly name: string;
+  readonly updatedAt: string;
+}
+
 /** A product row of the summary SELECT (`PRODUCT_SUMMARY_COLUMNS_SQL`). */
 export interface ProductSummaryRow {
   readonly product_id: string;
@@ -83,6 +93,8 @@ export interface ProductSummaryRow {
   readonly retired_at: Date | null;
   readonly category_id: string | null;
   readonly category_name: string | null;
+  readonly brand_id: string | null;
+  readonly brand_name: string | null;
   readonly primary_sku: string | null;
   readonly primary_barcode: string | null;
   readonly default_price: string | null;
@@ -123,6 +135,12 @@ export interface CategoryRow {
   readonly updated_at: Date;
 }
 
+export interface BrandRow {
+  readonly brand_id: string;
+  readonly name: string;
+  readonly updated_at: Date;
+}
+
 function money(amount: string | null, currencyCode: string | null): Money | null {
   if (amount === null || currencyCode === null) return null;
   return { amount: storedAmount(amount, currencyCode), currencyCode };
@@ -140,6 +158,8 @@ export function toSummary(row: ProductSummaryRow): ConsoleCatalogProductSummary 
     status: statusOf(row),
     categoryId: row.category_id,
     categoryName: row.category_name,
+    brandId: row.brand_id,
+    brandName: row.brand_name,
     primarySku: row.primary_sku,
     primaryBarcode: row.primary_barcode,
     defaultPrice: money(row.default_price, row.default_currency_code),
@@ -193,6 +213,14 @@ export function toCategory(row: CategoryRow): ConsoleCatalogCategory {
     categoryId: row.category_id,
     name: row.name,
     description: row.description,
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+export function toBrand(row: BrandRow): ConsoleCatalogBrand {
+  return {
+    brandId: row.brand_id,
+    name: row.name,
     updatedAt: row.updated_at.toISOString(),
   };
 }

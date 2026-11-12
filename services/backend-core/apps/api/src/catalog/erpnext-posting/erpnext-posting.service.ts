@@ -30,12 +30,14 @@ import {
   PostingResolutionIncompleteError,
   ReturnTendersNotVisibleError,
   SaleTendersNotVisibleError,
+  TrackedLineNotPostableError,
   buildWorkItem,
   type PostingWorkItem,
 } from "./posting-work-item.projection";
 import { PostingFeedReporter } from "./posting-feed-reporter";
 import { sanitizeRejectionMessage } from "./rejection-message";
 import { isFeedResponsibilitiesEnabled } from "./responsibilities-feed-gate";
+import { isTrackedSellingEnabled } from "../sales/tracked-lines/tracked-selling-gate";
 
 /**
  * Hard ceiling on a single pull page — the 012 contract `Limit.maximum` (500),
@@ -223,6 +225,7 @@ const ROW_BUILD_FAILURES = [
   SaleResponsibilitiesNotVisibleError,
   ReturnTendersNotVisibleError,
   PostingResolutionIncompleteError,
+  TrackedLineNotPostableError,
 ] as const;
 
 function isRowBuildFailure(err: unknown): err is Error {
@@ -262,6 +265,8 @@ interface FeedRow {
   readonly payload_hash: string;
   readonly sequence: string;
   readonly current_resolution_version: number | null;
+  /** RT-451 S6: tracked selling in effect for the tenant, read in this row's own statement. */
+  readonly tracking_on: boolean;
 }
 
 /** A page row whose work item could not be built (RT-1325). */
@@ -331,10 +336,43 @@ export class ErpnextPostingService {
         // capture transaction (the projection keeps a second guard that throws).
         // A missing grant on sale_responsibilities fails the whole pull. Held rows are filtered here, not dropped in the projection, so
         // a page is never short; lifting a hold must re-head their sequence.
+        //
+        // RT-451 S6 HOLDS (posting-feed.yaml 1.10.0-draft, sales.yaml G7-9):
+        // a work item whose frozen resolution has a line sold from a tracking
+        // identity is not offered when
+        //   - that line is held (`erp_hold_cause`, G7-9 row 3: the identity
+        //     was expired at the business date, or had no ERP edge-map row
+        //     when the intent was created): "the ERP posting intent is held,
+        //     never sent". An operator re-resolution after the edge map is
+        //     repaired re-freezes it and re-heads the row; an expired lot
+        //     goes to the owner (RT-50 B1);
+        //   - tracked selling is not in effect for the tenant ($4, the
+        //     contract's per-tenant flag): the batch fields are emitted only
+        //     behind it, and a batch Item offered without its Batch would be
+        //     posted without one or rejected. Switching it back on must
+        //     re-head these rows, as for the RT-418 gate (switching on does,
+        //     `tracked-selling-setting.service.ts`);
+        //   - it is a `sale_post` and a line capture classified as tracked has
+        //     no frozen tracking (a version written before 0095 or by the
+        //     0038 / catch-up backfill, or no frozen version at all): fail
+        //     closed rather than offer it without its Batch; an operator
+        //     re-resolution re-freezes it. Not a reversal: it mirrors what its
+        //     sale posted, and a reversal is never re-resolved.
+        // A reversal copies its sale's lineage, so it is held with its sale.
+        // "In effect" ($4 the deploy gate AND the tenant's switch) is read in
+        // this same statement, so one snapshot decides both the hold and the
+        // emission: a switch-on re-heads its rows under the feed sequence
+        // lock, and a snapshot that does not see the switch cannot see a
+        // later sequence either, so the cursor never passes them.
         const rows = await client.query<FeedRow>(
-          `SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
+          `WITH ts AS (
+             SELECT ($4::boolean AND COALESCE(
+                       (SELECT tracked_selling_enabled FROM tenant_inventory_settings
+                         WHERE tenant_id = $5::uuid), false)) AS on_
+           )
+           SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
                   payload_hash, sequence::text AS sequence,
-                  current_resolution_version
+                  current_resolution_version, (SELECT on_ FROM ts) AS tracking_on
              FROM erpnext_posting_status
             WHERE status = 'pending'
               AND ($1::bigint IS NULL OR sequence > $1::bigint)
@@ -361,12 +399,30 @@ export class ErpnextPostingService {
                         OR EXISTS (SELECT 1 FROM sale_voids v WHERE v.sale_id = s.id)
                         OR EXISTS (SELECT 1 FROM sale_refunds f WHERE f.sale_id = s.id)
                         OR EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)))
+              AND NOT EXISTS (
+                SELECT 1 FROM sale_lines tsl
+                  LEFT JOIN erpnext_posting_resolution tr
+                    ON tr.intent_id = erpnext_posting_status.id
+                   AND tr.resolution_version = erpnext_posting_status.current_resolution_version
+                   AND tr.sale_line_id = tsl.id
+                 WHERE tsl.sale_id = erpnext_posting_status.sale_id
+                   AND ((tr.tracking_identity_id IS NOT NULL
+                         AND (tr.erp_hold_cause IS NOT NULL OR NOT (SELECT on_ FROM ts)))
+                        OR (erpnext_posting_status.kind = 'sale_post'
+                            AND tr.tracking_mode IS NULL AND tsl.tracking_class IS NOT NULL)))
             ORDER BY erpnext_posting_status.sequence
             LIMIT $2`,
-          [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled()],
+          [
+            input.since !== null ? input.since.toString() : null,
+            limit,
+            isFeedResponsibilitiesEnabled(),
+            isTrackedSellingEnabled(),
+            input.tenantId,
+          ],
         );
 
-        const { items, unbuildable, omitted } = await this.buildPage(client, rows.rows);
+        const trackingOn = rows.rows[0]?.tracking_on === true;
+        const { items, unbuildable, omitted } = await this.buildPage(client, rows.rows, trackingOn);
         // RT-1325: the cursor below advances past every row of the page, so a
         // row left out must not stay where it was. Re-offer it in this same
         // transaction (a failed write fails the pull: nothing is skipped).
@@ -410,6 +466,7 @@ export class ErpnextPostingService {
   private async buildPage(
     client: PoolClient,
     rows: readonly FeedRow[],
+    emitTracking: boolean,
   ): Promise<{ items: PostingWorkItem[]; unbuildable: UnbuildableRow[]; omitted: FeedRowReport[] }> {
     const items: PostingWorkItem[] = [];
     const unbuildable: UnbuildableRow[] = [];
@@ -427,7 +484,7 @@ export class ErpnextPostingService {
           payloadHash: row.payload_hash,
           sequence: row.sequence,
           currentResolutionVersion: row.current_resolution_version,
-        });
+        }, emitTracking);
         if (item) {
           items.push(item);
         } else {

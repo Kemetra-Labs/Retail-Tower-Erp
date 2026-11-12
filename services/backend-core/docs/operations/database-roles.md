@@ -674,6 +674,19 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any resolution is stored.
 
+- **Migration `0095_posting_resolution_tracking` (RT-451 S6).** No grant
+  step: it adds four nullable columns to `erpnext_posting_resolution`
+  (`tracking_mode`, `tracking_identity_id`, `erpnext_batch_ref`,
+  `erp_hold_cause`), which the domain role's existing `SELECT` and `INSERT`
+  cover. The worker's freeze also reads `erpnext_tracking_map`,
+  `sale_line_findings` and `tracking_resolution_lines`, which the 0089 and 0094
+  grant steps already give the domain role, so those steps must have run (they
+  run every release). Lock impact: a short ACCESS EXCLUSIVE for the catalog-only
+  column adds and `NOT VALID` CHECKs, then each `VALIDATE` scans under SHARE
+  UPDATE EXCLUSIVE without blocking the feed or the worker; no maintenance
+  window. Its down migration refuses while any line has a frozen tracking
+  identity.
+
 - **Migration `0096_erp_stock_import` (RT-1288).** Run
   [`sql/erp-stock-import-domain-grants.sql`](sql/erp-stock-import-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
@@ -692,6 +705,22 @@ A script without the marker, such as the owner-gated
   swaps one CHECK on `inventory_effect_integration`, added `NOT VALID` (no
   table scan; the brief swap lock only); it needs no maintenance window. Its
   down migration refuses while any import run is stored.
+
+- **Migration `0097_tenant_product_brands` (RT-1334, RT-286 S1).** Run
+  [`sql/tenant-product-brands-domain-grants.sql`](sql/tenant-product-brands-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `tenant_product_brands` and column-level `UPDATE` on its `name` only (the
+  Console lists, creates and renames brands; the boot check reads the column
+  from `domainRequiredColumns`). No `DELETE` policy: never grant `DELETE` or
+  `TRUNCATE`, nor a wider `UPDATE`. `tenant_products.brand_id` needs nothing
+  new: the domain role already reads and writes `tenant_products`. Without the
+  grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup
+  role must hold no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+  0097 creates one new, empty table and adds a nullable column (no backfill);
+  it needs no maintenance window. Its down migration refuses while any brand
+  is stored.
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)

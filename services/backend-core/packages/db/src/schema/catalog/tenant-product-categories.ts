@@ -10,35 +10,13 @@
  * RLS-enabled by `tenant_id`. Policy lives in `0001_catalog.sql`.
  */
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-  uuid,
-} from "drizzle-orm/pg-core";
-import { tenants } from "../tenants";
+import { check, index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { flatTaxonomyColumns } from "./tenant-taxonomy-columns";
 
 export const tenantProductCategories = pgTable(
   "tenant_product_categories",
-  {
-    id: uuid("id").primaryKey().notNull(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id, { onDelete: "restrict" }),
-    name: text("name").notNull(),
-    description: text("description"),
-    retiredAt: timestamp("retired_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    createdBy: uuid("created_by").notNull(),
-  },
+  // The shared flat-taxonomy columns (RT-1334), plus the category description.
+  { ...flatTaxonomyColumns(), description: text("description") },
   (t) => [
     check(
       "tenant_product_categories_name_length",

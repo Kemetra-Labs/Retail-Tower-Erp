@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Catalog — Console Catalog API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Jira RT-729 (CAT-R1 of the RT-281 decomposition, comment 12887 §1): the
     console view of the Backend-Core Tenant Catalog that
@@ -18,7 +18,8 @@ info:
     The three reads write nothing. Seven interim console writes, described
     under **Writes (RT-738)** below, are the separately approved slices
     (CAT-W1 / CAT-W2). The POS read-down (`catalog/read-down.yaml`) and the
-    tracking-profile surface are not changed.
+    tracking-profile surface are not changed. Three brand operations,
+    described under **Brands (RT-1334)** below, came in `1.2.0-draft`.
 
 
     **Posture.** Implemented. The three reads came in `1.0.0-draft` (RT-729,
@@ -26,7 +27,9 @@ info:
     serves them. The seven writes came in `1.1.0-draft` (RT-738, `[GATED]`,
     owner-approved 2026-10-19; see **Writes**) and the RT-738 runtime serves
     them. Every operation ships unchanged on the wire, so none carries
-    `x-runtime-status: contract-only`.
+    `x-runtime-status: contract-only`. The brand operations and fields came
+    in `1.2.0-draft` (RT-1334, `[GATED]`, owner-authorized 2026-11-11; see
+    **Brands**) with their runtime, so none of them carries it either.
 
 
     **Authority.** The Backend-Core Tenant Catalog is the retail product
@@ -98,7 +101,7 @@ info:
     `name ASC, productId ASC`. Names compare in the database's collation,
     the same for every page. Keyset pagination with an opaque cursor bound
     to the operation, the tenant and every filter (`q`, `status`,
-    `category_id`, `store_id`). The walk is not a snapshot: a product
+    `category_id`, `brand_id`, `store_id`). The walk is not a snapshot: a product
     renamed, created or changing status during a walk is returned by the
     walk only if it sorts after the walk's current position under the
     filters as they evaluate when its page is read. Only `nextCursor: null`
@@ -117,8 +120,8 @@ info:
 
     **Audit (decision O-6).** These are reads of catalog master data and are
     NOT audited per request: no audit event is written for a list, detail or
-    category read, so no operation carries `x-audit-action`. Catalog writes
-    (separate slices) are audited per mutation.
+    category or brand read, so no read carries `x-audit-action`. Catalog
+    writes (separate slices) are audited per mutation.
 
 
     **PII.** No user ids, emails or names: the catalog's `created_by` /
@@ -225,6 +228,43 @@ info:
     identifier and override change, so the POS read-down delta picks it up
     with no other step.
 
+
+    **Brands (RT-1334, RT-286 spec 048 slice S1; `1.2.0-draft`, additive).**
+    A brand is a flat, tenant-owned catalog dimension shaped like a category
+    (no parent, no description, no ERP mapping) that offers target (spec 048
+    OD-1). A product has at most one brand. Brands are TENANT data, read by
+    every allowed role (O-7). Three operations, all served by the runtime:
+
+      11. `consoleListCatalogBrands`  — the tenant's active brands (flat).
+      12. `consoleCreateCatalogBrand` — create a brand (`Idempotency-Key`).
+      13. `consoleRenameCatalogBrand` — rename a brand (`expectedUpdatedAt`).
+
+    The list has the roles of the reads; the create and the rename are
+    `owner` / `tenant_admin`, with the write auth, order of checks and
+    `stale_write` rule above. A brand name is 1 to 200 characters with at
+    least one that is not whitespace, stored as sent and compared exactly
+    (no trimming or case folding); it is unique among the tenant's ACTIVE
+    brands, so a create or rename to a name an active brand of the tenant
+    already holds is 409 `brand_name_conflict` (it never names the other
+    brand). A brand of another tenant, an absent brand and a retired brand
+    are the non-disclosing 404. Retiring and deleting a brand are not
+    operations of this surface.
+
+    On a product: `summary.brandId` / `summary.brandName` (null without a
+    brand; the name is shown also when the brand is retired), `brandId` on
+    `consoleCreateCatalogProduct` and `consoleUpdateCatalogProduct` (`null`
+    clears it; a brand that is not an active brand of the tenant is 422
+    `brand_unavailable`), and the `brand_id` filter on
+    `consoleListCatalogProducts`. A product's brand is NOT in the POS
+    read-down (spec 048 OD-6): setting or clearing it writes no
+    `catalog_change_log` row. Deleting a brand row (outside this surface)
+    clears `brandId` on its products and keeps the products.
+
+    Audited per accepted write, in the write's transaction:
+    `catalog.brand.create` (the new name) and `catalog.brand.rename` (the
+    old and new name); a product's brand change is part of
+    `catalog.product.create` / `catalog.product.update` (`brandId`).
+
 servers:
   - url: https://api.example.com
 
@@ -232,8 +272,9 @@ tags:
   - name: console-catalog
     description: >
       Console-facing read of the Tenant Catalog (RT-729 / CAT-R1), for
-      Admin-Console RF-3 and the unknown-item link product picker, and its
-      interim audited writes (RT-738 / CAT-W1 + CAT-W2).
+      Admin-Console RF-3 and the unknown-item link product picker, its
+      interim audited writes (RT-738 / CAT-W1 + CAT-W2), and its brands
+      (RT-1334).
 
 security:
   - cookieAuth: []
@@ -250,8 +291,9 @@ paths:
         and paging**. `status` defaults to `active`. With `store_id`, each
         item adds that store's effective `storeView`; a `store_id` outside the
         caller's scope or of another tenant is the non-disclosing 404. A
-        `category_id` that names no category of the tenant matches nothing
-        (an empty 200, never a 404). An empty page (`items: []`,
+        `category_id` that names no category of the tenant, or a `brand_id`
+        that names no brand of the tenant, matches nothing (an empty 200,
+        never a 404). An empty page (`items: []`,
         `nextCursor: null`) is a 200. Any query key not listed here is 400
         `validation_error`.
 
@@ -260,6 +302,7 @@ paths:
         - $ref: "#/components/parameters/SearchQuery"
         - $ref: "#/components/parameters/StatusQuery"
         - $ref: "#/components/parameters/CategoryIdQuery"
+        - $ref: "#/components/parameters/BrandIdQuery"
         - $ref: "#/components/parameters/StoreIdQuery"
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
@@ -296,7 +339,9 @@ paths:
         identifier, no store override and the `none` tracking profile.
         Roles `owner` / `tenant_admin`. `categoryId`, when given, must name a
         category of the tenant that is not retired (else 422
-        `category_unavailable`). An identical retry with the same
+        `category_unavailable`); `brandId`, when given, must name a brand of
+        the tenant that is not retired (else 422 `brand_unavailable`). An
+        identical retry with the same
         `Idempotency-Key` replays the stored `201` with `Idempotent-Replayed:
         true` and creates nothing. Audited as `catalog.product.create`.
       parameters:
@@ -332,7 +377,7 @@ paths:
         "409":
           $ref: "#/components/responses/CreateConflict"
         "422":
-          $ref: "#/components/responses/CategoryUnavailable"
+          $ref: "#/components/responses/ProductReferenceUnavailable"
         "425":
           $ref: "#/components/responses/IdempotencyInProgress"
         "429":
@@ -388,13 +433,16 @@ paths:
         Interim (pre Change Sets, decision 400). Changes the given fields of
         one product of the session's tenant; a field that is absent is left
         as is. Editable: `name`, `description` (null clears it),
-        `categoryId` (null clears it), `taxCategory` and `isActive`. Price,
+        `categoryId` (null clears it), `brandId` (null clears it),
+        `taxCategory` and `isActive`. Price,
         the tracking profile and identifiers are not editable here. Roles
         `owner` / `tenant_admin`. A retired product is 409
         `product_retired`; an `expectedUpdatedAt` that is not the product's
         current `updatedAt` is 409 `stale_write`; a `categoryId` that names
         no category of the tenant, or a retired one, is 422
-        `category_unavailable`. Audited as `catalog.product.update`.
+        `category_unavailable`; a `brandId` that names no brand of the
+        tenant, or a retired one, is 422 `brand_unavailable`. Audited as
+        `catalog.product.update`.
       parameters:
         - $ref: "#/components/parameters/ProductId"
       requestBody:
@@ -424,7 +472,7 @@ paths:
         "409":
           $ref: "#/components/responses/ProductWriteConflict"
         "422":
-          $ref: "#/components/responses/CategoryUnavailable"
+          $ref: "#/components/responses/ProductReferenceUnavailable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -458,6 +506,138 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/brands:
+    get:
+      summary: List the tenant's product brands (flat).
+      operationId: consoleListCatalogBrands
+      tags: [console-catalog]
+      description: >
+        RT-1334. Every brand of the session's tenant that is not retired,
+        ordered `name ASC, brandId ASC`. Brands are flat (no parent). The
+        list is not paginated: it is the whole set. The operation takes no
+        query parameter; any query key is 400 `validation_error`.
+
+        Not audited per request (decision O-6).
+      responses:
+        "200":
+          description: The tenant's active brands.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogBrandList"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+    post:
+      summary: Create a catalog brand (RT-1334).
+      operationId: consoleCreateCatalogBrand
+      x-idempotency: required
+      x-audit-action: catalog.brand.create
+      tags: [console-catalog]
+      description: >
+        Creates one active brand in the session's tenant. Roles `owner` /
+        `tenant_admin`. A `name` an active brand of the tenant already holds
+        is 409 `brand_name_conflict`. An identical retry with the same
+        `Idempotency-Key` replays the stored `201` with `Idempotent-Replayed:
+        true` and creates nothing. Audited as `catalog.brand.create`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCatalogBrandRequest"
+      responses:
+        "201":
+          description: >
+            Created. The body is the new brand. A same-key retry replays this
+            `201` with `Idempotent-Replayed: true`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogBrand"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/BrandNotFound"
+        "409":
+          $ref: "#/components/responses/BrandCreateConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/brands/{brandId}:
+    patch:
+      summary: Rename a catalog brand (RT-1334).
+      operationId: consoleRenameCatalogBrand
+      x-audit-action: catalog.brand.rename
+      tags: [console-catalog]
+      description: >
+        Renames one active brand of the session's tenant. Roles `owner` /
+        `tenant_admin`. A brand of another tenant, an absent brand and a
+        retired brand are the non-disclosing 404; an `expectedUpdatedAt`
+        that is not the brand's current `updatedAt` is 409 `stale_write`; a
+        `name` another active brand of the tenant holds is 409
+        `brand_name_conflict`. Every accepted rename, also to the same name,
+        gives the brand a new, strictly later `updatedAt`. Its products keep
+        the brand. Audited as `catalog.brand.rename`.
+      parameters:
+        - $ref: "#/components/parameters/BrandIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameCatalogBrandRequest"
+      responses:
+        "200":
+          description: Renamed. The body is the brand after the change.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleCatalogBrand"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/BrandNotFound"
+        "409":
+          $ref: "#/components/responses/BrandWriteConflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -757,7 +937,8 @@ components:
     IdempotentReplayed:
       description: >
         Present and `true` on a same-`Idempotency-Key` replay of
-        `consoleCreateCatalogProduct`, which carries the stored `201`.
+        `consoleCreateCatalogProduct` or `consoleCreateCatalogBrand`, which
+        carries the stored `201`.
         Absent on a first-time create.
       schema:
         type: boolean
@@ -802,6 +983,17 @@ components:
       description: >
         Only products in this category. Case insensitive. A category the
         tenant does not have matches nothing (an empty 200).
+    BrandIdQuery:
+      name: brand_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        RT-1334. Only products of this brand (also a retired brand's
+        products). Case insensitive. A brand the tenant does not have
+        matches nothing (an empty 200).
     StoreIdQuery:
       name: store_id
       in: query
@@ -828,7 +1020,7 @@ components:
       description: >
         Opaque keyset cursor from a prior page's `nextCursor`, bound to the
         operation, the tenant and every filter (`q`, `status`,
-        `category_id`, `store_id`). Do not decode or construct it; omit it
+        `category_id`, `brand_id`, `store_id`). Do not decode or construct it; omit it
         for the first page. Its keyset position includes the last product's
         name (up to 500 characters), so it can be up to 4096 characters
         long. A value the server did not issue, cannot decode,
@@ -871,6 +1063,17 @@ components:
         The store (`stores.id`) of the override. Case insensitive. A store
         outside the caller's store scope, of another tenant or soft-deleted
         is the non-disclosing 404.
+    BrandIdPath:
+      name: brandId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The brand id (`tenant_product_brands.id`). Case insensitive. A value
+        that is not a UUID is 400 `validation_error` and never reaches the
+        database.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -881,7 +1084,8 @@ components:
         maxLength: 128
         pattern: "^[\\x21-\\x7E]{16,128}$"
       description: >
-        REQUIRED on `consoleCreateCatalogProduct`: 16 to 128 printable ASCII
+        REQUIRED on `consoleCreateCatalogProduct` and
+        `consoleCreateCatalogBrand`: 16 to 128 printable ASCII
         characters with no whitespace, as the shared `IdempotencyInterceptor`
         enforces. Keyed on the verified actor and tenant. An identical retry
         replays the stored `201` with `Idempotent-Replayed: true`; key reuse
@@ -969,6 +1173,8 @@ components:
         - status
         - categoryId
         - categoryName
+        - brandId
+        - brandName
         - primarySku
         - primaryBarcode
         - defaultPrice
@@ -993,6 +1199,13 @@ components:
         categoryName:
           type: [string, "null"]
           description: The category's name (also when the category is retired); null without a category.
+        brandId:
+          type: [string, "null"]
+          format: uuid
+          description: RT-1334. The product's brand; null without a brand.
+        brandName:
+          type: [string, "null"]
+          description: The brand's name (also when the brand is retired); null without a brand.
         primarySku:
           type: [string, "null"]
           description: >
@@ -1153,6 +1366,34 @@ components:
           items:
             $ref: "#/components/schemas/ConsoleCatalogCategory"
 
+    ConsoleCatalogBrand:
+      type: object
+      additionalProperties: false
+      required: [brandId, name, updatedAt]
+      description: RT-1334. One active brand of the tenant.
+      properties:
+        brandId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        updatedAt:
+          type: string
+          format: date-time
+          description: The `expectedUpdatedAt` of a rename.
+
+    ConsoleCatalogBrandList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsoleCatalogBrand"
+
     # -----------------------------------------------------------------------
     # Write requests (RT-738, CAT-W1 + CAT-W2). Strict: the tenant, the actor
     # and every server-owned field (status, price, tracking, timestamps) are
@@ -1204,6 +1445,10 @@ components:
           type: [string, "null"]
           format: uuid
           description: A category of the tenant that is not retired; `null` or absent for none.
+        brandId:
+          type: [string, "null"]
+          format: uuid
+          description: RT-1334. A brand of the tenant that is not retired; `null` or absent for none.
         taxCategory:
           $ref: "#/components/schemas/TaxCategoryValue"
         isActive:
@@ -1219,12 +1464,13 @@ components:
         - required: [name]
         - required: [description]
         - required: [categoryId]
+        - required: [brandId]
         - required: [taxCategory]
         - required: [isActive]
       description: >
         `expectedUpdatedAt` and at least one field to change. An absent
-        field is left as is; `description` and `categoryId` accept `null`
-        to clear. Price, status, tracking and identifiers are not here.
+        field is left as is; `description`, `categoryId` and `brandId`
+        accept `null` to clear. Price, status, tracking and identifiers are not here.
       properties:
         expectedUpdatedAt:
           $ref: "#/components/schemas/ExpectedUpdatedAt"
@@ -1236,10 +1482,44 @@ components:
           type: [string, "null"]
           format: uuid
           description: A category of the tenant that is not retired; `null` clears the category.
+        brandId:
+          type: [string, "null"]
+          format: uuid
+          description: RT-1334. A brand of the tenant that is not retired; `null` clears the brand.
         taxCategory:
           $ref: "#/components/schemas/TaxCategoryValue"
         isActive:
           type: boolean
+
+    BrandName:
+      type: string
+      minLength: 1
+      maxLength: 200
+      pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+      description: >
+        RT-1334. 1 to 200 characters with at least one that is not
+        whitespace, and no NUL. Stored as sent (no trimming) and compared
+        exactly.
+
+    CreateCatalogBrandRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      description: RT-1334. A new active brand.
+      properties:
+        name:
+          $ref: "#/components/schemas/BrandName"
+
+    RenameCatalogBrandRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedUpdatedAt, name]
+      description: RT-1334. The brand's new name and the `updatedAt` last read.
+      properties:
+        expectedUpdatedAt:
+          $ref: "#/components/schemas/ExpectedUpdatedAt"
+        name:
+          $ref: "#/components/schemas/BrandName"
 
     RetireRequest:
       type: object
@@ -1526,10 +1806,41 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    CategoryUnavailable:
+    ProductReferenceUnavailable:
       description: >
-        422 `category_unavailable`: `categoryId` names no category of the
-        tenant, or a retired one. Nothing is written.
+        422, `error.code` one of: `category_unavailable` (`categoryId` names
+        no category of the tenant, or a retired one); `brand_unavailable`
+        (RT-1334: `brandId` names no brand of the tenant, or a retired one).
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BrandNotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside the
+        write's list and, on the rename, a brand of another tenant, an
+        absent brand and a retired brand. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BrandCreateConflict:
+      description: >
+        409, `error.code` one of: `idempotency_key_conflict` (the same
+        `Idempotency-Key` was used with a different body);
+        `brand_name_conflict` (an active brand of the tenant already has
+        this name; the body never names it). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BrandWriteConflict:
+      description: >
+        409, `error.code` one of: `stale_write` (`expectedUpdatedAt` is not
+        the brand's current `updatedAt`; reload and retry);
+        `brand_name_conflict` (another active brand of the tenant has this
+        name; the body never names it). Nothing is written.
       content:
         application/json:
           schema:
