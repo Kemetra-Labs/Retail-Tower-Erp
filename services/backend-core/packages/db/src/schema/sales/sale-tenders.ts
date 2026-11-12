@@ -17,7 +17,8 @@
  *   - `reference` is card_external only, in the contract shape;
  *   - RT-1114: `redemption_id` is set on a `voucher` tender and only there; it
  *     names a `voucher_redemptions` row of the same tenant AND store, and one
- *     redemption pays at most one tender (`uq_sale_tenders_tenant_redemption`);
+ *     redemption pays at most one tender (`uq_sale_tenders_tenant_redemption`,
+ *     built CONCURRENTLY by 0102);
  *   - composite FK to `sales (id, tenant_id, store_id)`.
  */
 import { sql } from "drizzle-orm";

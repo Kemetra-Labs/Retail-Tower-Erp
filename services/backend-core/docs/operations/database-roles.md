@@ -695,15 +695,19 @@ A script without the marker, such as the owner-gated
 - **Migration `0099_sale_tender_voucher` (RT-1114).** No new grant. It adds
   the nullable `sale_tenders.redemption_id` column (covered by the existing
   table-level `SELECT` and `INSERT` on `sale_tenders`), a CHECK, an FK onto a
-  new `voucher_redemptions (tenant_id, store_id, id)` key and a partial unique
-  index. Capture validates a voucher tender by locking its redemption row
+  new `voucher_redemptions (tenant_id, store_id, id)` key. Its partial unique
+  index (one tender per redemption) is the separate single-statement
+  `0102_sale_tenders_redemption_idx`, built `CONCURRENTLY` (no lock that
+  blocks reads or writes of `sale_tenders`); apply both before the flag below
+  is ever turned on. Capture validates a voucher tender by locking its redemption row
   `FOR NO KEY UPDATE`, which needs the column-level `UPDATE` that
   [`sql/voucher-redemptions-domain-grants.sql`](sql/voucher-redemptions-domain-grants.sql)
   (0092) already grants; nothing reaches that path while
-  `POS_SALE_VOUCHER_TENDER_ENABLED` is off. 0099 rewrites no table, takes
-  short `ACCESS EXCLUSIVE` locks on `sale_tenders` and `voucher_redemptions`
-  (every CHECK and the FK are `NOT VALID`) and needs no maintenance window. Its
-  down migration refuses while any voucher tender is stored.
+  `POS_SALE_VOUCHER_TENDER_ENABLED` is off. 0099 rewrites no table, builds no
+  index on `sale_tenders`, takes short `ACCESS EXCLUSIVE` locks on
+  `sale_tenders` and `voucher_redemptions` (every CHECK and the FK are
+  `NOT VALID`) and needs no maintenance window. Its down migration refuses
+  while any voucher tender is stored.
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)

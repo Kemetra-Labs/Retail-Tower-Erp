@@ -32,9 +32,14 @@
 --      redemption_id) -> voucher_redemptions (tenant_id, store_id, id). The
 --      redemption is of the SAME tenant AND store as the sale. NULL skips it
 --      (MATCH SIMPLE), so cash and card tenders are unaffected.
---   5. uq_sale_tenders_tenant_redemption (tenant_id, redemption_id) WHERE
---      redemption_id IS NOT NULL: one redemption pays at most one tender, in
---      one sale, ever (a redemption cannot be spent twice).
+--   The partial unique index uq_sale_tenders_tenant_redemption (one redemption
+--   pays at most one tender, ever) is NOT here: it is
+--   0102_sale_tenders_redemption_idx, built CONCURRENTLY in its own file
+--   (landing-gated-changes "an index on a hot table"; CodeRabbit #519), so no
+--   index build runs under this file's ACCESS EXCLUSIVE lock. No voucher
+--   tender can exist before 0102 runs: capture accepts one only behind the
+--   default-off POS_SALE_VOUCHER_TENDER_ENABLED, and capture itself refuses a
+--   redemption that already pays a tender.
 --
 -- What the database does NOT check (capture does, RT-1114 acceptance 1): that
 -- the redemption is un-reversed, that its applied amount equals the tender's
@@ -58,8 +63,8 @@
 -- EXCLUSIVE for the CHECK swap, the nullable ADD COLUMN (metadata-only) and
 -- the FK; every CHECK and the FK are added NOT VALID, so no existing row is
 -- scanned under that lock (each holds by construction: no row is a voucher and
--- every redemption_id is NULL). The partial unique index builds under SHARE
--- (writes wait, reads do not) over a pilot-sized table. voucher_redemptions
+-- every redemption_id is NULL); no index is built on sale_tenders here (see
+-- 0102). voucher_redemptions
 -- takes ACCESS EXCLUSIVE to add its unique key over a table that is empty
 -- until the R-3 runtime is used. Grants: none. sale_tenders keeps its
 -- table-level SELECT + INSERT (0033), which covers the new column; capture
@@ -107,12 +112,5 @@ ALTER TABLE sale_tenders
   ADD CONSTRAINT fk_sale_tenders_redemption_tenant_store
     FOREIGN KEY (tenant_id, store_id, redemption_id)
     REFERENCES voucher_redemptions (tenant_id, store_id, id) ON DELETE RESTRICT NOT VALID;
-
--- =============================================================================
--- 5. one redemption pays at most one tender
--- =============================================================================
-
-CREATE UNIQUE INDEX uq_sale_tenders_tenant_redemption
-  ON sale_tenders (tenant_id, redemption_id) WHERE redemption_id IS NOT NULL;
 
 COMMIT;

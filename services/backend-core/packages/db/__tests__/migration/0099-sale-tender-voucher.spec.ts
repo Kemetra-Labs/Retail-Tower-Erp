@@ -10,7 +10,8 @@
  *     `reference` are refused (23514);
  *   - the composite FK: a redemption of another tenant, of another store of
  *     the same tenant, or that does not exist is refused (23503);
- *   - one redemption pays at most one tender (23505), across sales;
+ *   - one redemption pays at most one tender (23505), across sales, with the
+ *     0102 index (split out of 0099, built CONCURRENTLY) applied after it;
  *   - as the app role under FORCE RLS, a voucher tender of the caller's own
  *     tenant inserts;
  *   - UP -> DOWN -> UP (acceptance 4), also as a NOSUPERUSER migration owner
@@ -30,6 +31,7 @@ const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
 const UP_NAME = "0099_sale_tender_voucher.sql";
 const UP_PATH = resolve(DRIZZLE_DIR, UP_NAME);
 const DOWN_PATH = resolve(DRIZZLE_DIR, "0099_sale_tender_voucher.down.sql");
+const INDEX_UP_PATH = resolve(DRIZZLE_DIR, "0102_sale_tenders_redemption_idx.sql");
 
 const id = (n: string): string => `09900000-0000-7000-8000-0000000${n}`;
 const TENANT_A = id("0a001");
@@ -170,6 +172,9 @@ beforeAll(async () => {
     [LEGACY_SALE, TENANT_A, STORE_A],
   );
   await a.query(upSql);
+  // 0102 (one CONCURRENTLY statement, sent alone as the runner does): the
+  // one-tender-per-redemption index.
+  await a.query(readFileSync(INDEX_UP_PATH, "utf8"));
   // The app role's table grants are taken after the DDL.
   await ensureAppRole(env);
 }, 180_000);

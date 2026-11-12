@@ -2,7 +2,7 @@
 --
 -- RT-1114 (RT-1098 R-4a): rollback for 0099_sale_tender_voucher.sql.
 --
--- Drops ONLY what 0099 added: the partial unique index, the redemption FK, the
+-- Drops ONLY what 0099 added: the redemption FK, the
 -- voucher-only CHECK, the `sale_tenders.redemption_id` column and the
 -- `voucher_redemptions_tenant_store_id_uk` key. Then it restores the 0033
 -- method CHECK (cash, card_external), validated. No row is touched.
@@ -58,8 +58,6 @@ BEGIN
   END LOOP;
 END
 $$;
-
-DROP INDEX IF EXISTS uq_sale_tenders_tenant_redemption;
 
 ALTER TABLE sale_tenders DROP CONSTRAINT IF EXISTS fk_sale_tenders_redemption_tenant_store;
 ALTER TABLE sale_tenders DROP CONSTRAINT IF EXISTS sale_tenders_redemption_voucher_only;
