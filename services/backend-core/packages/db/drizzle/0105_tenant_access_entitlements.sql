@@ -1,4 +1,4 @@
--- 0104_tenant_access_entitlements.sql
+-- 0105_tenant_access_entitlements.sql
 --
 -- RT-1353 (Epic RT-1332; design RT-1333 D2 = B, P2) — `[GATED: migration]`.
 -- Owner authority: the owner selected "RT-1353 entitlement" for wave 1 with
@@ -9,7 +9,7 @@
 -- Source-of-truth artifacts:
 --   - packages/contracts/openapi/tenant-access-entitlement.openapi.yaml
 --   - packages/db/src/schema/tenant-access-entitlements.ts
---   - packages/db/__tests__/migration/0104-tenant-access-entitlements.spec.ts
+--   - packages/db/__tests__/migration/0105-tenant-access-entitlements.spec.ts
 --
 -- Creates ONE table, `tenant_access_entitlements`: the tenant's access state,
 -- `restricted` or `unrestricted` and nothing else (packages, quotas, billing
@@ -49,7 +49,7 @@
 -- NO free text. Retained for the life of the tenant.
 -- ---------------------------------------------------------------------------
 --
--- Reversal: 0104_tenant_access_entitlements.down.sql drops ONLY this table and
+-- Reversal: 0105_tenant_access_entitlements.down.sql drops ONLY this table and
 -- its trigger function, and so DISCARDS every restriction (a restricted tenant
 -- then reads `unrestricted`).
 --

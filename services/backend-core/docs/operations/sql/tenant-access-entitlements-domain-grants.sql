@@ -1,7 +1,7 @@
--- Domain-role grants for the tenant access state (RT-1353, migration 0104).
+-- Domain-role grants for the tenant access state (RT-1353, migration 0105).
 -- See docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0104 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0105 and BEFORE the
 -- API image that needs it is rolled, as the migration owner (or any role
 -- allowed to grant on this table). This file holds NO credential. Give psql
 -- the connection through libpq environment variables

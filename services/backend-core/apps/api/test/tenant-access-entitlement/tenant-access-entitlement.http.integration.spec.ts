@@ -1,6 +1,6 @@
 /**
  * RT-1353 — the tenant access entitlement over HTTP against real Postgres
- * (Testcontainers, every migration incl. 0104, the NOBYPASSRLS `app_test`
+ * (Testcontainers, every migration incl. 0105, the NOBYPASSRLS `app_test`
  * pool), the real module graph (`TenantContextGuard`, `RolesGuard`) and the
  * real service. Only cookie authentication is faked: a header names the
  * session (RT-192 / RT-387).

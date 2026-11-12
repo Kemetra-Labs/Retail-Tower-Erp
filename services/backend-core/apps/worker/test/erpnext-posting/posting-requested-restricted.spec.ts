@@ -4,7 +4,7 @@
  * `PostingRequestedConsumer.handle()` is where an `erpnext.posting.requested`
  * outbox event becomes a posting row (the job the Connector feed later offers).
  * While the tenant's access state is `restricted` (`tenant_access_entitlements`,
- * 0104) it creates nothing and throws the typed, retryable
+ * 0105) it creates nothing and throws the typed, retryable
  * `TenantAccessRestrictedError`: the outbox row is neither marked delivered nor
  * dropped, so the event is re-delivered and creates the row once the tenant is
  * `unrestricted`. A tenant with no stored state (every existing tenant) is

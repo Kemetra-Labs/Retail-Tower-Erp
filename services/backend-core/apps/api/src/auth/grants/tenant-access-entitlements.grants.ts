@@ -1,5 +1,5 @@
 /**
- * RT-1353 (0104): the tenant access state (`restricted` / `unrestricted`).
+ * RT-1353 (0105): the tenant access state (`restricted` / `unrestricted`).
  * The row is read by every tenant-scoped enforcement point (pairing, posting
  * row creation, the posting feed, the Console read) and written (INSERT by the
  * signup transaction of RT-1350, UPDATE by the platform-admin unlock and "mark

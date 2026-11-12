@@ -1,9 +1,9 @@
 /**
- * RT-1353: `0104_tenant_access_entitlements` migration test (authority: the
+ * RT-1353: `0105_tenant_access_entitlements` migration test (authority: the
  * owner's "PR and merge authorized after Opus review", 2026-11-12; RT-1001
  * comment 16753).
  *
- * Validates `packages/db/drizzle/0104_tenant_access_entitlements.sql` (+ `.down.sql`)
+ * Validates `packages/db/drizzle/0105_tenant_access_entitlements.sql` (+ `.down.sql`)
  * on a real PostgreSQL (Testcontainers), applied on top of every earlier
  * migration with tenants already present (the UPGRADE path):
  *   - existing tenants read `unrestricted` (no row = unrestricted; no backfill):
@@ -32,9 +32,9 @@ import { applyMigrationsBefore, asApp, asMigrationOwner, errorCode } from "../_h
 import { ensureAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP_NAME = "0104_tenant_access_entitlements.sql";
+const UP_NAME = "0105_tenant_access_entitlements.sql";
 const UP_PATH = resolve(DRIZZLE_DIR, UP_NAME);
-const DOWN_PATH = resolve(DRIZZLE_DIR, "0104_tenant_access_entitlements.down.sql");
+const DOWN_PATH = resolve(DRIZZLE_DIR, "0105_tenant_access_entitlements.down.sql");
 
 const id = (n: string): string => `10400000-0000-7000-8000-0000000${n}`;
 const TENANT_A = id("0a001");
@@ -99,7 +99,7 @@ beforeAll(async () => {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
       // eslint-disable-next-line no-console
-      console.warn(`\n[0104-tenant-access-entitlements.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
+      console.warn(`\n[0105-tenant-access-entitlements.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
       return;
     }
     throw new Error(`Container start failed: ${dockerSkipReason}`);
@@ -107,7 +107,7 @@ beforeAll(async () => {
   upSql = readFileSync(UP_PATH, "utf8");
   downSql = readFileSync(DOWN_PATH, "utf8");
   await env.admin.query(upSql);
-  // Re-grant AFTER 0104: ensureAppRole's GRANT ON ALL TABLES only covers tables that exist at grant time.
+  // Re-grant AFTER 0105: ensureAppRole's GRANT ON ALL TABLES only covers tables that exist at grant time.
   await ensureAppRole(env);
 }, 180_000);
 
@@ -120,14 +120,14 @@ afterEach(async () => {
   await env.admin.query(`DELETE FROM ${T}`);
 });
 
-describe("0104: files exist", () => {
+describe("0105: files exist", () => {
   it("up + down migration files are present", () => {
     expect(existsSync(UP_PATH)).toBe(true);
     expect(existsSync(DOWN_PATH)).toBe(true);
   });
 });
 
-describe("0104: existing tenants read unrestricted", () => {
+describe("0105: existing tenants read unrestricted", () => {
   it("creates no row for any tenant that existed before the migration", async () => {
     if (skip()) return;
     const r = await guard().admin.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${T}`);
@@ -147,7 +147,7 @@ describe("0104: existing tenants read unrestricted", () => {
   });
 });
 
-describe("0104: table and policies", () => {
+describe("0105: table and policies", () => {
   it("has RLS enabled + forced and exactly SELECT, INSERT and UPDATE policies", async () => {
     if (skip()) return;
     const a = guard().admin;
@@ -158,7 +158,7 @@ describe("0104: table and policies", () => {
   });
 });
 
-describe("0104: constraints", () => {
+describe("0105: constraints", () => {
   it("accepts only restricted / unrestricted (23514)", async () => {
     if (skip()) return;
     await expectCode(
@@ -237,7 +237,7 @@ describe("0104: constraints", () => {
   });
 });
 
-describe("0104: the forward-only trigger", () => {
+describe("0105: the forward-only trigger", () => {
   const PROVISION = `UPDATE ${T} SET state = 'unrestricted', provisioned_at = now(), provisioned_by_user_id = $2, provisioning_source = 'manual_platform' WHERE tenant_id = $1`;
 
   it("an unlock request can be added once, then never cleared or rewritten (23514)", async () => {
@@ -292,7 +292,7 @@ describe("0104: the forward-only trigger", () => {
   });
 });
 
-describe("0104: tenant isolation under FORCE RLS as the app role", () => {
+describe("0105: tenant isolation under FORCE RLS as the app role", () => {
   it("a tenant reads only its own row, and an empty GUC reads nothing (no 22P02)", async () => {
     if (skip()) return;
     await insertRestricted(guard(), TENANT_A);
@@ -357,15 +357,15 @@ describe("0104: tenant isolation under FORCE RLS as the app role", () => {
   });
 });
 
-describe("0104: down and up again", () => {
+describe("0105: down and up again", () => {
   it("reads unrestricted as a NOSUPERUSER owner under FORCE RLS with the GUC pre-set to ''", async () => {
     if (skip()) return;
     const e = guard();
-    await asMigrationOwner(e, { role: "mig_owner_0104", tables: [T], functions: ["tenant_access_entitlements_guard()"] }, async () => {
+    await asMigrationOwner(e, { role: "mig_owner_0105", tables: [T], functions: ["tenant_access_entitlements_guard()"] }, async () => {
       const client = await e.admin.connect();
       try {
         await client.query("BEGIN");
-        await client.query("SET LOCAL ROLE mig_owner_0104");
+        await client.query("SET LOCAL ROLE mig_owner_0105");
         await client.query("SELECT set_config('app.current_tenant', '', true)");
         const r = await client.query(`SELECT count(*)::int AS n FROM ${T}`);
         expect(r.rows[0]).toEqual({ n: 0 });

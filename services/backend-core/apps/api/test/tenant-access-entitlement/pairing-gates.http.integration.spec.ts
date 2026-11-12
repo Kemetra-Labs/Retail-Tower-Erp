@@ -1,6 +1,6 @@
 /**
  * RT-1353 — a restricted tenant cannot issue or complete a POS pairing, over
- * HTTP against real Postgres (every migration incl. 0104, the NOBYPASSRLS
+ * HTTP against real Postgres (every migration incl. 0105, the NOBYPASSRLS
  * `app_test` pool) and the real `DevicesModule` + `PairingModule` graph.
  *
  *   POST /api/v1/pairing-codes          consoleIssuePairingCode

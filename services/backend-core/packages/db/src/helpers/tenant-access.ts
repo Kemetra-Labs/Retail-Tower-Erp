@@ -4,7 +4,7 @@
  * ERP posting feed.
  *
  * The one rule: a tenant with NO `tenant_access_entitlements` row is
- * `unrestricted` (`0104`), so every existing tenant is unaffected. Only an
+ * `unrestricted` (`0105`), so every existing tenant is unaffected. Only an
  * explicit `restricted` row restricts.
  *
  * Both readers run inside the tenant's RLS context, so a row of another tenant

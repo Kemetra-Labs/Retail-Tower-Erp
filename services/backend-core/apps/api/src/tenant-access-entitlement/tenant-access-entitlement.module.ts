@@ -1,7 +1,7 @@
 /**
  * TenantAccessEntitlementModule — RT-1353: the tenant access state
  * (`restricted` / `unrestricted`) read for the Console banner and the
- * platform-admin unlock and mark-provisioned actions, on the 0104 storage.
+ * platform-admin unlock and mark-provisioned actions, on the 0105 storage.
  * The enforcement points (pairing, posting) read the state through
  * `@data-pulse-2/db` (`readTenantAccessState`) and need no provider from here.
  *

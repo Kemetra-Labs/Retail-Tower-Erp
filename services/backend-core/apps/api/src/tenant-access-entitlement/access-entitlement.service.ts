@@ -1,6 +1,6 @@
 /**
  * AccessEntitlementService — RT-1353: the tenant access state
- * (`restricted` / `unrestricted`, `tenant_access_entitlements`, 0104).
+ * (`restricted` / `unrestricted`, `tenant_access_entitlements`, 0105).
  *
  *   - `read`: the Console banner read. No row = `unrestricted`.
  *   - `requestUnlock` / `markProvisioned`: the platform-admin actions of

@@ -1,4 +1,4 @@
--- 0104_tenant_access_entitlements.down.sql - reverses 0104_tenant_access_entitlements.sql (RT-1353).
+-- 0105_tenant_access_entitlements.down.sql - reverses 0105_tenant_access_entitlements.sql (RT-1353).
 --
 -- Drops ONLY the `tenant_access_entitlements` table (its trigger, policies and
 -- constraints go with it) and the trigger function. DATA LOSS: every stored

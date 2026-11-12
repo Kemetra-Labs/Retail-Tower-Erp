@@ -787,7 +787,7 @@ A script without the marker, such as the owner-gated
   needs no maintenance window. Its down migration refuses while any birth,
   resolution, identity anchor or `tracking_mismatch` result is stored.
 
-- **Migration `0104_tenant_access_entitlements` (RT-1353).** Run
+- **Migration `0105_tenant_access_entitlements` (RT-1353).** Run
   [`sql/tenant-access-entitlements-domain-grants.sql`](sql/tenant-access-entitlements-domain-grants.sql)
   after `migrate up` and before the API and worker start, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
@@ -799,7 +799,7 @@ A script without the marker, such as the owner-gated
   RLS policies decide who may write (a platform admin only, inside the target
   tenant's context). Never grant `DELETE` or `TRUNCATE`. Without the grants the
   API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold
-  no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0104 creates one
+  no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0105 creates one
   new, empty table (no backfill: a tenant with no row is `unrestricted`) and
   needs no maintenance window; its foreign keys run under `lock_timeout` 2s.
   Its down migration drops the table and so discards every restriction: a

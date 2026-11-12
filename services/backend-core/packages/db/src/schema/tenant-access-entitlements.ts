@@ -1,6 +1,6 @@
 /**
  * The tenant access state, `restricted` or `unrestricted` (Jira RT-1353, Epic
- * RT-1332; design RT-1333 D2 = B, P2; `0104_tenant_access_entitlements.sql`,
+ * RT-1332; design RT-1333 D2 = B, P2; `0105_tenant_access_entitlements.sql`,
  * [GATED]).
  *
  * One row per tenant. A tenant with NO row is `unrestricted`: no backfill, and

@@ -3,7 +3,7 @@
  *
  * `ErpnextPostingService.pullPostings` offers a tenant's pending rows to the
  * Connector. While the tenant's access state is `restricted`
- * (`tenant_access_entitlements`, 0104) its pending rows are HELD: the page is
+ * (`tenant_access_entitlements`, 0105) its pending rows are HELD: the page is
  * empty and the cursor does not move. The rows stay pending and are offered
  * again, unchanged, once the tenant is `unrestricted`. A tenant with no row
  * (every existing tenant) is unaffected, and another tenant's restriction
