@@ -1,0 +1,93 @@
+# RT-1366: opt-in Depot CI pre-push preflight for Backend-Core db + worker, on UNCOMMITTED work.
+#
+#   git add -N <each new file>            # new files only: depot ci run uploads tracked changes
+#   depot ci run --workflow .depot/workflows/preflight.yml --repo Kemetra-Labs/Retail-Tower-Erp
+#
+# NOT a gate. GitHub Actions `required` stays the only trusted gate; CircleCI remote_suite stays the
+# preflight of record (CLAUDE.md section 11 step 5). Dispatch only: no push, pull_request or schedule
+# trigger, no secrets, no publishing, no deploy, no AWS lab. Keep it that way: Depot may register
+# triggers of a .depot/workflows file on the default branch.
+#
+# `depot ci run` has no --input flag, so the inputs below take their defaults on that path. Pass the
+# expected-files list in the uncommitted file .depot/expected-files.txt (`git add -N` it; never commit
+# it), or use `depot ci dispatch --input` (which runs a pushed ref with no local patch).
+name: preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Test family: db, worker or both (Backend-Core, the only family proven on Depot in RT-1365)"
+        type: choice
+        options: [both, db, worker]
+        default: both
+      expected_files:
+        description: "Repo-relative paths that must exist on the runner (newline, space or comma separated). Fails on a missing file or on any .github/workflows path"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: depot-ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # bc/db-package sets this on a pull request; the migration number gate compares against it.
+      MIGRATION_BASE_REF: origin/main
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Patch evidence (changed files, sha256, expected files)
+        env:
+          EXPECTED_FILES: ${{ inputs.expected_files }}
+          EXPECTED_FILE: .depot/expected-files.txt
+        run: bash .depot/scripts/patch-evidence.sh
+
+      - name: Enable corepack and pin pnpm
+        working-directory: services/backend-core
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: services/backend-core/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: services/backend-core
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build workspaces required by db/worker tests
+        working-directory: services/backend-core
+        run: >-
+          pnpm
+          --filter @data-pulse-2/shared
+          --filter @data-pulse-2/auth
+          --filter @data-pulse-2/db
+          --filter @data-pulse-2/worker
+          run build
+
+      - name: Pre-pull postgres:16-alpine
+        run: docker pull postgres:16-alpine
+
+      - name: Test @data-pulse-2/db (migrations + Testcontainers)
+        if: ${{ inputs.suite != 'worker' }}
+        working-directory: services/backend-core
+        run: pnpm --filter @data-pulse-2/db test
+
+      - name: Test @data-pulse-2/worker (Testcontainers outbox suites)
+        if: ${{ inputs.suite != 'db' }}
+        working-directory: services/backend-core
+        env:
+          WORKER_INCLUDE_DB_TESTS: "1"
+        run: pnpm --filter @data-pulse-2/worker test

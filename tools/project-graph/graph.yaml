@@ -254,6 +254,10 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # product suite. contracts/check runs its offline specs (the gated copy of release/selftest) and
   # system_gate.py on every system manifest, so it selects only that job. It stays a policy change.
   release_tooling: { precedence: 0, globs: [.github/release/**], selects: [contracts/check], policy_change: true }
+  # RT-1366: .depot/** holds the opt-in Depot CI pre-push preflight (dispatch only, read-only token, no
+  # secrets). It never feeds `required` and no product suite can test it, so like .circleci/** it selects
+  # only contracts/check and stays a policy change (approval, fingerprint). Precedence 0 beats policy's 1.
+  depot: { precedence: 0, globs: [.depot/**], selects: [contracts/check], policy_change: true }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }

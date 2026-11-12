@@ -37,6 +37,46 @@ Trigger rules are in RT-981 comment 14612. The remote-dev workflows share one Ci
 instead of waiting for "no run in progress" (you would keep losing that race; expect a 6 to 15
 minute wait). The 30-per-Cairo-day cap still counts every trigger.
 
+## Depot CI pre-push preflight (RT-1366, INACTIVE until the owner activates it)
+
+Provider selection lives in repo `CLAUDE.md` section 11 step 5 ("Provider selection"); read it there.
+This is only the how. Do nothing here while that block is marked INACTIVE. It covers one family:
+Backend-Core db + worker, on **uncommitted** work, before a push. Everything else stays on CircleCI.
+
+- **Authorize first.** Each run is billable and needs the owner's per-run approval. Re-read the Depot
+  CI minutes cap (Billing page, or an org token from the owner) before it; never estimate it.
+- **New files only:** `git add -N <path>` each new file you want tested. `depot ci run` uploads tracked
+  changes only, so an unregistered new file is silently missing and the run still passes. Never
+  `git add -A` or `git add .`, never stage unrelated files, and undo the intent-to-add afterwards
+  (`git reset -q -- <path>`).
+- **`.github/workflows/**` changes are not carried in the patch.** A change to CI wiring is proven only
+  by the PR's first GitHub run. Do not list such a path in the expected-files list: the run fails on it.
+- **Invoke** from the worktree, with the Depot org set (`depot org show`):
+
+  ```bash
+  depot ci run --workflow .depot/workflows/preflight.yml --repo Kemetra-Labs/Retail-Tower-Erp
+  ```
+
+  `depot ci run` has no `--input` flag, so inputs keep their defaults (both suites). List the files that
+  must arrive in an uncommitted `.depot/expected-files.txt` (one path per line; `git add -N` it; never
+  commit it). Pre-flight check, no Depot run: `git status --short` shows every new file as ` A` (intent).
+  `depot ci dispatch --input suite=db` takes inputs but runs a pushed ref with no local patch, so it
+  does not apply here.
+- **Read the patch-evidence step first.** It prints each changed file with its sha256 on the runner. Compare
+  with `sha256sum` locally. A `FAIL` line means the run proved less than your local work: fix the
+  registration and re-run only with the owner's approval.
+- **On failure or an unusable run** (patch evidence fails, Depot outage, cap exhausted, a result you cannot
+  explain): do not retry in a loop. Report it, then use the CircleCI `remote_suite` table above, which
+  needs a pushed `<pr-branch>-preflight` branch under the RT-981 rules. Never run both providers on the
+  same test by default.
+- **Evidence before any push**, as a comment on the Jira issue: the Depot run ID, db and worker suite and
+  test counts with pass/fail, the patch-evidence output (files and sha256), the command exactly as run, and
+  the Depot minutes read from Billing afterwards. A green Depot run is a pre-push signal only; GitHub
+  `required` on the exact head still decides the merge.
+- `.depot/**` is a policy path: change it only in a `[GATED: .depot, tools/project-graph]` PR and see
+  `landing-gated-changes`. The workflow must stay `workflow_dispatch` only (Depot may register triggers of
+  a `.depot/workflows` file on the default branch).
+
 ## POS source-scope guard and the `pos` preflight
 
 The POS test `src/renderer/__tests__/source-scope-guard.test.ts` fails any branch that changes
