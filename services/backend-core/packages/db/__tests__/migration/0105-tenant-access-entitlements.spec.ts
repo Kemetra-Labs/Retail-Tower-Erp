@@ -320,6 +320,9 @@ describe("0105: tenant isolation under FORCE RLS as the app role", () => {
     expect(empty.rows).toEqual([]);
   });
 
+  // The INSERT rule is an RLS WITH CHECK: FORCE RLS binds the table owner too, but a superuser or a
+  // BYPASSRLS role bypasses it, as with every RLS rule in this schema (the fixtures above insert
+  // through the superuser `admin` pool for that reason).
   it("a platform admin can create only a plain restricted row, never an unrestricted or pre-unlocked one (RLS 42501)", async () => {
     if (skip()) return;
     const unrestricted = `INSERT INTO ${T} (tenant_id, state, unlock_requested_at, unlock_requested_by_user_id, provisioned_at, provisioned_by_user_id, provisioning_source)
