@@ -73,6 +73,13 @@ describe("tracking profile section", () => {
     expect(screen.queryByText("Tracking profile")).toBeNull();
   });
 
+  test("a store_manager reads nothing: the profile read is owner / tenant_admin only", async () => {
+    renderSection("batch", "store_manager");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getProfile).not.toHaveBeenCalled();
+    expect(screen.queryByText("Tracking profile")).toBeNull();
+  });
+
   test("with the switch off (or the gate's 404) nothing is read", async () => {
     getTrackedSelling.mockResolvedValue({ status: 404, error: { error: { code: "not_found" } } });
     renderSection("batch");

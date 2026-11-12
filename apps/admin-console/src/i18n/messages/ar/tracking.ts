@@ -132,7 +132,8 @@ export const tracking = {
   "tracking.resolution.drawer.scope": "البيع {sale}",
   "tracking.resolution.drawer.sensitive":
     "إجراء حساس ومسجَّل. اختر هوية موجودة لكل سطر غير مؤكد، ثم اكتب السبب والملاحظة. الربط نهائي: يُسجَّل أثره على المخزون وقيده في ERPNext معًا.",
-  "tracking.resolution.identityChoose": "اختر الدفعة أو الرقم التسلسلي",
+  "tracking.resolution.identityChoose": "اختر الدفعة",
+  "tracking.resolution.serialNotBindable": "الأرقام التسلسلية لا تُربط هنا",
   "tracking.resolution.identitiesLoading": "جارٍ تحميل هويات الصنف",
   "tracking.resolution.identitiesFailed": "تعذّر تحميل هويات هذا الصنف.",
   "tracking.resolution.identitiesNone": "لا توجد هوية مسجَّلة لهذا الصنف.",

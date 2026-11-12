@@ -378,6 +378,38 @@ describe("bind flow (owner)", () => {
     await waitFor(() => expect(within(form).getAllByTestId("tracking-bind-line")).toHaveLength(2));
   });
 
+  test("a serial identity is shown but cannot be chosen (the bind takes batches)", async () => {
+    listTrackingIdentities.mockResolvedValue(
+      ok({
+        items: [
+          {
+            id: "s1",
+            productId: PRODUCT,
+            kind: "serial",
+            code: "SN-1",
+            expiryDate: null,
+            manufacturedOn: null,
+            origin: "erp_external",
+          },
+        ],
+        nextCursor: null,
+      }),
+    );
+    const form = await openBind();
+    const option = await within(form).findByRole("option", { name: /SN-1/ });
+    expect((option as HTMLOptionElement).disabled).toBe(true);
+  });
+
+  test("editing after Review puts the confirm step back, so Confirm never sends an unreviewed draft", async () => {
+    const form = await openBind();
+    await fillBind(form);
+    fireEvent.click(within(form).getByRole("button", { name: "Review binding" }));
+    expect(within(form).getByRole("button", { name: "Confirm binding" })).toBeTruthy();
+    fireEvent.change(within(form).getByLabelText(/Note/), { target: { value: "" } });
+    expect(within(form).queryByRole("button", { name: "Confirm binding" })).toBeNull();
+    expect(api.bindTrackingResolution).not.toHaveBeenCalled();
+  });
+
   test("a failed identity read says so for that line", async () => {
     listTrackingIdentities.mockResolvedValue(failure(500));
     const form = await openBind();

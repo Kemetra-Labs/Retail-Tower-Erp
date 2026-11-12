@@ -14,6 +14,7 @@ import { useT } from "@/i18n";
 import { getTrackingProfile } from "@/lib/tracking-queries";
 import { trackedSellingOn } from "@/tracked-selling/trackedSellingLogic";
 import { useTrackedSellingQuery } from "@/tracked-selling/useTrackedSelling";
+import { canReadHolds } from "@/tracking/trackingLogic";
 import { useQuery } from "@tanstack/react-query";
 import { trackingKey } from "./catalogLogic";
 
@@ -29,7 +30,8 @@ export function TrackingProfileSection({
   role: string | null | undefined;
 }>): React.JSX.Element | null {
   const t = useT();
-  const tracked = trackingMode === "batch" || trackingMode === "serial";
+  // The profile read is owner / tenant_admin only (any other role is a 404).
+  const tracked = (trackingMode === "batch" || trackingMode === "serial") && canReadHolds(role);
   const gate = useTrackedSellingQuery(tenantId, role, tracked);
   const on = tracked && trackedSellingOn(gate.data);
   const profile = useQuery({

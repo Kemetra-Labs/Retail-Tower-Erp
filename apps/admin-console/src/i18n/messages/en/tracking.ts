@@ -121,7 +121,8 @@ export const tracking: MessagesOf<typeof ar> = {
   "tracking.resolution.drawer.scope": "Sale {sale}",
   "tracking.resolution.drawer.sensitive":
     "A sensitive, audited action. Choose an existing identity for every unresolved line, then give the reason and a note. The binding is final: its stock effect and its ERPNext posting are recorded together.",
-  "tracking.resolution.identityChoose": "Choose the batch or serial",
+  "tracking.resolution.identityChoose": "Choose the batch",
+  "tracking.resolution.serialNotBindable": "serials cannot be bound",
   "tracking.resolution.identitiesLoading": "Loading the product's identities",
   "tracking.resolution.identitiesFailed": "This product's identities could not be loaded.",
   "tracking.resolution.identitiesNone": "This product has no recorded identity.",

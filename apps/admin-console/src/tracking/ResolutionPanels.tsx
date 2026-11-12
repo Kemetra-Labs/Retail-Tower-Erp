@@ -27,7 +27,7 @@ import type {
   ResolutionStatusFilter,
   UnresolvedLine,
 } from "@/lib/tracking-queries";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LoadMore, Machine, Quantity, ReadError } from "../inventory/parts";
 import type { InventoryScope, ReadState } from "../inventory/useInventory";
 import { PagedPanel } from "./PagedPanel";
@@ -113,6 +113,13 @@ function ResolvedBy({ item }: Readonly<{ item: ResolutionQueueItem }>): React.JS
       <When iso={resolution.resolvedAt} />
       <br />
       <bdi>{resolution.note}</bdi>
+      <ul className="tracking__lines">
+        {resolution.lines.map((bound) => (
+          <li key={bound.saleLineId}>
+            <Machine value={bound.trackingIdentityId} />
+          </li>
+        ))}
+      </ul>
       <span className="visually-hidden">{t("tracking.resolution.col.resolution")}</span>
     </div>
   );
@@ -325,9 +332,13 @@ function LineBinding({
           >
             <option value="">{t("tracking.resolution.identityChoose")}</option>
             {identities.rows.map((identity) => (
-              <option key={identity.id} value={identity.id}>
+              // The bind takes batch identities only (a serial is a 404).
+              <option key={identity.id} value={identity.id} disabled={identity.kind !== "batch"}>
                 {identity.code}
                 {identity.expiryDate ? ` · ${identity.expiryDate}` : ""}
+                {identity.kind === "batch"
+                  ? ""
+                  : ` · ${t("tracking.resolution.serialNotBindable")}`}
               </option>
             ))}
           </select>
@@ -367,6 +378,10 @@ function BindDrawer({
   const draft: BindDraft = { reason, note, identities };
   const recorded = write.outcome?.kind === "recorded";
 
+  // The confirm step is for exactly what was reviewed: any edit puts it back.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on each edit
+  useEffect(() => setConfirming(false), [reason, note, identities]);
+
   function ask(event: React.FormEvent): void {
     event.preventDefault();
     const found = validateBind(draft, lineIds);
@@ -376,6 +391,9 @@ function BindDrawer({
 
   async function bind(): Promise<void> {
     setConfirming(false);
+    const found = validateBind(draft, lineIds);
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
     await write.submit(buildBindCommand(draft, lineIds));
   }
 
