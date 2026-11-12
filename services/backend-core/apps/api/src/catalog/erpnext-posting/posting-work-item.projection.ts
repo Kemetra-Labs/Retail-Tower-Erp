@@ -94,9 +94,12 @@ export class ReturnTendersNotVisibleError extends Error {
   }
 }
 
-/** RT-77: one way the sale was paid (RT-10 D1/D2), net of change, a non-negative magnitude. */
+/**
+ * RT-77: one way the sale was paid (RT-10 D1/D2), net of change, a non-negative magnitude.
+ * RT-1114 (RT-1098 decision 4A): `voucher` is a tender too, carrying its `redemptionId`.
+ */
 export interface SaleWorkTender {
-  readonly method: "cash" | "card_external";
+  readonly method: "cash" | "card_external" | "voucher";
   readonly amount: string;
   /** card_external only — the card terminal's short reference. */
   readonly reference?: string;
@@ -104,6 +107,8 @@ export interface SaleWorkTender {
   readonly tenderRef?: string;
   /** RT-360: the tender's 1-based apply order; omitted for a legacy tender. */
   readonly sequence?: number;
+  /** RT-1114: `voucher` only — the redemption that paid it (V-A `redemption_id`). */
+  readonly redemptionId?: string;
 }
 
 /**
@@ -450,13 +455,14 @@ async function loadSaleTenders(
   // one transaction), so the pre-RT-77 feed does not depend on the new table's grant.
   if (expected === 0) return [];
   const st = await client.query<{
-    method: "cash" | "card_external";
+    method: "cash" | "card_external" | "voucher";
     amount: string;
     reference: string | null;
     tender_ref: string | null;
     sequence: number | null;
+    redemption_id: string | null;
   }>(
-    `SELECT method, amount::text AS amount, reference, tender_ref, sequence
+    `SELECT method, amount::text AS amount, reference, tender_ref, sequence, redemption_id
        FROM sale_tenders WHERE sale_id = $1
       ORDER BY sequence NULLS LAST, method, tender_ref`,
     [saleId],
@@ -470,6 +476,7 @@ async function loadSaleTenders(
     ...(t.reference === null ? {} : { reference: t.reference }),
     ...(t.tender_ref === null ? {} : { tenderRef: t.tender_ref }),
     ...(t.sequence === null ? {} : { sequence: t.sequence }),
+    ...(t.redemption_id === null ? {} : { redemptionId: t.redemption_id }),
   }));
 }
 

@@ -657,6 +657,19 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any resolution is stored.
 
+- **Migration `0099_sale_tender_voucher` (RT-1114).** No new grant. It adds
+  the nullable `sale_tenders.redemption_id` column (covered by the existing
+  table-level `SELECT` and `INSERT` on `sale_tenders`), a CHECK, an FK onto a
+  new `voucher_redemptions (tenant_id, store_id, id)` key and a partial unique
+  index. Capture validates a voucher tender by locking its redemption row
+  `FOR NO KEY UPDATE`, which needs the column-level `UPDATE` that
+  [`sql/voucher-redemptions-domain-grants.sql`](sql/voucher-redemptions-domain-grants.sql)
+  (0092) already grants; nothing reaches that path while
+  `POS_SALE_VOUCHER_TENDER_ENABLED` is off. 0099 rewrites no table, takes
+  short `ACCESS EXCLUSIVE` locks on `sale_tenders` and `voucher_redemptions`
+  (every CHECK and the FK are `NOT VALID`) and needs no maintenance window. Its
+  down migration refuses while any voucher tender is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

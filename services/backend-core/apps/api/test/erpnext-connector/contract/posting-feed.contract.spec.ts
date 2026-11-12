@@ -606,10 +606,10 @@ describe("erpnext-connector/posting-feed.yaml — RT-76 settlement", () => {
     expect(tenders?.items?.$ref).toBe("#/components/schemas/SaleTender");
   });
 
-  it("a feed tender mirrors the capture tender: cash | card_external, no voucher (D2)", () => {
+  it("a feed tender mirrors the capture tender: cash | card_external, plus RT-1114 voucher (D2, decision 4A)", () => {
     expect(schema("SaleTender")?.required?.sort()).toEqual(["amount", "method"]);
     const method = prop<{ enum?: string[] }>("SaleTender", "method");
-    expect(method?.enum?.slice().sort()).toEqual(["card_external", "cash"]);
+    expect(method?.enum?.slice().sort()).toEqual(["card_external", "cash", "voucher"]);
     expect(prop<{ $ref?: string }>("SaleTender", "amount")?.$ref).toBe(
       "#/components/schemas/NonNegativeDecimalAmount",
     );
@@ -986,8 +986,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
   const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
   const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
 
-  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.11.0-draft");
+  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in RT-1114)", () => {
+    expect(feedDoc.info?.version).toBe("1.12.0-draft");
     expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
@@ -1051,5 +1051,30 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
     expect(validate(item({ ...line, quantity: "0" }))).toBe(false);
     const { erpnextBatchRef: _batch, ...noBatch } = line;
     expect(validate(item(noBatch))).toBe(false);
+  });
+});
+
+describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  const tenderProp = (field: string) =>
+    (feedDoc.components?.schemas?.["SaleTender"]?.properties ?? {})[field] as
+      | { type?: string; format?: string; enum?: string[]; description?: string }
+      | undefined;
+
+  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order", () => {
+    expect(feedDoc.info?.version).toBe("1.12.0-draft");
+    expect(info()).toContain("RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
+    expect(info()).toContain("RT-1098 decision 4A");
+    expect(info()).toContain("ROLLOUT ORDER (Connector first, RT-10 comments 10409 and 10413)");
+    expect(info()).toContain("`POS_SALE_VOUCHER_TENDER_ENABLED`");
+    expect(info()).toContain("a voucher-tendered sale is never offered without its tenders");
+  });
+
+  it("a feed tender may be a voucher carrying its redemptionId (uuid), mirroring the capture tender", () => {
+    expect(tenderProp("method")?.enum).toEqual(["cash", "card_external", "voucher"]);
+    expect(tenderProp("redemptionId")).toMatchObject({ type: "string", format: "uuid" });
+    expect(flat(tenderProp("redemptionId")?.description)).toContain("present on a `voucher` tender and on no other method");
+    expect(feedDoc.components?.schemas?.["SaleTender"]?.required?.slice().sort()).toEqual(["amount", "method"]);
   });
 });

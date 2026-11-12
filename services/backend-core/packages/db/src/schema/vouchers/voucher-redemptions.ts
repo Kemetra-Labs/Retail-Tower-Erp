@@ -38,6 +38,9 @@ export const voucherRedemptions = pgTable(
   },
   (t) => [
     unique("voucher_redemptions_tenant_id_uk").on(t.tenantId, t.id),
+    // RT-1114 (0099): the FK target of a voucher sale tender, so the tender's
+    // redemption is of the sale's own tenant AND store.
+    unique("voucher_redemptions_tenant_store_id_uk").on(t.tenantId, t.storeId, t.id),
     unique("voucher_redemptions_tenant_intent_uk").on(t.tenantId, t.intentId),
     uniqueIndex("uq_voucher_redemptions_open_per_voucher")
       .on(t.tenantId, t.voucherId)

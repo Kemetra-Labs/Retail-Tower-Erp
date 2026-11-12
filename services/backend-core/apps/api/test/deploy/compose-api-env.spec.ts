@@ -54,6 +54,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "unmapped until the RT-419 hold lift, which must re-head the held rows in the same release step",
   POS_TRACKED_SELLING_ENABLED:
     "RT-451: unmapped, so production stays off, until the owner approves activating tracked selling (per-tenant flag, Q13 preconditions)",
+  POS_SALE_VOUCHER_TENDER_ENABLED:
+    "RT-1114: unmapped, so production stays off (acceptance 2), until RT-1330 (R-4b, the Connector voucher Mode of Payment) is deployed and the owner turns voucher tenders on",
   TRUST_PROXY_DIRECT_DEPLOYMENT:
     "RT-625: only for a deployment with no proxy in front of the API; this compose runs behind Caddy and pins TRUST_PROXY to 1",
   RT_LAB_FIXTURES:

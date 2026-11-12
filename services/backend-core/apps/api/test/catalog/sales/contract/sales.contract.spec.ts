@@ -51,6 +51,7 @@ import {
   CaptureSaleReceiptSchema,
   CaptureSaleRequestWithTendersSchema,
   DISCOUNT_REASON_CODES,
+  SaleTenderWithVoucherSchema,
 } from "../../../../src/catalog/sales/dto/capture-sale-request.dto";
 import { RefundTenderSchema } from "../../../../src/catalog/sales/dto/record-return-request.dto";
 import { loadOpenApiContracts } from "../../../../src/openapi/loader";
@@ -152,8 +153,11 @@ function pairingMaxLengths(): (prop: string) => number {
   };
 }
 
-/** RT-10 D2: the pilot tender methods. `voucher` is deliberately excluded. */
-const PILOT_TENDER_METHODS = ["card_external", "cash"];
+/**
+ * RT-10 D2: the pilot tender methods, plus `voucher` from RT-1114 (RT-1098
+ * decision 4A), accepted only behind its default-off deployment flag.
+ */
+const TENDER_METHODS = ["card_external", "cash", "voucher"];
 
 /**
  * Resolve the pos-sales contract directory from this spec file's location.
@@ -687,19 +691,19 @@ describe("pos-sales/sales.yaml — RT-76 sale tender contract", () => {
   it("a sale tender is strict {method, amount, reference?} with non-negative decimal money (D1)", () => {
     expect(schema("SaleTender")?.additionalProperties).toBe(false);
     expect(schema("SaleTender")?.required?.sort()).toEqual(["amount", "method"]);
-    // RT-359 adds the optional tender-line identity (tenderRef, sequence).
+    // RT-359 adds the optional tender-line identity (tenderRef, sequence);
+    // RT-1114 the voucher tender's redemptionId.
     expect(Object.keys(schema("SaleTender")?.properties ?? {}).sort()).toEqual(
-      ["amount", "method", "reference", "sequence", "tenderRef"],
+      ["amount", "method", "redemptionId", "reference", "sequence", "tenderRef"],
     );
     expect(prop<{ $ref?: string }>("SaleTender", "amount")?.$ref).toBe(
       "#/components/schemas/NonNegativeDecimalAmount",
     );
   });
 
-  it("the pilot tender methods are cash + card_external; voucher is excluded (D2)", () => {
+  it("the tender methods are cash + card_external (D2), plus voucher from RT-1114 (decision 4A)", () => {
     const method = prop<{ enum?: string[] }>("SaleTender", "method");
-    expect(method?.enum?.slice().sort()).toEqual(PILOT_TENDER_METHODS);
-    expect(method?.enum).not.toContain("voucher");
+    expect(method?.enum?.slice().sort()).toEqual(TENDER_METHODS);
   });
 
   it("the card reference is a short terminal reference, never a card number (D1)", () => {
@@ -2552,5 +2556,62 @@ describe("pos-sales/sales.yaml — RT-740 per-line manual discount", () => {
     const saleLine = schema("SaleLine");
     expect(saleLine?.additionalProperties).toBe(false);
     expect(Object.keys(saleLine?.properties ?? {})).not.toContain("discount");
+  });
+});
+
+// ===========================================================================
+// RT-1114 (RT-1098 R-4a, decision 4A) — voucher as a sale tender (1.23.0-draft;
+// [GATED: contract] owner authorization Jira RT-1114 comment 16670)
+// ===========================================================================
+describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const schema = (name: string): SchemaObject | undefined => salesDoc.components?.schemas?.[name];
+  const tenderProp = (field: string) =>
+    (schema("SaleTender")?.properties ?? {})[field] as
+      | { type?: string; format?: string; enum?: string[]; description?: string }
+      | undefined;
+
+  it("bumps to 1.23.0-draft with a note citing the authorization, decision 4A and the deployment gate", () => {
+    expect(salesDoc.info?.version).toBe("1.23.0-draft");
+    const info = flat(salesDoc.info?.description);
+    expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
+    expect(info).toContain("RT-1098 decision 4A");
+    expect(info).toContain("default-OFF deployment flag `POS_SALE_VOUCHER_TENDER_ENABLED`");
+    expect(info).toContain("(RT-1330, R-4b) is deployed");
+    expect(info).toContain("Σ tenders = `posTotal` still holds exactly");
+  });
+
+  it("adds `voucher` to the method enum and an OPTIONAL uuid redemptionId; the tender stays strict", () => {
+    expect(tenderProp("method")?.enum).toEqual(["cash", "card_external", "voucher"]);
+    expect(schema("SaleTender")?.additionalProperties).toBe(false);
+    expect(schema("SaleTender")?.required?.slice().sort()).toEqual(["amount", "method"]);
+    expect(tenderProp("redemptionId")).toMatchObject({ type: "string", format: "uuid" });
+    const text = flat(tenderProp("redemptionId")?.description);
+    expect(text).toContain("REQUIRED on a `voucher` tender and accepted on no other method (else 400)");
+    expect(text).toContain("Never a voucher code");
+  });
+
+  it("states the 422 sale_voucher_tender_invalid and its place in the refusal order", () => {
+    const unprocessable = flat(
+      (salesDoc.components?.responses?.["CaptureUnprocessable"] as { description?: string } | undefined)?.description,
+    );
+    expect(unprocessable).toContain("`sale_voucher_tender_invalid` (RT-1114)");
+    expect(unprocessable).toContain("then the coverage rule (tender or combined), then the voucher tenders, then the line price invariant");
+    expect(flat((findOp("captureSale") as { description?: string } | undefined)?.description)).toContain(
+      "while it is off a `voucher` tender is a 400",
+    );
+  });
+
+  it("the voucher capture DTO accepts exactly the contract's tender properties", () => {
+    const voucherProps = ["amount", "method", "redemptionId", "sequence", "tenderRef"];
+    const parsed = SaleTenderWithVoucherSchema.parse({
+      method: "voucher",
+      amount: "1",
+      redemptionId: "0197d3a0-1111-7000-8000-00000000a001",
+      tenderRef: "3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b",
+      sequence: 1,
+    });
+    expect(Object.keys(parsed).sort()).toEqual(voucherProps);
+    for (const key of voucherProps) expect(Object.keys(schema("SaleTender")?.properties ?? {})).toContain(key);
   });
 });
