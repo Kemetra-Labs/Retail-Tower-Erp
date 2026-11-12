@@ -188,8 +188,9 @@ describe("RT-1343 item 3 — a full void restores the voucher", () => {
   it("fails closed: a voucher that is not redeemed under an open redemption fails the void and records nothing", async () => {
     if (skip()) return;
     const saleRef = await capture("rt1343-void-broken", oneVoucher(R_BROKEN));
-    // A broken invariant (the voucher cancelled behind an open redemption).
-    await admin().query(`UPDATE vouchers SET status = 'cancelled' WHERE id = $1`, [voucherIdOf(R_BROKEN)]);
+    // A broken invariant: the voucher is already `active` behind an open redemption (a `cancelled`
+    // one needs cancelled_at and cancelled_by_user_id by the 0091 CHECK).
+    await admin().query(`UPDATE vouchers SET status = 'active' WHERE id = $1`, [voucherIdOf(R_BROKEN)]);
 
     const res = await voidSale(saleRef, "rt1343-void-broken-evt", "rt1343b1");
     expect(res.status).toBe(500);
@@ -200,7 +201,7 @@ describe("RT-1343 item 3 — a full void restores the voucher", () => {
     expect(voids.rows[0]?.n).toBe("0");
     const after = await redemption(R_BROKEN);
     expect(after.reversed_at).toBeNull();
-    expect(after.status).toBe("cancelled");
+    expect(after.status).toBe("active");
     expect(await reversedAudits(R_BROKEN)).toHaveLength(0);
   });
 });

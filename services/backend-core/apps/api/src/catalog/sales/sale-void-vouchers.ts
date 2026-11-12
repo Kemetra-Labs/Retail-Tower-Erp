@@ -11,7 +11,11 @@
  * `alreadyReversed` and changes nothing.
  *
  * A refusal or an invariant break throws and rolls the whole void back: a void
- * never lands with its voucher still spent. The tenders are walked in
+ * never lands with its voucher still spent. That is a plain 500 on purpose (fail
+ * closed): capture pins the store and the FK pins the tenant, and no writer leaves
+ * a voucher non-`redeemed` under an open redemption, so only corrupted data gets here.
+ * The credit-sale void (`credit-sale-reversal.store.ts`) calls the same helper in
+ * RT-1343 item 2. The tenders are walked in
  * redemption-id order so two voucher tenders of one sale always lock the same
  * way.
  */
@@ -31,10 +35,11 @@ export interface VoidVoucherScope {
 /** Reverse the redemption of every `voucher` tender of the voided sale; returns how many were reversed now. */
 export async function reverseVoucherTendersOfVoidedSale(client: PoolClient, scope: VoidVoucherScope): Promise<number> {
   const tenders = await client.query<{ redemption_id: string }>(
-    `SELECT redemption_id::text AS redemption_id
-       FROM sale_tenders
-      WHERE tenant_id = $1 AND sale_id = $2 AND method = 'voucher' AND redemption_id IS NOT NULL
-      ORDER BY redemption_id`,
+    // ORDER BY the uuid column (not the text alias): capture sorts the uuid, and the lock order must match.
+    `SELECT t.redemption_id::text AS redemption_id
+       FROM sale_tenders t
+      WHERE t.tenant_id = $1 AND t.sale_id = $2 AND t.method = 'voucher' AND t.redemption_id IS NOT NULL
+      ORDER BY t.redemption_id`,
     [scope.tenantId, scope.saleId],
   );
   let reversed = 0;
