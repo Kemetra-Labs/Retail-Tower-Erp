@@ -177,6 +177,8 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       // RT-449 PR 2: the POS inventory safety feed (device bearer only).
       "InventorySafetyFeedController.getDeltas",
       "InventorySafetyFeedController.getSnapshot",
+      // RT-1337: the device Offer Pack read (device bearer only).
+      "OffersPosController.read",
       // RT-788 (RT-114 MA-BC2): the approver-eligibility read (device bearer only).
       "PosApproversController.checkEligibility",
       // RT-1252: the POS device telemetry tunnel and its config (device bearer only).
