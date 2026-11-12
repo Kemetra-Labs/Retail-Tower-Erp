@@ -1,0 +1,9 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/tenant-access-entitlement.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1353: one tenant's access state for the Console banner.
+consoleGetTenantAccessEntitlement: cheapRead
+# RT-1353: the platform admin's manual provisioning record, an onboarding-class action.
+platformMarkTenantProvisioned: onboarding
+# RT-1353: the platform admin's unlock request, an onboarding-class action.
+platformRequestTenantUnlock: onboarding

@@ -316,6 +316,12 @@ export class ErpnextPostingService {
         // table column: a bare `sequence` would resolve to the ::text alias and
         // sort "10" before "9", advancing the cursor past unsent rows (RT-325).
         //
+        // RT-1353 HOLD: nothing is offered while the tenant's access state is
+        // `restricted` (`tenant_access_entitlements`; no row = unrestricted).
+        // The rows stay pending and are offered, unchanged, once the tenant is
+        // unrestricted; no row is changed and the cursor does not move. Read in
+        // this same statement, so one snapshot decides it.
+        //
         // RT-418 HOLDS (posting-feed.yaml 1.8.0, RT-417): a work item of a sale
         // with payer responsibilities is not offered when
         //   - it is a `reversal`: reversal of such a sale is undefined in this
@@ -376,6 +382,9 @@ export class ErpnextPostingService {
              FROM erpnext_posting_status
             WHERE status = 'pending'
               AND ($1::bigint IS NULL OR sequence > $1::bigint)
+              AND NOT EXISTS (
+                SELECT 1 FROM tenant_access_entitlements tae
+                 WHERE tae.tenant_id = $5::uuid AND tae.state = 'restricted')
               AND NOT EXISTS (
                 SELECT 1 FROM sales s
                  WHERE s.id = erpnext_posting_status.sale_id
