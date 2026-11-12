@@ -22,16 +22,16 @@
 import type { PoolClient } from "pg";
 
 /** The longest evidence reference the settings CHECK admits. */
-export const EVIDENCE_REF_MAX_LENGTH = 200;
+const EVIDENCE_REF_MAX_LENGTH = 200;
 
-export interface AttestBatchPostingInput {
+interface AttestBatchPostingInput {
   readonly tenantId: string;
   readonly actorId: string;
   /** A reference to the evidence (a Jira comment, a bench run id); no PII. */
   readonly evidenceRef: string;
 }
 
-export type BatchPostingAttestationOutcome =
+type BatchPostingAttestationOutcome =
   | { readonly kind: "attested"; readonly attestedAt: string; readonly evidenceRef: string }
   | {
       readonly kind: "refused";
