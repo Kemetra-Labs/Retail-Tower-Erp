@@ -187,8 +187,20 @@ describe('contract-set source (RT-869)', () => {
     // RT-1312: `pos-device-health.openapi.yaml` holds the POS heartbeat next to the console
     // device-health reads and the platform version policy (other principals). They are generated
     // with the contract but never called: the conformance registry refuses any unregistered route.
+    // RT-1339: `offers.openapi.yaml` holds `posGetOfferPack` next to the eleven Console offer
+    // operations (a dashboard session, never the till). Same rule: generated, never called.
     // Exactly these, and nothing else outside `/api/pos/v1/`.
     expect(nonPos).toEqual([
+      '/api/v1/offers',
+      '/api/v1/offers/{offer_id}',
+      '/api/v1/offers/{offer_id}/archive',
+      '/api/v1/offers/{offer_id}/draft',
+      '/api/v1/offers/{offer_id}/end',
+      '/api/v1/offers/{offer_id}/pause',
+      '/api/v1/offers/{offer_id}/preview',
+      '/api/v1/offers/{offer_id}/publish',
+      '/api/v1/offers/{offer_id}/resume',
+      '/api/v1/offers/{offer_id}/versions',
       '/api/v1/device-health',
       '/api/v1/device-health/{deviceId}',
       '/api/v1/platform/pos-version-policy',

@@ -12,6 +12,8 @@ import {
   type PromotionPreview,
 } from '../../../../shared/offers/types';
 import { DiscountAmount } from '../discount/DiscountParts';
+// The offer row reuses the discount row's grid placement (`.v5-discount-row`), so load that sheet here.
+import '../discount/discount.css';
 
 /**
  * RT-1339 (RT-286 S7) — the automatic offers as the cart shows them. Main evaluates the Offer
