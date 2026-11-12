@@ -71,6 +71,13 @@ export interface WireSaleLine {
   lineAmount: string;
   returnedQuantity: string;
   returnableQuantity: string;
+  /** RT-1339: the line's frozen automatic-offer fact (`SaleLinePromotion`), when it took part in one. */
+  promotion?: WireSaleLinePromotion | undefined;
+}
+
+/** The only field of `SaleLinePromotion` the till reads: whether the line carries the offer's discount. */
+interface WireSaleLinePromotion {
+  discountAmount: string;
 }
 
 export interface WireSaleTender {
@@ -110,6 +117,7 @@ const readSaleLine = readObject<WireSaleLine>({
   lineAmount: str,
   returnedQuantity: str,
   returnableQuantity: str,
+  promotion: optional(readObject<WireSaleLinePromotion>({ discountAmount: str })),
 });
 
 const readSale = readObject<WireSale>({

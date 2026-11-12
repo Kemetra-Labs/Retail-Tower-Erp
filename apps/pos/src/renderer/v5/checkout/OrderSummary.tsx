@@ -6,6 +6,8 @@ import { formatHumanCount, formatHumanMoney } from '../../ui/format/human-format
 import { Icon } from '../../icons/Icon';
 import { DISCOUNT_COPY } from '../sale/discount/discount-copy';
 import { DiscountAmount, DiscountKindLabel } from '../sale/discount/DiscountParts';
+import { OFFER_COPY, promotionViewsByLine } from '../sale/offers/offers-ui';
+import { promotionCopy } from '../../../shared/offers/types';
 
 /**
  * RT-243 W1-C (freeze 15 §4, 06 `OrderSummary`; DESIGN.md Frame — Direction B)
@@ -53,6 +55,7 @@ function unitCount(envelope: Readonly<PaymentIntentEnvelope>): number {
 export function OrderSummary({ envelope }: Readonly<OrderSummaryProps>): JSX.Element {
   const [open, setOpen] = useState(false);
   const listId = useId();
+  const promotionByLine = promotionViewsByLine(envelope.promotions ?? []);
 
   function closeOnEscape(event: KeyboardEvent<HTMLElement>): void {
     if (event.key !== 'Escape' || !open) return;
@@ -106,6 +109,7 @@ export function OrderSummary({ envelope }: Readonly<OrderSummaryProps>): JSX.Ele
       <ol className="v5-order-summary__lines" id={listId} aria-label="أصناف السلة" tabIndex={0}>
         {envelope.lines.map((line, idx) => {
           const discount = frozenLineDiscount(envelope, line);
+          const promotion = promotionByLine.get(line.line_id) ?? null;
           return (
             <li
               key={line.line_id}
@@ -134,6 +138,20 @@ export function OrderSummary({ envelope }: Readonly<OrderSummaryProps>): JSX.Ele
                   />
                 </>
               )}
+              {promotion !== null && (
+                <>
+                  <span
+                    className="v5-order-summary__discount"
+                    data-testid="payment-summary-promotion"
+                  >
+                    <bdi>{promotionCopy(promotion.offerNameAr, promotion.percentOff)}</bdi>
+                  </span>
+                  <DiscountAmount
+                    minor={promotion.amountMinor}
+                    className="v5-order-summary__discount-amount"
+                  />
+                </>
+              )}
             </li>
           );
         })}
@@ -150,6 +168,18 @@ export function OrderSummary({ envelope }: Readonly<OrderSummaryProps>): JSX.Ele
           <span>{DISCOUNT_COPY.totalDiscount}</span>
           <DiscountAmount
             minor={envelope.discount_total_minor ?? null}
+            className="v5-order-summary__amount"
+          />
+        </div>
+      )}
+      {(envelope.promotion_total_minor ?? 0) > 0 && (
+        <div
+          className="v5-order-summary__total v5-order-summary__total--discount"
+          data-testid="payment-summary-promotion-total"
+        >
+          <span>{OFFER_COPY.totalOffers}</span>
+          <DiscountAmount
+            minor={envelope.promotion_total_minor ?? null}
             className="v5-order-summary__amount"
           />
         </div>

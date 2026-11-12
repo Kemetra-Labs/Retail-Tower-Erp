@@ -29,6 +29,7 @@ import { FitGuard } from '../foundation/FitGuard';
 import { ParkAction, ParkedNotice, ParkedSalesButton, useParkedCount } from '../park/ParkControls';
 import { parkBridgeOf, windowCartBridge } from '../park/park-bridge';
 import { ReprintLastSlot } from './ReprintLastReceipt';
+import { useCartOffers } from './offers/offers-ui';
 import { DiscountControl } from './discount/DiscountControl';
 import './sale-screen.css';
 import './live-sale.css';
@@ -249,7 +250,7 @@ function LiveSaleActive(
   const addBlock = (): AddBlock =>
     addBlockOf(useCartStore.getState().activeCart?.state ?? null, paidRef.current);
   const [focusedLine, setFocusedLine] = useState<FocusedLine | null>(null);
-
+  const offers = useCartOffers(cart, props.cartBridge, paid); // RT-1339
   // An existing cart whose persisted lines are not known yet: show only a
   // small state. No catalogue (so no cart create and no add into an unknown
   // projection) and no empty cart that could be mistaken for the real one.
@@ -344,7 +345,7 @@ function LiveSaleActive(
           subtotalMinor={cart.subtotalMinor}
           itemCount={cart.itemCount}
           frozenSubtotalMinor={frozenSubtotal(frozen, cart.envelope)}
-          {...frozenDiscountTotals(frozen, cart.envelope)}
+          {...{ ...frozenDiscountTotals(frozen, cart.envelope), ...offers }}
           discountControl={discountControl}
           selectedLineId={selectedLine?.lineId ?? null}
           onSelectLine={(lineId) => {

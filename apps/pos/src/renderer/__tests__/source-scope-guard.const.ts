@@ -621,3 +621,27 @@ export function isRt1348ExemptFile(branch: string, file: string): boolean {
     (RT_1348_PAIRING_ORIGIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1339-pos-offers-5cf01b` implements Jira RT-1339 (RT-286 S7): the POS applies the automatic
+ * offers of the Offer Pack. It reads `posGetOfferPack` (`offers.openapi.yaml`), so the same PR pins that
+ * contract (`npm run contracts:repin -- --add offers.openapi.yaml`), which regenerates
+ * `src/shared/api-types.ts`.
+ *
+ * Authority: Jira RT-1339 scope (owner-authored: Pack sync, capture with `CaptureSaleLine.promotion`)
+ * and the coordinator's delegation (RT-1339 comment 16722), following the RT-1114 repin pattern: exactly
+ * ONE file on exactly ONE branch (exact name, no `startsWith`; the `-preflight` branch is not exempt).
+ * Narrowness is asserted by `source-scope-guard-rt1339.test.ts`.
+ */
+export const RT_1339_OFFERS_REPIN_BRANCH = 'claude/rt-1339-pos-offers-5cf01b' as const;
+export const RT_1339_OFFERS_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1339 exemption allows on `branch`. */
+export function isRt1339ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1339_OFFERS_REPIN_BRANCH &&
+    (RT_1339_OFFERS_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

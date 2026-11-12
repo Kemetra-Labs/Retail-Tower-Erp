@@ -54,12 +54,24 @@ export function assessSale(sale: WireSale): LocalReturnRefusal | null {
   return anyReturnable ? null : 'nothing_returnable';
 }
 
+/**
+ * RT-1339: the line's part in an automatic offer, from the sale's frozen `promotion`: `reward` when it
+ * carries a discount, `participant` when it counted without one, undefined when it had no offer. An
+ * unreadable discount is shown as a participant (never as no offer): the return may still be refused.
+ */
+function offerRoleOf(line: WireSaleLine): 'participant' | 'reward' | undefined {
+  if (line.promotion === undefined) return undefined;
+  const discount4 = parseAmount4(line.promotion.discountAmount);
+  return discount4 !== null && discount4 > 0n ? 'reward' : 'participant';
+}
+
 /** The renderer view of every line, with whole quantities (0 when unreadable). */
 export function viewLines(sale: WireSale): ReturnableLineView[] {
   const exponent = exponentFor(sale.currencyCode);
   return sale.lines.map((line) => {
     const whole = wholeLine(line);
     const unitPrice4 = parseAmount4(line.unitPrice);
+    const offerRole = offerRoleOf(line);
     return {
       lineRef: line.lineRef,
       lineName: line.lineName,
@@ -67,6 +79,7 @@ export function viewLines(sale: WireSale): ReturnableLineView[] {
       returnedQuantity: whole?.returned ?? 0,
       returnableQuantity: whole?.returnable ?? 0,
       unitPriceMinor: unitPrice4 === null ? null : amount4ToMinor(unitPrice4, exponent),
+      ...(offerRole === undefined ? {} : { offerRole }),
     };
   });
 }

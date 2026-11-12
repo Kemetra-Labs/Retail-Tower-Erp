@@ -5,6 +5,7 @@ import { CartBridgeHandlers, type ItemRefResolver } from './cart-bridge.js';
 import { bindCartStore } from './cart-store.js';
 import { createProductRepo } from '../catalogue/product-repo.js';
 import { resolveItemRef as fixtureResolver } from './resolve-item-ref.js';
+import { planCartPromotions } from '../offers/offer-runtime.js';
 import type { DatabaseHandle } from '../db/client.js';
 import type { AuditEmitter } from '../audit/audit-emitter.js';
 import type { OperatorSessionRecord } from '../operator/session-manager.js';
@@ -116,6 +117,8 @@ export function createCartBridgeHandlers(deps: CartHandlersDeps): CartBridgeHand
     releaseCheckoutPayment: deps.releaseCheckoutPayment,
     checkoutReturnAllowed: deps.checkoutReturnAllowed,
     approvals: deps.approvals,
+    // RT-1339 — the offers a cart earns now; inert until the Offer Pack has been read.
+    planPromotions: planCartPromotions,
   };
 
   // Only attach `resolveItemRef` when one was resolved — omitting it lets

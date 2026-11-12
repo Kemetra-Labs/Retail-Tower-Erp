@@ -14,6 +14,7 @@ import type {
   CartCancelPostHandoffRequest,
   CartReturnToSaleRequest,
   CartReturnToSaleEligibilityRequest,
+  CartPromotionPreviewRequest,
   CartUndoLastRequest,
   CartHandoffRequest,
   CartSubscribeRequest,
@@ -67,6 +68,9 @@ export const cart: CartBridgeAPI = {
 
   returnToSaleEligibility: (req: CartReturnToSaleEligibilityRequest) =>
     ipcRenderer.invoke(CART_IPC_CHANNELS.RETURN_TO_SALE_ELIGIBILITY, req),
+
+  promotionPreview: (req: CartPromotionPreviewRequest) =>
+    ipcRenderer.invoke(CART_IPC_CHANNELS.PROMOTION_PREVIEW, req),
 
   undoLast: (req: CartUndoLastRequest) => ipcRenderer.invoke(CART_IPC_CHANNELS.UNDO_LAST, req),
 

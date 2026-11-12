@@ -97,6 +97,7 @@
 
 import type {
   CaptureSaleLineDiscount,
+  CaptureSaleLinePromotion,
   CaptureSalePayload,
   CaptureSaleReceipt,
 } from './capture-payload.js';
@@ -262,6 +263,8 @@ interface CaptureSaleLineWire {
   tenantProductRef?: string;
   /** RT-858 (RT-740 C-A): only on a discounted line; `lineAmount` is then the net. */
   discount?: CaptureSaleLineDiscountWire;
+  /** RT-1339 (`sales.yaml` 1.22.0-draft): only on a line that took part in an automatic offer; `lineAmount` is then the net. */
+  promotion?: CaptureSaleLinePromotionWire;
 }
 
 /**
@@ -295,6 +298,24 @@ function discountWire(
       reasonCode: discount.reasonCode,
       authoritySource: discount.authoritySource,
       approverRole: discount.approverRole,
+    },
+  };
+}
+
+type CaptureSaleLinePromotionWire = PosSalesSales.components['schemas']['CaptureSaleLinePromotion'];
+
+/** RT-1339: the line promotion on the wire; `discountAmount` is in the `posTotal` exponent. */
+function promotionWire(
+  promotion: CaptureSaleLinePromotion | undefined,
+  exponent: number,
+): { promotion?: CaptureSaleLinePromotionWire } {
+  if (promotion === undefined) return {};
+  return {
+    promotion: {
+      offerId: promotion.offerId,
+      offerVersion: promotion.offerVersion,
+      packRevision: promotion.packRevision,
+      discountAmount: minorUnitsToDecimalString(promotion.discountAmountMinor, exponent),
     },
   };
 }
@@ -377,6 +398,7 @@ export function toWireBody(payload: CaptureSalePayload, currencyCode: string): C
       unit: DEFAULT_LINE_UNIT,
       ...tenantProductRefFor(line.productRef),
       ...discountWire(line.discount, exponent),
+      ...promotionWire(line.promotion, exponent),
     })),
     ...(tenders === undefined ? {} : { tenders }),
     ...(receipt === undefined ? {} : { receipt }),

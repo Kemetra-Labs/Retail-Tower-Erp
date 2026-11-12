@@ -76,6 +76,8 @@ import type {
   CartReturnToSaleResponse,
   CartReturnToSaleEligibilityRequest,
   CartReturnToSaleEligibilityResponse,
+  CartPromotionPreviewRequest,
+  CartPromotionPreviewResponse,
   CartUndoLastRequest,
   CartUndoLastResponse,
   CartHandoffRequest,
@@ -1061,6 +1063,11 @@ export interface CartBridgeAPI {
   returnToSaleEligibility?(
     req: CartReturnToSaleEligibilityRequest,
   ): Promise<CartReturnToSaleEligibilityResponse>;
+  /**
+   * RT-1339 (RT-286 S7) — read-only: the automatic offers the cart earns now (main evaluates the
+   * Offer Pack; the renderer only shows the result). Optional on the TYPE only, like `returnToSale?`.
+   */
+  promotionPreview?(req: CartPromotionPreviewRequest): Promise<CartPromotionPreviewResponse>;
   /**
    * RT-254 — Undo the cart's LAST action (RT-245 contract). The renderer
    * names only the action it just completed and a fresh idempotency key; main

@@ -29,6 +29,11 @@ export const CART_IPC_CHANNELS = {
    * contract). Main chooses the inverse; the renderer names only the target.
    */
   UNDO_LAST: 'cart:undoLast',
+  /**
+   * RT-1339 (RT-286 S7) — read-only: the automatic offers the cart earns now, for the
+   * cart's offer rows, its total and the «العرض غير متاح بدون اتصال» notice. Never writes.
+   */
+  PROMOTION_PREVIEW: 'cart:promotionPreview',
 } as const;
 
 /**

@@ -27,6 +27,8 @@ import type {
   CartLinesUpdateResponse,
   CartReturnToSaleRequest,
   CartReturnToSaleResponse,
+  CartPromotionPreviewRequest,
+  CartPromotionPreviewResponse,
   CartReturnToSaleEligibilityRequest,
   CartReturnToSaleEligibilityResponse,
   CartSnapshotRequest,
@@ -68,6 +70,8 @@ import {
 import { discountApprovalSubjectRef } from '../../shared/cart/discount-approval.js';
 import { AuditEmitter } from '../audit/audit-emitter.js';
 import { buildPaymentIntentEnvelope } from './handoff-envelope-builder.js';
+import type { PlanLine, PromotionPreview } from '../../shared/offers/types.js';
+import { previewCartPromotions } from './promotion-preview.js';
 import { freezeEnvelope } from '../../shared/cart/handoff-envelope.js';
 import type { PaymentIntentEnvelope } from '../../shared/cart/handoff-envelope.js';
 import type { CartPaymentStatus } from '../payments/repositories/payment-attempts.repository.js';
@@ -234,6 +238,12 @@ export interface CartBridgeHandlersDeps {
    * unchanged; without it (or for an unknown product) a line reports no flags.
    */
   productFlags?: (tenant_id: string, item_ref: string) => ProductAwarenessFlags | null;
+  /**
+   * RT-1339 (RT-286 S7) — the offers that apply to a cart's live lines now (the Offer Pack and
+   * trusted time). Read at handoff, whose result is frozen into the envelope, and by
+   * `promotionPreview`. Optional: absent, no offer applies and a sale is what it was before.
+   */
+  planPromotions?: (lines: readonly PlanLine[]) => PromotionPreview;
   /** Optional clock for testability. Defaults to `() => new Date()`. */
   clock?: () => Date;
   /**
@@ -1737,6 +1747,19 @@ export class CartBridgeHandlers {
   }
 
   /**
+   * RT-1339 (RT-286 S7) — read-only: the automatic offers the cart's live lines earn now.
+   * Recomputed on every ask; nothing is written, nothing is stored on a line.
+   */
+  promotionPreview(req: CartPromotionPreviewRequest): Promise<CartPromotionPreviewResponse> {
+    const gated = this.gateOwnedCart(req.cart_id);
+    if (gated.kind !== 'ok') return Promise.resolve(gated);
+    return Promise.resolve({
+      kind: 'ok',
+      preview: previewCartPromotions(gated.store, req.cart_id, this.deps.planPromotions),
+    });
+  }
+
+  /**
    * Steps 1–4 of `returnToSale`: gates, fail-closed wiring, replay, state.
    * `replayed` = this exact Back was already applied (the caller answers `ok`).
    */
@@ -1907,6 +1930,9 @@ export class CartBridgeHandlers {
       branch_id: cart.branch_id,
       created_at: now,
       store,
+      ...(this.deps.planPromotions === undefined
+        ? {}
+        : { planPromotions: this.deps.planPromotions }),
     });
 
     if (built.kind !== 'ok') return refuse(ENVELOPE_BUILD_REFUSAL[built.kind]);

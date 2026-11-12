@@ -22,6 +22,8 @@ import type {
   CartLinesUpdateResponse,
   CartReturnToSaleRequest,
   CartReturnToSaleResponse,
+  CartPromotionPreviewRequest,
+  CartPromotionPreviewResponse,
   CartReturnToSaleEligibilityRequest,
   CartReturnToSaleEligibilityResponse,
   CartSnapshotRequest,
@@ -282,6 +284,13 @@ function asReturnToSaleEligibilityReq(value: unknown): CartReturnToSaleEligibili
     : null;
 }
 
+/** RT-1339 — the read-only offers preview: one bounded cart id. */
+function asPromotionPreviewReq(value: unknown): CartPromotionPreviewRequest | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const cartId = (value as Record<string, unknown>)['cart_id'];
+  return isBoundedId(cartId) ? { cart_id: cartId } : null;
+}
+
 /**
  * RT-254 — Undo. Builds a FRESH object with only the three contract fields,
  * each a bounded id: no inverse kind, line id, quantity or scope crosses this
@@ -453,6 +462,15 @@ export function registerCartHandlers(ipcMain: IpcMain, deps: CartHandlerDeps): v
       const req = asReturnToSaleEligibilityReq(request);
       if (req === null) return refuseInvalid();
       return handlers.returnToSaleEligibility(req);
+    },
+  );
+
+  ipcMain.handle(
+    CART_IPC_CHANNELS.PROMOTION_PREVIEW,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<CartPromotionPreviewResponse> => {
+      const req = asPromotionPreviewReq(request);
+      if (req === null) return refuseInvalid();
+      return handlers.promotionPreview(req);
     },
   );
 

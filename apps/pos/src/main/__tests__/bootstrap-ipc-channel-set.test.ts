@@ -252,6 +252,7 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'cart:cancelPostHandoff',
   'cart:returnToSale',
   'cart:returnToSaleEligibility',
+  'cart:promotionPreview',
   'cart:undoLast',
   'cart:handoff',
   'cart:subscribe',

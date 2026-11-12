@@ -36,9 +36,14 @@
 
 import { format as formatMoney, of as moneyOf } from '../../shared/money.js';
 import { BusinessDayError, businessDateTimeOf } from '../../shared/time/business-day.js';
-import type { ReceiptPayload, ReceiptLineItem } from '../../shared/receipts/types.js';
+import type {
+  ReceiptPayload,
+  ReceiptLineItem,
+  ReceiptLinePromotion,
+} from '../../shared/receipts/types.js';
 import type { TenderLineSummary, SalesTenderType } from '../../shared/sales/types.js';
 import type { ReceiptLineDiscount } from '../../shared/sales/sale-line-discount.js';
+import { promotionCopy } from '../../shared/offers/types.js';
 import { COLS, receiptLines } from './receipt-text.js';
 
 export interface ReceiptRenderOutput {
@@ -204,6 +209,18 @@ function composeItem(line: ReceiptLineItem, value: TextSink, text: TextSink): vo
   value(`${String(line.quantity)}× ${line.display_name}`, 'rtl');
   text(egp(line.line_subtotal_minor), 'ltr');
   if (line.discount !== undefined) composeLineDiscount(line.discount, text);
+  if (line.promotion !== undefined && line.promotion.discount_minor > 0) {
+    composeLinePromotion(line.promotion, text);
+  }
+}
+
+/**
+ * RT-1339 (RT-286 S7, spec 048 §8): under a reward line, the offer and its discount, in the
+ * discount row's shape: «عرض: <offer> (خصم 40%)», then the amount as a negative.
+ */
+function composeLinePromotion(promotion: ReceiptLinePromotion, text: TextSink): void {
+  text(`${DISCOUNT_INDENT}${promotionCopy(promotion.offer_name_ar, promotion.percent_off)}`, 'rtl');
+  text(egp(-promotion.discount_minor), 'ltr');
 }
 
 /** RT-856 (OD-28-11): the discount row's indent under its item. */
@@ -223,9 +240,14 @@ function composeLineDiscount(discount: ReceiptLineDiscount, text: TextSink): voi
 
 /** RT-856: one «إجمالي الخصم» row (Σ line discounts) above the total, when any line is discounted. */
 function composeDiscountTotal(lines: readonly ReceiptLineItem[], text: TextSink): void {
-  const discounted = lines.filter((line) => line.discount !== undefined);
+  const discounted = lines.filter(
+    (line) => line.discount !== undefined || (line.promotion?.discount_minor ?? 0) > 0,
+  );
   if (discounted.length === 0) return;
-  const total = discounted.reduce((sum, line) => sum + (line.discount?.amount_minor ?? 0), 0);
+  const total = discounted.reduce(
+    (sum, line) => sum + (line.discount?.amount_minor ?? 0) + (line.promotion?.discount_minor ?? 0),
+    0,
+  );
   text('إجمالي الخصم', 'rtl');
   text(egp(-total), 'ltr');
 }

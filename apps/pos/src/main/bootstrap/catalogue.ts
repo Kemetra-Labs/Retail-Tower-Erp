@@ -18,6 +18,7 @@ import type { DeviceAuthDetector } from '../pairing/device-auth-detector.js';
 import type { PairingStore } from '../pairing/store.js';
 import type { PairingStatus } from '../../shared/pairing-types.js';
 import { resolveApiBaseUrl } from './env.js';
+import { registerOffers } from './offers.js';
 
 /** What `registerCatalogue` closes over from the composition root (RT-893 extraction 3). */
 export interface CatalogueDeps {
@@ -173,6 +174,8 @@ export async function registerCatalogue(deps: CatalogueDeps): Promise<CatalogueW
     // Boot-time fact only: the starter above runs when the pairing completes.
     mainLogger.info('read_down_driver:skipped_unpaired');
   }
+  // RT-1339 — the store's Offer Pack read-down rides the same deps (RT-893: `index.ts` may not grow).
+  registerOffers(deps);
 
   return { bootPairing };
 }

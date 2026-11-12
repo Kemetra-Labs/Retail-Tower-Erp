@@ -30,6 +30,7 @@ import type {
 } from '../../shared/receipts/types.js';
 import type { SaleId, SaleNumber, TenderLineSummary } from '../../shared/sales/types.js';
 import { readReceiptLineDiscount } from '../../shared/sales/sale-line-discount.js';
+import { readReceiptLinePromotion } from '../../shared/offers/receipt-promotion.js';
 
 export interface DeriveReceiptPayloadOptions {
   variant: ReceiptTemplateVariant;
@@ -71,7 +72,9 @@ function parseJsonArray<T>(raw: string, field: string): T[] {
  * slip cannot read is a controlled failure: a slip printed without its
  * discount row would not add up to its total.
  */
-function toReceiptLine(l: LineSnapshotJson & { discount?: unknown }): ReceiptLineItem {
+function toReceiptLine(
+  l: LineSnapshotJson & { discount?: unknown; promotion?: unknown },
+): ReceiptLineItem {
   const item: ReceiptLineItem = {
     item_ref: l.item_ref,
     display_name: l.display_name,
@@ -80,10 +83,23 @@ function toReceiptLine(l: LineSnapshotJson & { discount?: unknown }): ReceiptLin
     line_subtotal_minor: l.line_subtotal_minor,
     note: l.note,
   };
-  if (l.discount === undefined || l.discount === null) return item;
+  const promoted = withPromotion(item, l.promotion);
+  if (l.discount === undefined || l.discount === null) return promoted;
   const discount = readReceiptLineDiscount(l.discount);
   if (discount === null) throw new ReceiptPayloadDerivationError('lines_json');
-  return { ...item, discount };
+  return { ...promoted, discount };
+}
+
+/**
+ * RT-1339: the line with its frozen automatic offer, or unchanged when it has none. An offer
+ * the slip cannot read is a controlled failure: a slip printed without its offer row would
+ * not add up to its total.
+ */
+function withPromotion(item: ReceiptLineItem, frozen: unknown): ReceiptLineItem {
+  if (frozen === undefined || frozen === null) return item;
+  const promotion = readReceiptLinePromotion(frozen);
+  if (promotion === null) throw new ReceiptPayloadDerivationError('lines_json');
+  return { ...item, promotion };
 }
 
 export function deriveReceiptPayload(

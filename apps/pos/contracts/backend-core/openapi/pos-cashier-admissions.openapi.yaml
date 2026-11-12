@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Cashier Admissions API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     RT-113 BC1 (planning record: Jira RT-113 comment 10763, decisions D2 and
     D11; `[GATED]` contract approval: RT-113 comment 10823). The
@@ -93,6 +93,16 @@ info:
     for an earlier sign-in (or by a slow heartbeat's orphan release) cannot
     end an admission renewed after it. Without the body or the field, `end`
     behaves as in 1.0.0-draft. No status code, security or path changed.
+
+
+    1.2.0-draft (RT-1138; `[GATED: contract]`; the owner said "Yes,
+    implement" and confirmed this wire shape in chat on 2026-11-12): additive. `PosCashierRosterResponse` gains the
+    required `suspended_cashiers` list (`PosCashierSuspendedEntry`:
+    `user_id` and `operator_id` only). A cashier suspended at the device's
+    store (`cashier-suspensions.openapi.yaml`) is left out of `cashiers` and
+    listed there, and `posCreateCashierAdmission` refuses it with the same
+    generic `refused`. No status code, security or path changed; a consumer
+    that reads only `cashiers` is unaffected.
 
 
     Cross-cutting conventions live in
@@ -331,7 +341,8 @@ paths:
         Returns the cashiers of the store bound to the authenticated device
         (D11): users with an active membership in the device's tenant, a
         POS-eligible cashier role and access to the device's store, who are
-        not deleted. This is the cashier picker's online source. It replaces
+        not deleted, and who are not suspended at the store. This is the
+        cashier picker's online source. It replaces
         the cashier path's use of the `operator-identity`-gated
         `GET /api/pos/v1/operators/roster`, which is unchanged.
 
@@ -344,6 +355,18 @@ paths:
         and `display_name`. There is no email, phone, PIN, PIN hash,
         credential fragment, admission state or provisioning state. Order is
         not significant.
+
+
+        RT-1138 (`[GATED: contract]`): a cashier suspended at the store
+        (`cashier-suspensions.openapi.yaml`) is NOT in `cashiers` and cannot be
+        admitted (`posCreateCashierAdmission` refuses it with the same generic
+        `refused`). It is listed in `suspended_cashiers` instead, with only its
+        `user_id` and `operator_id`, so the terminal learns of the suspension on
+        its next sync and can refuse the cashier and end a session it holds
+        locally. A reactivated cashier is back in `cashiers` and gone from
+        `suspended_cashiers`. Only cashiers who would otherwise be on the
+        roster are listed as suspended. The list is empty when nobody is
+        suspended.
       operationId: posListCashierAdmissionRoster
       tags: [pos-cashier-admissions]
       security:
@@ -704,13 +727,36 @@ components:
     # -------------------------------------------------------------------
     PosCashierRosterResponse:
       type: object
-      required: [cashiers]
+      required: [cashiers, suspended_cashiers]
       additionalProperties: false
       properties:
         cashiers:
           type: array
           items:
             $ref: "#/components/schemas/PosCashierRosterEntry"
+        suspended_cashiers:
+          type: array
+          description: >
+            RT-1138: the cashiers of the device's store that are suspended and
+            so left out of `cashiers`. Minimum disclosure: no display name.
+          items:
+            $ref: "#/components/schemas/PosCashierSuspendedEntry"
+    PosCashierSuspendedEntry:
+      type: object
+      required: [user_id, operator_id]
+      additionalProperties: false
+      description: A cashier suspended at the device's store (RT-1138).
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The same `users.id` the roster's `user_id` carries.
+        operator_id:
+          type: string
+          minLength: 1
+          description: >
+            The same provider subject the roster's `operator_id` carries; the
+            key the terminal holds its local cashier record and session under.
     PosCashierRosterEntry:
       type: object
       required: [user_id, operator_id, display_name]

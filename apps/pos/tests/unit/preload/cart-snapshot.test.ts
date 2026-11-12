@@ -37,6 +37,7 @@ describe('preload cart — snapshot (V5 active cart read)', () => {
         'discountPlaceholders',
         'handoff',
         'lines',
+        'promotionPreview',
         'returnToSale',
         'returnToSaleEligibility',
         'snapshot',

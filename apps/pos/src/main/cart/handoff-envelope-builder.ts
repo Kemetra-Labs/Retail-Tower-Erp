@@ -24,6 +24,7 @@ import {
   type DiscountPlaceholderSnapshot,
 } from '../../shared/cart/handoff-envelope.js';
 import { envelopeDiscountTotals } from '../../shared/cart/manual-discount.js';
+import { NO_PROMOTIONS, type PlanLine, type PromotionPreview } from '../../shared/offers/types.js';
 
 export interface BuildEnvelopeParams {
   cart_id: string;
@@ -35,6 +36,11 @@ export interface BuildEnvelopeParams {
   branch_id: string;
   created_at: string;
   store: CartStore;
+  /**
+   * RT-1339: the offers that apply to these live lines now (the Pack, trusted time).
+   * Absent: no offer. The result is frozen into the envelope and never recomputed.
+   */
+  planPromotions?: (lines: readonly PlanLine[]) => PromotionPreview;
 }
 
 export interface BuildEnvelopeResult {
@@ -60,6 +66,21 @@ function lineSnapshot(line: CartLineRow): LineSnapshot {
     version: line.version,
     last_action_id: line.last_action_id,
   };
+}
+
+/** The cart lines as the offer plan reads them; a line with any discount placeholder is OD-5 excluded. */
+export function planLinesOf(
+  lines: readonly Pick<LineSnapshot, 'line_id' | 'item_ref' | 'quantity' | 'unit_price_minor'>[],
+  placeholders: readonly Pick<DiscountPlaceholderSnapshot, 'line_id'>[],
+): PlanLine[] {
+  const discounted = new Set(placeholders.map((p) => p.line_id));
+  return lines.map((l) => ({
+    line_id: l.line_id,
+    item_ref: l.item_ref,
+    quantity: l.quantity,
+    unit_price_minor: l.unit_price_minor,
+    has_manual_discount: discounted.has(l.line_id),
+  }));
 }
 
 function placeholderSnapshot(ph: DiscountPlaceholderRow): DiscountPlaceholderSnapshot {
@@ -123,6 +144,13 @@ export function buildPaymentIntentEnvelope(
     return { kind: 'discount_invalid' };
   }
 
+  const offers =
+    params.planPromotions?.(planLinesOf(lines, discount_placeholders)) ?? NO_PROMOTIONS;
+  const promoTotal = offers.promotion_total_minor;
+  if (!Number.isSafeInteger(promoTotal) || promoTotal > totals.total_due_minor) {
+    return { kind: 'discount_invalid' };
+  }
+
   const envelope: PaymentIntentEnvelope = {
     envelope_version: 'v1',
     cart_id,
@@ -135,7 +163,10 @@ export function buildPaymentIntentEnvelope(
     discount_placeholders,
     subtotal_minor: subtotal,
     discount_total_minor: totals.discount_total_minor,
-    total_due_minor: totals.total_due_minor,
+    total_due_minor: totals.total_due_minor - promoTotal,
+    ...(offers.promotions.length === 0
+      ? {}
+      : { promotions: offers.promotions, promotion_total_minor: promoTotal }),
     created_at,
     handoff_action_id,
   };

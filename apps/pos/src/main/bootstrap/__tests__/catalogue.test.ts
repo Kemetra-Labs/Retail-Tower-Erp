@@ -53,6 +53,8 @@ vi.mock('../../pairing/device-auth-detector.js', () => ({
   withDeviceAuthObservation: m.withDeviceAuthObservation,
 }));
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
+// RT-1339: the Offer Pack read-down rides this wiring; it has its own test (`offers.test.ts`).
+vi.mock('../offers.js', () => ({ registerOffers: vi.fn() }));
 
 import { registerCatalogue } from '../catalogue.js';
 import type { CatalogueDeps } from '../catalogue.js';

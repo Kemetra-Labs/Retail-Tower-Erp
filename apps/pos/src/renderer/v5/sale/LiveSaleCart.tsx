@@ -15,6 +15,8 @@ import { DiscountAmount } from './discount/DiscountParts';
 import { useRemovalFocus } from './useRemovalFocus';
 import type { LineFlags } from '../../stores/line-flags-store';
 import { moveRowFocus, useNewestRowInView } from './useCartRowFocus';
+import type { PromotionFact, PromotionPreview } from '../../../shared/offers/types';
+import { OFFER_COPY, promotionViewsByLine } from './offers/offers-ui';
 
 interface Props {
   lines: readonly CartLineItem[];
@@ -62,6 +64,24 @@ interface Props {
   frozenDiscountMinor?: number;
   /** RT-855: the frozen envelope's amount due (`total_due_minor`); null when unreadable. */
   frozenDueMinor?: number | null;
+  /** RT-1339: the automatic offers the editing cart earns now (main evaluates; null: none known). */
+  promotions?: PromotionPreview | null;
+  /** RT-1339: the frozen envelope's offer facts and their total (none when it has none). */
+  frozenPromotions?: readonly PromotionFact[];
+  frozenPromotionMinor?: number;
+}
+
+/** The offer facts the cart shows: the frozen envelope's once frozen, else the live preview's. */
+function shownPromotions(props: Readonly<Props>): readonly PromotionFact[] {
+  return props.frozenSubtotalMinor !== null
+    ? (props.frozenPromotions ?? [])
+    : (props.promotions?.promotions ?? []);
+}
+
+function shownPromotionMinor(props: Readonly<Props>): number {
+  return props.frozenSubtotalMinor !== null
+    ? (props.frozenPromotionMinor ?? 0)
+    : (props.promotions?.promotion_total_minor ?? 0);
 }
 
 /**
@@ -202,6 +222,7 @@ function CartLines(
   if (props.lines.length === 0)
     return <p className="v5-live-message">لا توجد أصناف في السلة بعد.</p>;
   const { byLine } = discountViews(props);
+  const offersByLine = promotionViewsByLine(shownPromotions(props));
   return (
     <ol className="v5-sale-cart-lines" aria-label="أصناف السلة">
       {props.lines.map((line, index) => (
@@ -213,6 +234,7 @@ function CartLines(
           lastAdded={line.lineId === props.lastAddedLineId}
           flashing={flashing && line.lineId === props.lastAddedLineId}
           discount={byLine.get(line.lineId) ?? null}
+          promotion={offersByLine.get(line.lineId) ?? null}
           selected={props.editable && line.lineId === props.selectedLineId}
           onSelect={(selected) => props.onSelectLine?.(selected.lineId)}
           onRemoveDiscount={props.onRemoveDiscount}
@@ -256,6 +278,8 @@ interface ShownTotals {
   readonly subtotal: string;
   /** `'none'` when no line is discounted (the row is not drawn); null when unknown («—»). */
   readonly discountMinor: number | null | 'none';
+  /** RT-1339: «خصم العروض», `'none'` when no offer applies (the row is not drawn). */
+  readonly promotionMinor: number | 'none';
   readonly net: string;
 }
 
@@ -269,23 +293,34 @@ function shownTotals(props: Readonly<Props>): ShownTotals {
     const discount = props.frozenDiscountMinor ?? 0;
     const due =
       props.frozenDueMinor === undefined ? props.frozenSubtotalMinor : props.frozenDueMinor;
+    const promo = shownPromotionMinor(props);
     return {
       subtotal: money(props.frozenSubtotalMinor),
       discountMinor: discount > 0 ? discount : 'none',
+      promotionMinor: promo > 0 ? promo : 'none',
       net: due === null ? '—' : money(due),
     };
   }
   // Before any line exists the total is a placeholder, never a fabricated 0.00.
-  if (props.lines.length === 0) return { subtotal: '—', discountMinor: 'none', net: '—' };
+  if (props.lines.length === 0) {
+    return { subtotal: '—', discountMinor: 'none', promotionMinor: 'none', net: '—' };
+  }
+  const promo = shownPromotionMinor(props);
+  const promotionMinor = promo > 0 ? promo : 'none';
   const views = discountViews(props);
   if (views.byLine.size === 0) {
-    const shown = money(props.subtotalMinor);
-    return { subtotal: shown, discountMinor: 'none', net: shown };
+    return {
+      subtotal: money(props.subtotalMinor),
+      discountMinor: 'none',
+      promotionMinor,
+      net: money(props.subtotalMinor - promo),
+    };
   }
   return {
     subtotal: money(props.subtotalMinor),
     discountMinor: views.discountTotalMinor,
-    net: views.netMinor === null ? '—' : money(views.netMinor),
+    promotionMinor,
+    net: views.netMinor === null ? '—' : money(views.netMinor - promo),
   };
 }
 
@@ -301,6 +336,12 @@ function CartTotals(props: Readonly<Props>): JSX.Element {
         <div className="v5-sale-total-row v5-sale-discount-total">
           <span>{DISCOUNT_COPY.totalDiscount}</span>
           <DiscountAmount minor={shown.discountMinor} />
+        </div>
+      )}
+      {shown.promotionMinor !== 'none' && (
+        <div className="v5-sale-total-row v5-sale-discount-total" data-testid="promotion-total">
+          <span>{OFFER_COPY.totalOffers}</span>
+          <DiscountAmount minor={shown.promotionMinor} />
         </div>
       )}
       <div className="v5-sale-total-row v5-sale-tax-row">
@@ -329,6 +370,11 @@ function CartActions(props: Readonly<Props>): JSX.Element {
         </p>
       )}
       {props.voided === true && <output className="v5-live-notice">تم إلغاء البيع.</output>}
+      {props.frozenSubtotalMinor === null && props.promotions?.unavailable_offline === true && (
+        <output className="v5-live-notice" data-testid="offer-unavailable-offline">
+          {OFFER_COPY.unavailableOffline}
+        </output>
+      )}
       <PrimaryAction {...props} />
     </div>
   );

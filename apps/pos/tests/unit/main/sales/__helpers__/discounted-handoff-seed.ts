@@ -55,7 +55,11 @@ function envelopeLine(line: SeedLine) {
   };
 }
 
-function seedHeader(db: SqlJsDatabase, amountDue: number): void {
+/**
+ * The terminal assignment, the settled payment attempt (its amount due), one cash tender and the
+ * `payment.settled` row of cart `cartId`. RT-1339 reuses it for a cart the real cart bridge handed off.
+ */
+export function seedHeader(db: SqlJsDatabase, amountDue: number, cartId = 'cart-1'): void {
   db.run(
     `INSERT INTO terminal_assignment
        (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
@@ -69,9 +73,9 @@ function seedHeader(db: SqlJsDatabase, amountDue: number): void {
        operator_session_id, envelope_handoff_action_id, envelope_cart_id,
        envelope_subtotal_minor, state, started_at, settled_at, failure_reason,
        force_fail_attribution_operator_id, last_action_id
-     ) VALUES ('pa-1', ?, ?, ?, 'op-cashier', 'sess-1', ?, 'cart-1', ?, 'settled',
+     ) VALUES ('pa-1', ?, ?, ?, 'op-cashier', 'sess-1', ?, ?, ?, 'settled',
        '2026-10-24T09:59:00.000Z', '2026-10-24T10:00:00.000Z', NULL, NULL, 'a-pa')`,
-    [TENANT, BRANCH, TERMINAL, HANDOFF, amountDue],
+    [TENANT, BRANCH, TERMINAL, HANDOFF, cartId, amountDue],
   );
   if (amountDue > 0) {
     db.run(
@@ -85,7 +89,7 @@ function seedHeader(db: SqlJsDatabase, amountDue: number): void {
   }
   const settled = {
     payment_attempt_id: 'pa-1',
-    cart_id: 'cart-1',
+    cart_id: cartId,
     handoff_action_id: HANDOFF,
     settled_at: '2026-10-24T10:00:00.000Z',
     attribution_operator_id: 'op-cashier',

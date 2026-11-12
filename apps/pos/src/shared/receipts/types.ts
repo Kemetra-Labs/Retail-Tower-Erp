@@ -69,6 +69,20 @@ export interface ReceiptLineItem {
    * approver reaches the slip or the preview bridge. Absent when undiscounted.
    */
   discount?: ReceiptLineDiscount;
+  /**
+   * RT-1339: the automatic offer this line took part in, from the frozen `lines_json`
+   * (the name and percent are kept there, so a reprint never reads the Pack). Only a
+   * reward line (`discount_minor` above 0) prints the offer copy under it.
+   */
+  promotion?: ReceiptLinePromotion;
+}
+
+/** The offer fields a receipt may show: no offer or Pack id reaches the slip or the preview bridge. */
+export interface ReceiptLinePromotion {
+  offer_name_ar: string;
+  percent_off: number;
+  /** The discount on this (quantity-1) line, in minor units; 0 on a participating line. */
+  discount_minor: number;
 }
 
 // ── ReceiptPayload (FR-017 canonical fields) ─────────────────────────────────
