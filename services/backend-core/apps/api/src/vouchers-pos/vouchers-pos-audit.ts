@@ -34,7 +34,9 @@ type VoucherPosAuditField =
   | "payment_attempt_id"
   | "applied_amount_minor"
   | "device_id"
-  | "reversed_by_device_id";
+  | "reversed_by_device_id"
+  /** RT-1343: the voided sale that reversed the redemption (a void restores the voucher). */
+  | "sale_id";
 
 export interface VoucherPosAudit {
   readonly tenantId: string;

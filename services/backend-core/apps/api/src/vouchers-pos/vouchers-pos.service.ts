@@ -32,14 +32,16 @@
  *   other reads `redeemed`. A cancel racing a redeem is the same: the cancel's
  *   `WHERE status = 'active'` UPDATE waits on the lock.
  *
- * reverse (one transaction):
+ * reverse (one transaction, `reverseRedemptionInTx`):
  *   read the redemption → 404 `redemption_not_found` → 400
  *   `redemption_branch_mismatch` for another store (same store, any device) →
- *   lock the voucher (the same lock order as redeem) → already reversed: 200
- *   with the original `reversed_at` and `already_reversed: true` → reverse it
- *   (`reversed_at = now()`, the reversing device) → restore the voucher to
- *   `active` (an expired voucher too: decision 2, RT-1112 c16636) → audit
- *   `voucher.reversed`, attributed to the redeem-time cashier.
+ *   lock the voucher (the same lock order as redeem), then the redemption →
+ *   already reversed: 200 with the original `reversed_at` and
+ *   `already_reversed: true` → a sale tender pays with it: 409
+ *   `redemption_consumed_by_sale` (RT-1343; only the sale's void reverses it) →
+ *   reverse it (`reversed_at = now()`, the reversing device) → restore the
+ *   voucher to `active` (an expired voucher too: decision 2, RT-1112 c16636) →
+ *   audit `voucher.reversed`, attributed to the redeem-time cashier.
  *
  * Secrecy: the code and the token are never logged or audited, and this
  * service stores only their hashes. One accepted exception: the validate 200
@@ -69,7 +71,6 @@ import { VoucherRefusal } from "./vouchers-pos.errors";
 import {
   insertVoucherPosAudit,
   VOUCHER_REDEEMED_ACTION,
-  VOUCHER_REVERSED_ACTION,
   VOUCHER_VALIDATED_ACTION,
 } from "./vouchers-pos-audit";
 import {
@@ -80,13 +81,11 @@ import {
   INTENT_CONSUMED_SQL,
   LOCK_VOUCHER_SQL,
   REDEEM_VOUCHER_SQL,
-  REDEMPTION_SQL,
-  RESTORE_VOUCHER_SQL,
-  REVERSE_REDEMPTION_SQL,
   VALIDATE_LOOKUP_SQL,
   VOUCHER_STATE_SQL,
 } from "./vouchers-pos.queries";
 import { VoucherLookupLimiter } from "./voucher-lookup-limit";
+import { reverseRedemptionInTx } from "./voucher-redemption-reversal";
 
 /** The authenticated device: the only source of scope. */
 export interface DeviceCaller {
@@ -116,16 +115,6 @@ interface IntentRow {
   readonly forfeited_amount_minor: string;
   readonly consumed_at: Date | null;
   readonly live: boolean;
-}
-
-interface RedemptionRow {
-  readonly id: string;
-  readonly store_id: string;
-  readonly voucher_id: string;
-  readonly payment_attempt_id: string;
-  readonly operator_user_id: string;
-  readonly applied_amount_minor: string;
-  readonly reversed_at: Date | null;
 }
 
 @Injectable()
@@ -265,44 +254,14 @@ export class VouchersPosService {
 
   reverse(caller: DeviceCaller, body: ReverseVoucherDto): Promise<ReverseVoucherBody> {
     return runWithTenantContext(this.pool, tenantScope(caller.tenantId), async (client) => {
-      const first = await client.query<RedemptionRow>(REDEMPTION_SQL, [caller.tenantId, body.redemption_id]);
-      const seen = first.rows[0];
-      if (!seen) throw new VoucherRefusal("redemption_not_found");
-      if (seen.store_id !== caller.storeId) throw new VoucherRefusal("redemption_branch_mismatch");
-
-      // Voucher row first, as redeem and cancel lock it: one lock order, no deadlock.
-      await client.query(LOCK_VOUCHER_SQL, [caller.tenantId, seen.voucher_id]);
-      const reread = await client.query<RedemptionRow>(REDEMPTION_SQL, [caller.tenantId, body.redemption_id]);
-      const redemption = reread.rows[0]!;
-      if (redemption.reversed_at !== null) {
-        return reversed(redemption.id, redemption.reversed_at, true);
-      }
-      const won = await client.query<{ reversed_at: Date }>(REVERSE_REDEMPTION_SQL, [
-        caller.tenantId,
-        redemption.id,
-        caller.deviceId,
-      ]);
-      const reversedAt = won.rows[0]?.reversed_at;
-      if (!reversedAt) throw new Error("a redemption changed under the voucher lock");
-      const restored = await client.query(RESTORE_VOUCHER_SQL, [caller.tenantId, redemption.voucher_id]);
-      if (restored.rowCount !== 1) throw new Error("the redeemed voucher of an open redemption is not 'redeemed'");
-      await insertVoucherPosAudit(client, {
+      const done = await reverseRedemptionInTx(client, {
         tenantId: caller.tenantId,
         storeId: caller.storeId,
-        // The redeem-time cashier: the reverse carries no claim (RT-1110).
-        actorUserId: redemption.operator_user_id,
+        deviceId: caller.deviceId,
         requestId: caller.requestId,
-        action: VOUCHER_REVERSED_ACTION,
-        voucherId: redemption.voucher_id,
-        metadata: {
-          voucher_id: redemption.voucher_id,
-          redemption_id: redemption.id,
-          payment_attempt_id: redemption.payment_attempt_id,
-          applied_amount_minor: Number(redemption.applied_amount_minor),
-          reversed_by_device_id: caller.deviceId,
-        },
+        redemptionId: body.redemption_id,
       });
-      return reversed(redemption.id, reversedAt, false);
+      return reversed(done.redemptionId, done.reversedAt, done.alreadyReversed);
     });
   }
 }

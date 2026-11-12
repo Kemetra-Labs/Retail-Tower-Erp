@@ -637,6 +637,34 @@ describe("pos-payments/vouchers.yaml — RT-1110 amendment", () => {
     expect(postOp(POS_REVERSE_PATH).responses?.["429"]).toBeUndefined();
   });
 
+  it("lists RATE_LIMITED in the closed error set of validate and redeem, and not of reverse (RT-1343 item 5)", () => {
+    for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH]) {
+      expect(postOp(path).description ?? "").toContain("`RATE_LIMITED`");
+    }
+    expect(postOp(POS_REVERSE_PATH).description ?? "").not.toContain("`RATE_LIMITED`");
+  });
+
+  it("refuses a redemption a sale pays with: reverse names redemption_consumed_by_sale as a 409 (RT-1343 item 1)", () => {
+    const reverse = postOp(POS_REVERSE_PATH);
+    expect(reverse.description ?? "").toContain("`redemption_consumed_by_sale`");
+    const conflict = reverse.responses?.["409"] as { description?: string } | undefined;
+    expect(conflict?.description).toContain('"redemption_consumed_by_sale"');
+    expect(conflict?.description).toContain("idempotency_key_conflict");
+    // The sale's void is what restores the voucher, and a later reverse is already_reversed.
+    expect(reverse.description ?? "").toContain("`recordVoid`");
+    expect(reverse.description ?? "").toContain("`already_reversed: true`");
+    // Never on validate or redeem.
+    for (const path of [POS_VALIDATE_PATH, POS_REDEEM_PATH]) {
+      expect(postOp(path).description ?? "").not.toContain("redemption_consumed_by_sale");
+    }
+  });
+
+  it("is version 1.2.0-draft with a version note naming RT-1343", () => {
+    const doc = vouchersDoc as unknown as { info?: { version?: string; description?: string } };
+    expect(doc.info?.version).toBe("1.2.0-draft");
+    expect(doc.info?.description).toContain("**Version 1.2.0-draft (RT-1343");
+  });
+
   it.each(["PosValidateVoucherRequest", "PosRedeemVoucherRequest"])(
     "%s requires operatorUserId, a uuid (the device token never proves the author alone)",
     (name) => {

@@ -776,22 +776,25 @@ describe("SalesController — guard + status branches (unit)", () => {
     );
   });
 
+  const DEVICE = "0a111200-0000-4000-8000-0000000000d1";
   const voidBody = { sourceSystem: "pos-1", externalId: "v" };
 
   it("recordVoid: missing ctx / null tenant / null actor / null store → 401; bad ref → 404", async () => {
     const c = new SalesController({ recordVoid: jest.fn() } as never, undefined as never);
     for (const badCtx of [
-      { context: undefined },
-      { context: { ...ctx, tenantId: null } },
-      { context: { ...ctx, userId: null } },
-      { context: { ...ctx, storeId: null } },
+      { context: undefined, posDeviceId: DEVICE },
+      { context: { ...ctx, tenantId: null }, posDeviceId: DEVICE },
+      { context: { ...ctx, userId: null }, posDeviceId: DEVICE },
+      { context: { ...ctx, storeId: null }, posDeviceId: DEVICE },
+      // RT-1343: no verified device, no void (a voucher it restores names the device).
+      { context: ctx },
     ]) {
       await expect(
         c.recordVoid(badCtx as never, VALID_REF, voidBody as never, makeRes() as never),
       ).rejects.toBeInstanceOf(UnauthorizedException);
     }
     await expect(
-      c.recordVoid({ context: ctx } as never, "not-a-uuid", voidBody as never, makeRes() as never),
+      c.recordVoid({ context: ctx, posDeviceId: DEVICE } as never, "not-a-uuid", voidBody as never, makeRes() as never),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -806,11 +809,11 @@ describe("SalesController — guard + status branches (unit)", () => {
     const c = new SalesController(svc as never, undefined as never);
 
     const r1 = makeRes();
-    await c.recordVoid({ context: ctx } as never, VALID_REF, voidBody as never, r1 as never);
+    await c.recordVoid({ context: ctx, posDeviceId: DEVICE } as never, VALID_REF, voidBody as never, r1 as never);
     expect(r1.status).toHaveBeenCalledWith(201);
 
     const r2 = makeRes();
-    await c.recordVoid({ context: ctx } as never, VALID_REF, voidBody as never, r2 as never);
+    await c.recordVoid({ context: ctx, posDeviceId: DEVICE } as never, VALID_REF, voidBody as never, r2 as never);
     expect(r2.status).toHaveBeenCalledWith(200);
     expect(r2.setHeader).toHaveBeenCalledWith("Idempotent-Replayed", "true");
   });
@@ -820,21 +823,21 @@ describe("SalesController — guard + status branches (unit)", () => {
       recordVoid: jest.fn().mockRejectedValue(new SaleNotFoundError()),
     } as never, undefined as never);
     await expect(
-      nf.recordVoid({ context: ctx } as never, VALID_REF, voidBody as never, makeRes() as never),
+      nf.recordVoid({ context: ctx, posDeviceId: DEVICE } as never, VALID_REF, voidBody as never, makeRes() as never),
     ).rejects.toBeInstanceOf(NotFoundException);
 
     const conflict = new SalesController({
       recordVoid: jest.fn().mockRejectedValue(new TerminalEventProvenanceConflictError()),
     } as never, undefined as never);
     await expect(
-      conflict.recordVoid({ context: ctx } as never, VALID_REF, voidBody as never, makeRes() as never),
+      conflict.recordVoid({ context: ctx, posDeviceId: DEVICE } as never, VALID_REF, voidBody as never, makeRes() as never),
     ).rejects.toBeInstanceOf(ConflictException);
 
     const boom = new SalesController({
       recordVoid: jest.fn().mockRejectedValue(new Error("kaboom")),
     } as never, undefined as never);
     await expect(
-      boom.recordVoid({ context: ctx } as never, VALID_REF, voidBody as never, makeRes() as never),
+      boom.recordVoid({ context: ctx, posDeviceId: DEVICE } as never, VALID_REF, voidBody as never, makeRes() as never),
     ).rejects.toThrow(/kaboom/);
   });
 
@@ -851,7 +854,7 @@ describe("SalesController — guard + status branches (unit)", () => {
     for (const [error, type, status, code] of cases) {
       const c = new SalesController({ recordVoid: jest.fn().mockRejectedValue(error) } as never, undefined as never);
       const thrown: unknown = await c
-        .recordVoid({ context: ctx } as never, VALID_REF, voidBody as never, makeRes() as never)
+        .recordVoid({ context: ctx, posDeviceId: DEVICE } as never, VALID_REF, voidBody as never, makeRes() as never)
         .catch((e: unknown) => e);
       expect(thrown).toBeInstanceOf(type);
       const http = thrown as { getStatus(): number; getResponse(): { code: string } };
@@ -872,7 +875,7 @@ describe("SalesController — guard + status branches (unit)", () => {
       { recordVoid: jest.fn().mockResolvedValue({ created: true, projection, audit }) } as never,
       undefined as never,
     );
-    const request: Record<string, unknown> = { context: ctx };
+    const request: Record<string, unknown> = { context: ctx, posDeviceId: DEVICE };
     await withApproval.recordVoid(request as never, VALID_REF, voidBody as never, makeRes() as never);
     expect(request["auditMetadata"]).toEqual(audit);
 
@@ -880,7 +883,7 @@ describe("SalesController — guard + status branches (unit)", () => {
       { recordVoid: jest.fn().mockResolvedValue({ created: false, projection }) } as never,
       undefined as never,
     );
-    const legacyRequest: Record<string, unknown> = { context: ctx };
+    const legacyRequest: Record<string, unknown> = { context: ctx, posDeviceId: DEVICE };
     await legacy.recordVoid(legacyRequest as never, VALID_REF, voidBody as never, makeRes() as never);
     expect(legacyRequest).not.toHaveProperty("auditMetadata");
   });

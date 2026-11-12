@@ -13,7 +13,9 @@
  *             `voucher_expired`, `voucher_branch_mismatch`).
  *   reverse:  404 `redemption_not_found` (also another tenant's id); 400
  *             `redemption_branch_mismatch` (a redemption of another store of the
- *             same tenant: "same store, any device", RT-1110 c16417).
+ *             same tenant: "same store, any device", RT-1110 c16417); 409
+ *             `redemption_consumed_by_sale` (RT-1343: a sale tender pays with
+ *             it; the sale's void is what restores the voucher).
  *
  * Messages are fixed text: never a code, a token, an amount or an id.
  */
@@ -30,7 +32,8 @@ export type VoucherRefusalCode =
   | "intent_token_expired"
   | "intent_token_payment_attempt_mismatch"
   | "redemption_not_found"
-  | "redemption_branch_mismatch";
+  | "redemption_branch_mismatch"
+  | "redemption_consumed_by_sale";
 
 export type VoucherOperation = "validate" | "redeem" | "reverse";
 
@@ -53,6 +56,7 @@ const MESSAGES: Readonly<Record<VoucherRefusalCode, string>> = {
   intent_token_payment_attempt_mismatch: "The redemption intent belongs to another payment attempt.",
   redemption_not_found: "Redemption not found.",
   redemption_branch_mismatch: "The redemption belongs to another store.",
+  redemption_consumed_by_sale: "The redemption pays a sale and cannot be reversed here. Void the sale instead.",
 };
 
 const NOT_FOUND = new Set<VoucherRefusalCode>(["voucher_not_found", "intent_token_not_found", "redemption_not_found"]);
@@ -67,6 +71,7 @@ const REDEEM_CONFLICTS = new Set<VoucherRefusalCode>([
 export function refusalStatus(operation: VoucherOperation, code: VoucherRefusalCode): number {
   if (NOT_FOUND.has(code)) return HttpStatus.NOT_FOUND;
   if (operation === "redeem" && REDEEM_CONFLICTS.has(code)) return HttpStatus.CONFLICT;
+  if (operation === "reverse" && code === "redemption_consumed_by_sale") return HttpStatus.CONFLICT;
   return HttpStatus.BAD_REQUEST;
 }
 

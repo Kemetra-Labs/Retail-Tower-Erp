@@ -1,6 +1,7 @@
 /**
  * RT-1112 — the V-A pieces that need no database:
- *   - the refusal → HTTP status mapping (404 / 400 / 409 per operation);
+ *   - the refusal → HTTP status mapping (404 / 400 / 409 per operation; RT-1343:
+ *     a reverse of a redemption a sale pays with is a 409);
  *   - the failed-lookup limiter (ADR 0009): take, give back, the Retry-After
  *     clamp, fail-open on a limiter error;
  *   - the controller: a limiter refusal is the 429 `RATE_LIMITED` with
@@ -38,6 +39,7 @@ describe("refusal statuses (pos-payments/vouchers.yaml)", () => {
     ["redeem", "voucher_branch_mismatch", 409],
     ["reverse", "redemption_not_found", 404],
     ["reverse", "redemption_branch_mismatch", 400],
+    ["reverse", "redemption_consumed_by_sale", 409],
   ] as const)("%s %s → %i", (operation, code, status) => {
     expect(refusalStatus(operation, code)).toBe(status);
     const http = toHttpRefusal(operation, new VoucherRefusal(code));
