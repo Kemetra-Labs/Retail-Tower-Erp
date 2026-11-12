@@ -94,7 +94,9 @@ function instantMs(value: string): number {
   const [year, month, day, hour, minute, second] = [m[1], m[2], m[3], m[4], m[5], m[6]].map(Number) as [number, number, number, number, number, number];
   const offsetHour = m[7] === undefined ? 0 : Number(m[7]);
   const offsetMinute = m[8] === undefined ? 0 : Number(m[8]);
-  const calendar = new Date(Date.UTC(year, month - 1, day));
+  // setUTCFullYear, not Date.UTC: Date.UTC reads years 0 to 99 as 1900 to 1999.
+  const calendar = new Date(0);
+  calendar.setUTCFullYear(year, month - 1, day);
   const realDate = calendar.getUTCFullYear() === year && calendar.getUTCMonth() === month - 1 && calendar.getUTCDate() === day;
   if (!realDate || hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) return Number.NaN;
   return Date.parse(value);

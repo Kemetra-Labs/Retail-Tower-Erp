@@ -25,6 +25,11 @@ describe("absolute schedule instants", () => {
     expect(OfferDefinitionSchema.safeParse(definition(startsAt, null)).success).toBe(false);
   });
 
+  it("accepts a year below 100 (Date.UTC would read it as 19xx)", () => {
+    expect(OfferDefinitionSchema.safeParse(definition("0099-01-01T00:00:00Z", "0099-06-01T00:00:00Z")).success).toBe(true);
+    expect(OfferDefinitionSchema.safeParse(definition("0099-02-30T00:00:00Z", null)).success).toBe(false);
+  });
+
   it("accepts real instants, a leap day and a fractional second", () => {
     expect(OfferDefinitionSchema.safeParse(definition("2028-02-29T00:00:00Z", "2028-03-01T10:00:00.250+02:00")).success).toBe(true);
   });
