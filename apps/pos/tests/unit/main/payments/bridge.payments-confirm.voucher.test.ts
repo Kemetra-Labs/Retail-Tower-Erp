@@ -543,6 +543,59 @@ describe('T221 — payments.confirm voucher path', () => {
     });
   });
 
+  it('RT-1331: line 2 refused voucher_expired → whole attempt fails with that reason; line 1 is still compensating-reversed', async () => {
+    const lines = [1, 2].map((n) =>
+      makeLineRow({
+        tender_line_id: `tl-v-${String(n)}`,
+        tender_type: 'internal_voucher',
+        amount_applied_minor: 1000,
+        voucher_redemption_intent_token: `TOKEN-${String(n)}`,
+        applied_at: `2026-05-25T10:00:0${String(n)}.000Z`,
+        apply_order: n,
+      }),
+    );
+    const fsm = makePaymentAttemptFsmDouble();
+    const tenderFsm = makeTenderLineFsmDouble();
+    const auditEmitter = makeAuditEmitterDouble();
+    const reverseVoucher = makeReverseVoucherDouble({
+      kind: 'reversed',
+      already_reversed: false,
+      redemption_id: 'redemption-1',
+      reversed_at: '2026-05-25T10:00:06.000Z',
+    });
+    const handler = createPaymentsConfirmHandler({
+      ...makeSettlementDeps(fsm, auditEmitter),
+      getCurrentSession: cashierSession(),
+      attemptsRepo: makeAttemptsRepoDouble([makeAttemptRow({ envelope_subtotal_minor: 2000 })]),
+      linesRepo: makeLinesRepoDouble(lines),
+      paymentAttemptFsm: fsm,
+      tenderLineFsm: tenderFsm,
+      idempotency: makeIdempotencyHelperDouble(),
+      auditEmitter,
+      redeemVoucher: makeRedeemVoucherDouble(
+        {
+          kind: 'redeemed',
+          idempotent_replayed: false,
+          redeemed_at: '2026-05-25T10:00:05.000Z',
+          redemption_id: 'redemption-1',
+        },
+        { kind: 'refused', reason: 'voucher_expired' },
+      ),
+      reverseVoucher,
+      uuid: () => 'uuid-confirm-v',
+      clock: () => new Date('2026-05-25T10:00:05.000Z'),
+    });
+    const result = await handler(validRequest());
+    expect(result).toEqual({ kind: 'refused', reason: 'voucher_expired' });
+    expect(fsm.fail).toHaveBeenCalledWith(
+      expect.objectContaining({ failure_reason: 'voucher_expired' }),
+    );
+    expect(fsm.confirm).not.toHaveBeenCalled();
+    expect(reverseVoucher).toHaveBeenCalledTimes(1);
+    expect(reverseVoucher).toHaveBeenCalledWith({ redemption_id: 'redemption-1' });
+    expect(tenderFsm.reverse).toHaveBeenCalledTimes(1);
+  });
+
   it('CR-3 — multi-voucher partial sweep + compensating-reverse also unreachable → line 1 → reversal_pending', async () => {
     // Line 1 redeems ok → redemption-1. Line 2 → authority_unreachable.
     // Compensating-reverse on line 1 ALSO returns authority_unreachable.

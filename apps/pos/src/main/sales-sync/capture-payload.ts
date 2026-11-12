@@ -59,7 +59,8 @@
  *     append-only Sale row (0021), the append-only 0058 role rows, and the two
  *     rollout cutoffs read at boot (`tendersSince`, `receiptSince`); there is no
  *     clock, random or other lookup here. Line order is `lines_json` order and
- *     tender order is first-seen order of the frozen summary. The cutoffs are
+ *     tender order is first-seen order of the frozen summary for cash and card,
+ *     then one entry per voucher line (RT-1331) in summary order. The cutoffs are
  *     stable only while ops keep the FUTURE-cutoff rule (`bootstrap/sale-sync.ts`):
  *     no per-sale record of them exists. Pinned in `capture-body-stability.test.ts`.
  */
@@ -181,8 +182,9 @@ export interface BuildCapturePayloadOptions {
 }
 
 /**
- * A tendered sale that must never be sent (voucher, unknown method, corrupt amounts,
- * unreadable summary). The engine dead-letters it with this reason rather than
+ * A tendered sale that must never be sent (a voucher line without a redemption id, an
+ * unknown method, corrupt amounts, unreadable summary). The engine dead-letters it with
+ * this reason rather than
  * sending a fabricated method (RT-10 D2).
  */
 export class TenderNotSendableError extends Error {

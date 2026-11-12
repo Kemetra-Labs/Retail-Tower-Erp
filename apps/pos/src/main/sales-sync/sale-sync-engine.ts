@@ -393,8 +393,8 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
       });
     } catch (err) {
       if (!isNotSendable(err)) throw err;
-      // RT-10 D2: a sale whose tenders cannot be sent faithfully (voucher, unknown
-      // method, corrupt amounts) is dead-lettered observably — never POSTed, never
+      // RT-10 D2: a sale whose tenders cannot be sent faithfully (a voucher line with
+      // no redemption id, unknown method, corrupt amounts) is dead-lettered observably — never POSTed, never
       // given a fabricated method. The typed reason goes to `onDeadLetter`.
       // RT-858: likewise a corrupt frozen discount (its amount no longer the
       // RT-699 math on the line gross): the server would answer 422 anyway.
