@@ -155,12 +155,13 @@ describe("pos-sales/sale-history.yaml — loadability and document conventions",
     expect(doc.openapi).toBe("3.1.0");
   });
 
-  it("is a 1.0.0-draft that cites the [GATED] approval and the owner decisions", () => {
-    expect(doc.info?.version).toBe("1.0.0-draft");
+  it("is a 1.1.0-draft that cites the [GATED] approval and the owner decisions", () => {
+    expect(doc.info?.version).toBe("1.1.0-draft");
     const info = doc.info?.description ?? "";
     expect(info).toContain("[GATED] approval Jira RT-537 comment 12057");
     expect(info).toContain("OD-534-1..8");
     expect(info).toContain("Implemented: the runtime is RT-539");
+    expect(info.replace(/\s+/g, " ")).toContain("1.1.0-draft (RT-1343 item 4, additive to a response enum");
   });
 
   it("states that a list covers only what the server has received (never the complete store)", () => {
@@ -352,6 +353,12 @@ describe("pos-sales/sale-history.yaml — readSaleHistoryDetail", () => {
     expect(detail.properties?.["tenderState"]).toMatchObject({ enum: ["recorded", "unknown"] });
     expect(detail.properties?.["receiptFacts"]).toMatchObject({ enum: ["complete", "partial"] });
     expect(schema("SaleHistoryLine").properties?.["sequence"]).toMatchObject({ type: ["integer", "null"] });
+  });
+
+  it("RT-1343: a tender line's method lists voucher, the vocabulary of sales.yaml SaleTender (RT-1114)", () => {
+    const method = schema("SaleTenderView").properties?.["method"];
+    expect(method).toMatchObject({ type: "string", enum: ["cash", "card_external", "voucher"] });
+    expect(String(method?.["description"])).toContain("POS_SALE_VOUCHER_TENDER_ENABLED");
   });
 
   it("a snapshot without changeGiven projects as \"0\"; null means no snapshot only", () => {

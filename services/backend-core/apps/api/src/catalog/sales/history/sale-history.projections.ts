@@ -103,7 +103,7 @@ export interface DetailLineRow {
 }
 
 export interface DetailTenderRow {
-  readonly method: "cash" | "card_external";
+  readonly method: "cash" | "card_external" | "voucher";
   readonly amount: string;
   readonly reference: string | null;
   readonly sequence: number | null;
@@ -189,7 +189,7 @@ export interface SaleHistoryDetail {
   readonly lineOrder: "recorded" | "not_recorded";
   readonly tenderState: "recorded" | "unknown";
   readonly tenders: ReadonlyArray<{
-    readonly method: "cash" | "card_external";
+    readonly method: "cash" | "card_external" | "voucher";
     readonly amount: string;
     readonly reference: string | null;
     readonly sequence: number | null;

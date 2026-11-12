@@ -71,6 +71,7 @@ type SchemaName =
   | "ConsoleSaleDetail"
   | "ConsoleErpPostingFailure"
   | "ConsoleErpPostingFailureDetail"
+  | "SaleTenderView"
   | "Error";
 
 const POS_ONLY_FIELDS = ["visibility", "receiptFacts", "reprint"] as const;
@@ -240,13 +241,14 @@ const LEGACY_DETAIL = {
 // 1. Document + operations
 // ===========================================================================
 describe("console-sales — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-1061; RT-620 was 1.1.0-draft)", () => {
+  it("is an OpenAPI 3.1 document at version 1.3.0-draft (RT-1343; RT-1061 was 1.2.0-draft, RT-620 1.1.0-draft)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.2.0-draft");
+    expect(doc.info?.version).toBe("1.3.0-draft");
     const info = String(doc.info?.description).replace(/\s+/g, " ");
     expect(info).toContain("1.2.0-draft (RT-1061: RT-973 slice 1 + RT-977 slice 1, additive");
     expect(info).toContain("`ConsoleSaleItem.syncStatusVersion`");
     expect(info).toContain("`ConsoleSaleDetail.erpPostingFailure`");
+    expect(info).toContain("1.3.0-draft (RT-1343 item 4, additive to a response enum");
   });
 
   it("declares exactly the list and detail reads, and nothing else", () => {
@@ -563,6 +565,14 @@ describe("console-sales — AJV fixtures", () => {
     expect(validator("ConsoleSalePage")({ ...PAGE, items: [], nextCursor: null })).toBe(true);
     expect(validator("ConsoleSaleDetail")(DETAIL)).toBe(true);
     expect(validator("ConsoleSaleDetail")(LEGACY_DETAIL)).toBe(true);
+  });
+
+  it("RT-1343: accepts a detail whose tenders include a voucher line, and rejects an unknown method", () => {
+    const voucher = { method: "voucher", amount: "20.00", reference: null, sequence: 2 };
+    const cash = { method: "cash", amount: "130.00", reference: null, sequence: 1 };
+    expect(validator("ConsoleSaleDetail")({ ...DETAIL, tenders: [cash, voucher] })).toBe(true);
+    expect(validator("SaleTenderView")(voucher)).toBe(true);
+    expect(validator("SaleTenderView")({ ...voucher, method: "gift_card" })).toBe(false);
   });
 
   it("RT-1061: accepts a detail with each erpPostingFailure tier, and an item at version 0 and at the JSON-safe maximum", () => {
