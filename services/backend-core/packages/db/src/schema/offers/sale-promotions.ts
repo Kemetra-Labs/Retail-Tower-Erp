@@ -16,7 +16,9 @@
  *                                    a quantity other than 1).
  *   sale_return_promotion_clawbacks  The per-offer clawback of a return
  *                                    (amount > 0), with the frozen version;
- *                                    one per (return, offer).
+ *                                    one per (return, offer). A guard trigger
+ *                                    refuses an offer version that is not on
+ *                                    the returned sale's promotion facts.
  *
  * Both are APPEND-ONLY for every role (a trigger refuses UPDATE, DELETE and
  * TRUNCATE). RLS: ENABLE + FORCE; SELECT + INSERT tenant policies only. §XIV:

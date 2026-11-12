@@ -75,6 +75,7 @@ DROP TABLE IF EXISTS offer_version_stores;
 DROP TABLE IF EXISTS offer_versions;
 DROP TABLE IF EXISTS offers;
 
+DROP FUNCTION IF EXISTS sale_return_promotion_clawbacks_guard();
 DROP FUNCTION IF EXISTS sale_line_promotions_line_guard();
 DROP FUNCTION IF EXISTS offer_pack_eligible_products_guard();
 DROP FUNCTION IF EXISTS offer_pack_store_revisions_guard();

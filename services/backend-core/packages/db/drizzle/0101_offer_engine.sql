@@ -31,7 +31,8 @@
 --                                 optimistic-concurrency token: the last
 --                                 revision ever issued, never reused across
 --                                 drafts (a guard trigger: it never moves
---                                 back). An archived offer never changes, and
+--                                 back, and every new draft content moves it
+--                                 forward). An archived offer never changes, and
 --                                 ended_at / archived_at are set once.
 --   offer_versions                One row per published version, numbered
 --                                 1, 2, 3 ... per offer (a trigger), with the
@@ -92,19 +93,37 @@
 --                                 revision. A pause, a resume, an end, a new
 --                                 version or a catalog change closes and opens
 --                                 rows at the new revision. History is frozen
---                                 by a guard trigger: a row is inserted only
---                                 at the tenant's latest revision, and the
---                                 only change ever allowed is closing it
---                                 (to_revision NULL -> the latest revision);
---                                 so once revision R+1 exists, the content of
---                                 R can never change. No DELETE.
+--                                 by a guard trigger: a row opens, and an open
+--                                 row closes, only at the tenant's latest
+--                                 revision AND only in the transaction that
+--                                 issued that revision (its created_at, forced
+--                                 to now(), equals the transaction's now()).
+--                                 Nothing else ever changes, and there is no
+--                                 DELETE. So a revision's content is fixed
+--                                 when that transaction commits, before any
+--                                 till can read it; a concurrent writer cannot
+--                                 add to it (the revision primary key
+--                                 serialises writers).
 --                                 PACK INVARIANT (OD-7 clarification,
---                                 `PackOffer.eligibleProductIds`): a product
---                                 is in at most ONE offer per store in any
---                                 Pack revision. Enforced by an EXCLUDE
+--                                 `PackOffer.eligibleProductIds`: "disjoint
+--                                 from every other offer's set in the same
+--                                 Pack"): a product is in at most ONE offer
+--                                 per store in any Pack revision, whatever
+--                                 the offers' windows. Enforced by an EXCLUDE
 --                                 constraint over (tenant, store, product,
 --                                 [from_revision, to_revision)), btree_gist
---                                 (installed by 0016).
+--                                 (installed by 0016). This is the contract's
+--                                 reading, which is stricter than the OD-7
+--                                 publish check (overlapping windows only):
+--                                 two live offers on the same product and
+--                                 store with DISJOINT windows cannot both
+--                                 hold it in one Pack. RT-1337 must refuse
+--                                 that at publish, or let the earlier offer
+--                                 keep the product (the OD-7 clarification
+--                                 rule). Relaxing it later, if the owner
+--                                 decides so, is additive (a per-store window
+--                                 range column in the EXCLUDE plus a contract
+--                                 change); tightening it later would not be.
 --   sale_line_promotions          The frozen per-line offer fact (§8, §20,
 --                                 `SaleLinePromotion`): offer, version, Pack
 --                                 revision and discountAmount. At most one per
@@ -121,8 +140,10 @@
 --   clawbacks                     OD-3, `SaleReturn.promotionClawbacks`): one
 --                                 row per (return, offer), amount > 0, with
 --                                 the frozen offer version. Composite FK onto
---                                 sale_returns (id, tenant_id, store_id).
---                                 APPEND-ONLY for every role.
+--                                 sale_returns (id, tenant_id, store_id); a
+--                                 guard trigger refuses an offer version that
+--                                 is not on the returned sale's promotion
+--                                 facts. APPEND-ONLY for every role.
 --
 -- tenant_product_categories gains a unique (id, tenant_id) key, the composite
 -- FK target of the category rules (the uq_tenant_products_id_tenant pattern of
@@ -178,7 +199,7 @@
 --     validation scan). Reads continue.
 --
 -- Reversal: 0101_offer_engine.down.sql REFUSES while any offer or Pack
--- revision exists; otherwise it drops the ten tables, their functions and the
+-- revision exists; otherwise it drops the ten tables, their eleven functions and the
 -- categories key.
 
 BEGIN;
@@ -260,6 +281,13 @@ BEGIN
   END IF;
   IF NEW.draft_revision < OLD.draft_revision THEN
     RAISE EXCEPTION 'offer %: the draft revision only moves forward', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- New draft content always takes a new revision, so a stale
+  -- expectedDraftRevision never matches it.
+  IF NEW.draft_definition IS NOT NULL AND NEW.draft_definition IS DISTINCT FROM OLD.draft_definition
+     AND NEW.draft_revision <= OLD.draft_revision THEN
+    RAISE EXCEPTION 'offer %: a changed draft takes a new draft revision', OLD.id
       USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.ended_at IS NOT NULL
@@ -396,6 +424,9 @@ CREATE INDEX idx_offer_version_stores_tenant_store
   ON offer_version_stores (tenant_id, store_id);
 
 CREATE TABLE offer_version_rules (
+  -- Surrogate key: the natural key has nullable dimension columns (it is the
+  -- NULLS NOT DISTINCT unique index below).
+  id           UUID     PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id    UUID     NOT NULL,
   offer_id     UUID     NOT NULL,
   version      INTEGER  NOT NULL,
@@ -570,7 +601,8 @@ CREATE TABLE offer_pack_revisions (
 );
 
 -- Monotonic and gapless per tenant: the next revision is the latest + 1. Two
--- concurrent writers cannot both take it (the primary key).
+-- concurrent writers cannot both take it (the primary key). created_at is
+-- forced to the issuing transaction's now().
 CREATE FUNCTION offer_pack_revisions_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -585,6 +617,9 @@ BEGIN
     RAISE EXCEPTION 'tenant %: the next Offer Pack revision is %, not %', NEW.tenant_id, v_next, NEW.revision
       USING ERRCODE = 'check_violation';
   END IF;
+  -- The issuing transaction's time: the eligible-set and store-revision
+  -- guards use it to accept changes only in this transaction.
+  NEW.created_at := now();
   RETURN NEW;
 END
 $$;
@@ -613,23 +648,38 @@ CREATE TABLE offer_pack_store_revisions (
 CREATE TRIGGER offer_pack_store_revisions_set_updated_at BEFORE UPDATE ON offer_pack_store_revisions
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- The applied revision only moves forward, for every role (the 0072 guard).
+-- The applied revision only moves forward, for every role (the 0072 guard),
+-- and only to the revision issued in this transaction: a store's Pack changes
+-- only with a new revision.
 CREATE FUNCTION offer_pack_store_revisions_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
+DECLARE
+  v_latest bigint;
+  v_issued timestamptz;
 BEGIN
-  IF NEW.tenant_id <> OLD.tenant_id OR NEW.store_id <> OLD.store_id
-     OR NEW.created_at <> OLD.created_at OR NEW.applied_revision <= OLD.applied_revision THEN
+  IF TG_OP = 'UPDATE' AND (NEW.tenant_id <> OLD.tenant_id OR NEW.store_id <> OLD.store_id
+     OR NEW.created_at <> OLD.created_at OR NEW.applied_revision <= OLD.applied_revision) THEN
     RAISE EXCEPTION 'offer_pack_store_revisions %/%: the applied revision only moves forward',
       OLD.tenant_id, OLD.store_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  SELECT r.revision, r.created_at INTO v_latest, v_issued
+    FROM public.offer_pack_revisions r
+   WHERE r.tenant_id = NEW.tenant_id
+   ORDER BY r.revision DESC
+   LIMIT 1;
+  IF v_latest IS NULL OR NEW.applied_revision <> v_latest OR v_issued <> now() THEN
+    RAISE EXCEPTION 'offer_pack_store_revisions %/%: a store moves only to the revision issued in this transaction',
+      NEW.tenant_id, NEW.store_id
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END
 $$;
 
-CREATE TRIGGER offer_pack_store_revisions_guard BEFORE UPDATE ON offer_pack_store_revisions
+CREATE TRIGGER offer_pack_store_revisions_guard BEFORE INSERT OR UPDATE ON offer_pack_store_revisions
   FOR EACH ROW EXECUTE FUNCTION offer_pack_store_revisions_guard();
 CREATE TRIGGER offer_pack_store_revisions_append_only_row BEFORE DELETE ON offer_pack_store_revisions
   FOR EACH ROW EXECUTE FUNCTION offer_engine_append_only();
@@ -662,6 +712,9 @@ CREATE TABLE offer_pack_eligible_products (
   -- Skipped while to_revision is NULL (MATCH SIMPLE).
   CONSTRAINT fk_offer_pack_eligible_products_to_revision
     FOREIGN KEY (tenant_id, to_revision) REFERENCES offer_pack_revisions (tenant_id, revision) ON DELETE RESTRICT,
+  -- The EXCLUDE below makes this unique: one row per (store, product) opens
+  -- at a given revision.
+  CONSTRAINT offer_pack_eligible_products_pk PRIMARY KEY (tenant_id, store_id, product_id, from_revision),
   CONSTRAINT offer_pack_eligible_products_range_ordered
     CHECK (to_revision IS NULL OR to_revision > from_revision),
   -- The Pack invariant (OD-7 clarification): in any revision, a product is in
@@ -683,19 +736,26 @@ CREATE INDEX idx_offer_pack_eligible_products_offer_current
   ON offer_pack_eligible_products (tenant_id, offer_id, offer_version, store_id)
   WHERE to_revision IS NULL;
 
--- History is frozen: a row is inserted at the tenant's latest revision, and
--- the only change is closing it at the latest revision. Once revision R+1
--- exists, the content of R can never change.
+-- History is frozen: a row opens, and an open row closes, only at the
+-- tenant's latest revision and only in the transaction that issued it. A
+-- revision's content is fixed when that transaction commits.
 CREATE FUNCTION offer_pack_eligible_products_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_latest bigint;
+  v_issued timestamptz;
 BEGIN
-  SELECT max(r.revision) INTO v_latest
+  SELECT r.revision, r.created_at INTO v_latest, v_issued
     FROM public.offer_pack_revisions r
-   WHERE r.tenant_id = NEW.tenant_id;
+   WHERE r.tenant_id = NEW.tenant_id
+   ORDER BY r.revision DESC
+   LIMIT 1;
+  IF v_latest IS NOT NULL AND v_issued <> now() THEN
+    RAISE EXCEPTION 'offer_pack_eligible_products: Pack revision % is already issued; changes need a new revision', v_latest
+      USING ERRCODE = 'check_violation';
+  END IF;
   IF TG_OP = 'INSERT' THEN
     IF NEW.to_revision IS NOT NULL OR v_latest IS NULL OR NEW.from_revision <> v_latest THEN
       RAISE EXCEPTION 'offer_pack_eligible_products: a row opens at the latest Pack revision (%), not %',
@@ -822,6 +882,29 @@ CREATE TABLE sale_return_promotion_clawbacks (
     CHECK (amount > 0 AND amount <> 'NaN'::numeric)
 );
 
+-- A clawback is for an offer version that is on the returned sale's
+-- promotion facts (§9: the frozen version of the sale).
+CREATE FUNCTION sale_return_promotion_clawbacks_guard() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.sale_returns r
+      JOIN public.sale_line_promotions p ON p.tenant_id = r.tenant_id AND p.sale_id = r.sale_id
+     WHERE r.id = NEW.return_id AND r.tenant_id = NEW.tenant_id
+       AND p.offer_id = NEW.offer_id AND p.offer_version = NEW.offer_version) THEN
+    RAISE EXCEPTION 'sale_return_promotion_clawbacks: offer % version % is not on the sale of return %',
+      NEW.offer_id, NEW.offer_version, NEW.return_id
+      USING ERRCODE = 'foreign_key_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER sale_return_promotion_clawbacks_guard BEFORE INSERT ON sale_return_promotion_clawbacks
+  FOR EACH ROW EXECUTE FUNCTION sale_return_promotion_clawbacks_guard();
 CREATE TRIGGER sale_return_promotion_clawbacks_append_only_row
   BEFORE UPDATE OR DELETE ON sale_return_promotion_clawbacks
   FOR EACH ROW EXECUTE FUNCTION offer_engine_append_only();

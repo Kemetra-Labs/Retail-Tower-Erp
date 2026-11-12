@@ -1,6 +1,6 @@
 /**
  * 0101_offer_engine (RT-1336, RT-286 S3): [the ten Offer Engine tables, their
- * policies (10 SELECT + 10 INSERT + 4 UPDATE), their ten functions, the
+ * policies (10 SELECT + 10 INSERT + 4 UPDATE), their eleven functions, the
  * tenant_product_categories (id, tenant_id) key].
  */
 import { countFunctions, countPolicies, countTables, countValidIndexes, type MigrationEntry } from "../migration-probes";
@@ -29,6 +29,7 @@ const FUNCTIONS = [
   "offer_pack_store_revisions_guard",
   "offer_pack_eligible_products_guard",
   "sale_line_promotions_line_guard",
+  "sale_return_promotion_clawbacks_guard",
 ];
 
 export const MIGRATION: MigrationEntry = {
@@ -40,7 +41,7 @@ export const MIGRATION: MigrationEntry = {
       await countFunctions(db, FUNCTIONS),
       await countValidIndexes(db, ["uq_tenant_product_categories_id_tenant"]),
     ],
-    applied: ["10", "24", "10", "1"],
+    applied: ["10", "24", "11", "1"],
     rolledBack: ["0", "0", "0", "0"],
   },
 };

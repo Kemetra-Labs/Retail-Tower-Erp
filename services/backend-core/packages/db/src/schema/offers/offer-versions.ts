@@ -124,6 +124,8 @@ export const offerVersionStores = pgTable(
 export const offerVersionRules = pgTable(
   "offer_version_rules",
   {
+    /** Surrogate key (the natural key has nullable dimension columns). */
+    id: uuid("id").defaultRandom().primaryKey().notNull(),
     tenantId: uuid("tenant_id").notNull(),
     offerId: uuid("offer_id").notNull(),
     version: integer("version").notNull(),

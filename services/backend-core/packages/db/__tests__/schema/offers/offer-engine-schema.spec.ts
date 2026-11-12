@@ -40,7 +40,7 @@ const OFFER_ENGINE_COLUMNS: Readonly<Record<string, { readonly export: string; r
   offer_version_stores: { export: "offerVersionStores", columns: ["tenant_id", "offer_id", "version", "store_id"] },
   offer_version_rules: {
     export: "offerVersionRules",
-    columns: ["tenant_id", "offer_id", "version", "effect", "product_id", "category_id", "brand_id"],
+    columns: ["id", "tenant_id", "offer_id", "version", "effect", "product_id", "category_id", "brand_id"],
   },
   offer_pauses: {
     export: "offerPauses",

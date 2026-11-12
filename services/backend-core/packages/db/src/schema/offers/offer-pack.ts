@@ -15,18 +15,23 @@
  *                                 S in revisions [from_revision, to_revision)
  *                                 (to_revision null = current). The rows
  *                                 covering revision R for S are exactly S's
- *                                 Pack eligible sets at R. A row opens only at
- *                                 the tenant's latest revision and the only
- *                                 change is closing it at the latest revision
- *                                 (a guard trigger), so a past revision never
- *                                 changes. No DELETE.
+ *                                 Pack eligible sets at R. A row opens, and an
+ *                                 open row closes, only at the tenant's latest
+ *                                 revision and only in the transaction that
+ *                                 issued it (a guard trigger), so a revision's
+ *                                 content is fixed when that transaction
+ *                                 commits. No DELETE. The store revisions move
+ *                                 only to the revision issued in the same
+ *                                 transaction.
  *
  * PACK INVARIANT (OD-7 clarification): in any revision a product is in at most
  * one offer per store, enforced in SQL by the EXCLUDE constraint
  * `offer_pack_eligible_products_one_offer_per_product` (gist over tenant,
  * store, product and int8range(from_revision, to_revision)). Drizzle cannot
  * declare an EXCLUDE constraint; it lives in 0101's SQL only, with the guards,
- * the composite FKs and the policies.
+ * the composite FKs and the policies. It holds whatever the offers' windows
+ * (the contract's "disjoint per Pack" reading, stricter than the OD-7 publish
+ * check): see the 0101 header for what RT-1337 must do about it.
  *
  * RLS: ENABLE + FORCE; SELECT + INSERT everywhere, UPDATE on the store
  * revisions and the eligible products only; no DELETE. §XIV: BUSINESS-CLASS.
@@ -91,6 +96,10 @@ export const offerPackEligibleProducts = pgTable(
     toRevision: bigint("to_revision", { mode: "number" }),
   },
   (t) => [
+    primaryKey({
+      name: "offer_pack_eligible_products_pk",
+      columns: [t.tenantId, t.storeId, t.productId, t.fromRevision],
+    }),
     foreignKey({
       name: "fk_offer_pack_eligible_products_version",
       columns: [t.tenantId, t.offerId, t.offerVersion],

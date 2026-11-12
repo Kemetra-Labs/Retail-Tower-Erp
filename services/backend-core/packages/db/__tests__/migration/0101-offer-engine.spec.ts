@@ -112,6 +112,7 @@ const FUNCTIONS = [
   "offer_pack_store_revisions_guard()",
   "offer_pack_eligible_products_guard()",
   "sale_line_promotions_line_guard()",
+  "sale_return_promotion_clawbacks_guard()",
 ];
 
 let env: PgTestEnv | null = null;
@@ -444,7 +445,11 @@ describe("0101: offers", () => {
       expect(
         await attempt(c, `UPDATE offers SET draft_definition = NULL, draft_updated_at = NULL, draft_updated_by_user_id = NULL WHERE id = $1`, [OFFER_A]),
       ).toBeNull();
-      expect(await attempt(c, setDraft, [OFFER_A, 1, '{"nameAr":"z"}', ACTOR])).toBeNull();
+      // A new draft (or new content) takes a new revision, so a stale token never matches it.
+      expect(await attempt(c, setDraft, [OFFER_A, 1, '{"nameAr":"z"}', ACTOR])).toBe("23514");
+      expect(await attempt(c, setDraft, [OFFER_A, 2, '{"nameAr":"z"}', ACTOR])).toBe(null);
+      expect(await attempt(c, `UPDATE offers SET draft_definition = '{"nameAr":"w"}' WHERE id = $1`, [OFFER_A])).toBe("23514");
+      expect(await attempt(c, `UPDATE offers SET draft_revision = 3, draft_definition = '{"nameAr":"w"}' WHERE id = $1`, [OFFER_A])).toBeNull();
       expect(await attempt(c, `UPDATE offers SET tenant_id = $2 WHERE id = $1`, [OFFER_A, TENANT_B])).toBe("23514");
       // End once.
       expect(await attempt(c, `UPDATE offers SET ended_at = now(), ended_by_user_id = $2 WHERE id = $1`, [OFFER_A, ACTOR])).toBeNull();
@@ -719,13 +724,17 @@ describe("0101: Offer Pack revisions", () => {
       expect(await attempt(c, `TRUNCATE offer_pack_revisions CASCADE`)).toBe("42501");
 
       const insertStore = `INSERT INTO offer_pack_store_revisions (tenant_id, store_id, applied_revision) VALUES ($1, $2, $3)`;
-      expect(await attempt(c, insertStore, [TENANT_A, STORE_A1, 3])).toBe("23503");
-      expect(await attempt(c, insertStore, [TENANT_A, STORE_B1, 1])).toBe("23503");
-      expect(await attempt(c, insertStore, [TENANT_A, STORE_A1, 1])).toBeNull();
+      // Only the latest revision (2), issued in this transaction.
+      expect(await attempt(c, insertStore, [TENANT_A, STORE_A1, 3])).toBe("23514");
+      expect(await attempt(c, insertStore, [TENANT_A, STORE_A1, 1])).toBe("23514");
+      expect(await attempt(c, insertStore, [TENANT_A, STORE_B1, 2])).toBe("23503");
+      expect(await attempt(c, insertStore, [TENANT_A, STORE_A1, 2])).toBeNull();
       const move = `UPDATE offer_pack_store_revisions SET applied_revision = $3 WHERE tenant_id = $1 AND store_id = $2`;
+      expect(await attempt(c, move, [TENANT_A, STORE_A1, 2])).toBe("23514");
       expect(await attempt(c, move, [TENANT_A, STORE_A1, 1])).toBe("23514");
-      expect(await attempt(c, move, [TENANT_A, STORE_A1, 2])).toBeNull();
-      expect(await attempt(c, move, [TENANT_A, STORE_A1, 1])).toBe("23514");
+      await c.query(INSERT_REVISION, [TENANT_A, 3]);
+      expect(await attempt(c, move, [TENANT_A, STORE_A1, 3])).toBeNull();
+      expect(await attempt(c, move, [TENANT_A, STORE_A1, 2])).toBe("23514");
       expect(await attempt(c, `UPDATE offer_pack_store_revisions SET store_id = $2 WHERE store_id = $1`, [STORE_A1, STORE_A2])).toBe("23514");
       expect(await attempt(c, `DELETE FROM offer_pack_store_revisions`)).toBe("42501");
     });
@@ -765,7 +774,51 @@ describe("0101: materialised eligible sets (OD-6, OD-7 Pack invariant)", () => {
     });
   });
 
-  it("refuses a product in two offers of one store in the same revision (23P01), and allows other stores and successive revisions", async () => {
+  it("freezes a revision when its transaction commits: a later transaction changes nothing at it, only at a new revision", async () => {
+    if (skip()) return;
+    await committed(async (c) => {
+      await c.query(INSERT_OFFER, [OFFER_A, TENANT_A, ACTOR]);
+      await publish(c, TENANT_A, OFFER_A, 1);
+      await c.query(INSERT_REVISION, [TENANT_A, 1]);
+      await c.query(INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A, 1, 1]);
+      await c.query(`INSERT INTO offer_pack_store_revisions (tenant_id, store_id, applied_revision) VALUES ($1, $2, 1)`, [
+        TENANT_A,
+        STORE_A1,
+      ]);
+    });
+    try {
+      await rolledBack(async (c) => {
+        // Revision 1 is committed: nothing opens at it, nothing closes, the store does not re-apply it.
+        expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A2, OFFER_A, 1, 1])).toBe("23514");
+        expect(await attempt(c, `UPDATE offer_pack_eligible_products SET to_revision = 1 WHERE product_id = $1`, [PROD_A1])).toBe("23514");
+        expect(
+          await attempt(c, `INSERT INTO offer_pack_store_revisions (tenant_id, store_id, applied_revision) VALUES ($1, $2, 1)`, [
+            TENANT_A,
+            STORE_A2,
+          ]),
+        ).toBe("23514");
+      });
+      await committed(async (c) => {
+        // A new revision issued in this transaction takes the changes.
+        await c.query(INSERT_REVISION, [TENANT_A, 2]);
+        await c.query(`UPDATE offer_pack_eligible_products SET to_revision = 2 WHERE product_id = $1`, [PROD_A1]);
+        await c.query(INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A2, OFFER_A, 1, 2]);
+        await c.query(`UPDATE offer_pack_store_revisions SET applied_revision = 2 WHERE store_id = $1`, [STORE_A1]);
+      });
+      await rolledBack(async (c) => {
+        expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A3, OFFER_A, 1, 2])).toBe("23514");
+        expect(await attempt(c, `UPDATE offer_pack_eligible_products SET to_revision = 2 WHERE product_id = $1`, [PROD_A2])).toBe("23514");
+      });
+      const rows = await guard().admin.query<{ k: string }>(
+        `SELECT product_id || ':' || from_revision || '-' || coalesce(to_revision::text, '') AS k FROM offer_pack_eligible_products`,
+      );
+      expect(rows.rows.map((r) => r.k).sort()).toEqual([`${PROD_A1}:1-2`, `${PROD_A2}:2-`].sort());
+    } finally {
+      await clearOffers();
+    }
+  });
+
+  it("refuses a product in two offers of one store in any revision (PK, EXCLUDE 23P01), and allows other stores and successive revisions", async () => {
     if (skip()) return;
     await rolledBack(async (c) => {
       await c.query(INSERT_OFFER, [OFFER_A, TENANT_A, ACTOR]);
@@ -774,13 +827,17 @@ describe("0101: materialised eligible sets (OD-6, OD-7 Pack invariant)", () => {
       await publish(c, TENANT_A, OFFER_A2, 1);
       await c.query(INSERT_REVISION, [TENANT_A, 1]);
       expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A, 1, 1])).toBeNull();
-      expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A2, 1, 1])).toBe("23P01");
-      // The same offer twice is the same refusal (one row per product per store).
-      expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A, 1, 1])).toBe("23P01");
+      // At the same revision, a second offer (or the same row again) for the product and store is
+      // refused by the primary key, one row per (store, product) opening at a revision.
+      expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A2, 1, 1])).toBe("23505");
+      expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A, 1, 1])).toBe("23505");
       // Another store, or another product, is fine.
       expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A2, PROD_A1, OFFER_A2, 1, 1])).toBeNull();
       expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A2, OFFER_A2, 1, 1])).toBeNull();
-      // Re-materialisation: revision 2 moves PROD_A1 in store A1 from OFFER_A to OFFER_A2.
+      // Re-materialisation: revision 2 moves PROD_A1 in store A1 from OFFER_A to OFFER_A2. Opening it
+      // for OFFER_A2 while OFFER_A's row is still open overlaps the ranges: the EXCLUDE refuses it.
+      // (Windows play no part: two offers with disjoint windows are refused the same way, the
+      // contract's "disjoint per Pack" reading.)
       await c.query(INSERT_REVISION, [TENANT_A, 2]);
       expect(await attempt(c, INSERT_ELIGIBLE, [TENANT_A, STORE_A1, PROD_A1, OFFER_A2, 1, 2])).toBe("23P01");
       await c.query(`UPDATE offer_pack_eligible_products SET to_revision = 2 WHERE offer_id = $1 AND store_id = $2`, [OFFER_A, STORE_A1]);
@@ -887,13 +944,21 @@ describe("0101: sale_line_promotions", () => {
 });
 
 describe("0101: sale_return_promotion_clawbacks", () => {
-  it("records one positive clawback per offer per return, pinned to the return's tenant and store", async () => {
+  it("records one positive clawback per offer per return, of an offer version on the returned sale, pinned to the return's tenant and store", async () => {
     if (skip()) return;
     await rolledBack(async (c) => {
       await c.query(INSERT_OFFER, [OFFER_A, TENANT_A, ACTOR]);
+      await c.query(INSERT_OFFER, [OFFER_A2, TENANT_A, ACTOR]);
       await publish(c, TENANT_A, OFFER_A, 1);
-      const claw = (store: string, amount: string): Promise<string | null> =>
-        attempt(c, INSERT_CLAWBACK, [RETURN_A, TENANT_A, store, OFFER_A, 1, amount]);
+      await publish(c, TENANT_A, OFFER_A2, 1);
+      await c.query(INSERT_REVISION, [TENANT_A, 1]);
+      const claw = (store: string, amount: string, offer = OFFER_A): Promise<string | null> =>
+        attempt(c, INSERT_CLAWBACK, [RETURN_A, TENANT_A, store, offer, 1, amount]);
+      // Before the sale carries a fact of the offer, no clawback of it.
+      expect(await claw(STORE_A1, "16")).toBe("23503");
+      await c.query(INSERT_PROMOTION, [LINE_REWARD, SALE_A, TENANT_A, STORE_A1, OFFER_A, 1, 1, "40"]);
+      // An offer that is not on the returned sale.
+      expect(await claw(STORE_A1, "16", OFFER_A2)).toBe("23503");
       expect(await claw(STORE_A1, "0")).toBe("23514");
       expect(await claw(STORE_A1, "-1")).toBe("23514");
       expect(await claw(STORE_A2, "16")).toBe("23503");
