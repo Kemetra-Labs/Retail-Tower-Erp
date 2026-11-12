@@ -89,11 +89,12 @@ export function createSendableDeviceTokenRead(
  */
 export interface RevocationRecheckTokenReadDeps {
   /**
-   * RT-1348: `isOtherServer` (the real store has it) keeps even this read from
-   * handing the token out while the pairing belongs to another backend.
+   * RT-1348: `isOtherServer` keeps even this read from handing the token out
+   * while the pairing belongs to another backend. Required, so a wrapper that
+   * drops it fails to compile instead of failing open.
    */
   pairingStore: Pick<DeviceRevocationStore, 'isDeviceRevoked' | 'getStoredPairingBinding'> &
-    Partial<Pick<ApiOriginBinding, 'isOtherServer'>>;
+    Pick<ApiOriginBinding, 'isOtherServer'>;
   secretStore: Pick<SecretStore, 'get'>;
   deviceTokenKey: SecretKey;
 }
@@ -102,7 +103,7 @@ export function createRevocationRecheckTokenRead(
   deps: RevocationRecheckTokenReadDeps,
 ): () => Promise<string | null> {
   return async (): Promise<string | null> => {
-    if (!deps.pairingStore.isDeviceRevoked() || deps.pairingStore.isOtherServer?.() === true) {
+    if (!deps.pairingStore.isDeviceRevoked() || deps.pairingStore.isOtherServer()) {
       return null;
     }
     let sealed: string | null;
@@ -112,7 +113,7 @@ export function createRevocationRecheckTokenRead(
       return null;
     }
     // Nothing awaits between this check and handing the token out.
-    if (!deps.pairingStore.isDeviceRevoked() || deps.pairingStore.isOtherServer?.() === true) {
+    if (!deps.pairingStore.isDeviceRevoked() || deps.pairingStore.isOtherServer()) {
       return null;
     }
     return tokenBoundTo(sealed, deps.pairingStore.getStoredPairingBinding());

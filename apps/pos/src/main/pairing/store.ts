@@ -381,6 +381,8 @@ export function createPairingStore(
   const now = options.now ?? ((): Date => new Date());
   /** RT-1348 — the mismatch is logged once per process, not on every status read. */
   let otherServerLogged = false;
+  /** RT-1348 — set once the row is seen holding an origin (or adopted): no more reads per 2xx. */
+  let originSettled = false;
 
   /** RT-1348 — is this stored row bound to another backend than this process uses? */
   function otherServer(row: StoredAssignmentRow | null): boolean {
@@ -582,10 +584,16 @@ export function createPairingStore(
     adoptApiOrigin: (): void => {
       // Only a legacy row (no origin) adopts; the SQL repeats the NULL guard so a
       // re-pair that lands between the read and the write is never overwritten.
+      if (originSettled) return;
       if (apiOrigin === undefined || apiOrigin === null) return;
       const row = db.readAssignment();
-      if (row === null || typeof row.api_origin === 'string') return;
+      if (row === null) return;
+      if (typeof row.api_origin === 'string') {
+        originSettled = true;
+        return;
+      }
       db.adoptApiOrigin?.(apiOrigin);
+      originSettled = true;
       logger?.info(
         { event: 'pairing.api_origin.adopted' },
         'legacy pairing recorded the backend origin it was accepted on',
