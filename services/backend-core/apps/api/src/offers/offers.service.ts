@@ -55,6 +55,7 @@ import { STORE_OFFER_LIMIT, ISSUE_ORDER, checkDefinition, findConflicts, type De
 import {
   OFFER_PAGE_SIZE_DEFAULT,
   normaliseDefinition,
+  type OfferDefinition,
   type OfferCreateBody,
   type OfferListQuery,
   type OfferPauseBody,
@@ -209,6 +210,7 @@ export class OffersService {
       const caller = await this.caller(client, input);
       this.require(caller, "offers.manage");
       const definition = normaliseDefinition(body.definition);
+      this.requireConfined(caller, [definition]);
       const offerId = await insertOffer(client, { tenantId: input.tenantId, definition, userId: input.actorUserId });
       await insertOfferAudit(client, {
         ...input,
@@ -227,6 +229,7 @@ export class OffersService {
       const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
       if (header === null) throw new OfferRefusedError("offer_not_found");
       const loaded = await this.loadOne(client, input.tenantId, header);
+      this.requireConfinedOffer(caller, { header, loaded }, [normaliseDefinition(body.definition)]);
       const state = stateOf(loaded, header);
       if (state === "ended" || state === "archived") throw new OfferRefusedError("offer_state_invalid");
       const expected = header.draft === null ? null : header.draftRevision;
@@ -250,6 +253,7 @@ export class OffersService {
       this.require(caller, "offers.manage");
       const header = await loadOfferHeader(client, input.tenantId, offerId);
       if (header === null) throw new OfferRefusedError("offer_not_found");
+      this.requireConfinedOffer(caller, { header, loaded: await this.loadOne(client, input.tenantId, header) }, []);
       if (header.draft === null) throw new OfferRefusedError("offer_state_invalid");
       if (body.expectedDraftRevision !== undefined && body.expectedDraftRevision !== header.draftRevision) {
         throw new OfferRefusedError("offer_draft_changed_concurrently");
@@ -321,10 +325,11 @@ export class OffersService {
 
   async pause(input: OfferCallInput, offerId: string, body: OfferPauseBody) {
     return this.writeOffer(input, offerId, "offers.pause", async ({ client, caller, header, loaded }) => {
-      // A store manager pauses their own stores only, never the whole offer.
       // Visibility first: a hidden offer answers 404 whatever the role is allowed to ask (non-disclosing).
       if (!isVisible(header, loaded.versions.get(offerId), caller.viewer)) throw new OfferRefusedError("offer_not_found");
-      if (isStoreBounded(caller.roleCode) && body.storeIds === undefined) throw new OfferRefusedError("forbidden");
+      // A caller bounded to their stores (a store_manager, or any role with a specific-stores membership) pauses
+      // their own stores only, never the whole offer.
+      if (caller.viewer.ownStoreIds !== null && body.storeIds === undefined) throw new OfferRefusedError("forbidden");
       const changed =
         body.storeIds === undefined
           ? await this.pauseWhole(client, input, { header, loaded }, body.reason)
@@ -476,7 +481,10 @@ export class OffersService {
     return this.inTenant(input.tenantId, async (client) => {
       const caller = await this.caller(client, input);
       this.require(caller, capability);
-      return work({ client, caller, ...(await this.lockedOffer(client, input, offerId)) });
+      const locked = await this.lockedOffer(client, input, offerId);
+      // Pause answers for itself (visibility, then own stores only); every other write needs the whole offer in scope.
+      if (capability !== "offers.pause") this.requireConfinedOffer(caller, locked, []);
+      return work({ client, caller, ...locked });
     });
   }
 
@@ -484,6 +492,27 @@ export class OffersService {
     const scope = await callerStoreScope(client, this.memberships, { tenantId: input.tenantId, context: input.context });
     const roleCode = await this.memberships.findRoleCodeForUserInTenant(input.actorUserId, input.tenantId, client);
     return { roleCode, scope, viewer: viewerOf(scope, isStoreBounded(roleCode)) };
+  }
+
+  /**
+   * A role with `offers.manage` or `offers.publish` but a specific-stores membership may act only on offers whose
+   * every store is one of theirs, never on an all-stores offer (RT-131: a role never widens a membership). A
+   * tenant-wide caller is not limited; a store_manager holds neither capability.
+   */
+  private requireConfined(caller: Caller, definitions: ReadonlyArray<OfferDefinition | undefined>): void {
+    const own = caller.viewer.ownStoreIds;
+    if (own === null) return;
+    for (const d of definitions) {
+      if (d === undefined) continue;
+      if ("allStores" in d.storeScope || d.storeScope.storeIds.some((s) => !own.has(s.toLowerCase()))) throw new OfferRefusedError("forbidden");
+    }
+  }
+
+  /** The offer must be visible (else the non-disclosing 404), and its draft and current version must be confined. */
+  private requireConfinedOffer(caller: Caller, at: Locked, extra: ReadonlyArray<OfferDefinition>): void {
+    if (caller.viewer.ownStoreIds === null) return;
+    if (!isVisible(at.header, at.loaded.versions.get(at.header.id), caller.viewer)) throw new OfferRefusedError("offer_not_found");
+    this.requireConfined(caller, [at.header.draft?.definition, at.loaded.versions.get(at.header.id)?.definition, ...extra]);
   }
 
   private requireRead(caller: Caller): void {

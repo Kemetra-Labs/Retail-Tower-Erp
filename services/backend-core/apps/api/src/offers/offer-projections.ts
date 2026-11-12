@@ -14,12 +14,17 @@ import type { OfferHeader, OfferVersionRecord, OpenPause } from "./offers.reposi
 import type { OfferDefinition } from "./offers.dto";
 
 export interface Viewer {
-  /** Null: not store-bounded (owner, tenant_admin). */
+  /** Null: not store-bounded (a tenant-wide owner or tenant_admin). */
   readonly ownStoreIds: ReadonlySet<string> | null;
 }
 
-export function viewerOf(scope: StoreScope, bounded: boolean): Viewer {
-  return { ownStoreIds: bounded ? new Set(scope.kind === "tenant" ? [] : scope.storeIds.map((s) => s.toLowerCase())) : null };
+/**
+ * A caller is bounded to their stores when their role is store-bounded, or their membership names specific
+ * stores: a role never widens a membership (RT-131, `context/operator-store-scope.ts`).
+ */
+export function viewerOf(scope: StoreScope, roleBounded: boolean): Viewer {
+  if (!roleBounded && scope.kind === "tenant") return { ownStoreIds: null };
+  return { ownStoreIds: new Set(scope.kind === "tenant" ? [] : scope.storeIds.map((s) => s.toLowerCase())) };
 }
 
 /** The definition as the viewer may see it, or null when a bounded viewer's stores are not in an explicit scope. */

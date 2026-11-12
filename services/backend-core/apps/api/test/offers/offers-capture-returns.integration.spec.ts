@@ -424,20 +424,21 @@ describe("recordReturn with a clawback — the golden return vectors end to end"
         continue;
       }
       const clawback = step.expected.clawback;
-      if (clawback !== null && Number(clawback) > 0) {
-        // The refund tenders must be net of the clawback: the gross does not match, and nothing is recorded.
-        const gross = Number(refund) + Number(clawback);
-        const bad = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-bad-${key}`, lines, gross.toFixed(2)), idempKey(`bad${key}`));
-        expect([bad.status, bad.body.error?.code]).toEqual([422, "return_tender_mismatch"]);
+      const rewardReturned = step.returned.some((r) => Number(c.saleLines.find((l) => l.saleLineRef === r.saleLineRef)!.promotion?.discountAmount ?? 0) > 0);
+      if ((clawback !== null && Number(clawback) > 0) || rewardReturned) {
+        // Fail closed until the ledger can post it (RT-1340): a clawback, or a returned reward line, is refused
+        // (the refund the vector expects is what the lift will pay), and nothing is recorded.
+        const res = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
+        expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
+        expect(await sql(`SELECT 1 FROM sale_returns WHERE external_id = $1`, [`rt1337-ret-${key}`])).toEqual([]);
+        expect(await sql(`SELECT 1 FROM sale_return_promotion_clawbacks`)).toEqual([]);
+        // The vector's later steps assume this return happened; they stay covered by the pure settlement spec.
+        break;
       }
       const res = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
       expect([res.status, res.body.error]).toEqual([201, undefined]);
       expect(Number(res.body.returnTotal)).toBe(Number(refund));
-      if (clawback !== null && Number(clawback) > 0) {
-        expect(res.body.promotionClawbacks).toEqual([{ offerId: o.offerId, offerVersion: 1, amount: `${clawback}00` }]);
-      } else {
-        expect(res.body.promotionClawbacks).toBeUndefined();
-      }
+      expect(res.body.promotionClawbacks).toBeUndefined();
       // A replay answers the stored return, clawbacks included.
       const replay = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
       expect([replay.status, replay.headers["idempotent-replayed"]]).toEqual([201, "true"]);
@@ -445,7 +446,7 @@ describe("recordReturn with a clawback — the golden return vectors end to end"
     }
   });
 
-  it("records the clawback rows once per (return, offer) and never changes them", async () => {
+  it("refuses a return with a clawback while the ledger cannot post it, and records nothing", async () => {
     if (skip()) return;
     const o = await seedOffer({ products: 2 });
     const cap = await capture(
@@ -454,13 +455,42 @@ describe("recordReturn with a clawback — the golden return vectors end to end"
         { product: o.productIds[1]!, unitPrice: "200.00", lineAmount: "120.00", promotion: cite(o, "80.00") },
       ]),
     );
-    const ret = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-rows", [{ lineRef: cap.body.lines[0].lineRef, quantity: "1" }], "220.00"), idempKey("rows"));
-    expect(ret.status).toBe(201);
-    const rows = await sql(`SELECT offer_id::text, offer_version, amount::text AS amount, return_id::text FROM sale_return_promotion_clawbacks WHERE return_id = $1`, [ret.body.returnRef]);
-    expect(rows).toEqual([{ offer_id: o.offerId, offer_version: 1, amount: "80.0000", return_id: ret.body.returnRef }]);
-    await expect(env().admin.query(`UPDATE sale_return_promotion_clawbacks SET amount = 1 WHERE return_id = $1`, [ret.body.returnRef])).rejects.toThrow(/append-only/);
-    // The stored return total is net of the clawback.
-    expect((await sql(`SELECT return_total::text AS t FROM sale_returns WHERE id = $1`, [ret.body.returnRef]))[0]!["t"]).toBe("220.0000");
+    // E1: returning the 300.00 trigger takes the 80.00 discount back (clawback 80.00, refund 220.00).
+    const res = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-rows", [{ lineRef: cap.body.lines[0].lineRef, quantity: "1" }], "220.00"), idempKey("rows"));
+    expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
+    expect(await sql(`SELECT 1 FROM sale_returns WHERE external_id = $1`, ["rt1337-ret-rows"])).toEqual([]);
+  });
+
+  it("refuses the return of a reward line even when it takes no clawback", async () => {
+    if (skip()) return;
+    const o = await seedOffer({ products: 2 });
+    const cap = await capture(
+      body([
+        { product: o.productIds[0]!, unitPrice: "300.00", lineAmount: "300.00", promotion: cite(o, "0.00") },
+        { product: o.productIds[1]!, unitPrice: "200.00", lineAmount: "120.00", promotion: cite(o, "80.00") },
+      ]),
+    );
+    // The reward line comes back at its net: the Connector's return builder could not post unitPrice x quantity != lineAmount.
+    const res = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-reward", [{ lineRef: cap.body.lines[1].lineRef, quantity: "1" }], "120.00"), idempKey("reward"));
+    expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
+  });
+
+  it("accepts the return of a non-reward promoted line that changes no discount, as an ordinary return", async () => {
+    if (skip()) return;
+    const o = await seedOffer({ products: 3 });
+    // 300 (trigger), 200 (reward, 80.00), 100 (a participant left over, cited at 0.00): returning the 100 keeps the same reward.
+    const cap = await capture(
+      body([
+        { product: o.productIds[0]!, unitPrice: "300.00", lineAmount: "300.00", promotion: cite(o, "0.00") },
+        { product: o.productIds[1]!, unitPrice: "200.00", lineAmount: "120.00", promotion: cite(o, "80.00") },
+        { product: o.productIds[2]!, unitPrice: "100.00", lineAmount: "100.00", promotion: cite(o, "0.00") },
+      ]),
+    );
+    expect(cap.status).toBe(201);
+    const res = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-leftover", [{ lineRef: cap.body.lines[2].lineRef, quantity: "1" }], "100.00"), idempKey("leftover"));
+    expect([res.status, res.body.error]).toEqual([201, undefined]);
+    expect(res.body.promotionClawbacks).toBeUndefined();
+    expect(Number(res.body.returnTotal)).toBe(100);
   });
 
   it("a sale with no offer returns exactly as before", async () => {

@@ -24,7 +24,7 @@ import { OffersModule } from "../../src/offers/offers.module";
 import { StoresModule } from "../../src/stores/stores.module";
 import { idempotencyProviders } from "../_helpers/idempotency-providers";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
-import { bootScopedApp } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
+import { SES_ADMIN_SPEC, bootScopedApp } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
 import {
   BR_ADIDAS,
   BR_NIKE,
@@ -71,11 +71,11 @@ const ORIGIN = "http://127.0.0.1";
 let keySeq = 0;
 const nextKey = (): string => `rt1337-hook-key-${String((keySeq += 1)).padStart(8, "0")}`;
 
-function call(method: "get" | "post" | "patch" | "delete", path: string, body?: object): request.Test {
+function call(method: "get" | "post" | "put" | "patch" | "delete", path: string, body?: object, session: string = SES_OWNER_ALL): request.Test {
   const agent = request(app!.getHttpServer() as Parameters<typeof request>[0]);
-  let req = agent[method](path).set("x-test-session", SES_OWNER_ALL);
+  let req = agent[method](path).set("x-test-session", session);
   if (method !== "get") req = req.set("Origin", ORIGIN);
-  if (method === "post") req = req.set("Idempotency-Key", nextKey());
+  if (method === "post" || method === "put") req = req.set("Idempotency-Key", nextKey());
   return body === undefined ? req : req.send(body);
 }
 
@@ -289,5 +289,71 @@ describe("concurrent writers", () => {
     expect([...(await heldBy(STORE_A_X)).keys()].sort()).toEqual([P_HAT, P_BARE].sort());
     const revs = await sql<{ revision: string }>(`SELECT revision::text AS revision FROM offer_pack_revisions r WHERE tenant_id = $1 ORDER BY r.revision`, [TENANT_A]);
     expect(revs.map((r) => Number(r.revision))).toEqual(revs.map((_, i) => i + 1));
+  });
+});
+
+describe("a tenant_admin whose membership names specific stores (RT-131: a role never widens a membership)", () => {
+  beforeEach(async () => {
+    if (!skip()) await endAll();
+  });
+
+  const code = (r: request.Response): unknown => (r.body as { error?: { code?: string } }).error?.code;
+
+  it("creates, edits, publishes, ends and archives only offers confined to their stores, and never an all-stores offer", async () => {
+    if (skip()) return;
+    const mine = { storeScope: { storeIds: [STORE_A_X] }, eligibility: { include: { productIds: [P_HAT] } } };
+    // Not confined: an all-stores offer, a store outside the membership, a store list that includes one.
+    for (const scope of [{ allStores: true }, { storeIds: [STORE_A_Y] }, { storeIds: [STORE_A_X, STORE_A_Y] }]) {
+      const res = await call("post", "/api/v1/offers", { definition: definition({ ...mine, storeScope: scope }) }, SES_ADMIN_SPEC);
+      expect([res.status, code(res)]).toEqual([403, "forbidden"]);
+    }
+    const created = await call("post", "/api/v1/offers", { definition: definition(mine) }, SES_ADMIN_SPEC);
+    expect(created.status).toBe(201);
+    const id = (created.body as { offerId: string }).offerId;
+    // An edit that would widen it is refused, and nothing changes.
+    const widen = await call("put", `/api/v1/offers/${id}/draft`, { expectedDraftRevision: 1, definition: definition({ ...mine, storeScope: { allStores: true } }) }, SES_ADMIN_SPEC);
+    expect([widen.status, code(widen)]).toEqual([403, "forbidden"]);
+    expect((await call("post", `/api/v1/offers/${id}/publish`, { expectedDraftRevision: 1 }, SES_ADMIN_SPEC)).status).toBe(200);
+    expect((await call("post", `/api/v1/offers/${id}/end`, {}, SES_ADMIN_SPEC)).status).toBe(200);
+    expect((await call("post", `/api/v1/offers/${id}/archive`, {}, SES_ADMIN_SPEC)).status).toBe(200);
+  });
+
+  it("cannot publish, edit, end or resume another actor's all-stores or wider offer, and does not see an offer of other stores", async () => {
+    if (skip()) return;
+    const everywhere = await publishOk(definition({ nameAr: "كله", eligibility: { include: { productIds: [P_HAT] } } }));
+    const onlyY = await publishOk(definition({ nameAr: "واي", storeScope: { storeIds: [STORE_A_Y] }, eligibility: { include: { productIds: [P_BARE] } } }));
+    const draft = await create(definition({ nameAr: "مسودة", eligibility: { include: { productIds: [P_RUN] } } }));
+    for (const [path, body] of [
+      [`/api/v1/offers/${everywhere.offerId}/end`, {}],
+      [`/api/v1/offers/${everywhere.offerId}/resume`, {}],
+      [`/api/v1/offers/${draft}/publish`, { expectedDraftRevision: 1 }],
+    ] as const) {
+      const res = await call("post", path, body, SES_ADMIN_SPEC);
+      expect([res.status, code(res)]).toEqual([403, "forbidden"]);
+    }
+    // An offer of other stores is the non-disclosing 404, on every write and read.
+    for (const path of [`/api/v1/offers/${onlyY.offerId}/end`, `/api/v1/offers/${onlyY.offerId}/publish`]) {
+      const res = await call("post", path, { expectedDraftRevision: 1 }, SES_ADMIN_SPEC);
+      expect([res.status, code(res)]).toEqual([404, "offer_not_found"]);
+    }
+    expect((await call("get", `/api/v1/offers/${onlyY.offerId}`, undefined, SES_ADMIN_SPEC)).status).toBe(404);
+    const list = await call("get", "/api/v1/offers?page_size=100", undefined, SES_ADMIN_SPEC);
+    const ids = (list.body as { items: Array<{ offerId: string }> }).items.map((i) => i.offerId);
+    expect(ids).toContain(everywhere.offerId);
+    expect(ids).not.toContain(onlyY.offerId);
+    // The tenant-wide owner is unaffected.
+    expect((await call("post", `/api/v1/offers/${onlyY.offerId}/end`, {})).status).toBe(200);
+  });
+
+  it("pauses their own stores only, never the whole offer", async () => {
+    if (skip()) return;
+    const everywhere = await publishOk(definition({ eligibility: { include: { productIds: [P_HAT] } } }));
+    const whole = await call("post", `/api/v1/offers/${everywhere.offerId}/pause`, { reason: "r" }, SES_ADMIN_SPEC);
+    expect([whole.status, code(whole)]).toEqual([403, "forbidden"]);
+    const other = await call("post", `/api/v1/offers/${everywhere.offerId}/pause`, { reason: "r", storeIds: [STORE_A_Y] }, SES_ADMIN_SPEC);
+    expect([other.status, code(other)]).toEqual([404, "store_not_found"]);
+    expect((await call("post", `/api/v1/offers/${everywhere.offerId}/pause`, { reason: "r", storeIds: [STORE_A_X] }, SES_ADMIN_SPEC)).status).toBe(200);
+    expect((await heldBy(STORE_A_X)).size).toBe(0);
+    expect((await heldBy(STORE_A_Y)).size).toBeGreaterThan(0);
   });
 });

@@ -215,7 +215,7 @@ const LOCK_BRAND_SQL = `
   SELECT name,${UPDATED_MS_SQL}
     FROM tenant_product_brands
    WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL
-     FOR UPDATE`;
+     FOR NO KEY UPDATE`;
 
 const LIVE_STORE_SQL = `SELECT 1 FROM stores WHERE id = $1::uuid AND tenant_id = $2::uuid AND deleted_at IS NULL`;
 

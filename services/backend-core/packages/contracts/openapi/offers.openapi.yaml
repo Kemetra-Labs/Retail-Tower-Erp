@@ -82,6 +82,13 @@ info:
         and `pausedStores` list to the caller's own stores, so another store's
         id, pause reason and pausing user are never returned; an all-stores
         offer reads `allStores: true`.
+      - A role never widens a membership (RT-131): an `owner` or
+        `tenant_admin` whose membership names **specific stores** is bounded
+        like a `store_manager` for reads and pauses (own stores only, no
+        whole-offer pause), and may create, edit, preview, publish, resume,
+        end or archive only an offer whose store scope lists stores that are
+        all their own (never an all-stores offer): another offer is 403
+        `forbidden`, or 404 `offer_not_found` when it is not visible to them.
       - Any other role is 403 `forbidden` on every operation.
 
 
@@ -895,10 +902,12 @@ paths:
         revision that changed this store's Pack (0 before any), so an
         unrelated revision of another store does not change the ETag.
         `freshnessWindowHours` is 24: no tenant setting exists yet.
-        `currencyCode` is the currency most of the store's resolved prices
-        use (the store override's, else the product default's), `EGP` when it
-        has no priced product: there is no store or tenant currency setting
-        yet.
+        `currencyCode` is the single currency of the store's resolved prices
+        (the store override's, else the product default's). When they use no
+        currency or more than one, no currency is guessed: `currencyCode` is
+        `XXX` (ISO 4217, no currency) and `offers` is empty, so the till
+        applies no offer; there is no store or tenant currency setting yet.
+        A deleted store is a 404.
       operationId: posGetOfferPack
       tags: [offers-pos]
       security:

@@ -9,10 +9,13 @@
   added or deleted. `captureSale` accepts and stores `promotion` (arithmetic refused as 422 `sale_line_pricing_invalid`,
   a rule-level difference accepted and flagged to review with an `audit_events` row, OD-9), and `readSale`, the sale
   history and the Console sales detail return it (`SaleHistoryLine.promotion`). `recordReturn` computes the clawback
-  of each offer from its frozen version and prices (OD-3, multi-return form), records it in `promotionClawbacks`
-  (OD-11 = A) and refuses `promotion_clawback_exceeds_refund` (OD-10); a return that would give back an earlier
-  clawback stays refused (`promotion_return_requires_clawback`, fail closed). The contract-only markers are dropped,
+  of each offer from its frozen version and prices (OD-3, multi-return form) and refuses `promotion_clawback_exceeds_refund`
+  (OD-10); a return with a clawback above 0, a give-back, or a reward line stays refused
+  (`promotion_return_requires_clawback`, fail closed) until the posting feed and the Connector can post it (RT-1340).
+  The contract-only markers are dropped,
   and `posGetOfferPack` joins the RT-719 build identity and RT-639 rotate-hint operations of the pairing contract.
   Review round: a catalog edit no longer deadlocks against a publish (the product row lock is `FOR NO KEY UPDATE`), a
   line `promotion` is refused on a credit sale, one evaluation expands at most 100,000 units, an uncited participant is
   flagged, the Pack read is one snapshot, and a product created from an unknown item joins a matching live offer.
+  Validation round: a tenant_admin or owner with a specific-stores membership is bounded to their stores (RT-131), the Pack
+  carries no guessed currency (`XXX` and no offers when prices use no single currency), and a deleted store is a 404.

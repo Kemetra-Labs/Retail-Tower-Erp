@@ -8,21 +8,26 @@
  * counts every earlier return of the sale (units returned, clawbacks recorded).
  * For each offer version O with a returned unit:
  *
- *   - `clawback_O` above 0 is ACCEPTED (OD-11 = option A, RT-1340) and recorded
- *     in `sale_return_promotion_clawbacks`; `returnTotal` is Σ returned
- *     `lineAmount` − Σ clawback, so the refund tenders still sum to it;
  *   - `refund_O` below 0 is REFUSED, 422 `promotion_clawback_exceeds_refund`
  *     (OD-10): the till asks the cashier to add the reward units; a return
  *     never charges the customer;
- *   - a return that would GIVE BACK a discount an earlier return clawed back
- *     (golden sequence S3, step 2: the refund exceeds Σ `lineAmount` − Σ
- *     clawback) is REFUSED, 422 `promotion_return_requires_clawback`, fail
- *     closed: a clawback row is positive only, so the facts cannot record the
- *     give-back and the ERPNext credit note cannot post it (RT-1340 finding).
+ *   - `clawback_O` above 0, a return that would GIVE BACK an earlier clawback
+ *     (golden sequence S3, step 2), and the return of a REWARD line
+ *     (`discountAmount` above 0) are REFUSED, 422
+ *     `promotion_return_requires_clawback`, fail closed (coordinator decision,
+ *     RT-1337 validation). The posting projection carries no clawback and the
+ *     Connector has no option A yet (RT-1340 merged the decision and the bench
+ *     proof only), so such a return would be permanently rejected at ERPNext.
+ *     It lifts when (a) the posting-feed contract carries the per-line clawback
+ *     and (b) the Connector implements option A; `insertReturnClawbacks` and
+ *     the net-of-clawback tender rule stay ready for that lift.
+ *
+ * A return of a non-reward promoted line that changes no discount (clawback 0)
+ * is accepted as an ordinary return.
  */
 import type { PoolClient } from "pg";
 
-import { formatMinor, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import { scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
 import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
 import { minorUnitExponent } from "./iso4217-minor-units";
 import { PromotionClawbackExceedsRefundError, PromotionReturnRequiresClawbackError } from "./sale-reversal";
@@ -108,14 +113,10 @@ export async function settleReturnPromotions(
       returnedNow,
     });
     if (s.refund < 0n) throw new PromotionClawbackExceedsRefundError();
-    if (s.giveBack > 0n) throw new PromotionReturnRequiresClawbackError();
-    if (s.clawback !== null && s.clawback > 0n) {
-      clawbacks.push({
-        offerId: first.offerId,
-        offerVersion: first.offerVersion,
-        amount: formatMinor(s.clawback * 10n ** BigInt(4 - exponent), 4),
-      });
-    }
+    // Fail closed until the ledger can post it (RT-1340): a clawback, a give-back and the return of a reward line
+    // (the Connector's return builder needs unitPrice x quantity = lineAmount) are all refused.
+    const rewardReturned = members.some((m) => returnedNow.has(m.lineRef) && scaled(m.discountAmount, exponent) > 0n);
+    if (rewardReturned || s.giveBack > 0n || (s.clawback !== null && s.clawback > 0n)) throw new PromotionReturnRequiresClawbackError();
   }
   return clawbacks;
 }

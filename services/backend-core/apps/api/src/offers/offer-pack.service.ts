@@ -17,7 +17,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
@@ -28,8 +28,12 @@ import { dbNow, loadVersions } from "./offers.repository";
 
 /** The tenant's Pack freshness window (OD-8): a tenant setting does not exist yet, so the default. */
 const DEFAULT_FRESHNESS_WINDOW_HOURS = 24;
-/** Used when a store has no priced product to take a currency from (EGP is the only supported currency today). */
-const FALLBACK_CURRENCY = "EGP";
+/**
+ * ISO 4217 "no currency": the Pack's `currencyCode` when the store's resolved prices do not use exactly one
+ * currency. The offers list is then empty, so the till applies nothing (no silent guess, RT-1337 validation).
+ */
+const NO_CURRENCY = "XXX";
+const log = new Logger("OfferPack");
 
 interface PackOfferBody {
   readonly offerId: string;
@@ -101,16 +105,19 @@ async function readPack(
                                 FROM offer_pack_eligible_products
                                WHERE tenant_id = s.tenant_id AND store_id = s.id AND to_revision IS NULL
                                GROUP BY offer_id, offer_version) g), '[]'::jsonb) AS sets
-       FROM stores s WHERE s.tenant_id = $1::uuid AND s.id = $2::uuid`,
+       FROM stores s WHERE s.tenant_id = $1::uuid AND s.id = $2::uuid AND s.deleted_at IS NULL`,
     [tenantId, storeId],
   );
   const row = snapshot.rows[0];
-  if (row === undefined) throw new Error("device store not found");
+  // A deleted or foreign store is the non-disclosing 404 every device read uses, never a 500.
+  if (row === undefined) throw new NotFoundException("not_found");
   const sets = { rows: row.sets };
 
+  const currency = await storeCurrency(client, tenantId, storeId);
+  if (currency === null) log.warn(`store ${storeId} of tenant ${tenantId} prices in no single currency: the Pack carries no offers`);
   const records = await loadVersions(client, tenantId, sets.rows.map((r) => r.offer_id), { currentOnly: false });
   const byKey = new Map(records.map((r) => [`${r.offerId}:${r.version}`, r]));
-  const offers: PackOfferBody[] = sets.rows.flatMap((s) => {
+  const offers: PackOfferBody[] = (currency === null ? [] : sets.rows).flatMap((s) => {
     const record = byKey.get(`${s.offer_id}:${s.offer_version}`);
     if (record === undefined || s.product_ids.length === 0) return [];
     const d = record.definition;
@@ -135,28 +142,26 @@ async function readPack(
     issuedAt: issuedAt.toISOString(),
     freshnessWindowHours: DEFAULT_FRESHNESS_WINDOW_HOURS,
     storeTimezone: row.timezone,
-    currencyCode: await storeCurrency(client, tenantId, storeId),
+    currencyCode: currency ?? NO_CURRENCY,
     offers,
   };
 }
 
 /**
- * The currency the store prices in: the most used among its resolved prices
- * (the store override's currency, else the product default's), ties by code.
- * There is no tenant or store currency setting yet, so a store with no priced
- * product reads `FALLBACK_CURRENCY`.
+ * The currency the store prices in: the one currency of all its resolved prices (the store override's, else the
+ * product default's). Null when they use none or more than one: the Pack then carries no offers, because an offer
+ * priced in a guessed currency would be applied to prices it was not made for.
  */
-async function storeCurrency(client: PoolClient, tenantId: string, storeId: string): Promise<string> {
+async function storeCurrency(client: PoolClient, tenantId: string, storeId: string): Promise<string | null> {
   const r = await client.query<{ currency: string }>(
-    `SELECT currency FROM (
-        SELECT COALESCE(o.currency_code, tp.default_currency_code) AS currency
-          FROM tenant_products tp
-          LEFT JOIN store_product_overrides o
-            ON o.tenant_id = tp.tenant_id AND o.product_id = tp.id AND o.store_id = $2::uuid AND o.retired_at IS NULL
-         WHERE tp.tenant_id = $1::uuid AND tp.retired_at IS NULL) x
-      WHERE currency IS NOT NULL
-      GROUP BY currency ORDER BY count(*) DESC, currency LIMIT 1`,
+    `SELECT DISTINCT COALESCE(o.currency_code, tp.default_currency_code) AS currency
+       FROM tenant_products tp
+       LEFT JOIN store_product_overrides o
+         ON o.tenant_id = tp.tenant_id AND o.product_id = tp.id AND o.store_id = $2::uuid AND o.retired_at IS NULL
+      WHERE tp.tenant_id = $1::uuid AND tp.retired_at IS NULL
+        AND COALESCE(o.currency_code, tp.default_currency_code) IS NOT NULL
+      LIMIT 2`,
     [tenantId, storeId],
   );
-  return r.rows[0]?.currency ?? FALLBACK_CURRENCY;
+  return r.rows.length === 1 ? r.rows[0]!.currency : null;
 }

@@ -563,7 +563,8 @@ info:
     promotion.discountAmount` when `promotion` is present; a reward line
     (`discountAmount` > 0) has `quantity` 1 (OD-4), and `promotion` and the
     manual `discount` on the same line are 400 (OD-5), and so are `promotion` and `responsibilities` (a credit sale) on
-    one sale (the credit reversal does not settle a clawback yet). Like every line field,
+    one sale (a credit sale returns through the credit reversal, which does not settle a clawback; the
+    till does not apply offers to a credit sale). Like every line field,
     `promotion` is part of the sale's payload hash and of the
     `Idempotency-Key` fingerprint. Unlike the manual discount, the fact is
     stored (the RT-1336 table) and returned: `SaleLine` gains an OPTIONAL
@@ -575,8 +576,8 @@ info:
     accepted and flagged for review (OD-9), never re-priced. Returns:
     `SaleReturn` gains an OPTIONAL `promotionClawbacks` and `recordReturn`
     two refusal codes, `promotion_clawback_exceeds_refund` (OD-10) and
-    `promotion_return_requires_clawback` (OD-11, RT-1340: no longer an
-    interim for every clawback, see below); see `recordReturn`. Additive: no field,
+    `promotion_return_requires_clawback` (OD-11, RT-1340: an interim that
+    lifts when the ledger can post a clawback, see below); see `recordReturn`. Additive: no field,
     pattern or `required` list of an existing schema changes, no enum gains
     a value, and a body without `promotion` hashes exactly as before.
     ROLLOUT ORDER: the server accepts `promotion` from the RT-1337 deploy.
@@ -1218,14 +1219,21 @@ paths:
         is refused with 422 `promotion_clawback_exceeds_refund` (OD-10): the
         till asks the cashier to add the reward units to the return; a return
         never charges the customer. OD-11 (how a clawback posts to ERPNext)
-        is decided, option A (RT-1340): a return whose clawback is above 0 is
-        ACCEPTED from the RT-1337 runtime, and the clawback is recorded per
-        offer in `promotionClawbacks`. One case stays refused, fail closed,
-        with 422 `promotion_return_requires_clawback`: a return that would
-        GIVE BACK a discount an earlier return clawed back (golden sequence
-        S3, step 2: the refund then exceeds Σ `lineAmount` − Σ clawback). A
-        clawback is recorded as a positive amount and the ERPNext credit note
-        cannot post a give-back yet (RT-1340 finding), so such a return is not
+        is decided, option A (RT-1340), but is not implemented in the
+        Connector yet and the posting feed carries no clawback, so the
+        RT-1337 runtime FAILS CLOSED: a return is refused with 422
+        `promotion_return_requires_clawback` when (a) the clawback of an
+        offer is above 0, (b) it would GIVE BACK a discount an earlier
+        return clawed back (golden sequence S3, step 2), or (c) it includes
+        a REWARD line (`discountAmount` above 0), because the Connector's
+        return builder requires `unitPrice` × `quantity` = `lineAmount` of
+        the returned line. A return of a non-reward promoted line that
+        changes no discount (clawback 0) is an ordinary return. The refusal
+        lifts only after the posting-feed contract carries the per-line
+        clawback and the Connector implements option A (and applies the
+        discount to a returned reward line as it does to a sale); until
+        then `promotionClawbacks` is never present. The arithmetic above is
+        what the lift will pay. A refused return is not
         recorded. Worked cases are the `returns` and `returnSequences` of
         `packages/contracts/fixtures/offers/golden-vectors.json`.
 
@@ -4195,10 +4203,10 @@ components:
         negative (see `recordReturn`, Automatic offers); add the reward units
         to the return;
         `promotion_return_requires_clawback` (RT-1335; from the RT-1337
-        runtime) — the return would give back a discount an earlier return
-        clawed back, which cannot be recorded or posted yet (a clawback above
-        0 is accepted since OD-11, RT-1340; see `recordReturn`, Automatic
-        offers);
+        runtime) — the return has a clawback above 0, would give back a
+        discount an earlier return clawed back, or includes a reward line:
+        none can be posted to ERPNext yet (OD-11 option A, RT-1340, is not
+        implemented in the Connector; see `recordReturn`, Automatic offers);
         `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do
         not sum to the server-computed `returnTotal`;
         `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) —

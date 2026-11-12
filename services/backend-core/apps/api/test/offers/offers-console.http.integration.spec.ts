@@ -740,6 +740,33 @@ describe("the Offer Pack read (posGetOfferPack)", () => {
     expect(y.offers[0]).toMatchObject({ startsAt: "2090-07-01T00:00:00.000Z" });
   });
 
+  it("carries no offers, and no guessed currency, when the store's prices use more than one currency", async () => {
+    if (skip()) return;
+    await publishOk(definition({ eligibility: { include: { productIds: [P_RUN] } } }));
+    expect(((await packRead(TOKEN_X).expect(200)).body as { offers: unknown[] }).offers).toHaveLength(1);
+    await h.env().admin.query(`UPDATE tenant_products SET default_currency_code = 'USD' WHERE id = $1`, [P_BARE]);
+    try {
+      const res = await packRead(TOKEN_X).expect(200);
+      h.conforms("OfferPack", res.body);
+      expect(res.body).toMatchObject({ offers: [], currencyCode: "XXX" });
+    } finally {
+      await h.env().admin.query(`UPDATE tenant_products SET default_currency_code = 'EGP' WHERE id = $1`, [P_BARE]);
+    }
+    expect((await packRead(TOKEN_X).expect(200)).body).toMatchObject({ currencyCode: "EGP" });
+  });
+
+  it("answers the non-disclosing 404 (never a 500) when the device's store was deleted", async () => {
+    if (skip()) return;
+    await h.env().admin.query(`DELETE FROM store_access WHERE store_id = $1`, [STORE_A_Y]).catch(() => undefined);
+    await h.env().admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [STORE_A_Y]);
+    try {
+      const res = await packRead(TOKEN_Y);
+      expect(res.status).toBe(404);
+    } finally {
+      await h.env().admin.query(`UPDATE stores SET deleted_at = NULL WHERE id = $1`, [STORE_A_Y]);
+    }
+  });
+
   it("changes its ETag only when the Pack changes (a pause for another store leaves it), and a tenant never sees another tenant's offers", async () => {
     if (skip()) return;
     const offer = await publishOk(definition({ eligibility: { include: { productIds: [P_RUN] } } }));
@@ -756,6 +783,9 @@ describe("the Offer Pack read (posGetOfferPack)", () => {
     // Tenant B's device sees an empty Pack: tenant A's offers are invisible to it.
     const b = await packRead(TOKEN_B).expect(200);
     expect((b.body as { offers: unknown[]; packRevision: number })).toMatchObject({ offers: [], packRevision: 0 });
+    // Tenant B prices nothing: no currency is guessed (ISO 4217 "XXX"), and the Pack still validates.
+    h.conforms("OfferPack", b.body);
+    expect((b.body as { currencyCode: string }).currencyCode).toBe("XXX");
     // And tenant B's owner cannot read tenant A's offers.
     expectError(await get(`/api/v1/offers/${offer.offerId}`, SES_OWNER_B), 404, "offer_not_found");
     expect(((await get("/api/v1/offers", SES_OWNER_B)).body as { items: unknown[] }).items).toEqual([]);
