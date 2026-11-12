@@ -100,8 +100,10 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
 - **The CircleCI trigger tool returned "Route Not Found" for the POS project slugs tried on 2026-11-12.** Do
   not loop over more slugs, and do not read it as a failed suite: nothing ran, so no preflight evidence
   exists and nothing counts against the 30-per-day cap that you can see. Say so on the issue (which slugs,
-  the exact message) and ask the owner for the project slug. GitHub `required` on the PR branch is still the
-  gate; without a preflight, rely on the local light checks and that run.
+  the exact message) and either get the right project slug from the owner or get an owner-approved exception
+  for this change. GitHub `required` and the local light checks never replace the CircleCI preflight (repo
+  `CLAUDE.md` section 11, step 5): without a preflight, do not push the change to the PR branch as if it had
+  one, and do not merge on the strength of GitHub CI alone.
 
 ## Red checks from GitHub release downloads
 

@@ -197,6 +197,24 @@ describe('checkPilotLaneConfig', () => {
     expect(verdict.ok ? '' : verdict.problems.join(' | ')).toMatch(problem);
   });
 
+  it('compares the packaged values with the expected ones and names the variable, not a value', () => {
+    const bytes = text(GOOD);
+    expect(checkPilotLaneConfig(bytes, { apiBaseUrl: API, descopeProjectId: PROJECT_ID }).ok).toBe(
+      true,
+    );
+    const other = checkPilotLaneConfig(bytes, {
+      apiBaseUrl: 'https://api.other.example',
+      descopeProjectId: 'P2zyxwvutsrqponmlkjihgfedcba',
+    });
+    expect(other.ok).toBe(false);
+    const said = other.ok ? '' : other.problems.join(' | ');
+    expect(said).toMatch(/apiBaseUrl does not match.*POS_PILOT_LANE_API_BASE_URL/);
+    expect(said).toMatch(/descopeProjectId does not match.*POS_PILOT_LANE_DESCOPE_PROJECT_ID/);
+    for (const value of [API, PROJECT_ID, 'api.other.example', 'zyxwvuts']) {
+      expect(said).not.toContain(value);
+    }
+  });
+
   it('refuses text that is not JSON and JSON that is not an object', () => {
     for (const bytes of [
       Buffer.from('not json'),
@@ -277,6 +295,24 @@ describe('verifyPackagedPilotLane', () => {
     const { code, errors } = run(buildAsar(withLane(bytes)));
     expect(code).toBe(1);
     expect(errors).toMatch(/::error title=Pilot lane configuration::/);
+    expect(existsSync(output)).toBe(false);
+  });
+
+  it('compares with the workflow variables when they are set: a different valid pilot backend fails', () => {
+    const archive = buildAsar(withLane(text(GOOD)));
+    const same = run(archive, {
+      POS_PILOT_LANE_API_BASE_URL: ` ${API} `,
+      POS_PILOT_LANE_DESCOPE_PROJECT_ID: PROJECT_ID,
+    });
+    expect(same.code).toBe(0);
+    rmSync(output, { force: true });
+    const different = run(archive, {
+      POS_PILOT_LANE_API_BASE_URL: 'https://api.other.example',
+      POS_PILOT_LANE_DESCOPE_PROJECT_ID: PROJECT_ID,
+    });
+    expect(different.code).toBe(1);
+    expect(different.errors).toMatch(/apiBaseUrl does not match/);
+    expect(different.errors).not.toContain('api.other.example');
     expect(existsSync(output)).toBe(false);
   });
 

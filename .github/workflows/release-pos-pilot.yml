@@ -196,6 +196,10 @@ jobs:
       # Its digest goes to the manifest. Runs before the upload, so a bad package never reaches a signing job.
       - name: Verify the packaged pilot lane configuration
         id: lane
+        env:
+          # The values the package must carry: the same two repository variables the build stamped from.
+          POS_PILOT_LANE_API_BASE_URL: ${{ vars.POS_PILOT_LANE_API_BASE_URL }}
+          POS_PILOT_LANE_DESCOPE_PROJECT_ID: ${{ vars.POS_PILOT_LANE_DESCOPE_PROJECT_ID }}
         run: npx tsx scripts/pilot/verify-pilot-lane-config.ts
 
       # The signing jobs build the installer from exactly this fused, smoke-tested directory.

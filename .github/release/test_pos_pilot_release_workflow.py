@@ -385,6 +385,11 @@ class ReleasePosPilotLaneConfig(unittest.TestCase):
         self.assertIsNotNone(verify)
         self.assertIn("id: lane", verify.group(1))
         self.assertIn("npx tsx " + self.VERIFY, verify.group(1))
+        # It compares the package with the same two variables the build stamped from (never a secret).
+        self.assertEqual(
+            self.build_step_env("Verify the packaged pilot lane configuration"),
+            {self.API_VAR: "${{ vars." + self.API_VAR + " }}", self.DESCOPE_VAR: "${{ vars." + self.DESCOPE_VAR + " }}"},
+        )
         self.assertRegex(build, r"(?m)^    outputs:\n      lane_config_digest: \$\{\{ steps\.lane\.outputs\.lane_config_digest \}\}$")
         self.assertNotIn("secrets.", build)
 

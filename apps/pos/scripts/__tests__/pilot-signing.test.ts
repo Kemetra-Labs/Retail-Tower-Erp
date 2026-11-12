@@ -385,9 +385,13 @@ describe('RT-1347 the pilot lane stamp: exactly one, and nothing else (RT-1345 D
     expect(verify).toMatch(/updateOrigin must be absent/);
     expect(verify).toMatch(/updateChannel must be absent/);
     expect(verify).toMatch(/config\.lane !== 'pilot'/);
-    // The only environment value it reads is the GitHub step-output file.
+    // The only environment values it reads: the GitHub step-output file and the two public release variables.
     const reads = [...verify.matchAll(/env\[(?:'|")(\w+)(?:'|")\]/g)].map((m) => m[1]);
-    expect(reads).toEqual(['GITHUB_OUTPUT']);
+    expect([...reads].sort()).toEqual([
+      'GITHUB_OUTPUT',
+      'POS_PILOT_LANE_API_BASE_URL',
+      'POS_PILOT_LANE_DESCOPE_PROJECT_ID',
+    ]);
     expect(verify).not.toMatch(/\b(?:fetch|https?\.request|spawn|exec)\w*\(/);
   });
 });

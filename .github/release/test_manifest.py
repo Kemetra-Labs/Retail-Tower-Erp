@@ -135,12 +135,15 @@ class ManifestTest(unittest.TestCase):
         self.assertIsNone(m["tag"])
 
     def test_pilot_tags_and_lab_tags_never_cross(self):
-        art = ["--artifact", f"a={self.art}", *LANE]
-        self.assertEqual(self.run_main("pos-pilot", *art, "--tag", "pos/v1.2.3", mode="release")[0], 2)
+        art = ["--artifact", f"a={self.art}"]
+        pilot = [*art, *LANE]  # the digest is a pos-pilot argument: only the pilot calls carry it
+        self.assertEqual(self.run_main("pos-pilot", *pilot, "--tag", "pos/v1.2.3", mode="release")[0], 2)
         self.assertEqual(self.run_main("pos", *art, "--tag", "pos-pilot/v1.2.3", mode="release")[0], 2)
-        self.assertEqual(self.run_main("pos-pilot", *art, mode="release")[0], 2)  # release without a tag
-        self.assertEqual(self.run_main("pos-pilot", *art, "--tag", "pos-pilot/v1.2.3")[0], 2)  # dry-run with a tag
-        self.assertEqual(self.run_main("pos-pilot", *art, "--compat-verdict", "PASS")[0], 2)  # compat is BC only
+        self.assertEqual(self.run_main("pos-pilot", *pilot, mode="release")[0], 2)  # release without a tag
+        self.assertEqual(self.run_main("pos-pilot", *pilot, "--tag", "pos-pilot/v1.2.3")[0], 2)  # dry-run with a tag
+        self.assertEqual(self.run_main("pos-pilot", *pilot, "--compat-verdict", "PASS")[0], 2)  # compat is BC only
+        # Control: the same pilot call with a pilot tag is accepted, so each refusal above has its own cause.
+        self.assertEqual(self.run_main("pos-pilot", *pilot, "--tag", "pos-pilot/v1.2.3", mode="release")[0], 0)
 
     def test_pilot_manifest_records_the_lane_config_digest_outside_the_artifacts(self):
         # RT-1347: the SHA-256 of the stamped lane-config.json is a top-level field. It is NOT an artifact: the

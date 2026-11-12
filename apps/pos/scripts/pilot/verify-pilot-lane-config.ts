@@ -11,7 +11,11 @@
  *   - the same validator the POS runs at start-up accepts the file (`parseLaneConfig`);
  *   - `lane` is `pilot`;
  *   - `apiBaseUrl` and `descopeProjectId` are both present: a stamp that holds only the lane is refused;
- *   - `updateOrigin` and `updateChannel` are absent (RT-1345 D5, the pilot update path, is not approved).
+ *   - `updateOrigin` and `updateChannel` are absent (RT-1345 D5, the pilot update path, is not approved);
+ *   - when the release variables are in the environment (`POS_PILOT_LANE_API_BASE_URL`,
+ *     `POS_PILOT_LANE_DESCOPE_PROJECT_ID`, as the workflow passes them), the packaged values equal them, so a
+ *     stale or altered `dist/lane-config.json` cannot carry another backend into a release. A mismatch names the
+ *     field and the variable, never a value.
  *
  * On success it prints the lane and the SHA-256 of the file's bytes as they sit in the archive, and appends
  * `lane_config_digest=sha256:<hex>` to `$GITHUB_OUTPUT` when that is set: the release manifest records it.
@@ -160,14 +164,52 @@ function pilotProblems(config: LaneConfig): string[] {
   return problems;
 }
 
+/** The values the release expects the packaged file to carry; a field left out is not compared. */
+export interface ExpectedPilotValues {
+  readonly apiBaseUrl?: string;
+  readonly descopeProjectId?: string;
+}
+
+function mismatchProblems(config: LaneConfig, expected: ExpectedPilotValues): string[] {
+  const problems: string[] = [];
+  if (expected.apiBaseUrl !== undefined && config.apiBaseUrl !== expected.apiBaseUrl) {
+    problems.push('apiBaseUrl does not match the release variable POS_PILOT_LANE_API_BASE_URL');
+  }
+  if (
+    expected.descopeProjectId !== undefined &&
+    config.descopeProjectId !== expected.descopeProjectId
+  ) {
+    problems.push(
+      'descopeProjectId does not match the release variable POS_PILOT_LANE_DESCOPE_PROJECT_ID',
+    );
+  }
+  return problems;
+}
+
+/** The expected values from the workflow's variables (trimmed, as the stamp step trims); blank means none. */
+function expectedFromEnv(env: Env): ExpectedPilotValues {
+  const api = (env['POS_PILOT_LANE_API_BASE_URL'] ?? '').trim();
+  const project = (env['POS_PILOT_LANE_DESCOPE_PROJECT_ID'] ?? '').trim();
+  return {
+    ...(api === '' ? {} : { apiBaseUrl: api }),
+    ...(project === '' ? {} : { descopeProjectId: project }),
+  };
+}
+
 /** Checks the bytes of a packaged `lane-config.json`; the digest is of exactly these bytes. */
-export function checkPilotLaneConfig(bytes: Buffer): PilotLaneVerdict {
+export function checkPilotLaneConfig(
+  bytes: Buffer,
+  expected: ExpectedPilotValues = {},
+): PilotLaneVerdict {
   const verdict = parseLaneConfig(bytes.toString('utf8'));
   if (!verdict.ok) {
     const field = verdict.field === undefined ? '' : ` (${verdict.field})`;
     return { ok: false, problems: [`${LANE_CONFIG_FILE} is refused: ${verdict.reason}${field}`] };
   }
-  const problems = pilotProblems(verdict.config);
+  const problems = [
+    ...pilotProblems(verdict.config),
+    ...mismatchProblems(verdict.config, expected),
+  ];
   if (problems.length > 0) return { ok: false, problems };
   const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   return { ok: true, digest, config: verdict.config };
@@ -191,7 +233,7 @@ export function verifyPackagedPilotLane(
     const why = err instanceof Error ? err.message : 'unreadable';
     return fail(`the packaged app has no readable ${LANE_CONFIG_FILE}: ${why}`);
   }
-  const verdict = checkPilotLaneConfig(bytes);
+  const verdict = checkPilotLaneConfig(bytes, expectedFromEnv(env));
   if (!verdict.ok) {
     for (const problem of verdict.problems) fail(problem);
     return 1;
