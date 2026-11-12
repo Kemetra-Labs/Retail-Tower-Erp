@@ -157,6 +157,12 @@ describe("RT-1114 — tenders gate and voucher gate ON", () => {
       expect((parse(body([a, b, cash])) as { tenders: unknown[] }).tenders).toHaveLength(3);
     });
 
+    it("refuses one redemption on two tenders even when its case differs (400, never a 500 at the unique index)", () => {
+      const a = { ...VOUCHER, tenderRef: REF_A, sequence: 1 };
+      const b = { ...VOUCHER, redemptionId: REDEMPTION_A.toUpperCase(), amount: "10", tenderRef: REF_B, sequence: 2 };
+      expect(() => parse(body([a, b, { ...CASH, amount: "60", tenderRef: REF_C, sequence: 3 }]))).toThrow(ZodError);
+    });
+
     it("refuses one redemption on two tenders of the sale (400)", () => {
       const a = { ...VOUCHER, tenderRef: REF_A, sequence: 1 };
       const b = { ...VOUCHER, amount: "10", tenderRef: REF_B, sequence: 2 };

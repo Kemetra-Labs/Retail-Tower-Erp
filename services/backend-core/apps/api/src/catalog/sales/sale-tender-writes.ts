@@ -139,11 +139,14 @@ function tenderRedemption(t: SaleTenderDto): string | null {
  *
  * Concurrency: the redemption rows are locked first, in id order
  * (`FOR NO KEY UPDATE`, the domain role's column-level UPDATE allows it), so
- * two captures naming one redemption run one after the other, and a reverse
- * (R-3, a conditional UPDATE of the same row) waits for this capture to end.
- * The checks are a SEPARATE statement, so under READ COMMITTED they see a
- * competing capture that committed while this one waited on the lock.
+ * two captures naming one redemption run one after the other. The checks are
+ * a SEPARATE statement, so under READ COMMITTED they see a competing capture
+ * that committed while this one waited on the lock.
  * `uq_sale_tenders_tenant_redemption` (0099) stays the database backstop.
+ * NOT covered here: a reverse (R-3) of the same redemption only waits for
+ * this capture to end, then still succeeds. Refusing to reverse a redemption
+ * that a sale tender uses is a recorded follow-up (RT-1114 c16673, 3c) that
+ * must land before `POS_SALE_VOUCHER_TENDER_ENABLED` is turned on.
  */
 export async function assertVoucherTendersRedeemed(
   client: PoolClient,

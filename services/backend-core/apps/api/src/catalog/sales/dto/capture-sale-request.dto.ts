@@ -405,7 +405,9 @@ function tenderList(allowSameMethod: boolean, allowVoucher = false) {
     if (hasRepeat(ts.map((t) => t.sequence))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sequence must be unique within the sale" });
     }
-    if (hasRepeat(ts.map((t) => (t.method === "voucher" ? t.redemptionId : undefined)))) {
+    // A uuid is case-insensitive (zod accepts either case; Postgres compares the value), so the
+    // repeat check lower-cases it: a repeat in another case is the same redemption (400, not 500).
+    if (hasRepeat(ts.map((t) => (t.method === "voucher" ? t.redemptionId.toLowerCase() : undefined)))) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "redemptionId must be unique within the sale" });
     }
     if (!hasRepeat(ts.map((t) => t.method))) return;
