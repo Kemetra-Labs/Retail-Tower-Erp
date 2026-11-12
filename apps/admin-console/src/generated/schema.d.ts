@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ fd54d9819ebb103e621a5353be3b9390840578ad
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 0694611a7f39d918aa13d8604916f182c486f046
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -7476,10 +7476,13 @@ export namespace ConsoleSalesSchema {
             };
             /** @description A captured tender line (RT-10 D1); the amount is NET of change, as captured. */
             SaleTenderView: {
-                /** @enum {string} */
-                method: "cash" | "card_external";
+                /**
+                 * @description `cash` - the till drawer. `card_external` - a standalone card terminal. RT-1343 (RT-1114, RT-1098 decision 4A): `voucher` - a promotional voucher redeemed through `pos-payments/vouchers.yaml`, as recorded by `pos-sales/sales.yaml` `SaleTender`. It pays part of the sale at full price. A history or detail read returns it only for a sale captured while `POS_SALE_VOUCHER_TENDER_ENABLED` was on (default OFF), so no read carries one until that flag is turned on.
+                 * @enum {string}
+                 */
+                method: "cash" | "card_external" | "voucher";
                 amount: components["schemas"]["DecimalAmount"];
-                /** @description The short card-terminal reference for `card_external`; never card data. */
+                /** @description The short card-terminal reference for `card_external`; never card data. Null for `voucher`. */
                 reference: string | null;
                 sequence: number | null;
             };
