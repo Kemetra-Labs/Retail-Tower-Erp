@@ -101,9 +101,13 @@ export interface Clocked {
   mono: () => number;
 }
 
-export function clockedService(store: MemoryStore = memoryStore()): Clocked {
+export function clockedService(store: MemoryStore = memoryStore(), wallMs?: () => number): Clocked {
   let mono = 1_000;
-  const service = createOfferPackService({ monotonicMs: () => mono, store });
+  const service = createOfferPackService({
+    monotonicMs: () => mono,
+    ...(wallMs === undefined ? {} : { wallMs }),
+    store,
+  });
   return {
     service,
     store,

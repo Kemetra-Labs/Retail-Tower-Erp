@@ -160,18 +160,91 @@ describe('offer pack service — trusted time (OD-8)', () => {
     expect(c.service.view()).toEqual({ kind: 'none' });
   });
 
-  it('a failed read leaves the held Pack and its anchor as they were', () => {
+  it('a refused 200 means the held Pack is no longer proven current: unproven, no offer', () => {
     const c = freshService();
     c.advance(5 * 60_000);
-    c.service.applyOk({
+    const refused = c.service.applyOk({
       tenantId: TENANT,
       body: { broken: true },
       etag: '"x"',
       serverTime: ISSUED_AT,
       monoAtStartMs: c.mono(),
     });
+    expect(refused).toBe(false);
+    expect(c.service.view().kind).toBe('unproven');
+  });
+
+  it('a transport failure (no answer at all) leaves the Pack and its anchor as they were', () => {
+    const c = freshService();
+    c.advance(5 * 60_000);
     const view = c.service.view();
     expect(view.kind === 'fresh' && view.nowMs).toBe(ISSUED_MS + 5 * 60_000);
+  });
+
+  it('requires X-Server-Time on a 200, equal to issuedAt', () => {
+    const c = clockedService();
+    const ok = { tenantId: TENANT, body: packBody(), etag: '"abc"', monoAtStartMs: 0 };
+    expect(c.service.applyOk({ ...ok, serverTime: null })).toBe(false);
+    expect(c.service.applyOk({ ...ok, serverTime: ISSUED_AT })).toBe(true);
+  });
+
+  it('refuses a replayed body or 304 whose server time is behind the trusted now', () => {
+    const c = freshService();
+    c.advance(60 * 60_000);
+    const replay = {
+      tenantId: TENANT,
+      body: packBody(),
+      etag: '"abc"',
+      serverTime: ISSUED_AT,
+      monoAtStartMs: c.mono(),
+    };
+    expect(c.service.applyOk(replay)).toBe(false);
+    expect(c.service.view().kind).toBe('unproven');
+    const d = freshService();
+    d.advance(60 * 60_000);
+    expect(d.service.applyNotModified({ serverTime: ISSUED_AT, monoAtStartMs: d.mono() })).toBe(
+      false,
+    );
+    expect(d.service.view().kind).toBe('unproven');
+  });
+
+  it('accepts a server time a little behind the trusted now (clock skew, a slow answer)', () => {
+    const c = freshService();
+    c.advance(60_000);
+    const later = new Date(ISSUED_MS + 60_000 - 30_000).toISOString();
+    expect(c.service.applyNotModified({ serverTime: later, monoAtStartMs: c.mono() })).toBe(true);
+  });
+
+  it('a wall clock that ran far ahead of the monotonic one (a sleep) makes the Pack stale', () => {
+    let wall = Date.parse('2026-11-12T10:00:00Z');
+    const c = clockedService(memoryStore(), () => wall);
+    c.service.applyOk({
+      tenantId: TENANT,
+      body: packBody(),
+      etag: '"abc"',
+      serverTime: ISSUED_AT,
+      monoAtStartMs: c.mono(),
+    });
+    c.advance(60_000);
+    wall += 60_000;
+    expect(c.service.view().kind).toBe('fresh');
+    wall += 8 * 3_600_000; // the machine slept eight hours; the monotonic clock did not move
+    expect(c.service.view().kind).toBe('stale');
+  });
+
+  it('a wall clock moved backwards changes nothing', () => {
+    let wall = Date.parse('2026-11-12T10:00:00Z');
+    const c = clockedService(memoryStore(), () => wall);
+    c.service.applyOk({
+      tenantId: TENANT,
+      body: packBody(),
+      etag: '"abc"',
+      serverTime: ISSUED_AT,
+      monoAtStartMs: c.mono(),
+    });
+    wall -= 24 * 3_600_000;
+    c.advance(1_000);
+    expect(c.service.view().kind).toBe('fresh');
   });
 });
 
@@ -184,6 +257,13 @@ describe('offer pack service — restart without a fresh Pack', () => {
     // However long the till has been up, an unproven Pack never becomes fresh by itself.
     second.advance(60_000);
     expect(second.service.view().kind).toBe('unproven');
+  });
+
+  it('restore starts from nothing: a held Pack of an earlier pairing is dropped (re-pair)', () => {
+    const c = freshService();
+    c.service.restore('tenant-2');
+    expect(c.service.view()).toEqual({ kind: 'none' });
+    expect(c.service.conditionalEtag()).toBeNull();
   });
 
   it('keeps the ETag so the next read is conditional, and a 304 then proves freshness', () => {

@@ -5,8 +5,18 @@
  * "Now" is never the workstation wall clock. It is the server time of the last
  * successful read (the body's `issuedAt` on a 200, `X-Server-Time` on a 304) plus
  * the time elapsed since that read began, on a MONOTONIC clock. The monotonic
- * reading is taken when the request STARTS, so network latency can only make "now"
- * earlier, which ends an offer early and never extends it.
+ * reading is taken when the request STARTS, before the server stamped its time, so
+ * the elapsed time is never under-counted: an offer ends on time (never late), and
+ * may start at most one round trip early.
+ *
+ * The wall clock is never used to APPLY an offer. It is used once, to REFUSE: if it
+ * has moved on by far more than the monotonic clock since the last read (a clock
+ * that stops while the machine sleeps), the Pack is `stale`, so a till that slept
+ * overnight cannot go on applying offers past their end. A clock moved backwards
+ * changes nothing.
+ *
+ * A server time that is earlier than the trusted "now" by more than a small
+ * tolerance (a replayed or cached body) is refused like an off-contract Pack.
  *
  * The anchor lives in memory only. A restart loses the monotonic clock, so until
  * the next successful read the till can neither compute "now" nor prove the Pack
@@ -25,6 +35,12 @@ import { readOfferPack, instantMsOf, type OfferPack } from './offer-pack.js';
 
 /** A successful read within this long counts as "online" for an `online_only` offer. */
 export const ONLINE_PROOF_MS = 10 * 60 * 1_000;
+
+/** A server time this far behind the trusted "now" is a replay, not a fresh read. */
+const SERVER_TIME_REGRESSION_TOLERANCE_MS = 5 * 60 * 1_000;
+
+/** The wall clock may move this far ahead of the monotonic clock before the Pack is `stale`. */
+const WALL_CLOCK_JUMP_TOLERANCE_MS = 10 * 60 * 1_000;
 
 export type OfferPackView =
   /** Never read, nothing stored: no offer is known. */
@@ -58,12 +74,18 @@ export interface OfferPackStore {
 export interface OfferPackServiceDeps {
   /** A monotonic millisecond clock (`performance.now()`), never the wall clock. */
   readonly monotonicMs: () => number;
+  /** The wall clock (`Date.now`), read only to refuse a Pack after a sleep; default `Date.now`. */
+  readonly wallMs?: () => number;
   readonly store: OfferPackStore;
 }
 
 interface Anchor {
   readonly serverMs: number;
+  /** The monotonic reading at the request start: freshness and "now" count from here. */
   readonly monoMs: number;
+  /** Both clocks when the answer was applied: the wall-clock sanity check counts from here. */
+  readonly monoAtApplyMs: number;
+  readonly wallAtApplyMs: number;
 }
 
 export interface OfferPackService {
@@ -88,9 +110,56 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
   let pack: OfferPack | null = null;
   let etag: string | null = null;
   let anchor: Anchor | null = null;
+  const wallMs = deps.wallMs ?? ((): number => Date.now());
+
+  function anchorAt(serverMs: number, monoMs: number): Anchor {
+    return { serverMs, monoMs, monoAtApplyMs: deps.monotonicMs(), wallAtApplyMs: wallMs() };
+  }
+
+  /** The trusted "now" of a held, fresh Pack; null when there is none. */
+  function trustedNowMs(): number | null {
+    const v = currentView();
+    return v.kind === 'fresh' ? v.nowMs : null;
+  }
+
+  /** True when `serverMs` is a replay: earlier than the trusted "now" by more than the tolerance. */
+  function isReplay(serverMs: number): boolean {
+    const now = trustedNowMs();
+    return now !== null && serverMs < now - SERVER_TIME_REGRESSION_TOLERANCE_MS;
+  }
+
+  /** A refused answer: the held Pack can no longer be proven current, so it is `unproven`. */
+  function demote(): false {
+    anchor = null;
+    return false;
+  }
+
+  function currentView(): OfferPackView {
+    if (pack === null) return { kind: 'none' };
+    if (anchor === null) return { kind: 'unproven', pack };
+    const elapsed = deps.monotonicMs() - anchor.monoMs;
+    const wallAhead = wallMs() - anchor.wallAtApplyMs - (deps.monotonicMs() - anchor.monoAtApplyMs);
+    if (
+      elapsed < 0 ||
+      elapsed >= pack.freshnessWindowHours * 3_600_000 ||
+      wallAhead > WALL_CLOCK_JUMP_TOLERANCE_MS
+    ) {
+      return { kind: 'stale', pack };
+    }
+    return {
+      kind: 'fresh',
+      pack,
+      nowMs: anchor.serverMs + elapsed,
+      onlineProven: elapsed <= ONLINE_PROOF_MS,
+    };
+  }
 
   return {
     restore(tenantId) {
+      // A (re)start of the worker begins from nothing: no Pack, ETag or anchor of an earlier pairing.
+      pack = null;
+      etag = null;
+      anchor = null;
       const stored = deps.store.load();
       if (stored === null) return;
       const readable = stored.tenantId === tenantId ? readOfferPack(stored.body) : null;
@@ -110,17 +179,13 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
     applyOk({ tenantId, body, etag: nextEtag, serverTime, monoAtStartMs }) {
       const read = readOfferPack(body);
       const headerMs = serverTime === null ? null : instantMsOf(serverTime);
-      // The contract says the header equals the body's `issuedAt`; a missing one is tolerated, a different one is not.
-      if (
-        read === null ||
-        nextEtag === null ||
-        (headerMs !== null && headerMs !== read.issuedAtMs)
-      ) {
-        return false;
-      }
+      // The contract says `X-Server-Time` equals the body's `issuedAt`: both are required, and equal.
+      // A refused 200 means the server has moved on from what is held: it is no longer proven current.
+      if (read === null || nextEtag === null || headerMs !== read.issuedAtMs) return demote();
+      if (isReplay(read.issuedAtMs)) return demote();
       pack = read;
       etag = nextEtag;
-      anchor = { serverMs: read.issuedAtMs, monoMs: monoAtStartMs };
+      anchor = anchorAt(read.issuedAtMs, monoAtStartMs);
       deps.store.save({ tenantId, etag: nextEtag, body });
       return true;
     },
@@ -128,23 +193,11 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
     applyNotModified({ serverTime, monoAtStartMs }) {
       const serverMs = serverTime === null ? null : instantMsOf(serverTime);
       if (pack === null || serverMs === null) return false;
-      anchor = { serverMs, monoMs: monoAtStartMs };
+      if (isReplay(serverMs)) return demote();
+      anchor = anchorAt(serverMs, monoAtStartMs);
       return true;
     },
 
-    view() {
-      if (pack === null) return { kind: 'none' };
-      if (anchor === null) return { kind: 'unproven', pack };
-      const elapsed = deps.monotonicMs() - anchor.monoMs;
-      if (elapsed < 0 || elapsed >= pack.freshnessWindowHours * 3_600_000) {
-        return { kind: 'stale', pack };
-      }
-      return {
-        kind: 'fresh',
-        pack,
-        nowMs: anchor.serverMs + elapsed,
-        onlineProven: elapsed <= ONLINE_PROOF_MS,
-      };
-    },
+    view: currentView,
   };
 }

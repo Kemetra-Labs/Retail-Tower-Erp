@@ -45,6 +45,8 @@ interface SnapshotLine {
   readonly line_subtotal_minor?: unknown;
   /** RT-856: the frozen manual discount, when the line has one. */
   readonly discount?: unknown;
+  /** RT-1339: the frozen automatic-offer fact, when the line took part in an offer. */
+  readonly promotion?: unknown;
 }
 
 /**
@@ -54,10 +56,24 @@ interface SnapshotLine {
  * Anything else is null, which never equals a server amount (fail closed).
  */
 function snapshotLineAmount(line: SnapshotLine): unknown {
-  const { discount, line_subtotal_minor: gross } = line;
+  const { discount, promotion, line_subtotal_minor: gross } = line;
+  if (promotion !== undefined && promotion !== null) return promotedNet(gross, discount, promotion);
   if (discount === undefined || discount === null) return gross;
   if (typeof discount !== 'object' || typeof gross !== 'number') return null;
   return frozenNet(gross, discount as Record<string, unknown>);
+}
+
+/**
+ * RT-1339: the net the capture sent for a line with an automatic offer: the gross less the frozen
+ * `promotion.discount_minor`. An offer beside a manual discount (OD-5), or one that does not hold on
+ * the gross, is null, which never equals a server amount (fail closed).
+ */
+function promotedNet(gross: unknown, discount: unknown, promotion: unknown): number | null {
+  if (discount !== undefined && discount !== null) return null;
+  if (typeof promotion !== 'object' || typeof gross !== 'number') return null;
+  const off = (promotion as Record<string, unknown>)['discount_minor'];
+  const valid = typeof off === 'number' && Number.isSafeInteger(off) && off >= 0 && off <= gross;
+  return valid ? gross - off : null;
 }
 
 function isDiscountKind(kind: unknown): kind is ManualDiscountKind {
