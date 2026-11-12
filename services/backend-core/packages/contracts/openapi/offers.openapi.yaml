@@ -957,6 +957,8 @@ paths:
           $ref: "#/components/responses/DeviceValidationFailure"
         "401":
           $ref: "#/components/responses/DeviceUnauthorized"
+        "404":
+          $ref: "#/components/responses/DeviceStoreNotFound"
         "500":
           $ref: "#/components/responses/SystemFailure"
 
@@ -2183,6 +2185,16 @@ components:
       description: >
         401 `unauthorized`: a missing, invalid or revoked device token, or a
         non-device credential. Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DeviceStoreNotFound:
+      description: >
+        404 `not_found` (RT-1370): the device's store is deleted, or is not a
+        store of the device's tenant. Non-disclosing and never a 500. The
+        till drops its held and stored Pack and applies no offer. The body is
+        the canonical envelope.
       content:
         application/json:
           schema:
