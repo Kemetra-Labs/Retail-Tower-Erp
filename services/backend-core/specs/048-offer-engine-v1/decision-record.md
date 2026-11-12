@@ -3,7 +3,8 @@
 **Status.** OD-1 to OD-10 are **approved by the owner** in the RT-286 planning session of 2026-11-11 (chat):
 OD-1 to OD-5 first, then OD-2 (confirmed), OD-6 to OD-10 by answering the recommended option. They still need to be
 recorded on RT-286. OD-12's permissions are approved too; its guardrail deferral is still proposed. OD-11 is decided
-(option A) by the RT-1340 bench proof, under the owner's delegation of 2026-11-11. None of them is in OpenAPI, a migration or code, so a reversal now costs only a doc change.
+(option A) by the RT-1340 bench proof, under the owner's delegation of 2026-11-11. None of them is in OpenAPI, a
+migration or code, so a reversal now costs only a doc change.
 
 Section numbers like §17 refer to Confluence RETAIL 23134209 (owner-approved 2026-10-07).
 
@@ -127,7 +128,9 @@ never charges the customer in V1.
 choose recommended", RT-286 comment 16658), with the rule: implement A if it posts exactly on ERPNext v16, else B if
 B does, else stop. The bench proof is in
 [`integrations/erpnext-connector/docs/research/rt-1340-od11/`](../../../../integrations/erpnext-connector/docs/research/rt-1340-od11/README.md)
-(Frappe v16.52.0, ERPNext v16.51.0, a local disposable bench, not the lab):
+(Frappe v16.52.0, ERPNext v16.51.0). That was a local disposable bench with the `connector/bench` pins. The lab's ERP
+image is built from the same ERPNext 16.51.0, but the proof did not run on the lab hosts. The lab run is RT-1341 step 5,
+once A is implemented; the owner may revisit the choice then. Results:
 
 - **A posts exactly.** E1, return the 300 with a clawback of 80.00: one row of −1 × 220.00 (`price_list_rate` 300.00,
   `discount_amount` 80.00), total −220.00, which equals the refund. GL balances. A clawback of 10.01 on 3 × 100.00
@@ -146,9 +149,10 @@ Consequences:
   1. The Connector's posting feed (`erpnext-connector/posting-feed.yaml`) carries no clawback and no line promotion,
      so the Connector cannot learn the clawback or which returned units take it. The interim refusal
      `promotion_return_requires_clawback` stays until a contract issue adds them and RT-1340 implements A.
-  2. ERPNext refuses a credit-note rate above the original row's rate. A return that gives back an earlier clawback
+  2. ERPNext refuses a credit-note rate above the original row's rate. So a return that gives back an earlier clawback
      (golden sequence S3 step 2: the reward unit refunded at 200.00 after a sale net of 120.00) cannot be posted under
-     A or B. The `recordReturn` rule cannot carry it either (`returnTotal` = Σ `lineAmount` − Σ clawback = 120.00).
+     A alone. A give-back row of quantity −1 on a non-stock item, next to the reward unit at its net, does post. The
+     `recordReturn` rule cannot carry this refund either (`returnTotal` = Σ `lineAmount` − Σ clawback = 120.00).
 
 ## OD-12 — Permissions and guardrails
 

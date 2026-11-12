@@ -929,10 +929,11 @@ class TestForwardSaleTaxNotDropped:
 			self._build(tax_amount)
 
 
-# RT-1340 (RT-286 S8, spec 048 §8): every reward line of the Offer Engine V1 golden vectors
-# (`services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json`, `evaluate`), as
-# (vector id, currency, unitPrice, promotion.discountAmount, lineAmount). A reward line has quantity 1
-# (OD-4), so its net always divides; it reaches the Connector as an ordinary discounted feed line.
+# RT-1340 (RT-286 S8, spec 048 §8): every reward line of the Offer Engine V1 golden vectors as of
+# RT-1335 (`services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json`, `evaluate`,
+# `expected.lines` with a non-zero `promotionDiscount`), copied here as (vector id, currency, unitPrice,
+# promotionDiscount, lineAmount): the Connector does not read Backend-Core files (MR boundary). A reward
+# line has quantity 1 (OD-4), so its net always divides; it reaches the Connector as a discounted feed line.
 _OFFER_REWARD_LINES = [
 	("E1", "EGP", "200.00", "80.00", "120.00"),
 	("E2", "EGP", "60.00", "24.00", "36.00"),
@@ -1016,30 +1017,3 @@ class TestOfferRewardLine:
 		assert doc["ignore_pricing_rule"] == 1  # ERPNext Pricing Rules never re-price an offer line
 		assert sum(_erpnext_v16_amount(i) for i in doc["items"]) == Decimal("420.00")
 		assert doc["payments"] == [{"mode_of_payment": "Cash", "amount": "420.00"}]
-
-	def test_the_reward_lines_match_the_golden_vectors(self):
-		# Drift guard: the list above is every discounted line of the contract's `evaluate` vectors. The
-		# vectors live in the Backend-Core contracts tree, which a staged Connector-only bench copy lacks.
-		import json
-		from pathlib import Path
-
-		vectors = (
-			Path(__file__).resolve().parents[5]
-			/ "services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json"
-		)
-		if not vectors.exists():
-			pytest.skip("golden vectors not in this checkout (Connector-only staging)")
-		data = json.loads(vectors.read_text(encoding="utf-8"))
-		expected = [
-			(v["id"], v["currencyCode"], line["unitPrice"], line["promotionDiscount"], line["lineAmount"])
-			for v in data["evaluate"]
-			for line in v["expected"]["lines"]
-			if line.get("promotionDiscount") is not None and Decimal(line["promotionDiscount"]) != 0
-		]
-		assert expected == _OFFER_REWARD_LINES
-		assert all(
-			line["quantity"] == "1"
-			for v in data["evaluate"]
-			for line in v["expected"]["lines"]
-			if line.get("promotionDiscount") is not None and Decimal(line["promotionDiscount"]) != 0
-		)

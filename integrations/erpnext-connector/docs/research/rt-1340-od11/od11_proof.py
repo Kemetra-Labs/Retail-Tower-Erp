@@ -5,6 +5,7 @@ Evidence class: LOCAL DISPOSABLE BENCH (Frappe v16.52.0 / ERPNext v16.51.0, the 
 setup wizard (Egypt, EGP) when no Company exists and commits every document it posts.
 
 Run from a bench: cd ~/frappe-bench/sites && ../env/bin/python <path>/od11_proof.py <site>
+The site is required. The script refuses a site that has any Company other than "RT Proof Co".
 
 Each case inserts and submits real Sales Invoices and credit notes in the shape the Connector builds
 (ignore_pricing_rule, disable_rounded_total, update_stock, is_pos + payments, price_list_rate /
@@ -14,7 +15,8 @@ uncommitted document is rolled back. The last line is the whole result as RESULT
 
 Cases: the E1 sale (reward line as an RT-857 visible discount); option A (the returned non-reward unit
 at a reduced rate, with and without a qty-1 split); option B (a separate non-stock clawback row, with a
-positive quantity or a negative rate); and golden sequence S3 (a clawback, then the reward unit at 200).
+positive quantity or a negative rate); and golden sequence S3 (a clawback, then the reward unit at 200),
+including a hybrid that gives the clawback back on a separate non-stock row.
 """
 
 import json
@@ -24,7 +26,7 @@ import traceback
 import frappe
 from frappe.utils import flt, nowdate
 
-SITE = sys.argv[1] if len(sys.argv) > 1 else "test_site"
+PROOF_COMPANY = "RT Proof Co"
 RESULTS = []
 
 
@@ -34,7 +36,12 @@ def log(case, **kw):
 
 
 def setup():
-	if not frappe.db.a_row_exists("Company"):
+	# Safety: this script commits real invoices, stock and GL. It runs only on a site that has no Company
+	# yet (it then creates PROOF_COMPANY) or whose only Company is PROOF_COMPANY: never a lab or shared site.
+	companies = frappe.get_all("Company", pluck="name")
+	if companies and companies != [PROOF_COMPANY]:
+		sys.exit(f"refusing to run: site has companies {companies}; use a fresh throwaway site")
+	if not companies:
 		from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
 
 		year = nowdate()[:4]
@@ -44,7 +51,7 @@ def setup():
 				"country": "Egypt",
 				"timezone": "Africa/Cairo",
 				"currency": "EGP",
-				"company_name": "RT Proof Co",
+				"company_name": PROOF_COMPANY,
 				"company_abbr": "RTP",
 				"chart_of_accounts": "Standard",
 				"fy_start_date": f"{year}-01-01",
@@ -199,7 +206,7 @@ def run(case, fn):
 		out = fn()
 		frappe.db.commit()
 		log(case, ok=True, **out)
-	except Exception as e:  # noqa: BLE001 - the proof records ERPNext's refusal verbatim
+	except Exception as e:  # the proof records ERPNext's refusal verbatim
 		frappe.db.rollback()
 		log(
 			case,
@@ -217,8 +224,10 @@ def rows_of(si):
 	return {i.item_code: i.name for i in si.items}
 
 
-def main():
-	frappe.init(site=SITE)
+def main():  # noqa: C901 - one flat list of proof cases, read top to bottom
+	if len(sys.argv) != 2:
+		sys.exit("usage: od11_proof.py <throwaway site>")
+	frappe.init(site=sys.argv[1])
 	frappe.connect()
 	frappe.set_user("Administrator")
 	company, wh = setup()
@@ -311,7 +320,7 @@ def main():
 				company, [row("RT-ITEM-C", -1, 100, 100, wh, r["RT-ITEM-C"])], -100, return_against=s.name
 			)
 			over = "ACCEPTED (cap broken!)"
-		except Exception as e:  # noqa: BLE001
+		except Exception as e:
 			frappe.db.rollback()
 			over = f"refused: {frappe.utils.strip_html(str(e))[:200]}"
 		return {
@@ -372,7 +381,7 @@ def main():
 				company, [row("RT-ITEM-B", -1, 200, 200, wh, r["RT-ITEM-B"])], -200, return_against=s.name
 			)
 			out["return_2"] = evidence(cn2)
-		except Exception as e:  # noqa: BLE001
+		except Exception as e:
 			frappe.db.rollback()
 			out["return_2"] = f"REFUSED: {frappe.utils.strip_html(str(e))[:300]}"
 		return out
@@ -416,6 +425,42 @@ def main():
 		}
 
 	run("S3 under B: 300 + clawback line, then reward at net + clawback give-back", s3_b)
+
+	# S3 step 2 as a hybrid: step 1 under A (the 300 at 220), then the reward at its net 120 plus a
+	# non-stock give-back row (qty -1 x 80) that is not on the original invoice (review of PR for RT-1340).
+	def s3_hybrid():
+		s = e1_sale()
+		r = rows_of(s)
+		cn1 = invoice(
+			company, [row("RT-ITEM-A", -1, 300, 220, wh, r["RT-ITEM-A"])], -220, return_against=s.name
+		)
+		frappe.message_log = []
+		give_back = {
+			"item_code": "RT-PROMO-CLAWBACK",
+			"qty": -1,
+			"uom": "Nos",
+			"conversion_factor": 1,
+			"price_list_rate": 80,
+			"rate": 80,
+			"warehouse": wh,
+		}
+		cn2 = invoice(
+			company,
+			[row("RT-ITEM-B", -1, 200, 120, wh, r["RT-ITEM-B"]), give_back],
+			-200,
+			return_against=s.name,
+		)
+		total = flt(cn1.grand_total) + flt(cn2.grand_total)
+		return {
+			"sale": s.name,
+			"return_1": evidence(cn1),
+			"return_2": evidence(cn2),
+			"return_2_messages": [frappe.utils.strip_html(str(m)) for m in frappe.message_log],
+			"refunded_total": total,
+			"refunded_equals_paid": total == -420,
+		}
+
+	run("S3 hybrid: A at step 1, then the reward at its net + a give-back row qty -1 x 80", s3_hybrid)
 
 	print("RESULTS_JSON=" + json.dumps(RESULTS, default=str))
 
