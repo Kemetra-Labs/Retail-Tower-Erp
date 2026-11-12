@@ -640,6 +640,23 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any intent or redemption is stored.
 
+- **Migration `0093_sale_quarantine_items` (RT-1312 Phase 3(b)).** Run
+  [`sql/sale-quarantine-items-domain-grants.sql`](sql/sale-quarantine-items-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `sale_quarantine_items`, plus column-level `UPDATE` only on the mutable
+  columns: the upload conflict count, the state with its resolution, sale,
+  repair and write-off columns, and the body with its purge time. The
+  provenance, the till's claim, the facts digest, the summary and the scope
+  are written once. The boot check reads the columns from
+  `domainRequiredColumns`. No `DELETE` policy: never grant `DELETE` or
+  `TRUNCATE`, nor a wider `UPDATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0093 creates one new, empty
+  table (no backfill) and needs no maintenance window. Its down migration
+  refuses while any item is stored.
+
 - **Migration `0094_tracking_resolutions` (RT-451 S5).** Run
   [`sql/tracking-resolutions-domain-grants.sql`](sql/tracking-resolutions-domain-grants.sql)
   after `migrate up` and before the API and the worker start (the worker's

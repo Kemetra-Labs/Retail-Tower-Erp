@@ -20,11 +20,11 @@ info:
       1. `posQuarantineSale` — upload one refused or held sale.
 
 
-    **Posture.** `1.0.0-draft`, contract-first, `[GATED: contract]`. The
-    operation carries `x-runtime-status: contract-only`: Backend-Core has no
-    controller, guard, service, table or migration for it yet. The runtime
-    and the quarantine store are RT-1312 Phase 3(b) (`[GATED: migration]`
-    expected); the POS sender is Phase 3(c). This is a new file, so it
+    **Posture.** `1.0.0-draft`, contract-first, `[GATED: contract]`. Since
+    RT-1312 Phase 3(b) Backend-Core implements the operation: the
+    `sale_quarantine_items` store (migration 0093), the device-bearer route,
+    its own per-device write bucket and the 256 kB route body limit. The POS
+    sender is Phase 3(c). This is a new file, so it
     changes nothing in `pos-sales/sales.yaml` or in any file a consumer pins.
     It is not part of `sale-sync-ops.yaml` because that file is the Console
     surface and carries no POS route (it says so in its header). A POS
@@ -222,11 +222,6 @@ paths:
       summary: Upload a refused or held sale for Console repair.
       operationId: posQuarantineSale
       tags: [pos-sale-quarantine]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1312 Phase 3(a) publishes the contract only. There is no
-        controller, guard, service, table or migration for this route until
-        RT-1312 Phase 3(b); the POS sender is Phase 3(c).
       x-audit-action: pos_sales.quarantine_uploaded
       security:
         - device: []

@@ -12,7 +12,7 @@ import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import request from "supertest";
 
-import { loadOpenApiContracts } from "../../src/openapi/loader";
+import { allContracts } from "./openapi-contract";
 import { bootScopedApp } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "./postgres-container";
 
@@ -72,8 +72,9 @@ async function setUp(state: HarnessState, options: ScopedHttpHarnessOptions): Pr
 export function schemaChecker(contractId: string): (name: string, body: unknown) => void {
   const ajv = new Ajv({ strict: false, allErrors: true });
   addFormats(ajv);
-  const contract = loadOpenApiContracts().find((c) => c.id === contractId);
-  if (!contract) throw new Error(`${contractId} not found in packages/contracts/openapi/`);
+  // Top-level contracts first, then the per-area folders (RT-1312: `pos-sales/sale-quarantine`).
+  const contract = allContracts().find((c) => c.id === contractId);
+  if (!contract) throw new Error(`${contractId} not found under packages/contracts/openapi/`);
   ajv.addSchema(contract.document as object, contractId);
   return (name, body) => {
     const validate = ajv.getSchema(`${contractId}#/components/schemas/${name}`);
