@@ -1915,13 +1915,11 @@ export namespace PosCashierAdmissions {
             };
             /**
              * List the cashiers of this device's store.
-             * @description Returns the cashiers of the store bound to the authenticated device (D11): users with an active membership in the device's tenant, a POS-eligible cashier role and access to the device's store, who are not deleted, and who are not suspended at the store. This is the cashier picker's online source. It replaces the cashier path's use of the `operator-identity`-gated `GET /api/pos/v1/operators/roster`, which is unchanged.
+             * @description Returns the cashiers of the store bound to the authenticated device (D11): users with an active membership in the device's tenant, a POS-eligible cashier role and access to the device's store, who are not deleted. This is the cashier picker's online source. It replaces the cashier path's use of the `operator-identity`-gated `GET /api/pos/v1/operators/roster`, which is unchanged.
              *
              *     The store comes only from the device. The operation takes no parameters, so there is no `branch_id` to mismatch.
              *
              *     Minimum disclosure: each entry carries only `user_id`, `operator_id` and `display_name`. There is no email, phone, PIN, PIN hash, credential fragment, admission state or provisioning state. Order is not significant.
-             *
-             *     RT-1138 (`[GATED: contract]`): a cashier suspended at the store (`cashier-suspensions.openapi.yaml`) is NOT in `cashiers` and cannot be admitted (`posCreateCashierAdmission` refuses it with the same generic `refused`). It is listed in `suspended_cashiers` instead, with only its `user_id` and `operator_id`, so the terminal learns of the suspension on its next sync and can refuse the cashier and end a session it holds locally. A reactivated cashier is back in `cashiers` and gone from `suspended_cashiers`. Only cashiers who would otherwise be on the roster are listed as suspended. The list is empty when nobody is suspended.
              */
             get: operations["posListCashierAdmissionRoster"];
             put?: never;
@@ -2044,18 +2042,6 @@ export namespace PosCashierAdmissions {
             };
             PosCashierRosterResponse: {
                 cashiers: components["schemas"]["PosCashierRosterEntry"][];
-                /** @description RT-1138: the cashiers of the device's store that are suspended and so left out of `cashiers`. Minimum disclosure: no display name. */
-                suspended_cashiers: components["schemas"]["PosCashierSuspendedEntry"][];
-            };
-            /** @description A cashier suspended at the device's store (RT-1138). */
-            PosCashierSuspendedEntry: {
-                /** @description The same provider subject the roster's `operator_id` carries; the key the terminal holds its local cashier record and session under. */
-                operator_id: string;
-                /**
-                 * Format: uuid
-                 * @description The same `users.id` the roster's `user_id` carries.
-                 */
-                user_id: string;
             };
             /** @description The canonical error envelope with the single fixed code `refused` (10763 D2's generic `refused`). It never carries `details`. */
             RefusedError: {
