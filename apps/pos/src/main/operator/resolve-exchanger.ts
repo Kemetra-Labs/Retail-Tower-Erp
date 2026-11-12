@@ -14,6 +14,12 @@
  */
 
 import {
+  ENV_DESCOPE_PROJECT_ID,
+  getBakedLaneConfig,
+  resolveLaneValue,
+} from '../config/lane-config.js';
+import type { LaneConfig } from '../config/lane-config.js';
+import {
   createDescopeExchanger,
   isDescopeProjectId,
   isRegionalDescopeProjectId,
@@ -24,6 +30,8 @@ export interface ResolveOperatorExchangerDeps {
   env: Readonly<Record<string, string | undefined>>;
   fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   logger: { warn(payload: object, msg: string): void };
+  /** The build's baked configuration; omitted means the one loaded at start-up. */
+  baked?: LaneConfig | null;
 }
 
 const refusingExchanger: OperatorExchanger = {
@@ -49,10 +57,16 @@ export function resolveOperatorExchanger(deps: ResolveOperatorExchangerDeps): Op
   );
 }
 
-/** The Descope project id is a public client identifier, not a secret. */
+/**
+ * The Descope project id is a public client identifier, not a secret. RT-1346: the
+ * process environment wins, then the id baked into the build (`config/lane-config.ts`).
+ */
 function resolveDescope(deps: ResolveOperatorExchangerDeps): OperatorExchanger {
   const { logger } = deps;
-  const projectId = (deps.env['DESCOPE_PROJECT_ID'] ?? '').trim();
+  const baked = deps.baked === undefined ? getBakedLaneConfig() : deps.baked;
+  const projectId = (
+    resolveLaneValue(deps.env[ENV_DESCOPE_PROJECT_ID], baked?.descopeProjectId).value ?? ''
+  ).trim();
   if (projectId.length === 0) {
     return refuseWith(
       logger,

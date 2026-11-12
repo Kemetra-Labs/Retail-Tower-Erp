@@ -29,7 +29,7 @@
  */
 import { Injectable } from "@nestjs/common";
 import { generateRawToken, hashToken } from "@data-pulse-2/auth";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { isTenantRestricted, runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import {
@@ -106,6 +106,11 @@ export class PairingRepository {
         return res.rows[0]?.attempt_count ?? 0;
       },
     );
+  }
+
+  /** RT-1353: true when the code's tenant is `restricted` (no row = unrestricted), read under its own context. */
+  async isTenantRestricted(tenantId: string): Promise<boolean> {
+    return await isTenantRestricted(this.pool, tenantId);
   }
 
   /**

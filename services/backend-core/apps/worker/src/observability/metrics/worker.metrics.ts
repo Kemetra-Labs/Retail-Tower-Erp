@@ -141,6 +141,9 @@ export const WORKER_ERROR_CLASSES = [
   // expected, retried outcome — counted under its own class so it does not
   // inflate UnknownError and skew failure alerts.
   "ReversalAwaitingSalePostError",
+  // RT-1353: a posting request of a restricted tenant (PostingRequestedConsumer).
+  // An expected, retried outcome, counted under its own class for the same reason.
+  "TenantAccessRestrictedError",
   "UnknownError",
 ] as const satisfies readonly string[];
 export type WorkerErrorClass = (typeof WORKER_ERROR_CLASSES)[number];

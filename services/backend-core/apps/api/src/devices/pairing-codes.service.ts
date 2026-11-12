@@ -22,6 +22,8 @@
  *     naming the device → 409 `replacement_already_pending` /
  *     `device_already_replaced`. The issue changes no device: the redemption
  *     revokes.
+ *   - RT-1353: a `restricted` tenant (`tenant_access_entitlements`) cannot issue
+ *     a code: the issue is the same non-disclosing 404 as an unknown store.
  *   - Each mutation writes its `pos.device.pairing_code.*` audit row in its own
  *     transaction (allowlist: ids, kind, TTL; never the code).
  */
@@ -29,7 +31,7 @@ import { randomUUID } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
 import { hashToken } from "@data-pulse-2/auth";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { readTenantAccessState, runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
@@ -163,6 +165,10 @@ export class PairingCodesService {
     const body = input.body;
     return await this.inTenant(input, async (client) => {
       const { scope } = await resolveDeviceCaller(this.memberships, client, input);
+      // RT-1353: a restricted tenant cannot issue a pairing code. The refusal is
+      // the same non-disclosing 404 as an unknown or out-of-scope store, so the
+      // existing contract's error set is unchanged and nothing is disclosed.
+      if ((await readTenantAccessState(client, input.tenantId)) === "restricted") throw new PairingCodeNotFoundError();
       const storeVisible = await storeInCallerScope(client, {
         tenantId: input.tenantId,
         scope,

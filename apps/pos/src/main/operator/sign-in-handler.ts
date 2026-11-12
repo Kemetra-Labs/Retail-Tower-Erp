@@ -11,6 +11,7 @@ import type {
 import { makeSecretKey, type SecretStore } from '../../shared/secret-store.js';
 import type { OperatorRefusal } from '../../shared/audit/event-shape.js';
 
+import type { RuntimeConfigProblem } from '../config/lane-config.js';
 import type { OperatorExchanger } from './operator-exchanger.js';
 import type { BackendClient } from './backend-client.js';
 import type { OperatorSessionRecord, SessionManager } from './session-manager.js';
@@ -129,6 +130,13 @@ export interface SignInHandlerDeps {
    * tests may omit.
    */
   sessionAdmission?: SessionAdmission;
+  /**
+   * RT-1346 (RT-1345 D4) — `assessRuntimeConfig`: the setting the terminal lacks after
+   * resolution (environment, then the build's baked file), or null. Checked before any
+   * network call so a missing server address or Descope project id is named instead of
+   * collapsing into the generic credential refusal. Production wires it; tests may omit.
+   */
+  configProblem?: () => RuntimeConfigProblem | null;
   /** Optional logger. Tests omit it. */
   logger?: Logger;
 }
@@ -137,6 +145,10 @@ const REFUSE_INVALID: OperatorRefusal = { kind: 'refused', category: 'invalid_in
 const REFUSE_NO_CONN: OperatorRefusal = { kind: 'refused', category: 'no_connection' };
 const REFUSE_RATE_LIMITED: OperatorRefusal = { kind: 'refused', category: 'rate_limited' };
 const REFUSE_CLOCK_SKEW: OperatorRefusal = { kind: 'refused', category: 'clock_skew' };
+const CONFIG_REFUSALS: Readonly<Record<RuntimeConfigProblem, OperatorRefusal>> = {
+  server_address: { kind: 'refused', category: 'server_address_unconfigured' },
+  identity_provider: { kind: 'refused', category: 'identity_unconfigured' },
+};
 
 export class SignInHandler {
   constructor(private readonly deps: SignInHandlerDeps) {}
@@ -161,6 +173,11 @@ export class SignInHandler {
       this.logRefusal('invalid_input', 'shape');
       return REFUSE_INVALID;
     }
+
+    // RT-1346 (D4) — a terminal with no server address or sign-in identity setting says so;
+    // it is not a credential problem and nothing is sent anywhere.
+    const notConfigured = this.configRefusal();
+    if (notConfigured !== null) return notConfigured;
 
     // 1. Clerk credential exchange — happens in main process; password
     //    is consumed by the exchanger and discarded after this call.
@@ -305,7 +322,19 @@ export class SignInHandler {
     } satisfies SignInSuccessResponse;
   }
 
-  private logRefusal(category: 'invalid_input' | 'no_connection', stage: string): void {
+  /** RT-1346 (D4): the refusal naming the setting this terminal lacks, or null when it has them. */
+  private configRefusal(): OperatorRefusal | null {
+    const problem = this.deps.configProblem?.() ?? null;
+    if (problem === null) return null;
+    const refusal = CONFIG_REFUSALS[problem];
+    this.logRefusal(refusal.category, 'configuration');
+    return refusal;
+  }
+
+  private logRefusal(
+    category: 'invalid_input' | 'no_connection' | OperatorRefusal['category'],
+    stage: string,
+  ): void {
     // PR-1 / FR-030 redaction: log only the category and stage; never
     // the identifier, never the password, never the JWT.
     this.deps.logger?.info(

@@ -46,7 +46,8 @@ function aRow(over: Partial<PairingCodeRow> = {}): PairingCodeRow {
 /** A fake repo wired with a service instance bypassing the @Inject constructor. */
 function serviceWith(repo: Partial<PairingRepository>): PairingService {
   const svc = Object.create(PairingService.prototype) as PairingService;
-  (svc as unknown as { repo: Partial<PairingRepository> }).repo = repo;
+  // RT-1353: a tenant is unrestricted unless a test says otherwise.
+  (svc as unknown as { repo: Partial<PairingRepository> }).repo = { isTenantRestricted: jest.fn().mockResolvedValue(false), ...repo };
   return svc;
 }
 
@@ -69,6 +70,20 @@ describe("PairingService — closed result union", () => {
     if (r.kind === "rate_limited") {
       expect(r.retryAfterSeconds).toBeGreaterThanOrEqual(1);
     }
+  });
+
+  it("a restricted tenant → invalid (the unknown-code answer), before the attempt count and the burn (RT-1353)", async () => {
+    const burnAndProvision = jest.fn();
+    const recordAttempt = jest.fn().mockResolvedValue(1);
+    const svc = serviceWith({
+      findByCode: jest.fn().mockResolvedValue(aRow()),
+      recordAttempt,
+      isTenantRestricted: jest.fn().mockResolvedValue(true),
+      burnAndProvision,
+    });
+    expect((await svc.pair("code-123456")).kind).toBe("invalid");
+    expect(recordAttempt).not.toHaveBeenCalled();
+    expect(burnAndProvision).not.toHaveBeenCalled();
   });
 
   it("used status → expired", async () => {

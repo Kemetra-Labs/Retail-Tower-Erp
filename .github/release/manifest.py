@@ -7,7 +7,8 @@ writes three files to --out:
   release-manifest.json   source SHA, product tree hash (`git rev-parse <sha>:<product path>`),
                           artifact digests, contract snapshot, CI URL, mode/tag and, for
                           Backend-Core, the compat guard verdict (MR-3) and, for the pilot-signed POS installer
-                          (product pos-pilot, RT-1294), `signing: pilot`;
+                          (product pos-pilot, RT-1294), `signing: pilot` and `lane_config` (RT-1347: the SHA-256
+                          of the stamped lane-config.json, a field of its own, never an artifact);
   provenance.intoto.json  an UNSIGNED in-toto Statement (SLSA provenance v1 predicate) over the
                           same artifacts. Signing and publication belong to the publish job (RT-717);
   SHA256SUMS              of the two files above.
@@ -34,7 +35,8 @@ PRODUCTS = {
     "pos": {"path": "apps/pos", "pin": "apps/pos/contracts/backend-core/PIN"},
     # RT-1294: the pilot-signed installer is its own product of the same tree (tag pos-pilot/vX.Y.Z). Its manifest
     # carries `signing: pilot`: the product sets it, never an input. The lab product has no such field.
-    "pos-pilot": {"path": "apps/pos", "pin": "apps/pos/contracts/backend-core/PIN", "manifest_fields": {"signing": "pilot"}},
+    # RT-1347: it also records the digest of the lane-config.json stamped into its build (`lane_config`, below).
+    "pos-pilot": {"path": "apps/pos", "pin": "apps/pos/contracts/backend-core/PIN", "manifest_fields": {"signing": "pilot"}, "lane_config": "pilot"},
     "admin-console": {"path": "apps/admin-console", "pin": "apps/admin-console/contracts/backend-core/PIN"},
     "backend-core": {"path": "services/backend-core"},
     "erpnext-connector": {
@@ -177,6 +179,16 @@ def build(args):
         manifest["compat_gate"] = {"verdict": args.compat_verdict, "evidence": args.compat_evidence or ""}
     elif args.compat_verdict:
         raise Refusal("--compat-verdict applies to backend-core only")
+    lane = PRODUCTS[args.product].get("lane_config")
+    if lane is not None:
+        # Fails closed: a pilot manifest without the digest of the file the build stamped is never written. It is a
+        # field of its own, not an artifact: the release holds one artifact (the installer) and the publish and
+        # promote checks require exactly that.
+        if not DIGEST_RE.match(args.lane_config_digest or ""):
+            raise Refusal(f"{args.product} needs --lane-config-digest sha256:<64 hex> (RT-1347)")
+        manifest["lane_config"] = {"lane": lane, "file": "lane-config.json", "digest": args.lane_config_digest}
+    elif args.lane_config_digest is not None:
+        raise Refusal("--lane-config-digest applies to pos-pilot only")
     for value in args.note:
         key, text = split_pair(value, "--note")
         manifest.setdefault("notes", {})[key] = text
@@ -229,6 +241,7 @@ def main(argv=None):
     p.add_argument("--ci-url", required=True)
     p.add_argument("--compat-verdict")
     p.add_argument("--compat-evidence")
+    p.add_argument("--lane-config-digest", metavar="sha256:HEX", help="pos-pilot only: SHA-256 of the stamped lane-config.json")
     p.add_argument("--note", action="append", default=[], metavar="KEY=TEXT")
     p.add_argument("--out", required=True)
     a = p.parse_args(argv)

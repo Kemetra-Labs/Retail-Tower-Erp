@@ -122,7 +122,8 @@ describe('identity_anchor and tracking_grain_reconciliation (RT-453)', () => {
     open = await unmet(TENANT_A);
     expect(open).not.toContain('identity_anchor');
     expect(open).not.toContain('tracking_grain_reconciliation');
-    // The checks this issue does not own stay unmet (fail closed).
+    // The checks this issue does not own stay unmet here: no ERP import run is seeded yet
+    // (RT-1288, own describe below) and RT-452 has no signal (fail closed).
     expect(open).toEqual(expect.arrayContaining(['erp_tracking_import', 'erp_batch_posting_verified']));
   });
 
@@ -140,5 +141,163 @@ describe('identity_anchor and tracking_grain_reconciliation (RT-453)', () => {
     await identityAnchor(TENANT_B, STORE_B_X, ACTOR_B, '2026-11-12T08:00:00Z');
     // Tenant B has another live store without an anchor (or, if only one, tracking grain still needs a later run).
     expect(await unmet(TENANT_B)).toContain('tracking_grain_reconciliation');
+  });
+});
+
+/**
+ * Jira RT-1288 — `erp_tracking_import` is met when EVERY live store has an active `stock`
+ * warehouse mapping AND at least one completed ERP-origin stock import run (migration 0096) on
+ * that mapped warehouse. The contract meaning of the precondition is unchanged.
+ */
+describe('erp_tracking_import (RT-1288)', () => {
+  const NO_STORES_TENANT = '00000000-0000-4000-8000-0000000000e1';
+  const WH_X = 'WH-TRACK-X';
+  const WH_Y = 'WH-TRACK-Y';
+  const mapIds: Record<string, string> = {};
+
+  async function met(tenantId: string): Promise<boolean> {
+    return !(await unmet(tenantId)).includes('erp_tracking_import');
+  }
+
+  async function map(tenantId: string, storeId: string, ref: string, purpose = 'stock'): Promise<string> {
+    const r = await admin.query<{ id: string }>(
+      `INSERT INTO erpnext_warehouse_map (id, tenant_id, store_id, purpose, erpnext_warehouse_ref, version)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, 1) RETURNING id::text`,
+      [tenantId, storeId, purpose, ref],
+    );
+    return r.rows[0]!.id;
+  }
+
+  async function run(tenantId: string, storeId: string, mapId: string, ref: string, status: string): Promise<void> {
+    await admin.query(
+      `INSERT INTO erp_stock_import_runs
+         (id, tenant_id, store_id, warehouse_map_id, erpnext_warehouse_ref, status, settle_seconds, overlap_seconds, ended_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, 300, 3900, CASE WHEN $5 = 'running' THEN NULL ELSE now() END)`,
+      [tenantId, storeId, mapId, ref, status],
+    );
+  }
+
+  it('is unmet when the tenant has no live store', async () => {
+    if (skipped()) return;
+    expect(await met(NO_STORES_TENANT)).toBe(false);
+  });
+
+  it('is unmet while a live store has no stock warehouse mapping, even if another store is imported', async () => {
+    if (skipped()) return;
+    mapIds[STORE_A_X] = await map(TENANT_A, STORE_A_X, WH_X);
+    await run(TENANT_A, STORE_A_X, mapIds[STORE_A_X]!, WH_X, 'completed');
+    expect(await met(TENANT_A)).toBe(false);
+  });
+
+  it('is unmet when a store is mapped but its warehouse has no run', async () => {
+    if (skipped()) return;
+    mapIds[STORE_A_Y] = await map(TENANT_A, STORE_A_Y, WH_Y);
+    expect(await met(TENANT_A)).toBe(false);
+  });
+
+  it('is unmet while the only runs of a mapped warehouse are running, refused or failed', async () => {
+    if (skipped()) return;
+    for (const status of ['running', 'refused', 'failed']) {
+      await run(TENANT_A, STORE_A_Y, mapIds[STORE_A_Y]!, WH_Y, status);
+    }
+    expect(await met(TENANT_A)).toBe(false);
+  });
+
+  it('ignores a returns-purpose mapping: only the stock mapping counts', async () => {
+    if (skipped()) return;
+    const returns = await map(TENANT_A, STORE_A_Y, 'WH-RETURNS-Y', 'returns');
+    await run(TENANT_A, STORE_A_Y, returns, 'WH-RETURNS-Y', 'completed');
+    expect(await met(TENANT_A)).toBe(false);
+  });
+
+  it('is met once every live store has a completed run on its mapped stock warehouse', async () => {
+    if (skipped()) return;
+    await run(TENANT_A, STORE_A_Y, mapIds[STORE_A_Y]!, WH_Y, 'completed');
+    expect(await met(TENANT_A)).toBe(true);
+    // The other preconditions are not touched by it.
+    expect(await unmet(TENANT_A)).toContain('erp_batch_posting_verified');
+  });
+
+  it("never counts another tenant's mappings and runs, in either direction", async () => {
+    if (skipped()) return;
+    // Tenant A is met now (both stores imported). Tenant B has two live stores: one imported,
+    // one unmapped, so B stays unmet whatever A's completed runs say.
+    expect(await met(TENANT_A)).toBe(true);
+    expect(await met(TENANT_B)).toBe(false);
+    const mapB = await map(TENANT_B, STORE_B_X, 'WH-TRACK-B');
+    await run(TENANT_B, STORE_B_X, mapB, 'WH-TRACK-B', 'completed');
+    expect(await met(TENANT_B)).toBe(false);
+    // B's completed run does not leak into A: A is still met, and B's own run is not counted for A.
+    expect(await met(TENANT_A)).toBe(true);
+  });
+
+  it('is unmet again when a store is re-mapped: the old run belongs to the retired mapping', async () => {
+    if (skipped()) return;
+    await admin.query(`UPDATE erpnext_warehouse_map SET retired_at = now() WHERE id = $1`, [mapIds[STORE_A_X]]);
+    await map(TENANT_A, STORE_A_X, 'WH-TRACK-X2');
+    expect(await met(TENANT_A)).toBe(false);
+  });
+
+  it('is met again once the new stock mapping has its own completed run', async () => {
+    if (skipped()) return;
+    const active = await admin.query<{ id: string }>(
+      `SELECT id::text FROM erpnext_warehouse_map WHERE store_id = $1 AND purpose = 'stock' AND retired_at IS NULL`,
+      [STORE_A_X],
+    );
+    await run(TENANT_A, STORE_A_X, active.rows[0]!.id, 'WH-TRACK-X2', 'completed');
+    expect(await met(TENANT_A)).toBe(true);
+  });
+});
+
+/**
+ * Jira RT-452 — `erp_batch_posting_verified` is the owner attestation (migration 0104, recorded by
+ * `inventory-effects attest-batch-posting`): met when the tenant's settings row holds an
+ * `erp_batch_posting_attested_at`. Its contract meaning is unchanged.
+ */
+describe('erp_batch_posting_verified (RT-452)', () => {
+  async function verified(tenantId: string): Promise<boolean> {
+    return !(await unmet(tenantId)).includes('erp_batch_posting_verified');
+  }
+
+  async function setAttestation(tenantId: string, actor: string, at: string | null): Promise<void> {
+    await admin.query(
+      `INSERT INTO tenant_inventory_settings
+         (tenant_id, updated_by, erp_batch_posting_attested_at, erp_batch_posting_attested_by, erp_batch_posting_evidence_ref)
+       VALUES ($1, $2, $3::timestamptz, CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE $2::uuid END,
+               CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE 'RT-452 bench run (owner)' END)
+       ON CONFLICT (tenant_id) DO UPDATE
+         SET erp_batch_posting_attested_at = EXCLUDED.erp_batch_posting_attested_at,
+             erp_batch_posting_attested_by = EXCLUDED.erp_batch_posting_attested_by,
+             erp_batch_posting_evidence_ref = EXCLUDED.erp_batch_posting_evidence_ref`,
+      [tenantId, actor, at],
+    );
+  }
+
+  it('is unmet while the tenant has no attestation (no settings row, then a row with none)', async () => {
+    if (skipped()) return;
+    // A tenant with no settings row at all (a tenant id the fixture never seeded).
+    expect(await verified('00000000-0000-4000-8000-0000000000e2')).toBe(false);
+    await setAttestation(TENANT_A, ACTOR_A, null);
+    expect(await verified(TENANT_A)).toBe(false);
+  });
+
+  it('is met once the tenant holds an attestation, and the other preconditions are unchanged', async () => {
+    if (skipped()) return;
+    const before = (await unmet(TENANT_A)).filter((p) => p !== 'erp_batch_posting_verified');
+    await setAttestation(TENANT_A, ACTOR_A, '2026-11-12T12:00:00Z');
+    expect(await verified(TENANT_A)).toBe(true);
+    expect(await unmet(TENANT_A)).toEqual(before);
+  });
+
+  it("never counts another tenant's attestation", async () => {
+    if (skipped()) return;
+    // Tenant A is attested (above); tenant B has none.
+    expect(await verified(TENANT_A)).toBe(true);
+    expect(await verified(TENANT_B)).toBe(false);
+    await setAttestation(TENANT_B, ACTOR_B, '2026-11-12T12:30:00Z');
+    expect(await verified(TENANT_B)).toBe(true);
+    await setAttestation(TENANT_A, ACTOR_A, null);
+    expect(await verified(TENANT_A)).toBe(false);
+    expect(await verified(TENANT_B)).toBe(true);
   });
 });

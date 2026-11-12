@@ -151,13 +151,14 @@ A release reaches the Console in three separate, audited steps. Registering neve
 |---|---|---|---|
 | Register | The owner-run promotion workflow | Its GitHub OIDC token (no stored secret) | `pos.pilot_release.registered` |
 | Activate | A platform admin | The Console session cookie and a trusted `Origin` | `pos.pilot_release.activated` |
-| Withdraw | The promotion workflow | Its GitHub OIDC token | `pos.pilot_release.withdrawn` |
+| Withdraw | The promotion workflow, in its `withdraw` mode (section 9) | Its GitHub OIDC token | `pos.pilot_release.withdrawn` |
 
 **Pins.** Set the five `POS_PILOT_PROMOTION_OIDC_*` values on the host (section 3 shows where; none is a
 secret). They must equal what GitHub puts in the token of the promotion job: the audience the workflow
 requests, the repository, the protected approval environment of the job, the ref, and the
-`job_workflow_ref`. The promotion workflow (a later slice) fixes the real environment and workflow names;
-until it exists leave them blank, and every workflow write is 401. Check the api log at boot: there must be
+`job_workflow_ref`. The promotion workflow fixes the real environment and workflow names (section 9 lists the
+values), and its withdraw jobs use the very same five, so withdrawing needs no new pin. Leave them blank until you
+mean to use the workflow, and every workflow write is 401. Check the api log at boot: there must be
 no `pilot release promotion writes are off` line once you mean them to be on.
 
 **Answers.** A token that cannot be authenticated is 401. A genuine token whose claims differ from the pins is
@@ -168,6 +169,12 @@ values is 409; an equal replay is a 200 that writes nothing.
 **One current release.** At most one release is current. Activating while another is current is 409
 `release_current_exists`; withdraw the current one first. A withdrawn release is never re-approved (409
 `release_withdrawn` on activation): a fix ships as a higher version. Withdrawing stops the resolver at once.
+
+**Withdrawing.** No Console action and no other credential can withdraw: only the promotion workflow's token can,
+so you start the workflow with `mode` = `withdraw`, the version and the release id (section 9, "Withdrawing a
+release"). To replace the current release, register the replacement first (a promotion, section 9), then withdraw the
+current one, then activate the replacement in the Console. That order keeps the time with no current release as short
+as one withdraw run plus one click.
 
 **Activating.** There is no Console page yet. A platform admin calls
 `POST /api/v1/platform/pos-pilot-releases/{releaseId}/activate` with their Console session; the response is the
@@ -207,7 +214,9 @@ checked for shape: replay detection is by content. A retry of a withdrawn releas
 |---|---|
 | Register answers 401 | The token is missing, expired, for another audience or issuer, or GitHub's key set cannot be fetched from the host; or a pin is blank (see the boot warning). |
 | Register answers 403 | A pin differs from the token's claim, or the body's `promotionRunUrl` names another run or repository. The api never says which. |
-| Activate answers 409 `release_current_exists` | Another release is current: withdraw it first. |
+| Activate answers 409 `release_current_exists` | Another release is current: withdraw it first (section 9, `withdraw` mode). |
+| Withdraw answers 401 or 403 | A pin on the host differs from the token's claims or is unset (the same five as register). The api never says which. |
+| Withdraw answers 404 `not_found` | No release has this id. Copy it from the Console release list, not from memory (section 9). |
 | The tenant still gets `{ "available": false }` after activation | The tenant is not on the allowlist, the pin, bucket or S3 key (section 3) is blank, or the release was withdrawn. |
 
 ## 8. Verifying a pilot release before promotion: the dry-run (RT-1300)
@@ -265,8 +274,10 @@ pin and the upload role's trust are each one exact value (section 7).
 Start the same workflow from `main` with `dry_run` set to **false** to promote. After `verify` passes, two more
 jobs run behind the protected environment `release-pos-pilot-promote`: `upload` puts the verified bytes in the
 private bucket, and `register` records them in the registry (section 7). A promotion **never activates** a
-release: a platform admin does that separately, in the Console, and withdrawing is not part of this workflow yet.
-The run asks for your approval on the environment twice, once for each of the two jobs.
+release: a platform admin does that separately, in the Console. Withdrawing a release is the same workflow with
+`mode` = `withdraw` (see "Withdrawing a release" below); it uses the same environment, variables and pins, and the
+promote jobs do not run in that mode. A promotion asks for your approval on the environment twice, once for each of
+the two live jobs.
 
 **One-time owner setup** (none of it is a secret; do it before the first live run):
 
@@ -313,6 +324,32 @@ The run asks for your approval on the environment twice, once for each of the tw
   list) and sends one `POST /api/v1/platform/pos-pilot-releases`. It accepts `200` or `201` and then checks that
   the answer is the release it sent (a withdrawn release answers `approved: false` and is refused).
 
+**Withdrawing a release (RT-1363).** Backend-Core takes a withdrawal only from this workflow's GitHub OIDC token, and
+the `job_workflow_ref` pin names `promote-pos-pilot.yml`, so withdrawing is a mode of this file, not another one. It
+changes nothing in the bucket, uses no AWS role and never deletes an object (the installer stays where it is: a
+withdrawal only stops the resolver offering the release), and it never activates anything.
+
+1. **Find the release id.** The `register` job of the promotion run that registered it printed the release id in its
+   summary. A platform admin can also read the registry list in the Console
+   (`GET /api/v1/platform/pos-pilot-releases`: `releaseId`, `version`, `approved`, `withdrawnAt`). The workflow cannot
+   look an id up itself: that list takes a Console session, not the workflow's token.
+2. **Dry run first.** Actions, `promote-pos-pilot`, Run workflow, branch `main`: `mode` = `withdraw`, `tag` =
+   `pos-pilot/vX.Y.Z` (the version that the id must belong to), `release_id` = the id, `leaf_sha1` blank (promote only),
+   `dry_run` = true. Only the `withdraw/check` job runs, with no environment and no token: it checks that the run is on
+   `refs/heads/main`, was started by a person (a plain GitHub login, never an app) and that the tag and the id are well
+   formed, then prints what a live run would withdraw. It changes nothing.
+3. **Live.** Run it again with `dry_run` = false. After `withdraw/check`, the `withdraw/live` job waits for your
+   approval on `release-pos-pilot-promote`. Approve only if the Console list shows that id as that version: the
+   workflow cannot read the registry before it writes. The job then repeats the checks and sends one `POST` with a
+   token for the Backend-Core audience.
+4. **What it accepts.** Exactly an HTTP 200 whose release is the requested id, now withdrawn (`approved` false and a
+   `withdrawnAt`) and of the version named by `tag`. Anything else fails the job with the API's code. A withdrawal is
+   for good and repeating it is safe: an already-withdrawn release answers 200, so after a failure to reach
+   Backend-Core, or a 401 or 403 you have fixed, run it again.
+5. **After it.** The Console list shows the release withdrawn and the resolver stops offering it at once. The slot is
+   free: a platform admin activates the next release in the Console. To replace the current release, register the
+   replacement first (a promotion above), then withdraw, then activate.
+
 **If something fails after the upload.** The object is already there and cannot be replaced.
 
 - **`register` failed** (and `upload` succeeded): use **Re-run failed jobs** on the same run. That repeats only
@@ -337,3 +374,8 @@ A bad upload cannot be fixed in place: ship a higher version.
 | `the actor ... is not a GitHub login` | The run was started by an app or bot. Start it as a person; nothing was uploaded. |
 | `register` answers 401 or 403 | One of the five pins on the host differs from the token's claims, or is unset. Fix the host, then Re-run failed jobs. |
 | `register` answers 409 | The registry already holds this version, hash or key with other values. It never overwrites. |
+| `release_id ... is not a release id` or `tag ... is not pos-pilot/vX.Y.Z` in `withdraw/check` | The input is malformed. Nothing was sent. Copy the id from the Console list. |
+| `withdraw/live` answers 401 or 403 | One of the five pins on the host differs from the token's claims, or is unset. Fix the host, then run the job again: nothing was withdrawn. |
+| `withdraw/live` answers 404 `not_found` | No release has this id. Nothing was withdrawn. |
+| `WITHDREW release ..., which is version X, not Y` | The id belongs to another version than `tag`. It is withdrawn for good and cannot be reversed: tell the owner, and ship the version that is needed as a higher version. |
+| `answered 200 but not with release ... now withdrawn` | The answer is not the requested release. Do not trust the run: read the release in the Console. |

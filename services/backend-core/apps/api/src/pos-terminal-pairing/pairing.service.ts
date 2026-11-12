@@ -17,6 +17,9 @@
  *      hint, not a promise the same code becomes redeemable after it. The
  *      controller enforces the independent Redis-backed source-IP window before
  *      this service is called, including for unknown codes.
+ *   0. RT-1353: the code's tenant is `restricted` → `invalid` (404
+ *      INVALID_CODE, the unknown-code answer), before the attempt accounting
+ *      and the burn: not consumed and not charged.
  *   3. status used/cancelled OR past expiry → `expired` (410 EXPIRED_CODE).
  *   4. Already-paired checks (FR-14): a live device at the terminal id under the
  *      SAME branch → `already_paired` (409); under a DIFFERENT branch →
@@ -70,6 +73,15 @@ export class PairingService {
   async pair(rawCode: string): Promise<PairResult> {
     const code = await this.repo.findByCode(rawCode);
     if (!code) return { kind: "invalid" };
+
+    // RT-1353: a restricted tenant cannot complete a pairing. The answer is the
+    // one for an unknown code (404 INVALID_CODE), so nothing about the tenant is
+    // disclosed. It comes before the attempt accounting and the burn: the code is
+    // not consumed and its monotonic attempt budget is not charged, so it still
+    // pairs once the tenant is unrestricted (five refusals while restricted must
+    // not lock it for good). The per-IP window the controller applies still
+    // bounds guessing, and the answer is the same for any code, so it is no oracle.
+    if (await this.repo.isTenantRestricted(code.tenant_id)) return { kind: "invalid" };
 
     // Rate-limit accounting BEFORE acting on the code. The count is per-code; the
     // controller has already consumed the independent per-IP budget.
