@@ -3,9 +3,9 @@
 // Every NEW line in breaking-ignore.txt acknowledges a contract break. This
 // script ties each line to the consumers that pin the affected contract: it
 // reads each consumer's in-tree PIN file (tools/oasdiff/consumers.txt), builds
-// the consumer's API path set from the pinned files AT THE CONSUMER'S OWN PIN
-// COMMIT (what the consumer actually built against, so a path the PR removes
-// still counts), and requires each line to carry a `consumer:<NAME>` tag (or
+// the consumer's API path set from the PINNED BLOBS (what the consumer actually
+// built against, so a path the PR removes still counts; a file may be pinned at a
+// later commit than the PIN's `commit:`), and requires each line to carry a `consumer:<NAME>` tag (or
 // `consumer:none`) in its free-text prefix.
 //
 // No dependencies and Node 20-compatible: the `oasdiff` job has no install step.
@@ -282,12 +282,20 @@ async function defaultReadText(file) {
   return readFileSync(path.join(await gitRoot(), file), "utf8");
 }
 
-async function defaultGitShow(commit, file) {
-  const { stdout } = await execFileAsync("git", ["show", `${commit}:${file}`], {
-    cwd: await gitRoot(),
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return stdout;
+// A PIN may pin a file at a later commit than its `commit:` line (RT-1287: a file newer
+// than the PIN's commit is pinned at its own merge commit). The blob SHA is what the
+// consumer built against, so read the blob itself, not `<commit>:<path>` (RT-453: #511's
+// Connector PIN commit 3bdcda6 predates stock-import.yaml, which it pins by blob).
+async function defaultGitBlob(blobSha, file) {
+  try {
+    const { stdout } = await execFileAsync("git", ["cat-file", "blob", blobSha], {
+      cwd: await gitRoot(),
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (error) {
+    throw new Error(`pinned blob ${blobSha} for ${file} is missing from the repository (${messageOf(error).trim()})`);
+  }
 }
 
 async function readPin(consumer, io) {
@@ -304,7 +312,7 @@ const pinMismatch = (pin) =>
     : `PIN names ${pin.repo} ${pin.source}, expected ${CONTRACTS_REPO} ${CONTRACTS_ROOT}`;
 
 async function pathsOfPinnedFile(pin, file, io) {
-  const text = await io.gitShow(pin.commit, `${pin.source}/${file.path}`);
+  const text = await io.gitBlob(file.blobSha, `${pin.source}/${file.path}`);
   return collectPathsFromFile(file.path, text);
 }
 
@@ -371,7 +379,7 @@ function resolveMode(requested) {
 function buildIo(options) {
   return {
     readText: options.readText ?? defaultReadText,
-    gitShow: options.gitShow ?? defaultGitShow,
+    gitBlob: options.gitBlob ?? defaultGitBlob,
   };
 }
 
