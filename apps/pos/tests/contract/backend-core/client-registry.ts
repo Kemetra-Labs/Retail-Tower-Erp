@@ -20,6 +20,7 @@
  */
 import { createBackendClient } from '../../../src/main/operator/backend-client.js';
 import { createBrandingClient } from '../../../src/main/branding/branding-client.js';
+import { createOfferPackClient } from '../../../src/main/offers/offer-pack-client.js';
 import { createAuditSyncClient } from '../../../src/main/audit/audit-sync-client.js';
 import type { AuditEvent } from '../../../src/shared/audit/event-shape.js';
 import { createCashierAdmissionClient } from '../../../src/main/operator/cashier-admission-client.js';
@@ -200,6 +201,9 @@ async function eachSaleHistoryCredential(
 const brandingClient = (fetch: FetchLike): ReturnType<typeof createBrandingClient> =>
   createBrandingClient({ baseUrl: BASE_URL, fetch });
 const BRANDING_MODULE = 'src/main/branding/branding-client.ts';
+const offerPackClient = (fetch: FetchLike): ReturnType<typeof createOfferPackClient> =>
+  createOfferPackClient({ baseUrl: BASE_URL, fetch });
+const OFFER_PACK_MODULE = 'src/main/offers/offer-pack-client.ts';
 /**
  * RT-1231: the audit upload. Device auth is the body `device_token_attestation`
  * (fed the device sentinel); the optional operator-JWT header is never sent, so
@@ -320,6 +324,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
   // RT-475: the tenant branding read-down (device token, on the shared transport).
   { module: BRANDING_MODULE, fetchCallSites: 0, surface: brandingClient },
+  // RT-1339: the store's Offer Pack read-down (device token, ETag / 304, on the shared transport).
+  { module: OFFER_PACK_MODULE, fetchCallSites: 0, surface: offerPackClient },
   // RT-1231: the D-2 audit upload (device attestation in the body, on the shared transport).
   { module: AUDIT_SYNC_MODULE, fetchCallSites: 0, surface: auditSyncClient },
   { module: SHIFT_SYNC_CLIENT, fetchCallSites: 1, surface: shiftSyncClient },
@@ -594,6 +600,15 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     wiring:
       'bootstrap/branding.ts worker: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
     invoke: (fetch) => brandingClient(fetch).read(SENTINEL.device, null),
+  },
+  {
+    id: 'offerPackClient.read',
+    module: OFFER_PACK_MODULE,
+    method: 'get',
+    pathTemplate: '/api/pos/v1/store/offer-pack',
+    wiring:
+      'bootstrap/offers.ts worker: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
+    invoke: (fetch) => offerPackClient(fetch).read(SENTINEL.device, null),
   },
   {
     id: 'saleHistoryClient.list',

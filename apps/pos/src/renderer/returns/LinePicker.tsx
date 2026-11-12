@@ -4,6 +4,7 @@ import type { ReturnableLineView } from '../../shared/returns/types.js';
 import { ReturnNotice } from './ReturnNotice';
 import { ReturnsPanel, SaleNumberMeta, StatePill } from './ReturnsPanel';
 import { formatReturnMoney } from './returns-format.js';
+import { OFFER_ROLE_COPY } from './returns-messages.js';
 import { pickedLines, type FlowState } from './return-flow-state.js';
 import { useFocusOnMount } from './useFocusOnMount.js';
 import type { ReturnFlow } from './useReturnFlow.js';
@@ -78,6 +79,14 @@ function LineRow({ line, currencyCode, quantity, locked, onPick }: LineRowProps)
           <bdi className="v5-manager-num">{line.returnedQuantity}</bdi> · سعر الوحدة{' '}
           <bdi className="v5-manager-num">{unit}</bdi>
         </span>
+        {line.offerRole !== undefined && (
+          <span
+            className="v5-returns-line__meta v5-returns-line__offer"
+            data-testid={`offer-role-${line.lineRef}`}
+          >
+            {OFFER_ROLE_COPY[line.offerRole]}
+          </span>
+        )}
       </div>
       {line.returnableQuantity > 0 ? (
         <Stepper
@@ -103,7 +112,12 @@ export function LinePicker({
 }: Readonly<{ flow: ReturnFlow; state: SelectState }>): JSX.Element {
   const heading = useFocusOnMount<HTMLHeadingElement>();
   const busy = flow.busy === 'quote';
-  const nothingPicked = pickedLines(state.sale, state.picked).length === 0;
+  const picked = pickedLines(state.sale, state.picked);
+  const nothingPicked = picked.length === 0;
+  // RT-1339: a picked line that was sold under an offer (the server decides what that means for the refund).
+  const pickedUnderOffer = picked.some(
+    (p) => state.sale.lines.find((l) => l.lineRef === p.lineRef)?.offerRole !== undefined,
+  );
 
   return (
     <ReturnsPanel id="v5-returns-select" title="اختر الأصناف المرتجعة" headingRef={heading}>
@@ -121,6 +135,11 @@ export function LinePicker({
             />
           ))}
         </ul>
+        {pickedUnderOffer && (
+          <p className="v5-returns-notice" role="note" data-testid="offer-return-note">
+            {OFFER_ROLE_COPY.note}
+          </p>
+        )}
         <ReturnNotice notice={state.notice} />
         <div className="v5-returns-actions">
           <button

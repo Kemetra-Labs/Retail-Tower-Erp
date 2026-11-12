@@ -43,6 +43,8 @@ import type {
 } from '../../shared/cart/handoff-envelope.js';
 import type { SalesTenderType } from '../../shared/sales/types.js';
 import type { FinalizeInput, FinalizeTenderLineSummary } from './finalize-transaction.js';
+import { freezeLinePromotions } from '../offers/freeze-line-promotions.js';
+import { promotionTotalMinor, type PromotionFact } from '../../shared/offers/types.js';
 import {
   freezeLineDiscounts,
   type FreezeLineDiscountsResult,
@@ -68,7 +70,9 @@ export type DispatchRefusalReason =
   | 'cart_envelope_not_found'
   | 'malformed_settled_payload'
   // RT-856: a discount the dispatch cannot attribute, or a total that disagrees.
-  | FreezeRefusalReason;
+  | FreezeRefusalReason
+  // RT-1339: an automatic-offer fact the dispatch cannot fit onto the sale's lines.
+  | 'promotion_mismatch';
 
 export type BuildFinalizeInputResult =
   | { kind: 'ok'; input: FinalizeInput }
@@ -140,6 +144,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 function readEnvelope(json: string): {
   lines: readonly LineSnapshot[];
   placeholders: readonly DiscountPlaceholderSnapshot[];
+  promotions: readonly PromotionFact[];
 } | null {
   let envelope: unknown;
   try {
@@ -157,11 +162,14 @@ function readEnvelope(json: string): {
     placeholders: Array.isArray(placeholders)
       ? (placeholders as DiscountPlaceholderSnapshot[])
       : [],
+    // RT-1339: absent on an envelope without offers, and on one frozen before them.
+    promotions: Array.isArray(envelope.promotions) ? (envelope.promotions as PromotionFact[]) : [],
   };
 }
 
 type SaleLinesResult =
   | FreezeLineDiscountsResult
+  | ReturnType<typeof freezeLinePromotions>
   | { kind: 'refused'; reason: 'cart_envelope_not_found' };
 
 /**
@@ -175,14 +183,19 @@ function saleLines(db: DatabaseHandle, cart_id: string, attempt: AttemptRow): Sa
   const envelopeJson = finalizableEnvelopeJson(cartStmt.get(cart_id));
   const envelope = envelopeJson === null ? null : readEnvelope(envelopeJson);
   if (envelope === null) return { kind: 'refused', reason: 'cart_envelope_not_found' };
-  return freezeLineDiscounts(db, {
+  const promoTotal = promotionTotalMinor(envelope.promotions);
+  // The manual-discount check is Σ gross − Σ manual; the offers' share is part of that gap.
+  const manual = freezeLineDiscounts(db, {
     tenant_id: attempt.tenant_id,
     branch_id: attempt.branch_id,
     cart_id,
     lines: envelope.lines,
     placeholders: envelope.placeholders,
-    amount_due_minor: attempt.envelope_subtotal_minor,
+    amount_due_minor: attempt.envelope_subtotal_minor + promoTotal,
   });
+  if (manual.kind !== 'ok') return manual;
+  // RT-1339: the offers frozen at handoff, each split onto its own quantity-1 reward lines.
+  return freezeLinePromotions(manual.lines, envelope.promotions, attempt.envelope_subtotal_minor);
 }
 
 /** The non-NULL columns of `fields`: a SQL NULL is an absent key, never `null`. */

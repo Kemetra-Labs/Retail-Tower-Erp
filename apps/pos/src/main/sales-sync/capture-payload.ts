@@ -44,6 +44,13 @@
  *     resolved for its placeholder (`resolvedRoles`, migration 0058), read the way
  *     the drain's hold reads it (`captureRoleOf`). The row is written once before
  *     the first POST and never edited, so every retry sends the same body.
+ *   • RT-1339 (`sales.yaml` 1.22.0-draft, RT-286 S7): a line frozen with an automatic-offer
+ *     `promotion` (`freezeLinePromotions`) is sent at its NET `lineAmountMinor` (gross −
+ *     `promotion.discount_minor`) with `promotion` (`readCapturePromotion`). The promotion is
+ *     read from the frozen `lines_json` ONLY: never re-evaluated, never read from the Pack or a
+ *     clock at send time, so every re-send is byte-identical (RT-1240). A sale without offers
+ *     is byte-identical to before. A promotion that cannot be sent faithfully is
+ *     `DiscountNotSendableError`, dead-lettered like a bad discount.
  *   • RT-858 (doc 28 OZ-1 = Z-A): a discounted sale whose total is 0 sends one
  *     `cash` tender of 0, so Backend-Core records a zero-total sale, not a
  *     tender-unknown one. It applies where tenders are sent (the RT-79 cutoff).
@@ -80,6 +87,20 @@ export interface CaptureSaleLine {
   lineAmountMinor: number;
   /** RT-858: the line's manual discount (RT-740 C-A); absent when not discounted. */
   discount?: CaptureSaleLineDiscount;
+  /** RT-1339: the line's automatic-offer fact; absent when no offer applied. */
+  promotion?: CaptureSaleLinePromotion;
+}
+
+/**
+ * RT-1339: the frozen automatic-offer fact as captured (`CaptureSaleLinePromotion`).
+ * `discountAmountMinor` is 0 on a participating line that is not a reward. The offer's
+ * name and percent stay on the till (receipt copy only).
+ */
+export interface CaptureSaleLinePromotion {
+  offerId: string;
+  offerVersion: number;
+  packRevision: number;
+  discountAmountMinor: number;
 }
 
 /**
@@ -188,6 +209,8 @@ interface PersistedLineSnapshot {
   line_subtotal_minor: number;
   /** RT-856: the frozen manual discount (`SaleLineDiscount`), when the line has one. */
   discount?: unknown;
+  /** RT-1339: the frozen automatic-offer fact (`SaleLinePromotion`), when the line has one. */
+  promotion?: unknown;
 }
 
 const AUTHORITY_SOURCES: ReadonlySet<unknown> = new Set(['cashier_approval', 'manager_session']);
@@ -262,8 +285,46 @@ function pricedDiscount(
   return result === null ? null : { kind, value, amountMinor: result.amount_minor };
 }
 
+const OFFER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isPositiveSafeInt(n: unknown): n is number {
+  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
+}
+
+/**
+ * RT-1339: the line's capture promotion, or undefined when it has none. It must be
+ * well-formed, must not sit on a line with a manual discount (OD-5), and must not
+ * discount more than the line's gross; otherwise `DiscountNotSendableError`.
+ */
+function readCapturePromotion(line: PersistedLineSnapshot): CaptureSaleLinePromotion | undefined {
+  const frozen = line.promotion;
+  if (frozen === undefined || frozen === null) return undefined;
+  if (!isRecord(frozen) || line.discount !== undefined) {
+    throw new DiscountNotSendableError(`line ${line.line_id} promotion malformed`);
+  }
+  const { offer_id, offer_version, pack_revision, discount_minor } = frozen;
+  if (
+    typeof offer_id !== 'string' ||
+    !OFFER_ID.test(offer_id) ||
+    !isPositiveSafeInt(offer_version) ||
+    !isSafeNonNegativeInt(pack_revision) ||
+    !isSafeNonNegativeInt(discount_minor) ||
+    discount_minor > line.line_subtotal_minor ||
+    (discount_minor > 0 && line.quantity !== 1)
+  ) {
+    throw new DiscountNotSendableError(`line ${line.line_id} promotion`);
+  }
+  return {
+    offerId: offer_id,
+    offerVersion: offer_version,
+    packRevision: pack_revision,
+    discountAmountMinor: discount_minor,
+  };
+}
+
 function captureLine(s: PersistedLineSnapshot, resolved: ResolvedDiscountRoles): CaptureSaleLine {
   const discount = readCaptureDiscount(s, resolved);
+  const promotion = readCapturePromotion(s);
   return {
     lineRef: s.line_id,
     productRef: s.item_ref,
@@ -271,8 +332,9 @@ function captureLine(s: PersistedLineSnapshot, resolved: ResolvedDiscountRoles):
     quantity: s.quantity,
     unitPriceMinor: s.unit_price_minor,
     lineAmountMinor:
-      discount === undefined ? s.line_subtotal_minor : s.line_subtotal_minor - discount.amountMinor,
+      s.line_subtotal_minor - (discount?.amountMinor ?? 0) - (promotion?.discountAmountMinor ?? 0),
     ...(discount === undefined ? {} : { discount }),
+    ...(promotion === undefined ? {} : { promotion }),
   };
 }
 
@@ -407,9 +469,19 @@ function tendersOf(sale: SaleRow): CaptureSaleTender[] {
  * until RT-858, so no body already POSTed changes. Any other sale: none.
  */
 function zeroTotalTenders(sale: SaleRow): CaptureSaleTender[] {
-  return sale.subtotal_minor === 0 && saleHasLineDiscount(sale)
+  return sale.subtotal_minor === 0 && (saleHasLineDiscount(sale) || saleHasLinePromotion(sale))
     ? [{ method: 'cash', amountMinor: 0 }]
     : [];
+}
+
+/** RT-1339: a 100%-off offer can also make the total 0; such a sale records a zero cash tender too. */
+function saleHasLinePromotion(sale: Pick<SaleRow, 'lines_json'>): boolean {
+  try {
+    const lines = JSON.parse(sale.lines_json) as PersistedLineSnapshot[];
+    return lines.some((l) => l.promotion !== undefined && l.promotion !== null);
+  } catch {
+    return false;
+  }
 }
 
 /** A rollout cutoff is on and the sale was finalized at/after it. */

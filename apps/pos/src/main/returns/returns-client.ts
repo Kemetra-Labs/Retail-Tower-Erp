@@ -118,6 +118,15 @@ const STATUS_REFUSALS: Readonly<Record<number, ServerReturnRefusal>> = {
 
 const CONFLICT_CODES: ReadonlySet<string> = new Set(['over_return', 'already_reversed']);
 
+/**
+ * RT-1339: the 422 codes of an automatic-offer return (`promotion_clawback_exceeds_refund`, OD-10;
+ * `promotion_return_requires_clawback`, OD-11 interim). Any other 422 stays a tender mismatch.
+ */
+const PROMOTION_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'promotion_clawback_exceeds_refund',
+  'promotion_return_requires_clawback',
+]);
+
 /** RT-577's credit refusal: a 403 told apart from the operator guard's by `error.code`. */
 const CREDIT_REVERSAL_CODE = 'credit_sale_reversal_restricted';
 
@@ -127,6 +136,9 @@ export function classifyRefusal(status: number, code: string | null): ServerRetu
     return code !== null && CONFLICT_CODES.has(code) ? (code as ServerReturnRefusal) : 'conflict';
   }
   if (status === 403 && code === CREDIT_REVERSAL_CODE) return CREDIT_REVERSAL_CODE;
+  if (status === 422 && code !== null && PROMOTION_REFUSAL_CODES.has(code)) {
+    return code as ServerReturnRefusal;
+  }
   return STATUS_REFUSALS[status] ?? null;
 }
 

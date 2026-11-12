@@ -1,3 +1,5 @@
+import type { PromotionFact } from '../offers/types.js';
+
 export interface LineSnapshot {
   readonly line_id: string;
   readonly item_ref: string;
@@ -39,6 +41,14 @@ export interface PaymentIntentEnvelope {
    */
   readonly discount_total_minor?: number;
   readonly total_due_minor?: number;
+  /**
+   * RT-1339 (RT-286 S7) — v1 extension fields, written ONLY when an automatic offer
+   * applied at handoff (so an envelope without offers is byte-identical to before):
+   * the frozen offer facts per cart line, and Σ of their reward discounts, which
+   * `total_due_minor` already subtracts. `discount_total_minor` stays the manual total.
+   */
+  readonly promotions?: readonly PromotionFact[];
+  readonly promotion_total_minor?: number;
   readonly created_at: string;
   readonly handoff_action_id: string;
 }
@@ -72,6 +82,12 @@ export function freezeEnvelope(envelope: PaymentIntentEnvelope): Readonly<Paymen
     Object.freeze(placeholder);
   }
   Object.freeze(envelope.discount_placeholders);
+
+  for (const promotion of envelope.promotions ?? []) {
+    Object.freeze(promotion.reward_discounts_minor);
+    Object.freeze(promotion);
+  }
+  if (envelope.promotions !== undefined) Object.freeze(envelope.promotions);
 
   return Object.freeze(envelope);
 }

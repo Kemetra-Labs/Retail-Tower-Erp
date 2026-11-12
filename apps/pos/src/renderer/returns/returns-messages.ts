@@ -24,6 +24,11 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
   // RT-196 S1 (OD-196-9): the sale has payer responsibilities (credit).
   credit_sale_reversal_restricted:
     'هذا البيع عليه مسؤولية دفع آجلة، فلا يُرجَع من هنا. لم يُسجَّل المرتجع ولم يُصرف أي نقد.',
+  // RT-1339 (spec 048 OD-10 / OD-11): an automatic offer's discount. Backend-Core decides; nothing is recorded.
+  promotion_clawback_exceeds_refund:
+    'خصم العرض الذي أخذه العميل أكبر من مبلغ الأصناف المختارة، ولا يُسجَّل هذا المرتجع من هنا حاليًا. لم يُسجَّل المرتجع ولم يُصرف أي نقد. راجع المدير.',
+  promotion_return_requires_clawback:
+    'هذا المرتجع يُلغي خصم عرض على الأصناف الباقية مع العميل، ولا يُسجَّل من هنا حاليًا. لم يُسجَّل المرتجع ولم يُصرف أي نقد. راجع المدير.',
   // Decided on the till.
   feature_disabled: 'المرتجعات غير مفعّلة على هذا الجهاز.',
   no_session: 'لا توجد جلسة تشغيل. سجّل الدخول للمتابعة.',
@@ -66,6 +71,16 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
     'يجري صرف مرتجع آخر على هذا الجهاز الآن، فلم يُنفَّذ شيء. انتظر حتى ينتهي ثم حدّث الحالة.',
   slip_total_mismatch:
     'لا تطابق مبالغ الأصناف إجمالي الاسترداد، فلم يُطبع الإيصال. الصرف نفسه سليم.',
+});
+
+/**
+ * RT-1339 (spec 048 §9): an automatic offer on a sold line. Marks only; Backend-Core decides the
+ * refund and the clawback, and the till shows its answer.
+ */
+export const OFFER_ROLE_COPY = Object.freeze({
+  reward: 'أخذت هذه الوحدة خصم عرض',
+  participant: 'ضمن عرض',
+  note: 'بعض الأصناف المختارة بيعت ضمن عرض. قد يرفض الخادم المرتجع أو يُنقص مبلغ الاسترداد حسب العرض، وتظهر نتيجته هنا. عند الرفض راجع المدير.',
 });
 
 /** Non-refusal outcomes and notices; each distinct from every refusal line. */

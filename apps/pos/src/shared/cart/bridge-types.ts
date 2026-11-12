@@ -1,6 +1,7 @@
 import type { CartRefusal } from './refusal.js';
 import type { PaymentIntentEnvelope } from './handoff-envelope.js';
 import type { CartState } from './cart-state.js';
+import type { PromotionPreview } from '../offers/types.js';
 
 // ── cart.create ───────────────────────────────────────────────────────────────
 
@@ -192,6 +193,19 @@ export interface CartReturnToSaleEligibilityRequest {
 
 export type CartReturnToSaleEligibilityResponse =
   | { readonly kind: 'ok'; readonly returnable: boolean }
+  | CartRefusal;
+
+// ── cart.promotionPreview (RT-1339, RT-286 S7) ────────────────────────────────
+// Read-only: the automatic offers the cart's live lines earn now (the Offer Pack and
+// trusted time, evaluated by main). The renderer asks after every material cart change
+// and shows the result; it never computes an offer or edits one.
+
+export interface CartPromotionPreviewRequest {
+  readonly cart_id: string;
+}
+
+export type CartPromotionPreviewResponse =
+  | { readonly kind: 'ok'; readonly preview: PromotionPreview }
   | CartRefusal;
 
 // ── cart.undoLast (RT-254, contract RT-245) ───────────────────────────────────

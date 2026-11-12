@@ -36,6 +36,7 @@ import {
   isRt1316ExemptFile,
   isRt1114ExemptFile,
   isRt1348ExemptFile,
+  isRt1339ExemptFile,
 } from './source-scope-guard.const';
 import { gitChangedFiles } from './source-scope-guard.git';
 
@@ -211,7 +212,8 @@ describe('source-scope guard (T006)', () => {
         !isRt1312ExemptFile(currentBranch, file) &&
         !isRt1316ExemptFile(currentBranch, file) &&
         !isRt1114ExemptFile(currentBranch, file) &&
-        !isRt1348ExemptFile(currentBranch, file),
+        !isRt1348ExemptFile(currentBranch, file) &&
+        !isRt1339ExemptFile(currentBranch, file),
     );
 
     expect(violations, `Forbidden paths modified by this branch: ${violations.join(', ')}`).toEqual(

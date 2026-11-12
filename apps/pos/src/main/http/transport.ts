@@ -55,12 +55,19 @@ export interface BackendRequest {
   /** Extra headers (content type, idempotency key, selectors). */
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
+  /**
+   * Response header names to hand back in `BackendAnswer.headers` (lower-case
+   * keys). Only the names listed here are read; the default is none.
+   */
+  readonly readHeaders?: readonly string[];
 }
 
 export interface BackendAnswer {
   readonly status: number;
   /** The parsed body; undefined when empty, not JSON, or over the cap. */
   readonly json: unknown;
+  /** The `readHeaders` the response carried, by lower-case name; absent ones are omitted. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export interface BackendTransport {
@@ -122,6 +129,19 @@ function headersOf(request: BackendRequest): Record<string, string> {
   );
 }
 
+/** The listed response headers that are present, by lower-case name. */
+function pickHeaders(
+  response: Response,
+  names: readonly string[] | undefined,
+): Readonly<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const name of names ?? []) {
+    const value = response.headers.get(name);
+    if (value !== null) out[name.toLowerCase()] = value;
+  }
+  return out;
+}
+
 export function createBackendTransport(deps: BackendTransportDeps): BackendTransport {
   const root = deps.baseUrl.replace(/\/$/, '');
 
@@ -135,7 +155,13 @@ export function createBackendTransport(deps: BackendTransportDeps): BackendTrans
           headers: headersOf(request),
           signal: AbortSignal.timeout(deps.timeoutMs),
         });
-        return { status: response.status, json: await boundedJson(response, deps.maxBodyBytes) };
+        return {
+          status: response.status,
+          json: await boundedJson(response, deps.maxBodyBytes),
+          ...(request.readHeaders === undefined
+            ? {}
+            : { headers: pickHeaders(response, request.readHeaders) }),
+        };
       } catch {
         return null;
       }

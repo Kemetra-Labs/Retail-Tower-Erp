@@ -62,7 +62,7 @@ products:
     high_jobs: ["@pos-full", pos/package-windows]
     tiers:
       contracts:
-        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin}.ts", src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json, src/main/observability/__tests__/rt879-redaction-vectors.json]
+        globs: [contracts/backend-core/**, "scripts/{codegen-api,verify-codegen,contracts-pin,contracts-repin}.ts", src/shared/api-types.ts, tests/contract/**, src/main/observability/__tests__/obs1-golden-vectors.json, src/main/observability/__tests__/rt879-redaction-vectors.json, src/shared/offers/__tests__/offers-golden-vectors.json]
         jobs: [pos/static, "@pos-full", bc/oasdiff, contracts/check]
       money:
         globs: ["src/main/{payments,shift-cashup,drawer}/**", "src/shared/{payments,money,shift-cashup}/**", src/shared/money.ts, src/preload/shift-cashup.ts, "migrations/*payment*", "migrations/*cash*"]

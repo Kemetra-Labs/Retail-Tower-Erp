@@ -80,6 +80,11 @@ export const SERVER_RETURN_REFUSALS = [
   // RT-196 S1 (OD-196-9): RT-577's 403 — the sale has payer responsibilities,
   // so the ordinary return route refuses it for every operator. Terminal.
   'credit_sale_reversal_restricted',
+  // RT-1339 (RT-286 S7, spec 048 OD-10 / OD-11 interim): the returned units would take back more offer
+  // discount than they refund, or would change an automatic offer's discount. Backend-Core decides it
+  // (422 `error.code`); the till shows it and guides the cashier. Nothing is recorded.
+  'promotion_clawback_exceeds_refund',
+  'promotion_return_requires_clawback',
 ] as const;
 export type ServerReturnRefusal = (typeof SERVER_RETURN_REFUSALS)[number];
 
@@ -168,6 +173,12 @@ export interface ReturnableLineView {
   readonly returnableQuantity: number;
   /** Null when the unit price is not representable in minor units. */
   readonly unitPriceMinor: number | null;
+  /**
+   * RT-1339: this line took part in an automatic offer when it was sold: `reward` when it carries the
+   * offer's discount (a reward unit), `participant` when it counted toward the offer without one.
+   * Absent on a line sold without an offer. Read from the sale's frozen `promotion`; display only.
+   */
+  readonly offerRole?: 'participant' | 'reward';
 }
 
 export interface ReturnableSaleView {

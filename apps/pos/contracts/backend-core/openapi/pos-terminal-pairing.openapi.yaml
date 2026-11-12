@@ -193,7 +193,8 @@ info:
     `posListCashierAdmissionRoster` (the cashier admissions); `openShift`,
     `recordCashMovement`, `closeShift` (the shift cash-up writes);
     `listSaleHistory`, `readSaleHistoryDetail`, `recordSaleReprint` (the sale
-    history); `posGetCashVariancePolicy`; `captureSale`,
+    history); `posGetCashVariancePolicy`; `posGetOfferPack` (the Offer Pack,
+    RT-1337); `captureSale`,
     `posValidateTrackedLine` and `posListTrackedLots` on their device path
     (RT-450); and `posReportDeviceHeartbeat` (RT-327). A new device-token
     operation joins this set only by naming itself here. They are sent only on a successful response (the
@@ -230,13 +231,13 @@ info:
         characters.
 
     They are documented as optional header parameters on exactly these
-    thirteen operations (the reporting operations), and nowhere else:
+    fourteen operations (the reporting operations), and nowhere else:
     `posGetCatalogSnapshot`, `posGetCatalogDeltas`,
     `posCreateCashierAdmission`, `posEndCashierAdmission`,
     `posListCashierAdmissionRoster`, `openShift`, `recordCashMovement`,
     `closeShift`, `listSaleHistory`, `readSaleHistoryDetail`,
-    `recordSaleReprint`, `posGetCashVariancePolicy` and `captureSale` on its
-    device path. Not on `posPairTerminal`, not on `posRotateTerminalToken`,
+    `recordSaleReprint`, `posGetCashVariancePolicy`, `posGetOfferPack`
+    (RT-1337) and `captureSale` on its device path. Not on `posPairTerminal`, not on `posRotateTerminalToken`,
     not on a route that authenticates with an operator credential, and not on
     the other hinted operations (`posValidateTrackedLine`,
     `posListTrackedLots`, `posReportDeviceHeartbeat`): carrying the

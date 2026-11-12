@@ -11,6 +11,7 @@ import { SaleProductFlags } from './SaleProductFlags';
 import type { LineFlags } from '../../stores/line-flags-store';
 import { approvedByLabel, DISCOUNT_COPY, reasonLabel } from './discount/discount-copy';
 import { DiscountAmount, DiscountKindLabel } from './discount/DiscountParts';
+import { LinePromotionRow, type LinePromotionView } from './offers/offers-ui';
 
 // Legacy LineNotePopover parity: same length cap, unchanged-save and empty-clear guards.
 const NOTE_MAX_LENGTH = 200;
@@ -33,6 +34,8 @@ interface LineProps {
   line: CartLineItem;
   /** RT-855 — the line's manual discount, if any (OD-28-6: at most one). */
   discount?: LineDiscountView | null | undefined;
+  /** RT-1339 — the automatic offer's reward units on this line, if any (read only). */
+  promotion?: LinePromotionView | null | undefined;
   /** RT-855 (OD-1) — the line «خصم» acts on. */
   selected?: boolean;
   /** Focus entered the row: it becomes the selected line. */
@@ -144,6 +147,7 @@ export function CartLineRow(props: Readonly<LineProps>): JSX.Element {
           {DISCOUNT_COPY.qtyDisabled}
         </p>
       )}
+      {props.promotion != null && <LinePromotionRow promotion={props.promotion} />}
     </li>
   );
 }

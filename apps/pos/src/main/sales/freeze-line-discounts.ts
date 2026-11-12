@@ -38,9 +38,16 @@ import {
   type ManualDiscount,
 } from '../../shared/cart/manual-discount.js';
 import type { SaleLineDiscount } from '../../shared/sales/sale-line-discount.js';
+import type { SaleLinePromotion } from '../../shared/offers/types.js';
 
-/** One `sales.lines_json` element: the envelope line, plus its frozen discount. */
-export type SaleLineSnapshot = LineSnapshot & { readonly discount?: SaleLineDiscount };
+/**
+ * One `sales.lines_json` element: the envelope line, plus its frozen manual discount, or (RT-1339,
+ * set by `freezeLinePromotions`, never here) its frozen automatic-offer promotion.
+ */
+export type SaleLineSnapshot = LineSnapshot & {
+  readonly discount?: SaleLineDiscount;
+  readonly promotion?: SaleLinePromotion;
+};
 
 export type FreezeRefusalReason = 'discount_unattributed' | 'discount_total_mismatch';
 
