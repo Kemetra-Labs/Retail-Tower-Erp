@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createOfferPackClient, OFFER_PACK_PATH } from '../offer-pack-client.js';
-import { createOfferPackFileStore } from '../offer-pack-file-store.js';
+import { createOfferPackFileStore, NO_OFFER_PACK_STORE } from '../offer-pack-file-store.js';
 import { createOfferPackWorker } from '../offer-pack-worker.js';
 import {
   ISSUED_AT,
@@ -212,5 +212,78 @@ describe('offer pack file store', () => {
       'tenantId',
     ]);
     expect(raw.toLowerCase()).not.toContain('token');
+  });
+
+  it('the no-op store keeps nothing', () => {
+    NO_OFFER_PACK_STORE.save({ tenantId: TENANT, etag: '"a"', body: {} });
+    NO_OFFER_PACK_STORE.clear();
+    expect(NO_OFFER_PACK_STORE.load()).toBeNull();
+  });
+});
+
+describe('offer pack worker edges', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('a 304 without a readable X-Server-Time is rejected and keeps the held Pack', async () => {
+    const first = workerOf(
+      responder(200, packBody(), { ETag: '"abc"', 'X-Server-Time': ISSUED_AT }),
+    );
+    await first.worker.runTickOnce();
+    const second = workerOf(responder(304, undefined, { ETag: '"abc"' }), first.c);
+    expect(await second.worker.runTickOnce()).toBe('rejected');
+    expect(first.c.service.view().kind).toBe('fresh');
+  });
+
+  it.each([
+    ['an Error', new TypeError('boom'), 'TypeError'],
+    ['a non-Error', 'boom', 'unknown'],
+  ])(
+    'a tick that throws %s is logged and skipped, never rejected',
+    async (_label, thrown, name) => {
+      const c = clockedService();
+      const logger = { info: vi.fn(), warn: vi.fn() };
+      const worker = createOfferPackWorker({
+        client: clientOf(responder(200, packBody())),
+        service: c.service,
+        // A non-Error reason is the case under test: the worker must survive one.
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        readDeviceToken: () => Promise.reject(thrown),
+        tenantId: TENANT,
+        monotonicMs: c.mono,
+        tickIntervalMs: 60_000,
+        logger,
+      });
+      expect(await worker.runTickOnce()).toBe('skipped');
+      expect(logger.warn).toHaveBeenCalledWith({ error: name }, 'offer_pack_read_down:tick_failed');
+    },
+  );
+
+  it('start() is idempotent, ticks on the interval, and stop() ends it', async () => {
+    vi.useFakeTimers();
+    const fetch = responder(200, packBody());
+    const c = clockedService();
+    const readDeviceToken = vi.fn(() => Promise.resolve<string | null>(null));
+    const worker = createOfferPackWorker({
+      client: clientOf(fetch),
+      service: c.service,
+      readDeviceToken,
+      tenantId: TENANT,
+      monotonicMs: c.mono,
+      tickIntervalMs: 60_000,
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+    worker.stop();
+    worker.start();
+    worker.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(readDeviceToken).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(readDeviceToken).toHaveBeenCalledTimes(2);
+    worker.stop();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(readDeviceToken).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
