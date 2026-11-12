@@ -11,7 +11,8 @@
  * offer version O, counting every earlier return of the sale:
  *
  *   D_held      = Σ discountAmount of the O units not returned before
- *                 − Σ clawbacks of O already recorded on earlier returns
+ *                 − the OUTSTANDING clawback of O: the clawbacks recorded on earlier
+ *                   returns net of the give-backs those returns made (RT-1367)
  *   disc_ret    = min( Σ discountAmount of the O units returned now, D_held )
  *   D_remaining = evaluate(the O units the customer still keeps, O's frozen
  *                 parameters and prices).totalDiscount
@@ -45,7 +46,7 @@ export interface ReturnSettlementInput {
   readonly saleLines: ReadonlyArray<SaleOfferLine>;
   /** Units returned per `lineRef` by EARLIER returns of the sale. */
   readonly returnedBefore: ReadonlyMap<string, bigint>;
-  /** Σ clawbacks of this offer version recorded on earlier returns (minor units). */
+  /** The outstanding clawback of this offer version: recorded clawbacks net of earlier give-backs (minor units). */
   readonly clawbacksBefore: bigint;
   /** Units returned now per `lineRef` (O lines only). */
   readonly returnedNow: ReadonlyMap<string, bigint>;

@@ -46,6 +46,7 @@ interface StepExpected {
   grossReturned: string;
   refund: string;
   clawback: string | null;
+  giveBack: string;
   outcome: 'accepted' | 'promotion_clawback_exceeds_refund' | 'promotion_return_requires_clawback';
 }
 interface Sale {
@@ -114,7 +115,8 @@ function settle(
     for (const [ref, q] of unitsOf(returned)) {
       history.units.set(ref, (history.units.get(ref) ?? 0n) + q);
     }
-    history.clawbacks += s.clawback ?? 0n;
+    // The OUTSTANDING clawback: recorded clawbacks net of the give-backs of earlier returns (RT-1367).
+    history.clawbacks += (s.clawback ?? 0n) - s.giveBack;
   }
   return s;
 }
@@ -130,6 +132,7 @@ function expectStep(sale: Sale, s: ReturnType<typeof settle>, e: StepExpected): 
     grossReturned: f(s.grossReturned),
     refund: f(s.refund),
     clawback: f(s.clawback),
+    giveBack: f(s.giveBack),
   }).toEqual({
     dHeld: e.dHeld,
     discReturned: e.discReturned,
@@ -138,11 +141,12 @@ function expectStep(sale: Sale, s: ReturnType<typeof settle>, e: StepExpected): 
     grossReturned: e.grossReturned,
     refund: e.refund,
     clawback: e.clawback,
+    giveBack: e.giveBack,
   });
   const outcome =
     s.refund < 0n
       ? 'promotion_clawback_exceeds_refund'
-      : (s.clawback ?? 0n) > 0n
+      : (s.clawback ?? 0n) > 0n || s.giveBack > 0n
         ? 'promotion_return_requires_clawback'
         : 'accepted';
   expect(outcome).toBe(e.outcome);
