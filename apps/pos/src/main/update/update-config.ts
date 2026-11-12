@@ -1,5 +1,12 @@
 import { readFileSync } from 'node:fs';
 
+import {
+  ENV_UPDATE_CHANNEL,
+  ENV_UPDATE_ORIGIN,
+  getBakedLaneConfig,
+  resolveLaneValue,
+} from '../config/lane-config.js';
+import type { LaneConfig } from '../config/lane-config.js';
 import { UPDATE_CHANNELS } from './update-types.js';
 import type { UpdateChannel } from './update-types.js';
 
@@ -27,15 +34,24 @@ function isChannel(value: string): value is UpdateChannel {
   return (UPDATE_CHANNELS as readonly string[]).includes(value);
 }
 
-export function resolveUpdateConfig(env: NodeJS.ProcessEnv): ResolvedUpdateConfig {
-  const origin = env.ELECTRON_UPDATE_FEED_URL?.trim();
-  const rawChannel = env.POS_PULSE_UPDATE_CHANNEL;
+/**
+ * RT-1346 (RT-1345 D2) — each input resolves process environment, then the value
+ * baked into the build (`config/lane-config.ts`), then nothing. The channel's
+ * telemetry and heartbeat readers call this too, so they follow the baked channel.
+ */
+export function resolveUpdateConfig(
+  env: NodeJS.ProcessEnv,
+  baked: LaneConfig | null = getBakedLaneConfig(),
+): ResolvedUpdateConfig {
+  const origin = resolveLaneValue(env[ENV_UPDATE_ORIGIN], baked?.updateOrigin).value?.trim();
+  // Only the empty string is an unset channel (a stray space is refused, as before).
+  const rawChannel = resolveLaneValue(
+    env[ENV_UPDATE_CHANNEL],
+    baked?.updateChannel,
+    (value) => value === '',
+  ).value;
   const channel =
-    rawChannel === undefined || rawChannel === ''
-      ? DEFAULT_CHANNEL
-      : isChannel(rawChannel)
-        ? rawChannel
-        : null;
+    rawChannel === undefined ? DEFAULT_CHANNEL : isChannel(rawChannel) ? rawChannel : null;
   return { origin: origin === undefined || origin === '' ? undefined : origin, channel };
 }
 

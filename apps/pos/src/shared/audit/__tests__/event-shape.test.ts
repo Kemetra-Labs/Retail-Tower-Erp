@@ -119,6 +119,9 @@ describe('audit/event-shape — OperatorRefusal envelope (NFR-003 / PR-2)', () =
       'closed_here_unsent',
       // RT-1312 F18 — cashier sign-in refused: the till clock is more than 120 s off the server.
       'clock_skew',
+      // RT-1346 (RT-1345 D4) — manager sign-in refused: the terminal has no usable server address or sign-in identity setting.
+      'server_address_unconfigured',
+      'identity_unconfigured',
     ]);
   });
 

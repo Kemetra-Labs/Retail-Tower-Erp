@@ -100,6 +100,77 @@ describe('resolveOperatorExchanger — Descope', () => {
   });
 });
 
+/**
+ * RT-1346 (RT-1345 D2) — a terminal installed from the downloaded installer has no
+ * `DESCOPE_PROJECT_ID`; the id baked into the build is its source. Same validation as
+ * the environment value (shape, US region), and an environment value is authoritative.
+ */
+describe('resolveOperatorExchanger — baked project id', () => {
+  type Baked = { readonly lane: 'pilot'; readonly descopeProjectId?: string } | null;
+
+  function setupBaked(env: Record<string, string | undefined>, baked: Baked) {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response('{}', { status: 401 })));
+    const warn = vi.fn();
+    const exchanger = resolveOperatorExchanger({ env, fetch: fetchImpl, logger: { warn }, baked });
+    return { exchanger, fetchImpl, warn };
+  }
+
+  function bearerOf(fetchImpl: ReturnType<typeof setupBaked>['fetchImpl']): string | undefined {
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
+    return (init.headers as Record<string, string>)['Authorization'];
+  }
+
+  it('uses the baked id when the environment has none', async () => {
+    const { exchanger, fetchImpl, warn } = setupBaked(
+      {},
+      { lane: 'pilot', descopeProjectId: PROJECT_ID },
+    );
+    await exchanger.exchange({ identifier: 'i', password: 'p' });
+    expect(bearerOf(fetchImpl)).toBe(`Bearer ${PROJECT_ID}`);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('the environment id wins over the baked one', async () => {
+    const envId = 'P2zyxwvutsrqponmlkjihgfedcba';
+    const { exchanger, fetchImpl } = setupBaked(
+      { DESCOPE_PROJECT_ID: envId },
+      { lane: 'pilot', descopeProjectId: PROJECT_ID },
+    );
+    await exchanger.exchange({ identifier: 'i', password: 'p' });
+    expect(bearerOf(fetchImpl)).toBe(`Bearer ${envId}`);
+  });
+
+  it('a malformed environment id refuses; the baked id is not substituted behind it', async () => {
+    const { exchanger, fetchImpl, warn } = setupBaked(
+      { DESCOPE_PROJECT_ID: 'P2abc/../evil' },
+      { lane: 'pilot', descopeProjectId: PROJECT_ID },
+    );
+    expect(await exchanger.exchange({ identifier: 'i', password: 'p' })).toEqual({
+      kind: 'refused',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(warnedEvent(warn)).toBe('operator.descope.malformed_project_id');
+  });
+
+  it.each<[string, Baked]>([
+    ['no baked configuration', null],
+    ['a baked file without a project id', { lane: 'pilot' }],
+  ])('with neither source (%s) it refuses generically, as today', async (_name, baked) => {
+    const { exchanger, fetchImpl, warn } = setupBaked({}, baked);
+    expect(await exchanger.exchange({ identifier: 'i', password: 'p' })).toEqual({
+      kind: 'refused',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(warnedEvent(warn)).toBe('operator.descope.missing_project_id');
+  });
+
+  it('defaults to the configuration loaded at start-up, which is none in a test', async () => {
+    const { result, warn } = await exchange({});
+    expect(result).toEqual({ kind: 'refused' });
+    expect(warnedEvent(warn)).toBe('operator.descope.missing_project_id');
+  });
+});
+
 describe('resolveOperatorExchanger — regional Descope project', () => {
   it('refuses a regional project id (its API host is not api.descope.com)', async () => {
     const { result, fetchImpl, warn } = await exchange({

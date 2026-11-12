@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { app } from 'electron';
+import { ENV_API_BASE_URL, getBakedLaneConfig, resolveLaneValue } from '../config/lane-config.js';
 import type { OperatorExchanger } from '../operator/operator-exchanger.js';
 import { resolveOperatorExchanger } from '../operator/resolve-exchanger.js';
 
@@ -9,6 +10,11 @@ import { resolveOperatorExchanger } from '../operator/resolve-exchanger.js';
  * the main bundle — main is built with tsc, not Vite). Falls back to
  * a non-routable placeholder when unset.
  *
+ * RT-1346 (RT-1345 D2) — precedence: process environment, then the address baked
+ * into the build (`dist/lane-config.json`, `config/lane-config.ts`), then the
+ * placeholder. A terminal installed from the downloaded installer has no
+ * environment variables, so the baked address is its only source.
+ *
  * Public hardening: source must not publish live environment endpoints.
  * Configure the real Data-Pulse-2 host per environment via `VITE_API_BASE_URL`;
  * the default intentionally fails closed.
@@ -16,9 +22,11 @@ import { resolveOperatorExchanger } from '../operator/resolve-exchanger.js';
 const DEFAULT_API_BASE_URL = 'https://example.invalid';
 
 export function resolveApiBaseUrl(): string {
-  const fromEnv = process.env['VITE_API_BASE_URL'];
-  if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) return fromEnv;
-  return DEFAULT_API_BASE_URL;
+  const resolved = resolveLaneValue(
+    process.env[ENV_API_BASE_URL],
+    getBakedLaneConfig()?.apiBaseUrl,
+  );
+  return resolved.value ?? DEFAULT_API_BASE_URL;
 }
 
 /**

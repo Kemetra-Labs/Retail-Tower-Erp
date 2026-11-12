@@ -77,6 +77,7 @@ import { createWorkerRegistry } from './app/bootstrap-workers.js';
 import { createWindowFactory } from './app/bootstrap-window.js';
 import { createDatabaseHolder } from './app/bootstrap-db.js';
 import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from './bootstrap/env.js';
+import { assessRuntimeConfig, initBakedLaneConfig } from './config/lane-config.js';
 import { registerBranding } from './bootstrap/branding.js';
 import { registerDeviceHeartbeat } from './bootstrap/device-heartbeat.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
@@ -314,6 +315,7 @@ singleInstanceReady
       logsDir,
     });
     mainLogger.info({ logsDir, appVersion }, 'app:logger-ready');
+    initBakedLaneConfig({ appPath: app.getAppPath(), logger: mainLogger, env: process.env });
 
     // RT-164 — a PACKAGED build refuses debugging switches (`--remote-debugging-*`
     // has no Electron fuse; `--inspect*` is refused here as well as by the fuse).
@@ -640,12 +642,9 @@ singleInstanceReady
 
     // 004-operator-session — wire `operator.*` IPC.
     //
-    // Identity-provider (Descope) credential exchange happens HERE in the
-    // main process; the password NEVER reaches Backend-Core (Wave 1 path b /
-    // AD-2 / Constitution v1.5.1). If `DESCOPE_PROJECT_ID` is unset or
-    // malformed, we wire a stub exchanger that always refuses — the app still
-    // launches and `/sign-in` is reachable, but submit fails with the generic
-    // refusal copy.
+    // Descope credential exchange happens HERE in main; the password NEVER reaches Backend-Core
+    // (Wave 1 path b / AD-2). An unset or malformed project id wires a refusing stub, so the app
+    // still launches; RT-1346 sign-in names the missing setting (`configProblem`).
     // RT-215 (Codex P1): neither holder accepts a credential while the device
     // is revoked, so a sign-in that completes late cannot repopulate one.
     const refuseWhileRevoked = { refuseWhile: () => pairingStore.isDeviceRevoked() };
@@ -761,6 +760,7 @@ singleInstanceReady
       // RT-215 (Codex P1): a late success under a revoked/replaced pairing is dropped.
       pairingEpoch: () => pairingStore.getPairingEpoch(),
       clerk: identityExchanger,
+      configProblem: () => assessRuntimeConfig(process.env),
       backend: operatorBackend,
       sessionManager: operatorSessionManager,
       // 016 (review HIGH): JWT → operator-identity holder; envelope → sale-sync holder.
