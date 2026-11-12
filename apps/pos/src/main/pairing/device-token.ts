@@ -1,6 +1,6 @@
 import type { SecretKey, SecretStore } from '../../shared/secret-store.js';
 
-import type { DeviceRevocationStore, PairingStore } from './store.js';
+import type { ApiOriginBinding, DeviceRevocationStore, PairingStore } from './store.js';
 import { sameBinding, tokenBoundTo } from './token-binding.js';
 
 /**
@@ -88,7 +88,12 @@ export function createSendableDeviceTokenRead(
  * another pairing (RT-306). Never throws; never logs.
  */
 export interface RevocationRecheckTokenReadDeps {
-  pairingStore: Pick<DeviceRevocationStore, 'isDeviceRevoked' | 'getStoredPairingBinding'>;
+  /**
+   * RT-1348: `isOtherServer` (the real store has it) keeps even this read from
+   * handing the token out while the pairing belongs to another backend.
+   */
+  pairingStore: Pick<DeviceRevocationStore, 'isDeviceRevoked' | 'getStoredPairingBinding'> &
+    Partial<Pick<ApiOriginBinding, 'isOtherServer'>>;
   secretStore: Pick<SecretStore, 'get'>;
   deviceTokenKey: SecretKey;
 }
@@ -97,7 +102,9 @@ export function createRevocationRecheckTokenRead(
   deps: RevocationRecheckTokenReadDeps,
 ): () => Promise<string | null> {
   return async (): Promise<string | null> => {
-    if (!deps.pairingStore.isDeviceRevoked()) return null;
+    if (!deps.pairingStore.isDeviceRevoked() || deps.pairingStore.isOtherServer?.() === true) {
+      return null;
+    }
     let sealed: string | null;
     try {
       sealed = await deps.secretStore.get(deps.deviceTokenKey);
@@ -105,7 +112,9 @@ export function createRevocationRecheckTokenRead(
       return null;
     }
     // Nothing awaits between this check and handing the token out.
-    if (!deps.pairingStore.isDeviceRevoked()) return null;
+    if (!deps.pairingStore.isDeviceRevoked() || deps.pairingStore.isOtherServer?.() === true) {
+      return null;
+    }
     return tokenBoundTo(sealed, deps.pairingStore.getStoredPairingBinding());
   };
 }

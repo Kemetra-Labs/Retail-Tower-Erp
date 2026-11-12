@@ -441,6 +441,7 @@ singleInstanceReady
       logger: mainLogger,
     });
 
+    const apiBaseUrl = resolveApiBaseUrl(); // RT-1348: the pairing store binds to its origin
     // 002-terminal-pairing T011/T013 — construct the pairing store on
     // the shared DB handle + SecretStore. The store is the only module
     // that touches both halves of pairing state.
@@ -449,6 +450,8 @@ singleInstanceReady
         secretStore,
         db: bindPairingStoreDb(db),
         deviceTokenKey: DEVICE_TOKEN_KEY,
+        apiBaseUrl,
+        logger: mainLogger,
       }),
       offlineGrants,
     );
@@ -517,10 +520,7 @@ singleInstanceReady
       readToken: readSendableDeviceToken,
       currentTerminalId: () => pairingStore.getCurrentTerminalId(),
     });
-    const pairingNetwork = createNetwork({
-      fetch: backendBaseFetch,
-      baseUrl: resolveApiBaseUrl(),
-    });
+    const pairingNetwork = createNetwork({ fetch: backendBaseFetch, baseUrl: apiBaseUrl });
     // RT-202 — pairing happens in the renderer WITHOUT a process relaunch, so the
     // paired-only workers cannot be bound only at boot. They register a starter
     // with this latch (at the sites below); it fires at boot when already paired
@@ -687,7 +687,6 @@ singleInstanceReady
       },
       logger: mainLogger,
     });
-    const apiBaseUrl = resolveApiBaseUrl();
     // RT-601 (VN-S6 S6-1a) — the connection monitor's passive feeder. Every
     // Backend-Core device and operator fetch below is built on `backendFetch`,
     // which only OBSERVES the transport outcome (an HTTP status or a fault) and
@@ -800,6 +799,7 @@ singleInstanceReady
       onUnauthorized: () => {
         deviceGrantHooks.onUnauthorized();
       },
+      onDeviceAccepted: pairingStore.adoptApiOrigin, // RT-1348: legacy pairing adopts the origin
       logger: mainLogger,
     });
     // Review F5: each device-bearer client gets its OWN observed fetch, tagged

@@ -19,6 +19,12 @@ const MESSAGES: Record<InvalidReason, string> = {
   // RT-306 — the sealed token does not belong to the stored pairing (a crash
   // during a re-pair). Nothing was sent with it.
   inconsistent: 'يجب ربط الجهاز مرة أخرى. آخر عملية ربط لم تكتمل.',
+  // RT-1348 — the terminal was paired against another server than the one the
+  // app is running against now. Nothing was sent to this server; unsent sales
+  // stay on the terminal (same promise as the revoked copy). Draft copy, pending
+  // the owner's Arabic review.
+  other_server:
+    'هذا الجهاز مرتبط بخادم آخر غير الذي يعمل عليه التطبيق الآن. شغّل التطبيق على الخادم الذي رُبط به، أو أدخل رمز ربط جديدًا من لوحة الإدارة لربطه بهذا الخادم. المبيعات التي لم تُرسَل محفوظة على الجهاز.',
 };
 
 interface InvalidStateBannerProps {
