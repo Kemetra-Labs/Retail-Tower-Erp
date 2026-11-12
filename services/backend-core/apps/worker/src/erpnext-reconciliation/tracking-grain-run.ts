@@ -23,6 +23,9 @@
  *   - `erp_flags_disagree`: the ERP Item flags disagree with the profile;
  *   - `batch_without_identity`: a reported Batch maps to no identity of the
  *     product (not born yet, or another product's);
+ *   - `batches_differ_from_item`: the Item's Bin quantity differs from the
+ *     exact sum of its Batches (stock outside any Batch; the stock-view
+ *     contract says a difference is a finding for the compare);
  *   - `untracked_effects`: effects without an identity since the anchor.
  *
  * Explanatory only: nothing here changes an effect, an identity or ERP stock
@@ -42,6 +45,7 @@ type TrackingMismatchReason =
   | "tracking_evidence_missing"
   | "erp_flags_disagree"
   | "batch_without_identity"
+  | "batches_differ_from_item"
   | "untracked_effects";
 
 interface TrackingGrainLine {
@@ -64,6 +68,8 @@ interface EntryEvidence {
   readonly flagsAgree: boolean;
   /** Batch name → book quantity (exact string). */
   readonly batches: ReadonlyMap<string, string>;
+  /** The Item's Bin quantity and the exact sum of its Batches, when they differ (else null). */
+  readonly batchGap: { readonly itemQuantity: string; readonly batchesTotal: string } | null;
 }
 
 interface RunEvidence {
@@ -81,6 +87,9 @@ interface EvidenceDbRow {
   has_evidence: boolean;
   flags_agree: boolean;
   batches: Array<{ name: string; quantity: string }> | null;
+  item_quantity: string;
+  batches_total: string;
+  batches_differ: boolean;
 }
 
 /** The run's batch-tracked Bin entries (first entry per product) and their Batches. */
@@ -102,11 +111,17 @@ async function readRunEvidence(client: PoolClient, runId: string): Promise<RunEv
             COALESCE(jsonb_typeof(en.entry->'tracking') = 'object', false) AS has_evidence,
             COALESCE((en.entry->'tracking'->>'hasBatchNo')::boolean IS TRUE
                      AND (en.entry->'tracking'->>'hasSerialNo')::boolean IS NOT TRUE, false) AS flags_agree,
-            (SELECT jsonb_agg(jsonb_build_object('name', b->'batchRef'->>'name', 'quantity', b->>'quantity'))
-               FROM jsonb_array_elements(
-                      CASE WHEN jsonb_typeof(en.entry->'tracking'->'batches') = 'array'
-                           THEN en.entry->'tracking'->'batches' ELSE '[]'::jsonb END) AS b) AS batches
+            b.batches,
+            (en.entry->>'quantity')::numeric::text AS item_quantity,
+            b.total::text AS batches_total,
+            (en.entry->>'quantity')::numeric <> b.total AS batches_differ
        FROM entries en
+       CROSS JOIN LATERAL (
+         SELECT jsonb_agg(jsonb_build_object('name', x->'batchRef'->>'name', 'quantity', x->>'quantity')) AS batches,
+                COALESCE(sum((x->>'quantity')::numeric), 0) AS total
+           FROM jsonb_array_elements(
+                  CASE WHEN jsonb_typeof(en.entry->'tracking'->'batches') = 'array'
+                       THEN en.entry->'tracking'->'batches' ELSE '[]'::jsonb END) AS x) b
        JOIN tenant_products p ON p.id = en.product AND p.tracking_mode = 'batch'`,
     [runId],
   );
@@ -126,6 +141,7 @@ async function readRunEvidence(client: PoolClient, runId: string): Promise<RunEv
       hasEvidence: row.has_evidence,
       flagsAgree: row.flags_agree,
       batches,
+      batchGap: row.batches_differ ? { itemQuantity: row.item_quantity, batchesTotal: row.batches_total } : null,
     });
   }
   if (readAt === null) {
@@ -219,6 +235,13 @@ function entryLines(
     return [];
   }
   if (!entry.flagsAgree) flag(entry.product, "erp_flags_disagree");
+  // Stock the Item holds outside its Batches is compared by no identity line.
+  if (entry.batchGap !== null) {
+    flag(entry.product, "batches_differ_from_item", {
+      erpnext_item_quantity: entry.batchGap.itemQuantity,
+      erpnext_batches_total: entry.batchGap.batchesTotal,
+    });
+  }
   const lines: TrackingGrainLine[] = [];
   const orphans: string[] = [];
   for (const [batch, quantity] of entry.batches) {

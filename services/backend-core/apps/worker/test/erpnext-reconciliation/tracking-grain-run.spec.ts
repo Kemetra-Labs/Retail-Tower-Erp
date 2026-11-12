@@ -312,6 +312,28 @@ describe("tracking-grain reconciliation (G7-12)", () => {
     );
   });
 
+  it("flags stock the Item holds outside its Batches (review finding 9)", async () => {
+    if (skip) return;
+    const f = await anchored();
+    const { rows } = await reconcile(f, {
+      quantity: "12",
+      batches: [
+        { name: "B-1", quantity: "6" },
+        { name: "B-2", quantity: "4" },
+      ],
+    });
+    const mismatch = rows.filter((r) => r.mismatch_class === "tracking_mismatch");
+    expect(mismatch.map((r) => r.detail)).toEqual([
+      expect.objectContaining({
+        reasons: ["batches_differ_from_item"],
+        erpnext_item_quantity: "12",
+        erpnext_batches_total: "10",
+      }),
+    ]);
+    // The identities themselves still match.
+    expect(rows.filter((r) => r.mismatch_class === "match")).toHaveLength(2);
+  });
+
   it("does not compare identities without tracking evidence (an older Connector), and says so", async () => {
     if (skip) return;
     const f = await anchored();

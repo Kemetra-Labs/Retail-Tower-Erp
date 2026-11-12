@@ -354,13 +354,17 @@ describe("expiry from ERP evidence (the governed RT-449 correction)", () => {
   it("records a correction, steps the Safety Revision once, and updates the identity", async () => {
     if (skip()) return;
     const f = await seedTenant();
-    const first = await seedRun(f, [
-      { item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate: "2027-03-31" }]) },
-    ]);
+    const first = await seedRun(
+      f,
+      [{ item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate: "2027-03-31" }]) }],
+      { readAt: new Date(Date.now() - 120_000).toISOString() },
+    );
     await master(f, first);
-    const second = await seedRun(f, [
-      { item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate: "2027-04-30" }]) },
-    ]);
+    const second = await seedRun(
+      f,
+      [{ item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate: "2027-04-30" }]) }],
+      { readAt: new Date(Date.now() - 60_000).toISOString() },
+    );
     expect(await master(f, second)).toEqual({ born: 0, existing: 1, expiryCorrected: 1, refused: [] });
     // The same run again: unchanged, no second correction.
     expect((await master(f, second)).expiryCorrected).toBe(0);
@@ -385,12 +389,57 @@ describe("expiry from ERP evidence (the governed RT-449 correction)", () => {
     const f = await seedTenant();
     await master(f, await seedRun(f, [
       { item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate: "2027-03-31" }]) },
-    ]));
+    ], { readAt: new Date(Date.now() - 120_000).toISOString() }));
     const summary = await master(f, await seedRun(f, [
       { item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate: null }]) },
-    ]));
+    ], { readAt: new Date(Date.now() - 60_000).toISOString() }));
     expect(summary.refused).toEqual([{ erpnextBatchRef: "B-1", reason: "expiry_required_cleared" }]);
     expect((await identities(f))[0]!.expiry).toBe("2027-03-31");
+  });
+});
+
+describe("expiry evidence order (review: an older read never rolls the expiry back)", () => {
+  const evidence = (expiryDate: string): Entry[] => [
+    { item: "ITEM-EXP", quantity: "6", tracking: TRACKED([{ name: "B-1", quantity: "6", expiryDate }]) },
+  ];
+
+  it("ignores a run read before the evidence already applied, and a retried run's recorded correction", async () => {
+    if (skip()) return;
+    const f = await seedTenant();
+    const t = (minutesAgo: number): string => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    await master(f, await seedRun(f, evidence("2027-03-31"), { readAt: t(30) }));
+    // Two later reads, processed out of order: T(10) first, then the older T(20).
+    const newer = await seedRun(f, evidence("2027-05-31"), { readAt: t(10) });
+    const older = await seedRun(f, evidence("2027-04-30"), { readAt: t(20) });
+    expect((await master(f, newer)).expiryCorrected).toBe(1);
+    expect((await master(f, older)).expiryCorrected).toBe(0);
+    expect((await identities(f))[0]!.expiry).toBe("2027-05-31");
+    // A still newer read moves it; then the T(10) run is retried: its correction is
+    // recorded, so the retry neither repeats it nor fails on its fingerprint.
+    await master(f, await seedRun(f, evidence("2027-06-30"), { readAt: t(5) }));
+    expect(await master(f, newer)).toEqual({ born: 0, existing: 1, expiryCorrected: 0, refused: [] });
+    expect((await identities(f))[0]!.expiry).toBe("2027-06-30");
+  });
+
+  it("never overrides a person's correction made after the evidence was read", async () => {
+    if (skip()) return;
+    const f = await seedTenant();
+    const stale = new Date(Date.now() - 60_000).toISOString();
+    await master(f, await seedRun(f, evidence("2027-03-31"), { readAt: new Date(Date.now() - 120_000).toISOString() }));
+    const id = await identityId(f, "B-1");
+    // A person's governed correction now (as IdentityExpiryService writes it).
+    await asTenant(f, async (c) => {
+      await c.query(
+        `INSERT INTO tracking_identity_expiry_corrections
+           (tenant_id, tracking_identity_id, tenant_product_ref, old_expiry_date, new_expiry_date, reason_code,
+            command_fingerprint, created_by)
+         VALUES ($1, $2, $3, '2027-03-31', '2027-02-28', 'supplier_notice', repeat('b', 64), $4)`,
+        [f.tenantId, id, f.products.EXP, ACTOR],
+      );
+      await c.query(`UPDATE tracking_identities SET expiry_date = '2027-02-28' WHERE id = $1`, [id]);
+    });
+    expect((await master(f, await seedRun(f, evidence("2027-03-31"), { readAt: stale }))).expiryCorrected).toBe(0);
+    expect((await identities(f))[0]!.expiry).toBe("2027-02-28");
   });
 });
 
@@ -510,6 +559,19 @@ describe("anchorTrackedIdentities", () => {
   });
 });
 
+describe("anchorTrackedIdentities while tracked selling is on", () => {
+  it("refuses (a re-anchor could race an in-flight identity sale effect)", async () => {
+    if (skip()) return;
+    const f = await seedTenant();
+    await activate(f);
+    await master(f, await seedRun(f, EVIDENCE));
+    await pg().admin.query(`UPDATE tenant_inventory_settings SET tracked_selling_enabled = true, tracked_selling_changed_at = now(), tracked_selling_changed_by = sale_effects_activated_by WHERE tenant_id = $1`, [
+      f.tenantId,
+    ]);
+    expect(await anchor(f)).toEqual({ kind: "refused", refusal: { code: "tracked_selling_on", storeIds: [] } });
+  });
+});
+
 describe("identity positions since the anchor", () => {
   async function effect(
     f: Fixture,
@@ -547,6 +609,10 @@ describe("identity positions since the anchor", () => {
     const b1 = await identityId(f, "B-1");
     // An ERP receipt created BEFORE the snapshot read, imported after: the Bin holds it already.
     await effect(f, { identity: b1, product: f.products.EXP, quantity: "4", origin: "erp_external", occurredAt: new Date(Date.parse(readAt) - 1_000).toISOString(), eventType: "erp_procurement_receipt" });
+    // Sales recorded BEFORE the anchor (untracked while the switch is off, and one at
+    // the identity): the anchor's batch-wise Bin already holds them (review finding 1).
+    await effect(f, { identity: null, product: f.products.EXP, quantity: "-3", origin: "retail", occurredAt: new Date().toISOString(), eventType: "sale" });
+    await effect(f, { identity: b1, product: f.products.EXP, quantity: "-1", origin: "retail", occurredAt: new Date().toISOString(), eventType: "sale" });
     expect((await anchor(f)).kind).toBe("anchored");
     // After the anchor: an ERP receipt created after the read, and a retail adjustment.
     await effect(f, { identity: b1, product: f.products.EXP, quantity: "2", origin: "erp_external", occurredAt: new Date().toISOString(), eventType: "erp_procurement_receipt" });

@@ -74,7 +74,10 @@
 -- FKs take SHARE ROW EXCLUSIVE on tenants, stores, tracking_identities,
 -- erp_stock_import_rows, stock_movements, inventory_anchors and
 -- erpnext_reconciliation_run while it commits (brief; nothing is scanned).
--- The column add and its NOT VALID CHECK take ACCESS EXCLUSIVE on
+-- The unique (id, tenant_id) index on erpnext_reconciliation_run builds in
+-- place under SHARE lock (it blocks run writes for the build only; the table
+-- holds one row per stock run, small at pilot volume, as 0096's warehouse-map
+-- target). The column add and its NOT VALID CHECK take ACCESS EXCLUSIVE on
 -- erp_stock_import_rows briefly (catalog only; VALIDATE after the commit).
 -- The CHECK swap takes ACCESS EXCLUSIVE on erpnext_reconciliation_result only
 -- for the DROP and the ADD ... NOT VALID (catalog changes); the VALIDATE runs
@@ -90,6 +93,12 @@ BEGIN;
 
 SET LOCAL lock_timeout = '2s';
 
+-- The composite target of the runs' same-tenant FKs below (a small table: one
+-- row per stock reconciliation run). An FK check bypasses row security, so a
+-- plain (id) reference would accept another tenant's run.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_erpnext_reconciliation_run_id_tenant
+  ON erpnext_reconciliation_run (id, tenant_id);
+
 -- 1. tracking_identity_births ------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS tracking_identity_births (
@@ -98,7 +107,7 @@ CREATE TABLE IF NOT EXISTS tracking_identity_births (
   tracking_identity_id   UUID          NOT NULL,
   tenant_product_ref     UUID          NOT NULL,
   source                 TEXT          NOT NULL,
-  reconciliation_run_id  UUID          REFERENCES erpnext_reconciliation_run(id) ON DELETE RESTRICT,
+  reconciliation_run_id  UUID,
   import_row_id          UUID,
   erpnext_item_ref       TEXT          NOT NULL,
   erpnext_batch_ref      TEXT          NOT NULL,
@@ -107,6 +116,8 @@ CREATE TABLE IF NOT EXISTS tracking_identity_births (
   CONSTRAINT fk_tracking_identity_births_identity
     FOREIGN KEY (tracking_identity_id, tenant_product_ref, tenant_id)
     REFERENCES tracking_identities (id, tenant_product_ref, tenant_id) ON DELETE RESTRICT,
+  CONSTRAINT fk_tracking_identity_births_run_tenant
+    FOREIGN KEY (reconciliation_run_id, tenant_id) REFERENCES erpnext_reconciliation_run (id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_tracking_identity_births_import_row
     FOREIGN KEY (import_row_id, tenant_id) REFERENCES erp_stock_import_rows (id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT tracking_identity_births_source_allowed
@@ -185,7 +196,7 @@ CREATE TABLE IF NOT EXISTS inventory_identity_anchors (
   generation             INTEGER       NOT NULL,
   -- The store's product anchor in force when this one was taken.
   base_anchor_id         UUID          NOT NULL,
-  source_run_id          UUID          NOT NULL REFERENCES erpnext_reconciliation_run(id) ON DELETE RESTRICT,
+  source_run_id          UUID          NOT NULL,
   snapshot_read_at       TIMESTAMPTZ   NOT NULL,
   snapshot_recorded_at   TIMESTAMPTZ   NOT NULL,
   erpnext_warehouse_ref  TEXT          NOT NULL,
@@ -195,6 +206,8 @@ CREATE TABLE IF NOT EXISTS inventory_identity_anchors (
   created_at             TIMESTAMPTZ   NOT NULL DEFAULT now(),
   CONSTRAINT fk_inventory_identity_anchors_store_tenant
     FOREIGN KEY (tenant_id, store_id) REFERENCES stores (tenant_id, id) ON DELETE RESTRICT,
+  CONSTRAINT fk_inventory_identity_anchors_run_tenant
+    FOREIGN KEY (source_run_id, tenant_id) REFERENCES erpnext_reconciliation_run (id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT fk_inventory_identity_anchors_base_anchor
     FOREIGN KEY (base_anchor_id, tenant_id) REFERENCES inventory_anchors (id, tenant_id) ON DELETE RESTRICT,
   CONSTRAINT inventory_identity_anchors_generation_positive CHECK (generation >= 1),
@@ -287,7 +300,16 @@ ALTER TABLE erpnext_reconciliation_result
 
 COMMIT;
 
+-- Each VALIDATE in its own transaction with the same lock bound (SHARE UPDATE
+-- EXCLUSIVE: reads and writes continue while it scans).
+BEGIN;
+SET LOCAL lock_timeout = '2s';
 ALTER TABLE erpnext_reconciliation_result
   VALIDATE CONSTRAINT erpnext_reconciliation_result_class_valid;
+COMMIT;
+
+BEGIN;
+SET LOCAL lock_timeout = '2s';
 ALTER TABLE erp_stock_import_rows
   VALIDATE CONSTRAINT erp_stock_import_rows_event_type_allowed;
+COMMIT;

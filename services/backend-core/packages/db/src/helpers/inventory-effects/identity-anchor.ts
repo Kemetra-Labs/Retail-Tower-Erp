@@ -14,7 +14,7 @@
  *      does, so every in-flight sale / void / return / import writer (SHARED)
  *      finishes first;
  *   2. refuses unless sale effects are active (the store's product anchor
- *      exists, RT-427) and every live store passes the RT-427 snapshot
+ *      exists, RT-427) and tracked selling is off, and every live store passes the RT-427 snapshot
  *      preconditions (`storePreconditionRefusal`: mapped, a complete snapshot
  *      of that warehouse read after the last posted ERP document, nothing in
  *      flight);
@@ -45,7 +45,15 @@
  *     was imported (an import received after activation but created before
  *     the read must not count twice, and one created after the read but
  *     imported before activation must count);
- *   - every other effect counts as the RT-427 `SINCE_ANCHOR` rule counts it.
+ *   - every other effect, sales included, counts when it was received at or
+ *     after the anchor's activation. Unlike RT-427's product anchor (taken
+ *     before any sale effect existed), sale effects exist before an identity
+ *     anchor, and its snapshot (read after the last posted ERP document, with
+ *     nothing in flight) already holds them. A writer still waiting on the
+ *     settings key when the anchor commits would write with an earlier
+ *     `received_at`; the anchor is therefore refused while tracked selling is
+ *     on (`tracked_selling_on`), so no identity-grain sale effect can be in
+ *     flight across it.
  *
  * Read-only except `anchorTrackedIdentities`. Quantities are exact NUMERIC
  * text, never a JS number.
@@ -68,6 +76,7 @@ type Client = Pick<PoolClient, "query">;
 export type IdentityAnchorRefusalCode =
   | Exclude<ActivationRefusalCode, "already_active">
   | "sale_effects_inactive"
+  | "tracked_selling_on"
   | "no_product_anchor"
   | "tracking_evidence_missing"
   | "tracking_flags_disagree"
@@ -203,11 +212,15 @@ export async function anchorTrackedIdentities(
     INVENTORY_SETTINGS_LOCK_NAMESPACE,
     input.tenantId,
   ]);
-  const settings = await client.query<{ active: boolean }>(
-    `SELECT sale_effects_activated_at IS NOT NULL AS active FROM tenant_inventory_settings WHERE tenant_id = $1`,
+  const settings = await client.query<{ active: boolean; selling: boolean }>(
+    `SELECT sale_effects_activated_at IS NOT NULL AS active, tracked_selling_enabled AS selling
+       FROM tenant_inventory_settings WHERE tenant_id = $1`,
     [input.tenantId],
   );
   if (settings.rows[0]?.active !== true) return refused({ code: "sale_effects_inactive", storeIds: [] });
+  // A re-anchor after tracked selling is on could race an in-flight identity
+  // sale effect (see SINCE_IDENTITY_ANCHOR): refused; switch off first.
+  if (settings.rows[0]?.selling === true) return refused({ code: "tracked_selling_on", storeIds: [] });
 
   const stores = (await client.query<StoreFactsRow>(STORE_FACTS_SQL)).rows;
   const storeRefusal = storePreconditionRefusal(stores);
@@ -324,7 +337,7 @@ async function writeIdentityAnchor(
  */
 export const SINCE_IDENTITY_ANCHOR = `(CASE WHEN mv.origin = 'erp_external'
          THEN mv.occurred_at > ia.snapshot_read_at
-         ELSE (mv.event_type IN ('sale', 'sale_void', 'sale_return') OR mv.received_at >= ia.activated_at) END)`;
+         ELSE mv.received_at >= ia.activated_at END)`;
 
 /** CTE body: each store's latest identity anchor of an activated tenant (optionally one store $1). */
 const IDENTITY_ANCHOR_CTE = `
@@ -428,7 +441,8 @@ export async function hasIdentityAnchor(client: Client, storeId: string): Promis
 }
 
 /**
- * Per batch-tracked product of the store: the quantity of its effects WITHOUT
+ * Per batch-tracked product of the store (the tracking grain is batch-only;
+ * serial selling is fail-closed): the quantity of its effects WITHOUT
  * an identity since the store's identity anchor (`untracked_effect_on_tracked_product`
  * in the tracking grain: they belong to no identity line). Empty without an
  * identity anchor.
@@ -443,7 +457,7 @@ export async function readUntrackedTrackedEffects(
        FROM ianchor ia
        JOIN stock_movements mv
          ON mv.store_id = ia.store_id AND mv.tracking_identity_id IS NULL AND ${SINCE_IDENTITY_ANCHOR}
-       JOIN tenant_products p ON p.id = mv.tenant_product_ref AND p.tracking_mode <> 'none'
+       JOIN tenant_products p ON p.id = mv.tenant_product_ref AND p.tracking_mode = 'batch'
       GROUP BY mv.tenant_product_ref
       ORDER BY mv.tenant_product_ref`,
     [storeId],

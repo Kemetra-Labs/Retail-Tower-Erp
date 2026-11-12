@@ -130,7 +130,8 @@ info:
     `ReconciliationResult.mismatchClass` adds `tracking_mismatch`: one result
     per tracked product that cannot be fully reconciled at that grain.
     `detail.reasons` lists one or more of `tracking_evidence_missing`,
-    `erp_flags_disagree`, `batch_without_identity` and `untracked_effects`.
+    `erp_flags_disagree`, `batch_without_identity`,
+    `batches_differ_from_item` and `untracked_effects`.
     Every other product and store keeps its RT-428 or legacy comparison. A
     class is explanatory: no result changes an effect, an identity or ERPNext
     stock. No new operation and no new field.
@@ -1107,7 +1108,7 @@ components:
             result per tracked product that cannot be fully reconciled at that
             grain; `detail.reasons` names why (`tracking_evidence_missing`,
             `erp_flags_disagree`, `batch_without_identity`,
-            `untracked_effects`).
+            `batches_differ_from_item`, `untracked_effects`).
         sourceRef:
           type: [string, "null"]
           format: uuid

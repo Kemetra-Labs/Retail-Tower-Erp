@@ -2241,7 +2241,10 @@ components:
         unit; identity × store × unit; product). `identity_without_edge_map`:
         an identity with no ERP edge-map row. `untracked_effect_on_tracked_product`:
         an effect without an identity on a product whose tracking mode is not
-        `none`. `serial_position_out_of_range`: a serial identity's position
+        `none`, recorded since the store's latest per-identity anchor (tracked
+        activation); before it a tracked product is sold untracked by design
+        while tracked selling is off (OD-T4), so a store without that anchor
+        has none. `serial_position_out_of_range`: a serial identity's position
         at a store, summed over its locations and statuses, is outside {0, 1}.
         `profile_erp_flag_mismatch`: the ERP Item flags reported with a
         store's latest complete Bin snapshot disagree with the Tracking

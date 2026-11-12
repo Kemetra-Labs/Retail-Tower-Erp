@@ -30,7 +30,8 @@
  *     birth, a refusal the caller makes visible.
  *   - A Batch already mapped to an identity of ANOTHER product is refused.
  *   - An expiry change carried by the evidence goes through the governed RT-449
- *     expiry correction (a correction row, then the identity UPDATE, then one
+ *     expiry correction, only when that evidence was read after whatever last
+ *     set the identity's expiry (an older read never rolls it back) (a correction row, then the identity UPDATE, then one
  *     Safety Revision step `expiry_corrected`), never a silent UPDATE: 0072's
  *     identity guard refuses an expiry change without its correction row.
  *
@@ -208,11 +209,15 @@ interface ErpExpiryCorrectionInput {
    * a person) and keys the command fingerprint.
    */
   readonly reconciliationRunId: string;
+  /** When the Connector read this evidence (the run's Bin report `readAt`). */
+  readonly evidenceReadAt: string;
 }
 
 type ErpExpiryCorrectionOutcome =
   | { readonly kind: "corrected"; readonly safetyRevision: number }
   | { readonly kind: "unchanged" }
+  /** Older than what last set the expiry (earlier evidence, or a person's correction since). */
+  | { readonly kind: "stale" }
   /** The evidence clears the expiry of an identity whose product requires one. */
   | { readonly kind: "refused_required" };
 
@@ -239,6 +244,17 @@ export async function correctExpiryFromErpEvidence(
   );
   const identity = r.rows[0];
   if (identity === undefined || identity.expiry_date === input.expiryDate) return { kind: "unchanged" };
+  const commandFingerprint = createHash("sha256")
+    .update(
+      [ERP_EVIDENCE_REASON_CODE, input.reconciliationRunId, input.identityId, input.expiryDate ?? ""].join("\n"),
+    )
+    .digest("hex");
+  // A retried run whose correction is already recorded (the expiry moved on since): nothing to do.
+  const done = await client.query(`SELECT 1 FROM tracking_identity_expiry_corrections WHERE command_fingerprint = $1`, [
+    commandFingerprint,
+  ]);
+  if ((done.rowCount ?? 0) > 0) return { kind: "unchanged" };
+  if (await isStaleEvidence(client, input)) return { kind: "stale" };
   if (input.expiryDate === null && identity.expiry_required) return { kind: "refused_required" };
 
   const revision = await client.query<{ revision: string }>(
@@ -248,11 +264,6 @@ export async function correctExpiryFromErpEvidence(
     [input.tenantId],
   );
   const safetyRevision = Number(revision.rows[0]!.revision);
-  const commandFingerprint = createHash("sha256")
-    .update(
-      [ERP_EVIDENCE_REASON_CODE, input.reconciliationRunId, input.identityId, input.expiryDate ?? ""].join("\n"),
-    )
-    .digest("hex");
   await client.query(
     `INSERT INTO tracking_identity_expiry_corrections
        (tenant_id, tracking_identity_id, tenant_product_ref, old_expiry_date, new_expiry_date,
@@ -280,6 +291,34 @@ export async function correctExpiryFromErpEvidence(
     [input.tenantId, safetyRevision, input.identityId, identity.tenant_product_ref, input.reconciliationRunId],
   );
   return { kind: "corrected", safetyRevision };
+}
+
+/**
+ * True when this evidence is not newer than what last set the identity's
+ * expiry: the run it was born from, the run of an earlier ERP-evidence
+ * correction, or a person's correction (its `created_at`). Runs of different
+ * stores, or a retried run, are not processed in read order, so an older read
+ * must never roll the expiry back.
+ */
+async function isStaleEvidence(client: Client, input: ErpExpiryCorrectionInput): Promise<boolean> {
+  const r = await client.query<{ stale: boolean }>(
+    `WITH last_set AS (
+       SELECT (run.summary->'bin_view_report'->>'readAt')::timestamptz AS t
+         FROM tracking_identity_births b
+         JOIN erpnext_reconciliation_run run ON run.id = b.reconciliation_run_id
+        WHERE b.tracking_identity_id = $1
+       UNION ALL
+       SELECT CASE WHEN c.reason_code = $3
+                   THEN (SELECT (run.summary->'bin_view_report'->>'readAt')::timestamptz
+                           FROM erpnext_reconciliation_run run WHERE run.id = c.created_by)
+                   ELSE c.created_at END
+         FROM tracking_identity_expiry_corrections c
+        WHERE c.tracking_identity_id = $1
+     )
+     SELECT COALESCE($2::timestamptz <= (SELECT max(t) FROM last_set), false) AS stale`,
+    [input.identityId, input.evidenceReadAt, ERP_EVIDENCE_REASON_CODE],
+  );
+  return r.rows[0]!.stale;
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +391,12 @@ export async function applyTrackingMasterEvidence(
 ): Promise<TrackingMasterSummary> {
   const rows = (await client.query<MasterBatchRow>(MASTER_ROWS_SQL, [input.runId])).rows;
   if (rows.length === 0) return { born: 0, existing: 0, expiryCorrected: 0, refused: [] };
+  const readAt = (
+    await client.query<{ read_at: string }>(
+      `SELECT summary->'bin_view_report'->>'readAt' AS read_at FROM erpnext_reconciliation_run WHERE id = $1`,
+      [input.runId],
+    )
+  ).rows[0]!.read_at;
   await lockIdentityBirth(client, input.tenantId);
   let born = 0;
   let existing = 0;
@@ -389,6 +434,7 @@ export async function applyTrackingMasterEvidence(
       identityId: outcome.identityId,
       expiryDate: row.expiry,
       reconciliationRunId: input.runId,
+      evidenceReadAt: readAt,
     });
     if (corrected.kind === "corrected") expiryCorrected += 1;
     else if (corrected.kind === "refused_required") {

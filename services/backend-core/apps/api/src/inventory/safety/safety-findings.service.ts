@@ -18,7 +18,11 @@
  *       * `identity_without_edge_map` (per identity, tenant-wide): an identity
  *         with no ERP edge-map row;
  *       * `untracked_effect_on_tracked_product` (per product × store × unit):
- *         an effect without an identity on a product whose mode is not `none`;
+ *         an effect without an identity on a product whose mode is not `none`,
+ *         recorded since the store's latest per-identity anchor (tracked
+ *         activation; the anchor's watermark). Before it, a tracked product
+ *         is sold untracked by design while tracked selling is off (OD-T4);
+ *         a store without an identity anchor has none;
  *       * `serial_position_out_of_range` (per identity × store × unit): a
  *         serial identity's position summed over the store's locations and
  *         statuses outside {0, 1};
@@ -215,8 +219,12 @@ const TRACKING_CONSISTENCY_SQL = `
   SELECT 'untracked_effect_on_tracked_product', m.tenant_product_ref, NULL::uuid, m.store_id, m.stocking_unit
     FROM stock_movements m
     JOIN tenant_products p ON p.id = m.tenant_product_ref AND p.tenant_id = m.tenant_id
+    JOIN LATERAL (SELECT a.activated_at, a.snapshot_read_at FROM inventory_identity_anchors a
+                   WHERE a.store_id = m.store_id ORDER BY a.generation DESC LIMIT 1) ia ON true
    WHERE m.tenant_id = $1 AND m.tracking_identity_id IS NULL AND p.tracking_mode <> 'none'
      AND ($2::uuid[] IS NULL OR m.store_id = ANY($2::uuid[]))
+     AND (CASE WHEN m.origin = 'erp_external' THEN m.occurred_at > ia.snapshot_read_at
+               ELSE m.received_at >= ia.activated_at END)
    GROUP BY m.tenant_product_ref, m.store_id, m.stocking_unit
   UNION ALL
   SELECT 'serial_position_out_of_range', i.tenant_product_ref, i.id, m.store_id, m.stocking_unit

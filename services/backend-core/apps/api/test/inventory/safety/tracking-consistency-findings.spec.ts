@@ -5,7 +5,8 @@
  * Contract: `inventory/inventory.yaml` 1.14.0-draft `TrackingConsistencyFinding`.
  *
  *   - `identity_without_edge_map`: one per identity, tenant-wide;
- *   - `untracked_effect_on_tracked_product`: one per product × store × unit;
+ *   - `untracked_effect_on_tracked_product`: one per product × store × unit,
+ *     for effects since the store's identity anchor (tracked activation);
  *   - `serial_position_out_of_range`: one per identity × store × unit outside {0, 1};
  *   - `profile_erp_flag_mismatch`: one per product whose profile disagrees
  *     with the ERP flags of a store's latest complete Bin snapshot; an entry
@@ -89,13 +90,16 @@ async function effect(o: {
   unit?: string;
   status?: string;
   tenantId?: string;
+  /** Default: now (after the stores' identity anchors). */
+  receivedAt?: string;
 }): Promise<void> {
   const tenantId = o.tenantId ?? TENANT_A;
   await admin.query(
     `INSERT INTO stock_movements
        (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason,
-        occurred_at, created_by, stock_location_id, inventory_status, tracking_identity_id)
-     VALUES (gen_random_uuid(), $1, $2, 'adjustment', $3::numeric, $4, $5, 'rt453 fixture', now(), $6, $7, $8, $9)`,
+        occurred_at, received_at, created_by, stock_location_id, inventory_status, tracking_identity_id)
+     VALUES (gen_random_uuid(), $1, $2, 'adjustment', $3::numeric, $4, $5, 'rt453 fixture', now(),
+             COALESCE($10::timestamptz, now()), $6, $7, $8, $9)`,
     [
       tenantId,
       o.storeId,
@@ -106,9 +110,38 @@ async function effect(o: {
       locations[o.storeId],
       o.status ?? 'sellable',
       o.identity,
+      o.receivedAt ?? null,
     ],
   );
 }
+
+/** The store's product anchor and per-identity anchor (tracked activation), activated at `at`. */
+async function identityAnchor(tenantId: string, storeId: string, at: string): Promise<void> {
+  const actor = tenantId === TENANT_A ? ACTOR_A : ACTOR_B;
+  const run = await admin.query<{ id: string }>(
+    `INSERT INTO erpnext_reconciliation_run (id, tenant_id, store_id, kind, trigger, status, finished_at, summary)
+     VALUES (gen_random_uuid(), $1, $2, 'stock', 'on_demand', 'completed', $3::timestamptz, '{}'::jsonb) RETURNING id::text`,
+    [tenantId, storeId, at],
+  );
+  const base = await admin.query<{ id: string }>(
+    `INSERT INTO inventory_anchors
+       (id, tenant_id, store_id, stock_location_id, inventory_status, generation, source_run_id,
+        snapshot_read_at, snapshot_recorded_at, erpnext_warehouse_ref, activated_at, coverage, created_by)
+     VALUES (gen_random_uuid(), $1, $2, $3, 'sellable', 1, $4, $5::timestamptz, $5::timestamptz, 'WH', $5::timestamptz,
+             '{}'::jsonb, $6) RETURNING id::text`,
+    [tenantId, storeId, locations[storeId], run.rows[0]!.id, at, actor],
+  );
+  await admin.query(
+    `INSERT INTO inventory_identity_anchors
+       (id, tenant_id, store_id, generation, base_anchor_id, source_run_id, snapshot_read_at, snapshot_recorded_at,
+        erpnext_warehouse_ref, activated_at, coverage, created_by)
+     VALUES (gen_random_uuid(), $1, $2, 1, $3, $4, $5::timestamptz, $5::timestamptz, 'WH', $5::timestamptz, '{}'::jsonb, $6)`,
+    [tenantId, storeId, base.rows[0]!.id, run.rows[0]!.id, at, actor],
+  );
+}
+
+/** When the stores took their identity anchors in this file (an hour ago). */
+const ANCHORED_AT = new Date(Date.now() - 3_600_000).toISOString();
 
 /** A complete Bin report on a stock run of the store (entries carry the resolved product, as recorded). */
 async function snapshot(
@@ -181,6 +214,13 @@ beforeAll(async () => {
     [[STORE_A_X, STORE_A_Y, STORE_B_X]],
   );
   for (const row of primaries.rows) locations[row.store_id] = row.id;
+  for (const [tenant, store] of [
+    [TENANT_A, STORE_A_X],
+    [TENANT_A, STORE_A_Y],
+    [TENANT_B, STORE_B_X],
+  ] as const) {
+    await identityAnchor(tenant, store, ANCHORED_AT);
+  }
   const memberships = { findRoleCodeForUserInTenant: async () => role } as unknown as MembershipRepository;
   findings = new SafetyFindingsService(env.app as unknown as Pool, memberships);
   ajv.addSchema(contractDocument(allContracts(), 'inventory') as object, 'inventory');
@@ -225,6 +265,14 @@ describe('tracking_consistency findings (RT-453, G7-12 / 956)', () => {
 
   it('untracked_effect_on_tracked_product: one per product, store and unit, however many effects', async () => {
     if (skipped()) return;
+    // Before the store's identity anchor a tracked product is sold untracked by design (OD-T4): not a finding.
+    await effect({
+      product: P_EXPIRY,
+      storeId: STORE_A_X,
+      quantity: '-1',
+      identity: null,
+      receivedAt: new Date(Date.parse(ANCHORED_AT) - 60_000).toISOString(),
+    });
     await effect({ product: P_BATCH, storeId: STORE_A_X, quantity: '1', identity: null });
     await effect({ product: P_BATCH, storeId: STORE_A_X, quantity: '2', identity: null });
     await effect({ product: P_BATCH, storeId: STORE_A_Y, quantity: '1', identity: null, unit: 'box' });

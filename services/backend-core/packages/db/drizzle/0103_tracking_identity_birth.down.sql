@@ -3,7 +3,7 @@
 -- RT-453 — rollback for 0103_tracking_identity_birth.sql.
 --
 -- Drops the four tables (with their indexes, policies and grants), the
--- awaiting-row index and `erp_stock_import_rows.event_type`, and restores the 0066 CHECK on
+-- awaiting-row index, the runs' (id, tenant_id) target and `erp_stock_import_rows.event_type`, and restores the 0066 CHECK on
 -- erpnext_reconciliation_result (without `tracking_mismatch`).
 --
 -- REFUSES while any birth, row resolution or identity anchor exists, or any
@@ -60,6 +60,7 @@ DROP TABLE IF EXISTS inventory_identity_anchors;
 DROP TABLE IF EXISTS erp_stock_import_row_resolutions;
 DROP TABLE IF EXISTS tracking_identity_births;
 DROP INDEX IF EXISTS idx_erp_stock_import_rows_awaiting_batch;
+DROP INDEX IF EXISTS uq_erpnext_reconciliation_run_id_tenant;
 ALTER TABLE erp_stock_import_rows DROP CONSTRAINT IF EXISTS erp_stock_import_rows_event_type_allowed;
 ALTER TABLE erp_stock_import_rows DROP COLUMN IF EXISTS event_type;
 
@@ -79,5 +80,8 @@ COMMIT;
 -- Validated again after the commit, as 0066 left it (SHARE UPDATE EXCLUSIVE:
 -- reads and writes continue). The guard above refused any `tracking_mismatch`
 -- row, so every row satisfies the restored CHECK.
+BEGIN;
+SET LOCAL lock_timeout = '2s';
 ALTER TABLE erpnext_reconciliation_result
   VALIDATE CONSTRAINT erpnext_reconciliation_result_class_valid;
+COMMIT;
