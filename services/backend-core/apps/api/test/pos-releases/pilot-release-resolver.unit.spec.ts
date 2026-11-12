@@ -2,6 +2,8 @@
  * RT-1292: the pilot resolver's decision logic, with fakes for the database and
  * the presigner. The real-Postgres proof is `pos-pilot-release.never-cross.spec.ts`.
  */
+import { inspect } from "node:util";
+
 import type { PilotReleaseConfig } from "../../src/pos-pilot-releases/pilot-release.config";
 import {
   resolveLatestPilotRelease,
@@ -140,5 +142,63 @@ describe("RT-1292 pilot resolver", () => {
     const { deps, calls } = harness({ issuedThrows: true });
     await expect(resolveLatestPilotRelease(deps)).rejects.toThrow("audit failed");
     expect(calls.outcomes).toEqual([]);
+  });
+
+  /**
+   * RT-1292 acceptance criterion 5: no URL appears in logs, metrics or audit rows.
+   * The audit half is `pos-pilot-release.never-cross.spec.ts` (real Postgres). This is the log
+   * and metric half at the resolver: every path (issued, each ineligible case, a failed presign,
+   * a failed audit write) runs with stdout, stderr and the console captured, and the only value
+   * the metric receives is a closed outcome name.
+   */
+  it("regression guard: the resolver writes no URL, signature, object key or version id to any log, and hands the metric closed outcomes only", async () => {
+    const written: string[] = [];
+    const capture = (chunk: unknown): boolean => {
+      written.push(String(chunk));
+      return true;
+    };
+    // Objects are inspected, not joined, so `console.log({ url })` would be seen.
+    const record = (...args: unknown[]): void => {
+      written.push(args.map((arg) => (typeof arg === "string" ? arg : inspect(arg, { depth: 6 }))).join(" "));
+    };
+    const spies = [
+      jest.spyOn(process.stdout, "write").mockImplementation(capture),
+      jest.spyOn(process.stderr, "write").mockImplementation(capture),
+      jest.spyOn(console, "log").mockImplementation(record),
+      jest.spyOn(console, "info").mockImplementation(record),
+      jest.spyOn(console, "warn").mockImplementation(record),
+      jest.spyOn(console, "error").mockImplementation(record),
+      jest.spyOn(console, "debug").mockImplementation(record),
+    ];
+    const outcomes: string[] = [];
+    try {
+      const paths: ReadonlyArray<Parameters<typeof harness>[0]> = [
+        {},
+        ...unavailable.map(([, overrides]) => overrides),
+        { presigner: "throws" },
+        { issuedThrows: true },
+      ];
+      for (const overrides of paths) {
+        const { deps, calls } = harness(overrides);
+        await resolveLatestPilotRelease(deps).catch(() => undefined);
+        outcomes.push(...calls.outcomes);
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    const everything = written.join("\n");
+    for (const secret of ["bucket.example", "sig=abc", RELEASE.artifactKey, RELEASE.artifactVersionId, "pos/pilot/"]) {
+      expect(everything).not.toContain(secret);
+    }
+    expect(outcomes.length).toBeGreaterThan(0);
+    const closed = [
+      "issued",
+      "none_not_configured",
+      "none_not_allowlisted",
+      "none_no_current_release",
+      "none_class_mismatch",
+      "none_pin_mismatch",
+    ];
+    for (const outcome of outcomes) expect(closed).toContain(outcome);
   });
 });
