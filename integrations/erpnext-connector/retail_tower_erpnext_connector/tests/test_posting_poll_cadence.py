@@ -112,9 +112,10 @@ class TestSetter:
 		mod, fake = scheduling({"job-1": _row(_POLL, 0)})
 		assert mod.ensure_posting_poll_logged() is True
 		assert fake.db.rows["job-1"]["create_log"] == 1
-		# db.set_value never commits or touches `modified`: migrate / install commit at the end.
+		# `modified` is left alone, and the write is committed at once so a later rollback of the tick
+		# (an exception, the glue's deadlock handler) cannot discard it.
 		assert fake.db.writes == [("job-1", "create_log", 1, False)]
-		assert fake.db.commits == 0
+		assert fake.db.commits == 1
 
 	def test_is_idempotent(self, scheduling):
 		mod, fake = scheduling({"job-1": _row(_POLL, 0)})
@@ -123,7 +124,7 @@ class TestSetter:
 		assert mod.ensure_posting_poll_logged() is False
 		assert fake.db.writes == []
 
-	def test_an_operator_who_turned_it_off_is_corrected_on_the_next_migrate(self, scheduling):
+	def test_an_operator_who_turned_it_off_is_corrected_on_the_next_run(self, scheduling):
 		mod, fake = scheduling({"job-1": _row(_POLL, 1)})
 		fake.db.rows["job-1"]["create_log"] = 0  # someone unticked "Create Log" in the desk
 		assert mod.ensure_posting_poll_logged() is True
@@ -135,11 +136,12 @@ class TestSetter:
 		assert fake.db.rows["job-2"]["create_log"] == 0
 		assert [w[0] for w in fake.db.writes] == ["job-1"]
 
-	def test_a_missing_row_is_a_logged_no_op_not_a_failed_migrate(self, scheduling):
-		# Fresh install: after_install runs before Frappe's sync_jobs, so the row may not exist yet.
+	def test_a_missing_row_is_a_logged_no_op_and_commits_nothing(self, scheduling):
+		# Defensive: the scheduler only runs a job that has a row, but a manual call must not raise.
 		mod, fake = scheduling({"job-2": _row(_OTHER, 0)})
 		assert mod.ensure_posting_poll_logged() is False
 		assert fake.db.writes == []
+		assert fake.db.commits == 0
 		assert [level for level, _ in fake._logger.records] == ["warning"]
 		assert fake._logger.records[0][1]["event"] == "posting.poll.scheduling.row_missing"
 

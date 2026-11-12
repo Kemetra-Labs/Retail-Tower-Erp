@@ -58,6 +58,13 @@ class TestPostingPollScheduling(unittest.TestCase):
 		frappe.db.set_value(JOB_TYPE, self.job_name, "last_execution", None, update_modified=False)
 		return frappe.get_doc(JOB_TYPE, self.job_name)
 
+	def _ensure(self):
+		"""The setter commits at once; keep that inside the test transaction (rolled back in tearDown)."""
+		with mock.patch.object(frappe.local.db, "commit") as commit:
+			changed = self.scheduling.ensure_posting_poll_logged()
+		self.assertEqual(commit.call_count, int(changed))
+		return changed
+
 	def _run_once(self, job):
 		"""Drive Frappe's own status writes for one run: Start at START, Complete POLL_SECONDS later."""
 		job.scheduler_log = None  # what ScheduledJobType.execute() sets before the first status
@@ -69,13 +76,13 @@ class TestPostingPollScheduling(unittest.TestCase):
 
 	def test_the_setter_turns_create_log_on_and_is_idempotent(self):
 		self._job(create_log=0)
-		self.assertTrue(self.scheduling.ensure_posting_poll_logged())
+		self.assertTrue(self._ensure())
 		self.assertEqual(frappe.db.get_value(JOB_TYPE, self.job_name, "create_log"), 1)
-		self.assertFalse(self.scheduling.ensure_posting_poll_logged())
+		self.assertFalse(self._ensure())
 
 	def test_with_create_log_a_poll_ending_past_the_boundary_leaves_the_next_tick_due(self):
 		self._job(create_log=0)
-		self.scheduling.ensure_posting_poll_logged()
+		self._ensure()
 		job = frappe.get_doc(JOB_TYPE, self.job_name)
 		self.assertEqual(job.create_log, 1)
 		self._run_once(job)

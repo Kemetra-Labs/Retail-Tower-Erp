@@ -14,8 +14,8 @@ minute after the previous run STARTED, whatever the scheduler's tick phase.
 ``hooks.py`` cannot set it: Frappe's ``insert_single_event`` keeps the stored value of every field
 except ``frequency`` and ``cron_format`` once the row exists. So the poller itself makes sure of it at
 the start of every run (:func:`ensure_posting_poll_logged`: one indexed read, a write only when the
-flag was off). That also corrects an operator who unticks "Create Log" in the desk, needs no migrate
-ordering (Frappe's ``install_app`` runs ``sync_jobs`` after ``after_install``), and changes no
+flag was off, committed at once). That also corrects an operator who unticks "Create Log" in the desk,
+needs no migrate or install ordering (Frappe's ``install_app`` runs ``sync_jobs`` after ``after_install``), and changes no
 ``hooks.py`` statement, so the release stays ``image-only`` for the lab's rollback class (RT-927 treats
 any ``hooks.py`` change outside ``scheduler_events`` as ``restore``). The first run after a deploy still
 ends with the old in-memory flag (Frappe loaded the job before the write), so that one run is stamped at
@@ -40,8 +40,9 @@ POSTING_POLL_METHOD = "retail_tower_erpnext_connector.connector.posting.poller.r
 def ensure_posting_poll_logged() -> bool:
 	"""Idempotently turn ``create_log`` on for the posting poll; return whether this call changed it.
 
-	A missing row is a logged no-op. ``db.set_value`` neither commits nor touches ``modified``;
-	Frappe's ``ScheduledJobType.execute`` commits when the run's method returns.
+	A missing row is a logged no-op. The write is committed at once: it is the first write of the run
+	(Frappe already committed the Start status), so the commit takes nothing else with it, and a tick
+	that later raises (Frappe rolls the run back) or hits the glue's deadlock rollback cannot discard it.
 	"""
 	row = frappe.db.get_value(
 		"Scheduled Job Type", {"method": POSTING_POLL_METHOD}, ["name", "create_log"], as_dict=True
@@ -54,5 +55,6 @@ def ensure_posting_poll_logged() -> bool:
 	if row.create_log:
 		return False
 	frappe.db.set_value("Scheduled Job Type", row.name, "create_log", 1, update_modified=False)
+	frappe.db.commit()
 	frappe.logger(_LOGGER).info({"event": "posting.poll.scheduling.create_log_enabled", "job": row.name})
 	return True
