@@ -1,0 +1,362 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Customer Self-Signup API
+  version: "1.0.0-draft"
+  description: >
+    Public self-registration of a new customer tenant: a business owner asks
+    for a sign-up link by email, then completes the signup from that link and
+    lands in the Console with a native session.
+
+
+    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only` until the
+    signup service ships (RT-1350 slice 3). `[GATED: contract]`, owner-approved
+    as RT-1350 slice 1 (RT-1350 comment 16755, whose operation list comment
+    16758 corrects to the two operations of the approved design). Source: the
+    owner-approved RT-1333 design
+    (Confluence page 75825153, version 6), section 3 and decisions D1, D2, D3,
+    D5 and D6. This file is additive: no existing contract changes.
+
+
+    **Scope.** Two operations, both public: `requestSignup` and
+    `completeSignup`. The Console talks only to Backend-Core; no identity
+    provider token or SDK reaches the browser. The "complete your workspace"
+    retry (design D3) is not a route: after a failed completion the owner
+    requests a new link and completes again (see `completeSignup`).
+
+
+    **The signup token is opaque.** The link sent to the owner carries a token
+    that Backend-Core verifies server-side. The contract does not say who
+    issued it, so the same shape fits a provider-sent sign-up link (D1-B) and
+    Backend-Core's own emailed token (the D1-A fallback). A client treats it as
+    an uninterpreted string.
+
+
+    **No enumeration.** No status, body, header or timing contract in this file
+    tells a caller whether an email is new, existing, already pending, disabled
+    or on the disposable-domain list.
+
+
+    **Not in this contract.** Social sign-in and account linking, the
+    restricted-to-unrestricted unlock, ERPNext provisioning, billing, and
+    password recovery. They have their own issues and contracts.
+servers:
+  - url: https://api.example.com
+paths:
+  /api/v1/signups:
+    post:
+      summary: Request a sign-up link for a new business owner (public).
+      description: >
+        RT-1350 slice 1 (design v6 D1, D5, D6). Records the request and, when
+        the request is eligible, sends a sign-up link to the email address.
+        Whether a link is sent is never observable: the answer is the same
+        empty 202 for a new, an existing, an already pending, a disabled and a
+        disposable-domain address, and for an address over its own per-email
+        limit. The link is sent after the 202 is decided, so an identity
+        provider failure never changes the response (the service retries the
+        send); only the rate limiter and the human-proof verifier, which run
+        for every request before eligibility is known, can answer 503. An
+        address with a still-pending signup is eligible for a fresh link,
+        subject to the per-email limit.
+
+
+        `termsAccepted` must be `true` and `termsVersion` names the terms the
+        owner saw; the server records both with the acceptance time and a hashed
+        client IP as the consent record. Which version is current is server
+        configuration and is not part of this contract. A `termsVersion` that is
+        not the current one is the same generic 400, not a distinct code.
+
+
+        `humanProof` is an opaque challenge token from a human-verification
+        widget, verified with a provider-neutral verifier before any link is
+        sent. A failed proof is the same generic 400 as a malformed body, so the
+        verifier is not an oracle.
+
+
+        The limits are server-configured: a per-IP bucket answers 429 with
+        `Retry-After`. A limiter or verifier outage fails closed with 503 and
+        `Retry-After`; it is never reported as a failed proof. No token,
+        password or email address is written to logs.
+      operationId: requestSignup
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1350 slice 3 (signup service and controller);
+        delete both keys when it does.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "202":
+          description: >
+            Accepted. Always, with no body, for a new, existing, pending,
+            disabled or disposable email address, and for an address over its
+            per-email limit. It does not say whether a link was sent.
+        "400":
+          description: >
+            One generic refusal for a malformed body, a non-current
+            `termsVersion` and a failed human proof. The body is always
+            `code: validation_error` with one fixed message and no field
+            details, so the three cannot be told apart. Never discloses whether
+            the email is known.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `origin_rejected` (RT-430): the `Origin` header is present and is
+            neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A
+            request with no `Origin` is admitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            Rate-limited per client IP. `Retry-After` gives the whole seconds
+            until the limiting bucket resets, 1 to 3600. The per-email limit is
+            never a 429: it answers the silent 202.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >
+            The rate limiter or the human-proof verifier is unavailable (fail
+            closed, code `service_unavailable`). Both run for every request, so
+            this reveals nothing about the address. `Retry-After` gives the
+            whole seconds to wait before retrying.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/v1/signups/complete:
+    post:
+      summary: Complete a signup from the emailed link and start a session (public; the link token authenticates the request).
+      description: >
+        RT-1350 slice 1 (design v6 D1, D2, D3). The token from the signup link
+        is the credential. The server verifies it, matches the verified email
+        to one pending signup, and in one transaction creates the user (or
+        reuses the existing one), the identity link, an `active` tenant, the
+        `owner` membership and a `restricted` entitlement. It then sets the
+        HttpOnly native session cookie; no identity-provider token reaches the
+        client. No store is created.
+
+
+        The tenant is `active` and usable in the Console at once. While the
+        entitlement is `restricted`, POS pairing and ERP posting are refused;
+        an unlock is a separate platform action and is not part of this
+        contract.
+
+
+        An EXISTING user (the verified email already belongs to an account)
+        keeps their current password: the submitted `password` is not applied,
+        and the new tenant is added to that user, who may own several tenants.
+        The 201 has the same shape either way. The identity provider's password
+        policy is checked only when a password is actually being set.
+
+
+        **Idempotent per pending signup.** A pending signup is completed at
+        most once. If the transaction rolls back after the token was accepted,
+        the signup is still pending: the owner requests a new link with
+        `requestSignup` and completes again, and that retry converges on one
+        user, one identity link and one tenant. There is no separate retry
+        route. After a committed completion the signup is no longer pending, so
+        a later request starts a new signup. A used, expired or unknown token,
+        and a token with no matching pending signup, are the same generic 400
+        with no tenant, membership or Backend-Core user created.
+
+
+        Attempts are rate-limited per client IP. The refresh token the
+        provider returns while verifying stays in memory only and is never
+        stored, logged or returned. No token or password is written to logs.
+      operationId: completeSignup
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1350 slice 3 (signup service and controller);
+        delete both keys when it does.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupCompleteRequest"
+      responses:
+        "201":
+          description: >
+            Signup completed. Sets the HttpOnly session cookie. The tenant is
+            active and restricted, and the caller is its owner.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: HttpOnly; Secure; SameSite=Lax session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SignupCompleteResponse"
+        "400":
+          description: >
+            One generic refusal: a malformed body, an invalid, expired or used
+            token, no matching pending signup, or a password the identity
+            provider does not accept. The body is always `code:
+            validation_error` with one fixed message and no field details, so
+            these cannot be told apart. No tenant, membership or Backend-Core
+            user is created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `origin_rejected` (RT-430): the `Origin` header is present and is
+            neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A
+            request with no `Origin` is admitted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            Rate-limited per client IP. `Retry-After` gives the whole seconds
+            until the limiting bucket resets, 1 to 3600.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >
+            The identity provider or the rate limiter is unavailable. An outage
+            is never reported as an invalid token. `Retry-After` gives the whole
+            seconds to wait before retrying. If the provider fails after it
+            accepted the link, the link is spent and the owner requests a new
+            one.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/PublicAuthRetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  headers:
+    PublicAuthRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        public-auth 429 and 503 (RT-623, RT-628). Rounded up from the bucket's
+        remaining window and clamped to 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+  schemas:
+    SignupRequest:
+      type: object
+      additionalProperties: false
+      required: [email, name, businessName, termsVersion, termsAccepted, humanProof]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: The owner's email address. The link is sent here.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: The owner's display name.
+        businessName:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Becomes the name of the new tenant.
+        locale:
+          type: string
+          enum: [ar, en]
+          description: Language of the email and the Console. Optional.
+        termsVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The version of the terms the owner saw and accepted.
+        termsAccepted:
+          type: boolean
+          enum: [true]
+          description: Must be `true`; the server records the acceptance.
+        humanProof:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: >
+            Opaque human-verification token from the Console's challenge
+            widget, verified server-side behind a provider-neutral port. The
+            contract does not name the vendor.
+    SignupCompleteRequest:
+      type: object
+      additionalProperties: false
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: >
+            Opaque link token, verified server-side. Single use.
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: >
+            At most 1024 Unicode code points (RT-153), verified as sent with no
+            trimming and no Unicode normalization. Applied only when the
+            account has no password yet. An existing user's password is never
+            overwritten here: the value is not applied and the tenant is added
+            to that user. The identity provider defines the password policy; a
+            rejected value is the generic 400.
+    SignupCompleteResponse:
+      type: object
+      additionalProperties: false
+      required: [tenantId, membershipRole, entitlement]
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+          description: The new tenant. The session cookie is already set.
+        membershipRole:
+          type: string
+          enum: [owner]
+        entitlement:
+          type: string
+          enum: [restricted]
+          description: >
+            POS pairing and ERP posting are refused until a platform admin
+            unlocks the tenant. Catalog, stores, members and settings work.
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
