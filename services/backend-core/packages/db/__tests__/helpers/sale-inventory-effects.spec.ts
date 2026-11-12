@@ -882,6 +882,41 @@ describe("tenant isolation (RLS)", () => {
 });
 
 describe("activation lock", () => {
+  it("a writer that waited on the settings key is received after the holder (RT-453 SINCE_IDENTITY_ANCHOR)", async () => {
+    if (skip()) return;
+    await setActivation(A, true);
+    const { saleId } = await seedSale(A, [{ product: P_EACH, quantity: "1.000000" }]);
+    const holder = await pg().admin.connect();
+    const writer = await (pg().app as Pool).connect();
+    try {
+      // The writer's transaction starts BEFORE the holder (an identity anchor) takes the key EXCLUSIVE.
+      await writer.query("BEGIN");
+      await writer.query(`SELECT set_config('app.current_tenant', $1, true)`, [TENANT]);
+      const started = (await writer.query<{ t: string }>(`SELECT now()::text AS t`)).rows[0]!.t;
+      await holder.query("BEGIN");
+      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`, [
+        TENANT,
+      ]);
+      const pending = writeSaleLineEffects(writer, { tenantId: TENANT, storeId: STORE, saleId });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const released = (await holder.query<{ t: string }>(`SELECT clock_timestamp()::text AS t`)).rows[0]!.t;
+      await holder.query("COMMIT");
+      expect((await pending).written).toHaveLength(1);
+      await writer.query("COMMIT");
+      const r = await pg().admin.query<{ after_release: boolean; after_start: boolean }>(
+        `SELECT received_at > $2::timestamptz AS after_release, received_at > $3::timestamptz AS after_start
+           FROM stock_movements WHERE event_ref_id = $1`,
+        [saleId, released, started],
+      );
+      expect(r.rows).toEqual([{ after_release: true, after_start: true }]);
+    } finally {
+      await writer.query("ROLLBACK").catch(() => undefined);
+      await holder.query("ROLLBACK").catch(() => undefined);
+      writer.release();
+      holder.release();
+    }
+  });
+
   it("the activation read waits for an EXCLUSIVE settings lock holder", async () => {
     if (skip()) return;
     const holder = await pg().admin.connect();

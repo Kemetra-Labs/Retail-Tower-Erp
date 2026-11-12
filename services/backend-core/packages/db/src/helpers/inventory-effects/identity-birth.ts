@@ -210,7 +210,7 @@ interface ErpExpiryCorrectionInput {
    */
   readonly reconciliationRunId: string;
   /** When the Connector read this evidence (the run's Bin report `readAt`). */
-  readonly evidenceReadAt: string;
+  readonly evidenceReadAt: string | null;
 }
 
 type ErpExpiryCorrectionOutcome =
@@ -303,9 +303,9 @@ export async function correctExpiryFromErpEvidence(
 async function isStaleEvidence(client: Client, input: ErpExpiryCorrectionInput): Promise<boolean> {
   const r = await client.query<{ stale: boolean }>(
     `WITH last_set AS (
-       SELECT (run.summary->'bin_view_report'->>'readAt')::timestamptz AS t
+       SELECT COALESCE((run.summary->'bin_view_report'->>'readAt')::timestamptz, b.born_at) AS t
          FROM tracking_identity_births b
-         JOIN erpnext_reconciliation_run run ON run.id = b.reconciliation_run_id
+         LEFT JOIN erpnext_reconciliation_run run ON run.id = b.reconciliation_run_id
         WHERE b.tracking_identity_id = $1
        UNION ALL
        SELECT CASE WHEN c.reason_code = $3
@@ -315,7 +315,8 @@ async function isStaleEvidence(client: Client, input: ErpExpiryCorrectionInput):
          FROM tracking_identity_expiry_corrections c
         WHERE c.tracking_identity_id = $1
      )
-     SELECT COALESCE($2::timestamptz <= (SELECT max(t) FROM last_set), false) AS stale`,
+     -- Evidence with no readAt cannot be ordered: never applied.
+     SELECT ($2::timestamptz IS NULL OR COALESCE($2::timestamptz <= (SELECT max(t) FROM last_set), false)) AS stale`,
     [input.identityId, input.evidenceReadAt, ERP_EVIDENCE_REASON_CODE],
   );
   return r.rows[0]!.stale;
@@ -392,11 +393,11 @@ export async function applyTrackingMasterEvidence(
   const rows = (await client.query<MasterBatchRow>(MASTER_ROWS_SQL, [input.runId])).rows;
   if (rows.length === 0) return { born: 0, existing: 0, expiryCorrected: 0, refused: [] };
   const readAt = (
-    await client.query<{ read_at: string }>(
+    await client.query<{ read_at: string | null }>(
       `SELECT summary->'bin_view_report'->>'readAt' AS read_at FROM erpnext_reconciliation_run WHERE id = $1`,
       [input.runId],
     )
-  ).rows[0]!.read_at;
+  ).rows[0]?.read_at ?? null;
   await lockIdentityBirth(client, input.tenantId);
   let born = 0;
   let existing = 0;

@@ -50,10 +50,12 @@
  *     before any sale effect existed), sale effects exist before an identity
  *     anchor, and its snapshot (read after the last posted ERP document, with
  *     nothing in flight) already holds them. A writer still waiting on the
- *     settings key when the anchor commits would write with an earlier
- *     `received_at`; the anchor is therefore refused while tracked selling is
- *     on (`tracked_selling_on`), so no identity-grain sale effect can be in
- *     flight across it.
+ *     settings key when the anchor commits still counts: sale, void and
+ *     return effects stamp `received_at` with `clock_timestamp()` after
+ *     taking that key SHARED (`sale-effects.ts`). The anchor is also refused
+ *     while tracked selling is on (`tracked_selling_on`). Known limit: a
+ *     manual movement does not take the key, so one whose transaction began
+ *     before the anchor and committed after it is not counted.
  *
  * Read-only except `anchorTrackedIdentities`. Quantities are exact NUMERIC
  * text, never a JS number.
