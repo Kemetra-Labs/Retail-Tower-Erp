@@ -6,7 +6,9 @@
  * Pack; a 304 keeps it and refreshes trusted time and freshness from
  * `X-Server-Time`. Any failure leaves the held Pack and its anchor as they are:
  * the Pack simply ages toward `stale`, and an `online_only` offer stops applying
- * once the last successful read is older than the online proof.
+ * once the last successful read is older than the online proof. Two answers drop the
+ * Pack at once instead: a 404 (the server has no Pack for this till) and no sendable
+ * device token (the till was revoked).
  *
  * The monotonic reading is taken BEFORE the request, so latency never extends an
  * offer. Single-flight: a tick while one runs joins it. Never rejects.
@@ -28,7 +30,7 @@ export interface OfferPackWorkerDeps {
   readonly client: OfferPackClient;
   readonly service: Pick<
     OfferPackService,
-    'conditionalEtag' | 'applyOk' | 'applyNotModified' | 'restore'
+    'conditionalEtag' | 'applyOk' | 'applyNotModified' | 'restore' | 'forget'
   >;
   /** The one reader of the device token for sending (null unless paired, not revoked). */
   readonly readDeviceToken: () => Promise<string | null>;
@@ -60,7 +62,11 @@ export function createOfferPackWorker(deps: OfferPackWorkerDeps): OfferPackWorke
 
   async function tick(): Promise<OfferPackTickResult> {
     const token = await deps.readDeviceToken();
-    if (token === null) return 'skipped';
+    if (token === null) {
+      // A paired-only worker with no sendable token: the device was revoked. Hold no Pack.
+      deps.service.forget();
+      return 'skipped';
+    }
     const monoAtStartMs = deps.monotonicMs();
     const outcome = await deps.client.read(token, deps.service.conditionalEtag());
     if (outcome.kind === 'ok') {
@@ -80,6 +86,7 @@ export function createOfferPackWorker(deps: OfferPackWorkerDeps): OfferPackWorke
       });
       return applied ? 'applied' : 'rejected';
     }
+    if (outcome.kind === 'not_found') deps.service.forget();
     return outcome.kind;
   }
 

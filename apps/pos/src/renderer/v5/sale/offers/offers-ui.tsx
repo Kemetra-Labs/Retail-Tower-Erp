@@ -100,10 +100,18 @@ export function usePromotionPreview(input: {
   signature: string;
 }): PromotionPreview | null {
   const { bridge, cartId, enabled, signature } = input;
-  const [preview, setPreview] = useState<PromotionPreview | null>(null);
+  // An answer belongs to the cart and signature it was asked for: once either changes, it is not shown.
+  const key = `${cartId ?? ''}#${signature}`;
+  const [answered, setAnswered] = useState<{
+    key: string;
+    preview: PromotionPreview;
+  } | null>(null);
   const askId = useRef(0);
 
   useEffect(() => {
+    const setPreview = (preview: PromotionPreview | null): void => {
+      setAnswered(preview === null ? null : { key: `${cartId ?? ''}#${signature}`, preview });
+    };
     if (!enabled || cartId === null || typeof bridge?.promotionPreview !== 'function') {
       askId.current += 1;
       setPreview(null);
@@ -128,7 +136,7 @@ export function usePromotionPreview(input: {
     };
   }, [bridge, cartId, enabled, signature]);
 
-  return preview;
+  return answered !== null && answered.key === key ? answered.preview : null;
 }
 
 /** What `LiveSaleCart` takes of the offers: the live preview, or the frozen envelope's facts. */

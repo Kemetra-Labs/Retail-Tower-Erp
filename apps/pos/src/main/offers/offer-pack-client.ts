@@ -14,7 +14,9 @@
  *   200 with an ETag and a body → ok (the caller reads the body strictly)
  *   304 to a conditional read   → not_modified
  *   401                         → unauthorized
- *   any other answer            → unavailable (an older server answers 404: no Pack, no offer)
+ *   404                         → not_found (an older server, or a deleted store: the held Pack is
+ *                                 dropped, so no offer applies and the customer pays the regular price)
+ *   any other answer            → unavailable (the held Pack ages toward stale)
  *   network / timeout / no token → unreachable
  * Never throws.
  */
@@ -34,6 +36,7 @@ export type OfferPackReadOutcome =
     }
   | { readonly kind: 'not_modified'; readonly serverTime: string | null }
   | { readonly kind: 'unauthorized' }
+  | { readonly kind: 'not_found' }
   | { readonly kind: 'unavailable' }
   | { readonly kind: 'unreachable' };
 
@@ -80,7 +83,8 @@ export function createOfferPackClient(deps: OfferPackClientDeps): OfferPackClien
           ? { kind: 'unavailable' }
           : { kind: 'not_modified', serverTime };
       }
-      return answer.status === 401 ? { kind: 'unauthorized' } : { kind: 'unavailable' };
+      if (answer.status === 401) return { kind: 'unauthorized' };
+      return answer.status === 404 ? { kind: 'not_found' } : { kind: 'unavailable' };
     },
   };
 }

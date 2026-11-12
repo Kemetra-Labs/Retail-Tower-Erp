@@ -61,6 +61,13 @@ function isPositiveInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
+/** The contract's ceiling on `buyQuantity`, `getQuantity` and `maxApplicationsPerSale`. */
+const MAX_OFFER_QUANTITY = 1_000;
+
+function isOfferQuantity(value: unknown): value is number {
+  return isPositiveInt(value) && value <= MAX_OFFER_QUANTITY;
+}
+
 /** An RFC 3339 instant as epoch ms, or null. */
 export function instantMsOf(value: unknown): number | null {
   if (typeof value !== 'string' || !INSTANT.test(value)) return null;
@@ -78,12 +85,12 @@ function readParameters(value: unknown): PackOfferParameters | null {
   }
   // null: unlimited; otherwise a positive integer; anything else is off-contract.
   const max =
-    maxApplicationsPerSale === null || isPositiveInt(maxApplicationsPerSale)
+    maxApplicationsPerSale === null || isOfferQuantity(maxApplicationsPerSale)
       ? maxApplicationsPerSale
       : undefined;
   if (
-    !isPositiveInt(buyQuantity) ||
-    !isPositiveInt(getQuantity) ||
+    !isOfferQuantity(buyQuantity) ||
+    !isOfferQuantity(getQuantity) ||
     typeof percentOff !== 'string' ||
     !PERCENT.test(percentOff) ||
     max === undefined

@@ -67,6 +67,9 @@ describe('offer pack reader — strict', () => {
     ],
     ['a price basis other than the resolved store price', withParameters({ priceBasis: 'list' })],
     ['no reward selection', withParameters({ rewardSelection: undefined })],
+    ['a buy quantity above 1000', withParameters({ buyQuantity: 1_001 })],
+    ['a get quantity above 1000', withParameters({ getQuantity: 1_001 })],
+    ['a max applications above 1000', withParameters({ maxApplicationsPerSale: 1_001 })],
   ])('refuses an offer with %s', (_name, offer) => {
     expect(readOfferPack(packBody({ offers: [offer] }))).toBeNull();
   });
@@ -220,6 +223,79 @@ describe('offer pack service — trusted time (OD-8)', () => {
     expect(d.service.view().kind).toBe('unproven');
   });
 
+  it('still refuses a replay once the Pack has gone stale (the trusted time is a floor)', () => {
+    const c = freshService();
+    c.advance(25 * 3_600_000);
+    expect(c.service.view().kind).toBe('stale');
+    const replay = {
+      tenantId: TENANT,
+      body: packBody(),
+      etag: '"abc"',
+      serverTime: ISSUED_AT,
+      monoAtStartMs: c.mono(),
+    };
+    expect(c.service.applyOk(replay)).toBe(false);
+    expect(c.service.applyNotModified({ serverTime: ISSUED_AT, monoAtStartMs: c.mono() })).toBe(
+      false,
+    );
+    expect(c.service.view().kind).not.toBe('fresh');
+  });
+
+  it('still refuses a replay after a refused answer dropped the anchor (unproven)', () => {
+    const c = freshService();
+    c.advance(60 * 60_000);
+    const later = new Date(ISSUED_MS + 60 * 60_000).toISOString();
+    // A 200 whose header disagrees with its body: refused, the Pack is unproven.
+    c.service.applyOk({
+      tenantId: TENANT,
+      body: packBody(),
+      etag: '"abc"',
+      serverTime: later,
+      monoAtStartMs: c.mono(),
+    });
+    expect(c.service.view().kind).toBe('unproven');
+    expect(c.service.applyNotModified({ serverTime: ISSUED_AT, monoAtStartMs: c.mono() })).toBe(
+      false,
+    );
+    expect(c.service.applyNotModified({ serverTime: later, monoAtStartMs: c.mono() })).toBe(true);
+    expect(c.service.view().kind).toBe('fresh');
+  });
+
+  it('refuses a 200 whose ETag is not a strong entity-tag', () => {
+    for (const etag of ['', 'abc', 'W/"abc"', '"a b"']) {
+      const c = clockedService();
+      expect(
+        c.service.applyOk({
+          tenantId: TENANT,
+          body: packBody(),
+          etag,
+          serverTime: ISSUED_AT,
+          monoAtStartMs: c.mono(),
+        }),
+      ).toBe(false);
+      expect(c.service.conditionalEtag()).toBeNull();
+    }
+  });
+
+  it('forget drops the held and the stored Pack: no offer until a new 200', () => {
+    const c = freshService();
+    c.service.forget();
+    expect(c.service.view()).toEqual({ kind: 'none' });
+    expect(c.service.conditionalEtag()).toBeNull();
+    expect(c.store.saved).toBeNull();
+    // The trusted time survives: a replay is still refused.
+    c.advance(60 * 60_000);
+    expect(
+      c.service.applyOk({
+        tenantId: TENANT,
+        body: packBody(),
+        etag: '"abc"',
+        serverTime: ISSUED_AT,
+        monoAtStartMs: c.mono(),
+      }),
+    ).toBe(false);
+  });
+
   it('accepts a server time a little behind the trusted now (clock skew, a slow answer)', () => {
     const c = freshService();
     c.advance(60_000);
@@ -291,12 +367,20 @@ describe('offer pack service — restart without a fresh Pack', () => {
     expect(clockedService().service.conditionalEtag()).toBeNull();
   });
 
-  it("drops another tenant's stored Pack and a corrupt one", () => {
+  it("drops another tenant's stored Pack, one with an unusable ETag, and a corrupt one", () => {
     const first = freshService();
     const other = clockedService(memoryStore(first.store.saved));
     other.service.restore('tenant-2');
     expect(other.service.view()).toEqual({ kind: 'none' });
     expect(other.store.saved).toBeNull();
+
+    const badEtag = clockedService(
+      memoryStore({ tenantId: TENANT, etag: '', body: first.store.saved?.body }),
+    );
+    badEtag.service.restore(TENANT);
+    expect(badEtag.service.view()).toEqual({ kind: 'none' });
+    expect(badEtag.service.conditionalEtag()).toBeNull();
+    expect(badEtag.store.saved).toBeNull();
 
     const corrupt = clockedService(memoryStore({ tenantId: TENANT, etag: '"x"', body: { a: 1 } }));
     corrupt.service.restore(TENANT);

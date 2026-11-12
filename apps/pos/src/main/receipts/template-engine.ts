@@ -210,7 +210,7 @@ function composeItem(line: ReceiptLineItem, value: TextSink, text: TextSink): vo
   text(egp(line.line_subtotal_minor), 'ltr');
   if (line.discount !== undefined) composeLineDiscount(line.discount, text);
   if (line.promotion !== undefined && line.promotion.discount_minor > 0) {
-    composeLinePromotion(line.promotion, text);
+    composeLinePromotion(line.promotion, value, text);
   }
 }
 
@@ -218,8 +218,16 @@ function composeItem(line: ReceiptLineItem, value: TextSink, text: TextSink): vo
  * RT-1339 (RT-286 S7, spec 048 §8): under a reward line, the offer and its discount, in the
  * discount row's shape: «عرض: <offer> (خصم 40%)», then the amount as a negative.
  */
-function composeLinePromotion(promotion: ReceiptLinePromotion, text: TextSink): void {
-  text(`${DISCOUNT_INDENT}${promotionCopy(promotion.offer_name_ar, promotion.percent_off)}`, 'rtl');
+function composeLinePromotion(
+  promotion: ReceiptLinePromotion,
+  value: TextSink,
+  text: TextSink,
+): void {
+  // The offer name is dynamic (up to 120 characters): the wrapping sink keeps it on the roll.
+  value(
+    `${DISCOUNT_INDENT}${promotionCopy(promotion.offer_name_ar, promotion.percent_off)}`,
+    'rtl',
+  );
   text(egp(-promotion.discount_minor), 'ltr');
 }
 

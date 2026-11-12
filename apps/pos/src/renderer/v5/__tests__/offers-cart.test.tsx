@@ -180,6 +180,27 @@ describe('RT-1339 usePromotionPreview', () => {
     expect(fake.ask).toHaveBeenCalledWith({ cart_id: 'cart-1' });
   });
 
+  it('shows no offer for a changed cart until main answers for the new state', async () => {
+    const slow: Array<(v: unknown) => void> = [];
+    const fake = bridgeOf(() => new Promise((resolve) => slow.push(resolve)));
+    const { result, rerender } = renderHook(
+      ({ cartId, signature }) =>
+        usePromotionPreview({ bridge: fake.bridge, cartId, enabled: true, signature }),
+      { initialProps: { cartId: 'cart-1', signature: 's1' } },
+    );
+    await act(async () => {
+      slow[0]?.({ kind: 'ok', preview: PREVIEW });
+      await Promise.resolve();
+    });
+    expect(result.current).toEqual(PREVIEW);
+    // A quantity went down: the second answer is still pending, so the old discount must not show.
+    rerender({ cartId: 'cart-1', signature: 's2' });
+    expect(result.current).toBeNull();
+    rerender({ cartId: 'cart-2', signature: 's2' });
+    expect(result.current).toBeNull();
+    expect(fake.ask).toHaveBeenCalledTimes(3);
+  });
+
   it('asks again on a material cart change, and drops an older answer that lands late', async () => {
     const slow: Array<(v: unknown) => void> = [];
     const fake = bridgeOf(() => new Promise((resolve) => slow.push(resolve)));

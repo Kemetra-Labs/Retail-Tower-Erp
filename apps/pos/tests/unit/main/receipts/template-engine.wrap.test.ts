@@ -69,6 +69,18 @@ const FIELDS: ReadonlyArray<readonly [string, (v: string) => Partial<ReceiptPayl
   ['terminal_label', (v) => ({ terminal_label: v })],
   ['selling_operator_display_name', (v) => ({ selling_operator_display_name: v })],
   ['line display_name', (v) => ({ lines: [oneLine(v)] })],
+  // RT-1339: an offer name is dynamic text (up to 120 characters in the Pack).
+  [
+    'line promotion offer_name_ar',
+    (v) => ({
+      lines: [
+        {
+          ...oneLine('Item'),
+          promotion: { offer_name_ar: v, percent_off: 40, discount_minor: 40 },
+        },
+      ],
+    }),
+  ],
   [
     'card external_reference',
     (v) => tenderWith('external_card_terminal', { external_reference: v }),

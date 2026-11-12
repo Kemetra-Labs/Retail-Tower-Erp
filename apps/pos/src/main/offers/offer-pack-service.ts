@@ -42,6 +42,16 @@ const SERVER_TIME_REGRESSION_TOLERANCE_MS = 5 * 60 * 1_000;
 /** The wall clock may move this far ahead of the monotonic clock before the Pack is `stale`. */
 const WALL_CLOCK_JUMP_TOLERANCE_MS = 10 * 60 * 1_000;
 
+/**
+ * A strong entity-tag (RFC 9110 section 8.8.3): the only `If-None-Match` the till ever sends. A
+ * stored or served ETag that is not one is never sent (the server would answer 400 to every poll).
+ */
+const ENTITY_TAG = /^"[\x21\x23-\x7e]+"$/;
+
+function isEntityTag(value: string | null): value is string {
+  return value !== null && ENTITY_TAG.test(value);
+}
+
 export type OfferPackView =
   /** Never read, nothing stored: no offer is known. */
   | { readonly kind: 'none' }
@@ -103,6 +113,11 @@ export interface OfferPackService {
   }): boolean;
   /** Record a 304 (the held Pack is current). False when the header is unreadable or no Pack is held. */
   applyNotModified(input: { serverTime: string | null; monoAtStartMs: number }): boolean;
+  /**
+   * Drop the held and the stored Pack: the server has no Pack for this till (404), or the till can
+   * no longer send its device token (revoked). No offer applies until a new 200.
+   */
+  forget(): void;
   view(): OfferPackView;
 }
 
@@ -110,27 +125,41 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
   let pack: OfferPack | null = null;
   let etag: string | null = null;
   let anchor: Anchor | null = null;
+  /**
+   * The last anchor's server time and monotonic reading, kept when the anchor is dropped: trusted
+   * time keeps moving on from it, so a replay is still refused while the Pack is unproven or gone.
+   */
+  let floor: Pick<Anchor, 'serverMs' | 'monoMs'> | null = null;
   const wallMs = deps.wallMs ?? ((): number => Date.now());
 
   function anchorAt(serverMs: number, monoMs: number): Anchor {
     return { serverMs, monoMs, monoAtApplyMs: deps.monotonicMs(), wallAtApplyMs: wallMs() };
   }
 
-  /** The trusted "now" of a held, fresh Pack; null when there is none. */
-  function trustedNowMs(): number | null {
-    const v = currentView();
-    return v.kind === 'fresh' ? v.nowMs : null;
+  /**
+   * The latest server time this process can vouch for: the server time of the held anchor (fresh or
+   * stale alike), or of the dropped one, plus the monotonic time since; null before any read.
+   */
+  function trustedFloorMs(): number | null {
+    const from = anchor ?? floor;
+    return from === null ? null : from.serverMs + Math.max(0, deps.monotonicMs() - from.monoMs);
   }
 
-  /** True when `serverMs` is a replay: earlier than the trusted "now" by more than the tolerance. */
+  /** True when `serverMs` is a replay: earlier than the trusted floor by more than the tolerance. */
   function isReplay(serverMs: number): boolean {
-    const now = trustedNowMs();
-    return now !== null && serverMs < now - SERVER_TIME_REGRESSION_TOLERANCE_MS;
+    const trusted = trustedFloorMs();
+    return trusted !== null && serverMs < trusted - SERVER_TIME_REGRESSION_TOLERANCE_MS;
+  }
+
+  /** Drop the anchor, keeping it as the replay floor. */
+  function dropAnchor(): void {
+    if (anchor !== null) floor = { serverMs: anchor.serverMs, monoMs: anchor.monoMs };
+    anchor = null;
   }
 
   /** A refused answer: the held Pack can no longer be proven current, so it is `unproven`. */
   function demote(): false {
-    anchor = null;
+    dropAnchor();
     return false;
   }
 
@@ -160,9 +189,13 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
       pack = null;
       etag = null;
       anchor = null;
+      floor = null;
       const stored = deps.store.load();
       if (stored === null) return;
-      const readable = stored.tenantId === tenantId ? readOfferPack(stored.body) : null;
+      const readable =
+        stored.tenantId === tenantId && isEntityTag(stored.etag)
+          ? readOfferPack(stored.body)
+          : null;
       if (readable === null) {
         deps.store.clear();
         return;
@@ -181,7 +214,7 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
       const headerMs = serverTime === null ? null : instantMsOf(serverTime);
       // The contract says `X-Server-Time` equals the body's `issuedAt`: both are required, and equal.
       // A refused 200 means the server has moved on from what is held: it is no longer proven current.
-      if (read === null || nextEtag === null || headerMs !== read.issuedAtMs) return demote();
+      if (read === null || !isEntityTag(nextEtag) || headerMs !== read.issuedAtMs) return demote();
       if (isReplay(read.issuedAtMs)) return demote();
       pack = read;
       etag = nextEtag;
@@ -196,6 +229,13 @@ export function createOfferPackService(deps: OfferPackServiceDeps): OfferPackSer
       if (isReplay(serverMs)) return demote();
       anchor = anchorAt(serverMs, monoAtStartMs);
       return true;
+    },
+
+    forget() {
+      dropAnchor();
+      pack = null;
+      etag = null;
+      deps.store.clear();
     },
 
     view: currentView,

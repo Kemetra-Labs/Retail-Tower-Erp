@@ -195,7 +195,7 @@ interface Sold {
 function finalize(envelope: PaymentIntentEnvelope): Sold {
   const handle = handleFor(raw);
   const due = envelope.total_due_minor ?? envelope.subtotal_minor;
-  seedHeader(raw, due, envelope.cart_id);
+  seedHeader(raw, due, envelope.cart_id, envelope.operator_session_id);
   const projected = buildFinalizeInput({ db: handle, handoff_action_id: HANDOFF });
   if (projected.kind !== 'ok') throw new Error(`projection refused: ${projected.reason}`);
   let id = 0;
@@ -210,7 +210,11 @@ function finalize(envelope: PaymentIntentEnvelope): Sold {
     outboxRowIdGenerator: () => `ob-${String(++id)}`,
   }).finalize(projected.input);
   expect(result.kind).toBe('finalized');
-  const row = raw.exec(`SELECT lines_json, subtotal_minor FROM sales`)[0]?.values[0];
+  const row = raw.exec(
+    `SELECT lines_json, subtotal_minor, selling_operator_session_id FROM sales`,
+  )[0]?.values[0];
+  // The sale is attributed to the session that handed the cart off.
+  expect(row?.[2]).toBe(envelope.operator_session_id);
   return {
     envelope,
     lines: JSON.parse(String(row?.[0])) as FrozenLine[],

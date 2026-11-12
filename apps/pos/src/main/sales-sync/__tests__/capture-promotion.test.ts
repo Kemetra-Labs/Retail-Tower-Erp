@@ -177,11 +177,23 @@ describe('RT-1339 — the captured line promotion', () => {
   });
 
   it('a promotion beside a manual discount is not sendable (OD-5)', () => {
+    // A discount that is sendable on its own, so only the coexistence rule can refuse the line.
+    const discount = {
+      kind: 'percent',
+      value: 10,
+      amount_minor: 1_500,
+      placeholder_id: 'dp-1',
+      reason_code: 'promotion',
+      authority_source: 'cashier_approval',
+      approver_role: 'manager',
+      approver_operator_id: 'mgr-1',
+    };
     expect(() =>
-      buildCapturePayload(
-        sale([reward({ discount: { kind: 'percent', value: 10, amount_minor: 1_500 } })]),
-      ),
-    ).toThrow(DiscountNotSendableError);
+      buildCapturePayload(sale([reward({ promotion: undefined, discount })])),
+    ).not.toThrow();
+    expect(() => buildCapturePayload(sale([reward({ discount })]))).toThrow(
+      new DiscountNotSendableError('line l-2 promotion malformed'),
+    );
   });
 
   it('a promotion that is not an object is not sendable', () => {

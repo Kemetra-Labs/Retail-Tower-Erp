@@ -57,7 +57,8 @@ describe('offer pack client', () => {
   });
 
   it.each([
-    [404, { kind: 'unavailable' }],
+    [404, { kind: 'not_found' }],
+    [400, { kind: 'unavailable' }],
     [500, { kind: 'unavailable' }],
     [401, { kind: 'unauthorized' }],
   ])('maps %s (an older server answers 404: no Pack, no offer)', async (status, expected) => {
@@ -122,6 +123,30 @@ describe('offer pack worker', () => {
     const { worker, c } = workerOf(down);
     expect(await worker.runTickOnce()).toBe('unreachable');
     expect(c.service.view()).toEqual({ kind: 'none' });
+  });
+
+  it('a 404 drops the held and stored Pack: the server has no Pack for this till', async () => {
+    const first = workerOf(
+      responder(200, packBody(), { ETag: '"abc"', 'X-Server-Time': ISSUED_AT }),
+    );
+    await first.worker.runTickOnce();
+    expect(first.c.service.view().kind).toBe('fresh');
+    const gone = workerOf(responder(404, { error: {} }), first.c);
+    expect(await gone.worker.runTickOnce()).toBe('not_found');
+    expect(first.c.service.view()).toEqual({ kind: 'none' });
+    expect(first.c.store.saved).toBeNull();
+  });
+
+  it('no sendable device token (revoked) drops the held Pack without a request', async () => {
+    const first = workerOf(
+      responder(200, packBody(), { ETag: '"abc"', 'X-Server-Time': ISSUED_AT }),
+    );
+    await first.worker.runTickOnce();
+    const fetch = responder(200, packBody());
+    const revoked = workerOf(fetch, first.c, null);
+    expect(await revoked.worker.runTickOnce()).toBe('skipped');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(first.c.service.view()).toEqual({ kind: 'none' });
   });
 
   it('a Pack off-contract is rejected and never held', async () => {

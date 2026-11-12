@@ -76,10 +76,12 @@ describe('the two offer refusals', () => {
       expect(message).toContain('لم يُسجَّل المرتجع');
       expect(message).toContain('لم يُصرف أي نقد');
     }
-    // OD-10: the cashier is told to add the reward (discounted) units to the return.
-    expect(exceeds).toContain('أضف إلى المرتجع');
-    // OD-11 interim: the return cannot be recorded on the till yet; the manager decides.
-    expect(requires).toContain('راجع المدير');
+    // OD-10 and the OD-11 interim: Backend-Core refuses every return with a reward line for now, so
+    // "add the reward units" would only meet another refusal. Both send the cashier to the manager.
+    for (const message of [exceeds, requires]) {
+      expect(message).toContain('راجع المدير');
+      expect(message).not.toContain('أضف إلى المرتجع');
+    }
   });
 });
 

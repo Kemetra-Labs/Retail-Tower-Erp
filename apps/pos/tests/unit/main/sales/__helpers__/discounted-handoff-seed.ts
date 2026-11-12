@@ -59,7 +59,12 @@ function envelopeLine(line: SeedLine) {
  * The terminal assignment, the settled payment attempt (its amount due), one cash tender and the
  * `payment.settled` row of cart `cartId`. RT-1339 reuses it for a cart the real cart bridge handed off.
  */
-export function seedHeader(db: SqlJsDatabase, amountDue: number, cartId = 'cart-1'): void {
+export function seedHeader(
+  db: SqlJsDatabase,
+  amountDue: number,
+  cartId = 'cart-1',
+  operatorSessionId = 'sess-1',
+): void {
   db.run(
     `INSERT INTO terminal_assignment
        (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
@@ -73,9 +78,9 @@ export function seedHeader(db: SqlJsDatabase, amountDue: number, cartId = 'cart-
        operator_session_id, envelope_handoff_action_id, envelope_cart_id,
        envelope_subtotal_minor, state, started_at, settled_at, failure_reason,
        force_fail_attribution_operator_id, last_action_id
-     ) VALUES ('pa-1', ?, ?, ?, 'op-cashier', 'sess-1', ?, ?, ?, 'settled',
+     ) VALUES ('pa-1', ?, ?, ?, 'op-cashier', ?, ?, ?, ?, 'settled',
        '2026-10-24T09:59:00.000Z', '2026-10-24T10:00:00.000Z', NULL, NULL, 'a-pa')`,
-    [TENANT, BRANCH, TERMINAL, HANDOFF, cartId, amountDue],
+    [TENANT, BRANCH, TERMINAL, operatorSessionId, HANDOFF, cartId, amountDue],
   );
   if (amountDue > 0) {
     db.run(
@@ -101,6 +106,7 @@ export function seedHeader(db: SqlJsDatabase, amountDue: number, cartId = 'cart-
     category: 'payment.settled',
     supervisor: null,
     payload: settled,
+    sessionId: operatorSessionId,
   });
 }
 
@@ -109,16 +115,18 @@ interface AuditSeed {
   category: string;
   supervisor: string | null;
   payload: Record<string, unknown>;
+  /** The audit row's `session_id`; default `sess-1`. */
+  sessionId?: string;
 }
 
 function insertAudit(db: SqlJsDatabase, audit: AuditSeed): void {
-  const { eventId, category, supervisor, payload } = audit;
+  const { eventId, category, supervisor, payload, sessionId = 'sess-1' } = audit;
   db.run(
     `INSERT INTO audit_events (event_id, tenant_id, branch_id, originating_terminal_id,
        acting_operator_id, session_id, shift_id, action_category, created_at,
        approving_supervisor_id, payload)
-     VALUES (?, ?, ?, ?, 'op-cashier', 'sess-1', NULL, ?, '2026-10-24T09:10:00.000Z', ?, ?)`,
-    [eventId, TENANT, BRANCH, TERMINAL, category, supervisor, JSON.stringify(payload)],
+     VALUES (?, ?, ?, ?, 'op-cashier', ?, NULL, ?, '2026-10-24T09:10:00.000Z', ?, ?)`,
+    [eventId, TENANT, BRANCH, TERMINAL, sessionId, category, supervisor, JSON.stringify(payload)],
   );
 }
 
