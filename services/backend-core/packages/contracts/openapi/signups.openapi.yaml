@@ -162,18 +162,24 @@ paths:
         keeps their current password: the submitted `password` is not applied,
         and the new tenant is added to that user, who may own several tenants.
         The 201 has the same shape either way. The identity provider's password
-        policy is checked only when a password is actually being set.
+        policy is checked only when a password is actually being set. An
+        existing user who is not active (disabled or revoked) is the generic
+        400 below: no tenant, membership or session is created for them, even
+        when the pending signup predates the change.
 
 
-        **Idempotent per pending signup.** A pending signup is completed at
-        most once. If the transaction rolls back after the token was accepted,
-        the signup is still pending: the owner requests a new link with
+        **At most once per pending signup.** A pending signup commits at most
+        once. If the transaction rolls back after the token was accepted, the
+        signup is still pending: the owner requests a new link with
         `requestSignup` and completes again, and that retry converges on one
         user, one identity link and one tenant. There is no separate retry
-        route. After a committed completion the signup is no longer pending, so
-        a later request starts a new signup. A used, expired or unknown token,
-        and a token with no matching pending signup, are the same generic 400
-        with no tenant, membership or Backend-Core user created.
+        route. A committed completion is not replayed: if the 201 is lost, a
+        retry with the same token is the generic 400, and a later
+        `requestSignup` starts a new signup (and a second tenant). A client
+        whose 201 may have been lost should check for its session before
+        asking for a new link. A used, expired or unknown token, and a token
+        with no matching pending signup, are the same generic 400 with no
+        tenant, membership or Backend-Core user created.
 
 
         Attempts are rate-limited per client IP. The refresh token the
@@ -208,8 +214,9 @@ paths:
         "400":
           description: >
             One generic refusal: a malformed body, an invalid, expired or used
-            token, no matching pending signup, or a password the identity
-            provider does not accept. The body is always `code:
+            token, no matching pending signup, an existing user who is not
+            active (disabled or revoked), or a password the identity provider
+            does not accept. The body is always `code:
             validation_error` with one fixed message and no field details, so
             these cannot be told apart. No tenant, membership or Backend-Core
             user is created.
