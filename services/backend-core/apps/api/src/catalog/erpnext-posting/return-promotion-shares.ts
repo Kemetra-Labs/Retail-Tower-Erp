@@ -71,7 +71,7 @@ async function deriveGiveBacks(
   );
   // No earlier clawback means D_held covers every unit returned now: no give-back.
   if (earlier.rows.length === 0) return new Map();
-  const clawbackBefore = new Map(earlier.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.total, minorUnit)] as const));
+  const clawbackBefore = new Map<string, bigint>(earlier.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.total, minorUnit)] as const));
 
   const sale = await client.query<{ line_ref: string; sold: string; discount: string; offer_id: string; offer_version: number; before: string }>(
     `SELECT sl.id::text AS line_ref, sl.quantity::text AS sold, lp.discount_amount::text AS discount,
@@ -153,7 +153,7 @@ export async function loadReturnPromotionShares(
     };
   });
 
-  const clawbackByOffer = new Map(claw.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.amount, minorUnit)] as const));
+  const clawbackByOffer = new Map<string, bigint>(claw.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.amount, minorUnit)] as const));
   const giveBackByOffer = await deriveGiveBacks(client, returnId, minorUnit, allocationLines);
   if (sumOf(clawbackByOffer) === 0n && sumOf(giveBackByOffer) === 0n) return new Map();
 
