@@ -108,7 +108,7 @@ function ProductChips({
   const t = useT();
   if (ids.length === 0)
     return <p className="content__sub">{t(`offers.rules.${kind}.noProducts`)}</p>;
-  const shown = ids.filter((id) => names.nameOf(id) !== undefined || ids.indexOf(id) < MAX_LOOKUPS);
+  const shown = ids.filter((id, i) => names.nameOf(id) !== undefined || i < MAX_LOOKUPS);
   return (
     <ul className="offer-rule__chips">
       {shown.map((id) => {

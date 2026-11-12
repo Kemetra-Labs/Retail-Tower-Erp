@@ -59,7 +59,11 @@ function summaryEntries(
 }
 
 /** The catalog lists the rule sets choose from, and the names of the products already chosen. */
-function useRuleChoices(tenantId: string, productIds: readonly string[]) {
+function useRuleChoices(
+  tenantId: string,
+  includeProductIds: readonly string[],
+  excludeProductIds: readonly string[],
+) {
   const categories = useCatalogCategories(tenantId, true);
   const brands = useCatalogBrands(tenantId, true);
   const [knownNames, setKnownNames] = useState<Record<string, string>>({});
@@ -68,7 +72,9 @@ function useRuleChoices(tenantId: string, productIds: readonly string[]) {
     categories: categories.categories.map((c) => ({ id: c.categoryId, name: c.name })),
     brands: brands.brands.map((b) => ({ id: b.brandId, name: b.name })),
     listsKnown: !(categories.isLoading || categories.failed || brands.isLoading || brands.failed),
-    productNames: useProductNames(tenantId, productIds, knownNames),
+    // One lookup budget per set, so the include set's unread ids never starve the exclude set's.
+    includeNames: useProductNames(tenantId, includeProductIds, knownNames),
+    excludeNames: useProductNames(tenantId, excludeProductIds, knownNames),
     onProductNamed: (id: string, name: string) => setKnownNames((k) => ({ ...k, [id]: name })),
   };
 }
@@ -91,10 +97,11 @@ export function OfferEditor({
   const { ref: summaryRef, focusSummary } = useSummaryFocus();
   const editor = useOfferEditor({ offer, access, writes, onNotice, onStale, focusSummary });
   const { values, change, shown } = editor;
-  const rules = useRuleChoices(tenantId, [
-    ...values.include.productIds,
-    ...values.exclude.productIds,
-  ]);
+  const { includeNames, excludeNames, ...rules } = useRuleChoices(
+    tenantId,
+    values.include.productIds,
+    values.exclude.productIds,
+  );
 
   const publishSection = offer ? (
     <OfferPublishSection
@@ -166,12 +173,14 @@ export function OfferEditor({
             kind="include"
             value={values.include}
             onChange={(next) => change("include", next)}
+            productNames={includeNames}
             {...rules}
           />
           <OfferRuleSet
             kind="exclude"
             value={values.exclude}
             onChange={(next) => change("exclude", next)}
+            productNames={excludeNames}
             {...rules}
           />
         </FormSection>

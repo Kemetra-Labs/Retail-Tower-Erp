@@ -118,8 +118,8 @@ export function buildPatch(base: ProductFormValues, typed: ProductFormValues): P
   return withoutUndefined({
     name: trimmedChange(base.name, typed.name),
     description: descriptionChange(base.description, typed.description),
-    categoryId: typed.categoryId === base.categoryId ? undefined : categoryOf(typed.categoryId),
-    brandId: typed.brandId === base.brandId ? undefined : categoryOf(typed.brandId),
+    categoryId: typed.categoryId === base.categoryId ? undefined : idOrNull(typed.categoryId),
+    brandId: typed.brandId === base.brandId ? undefined : idOrNull(typed.brandId),
     taxCategory: trimmedChange(base.taxCategory, typed.taxCategory),
     isActive: typed.isActive === base.isActive ? undefined : typed.isActive,
   });
@@ -142,8 +142,9 @@ function descriptionChange(base: string, typed: string): string | null | undefin
   return next === descriptionOf(base) ? undefined : next;
 }
 
-function categoryOf(categoryId: string): string | null {
-  return categoryId === NO_CATEGORY ? null : categoryId;
+/** A category or brand select's value to the wire: the empty option clears it (`null`). */
+function idOrNull(id: string): string | null {
+  return id === NO_CATEGORY ? null : id;
 }
 
 /** An absent field is left as is by the API; `null` is a value (clear), so only undefined is dropped. */
