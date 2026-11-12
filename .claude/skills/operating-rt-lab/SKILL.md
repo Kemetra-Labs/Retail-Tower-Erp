@@ -142,8 +142,19 @@ Found in RT-1351, where the A1c rejection had to be explained from the host:
 - Logs are in `/home/frappe/frappe-bench/logs/` and shared by every `rt-erp-*` container; the posting
   events are in `retail_tower_posting.log`. Only ERROR-level events survive (RT-409), so a posted sale
   leaves no line there: its proof is the Posting Log row and the Sales Invoice.
-- `Scheduled Job Log` is empty for the posting poller (`create_log` is 0). The scheduler's
-  "Skipped queueing … found in queue" lines in `scheduler.log` are how Frappe prevents two runs of one job.
+- `Scheduled Job Log` was empty for the posting poller while its `create_log` was 0. Since RT-1354 the
+  poller turns `create_log` on at the start of every run (`connector/scheduling.py`; the first run after a
+  deploy still stamps its end), so it holds one row per run (`creation`, `status`), kept 7 days by default
+  (the site's Log Settings decides): read poll cadence from it. On a
+  build without RT-1354 use the `Scheduled Job Type.last_execution` and the Posting Log `creation` gaps.
+- The scheduler's "Skipped queueing … found in queue" lines in `scheduler.log` are how Frappe prevents
+  two runs of one job.
+- Frappe cron jobs: `last_execution` is the END of the run when `create_log` is 0 and the START when it is
+  1; the next run is due at the first cron boundary after it. A run that ends past the next minute
+  boundary makes the next tick skip it (RT-317: 7 polls in 15 minutes, lag p95 61 s to 116 s). The
+  scheduler's tick phase is fixed by when the scheduler process started, so a deploy moves it.
+  `hooks.py` cannot set `create_log` (Frappe keeps the stored value once the row exists), and a migrate hook
+  would make the release `restore` class (RT-927), so the poller sets it.
 - Datadog EU holds no lab-03 logs (the agent covers lab-01), so an empty Datadog search proves nothing.
 
 ## k6 against the lab
