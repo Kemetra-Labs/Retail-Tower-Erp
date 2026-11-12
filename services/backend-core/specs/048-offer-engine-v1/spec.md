@@ -212,10 +212,13 @@ Using E3 (100, 60, 40, with the 40 discounted 16.00 and 184.00 paid):
 
 **Where it changes code.** The return contract gains a per-offer clawback amount. Backend-Core `recordReturn`
 computes it, which is the authority, and the POS quote shows it. The Connector must post a credit note whose total
-equals the refund. How the clawback appears in ERPNext is open (OD-11). It fails closed. Until the S4 and S8
+equals the refund. OD-11 decides how the clawback appears in ERPNext: option A, a reduced credit-note rate on the
+returned units (RT-1340 bench proof). It fails closed. Until the S4 and S8
 clawback work lands, a partial return that needs a clawback (`clawback_O > 0`) is
 **refused**, with `promotion_return_requires_clawback`. Full returns of every O unit, and returns where no clawback
-is due, work from day one. The single returns and the multi-return sequences are golden vectors in
+is due, are accepted by Backend-Core from day one. The Connector does not yet post a return that includes a discounted
+line (RT-857 scope), and every return of a reward unit does (RT-1340 finding). The single returns and the multi-return
+sequences are golden vectors in
 `packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`).
 
 ## 10. Administration (Admin Console, control surface only)
