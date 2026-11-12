@@ -1,6 +1,7 @@
 /**
  * RT-738 (CAT-W1 + CAT-W2) — request bodies of the interim console catalog
- * writes (`catalog/console-catalog.yaml` 1.1.0-draft).
+ * writes (`catalog/console-catalog.yaml` 1.1.0-draft), and RT-1334's brand
+ * writes and product `brandId` (1.2.0-draft).
  *
  * Every body is `.strict()`: an unknown key — a price, a tenant id, a status,
  * a tracking field — is a 400 `validation_error`, so a server-owned field can
@@ -62,12 +63,15 @@ export const InstantMillisSchema = z
 const ProductName = nonBlank(500);
 const ProductDescription = text(2000).nullable();
 const TaxCategory = nonBlank(50);
+/** RT-1334: 1..200 code points, not blank, no NUL; stored as sent. */
+const BrandName = nonBlank(200);
 
 export const CreateCatalogProductBodySchema = z
   .object({
     name: ProductName,
     description: ProductDescription.optional(),
     categoryId: UuidSchema.nullable().optional(),
+    brandId: UuidSchema.nullable().optional(),
     taxCategory: TaxCategory,
     isActive: z.boolean().optional(),
   })
@@ -80,15 +84,26 @@ export const UpdateCatalogProductBodySchema = z
     name: ProductName.optional(),
     description: ProductDescription.optional(),
     categoryId: UuidSchema.nullable().optional(),
+    brandId: UuidSchema.nullable().optional(),
     taxCategory: TaxCategory.optional(),
     isActive: z.boolean().optional(),
   })
   .strict()
   .refine(
-    (body) => ["name", "description", "categoryId", "taxCategory", "isActive"].some((key) => key in body),
+    (body) => ["name", "description", "categoryId", "brandId", "taxCategory", "isActive"].some((key) => key in body),
     "at least one field to change is required",
   );
 export type UpdateCatalogProductBody = z.infer<typeof UpdateCatalogProductBodySchema>;
+
+/** RT-1334 `consoleCreateCatalogBrand`. */
+export const CreateCatalogBrandBodySchema = z.object({ name: BrandName }).strict();
+export type CreateCatalogBrandBody = z.infer<typeof CreateCatalogBrandBodySchema>;
+
+/** RT-1334 `consoleRenameCatalogBrand`. */
+export const RenameCatalogBrandBodySchema = z
+  .object({ expectedUpdatedAt: InstantMillisSchema, name: BrandName })
+  .strict();
+export type RenameCatalogBrandBody = z.infer<typeof RenameCatalogBrandBodySchema>;
 
 export const RetireBodySchema = z.object({ expectedUpdatedAt: InstantMillisSchema }).strict();
 export type RetireBody = z.infer<typeof RetireBodySchema>;

@@ -373,6 +373,9 @@ describe("RT-730 console catalog — search and filters", () => {
       status: "active",
       categoryId: CAT_DRINKS,
       categoryName: "RT730 Drinks",
+      // RT-1334: no brand in the fixture.
+      brandId: null,
+      brandName: null,
       primarySku: "W-1",
       primaryBarcode: "000123",
       defaultPrice: { amount: "8.50", currencyCode: "EGP" },

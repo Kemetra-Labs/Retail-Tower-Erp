@@ -50,6 +50,10 @@ const LIVE_READ_CODES = [
   "devices.read",
   "erpnext.bin_view.pulled",
   "erpnext.postings.pulled",
+  // RT-1288: the ERP-origin stock import feed. The pull returns the feed and
+  // also opens and closes the import runs that back it (feed maintenance); it
+  // changes no business data, which only the report does.
+  "erpnext.stock_import.pulled",
   "erpnext_reconciliation.backlog.listed",
   "erpnext_sync_ops.posting_backlog.listed",
   "erpnext_sync_ops.reconciliation_runs.listed",

@@ -28,6 +28,7 @@ import {
 import { Client, Pool } from "pg";
 
 import type { GrantFragment } from "../../src/auth/grant-fragment";
+import { GRANTS as TENANT_PRODUCT_BRANDS_GRANTS } from "../../src/auth/grants/tenant-product-brands.grants";
 import { GRANTS as USERS_COLUMNS } from "../../src/auth/grants/users-columns.grants";
 import { GRANTS as VOUCHER_REDEMPTIONS_GRANTS } from "../../src/auth/grants/voucher-redemptions.grants";
 import { GRANTS as VOUCHERS_GRANTS } from "../../src/auth/grants/vouchers.grants";
@@ -157,9 +158,12 @@ export async function restrictDomainUsersColumns(admin: Pool, role: string): Pro
  * voucher-redemptions fragment: SELECT and INSERT on both, UPDATE only on
  * `voucher_redemption_intents (consumed_at)` and `voucher_redemptions
  * (reversed_at, reversed_by_device_id)`, no DELETE.
+ *
+ * RT-1334: the same for `tenant_product_brands`, from its fragment: SELECT and
+ * INSERT, UPDATE only on `name`, no DELETE.
  */
 export async function restrictDomainVouchersColumns(admin: Pool, role: string): Promise<void> {
-  for (const fragment of [VOUCHERS_GRANTS, VOUCHER_REDEMPTIONS_GRANTS]) {
+  for (const fragment of [VOUCHERS_GRANTS, VOUCHER_REDEMPTIONS_GRANTS, TENANT_PRODUCT_BRANDS_GRANTS]) {
     const held = new Map<string, Set<string>>();
     for (const [table, privilege] of fragment.domainRequired) {
       held.set(table, (held.get(table) ?? new Set<string>()).add(privilege));
