@@ -16,6 +16,7 @@ import { OffersModule } from "../../src/offers/offers.module";
 import { idempotencyProviders } from "../_helpers/idempotency-providers";
 import { scopedHttpHarness } from "../_helpers/scoped-http-harness";
 import {
+  ACTOR,
   BR_ADIDAS,
   BR_B,
   BR_NIKE,
@@ -307,6 +308,38 @@ describe("preview", () => {
     expect(body.eligibleSet.sample.map((p) => p.productId)).toEqual([P_RUN]);
     expect(body).toMatchObject({ eligibleSet: { count: 1 }, issues: [], conflicts: [], publishable: true });
   });
+
+  it("reports the true size of a set past the Pack bound and simulates its last product as eligible", async () => {
+    if (skip()) return;
+    const admin = h.env().admin;
+    const bulkCat = "0000b0b0-0000-4000-8000-000000000001";
+    await admin.query(`INSERT INTO tenant_product_categories (id, tenant_id, name, created_by) VALUES ($1, $2, 'Bulk', $3)`, [bulkCat, TENANT_A, ACTOR]);
+    try {
+      // 20,002 products: one more than the bound plus one, so the last id is past the capped read.
+      await admin.query(
+        `INSERT INTO tenant_products (id, tenant_id, name, category_id, tax_category, created_by, updated_by)
+         SELECT ('00000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, $1, 'bulk ' || n, $2, 'standard', $3, $3
+           FROM generate_series(1, 20002) AS n`,
+        [TENANT_A, bulkCat, ACTOR],
+      );
+      const lastId = "00000000-0000-4000-8000-000000020002";
+      const offer = await createOffer(definition({ eligibility: { include: { categoryIds: [bulkCat] } } }));
+      const res = await post(`/api/v1/offers/${offer.offerId}/preview`, SES_OWNER_ALL, {
+        simulation: { currencyCode: "EGP", lines: [{ unitPrice: "10.00", productId: lastId }, { unitPrice: "10.00", productId: lastId }] },
+      });
+      expect(res.status).toBe(200);
+      h.conforms("OfferPreview", res.body);
+      const body = res.body as { publishable: boolean; issues: Array<{ code: string }>; eligibleSet: { count: number; sample: unknown[] }; simulation: { lines: Array<{ eligible: boolean }> } };
+      expect(body.eligibleSet.count).toBe(20_002);
+      expect(body.eligibleSet.sample.length).toBeLessThanOrEqual(20);
+      expect(body.issues.map((i) => i.code)).toContain("offer_eligible_set_too_large");
+      expect(body.publishable).toBe(false);
+      expect(body.simulation.lines.map((l) => l.eligible)).toEqual([true, true]);
+    } finally {
+      await admin.query(`DELETE FROM tenant_products WHERE category_id = $1`, [bulkCat]);
+      await admin.query(`DELETE FROM tenant_product_categories WHERE id = $1`, [bulkCat]);
+    }
+  }, 60_000);
 
   it("reports every issue a publish would refuse for, and changes nothing", async () => {
     if (skip()) return;

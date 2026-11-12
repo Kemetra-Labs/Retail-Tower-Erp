@@ -49,21 +49,35 @@ export async function eligibleProductIds(
   const r = await client.query<{ id: string }>(
     `SELECT p.id::text AS id
        FROM tenant_products p
-      WHERE p.tenant_id = $1::uuid AND p.retired_at IS NULL AND p.is_active
-        AND (p.id = ANY($2::uuid[]) OR COALESCE(p.category_id = ANY($3::uuid[]), false) OR COALESCE(p.brand_id = ANY($4::uuid[]), false))
-        AND NOT (p.id = ANY($5::uuid[]) OR COALESCE(p.category_id = ANY($6::uuid[]), false) OR COALESCE(p.brand_id = ANY($7::uuid[]), false))
-        AND ($8::uuid[] IS NULL OR p.id = ANY($8::uuid[]))
+      WHERE ${ELIGIBLE_WHERE}
       ORDER BY p.id
       LIMIT $9`,
-    [
-      tenantId,
-      [...rules.includeProducts], [...rules.includeCategories], [...rules.includeBrands],
-      [...rules.excludeProducts], [...rules.excludeCategories], [...rules.excludeBrands],
-      opts.among === undefined ? null : [...opts.among],
-      (opts.limit ?? ELIGIBLE_SET_LIMIT) + 1,
-    ],
+    [...ruleParams(tenantId, rules, opts.among), (opts.limit ?? ELIGIBLE_SET_LIMIT) + 1],
   );
   return r.rows.map((p) => p.id);
+}
+
+/** How many products the rules match, with no bound (the preview reports the true size of an oversized set). */
+export async function countEligibleProducts(client: PoolClient, tenantId: string, rules: RuleSets): Promise<number> {
+  const r = await client.query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM tenant_products p WHERE ${ELIGIBLE_WHERE}`,
+    ruleParams(tenantId, rules),
+  );
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+const ELIGIBLE_WHERE = `p.tenant_id = $1::uuid AND p.retired_at IS NULL AND p.is_active
+        AND (p.id = ANY($2::uuid[]) OR COALESCE(p.category_id = ANY($3::uuid[]), false) OR COALESCE(p.brand_id = ANY($4::uuid[]), false))
+        AND NOT (p.id = ANY($5::uuid[]) OR COALESCE(p.category_id = ANY($6::uuid[]), false) OR COALESCE(p.brand_id = ANY($7::uuid[]), false))
+        AND ($8::uuid[] IS NULL OR p.id = ANY($8::uuid[]))`;
+
+function ruleParams(tenantId: string, rules: RuleSets, among?: ReadonlyArray<string>): unknown[] {
+  return [
+    tenantId,
+    [...rules.includeProducts], [...rules.includeCategories], [...rules.includeBrands],
+    [...rules.excludeProducts], [...rules.excludeCategories], [...rules.excludeBrands],
+    among === undefined ? null : [...among],
+  ];
 }
 
 export interface ReferenceIssue {

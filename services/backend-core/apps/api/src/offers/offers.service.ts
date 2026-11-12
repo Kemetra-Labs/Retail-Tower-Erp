@@ -30,7 +30,7 @@ import type { StoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
 import { canRead, holdsCapability, isStoreBounded, type OfferCapability } from "./offer-capabilities";
 import { insertOfferAudit } from "./offer-audit";
-import { ELIGIBLE_SET_LIMIT, eligibleProductIds, ruleSetsOf, sampleProducts } from "./offer-eligibility";
+import { ELIGIBLE_SET_LIMIT, countEligibleProducts, eligibleProductIds, ruleSetsOf, sampleProducts } from "./offer-eligibility";
 import { OfferRefusedError } from "./offer-errors";
 import {
   loadLiveOffers,
@@ -260,14 +260,23 @@ export class OffersService {
       }
       const definition = header.draft.definition;
       const { check } = await this.check(client, input.tenantId, offerId, definition);
+      // The check reads one past the bound. Above it the true size and the simulated products are resolved
+      // on their own, so a set past the bound is neither under-counted nor missing a product in the simulation.
+      const oversized = check.eligible.length > ELIGIBLE_SET_LIMIT;
+      const rules = ruleSetsOf(definition);
+      const count = oversized ? await countEligibleProducts(client, input.tenantId, rules) : check.eligible.length;
+      const simulated = body.simulation?.lines.flatMap((l) => (l.productId === undefined ? [] : [l.productId]));
+      const eligibleForSimulation = oversized && simulated !== undefined && simulated.length > 0
+        ? await eligibleProductIds(client, input.tenantId, rules, { among: simulated })
+        : check.eligible;
       return {
         offerId,
         draftRevision: header.draftRevision,
         publishable: check.issues.length === 0 && check.conflicts.length === 0,
         issues: check.issues.slice(0, 100).map((i) => ({ code: i.code, field: i.field, message: i.message })),
         eligibleSet: {
-          // The whole set the check found (one past the bound at most): the bound limits the sample, not the set.
-          count: check.eligible.length,
+          // The bound limits the sample, not the set: above it the count is the true size.
+          count,
           sample: await sampleProducts(client, input.tenantId, check.eligible),
         },
         conflicts: check.conflicts,
@@ -282,7 +291,7 @@ export class OffersService {
                   percentOff: definition.parameters.percentOff,
                   maxApplicationsPerSale: definition.parameters.maxApplicationsPerSale,
                 },
-                new Set(check.eligible),
+                new Set(eligibleForSimulation),
               ),
       };
     });
