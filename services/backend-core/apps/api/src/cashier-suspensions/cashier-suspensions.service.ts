@@ -102,6 +102,11 @@ const REACTIVATE_SQL = `
    WHERE tenant_id = $1::uuid AND store_id = $2::uuid AND user_id = $3::uuid AND status = 'suspended'
   RETURNING user_id, status, changed_at`;
 
+/** A stored row for the cashier at the store, suspended or not. */
+const KNOWN_SQL = `
+  SELECT 1 FROM cashier_suspensions
+   WHERE tenant_id = $1::uuid AND store_id = $2::uuid AND user_id = $3::uuid`;
+
 const READ_ONE_SQL = `
   SELECT user_id, status, changed_at FROM cashier_suspensions
    WHERE tenant_id = $1::uuid AND store_id = $2::uuid AND user_id = $3::uuid`;
@@ -188,8 +193,10 @@ export class CashierSuspensionsService {
     if (actorUserId === null) throw notFound();
     return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
       await this.requireStore(client, input.ctx, tenantId, input.storeId);
-      const cashier = await client.query(CASHIER_SQL, [tenantId, input.storeId, input.userId]);
-      if (cashier.rowCount === 0) throw notFound();
+      // A stored row can always be reactivated, even when the user has since lost the role or
+      // the store (else the row would stay suspended, and listed, for good). Anything else must be a cashier.
+      const hasRow = kind === REACTIVATE && (await client.query(KNOWN_SQL, [tenantId, input.storeId, input.userId])).rowCount !== 0;
+      if (!hasRow && !(await this.isCashier(client, tenantId, input))) throw notFound();
       const written = await client.query<SuspensionRow>(kind.sql, [tenantId, input.storeId, input.userId, actorUserId]);
       const changed = written.rows[0];
       if (changed !== undefined) {
@@ -200,6 +207,11 @@ export class CashierSuspensionsService {
       const stored = await client.query<SuspensionRow>(READ_ONE_SQL, [tenantId, input.storeId, input.userId]);
       return { outcome: kind.unchanged, suspension: bodyOf(input.storeId, input.userId, stored.rows[0]) };
     });
+  }
+
+  private async isCashier(client: PoolClient, tenantId: string, input: SuspensionActionInput): Promise<boolean> {
+    const r = await client.query(CASHIER_SQL, [tenantId, input.storeId, input.userId]);
+    return (r.rowCount ?? 0) > 0;
   }
 
   private async requireStore(client: PoolClient, ctx: ResolvedContext, tenantId: string, storeId: string): Promise<void> {

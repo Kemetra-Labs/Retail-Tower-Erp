@@ -222,6 +222,24 @@ describe("consoleReactivateCashier", () => {
     expect(await newAudits(SUSPENDED)).toHaveLength(2);
   });
 
+  it("a stored row can be reactivated after the user lost the cashier membership", async () => {
+    if (skip()) return;
+    const admin = h.env().admin;
+    await suspend(SES_OWNER_ALL, STORE_A_X, CASHIER_ALL).expect(200);
+    await admin.query(`UPDATE memberships SET revoked_at = now() WHERE user_id = $1`, [CASHIER_ALL]);
+    try {
+      // Suspending again is refused (no longer a cashier), but the stored row can be undone.
+      expectError(await suspend(SES_OWNER_ALL, STORE_A_Y, CASHIER_ALL), 404, "not_found");
+      expect((await list(SES_OWNER_ALL, STORE_A_X).expect(200)).body.suspensions).toHaveLength(1);
+      const res = await reactivate(SES_OWNER_ALL, STORE_A_X, CASHIER_ALL).expect(200);
+      expect(res.body.outcome).toBe("reactivated");
+      // A user with no stored row who is not a cashier is still the 404.
+      expectError(await reactivate(SES_OWNER_ALL, STORE_A_X, USER_MANAGER), 404, "not_found");
+    } finally {
+      await admin.query(`UPDATE memberships SET revoked_at = NULL WHERE user_id = $1`, [CASHIER_ALL]);
+    }
+  });
+
   it("is 403 for a manager, and a tenant can never reactivate another tenant's cashier (404, row kept)", async () => {
     if (skip()) return;
     await suspend(SES_OWNER_ALL, STORE_A_X, CASHIER_ALL).expect(200);

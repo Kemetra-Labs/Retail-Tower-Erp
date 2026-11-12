@@ -156,7 +156,7 @@ describe("0106: constraints", () => {
     await insertRow(guard(), TENANT_A, STORE_A, CASHIER_A, "active");
   });
 
-  it("one row per tenant, store and user (23505); the same user may be suspended at another store", async () => {
+  it("one row per tenant, store and user (23505)", async () => {
     if (skip()) return;
     await insertRow(guard(), TENANT_A, STORE_A, CASHIER_A);
     await expectCode(insertRow(guard(), TENANT_A, STORE_A, CASHIER_A), "23505");
@@ -282,6 +282,27 @@ describe("0106: down and up again", () => {
     expect(still.rows[0]).toEqual({ t: T });
   });
 
+  it("the down refuses as a NOSUPERUSER owner under FORCE RLS too (a bare count would see no rows and fail open)", async () => {
+    if (skip()) return;
+    await insertRow(guard(), TENANT_A, STORE_A, CASHIER_A);
+    const e = guard();
+    const owner = { role: "rt1138_migration_owner", tables: [T, "tenants"], functions: [] };
+    const code = await asMigrationOwner(e, owner, async () => {
+      const client = await e.admin.connect();
+      try {
+        await client.query(`SET ROLE ${owner.role}`);
+        return await errorCode(() => client.query(downSql));
+      } finally {
+        await client.query("ROLLBACK").catch(() => undefined);
+        await client.query("RESET ROLE").catch(() => undefined);
+        client.release();
+      }
+    });
+    expect(code).toBe("23514");
+    const still = await e.admin.query(`SELECT to_regclass($1) AS t`, [T]);
+    expect(still.rows[0]).toEqual({ t: T });
+  });
+
   it("with nobody suspended the down drops only this table, and the up re-applies cleanly", async () => {
     if (skip()) return;
     const a = guard().admin;
@@ -297,5 +318,14 @@ describe("0106: down and up again", () => {
     await ensureAppRole(guard());
     const back = await a.query(`SELECT relforcerowsecurity FROM pg_class WHERE relname = $1`, [T]);
     expect(back.rows[0]).toEqual({ relforcerowsecurity: true });
+  });
+
+  it("the down can be run again once the table is gone", async () => {
+    if (skip()) return;
+    const a = guard().admin;
+    await a.query(downSql);
+    expect(await errorCode(() => a.query(downSql))).toBeNull();
+    expect(await errorCode(() => a.query(upSql))).toBeNull();
+    await ensureAppRole(guard());
   });
 });
