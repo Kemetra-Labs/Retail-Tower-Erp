@@ -1,0 +1,22 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/offers.openapi.yaml (RT-1335, RT-805; checked by console-rate-limit.ratchet.spec.ts).
+# Every operation is contract-only here, so the class is the INTENDED one (RT-574 D3); the runtime (RT-1337) drops only the marker.
+
+# Draft create and edit, publish (a new version and Pack revision), resume and archive: single-offer writes.
+consoleCreateOfferDraft: write
+consoleUpdateOfferDraft: write
+consolePublishOffer: write
+consoleResumeOffer: write
+consoleArchiveOffer: write
+
+# Pause and end are the emergency stop (§21, OD-12): their own generous budget, so a spent write budget never blocks them.
+consolePauseOffer: incidentControl
+consoleEndOffer: incidentControl
+
+# Resolves the eligible set against the catalog and checks overlaps with every other live offer; changes nothing.
+consolePreviewOffer: expensiveRead
+
+# One keyset-paginated indexed read, one indexed lookup by id, and one keyset-paginated read of one offer's versions.
+consoleListOffers: cheapRead
+consoleGetOffer: cheapRead
+consoleListOfferVersions: cheapRead

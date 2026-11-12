@@ -86,6 +86,7 @@ describe("production navigation", () => {
       "Operators",
       "Tenants",
       "Payer accounts",
+      "Vouchers",
       "Sign out",
     ]);
     expect(Array.from(nav.querySelectorAll(".nav-section"), (h) => h.textContent)).toEqual([
@@ -247,6 +248,23 @@ describe("production navigation", () => {
       const nav = renderShell(role);
       expect(entryLabels(nav)).not.toContain("Payer accounts");
       expect(within(nav).queryByText("Payers")).toBeNull();
+    },
+  );
+
+  // RT-1109: vouchers, for owner / tenant_admin only (decision 2A), under Management.
+  test.each(["owner", "tenant_admin"])("RT-1109: %s sees Vouchers in Management", (role) => {
+    const nav = renderShell(role);
+    expect(within(nav).getByRole("link", { name: "Vouchers" }).getAttribute("href")).toBe(
+      "/vouchers",
+    );
+    expect(groupOf(nav, "Vouchers")).toBe("Management");
+  });
+
+  test.each(["store_manager", "store_staff", "cashier", "auditor"])(
+    "RT-1109: %s has no Vouchers entry",
+    (role) => {
+      const nav = renderShell(role);
+      expect(entryLabels(nav)).not.toContain("Vouchers");
     },
   );
 

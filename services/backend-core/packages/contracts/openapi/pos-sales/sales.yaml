@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.21.0-draft"
+  version: "1.22.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -549,6 +549,39 @@ info:
     whatever the switch state. `safetyRevision` and `safetySyncedAt` are
     provenance and are accepted and recorded whatever the switch state.
 
+    RT-1335 (1.22.0-draft; [GATED] owner authorization Jira RT-1335 comment
+    16649, 2026-11-11; spec 048 Offer Engine V1, owner decisions OD-1 to
+    OD-10 of RT-286, OD-11 open): AUTOMATIC OFFER FACTS, CONTRACT ONLY.
+    `CaptureSaleLine` gains an OPTIONAL `promotion`
+    (`CaptureSaleLinePromotion`: `offerId`, `offerVersion`, `packRevision`,
+    `discountAmount`), the frozen fact of an automatic offer applied by the
+    till from the Offer Pack (`offers.openapi.yaml` `posGetOfferPack`). The
+    line invariant becomes `lineAmount = unitPrice × quantity −
+    promotion.discountAmount` when `promotion` is present; a reward line
+    (`discountAmount` > 0) has `quantity` 1 (OD-4), and `promotion` and the
+    manual `discount` on the same line are 400 (OD-5). Like every line field,
+    `promotion` is part of the sale's payload hash and of the
+    `Idempotency-Key` fingerprint. Unlike the manual discount, the fact is
+    stored (the RT-1336 table) and returned: `SaleLine` gains an OPTIONAL
+    `promotion` (`SaleLinePromotion`), present from the RT-1337 runtime on a
+    line captured with one. Backend-Core re-runs the spec 048 §6 evaluation
+    with the Pack revision the sale cites: a body whose arithmetic does not
+    hold is 422 `sale_line_pricing_invalid`; a rule-level difference (the
+    eligible set, the number of applications, which units are rewards) is
+    accepted and flagged for review (OD-9), never re-priced. Returns:
+    `SaleReturn` gains an OPTIONAL `promotionClawbacks` and `recordReturn`
+    two refusal codes, `promotion_clawback_exceeds_refund` (OD-10) and
+    `promotion_return_requires_clawback` (the fail-closed interim while
+    OD-11 is open, RT-1340); see `recordReturn`. Additive: no field,
+    pattern or `required` list of an existing schema changes, no enum gains
+    a value, and a body without `promotion` hashes exactly as before.
+    ROLLOUT ORDER: the server accepts `promotion` from the RT-1337 deploy.
+    Until then the strict capture DTO rejects the unknown field (400). The
+    POS MUST NOT send `promotion`, and applies no offer, until RT-1337 is
+    deployed and `posGetOfferPack` is live. A reward line needs no new
+    posting: it is a discounted line with quantity 1, which the
+    ERPNext-Connector already posts (RT-857).
+
 servers:
   - url: https://api.example.com
 
@@ -609,7 +642,10 @@ paths:
         price invariant, else 422 `sale_line_pricing_invalid`; nothing is
         recorded. A line with a manual `discount` (RT-740) satisfies it with
         its net: `lineAmount = unitPrice × quantity − discount.amount`, and the
-        discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). The coverage rule (tender-only or combined) is checked first,
+        discount's own arithmetic must hold (see `CaptureSaleLineDiscount`).
+        A line with an automatic offer `promotion` (RT-1335, from the RT-1337
+        runtime) satisfies it with `lineAmount = unitPrice × quantity −
+        promotion.discountAmount` (see `CaptureSaleLinePromotion`). The coverage rule (tender-only or combined) is checked first,
         so a body that breaks both answers `sale_tender_mismatch` (or, with
         `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture
         only: a replay of a sale captured before RT-105 is never re-checked, and
@@ -1119,6 +1155,42 @@ paths:
         `returnTotal` = Σ returned `lineAmount`, the same basis as capture's
         `posTotal` = Σ `lineAmount`; the tax share is carried inside it for
         posting, not added on top.
+
+
+        Automatic offers (RT-1335, spec 048 §9, OD-3, OD-10; from the RT-1337
+        runtime). Returns use the FROZEN offer version and unit prices of the
+        sale (`SaleLine.promotion`), never the current offers. The per-line
+        pricing above is unchanged; a clawback is a separate deduction. For
+        each offer O of the sale with a returned unit, counting every earlier
+        return of the sale:
+        `D_held` = Σ `discountAmount` of the O units not returned before this
+        return − Σ `promotionClawbacks` of O already recorded on earlier
+        returns of the sale (the discount the customer still holds);
+        `disc_ret` = min(Σ `discountAmount` of the O units returned now,
+        `D_held`);
+        `D_remaining` = the §6 evaluation of the O-eligible units the customer
+        still keeps after this return, with O's frozen version and prices;
+        `refund_O = Σ gross of the returned O units − max(disc_ret, D_held −
+        D_remaining)`; and the clawback of O is `max(0, D_held − D_remaining −
+        disc_ret)`. The `max` stops a return from creating a discount the
+        customer did not get at sale time, and the earlier clawbacks stop a
+        second return from clawing back the same discount twice. On a first
+        return `D_held` is the sale's whole O discount `D_orig`, and the rule
+        reads `refund_O = min(Σ net of the returned O units, Σ gross of the
+        returned O units − (D_orig − D_remaining))`. A clawback above 0 is
+        listed in `promotionClawbacks`, and `returnTotal` = Σ returned
+        `lineAmount` − Σ clawback, so `refundTenders` still sum to
+        `returnTotal`. Units not under an offer are refunded as before. If
+        `refund_O < 0` (possible when Y > X or the percent is high) the return
+        is refused with 422 `promotion_clawback_exceeds_refund` (OD-10): the
+        till asks the cashier to add the reward units to the return; a return
+        never charges the customer. While OD-11 (how a clawback posts to
+        ERPNext) is open, a return whose clawback would be above 0 is refused
+        with 422 `promotion_return_requires_clawback` (RT-1340, fail closed):
+        a full return of every O unit, and a return where no clawback is due,
+        work from the RT-1337 runtime. Worked cases are the `returns` and
+        `returnSequences` of
+        `packages/contracts/fixtures/offers/golden-vectors.json`.
 
 
         Refund allocation (D3, reinterpreted by RT-271 R-2; RT-490):
@@ -2330,6 +2402,14 @@ components:
         `tracking` (`CaptureSaleLineTracking`). It does not change the price
         invariant or any other rule of the line; how it is classified is
         stated on `captureSale`.
+
+        Automatic offer (RT-1335, spec 048; from the RT-1337 runtime): a line
+        that took part in an offer carries `promotion`
+        (`CaptureSaleLinePromotion`). `lineAmount` is then the line's NET and
+        the price condition becomes `lineAmount = unitPrice × quantity −
+        promotion.discountAmount` exactly; the minor-unit and whole-quantity
+        conditions are unchanged. `promotion` and `discount` on the same line
+        are 400 `validation_error` (OD-5: offers are exclusive).
       properties:
         lineName:
           type: string
@@ -2364,6 +2444,63 @@ components:
           $ref: "#/components/schemas/CaptureSaleLineDiscount"
         tracking:
           $ref: "#/components/schemas/CaptureSaleLineTracking"
+        promotion:
+          $ref: "#/components/schemas/CaptureSaleLinePromotion"
+    CaptureSaleLinePromotion:
+      type: object
+      additionalProperties: false
+      required: [offerId, offerVersion, packRevision, discountAmount]
+      description: >
+        RT-1335 (spec 048 §8, §20): the frozen fact of an automatic offer on
+        this line. Absent means the line took no part in an offer. The till
+        evaluates the offer with the spec 048 §6 algorithm from the Offer
+        Pack it holds (`offers.openapi.yaml` `posGetOfferPack`) and splits
+        each reward unit into its own line (OD-4), so:
+
+
+        - every line whose units took part in offer `offerId` cites it, with
+          `discountAmount` `0` on a line that is eligible but not a reward;
+        - a reward line (`discountAmount` > 0) has `quantity` 1, and
+          `discountAmount` is `percentOff`% of `unitPrice`, rounded half up
+          once at the line currency's ISO-4217 minor unit (OD-28-3);
+        - `lineAmount = unitPrice × quantity − discountAmount` exactly, and
+          `discountAmount` fits the minor unit and is at most the line gross.
+
+
+        A malformed object (an unknown key, a bad id or number) or a line
+        that carries both `promotion` and the manual `discount` (OD-5) is 400
+        `validation_error`. A line whose arithmetic does not hold (the net
+        invariant, the minor unit, `discountAmount` above the gross, a
+        reward line with a quantity other than 1, or a `discountAmount` above
+        0 that is not the cited offer version's `percentOff`% of `unitPrice`
+        rounded half up once at the minor unit) is 422
+        `sale_line_pricing_invalid`, and nothing is recorded. The body does
+        not carry the percent: Backend-Core takes it from the offer version
+        that `packRevision` cites, and a mismatch is arithmetic (OD-9), not a
+        rule-level difference. Backend-Core
+        then re-runs the evaluation with the cited `packRevision`: a sale
+        whose offer result differs at the rule level (the eligible set, the
+        number of applications, which units are rewards) is ACCEPTED and
+        flagged to the sale-review path (OD-9). The sale happened, so its
+        frozen facts are kept; it is never re-priced. `promotion` is part of
+        the sale's payload hash and of the `Idempotency-Key` fingerprint,
+        like every other line field. ROLLOUT: until RT-1337 is deployed the
+        strict capture DTO rejects the unknown field (400); the POS MUST NOT
+        send it before then.
+      properties:
+        offerId:
+          type: string
+          format: uuid
+        offerVersion:
+          type: integer
+          minimum: 1
+          description: The immutable offer version the till applied.
+        packRevision:
+          type: integer
+          minimum: 1
+          description: The Offer Pack revision the till evaluated with; Backend-Core judges the sale against it (§19).
+        discountAmount:
+          $ref: "#/components/schemas/NonNegativeDecimalAmount"
     CaptureSaleLineDiscount:
       type: object
       additionalProperties: false
@@ -3246,6 +3383,30 @@ components:
             when the sale is voided.
         tracking:
           $ref: "#/components/schemas/SaleLineTracking"
+        promotion:
+          $ref: "#/components/schemas/SaleLinePromotion"
+    SaleLinePromotion:
+      type: object
+      additionalProperties: false
+      required: [offerId, offerVersion, packRevision, discountAmount]
+      description: >
+        RT-1335 (spec 048 §8, §20): the automatic offer fact a line was
+        captured with (`CaptureSaleLinePromotion`), echoed as stored. Absent
+        on a line captured without one and from a Backend-Core that predates
+        RT-1337; optional, never in `SaleLine.required`. Returns use it with
+        the frozen offer version, never the current offers (§9).
+      properties:
+        offerId:
+          type: string
+          format: uuid
+        offerVersion:
+          type: integer
+          minimum: 1
+        packRevision:
+          type: integer
+          minimum: 1
+        discountAmount:
+          $ref: "#/components/schemas/NonNegativeDecimalAmount"
     SaleLineTracking:
       type: object
       additionalProperties: false
@@ -3324,7 +3485,10 @@ components:
           $ref: "#/components/schemas/CurrencyCode"
         returnTotal:
           $ref: "#/components/schemas/DecimalAmount"
-          description: Σ returned `lineAmount` — the server-computed refund total.
+          description: >
+            Σ returned `lineAmount` — the server-computed refund total — less
+            Σ `promotionClawbacks.amount` when an automatic offer is clawed
+            back (RT-1335, see `recordReturn`).
         lines:
           type: array
           minItems: 1
@@ -3342,6 +3506,36 @@ components:
             allocation recorded without them carries none (never backfilled).
         reason:
           type: [string, "null"]
+        promotionClawbacks:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/PromotionClawback"
+          description: >
+            RT-1335 (spec 048 §9, OD-3): per automatic offer of the sale, the
+            discount the customer no longer earns on the units they keep,
+            deducted from `returnTotal`. Absent when no offer is clawed back
+            and from a Backend-Core that predates RT-1337. While OD-11 is open
+            (RT-1340) a return that needs a clawback is refused, so no
+            accepted return carries an entry yet.
+    PromotionClawback:
+      type: object
+      additionalProperties: false
+      required: [offerId, offerVersion, amount]
+      description: >
+        RT-1335: one offer's clawback on a return, `max(0, D_held −
+        D_remaining − disc_ret)` (see `recordReturn`), computed with the
+        frozen offer version and prices of the sale and net of the clawbacks
+        of earlier returns.
+      properties:
+        offerId:
+          type: string
+          format: uuid
+        offerVersion:
+          type: integer
+          minimum: 1
+        amount:
+          $ref: "#/components/schemas/PositiveDecimalAmount"
     RecordRefundExecutionRequest:
       type: object
       additionalProperties: false
@@ -3943,6 +4137,13 @@ components:
       description: >
         422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490).
         `error.code` is one of, in this order:
+        `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from
+        the RT-1337 runtime) — an automatic offer's `refund_O` would be
+        negative (see `recordReturn`, Automatic offers); add the reward units
+        to the return;
+        `promotion_return_requires_clawback` (RT-1335, interim while OD-11 is
+        open, RT-1340; from the RT-1337 runtime) — the return would need an
+        offer clawback above 0, which cannot be posted yet;
         `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do
         not sum to the server-computed `returnTotal`;
         `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) —
@@ -3988,7 +4189,8 @@ components:
         exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the
         `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net
         condition, or the discount's own arithmetic in
-        `CaptureSaleLineDiscount`);
+        `CaptureSaleLineDiscount`; with a RT-1335 `promotion`: the net
+        condition, or the arithmetic in `CaptureSaleLinePromotion`);
         `sale_responsibility_mismatch` (RT-417) — `responsibilities` is
         present and `sum(tenders) + sum(responsibilities)` does not equal
         `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a

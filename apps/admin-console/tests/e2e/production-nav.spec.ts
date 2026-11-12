@@ -43,6 +43,7 @@ test("production sidebar shows no RF-* placeholder entries", async ({ page, t })
     t("shell.nav.operators"),
     t("shell.nav.tenants"),
     t("payers.nav.label"),
+    t("vouchers.nav.label"),
     t("shell.signOut"),
   ]);
   // RT-1291: the former unheaded first group is "Daily" and "Stock and items".
