@@ -43,6 +43,7 @@ its tax silently dropped, whatever the refund covers (Codex P2, PR #50).
 from __future__ import annotations
 
 import dataclasses
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
@@ -143,6 +144,16 @@ def _negate_rows(doc: dict) -> None:
 		item["amount"] = _negate(item["amount"])
 	for payment in doc["payments"]:
 		payment["amount"] = _negate(payment["amount"])
+
+
+def expected_row_counts(work_item: PostingWorkItem) -> Counter[str]:
+	"""How many credit-note rows each returned ``lineRef`` is posted as (1, or the split count; RT-1340 F3).
+
+	The replay identity check (:mod:`resolution_check`) holds an existing credit note to exactly these
+	counts, so a line posted twice, or a split with the wrong number of rows, is still a mismatch.
+	"""
+	ref = _return_ref(work_item)
+	return Counter(piece.line_ref for rl in ref.return_lines for piece in _returned_lines(work_item, rl))
 
 
 # A whole-number quantity above this is not split into quantity-1 rows (a bound on the credit note's size);

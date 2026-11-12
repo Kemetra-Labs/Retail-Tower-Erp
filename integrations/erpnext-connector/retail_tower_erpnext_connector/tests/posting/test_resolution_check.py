@@ -8,6 +8,8 @@ invoice with the frozen refs before acking ``posted``. A mismatch (or a document
 submitted) means ``reconciliation_required``; ``None`` means the document matches.
 """
 
+import dataclasses
+
 from retail_tower_erpnext_connector.connector.posting import contracts as c
 from retail_tower_erpnext_connector.connector.posting.representation_check import (
 	expected_from_payload,
@@ -347,11 +349,33 @@ class TestRepresentationOnReplay:
 		reason = check_existing(_item(), _represented(None), expected=_expected())
 		assert reason is not None and reason.startswith("representation:")
 
-	def test_a_split_return_repeats_a_line_ref_and_still_matches(self):
-		# RT-1340 F3: a returned discounted line posted as quantity-1 rows carries its ref on each row.
-		split = _invoice(("ITEM-A", "WH-ORIG", _A), ("ITEM-A", "WH-ORIG", _A), ("ITEM-A", "WH-ORIG", _A))
-		assert check_existing(_return(_A), split) is None
 
-	def test_a_split_return_row_of_another_item_is_still_a_mismatch(self):
-		split = _invoice(("ITEM-A", "WH-ORIG", _A), ("ITEM-Z", "WH-ORIG", _A))
-		assert check_existing(_return(_A), split)
+def _split_return():
+	"""A return of 3 x 10.00 for 29.99: posted as three quantity-1 rows (RT-1340 F3)."""
+	wi = _return(_A)
+	sale_line = dataclasses.replace(wi.sale.lines[0], quantity="3", line_amount="30.00")
+	sale = dataclasses.replace(wi.sale, lines=(sale_line, *wi.sale.lines[1:]))
+	returned = dataclasses.replace(wi.reversal_of.return_lines[0], quantity="3", line_amount="29.99")
+	return dataclasses.replace(
+		wi, sale=sale, reversal_of=dataclasses.replace(wi.reversal_of, return_lines=(returned,))
+	)
+
+
+class TestSplitReturnReplay:
+	"""A split return repeats its ref on exactly its expected rows; every other repeat is a double post."""
+
+	def test_a_split_return_with_its_expected_rows_matches(self):
+		rows = [("ITEM-A", "WH-ORIG", _A)] * 3
+		assert check_existing(_split_return(), _invoice(*rows)) is None
+
+	def test_a_split_return_with_an_extra_row_is_a_mismatch(self):
+		rows = [("ITEM-A", "WH-ORIG", _A)] * 4
+		assert "more times" in check_existing(_split_return(), _invoice(*rows))
+
+	def test_a_non_split_return_repeating_its_ref_is_a_mismatch(self):
+		rows = [("ITEM-A", "WH-ORIG", _A)] * 2
+		assert "more times" in check_existing(_return(_A), _invoice(*rows))
+
+	def test_a_split_row_of_another_item_is_still_a_mismatch(self):
+		rows = [("ITEM-A", "WH-ORIG", _A), ("ITEM-Z", "WH-ORIG", _A)]
+		assert check_existing(_split_return(), _invoice(*rows))
