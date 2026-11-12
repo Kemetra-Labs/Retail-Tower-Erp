@@ -32,6 +32,7 @@ import {
   captureBody,
   idempKey,
   HARNESS_DEVICE_ID,
+  PRODUCT_A_ACTIVE,
   STORE_A_X,
   STORE_A_Y,
   STORE_B_X,
@@ -136,6 +137,14 @@ beforeAll(async () => {
   await seedRedemption({ id: R_OTHER_TENANT, tenant: TENANT_B, store: STORE_B_X, device: DEVICE_B_X });
   await seedRedemption({ id: R_OTHER_CURRENCY, ...inA, currency: "EGP" });
   await seedRedemption({ id: R_OTHER_AMOUNT, ...inA, appliedMinor: 900 });
+  // The feed offers a sale_post only when every line has a confirmed ERPNext Item.
+  await a.query(
+    `INSERT INTO erpnext_item_map
+       (id, tenant_id, tenant_product_id, erpnext_item_ref, state, suggestion_source, confirmed_by, confirmed_at)
+     VALUES (gen_random_uuid(), $1, $2, 'ERP-ITEM-RT1114', 'confirmed', 'manual', $3, now())
+     ON CONFLICT DO NOTHING`,
+    [TENANT_A, PRODUCT_A_ACTIVE, ACTOR],
+  );
 }, 180_000);
 afterAll(async () => {
   delete process.env[TENDERS_FLAG];
@@ -266,7 +275,19 @@ describe("RT-1114 — acceptance 1: a voucher tender without a valid redemption 
 describe("RT-1114 — the posting feed carries the voucher tender", () => {
   it("offers the sale_post with its voucher tender and redemptionId", async () => {
     if (skip()) return;
-    const cap = await post(captureBody({ externalId: "rt1114-feed", tenders: tenders(R_FEED) }), "rt1114feed");
+    const mappedLine = {
+      lineName: "Mapped widget",
+      unitPrice: "12.5000",
+      currencyCode: "USD",
+      quantity: "1",
+      lineAmount: "12.5000",
+      unit: "ea",
+      tenantProductRef: PRODUCT_A_ACTIVE,
+    };
+    const cap = await post(
+      captureBody({ externalId: "rt1114-feed", lines: [mappedLine], tenders: tenders(R_FEED) }),
+      "rt1114feed",
+    );
     expect(cap.status).toBe(201);
     const saleRef = cap.body.saleRef as string;
     const item = await runWithTenantContext(
