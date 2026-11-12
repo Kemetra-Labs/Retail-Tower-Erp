@@ -63,7 +63,7 @@ export interface ReturnSettlement {
 }
 
 /** A promoted sale line breaks an invariant the capture guard enforces (never reachable from valid data). */
-export class OfferReturnInvariantError extends Error {
+class OfferReturnInvariantError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OfferReturnInvariantError";

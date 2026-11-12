@@ -41,16 +41,16 @@ import {
   UseGuards,
 } from "@nestjs/common";
 
-import { annotateAudit, Auditable } from "../audit/auditable.decorator";
-import { Roles } from "../auth/roles.decorator";
-import { RolesGuard } from "../auth/roles.guard";
-import { SessionOnlyAdminGuard } from "../auth/session-only-admin.guard";
-import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { OFFER_REFUSAL_MESSAGES, OFFER_REFUSAL_STATUS, OfferRefusedError } from "./offer-errors";
+import { Idempotent } from "../idempotency/idempotent.decorator";
 import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decorator";
 import { TenantContextGuard } from "../context/tenant-context.guard";
+import { SessionOnlyAdminGuard } from "../auth/session-only-admin.guard";
+import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { annotateAudit, Auditable } from "../audit/auditable.decorator";
+import { RolesGuard } from "../auth/roles.guard";
+import { Roles } from "../auth/roles.decorator";
 import type { TenantContextRequest } from "../context/types";
-import { Idempotent } from "../idempotency/idempotent.decorator";
-import { OFFER_REFUSAL_MESSAGES, OFFER_REFUSAL_STATUS, OfferRefusedError } from "./offer-errors";
 import {
   OfferCreateSchema,
   OfferIdParamSchema,
@@ -206,9 +206,11 @@ export class OffersConsoleController {
 
 /** The session's tenant and user; both are always set behind the cookie guards, anything else is a 401. */
 function callOf(request: TenantContextRequest): OfferCallInput {
-  const ctx = request.context;
-  if (!ctx || ctx.tenantId === null || ctx.userId === null) throw new UnauthorizedException("Unauthorized");
-  return { tenantId: ctx.tenantId, context: ctx, actorUserId: ctx.userId, requestId: request.requestId ?? null };
+  const { context, requestId } = request;
+  const tenantId = context?.tenantId ?? null;
+  const actorUserId = context?.userId ?? null;
+  if (context === undefined || tenantId === null || actorUserId === null) throw new UnauthorizedException("Unauthorized");
+  return { actorUserId, requestId: requestId ?? null, tenantId, context };
 }
 
 /** Maps the service's closed refusals to the contract's status and `OfferError` body; anything else is a 500. */

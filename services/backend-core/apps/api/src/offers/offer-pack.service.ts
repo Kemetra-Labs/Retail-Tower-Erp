@@ -23,27 +23,21 @@ import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
 import { resolveWindow } from "./offer-schedule";
+import type { OfferDefinition } from "./offers.dto";
 import { dbNow, loadVersions } from "./offers.repository";
 
 /** The tenant's Pack freshness window (OD-8): a tenant setting does not exist yet, so the default. */
-export const DEFAULT_FRESHNESS_WINDOW_HOURS = 24;
+const DEFAULT_FRESHNESS_WINDOW_HOURS = 24;
 /** Used when a store has no priced product to take a currency from (EGP is the only supported currency today). */
-export const FALLBACK_CURRENCY = "EGP";
+const FALLBACK_CURRENCY = "EGP";
 
-export interface PackOfferBody {
+interface PackOfferBody {
   readonly offerId: string;
   readonly offerVersion: number;
   readonly nameAr: string;
   readonly nameEn: string | null;
   readonly type: "buy_x_get_y_percent";
-  readonly parameters: {
-    readonly buyQuantity: number;
-    readonly getQuantity: number;
-    readonly percentOff: string;
-    readonly rewardSelection: "cheapest";
-    readonly maxApplicationsPerSale: number | null;
-    readonly priceBasis: "resolved_store_price";
-  };
+  readonly parameters: OfferDefinition["parameters"];
   readonly startsAt: string;
   readonly endsAt: string | null;
   readonly offlinePolicy: "allow_cached" | "online_only";
@@ -90,7 +84,7 @@ export class OfferPackService {
   }
 }
 
-export async function readPack(
+async function readPack(
   client: PoolClient,
   scope: { readonly tenantId: string; readonly storeId: string },
 ): Promise<OfferPackBody> {
@@ -152,7 +146,7 @@ export async function readPack(
  * There is no tenant or store currency setting yet, so a store with no priced
  * product reads `FALLBACK_CURRENCY`.
  */
-export async function storeCurrency(client: PoolClient, tenantId: string, storeId: string): Promise<string> {
+async function storeCurrency(client: PoolClient, tenantId: string, storeId: string): Promise<string> {
   const r = await client.query<{ currency: string }>(
     `SELECT currency FROM (
         SELECT COALESCE(o.currency_code, tp.default_currency_code) AS currency

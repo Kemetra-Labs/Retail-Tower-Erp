@@ -21,6 +21,7 @@ const HINTED_OPERATIONS: Readonly<Record<string, readonly string[]>> = {
   "pos-sales/sales.yaml": ["captureSale"],
   "pos-sales/sale-history.yaml": ["listSaleHistory", "readSaleHistoryDetail", "recordSaleReprint"],
   "cash-variance-policy.openapi.yaml": ["posGetCashVariancePolicy"],
+  "offers.openapi.yaml": ["posGetOfferPack"],
   "pos-shifts.openapi.yaml": ["openShift", "recordCashMovement", "closeShift"],
   "pos-cashier-admissions.openapi.yaml": [
     "posCreateCashierAdmission",

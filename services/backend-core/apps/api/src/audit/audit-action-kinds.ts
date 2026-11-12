@@ -61,6 +61,10 @@ const LIVE_READ_CODES = [
   // RT-449 PR 2: the POS inventory safety feed.
   "inventory_safety.deltas.read",
   "inventory_safety.snapshot.read",
+  // RT-1337: the Console offer reads (the preview is a POST and is not a read).
+  "offers.listed",
+  "offers.read",
+  "offers.versions_listed",
   "pairing_codes.listed",
   // RT-1063: the console people-name read (RT-968).
   "people.names_read",

@@ -44,10 +44,10 @@ export class OffersPosController {
   @UseGuards(PosDeviceAuthGuard)
   @ReportsBuildIdentity()
   async read(
-    @Req() request: TenantContextRequest,
-    @Query(new ZodValidationPipe(NoQuerySchema)) _query: Record<string, never>,
     @Headers("if-none-match") ifNoneMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
+    @Query(new ZodValidationPipe(NoQuerySchema)) _query: Record<string, never>,
+    @Req() request: TenantContextRequest,
   ): Promise<OfferPackBody | undefined> {
     const ctx = request.context;
     if (!ctx || ctx.tenantId === null || ctx.storeId === null) throw new UnauthorizedException("Unauthorized");

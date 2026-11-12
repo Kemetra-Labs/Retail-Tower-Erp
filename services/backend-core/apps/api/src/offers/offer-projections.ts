@@ -23,7 +23,7 @@ export function viewerOf(scope: StoreScope, bounded: boolean): Viewer {
 }
 
 /** The definition as the viewer may see it, or null when a bounded viewer's stores are not in an explicit scope. */
-export function visibleDefinition(def: OfferDefinition, viewer: Viewer): OfferDefinition | null {
+function visibleDefinition(def: OfferDefinition, viewer: Viewer): OfferDefinition | null {
   if (viewer.ownStoreIds === null || "allStores" in def.storeScope) return def;
   const mine = def.storeScope.storeIds.filter((s) => viewer.ownStoreIds!.has(s));
   return mine.length === 0 ? null : { ...def, storeScope: { storeIds: mine } };

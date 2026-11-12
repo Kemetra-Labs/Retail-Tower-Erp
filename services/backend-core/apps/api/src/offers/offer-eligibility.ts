@@ -66,30 +66,6 @@ export async function eligibleProductIds(
   return r.rows.map((p) => p.id);
 }
 
-/** The rule sets of a stored version, read from `offer_version_rules`. */
-export async function loadRuleSets(
-  client: PoolClient,
-  tenantId: string,
-  offerId: string,
-  version: number,
-): Promise<RuleSets> {
-  const r = await client.query<{ effect: "include" | "exclude"; product_id: string | null; category_id: string | null; brand_id: string | null }>(
-    `SELECT effect, product_id::text AS product_id, category_id::text AS category_id, brand_id::text AS brand_id
-       FROM offer_version_rules WHERE tenant_id = $1::uuid AND offer_id = $2::uuid AND version = $3::int`,
-    [tenantId, offerId, version],
-  );
-  const pick = (effect: string, col: "product_id" | "category_id" | "brand_id"): string[] =>
-    r.rows.filter((x) => x.effect === effect && x[col] !== null).map((x) => x[col]!);
-  return {
-    includeProducts: pick("include", "product_id"),
-    includeCategories: pick("include", "category_id"),
-    includeBrands: pick("include", "brand_id"),
-    excludeProducts: pick("exclude", "product_id"),
-    excludeCategories: pick("exclude", "category_id"),
-    excludeBrands: pick("exclude", "brand_id"),
-  };
-}
-
 export interface ReferenceIssue {
   /** A JSON pointer into the definition, such as `/eligibility/include/brandIds/0`. */
   readonly field: string;

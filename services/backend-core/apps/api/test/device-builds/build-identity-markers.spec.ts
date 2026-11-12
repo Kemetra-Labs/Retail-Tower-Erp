@@ -1,7 +1,7 @@
 /**
  * RT-719: the exact set of build identity REPORTING operations, enforced at the
  * route. `pos-terminal-pairing.openapi.yaml` ("Build identity report") names
- * thirteen operations and says "and nowhere else": not `posPairTerminal`, not
+ * fourteen operations and says "and nowhere else": not `posPairTerminal`, not
  * `posRotateTerminalToken`, not a route that authenticates with an operator
  * credential, and not the other hinted device operations. The runtime records
  * the identity only on a handler marked `@ReportsBuildIdentity()`, so this sweep
@@ -23,7 +23,7 @@ import { ShiftCashUpAuthGuard } from "../../src/pos-shifts/shift-cash-up-auth.gu
 import { appControllers, bootDbLessApp, type DbLessApp } from "../_helpers/db-less-app";
 import { contractRouteKey, contractRoutes, controllerRoutes } from "../_helpers/openapi-routes";
 
-/** The thirteen reporting operations of the contract, by operationId. */
+/** The fourteen reporting operations of the contract, by operationId. */
 const REPORTING_OPERATION_IDS = [
   "captureSale",
   "closeShift",
@@ -34,6 +34,7 @@ const REPORTING_OPERATION_IDS = [
   "posGetCashVariancePolicy",
   "posGetCatalogDeltas",
   "posGetCatalogSnapshot",
+  "posGetOfferPack",
   "posListCashierAdmissionRoster",
   "readSaleHistoryDetail",
   "recordCashMovement",
@@ -43,7 +44,7 @@ const REPORTING_OPERATION_IDS = [
 /** Route guards that run `PosDeviceAuthGuard` on their device path (reviewed in RT-129 / RT-224 / RT-539). */
 const DEVICE_GUARD_COMPOSITES: readonly unknown[] = [SaleCaptureAuthGuard, ShiftCashUpAuthGuard, SaleHistoryAuthGuard];
 
-describe("RT-719 build identity reporting operations are exactly the thirteen of the contract", () => {
+describe("RT-719 build identity reporting operations are exactly the fourteen of the contract", () => {
   let booted: DbLessApp;
   let app: INestApplication;
 
@@ -61,7 +62,7 @@ describe("RT-719 build identity reporting operations are exactly the thirteen of
       .flatMap((controller) => controllerRoutes(controller))
       .filter((route) => Reflect.getMetadata(REPORTS_BUILD_IDENTITY_KEY, route.handler) === true);
 
-  it("marks exactly the handlers whose contract operations are the thirteen reporting operations", () => {
+  it("marks exactly the handlers whose contract operations are the fourteen reporting operations", () => {
     const operationByKey = new Map(contractRoutes().map((route) => [contractRouteKey(route), route.operation.operationId] as const));
     const marked = markedHandlers();
     const operationIds = marked.map((route) => operationByKey.get(route.key));

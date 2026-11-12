@@ -36,7 +36,7 @@ export type PreviewIssueCode =
   | "offer_eligible_set_too_large"
   | "offer_store_offer_limit_exceeded";
 
-export interface PreviewIssue {
+interface PreviewIssue {
   readonly code: PreviewIssueCode;
   readonly field: string | null;
   readonly message: string;
@@ -92,7 +92,7 @@ export async function findConflicts(
 }
 
 /** The stores of a definition's scope (live stores only), with their zones. */
-export function definitionScopeStores(
+function definitionScopeStores(
   definition: OfferDefinition,
   stores: LoadedTenantOffers["stores"],
 ): LoadedTenantOffers["stores"] {

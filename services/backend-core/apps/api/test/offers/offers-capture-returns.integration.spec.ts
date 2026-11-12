@@ -27,6 +27,7 @@ import { resolve } from "node:path";
 import { runWithTenantContext } from "@data-pulse-2/db";
 
 import { OfferDefinitionSchema, normaliseDefinition, type OfferDefinition } from "../../src/offers/offers.dto";
+import { SALE_OFFER_REVIEW_ACTION } from "../../src/catalog/sales/sale-promotions";
 import { rebuildOfferPack } from "../../src/offers/offer-pack.rebuild";
 import { clearDraft, insertOffer, insertVersion, markEnded } from "../../src/offers/offers.repository";
 import {
@@ -159,7 +160,7 @@ const cite = (o: SeededOffer, discountAmount: string, over: Partial<{ offerVersi
   discountAmount,
 });
 
-const reviewRows = (saleRef: string) => sql(`SELECT * FROM audit_events WHERE action = 'sale.offer_review_flagged' AND target_id = $1`, [saleRef]);
+const reviewRows = (saleRef: string) => sql(`SELECT * FROM audit_events WHERE action = $2 AND target_id = $1`, [saleRef, SALE_OFFER_REVIEW_ACTION]);
 
 // -------------------------------------------------------------------- capture
 

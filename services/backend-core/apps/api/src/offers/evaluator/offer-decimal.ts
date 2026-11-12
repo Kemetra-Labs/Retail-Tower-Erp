@@ -7,7 +7,7 @@
  */
 
 /** The quantity scale of `sale_lines.quantity` (numeric(19,6)). */
-export const QUANTITY_SCALE = 6;
+const QUANTITY_SCALE = 6;
 
 const ONE_QUANTITY = 10n ** BigInt(QUANTITY_SCALE);
 

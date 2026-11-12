@@ -16,7 +16,6 @@ import type { PoolClient } from "pg";
 import { newId } from "@data-pulse-2/shared";
 
 import type { EligibilityIds, OfferDefinition } from "./offers.dto";
-import type { OfferScheduleValue } from "./offer-schedule";
 
 export interface OfferHeader {
   readonly id: string;
@@ -427,8 +426,4 @@ export async function liveStoreIdsOf(client: PoolClient, tenantId: string, store
     [tenantId, [...storeIds]],
   );
   return new Set(r.rows.map((s) => s.id));
-}
-
-export function scheduleOf(d: OfferDefinition): OfferScheduleValue {
-  return d.schedule;
 }

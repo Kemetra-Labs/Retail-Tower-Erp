@@ -20,6 +20,7 @@ const REPORTING_OPERATIONS: Readonly<Record<string, readonly string[]>> = {
   "pos-sales/sales.yaml": ["captureSale"],
   "pos-sales/sale-history.yaml": ["listSaleHistory", "readSaleHistoryDetail", "recordSaleReprint"],
   "cash-variance-policy.openapi.yaml": ["posGetCashVariancePolicy"],
+  "offers.openapi.yaml": ["posGetOfferPack"],
   "pos-shifts.openapi.yaml": ["openShift", "recordCashMovement", "closeShift"],
   "pos-cashier-admissions.openapi.yaml": [
     "posCreateCashierAdmission",
@@ -124,7 +125,7 @@ describe("POS build identity headers in the contracts (RT-719)", () => {
       for (const ref of buildRefs) expect(refs).not.toContain(ref);
     }
     expect(parametersOf(pairing)["PosBuildCommit"]).toBeUndefined();
-    expect(documented.size).toBe(13);
+    expect(documented.size).toBe(14);
   });
 
   it("does not document them on the RT-327 heartbeat (hinted, but not a reporting operation)", () => {
@@ -144,10 +145,10 @@ describe("POS build identity headers in the contracts (RT-719)", () => {
       expect(text).toMatch(/`1\.4\.0-draft` is additive and adds no operation/);
     });
 
-    it("names the thirteen reporting operations explicitly, not by reference to the hinted set", () => {
+    it("names the fourteen reporting operations explicitly, not by reference to the hinted set", () => {
       const reporting = Object.values(REPORTING_OPERATIONS).flat();
       for (const operationId of reporting) expect(text).toContain(`\`${operationId}\``);
-      expect(text).toMatch(/exactly these\s+thirteen operations/);
+      expect(text).toMatch(/exactly these\s+fourteen operations/);
       expect(text).toMatch(/carrying the\s+rotate-soon hint does not make an operation a reporting one/);
     });
 

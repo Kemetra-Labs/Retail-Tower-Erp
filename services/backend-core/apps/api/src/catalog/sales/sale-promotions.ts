@@ -38,9 +38,9 @@ export const SALE_OFFER_REVIEW_ACTION = "sale.offer_review_flagged";
 
 type PromotedLine = CaptureSaleLineDto & { readonly promotion: NonNullable<CaptureSaleLineDto["promotion"]> };
 
-export type PromotionReviewReason = "cited_product_not_in_eligible_set" | "discount_differs_from_server_evaluation";
+type PromotionReviewReason = "cited_product_not_in_eligible_set" | "discount_differs_from_server_evaluation";
 
-export interface PromotionReviewFinding {
+interface PromotionReviewFinding {
   readonly offerId: string;
   readonly offerVersion: number;
   readonly packRevision: number;

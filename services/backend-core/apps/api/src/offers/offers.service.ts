@@ -28,7 +28,7 @@ import { MembershipRepository } from "../context/membership.repository";
 import { callerStoreScope, inStoreScope } from "../context/operator-store-scope";
 import type { StoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
-import { holdsCapability, isStoreBounded, type OfferCapability } from "./offer-capabilities";
+import { canRead, holdsCapability, isStoreBounded, type OfferCapability } from "./offer-capabilities";
 import { insertOfferAudit } from "./offer-audit";
 import { eligibleProductIds, ruleSetsOf, sampleProducts } from "./offer-eligibility";
 import { OfferRefusedError } from "./offer-errors";
@@ -83,6 +83,7 @@ import {
   resumePauses,
   writeDraft,
   type OfferHeader,
+  type OpenPause,
 } from "./offers.repository";
 
 /** The session of a Console call. */
@@ -96,6 +97,12 @@ export interface OfferCallInput {
 const ListCursorSchema = z.object({ t: z.string().uuid(), c: z.string().min(1).max(40), i: z.string().uuid() }).strict();
 const VersionCursorSchema = z.object({ t: z.string().uuid(), o: z.string().uuid(), v: z.number().int().min(1) }).strict();
 const invalidCursor = (): Error => new OfferRefusedError("validation_error");
+
+/** An offer row locked for a write, with the state it was read in. */
+interface Locked {
+  readonly header: OfferHeader;
+  readonly loaded: LoadedTenantOffers;
+}
 
 interface Caller {
   readonly roleCode: string | null;
@@ -280,13 +287,7 @@ export class OffersService {
   // ------------------------------------------------------------ lifecycle
 
   async publish(input: OfferCallInput, offerId: string, body: OfferPublishBody) {
-    return this.inTenant(input.tenantId, async (client) => {
-      const caller = await this.caller(client, input);
-      this.require(caller, "offers.publish");
-      await lockTenantOffers(client, input.tenantId);
-      const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
-      if (header === null) throw new OfferRefusedError("offer_not_found");
-      const loaded = await this.loadOne(client, input.tenantId, header);
+    return this.writeOffer(input, offerId, "offers.publish", async ({ client, caller, header, loaded }) => {
       const state = stateOf(loaded, header);
       if (state === "ended" || state === "archived") throw new OfferRefusedError("offer_state_invalid");
       if (header.draft === null || header.draftRevision !== body.expectedDraftRevision) {
@@ -319,84 +320,69 @@ export class OffersService {
   }
 
   async pause(input: OfferCallInput, offerId: string, body: OfferPauseBody) {
-    return this.inTenant(input.tenantId, async (client) => {
-      const caller = await this.caller(client, input);
-      this.require(caller, "offers.pause");
+    return this.writeOffer(input, offerId, "offers.pause", async ({ client, caller, header, loaded }) => {
       // A store manager pauses their own stores only, never the whole offer.
       if (isStoreBounded(caller.roleCode) && body.storeIds === undefined) throw new OfferRefusedError("forbidden");
-      await lockTenantOffers(client, input.tenantId);
-      const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
-      if (header === null) throw new OfferRefusedError("offer_not_found");
-      const loaded = await this.loadOne(client, input.tenantId, header);
-      const record = loaded.versions.get(offerId);
-      if (!isVisible(header, record, caller.viewer)) throw new OfferRefusedError("offer_not_found");
-      const state = stateOf(loaded, header);
-
-      if (body.storeIds === undefined) {
-        if (state === "paused") return this.bodyOf(client, input, caller, offerId);
-        if (state !== "scheduled" && state !== "active") throw new OfferRefusedError("offer_state_invalid");
-        await insertPause(client, { tenantId: input.tenantId, offerId, storeId: null, reason: body.reason, userId: input.actorUserId });
-      } else {
-        await this.requireStoresVisible(client, input, caller, body.storeIds);
-        if (state !== "scheduled" && state !== "active" && state !== "paused") throw new OfferRefusedError("offer_state_invalid");
-        const inScope = new Set(scopeStores(record!, loaded.stores).map((s) => s.id));
-        if (body.storeIds.some((s) => !inScope.has(s))) throw new OfferRefusedError("offer_store_not_in_scope");
-        const already = new Set(loaded.pauses.filter((p) => p.offerId === offerId && p.storeId !== null).map((p) => p.storeId!));
-        const fresh = body.storeIds.filter((s) => !already.has(s));
-        if (fresh.length === 0) return this.bodyOf(client, input, caller, offerId);
-        for (const storeId of fresh) {
-          await insertPause(client, { tenantId: input.tenantId, offerId, storeId, reason: body.reason, userId: input.actorUserId });
-        }
+      if (!isVisible(header, loaded.versions.get(offerId), caller.viewer)) throw new OfferRefusedError("offer_not_found");
+      const changed =
+        body.storeIds === undefined
+          ? await this.pauseWhole(client, input, { header, loaded }, body.reason)
+          : await this.pauseStores(client, input, caller, { header, loaded }, { reason: body.reason, storeIds: body.storeIds });
+      if (changed) {
+        const pack = await rebuildOfferPack(client, input.tenantId);
+        await insertOfferAudit(client, {
+          ...input,
+          action: "offer.paused",
+          offerId,
+          metadata: { reason: body.reason, store_ids: body.storeIds ?? null, pack_revision: pack.revision },
+        });
       }
-      const pack = await rebuildOfferPack(client, input.tenantId);
-      await insertOfferAudit(client, {
-        ...input,
-        action: "offer.paused",
-        offerId,
-        metadata: { reason: body.reason, store_ids: body.storeIds ?? null, pack_revision: pack.revision },
-      });
       return this.bodyOf(client, input, caller, offerId);
     });
   }
 
+  /** A whole-offer pause: already paused is a no-op (false); only a scheduled or active offer can be paused. */
+  private async pauseWhole(client: PoolClient, input: OfferCallInput, at: Locked, reason: string): Promise<boolean> {
+    const state = stateOf(at.loaded, at.header);
+    if (state === "paused") return false;
+    if (state !== "scheduled" && state !== "active") throw new OfferRefusedError("offer_state_invalid");
+    await insertPause(client, { tenantId: input.tenantId, offerId: at.header.id, storeId: null, reason, userId: input.actorUserId });
+    return true;
+  }
+
+  /** Store pauses (also on a paused offer): stores already paused are skipped; nothing new is a no-op (false). */
+  private async pauseStores(
+    client: PoolClient,
+    input: OfferCallInput,
+    caller: Caller,
+    at: Locked,
+    pause: { readonly reason: string; readonly storeIds: ReadonlyArray<string> },
+  ): Promise<boolean> {
+    await this.requireStoresVisible(client, input, caller, pause.storeIds);
+    const state = stateOf(at.loaded, at.header);
+    if (state !== "scheduled" && state !== "active" && state !== "paused") throw new OfferRefusedError("offer_state_invalid");
+    const inScope = new Set(scopeStores(at.loaded.versions.get(at.header.id)!, at.loaded.stores).map((s) => s.id));
+    if (pause.storeIds.some((s) => !inScope.has(s))) throw new OfferRefusedError("offer_store_not_in_scope");
+    const already = new Set(at.loaded.pauses.filter((p) => p.offerId === at.header.id && p.storeId !== null).map((p) => p.storeId!));
+    const fresh = pause.storeIds.filter((s) => !already.has(s));
+    // sequential: the inserts share one PoolClient (pg runs its queries one at a time).
+    for (const storeId of fresh) {
+      await insertPause(client, { tenantId: input.tenantId, offerId: at.header.id, storeId, reason: pause.reason, userId: input.actorUserId });
+    }
+    return fresh.length > 0;
+  }
+
   async resume(input: OfferCallInput, offerId: string, body: OfferResumeBody) {
-    return this.inTenant(input.tenantId, async (client) => {
-      const caller = await this.caller(client, input);
-      this.require(caller, "offers.publish");
-      await lockTenantOffers(client, input.tenantId);
-      const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
-      if (header === null) throw new OfferRefusedError("offer_not_found");
-      const loaded = await this.loadOne(client, input.tenantId, header);
+    return this.writeOffer(input, offerId, "offers.publish", async ({ client, caller, header, loaded }) => {
       const record = loaded.versions.get(offerId);
       const open = loaded.pauses.filter((p) => p.offerId === offerId);
-      if (open.length === 0 || record === undefined) throw new OfferRefusedError("offer_state_invalid");
-      // An ended or archived offer cannot be resumed (its pause row may still be open).
       const stateNow = stateOf(loaded, header);
-      if (stateNow === "ended" || stateNow === "archived") throw new OfferRefusedError("offer_state_invalid");
-
-      let lifting = open;
-      if (body.storeIds !== undefined) {
-        const live = await liveStoreIdsOf(client, input.tenantId, body.storeIds);
-        if (body.storeIds.some((s) => !live.has(s))) throw new OfferRefusedError("store_not_found");
-        const paused = new Set(open.filter((p) => p.storeId !== null).map((p) => p.storeId!));
-        if (body.storeIds.some((s) => !paused.has(s))) throw new OfferRefusedError("offer_store_not_in_scope");
-        lifting = open.filter((p) => p.storeId !== null && body.storeIds!.includes(p.storeId));
+      // Nothing paused, or an ended or archived offer (its pause row may still be open): it cannot be resumed.
+      if (open.length === 0 || record === undefined || stateNow === "ended" || stateNow === "archived") {
+        throw new OfferRefusedError("offer_state_invalid");
       }
-
-      // Re-check what the resume would put back into the Pack (OD-7, the store limit).
-      const full = await loadTenantOffers(client, input.tenantId, loaded.now);
-      const others = await loadLiveOffers(client, input.tenantId, full, { excludeOfferId: offerId });
-      const eligible = await eligibleProductIds(client, input.tenantId, ruleSetsOf(record.definition));
-      const scoped = scopeStores(record, loaded.stores).map((s) => s.id);
-      const back = lifting.some((p) => p.storeId === null)
-        ? scoped
-        : scoped.filter((s) => lifting.some((p) => p.storeId === s));
-      const counts = new Map<string, number>();
-      for (const o of others) for (const s of o.holdingStores) counts.set(s, (counts.get(s) ?? 0) + 1);
-      if (back.some((s) => (counts.get(s) ?? 0) + 1 > STORE_OFFER_LIMIT)) throw new OfferRefusedError("offer_store_offer_limit_exceeded");
-      const conflicts = await findConflicts(client, input.tenantId, full, others, { eligible, stores: new Set(back) });
-      if (conflicts.length > 0) throw new OfferRefusedError("offer_conflict", conflicts);
-
+      const lifting = await this.pausesToLift(client, input.tenantId, open, body.storeIds);
+      await this.assertResumable(client, input.tenantId, { header, loaded }, lifting);
       await resumePauses(client, { tenantId: input.tenantId, pauseIds: lifting.map((p) => p.id), userId: input.actorUserId });
       const pack = await rebuildOfferPack(client, input.tenantId);
       await insertOfferAudit(client, {
@@ -409,14 +395,43 @@ export class OffersService {
     });
   }
 
+  /** Every open pause, or only the named stores' (each must be a store of the tenant and paused). */
+  private async pausesToLift(
+    client: PoolClient,
+    tenantId: string,
+    open: ReadonlyArray<OpenPause>,
+    storeIds: ReadonlyArray<string> | undefined,
+  ): Promise<ReadonlyArray<OpenPause>> {
+    if (storeIds === undefined) return open;
+    const live = await liveStoreIdsOf(client, tenantId, storeIds);
+    if (storeIds.some((s) => !live.has(s))) throw new OfferRefusedError("store_not_found");
+    const paused = new Set(open.filter((p) => p.storeId !== null).map((p) => p.storeId!));
+    if (storeIds.some((s) => !paused.has(s))) throw new OfferRefusedError("offer_store_not_in_scope");
+    return open.filter((p) => p.storeId !== null && storeIds.includes(p.storeId));
+  }
+
+  /** Re-check what a resume would put back into the Pack (OD-7 conflicts, the store limit). */
+  private async assertResumable(
+    client: PoolClient,
+    tenantId: string,
+    at: Locked,
+    lifting: ReadonlyArray<OpenPause>,
+  ): Promise<void> {
+    const record = at.loaded.versions.get(at.header.id)!;
+    const full = await loadTenantOffers(client, tenantId, at.loaded.now);
+    const others = await loadLiveOffers(client, tenantId, full, { excludeOfferId: at.header.id });
+    const eligible = await eligibleProductIds(client, tenantId, ruleSetsOf(record.definition));
+    const scoped = scopeStores(record, at.loaded.stores).map((s) => s.id);
+    const back = lifting.some((p) => p.storeId === null) ? scoped : scoped.filter((s) => lifting.some((p) => p.storeId === s));
+    const counts = new Map<string, number>();
+    for (const o of others) for (const s of o.holdingStores) counts.set(s, (counts.get(s) ?? 0) + 1);
+    if (back.some((s) => (counts.get(s) ?? 0) + 1 > STORE_OFFER_LIMIT)) throw new OfferRefusedError("offer_store_offer_limit_exceeded");
+    const conflicts = await findConflicts(client, tenantId, full, others, { eligible, stores: new Set(back) });
+    if (conflicts.length > 0) throw new OfferRefusedError("offer_conflict", conflicts);
+  }
+
   async end(input: OfferCallInput, offerId: string) {
-    return this.inTenant(input.tenantId, async (client) => {
-      const caller = await this.caller(client, input);
-      this.require(caller, "offers.manage");
-      await lockTenantOffers(client, input.tenantId);
-      const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
-      if (header === null) throw new OfferRefusedError("offer_not_found");
-      const loaded = await this.loadOne(client, input.tenantId, header);
+    return this.writeOffer(input, offerId, "offers.manage", async ({ client, caller, header, loaded }) => {
       const state = stateOf(loaded, header);
       if (state === "ended") return this.bodyOf(client, input, caller, offerId);
       if (state !== "scheduled" && state !== "active" && state !== "paused") throw new OfferRefusedError("offer_state_invalid");
@@ -428,13 +443,7 @@ export class OffersService {
   }
 
   async archive(input: OfferCallInput, offerId: string) {
-    return this.inTenant(input.tenantId, async (client) => {
-      const caller = await this.caller(client, input);
-      this.require(caller, "offers.manage");
-      await lockTenantOffers(client, input.tenantId);
-      const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
-      if (header === null) throw new OfferRefusedError("offer_not_found");
-      const loaded = await this.loadOne(client, input.tenantId, header);
+    return this.writeOffer(input, offerId, "offers.manage", async ({ client, caller, header, loaded }) => {
       const state = stateOf(loaded, header);
       if (state === "archived") return this.bodyOf(client, input, caller, offerId);
       if (state !== "ended") throw new OfferRefusedError("offer_state_invalid");
@@ -449,7 +458,25 @@ export class OffersService {
   // -------------------------------------------------------------- helpers
 
   private inTenant<T>(tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
-    return runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, work);
+    const scope = { tenantId, isPlatformAdmin: false };
+    return runWithTenantContext(this.pool, scope, work);
+  }
+
+  /**
+   * One Pack-affecting write: the capability check, the tenant's advisory lock,
+   * the offer row locked and its state, then `work`, all in ONE transaction.
+   */
+  private writeOffer<T>(
+    input: OfferCallInput,
+    offerId: string,
+    capability: OfferCapability,
+    work: (at: Locked & { readonly client: PoolClient; readonly caller: Caller }) => Promise<T>,
+  ): Promise<T> {
+    return this.inTenant(input.tenantId, async (client) => {
+      const caller = await this.caller(client, input);
+      this.require(caller, capability);
+      return work({ client, caller, ...(await this.lockedOffer(client, input, offerId)) });
+    });
   }
 
   private async caller(client: PoolClient, input: OfferCallInput): Promise<Caller> {
@@ -459,9 +486,7 @@ export class OffersService {
   }
 
   private requireRead(caller: Caller): void {
-    if (caller.roleCode === null || !["owner", "tenant_admin", "store_manager"].includes(caller.roleCode)) {
-      throw new OfferRefusedError("forbidden");
-    }
+    if (!canRead(caller.roleCode)) throw new OfferRefusedError("forbidden");
   }
 
   private require(caller: Caller, capability: OfferCapability): void {
@@ -484,6 +509,17 @@ export class OffersService {
     }
     const live = await liveStoreIdsOf(client, input.tenantId, storeIds);
     if (storeIds.some((s) => !live.has(s))) throw new OfferRefusedError("store_not_found");
+  }
+
+  /**
+   * A Pack-affecting write starts here: the tenant's advisory lock first (so
+   * two such writes serialise), then the offer row locked, then its state.
+   */
+  private async lockedOffer(client: PoolClient, input: OfferCallInput, offerId: string): Promise<Locked> {
+    await lockTenantOffers(client, input.tenantId);
+    const header = await loadOfferHeader(client, input.tenantId, offerId, { forUpdate: true });
+    if (header === null) throw new OfferRefusedError("offer_not_found");
+    return { header, loaded: await this.loadOne(client, input.tenantId, header) };
   }
 
   /** Just this offer, with the tenant's live stores: enough for its derived state and body. */

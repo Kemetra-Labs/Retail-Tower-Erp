@@ -80,6 +80,12 @@ offline. The till runs the Pack and invents no rule (§19). Cost: a large catego
 any shared store during an overlapping window. The conflict preview names the other offer and the shared products.
 Evaluation never has to choose between offers. Best Deal (§17) comes later, together with stacking.
 
+**Runtime note (RT-1337).** The 0101 schema enforces the Pack invariant in SQL for every window: a product is in at
+most ONE offer per store in any Pack revision (an EXCLUDE constraint). So the conflict check refuses two live offers on
+the same product and store even when their windows are disjoint, and the earliest-published rule applies to every live
+offer (Scheduled, Active or Paused). An offer whose window has closed in a store, or that was ended, no longer holds
+products there.
+
 **Clarifications** (owner-delegated, RT-1335 contract review, 2026-11-11; contract `offers.openapi.yaml`):
 
 - **Paused offers count.** The conflict check covers Scheduled, Active **and Paused** offers, because a paused offer
@@ -145,6 +151,8 @@ Consequences:
   item, account or ERPNext setting is added. Pricing Rules stay ignored (`ignore_pricing_rule = 1`).
 - Fail closed: a clawback that cannot be represented exactly at the currency minor unit is
   `permanently_rejected / validation`, and nothing is posted.
+- **Backend-Core (RT-1337, 2026-11-12):** a clawback above 0 is accepted and recorded; only a return that would
+  give back an earlier clawback (S3 step 2) stays refused with `promotion_return_requires_clawback`.
 - **Not yet postable, needs a contract change first** (recorded on RT-1340):
   1. The Connector's posting feed (`erpnext-connector/posting-feed.yaml`) carries no clawback and no line promotion,
      so the Connector cannot learn the clawback or which returned units take it. The interim refusal

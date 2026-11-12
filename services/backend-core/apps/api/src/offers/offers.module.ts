@@ -15,15 +15,15 @@
 import { Module } from "@nestjs/common";
 import type { Pool } from "pg";
 
-import { AuditModule } from "../audit/audit.module";
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../auth/auth.module";
-import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
-import { ContextModule } from "../context/context.module";
-import { DeviceRepository } from "../pos-operators/device.repository";
 import { OfferPackService } from "./offer-pack.service";
 import { OffersConsoleController } from "./offers-console.controller";
 import { OffersPosController } from "./offers-pos.controller";
 import { OffersService } from "./offers.service";
+import { DeviceRepository } from "../pos-operators/device.repository";
+import { ContextModule } from "../context/context.module";
+import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../auth/auth.module";
+import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
+import { AuditModule } from "../audit/audit.module";
 
 @Module({
   imports: [AuthModule, AuditModule, ContextModule],

@@ -123,7 +123,7 @@ const CaptureSaleLineTrackingSchema = z
  * `sale-promotions.ts` (422 `sale_line_pricing_invalid` for arithmetic; a
  * rule-level difference is accepted and flagged, OD-9).
  */
-export const CaptureSaleLinePromotionSchema = z
+const CaptureSaleLinePromotionSchema = z
   .object({
     offerId: z.string().uuid().transform((id) => id.toLowerCase()),
     offerVersion: z.number().int().min(1).max(2_147_483_647),

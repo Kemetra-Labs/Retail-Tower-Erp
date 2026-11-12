@@ -44,7 +44,7 @@ export interface CartLine {
   readonly manualDiscount?: { readonly amount: string } | undefined;
 }
 
-export interface EvaluatedLine {
+interface EvaluatedLine {
   readonly lineRef: string;
   readonly productId: string;
   readonly quantity: string;
@@ -82,7 +82,7 @@ function compareUnits(a: Unit, b: Unit): number {
 }
 
 /** Steps 3 and 4: the number of applications and the reward units (OD-2). */
-export function pickRewards(
+function pickRewards(
   units: ReadonlyArray<Unit>,
   offer: EvaluatorOffer,
 ): { applications: number; rewards: Unit[] } {

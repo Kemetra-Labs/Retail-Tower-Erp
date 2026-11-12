@@ -12,7 +12,7 @@
  * database), never the workstation zone.
  */
 
-export type OfferTimeBasis = "store_local" | "absolute";
+type OfferTimeBasis = "store_local" | "absolute";
 
 export interface OfferScheduleValue {
   readonly timeBasis: OfferTimeBasis;

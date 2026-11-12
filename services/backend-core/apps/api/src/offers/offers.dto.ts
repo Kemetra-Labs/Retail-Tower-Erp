@@ -16,7 +16,7 @@ import { hasNoNul, maxCodePoints, wellFormedText } from "../common/text-validati
 import { normaliseLocal, parseLocalDateTime } from "./offer-schedule";
 
 export const OFFER_PAGE_SIZE_DEFAULT = 50;
-export const OFFER_PAGE_SIZE_MAX = 100;
+const OFFER_PAGE_SIZE_MAX = 100;
 
 const uuid = z.string().uuid().transform((id) => id.toLowerCase());
 
@@ -40,7 +40,7 @@ const text = (min: number, max: number) =>
 
 const WholePercent = z.string().regex(/^(100|[1-9][0-9]?)$/);
 
-export const BuyXGetYPercentParametersSchema = z
+const BuyXGetYPercentParametersSchema = z
   .object({
     buyQuantity: z.number().int().min(1).max(1000),
     getQuantity: z.number().int().min(1).max(1000),
@@ -74,6 +74,30 @@ const StoreScopeSchema = z.union([
   z.object({ storeIds: idList(500).refine((ids) => ids.length >= 1, "must name at least one store") }).strict(),
 ]);
 
+type ScheduleInput = { timeBasis: "store_local" | "absolute"; startsAt: string; endsAt?: string | null | undefined };
+
+/** `store_local`: real local date-times without an offset, the end after the start. */
+function checkLocalSchedule(s: ScheduleInput, bad: (path: string, message: string) => void): void {
+  const start = parseLocalDateTime(s.startsAt);
+  if (start === null) bad("startsAt", "must be a local date-time such as 2026-12-01T00:00");
+  const end = s.endsAt === undefined || s.endsAt === null ? null : parseLocalDateTime(s.endsAt);
+  if (s.endsAt !== undefined && s.endsAt !== null && end === null) bad("endsAt", "must be a local date-time such as 2026-12-31T23:59");
+  if (start !== null && end !== null && end <= start) bad("endsAt", "must be after startsAt");
+}
+
+const OFFSET_INSTANT = /(Z|[+-]\d{2}:\d{2})$/;
+const instantMs = (value: string): number => (OFFSET_INSTANT.test(value) ? Date.parse(value) : Number.NaN);
+
+/** `absolute`: RFC 3339 instants with an offset, the end after the start. */
+function checkAbsoluteSchedule(s: ScheduleInput, bad: (path: string, message: string) => void): void {
+  const start = instantMs(s.startsAt);
+  if (Number.isNaN(start)) bad("startsAt", "must be an RFC 3339 instant with an offset");
+  const hasEnd = s.endsAt !== undefined && s.endsAt !== null;
+  const end = hasEnd ? instantMs(s.endsAt!) : null;
+  if (hasEnd && Number.isNaN(end)) bad("endsAt", "must be an RFC 3339 instant with an offset");
+  if (!Number.isNaN(start) && end !== null && !Number.isNaN(end) && end <= start) bad("endsAt", "must be after startsAt");
+}
+
 const ScheduleSchema = z
   .object({
     timeBasis: z.enum(["store_local", "absolute"]),
@@ -82,22 +106,9 @@ const ScheduleSchema = z
   })
   .strict()
   .superRefine((s, ctx) => {
-    const bad = (path: string, message: string): void =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-    if (s.timeBasis === "store_local") {
-      const start = parseLocalDateTime(s.startsAt);
-      if (start === null) bad("startsAt", "must be a local date-time such as 2026-12-01T00:00");
-      const end = s.endsAt == null ? null : parseLocalDateTime(s.endsAt);
-      if (s.endsAt != null && end === null) bad("endsAt", "must be a local date-time such as 2026-12-31T23:59");
-      if (start !== null && end !== null && end <= start) bad("endsAt", "must be after startsAt");
-      return;
-    }
-    const instant = /(Z|[+-]\d{2}:\d{2})$/;
-    const start = instant.test(s.startsAt) ? Date.parse(s.startsAt) : Number.NaN;
-    if (Number.isNaN(start)) bad("startsAt", "must be an RFC 3339 instant with an offset");
-    const end = s.endsAt == null ? null : instant.test(s.endsAt) ? Date.parse(s.endsAt) : Number.NaN;
-    if (s.endsAt != null && Number.isNaN(end)) bad("endsAt", "must be an RFC 3339 instant with an offset");
-    if (!Number.isNaN(start) && end !== null && !Number.isNaN(end) && end <= start) bad("endsAt", "must be after startsAt");
+    const bad = (path: string, message: string): void => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+    if (s.timeBasis === "store_local") checkLocalSchedule(s, bad);
+    else checkAbsoluteSchedule(s, bad);
   });
 
 export const OfferDefinitionSchema = z
@@ -168,7 +179,7 @@ export function normaliseDefinition(input: OfferDefinitionInput): OfferDefinitio
       timeBasis: input.schedule.timeBasis,
       startsAt: local ? normaliseLocal(input.schedule.startsAt) : new Date(input.schedule.startsAt).toISOString(),
       endsAt:
-        input.schedule.endsAt == null
+        input.schedule.endsAt === undefined || input.schedule.endsAt === null
           ? null
           : local
             ? normaliseLocal(input.schedule.endsAt)
@@ -219,23 +230,23 @@ export const OfferResumeSchema = z
 
 export const OfferIdParamSchema = z.string().uuid("offer_id is not a UUID").transform((id) => id.toLowerCase());
 
+/** The keyset paging parameters of both list reads (`Cursor`, `PageSize`). */
+const pagingFields = {
+  cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
+  page_size: z.coerce.number().int().min(1).max(OFFER_PAGE_SIZE_MAX).optional(),
+};
+
 export const OfferListQuerySchema = z
   .object({
     state: z.enum(["draft", "scheduled", "active", "paused", "ended", "archived"]).optional(),
     store_id: z.string().uuid().transform((id) => id.toLowerCase()).optional(),
-    cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
-    page_size: z.coerce.number().int().min(1).max(OFFER_PAGE_SIZE_MAX).optional(),
+    ...pagingFields,
   })
   .strict();
 
 export type OfferListQuery = z.infer<typeof OfferListQuerySchema>;
 
-export const OfferVersionListQuerySchema = z
-  .object({
-    cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
-    page_size: z.coerce.number().int().min(1).max(OFFER_PAGE_SIZE_MAX).optional(),
-  })
-  .strict();
+export const OfferVersionListQuerySchema = z.object(pagingFields).strict();
 
 export type OfferVersionListQuery = z.infer<typeof OfferVersionListQuerySchema>;
 export type OfferCreateBody = z.infer<typeof OfferCreateSchema>;

@@ -135,7 +135,7 @@ export async function loadLiveOffers(
   return live;
 }
 
-export interface RowKey {
+interface RowKey {
   readonly storeId: string;
   readonly productId: string;
 }
@@ -145,7 +145,7 @@ export interface PlannedRow extends RowKey {
   readonly version: number;
 }
 
-export interface RematerialisationConflict {
+interface RematerialisationConflict {
   readonly winnerOfferId: string;
   readonly winnerVersion: number;
   readonly removedProductIds: ReadonlySet<string>;

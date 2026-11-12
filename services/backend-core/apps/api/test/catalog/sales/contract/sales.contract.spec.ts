@@ -128,10 +128,10 @@ const APPROVED_TENDER_FIELDS = [
 const CONTRACT_AHEAD_OF_CAPTURE_DTO: readonly string[] = [];
 
 /**
- * `CaptureSaleLine` fields the contract declares before the line DTO accepts them (RT-451 S3 added `tracking`).
- * RT-1335 (1.22.0-draft, contract only): the automatic offer `promotion`; the RT-1337 runtime adds it to the DTO.
+ * `CaptureSaleLine` fields the contract declares before the line DTO accepts them (RT-451 S3 added `tracking`;
+ * RT-1337 added the automatic offer `promotion`, so none is ahead any more).
  */
-const CONTRACT_AHEAD_OF_CAPTURE_LINE_DTO: readonly string[] = ["promotion"];
+const CONTRACT_AHEAD_OF_CAPTURE_LINE_DTO: readonly string[] = [];
 
 /** A property's `maxLength` in a schema; NaN when the schema does not bound it. */
 function maxLengthOf(schemaObject: { properties?: Record<string, unknown> } | undefined, prop: string): number {
