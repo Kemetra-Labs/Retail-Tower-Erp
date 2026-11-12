@@ -190,6 +190,8 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
     // RT-427 (0063): the sale-effects activation time and its actor.
     // RT-449 (0072): the POS Safety TTL in seconds.
     // RT-451 S2 (0086): the tracked-selling switch, its change time and actor.
+    // RT-452 (0104): the owner attestation of the ERP batch posting: time, operator id and a
+    // short evidence reference (a Jira comment or bench run id, at most 200 characters; no PII).
     name: 'tenant_inventory_settings',
     table: tenantInventorySettings,
     columns: [
@@ -201,6 +203,9 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       'tracked_selling_enabled',
       'tracked_selling_changed_at',
       'tracked_selling_changed_by',
+      'erp_batch_posting_attested_at',
+      'erp_batch_posting_attested_by',
+      'erp_batch_posting_evidence_ref',
       'updated_by',
       'created_at',
       'updated_at',
