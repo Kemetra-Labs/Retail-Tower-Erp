@@ -1976,6 +1976,15 @@ components:
             request_id:
               type: string
               format: uuid
+            details:
+              type: array
+              description: >
+                The validation issues of a 400 `validation_error` (the platform
+                envelope's optional `details`): paths and rule names for the
+                request's own fields, never data of another tenant. Present on
+                a 400 only.
+              items:
+                type: object
             conflicts:
               type: array
               minItems: 1
