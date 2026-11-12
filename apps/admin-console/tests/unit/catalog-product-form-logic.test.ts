@@ -26,6 +26,7 @@ const BASE: ProductFormValues = {
   name: "Mineral water 1.5L",
   description: "Still spring water.",
   categoryId: CATEGORY_1,
+  brandId: "",
   taxCategory: "standard",
   isActive: true,
 };
@@ -47,6 +48,7 @@ describe("formValuesOf", () => {
       name: "Mineral water 1.5L",
       description: "Still spring water, 1.5 litre bottle.",
       categoryId: CATEGORY_1,
+      brandId: "",
       taxCategory: "standard",
       isActive: true,
     });
@@ -112,7 +114,7 @@ describe("validateProductForm (what the client may prevent: D5)", () => {
   });
 
   test("field order is the order of the form", () => {
-    expect(FIELD_ORDER).toEqual(["name", "description", "categoryId", "taxCategory"]);
+    expect(FIELD_ORDER).toEqual(["name", "description", "categoryId", "brandId", "taxCategory"]);
   });
 });
 
@@ -169,6 +171,10 @@ describe("buildPatch: only what changed (RT-752 AC 3)", () => {
   });
 
   test("choosing no category clears it with null; the category is left out when unchanged", () => {
+    expect(buildPatch(BASE, { ...BASE, brandId: "b1" })).toEqual({ brandId: "b1" });
+    expect(buildPatch({ ...BASE, brandId: "b1" }, { ...BASE, brandId: "" })).toEqual({
+      brandId: null,
+    });
     expect(buildPatch(BASE, { ...BASE, categoryId: "" })).toEqual({ categoryId: null });
     expect(buildPatch(BASE, { ...BASE, categoryId: CATEGORY_2 })).toEqual({
       categoryId: CATEGORY_2,
@@ -276,6 +282,14 @@ describe("mapProductWriteError: every 4xx code of the write contract", () => {
       kind: "field",
       field: "categoryId",
       messageKey: "catalog.form.error.categoryUnavailable",
+    });
+  });
+
+  test("422 brand_unavailable is a field error on the brand (RT-1338)", () => {
+    expect(mapProductWriteError({ op: "update", status: 422, code: "brand_unavailable" })).toEqual({
+      kind: "field",
+      field: "brandId",
+      messageKey: "catalog.form.error.brandUnavailable",
     });
   });
 

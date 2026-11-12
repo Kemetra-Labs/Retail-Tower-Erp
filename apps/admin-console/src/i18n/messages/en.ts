@@ -8,6 +8,7 @@ import { aiPlan } from "./en/aiPlan";
 import { audit } from "./en/audit";
 import { auth } from "./en/auth";
 import { branding } from "./en/branding";
+import { brands } from "./en/brands";
 import { cashPolicy } from "./en/cashPolicy";
 import { catalog } from "./en/catalog";
 import { common } from "./en/common";
@@ -17,6 +18,7 @@ import { erp } from "./en/erp";
 import { inventory } from "./en/inventory";
 import { metrics } from "./en/metrics";
 import { money } from "./en/money";
+import { offers } from "./en/offers";
 import { operators } from "./en/operators";
 import { overview } from "./en/overview";
 import { platform } from "./en/platform";
@@ -67,6 +69,8 @@ export const EN_MODULES = {
   tracking,
   trackedSelling,
   vouchers,
+  brands,
+  offers,
 };
 
 export const en: MessagesOf<typeof ar> = {
@@ -100,4 +104,6 @@ export const en: MessagesOf<typeof ar> = {
   ...tracking,
   ...trackedSelling,
   ...vouchers,
+  ...brands,
+  ...offers,
 };

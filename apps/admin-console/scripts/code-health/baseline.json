@@ -8,5 +8,5 @@
   "knipDuplicateExports": 0,
   "jscpdClones": 92,
   "jscpdDuplicatedLines": 1085,
-  "biomeCognitiveComplexity": 17
+  "biomeCognitiveComplexity": 16
 }

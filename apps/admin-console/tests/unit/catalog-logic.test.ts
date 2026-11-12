@@ -16,7 +16,14 @@ import {
   validateFilters,
 } from "@/catalog/catalogLogic";
 import { describe, expect, test } from "vitest";
-import { CAIRO_STORE, CATEGORY_1, PRODUCT_1, PRODUCT_2, product } from "./catalog-fixtures";
+import {
+  BRAND_1,
+  CAIRO_STORE,
+  CATEGORY_1,
+  PRODUCT_1,
+  PRODUCT_2,
+  product,
+} from "./catalog-fixtures";
 
 describe("catalog logic (RT-765)", () => {
   test("the nav gate mirrors the API's read roles", () => {
@@ -60,14 +67,21 @@ describe("catalog logic (RT-765)", () => {
     test("no parameters is the default: active products, no search, no category", () => {
       const filters = filtersFromSearch(new URLSearchParams());
       expect(filters).toEqual(defaultFilters());
-      expect(filters).toEqual({ q: "", status: "active", categoryId: "" });
+      expect(filters).toEqual({ q: "", status: "active", categoryId: "", brandId: "" });
       expect(isDefaultFilters(filters)).toBe(true);
     });
 
     test("a round trip keeps every filter; defaults are left out of the URL", () => {
-      const filters = { q: "0012", status: "retired" as const, categoryId: CATEGORY_1 };
+      const filters = {
+        q: "0012",
+        status: "retired" as const,
+        categoryId: CATEGORY_1,
+        brandId: BRAND_1,
+      };
       const search = filtersToSearch(filters);
-      expect(search.toString()).toBe(`q=0012&status=retired&category=${CATEGORY_1}`);
+      expect(search.toString()).toBe(
+        `q=0012&status=retired&category=${CATEGORY_1}&brand=${BRAND_1}`,
+      );
       expect(filtersFromSearch(search)).toEqual(filters);
       expect(filtersToSearch(defaultFilters()).toString()).toBe("");
       expect(isDefaultFilters(filters)).toBe(false);
@@ -110,7 +124,10 @@ describe("catalog logic (RT-765)", () => {
 
     test("sends q verbatim and the category and store when set", () => {
       expect(
-        buildListQuery({ q: " 007 ", status: "any", categoryId: CATEGORY_1 }, CAIRO_STORE),
+        buildListQuery(
+          { q: " 007 ", status: "any", categoryId: CATEGORY_1, brandId: "" },
+          CAIRO_STORE,
+        ),
       ).toEqual({
         q: " 007 ",
         status: "any",

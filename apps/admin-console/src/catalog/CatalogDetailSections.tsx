@@ -98,6 +98,13 @@ export function TenantValues({
             t("catalog.value.noCategory")
           )}
         </Row>
+        <Row label={t("catalog.detail.field.brand")}>
+          {summary.brandName ? (
+            <bdi dir="auto">{summary.brandName}</bdi>
+          ) : (
+            t("catalog.value.noBrand")
+          )}
+        </Row>
         <Row label={t("catalog.detail.field.taxCategory")}>
           <Code value={summary.taxCategory} />
         </Row>

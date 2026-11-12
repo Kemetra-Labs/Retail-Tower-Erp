@@ -56,6 +56,7 @@ export const catalog = {
 
   // --- Values ----------------------------------------------------------------
   "catalog.value.noPrice": "بلا سعر",
+  "catalog.value.noBrand": "بدون علامة تجارية",
   "catalog.value.noCategory": "بدون فئة",
   "catalog.status.active": "نشط",
   "catalog.status.inactive": "غير نشط",
@@ -92,6 +93,13 @@ export const catalog = {
   "catalog.filter.categoryStale": "فئة غير متاحة",
   "catalog.filter.categorySelected": "الفئة المحددة",
   "catalog.filter.categoriesFailed": "تعذّر تحميل الفئات.",
+  "catalog.filter.brand": "العلامة التجارية",
+  "catalog.filter.brandAll": "كل العلامات",
+  "catalog.filter.brandLoading": "جارٍ التحميل…",
+  "catalog.filter.brandStale": "علامة غير متاحة",
+  "catalog.filter.brandSelected": "العلامة المحددة",
+  "catalog.filter.brandsFailed": "تعذّر تحميل العلامات التجارية.",
+  "catalog.filter.brandInvalid": "العلامة في الرابط غير صالحة.",
   "catalog.filter.qTooLong": "نص البحث لا يزيد على 100 حرف.",
   "catalog.filter.categoryInvalid": "الفئة في الرابط غير صالحة.",
 
@@ -99,6 +107,7 @@ export const catalog = {
   "catalog.summary.q": "بحث «{q}»",
   "catalog.summary.status": "الحالة: {status}",
   "catalog.summary.category": "الفئة: {category}",
+  "catalog.summary.brand": "العلامة: {brand}",
   "catalog.summary.join": "، ",
 
   // --- Detail (RT-766, CAT-C1b) -----------------------------------------------
@@ -118,6 +127,7 @@ export const catalog = {
   "catalog.detail.field.status": "الحالة",
   "catalog.detail.field.description": "الوصف",
   "catalog.detail.field.category": "الفئة",
+  "catalog.detail.field.brand": "العلامة التجارية",
   "catalog.detail.field.taxCategory": "فئة الضريبة",
   "catalog.detail.field.tenantAvailability": "التوفر على مستوى المؤسسة",
   "catalog.detail.field.availability": "التوفر",
@@ -255,6 +265,10 @@ export const catalog = {
   "catalog.form.categoryRetired": "{name} (مُخرجة من الكتالوج)",
   "catalog.form.categoryUnavailableOption": "{name} (غير متاحة)",
   "catalog.form.categoriesFailed": "تعذّر تحميل الفئات. تبقى الفئة الحالية كما هي.",
+  "catalog.form.brand": "العلامة التجارية",
+  "catalog.form.brandNone": "بدون علامة تجارية",
+  "catalog.form.brandUnavailableOption": "{name} (غير متاحة)",
+  "catalog.form.brandsFailed": "تعذّر تحميل العلامات التجارية. تبقى العلامة الحالية كما هي.",
   "catalog.form.taxCategory": "فئة الضريبة",
   "catalog.form.taxCategoryHint": "رمز قصير حتى 50 حرفًا. يُحفظ كما كُتب، عدا المسافات في طرفيه.",
   "catalog.form.availability": "متاح للبيع افتراضيًا",
@@ -268,6 +282,9 @@ export const catalog = {
   "catalog.form.error.taxCategoryTooLong": "يجب ألا تتجاوز فئة الضريبة 50 حرفًا. اختصرها.",
   "catalog.form.error.categoryUnavailable":
     "هذه الفئة لم تعد متاحة. اختر فئة أخرى أو اترك الصنف بدون فئة.",
+
+  "catalog.form.error.brandUnavailable":
+    "هذه العلامة التجارية لم تعد متاحة. اختر علامة أخرى أو اترك الصنف بدون علامة.",
 
   "catalog.write.error.validation":
     "رفض الخادم هذه القيم. راجع الاسم والوصف وفئة الضريبة ثم حاول مرة أخرى.",

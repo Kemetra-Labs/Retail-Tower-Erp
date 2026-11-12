@@ -427,8 +427,8 @@ for (const forced of [false, true]) {
       "product-name",
       "product-description",
       "product-category",
+      "product-brand",
       "product-tax-category",
-      "product-available",
     ]);
     for (const stop of stops) {
       expect(stop.outlineStyle, stop.id).not.toBe("none");

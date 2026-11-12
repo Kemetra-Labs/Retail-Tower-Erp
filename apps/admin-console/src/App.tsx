@@ -32,6 +32,7 @@ import { DirtyGuardProvider } from "@/shell/dirty-guard";
 import { erpStatusRoutes } from "@/shell/erpStatusRoutes";
 import { inventoryRoutes } from "@/shell/inventoryRoutes";
 import { NavigationBlocker } from "@/shell/navigation-blocker";
+import { offerRoutes } from "@/shell/offerRoutes";
 import { payerRoutes } from "@/shell/payerRoutes";
 import { platformRoutes } from "@/shell/platformRoutes";
 import { productReconciliationRoutes } from "@/shell/productReconciliationRoutes";
@@ -96,6 +97,7 @@ const router = createBrowserRouter(
           {catalogRoutes}
           {payerRoutes}
           {voucherRoutes}
+          {offerRoutes}
           {stockDiscrepancyRoutes}
           {inventoryRoutes}
           {trackingRoutes}

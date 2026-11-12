@@ -1,3 +1,4 @@
+import { brandQueryKeys, useCatalogBrands } from "@/brands/useBrands";
 /**
  * RT-768 product edit form (CAT-C2a, RT-752 AC 3, decisions D5 and D7). A full
  * page form on its own route, with the shared error summary, on the RT-971 form
@@ -131,6 +132,7 @@ export function ProductEditForm({
   const { productId } = product.summary;
   const update = useUpdateProduct(tenantId, productId);
   const categories = useCatalogCategories(tenantId, true);
+  const brands = useCatalogBrands(tenantId, true);
   const { ref: summaryRef, focusSummary } = useSummaryFocus();
 
   // Initialised once from the item as loaded; a re-read never re-derives it.
@@ -142,6 +144,10 @@ export function ProductEditForm({
     id: string;
     name: string | null;
   } | null>(null);
+  // RT-1338: the brand the server refused (422 `brand_unavailable`), kept the same way.
+  const [brandRefused, setBrandRefused] = useState<{ id: string; name: string | null } | null>(
+    null,
+  );
   const [notice, setNotice] = useState<Notice | undefined>();
   const [noChanges, setNoChanges] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -152,6 +158,7 @@ export function ProductEditForm({
   const errors: ProductFieldErrors = {
     ...validateProductForm(values),
     ...(categoryRefused ? { categoryId: "catalog.form.error.categoryUnavailable" as const } : {}),
+    ...(brandRefused ? { brandId: "catalog.form.error.brandUnavailable" as const } : {}),
   };
   // Nothing is in error until the first submit. There is no check on blur: an error that
   // appears as a field is left moves the layout under the pointer and swallows the click
@@ -168,6 +175,7 @@ export function ProductEditForm({
     setValues((v) => ({ ...v, [field]: value }));
     setNoChanges(false);
     if (field === "categoryId") setCategoryRefused(null);
+    if (field === "brandId") setBrandRefused(null);
   }
 
   async function onReload(): Promise<void> {
@@ -195,6 +203,15 @@ export function ProductEditForm({
 
   /** Where a failed write is shown: the category field, or a banner above the form. */
   function show(render: ProductWriteRender, patch: ProductPatch): void {
+    if (render.kind === "field" && render.field === "brandId") {
+      const id = patch.brandId ?? values.brandId;
+      const name = brands.brands.find((b) => b.brandId === id)?.name ?? null;
+      setBrandRefused({ id, name });
+      setNotice(undefined);
+      void qc.invalidateQueries({ queryKey: brandQueryKeys.list(tenantId) });
+      focusSummary();
+      return;
+    }
     if (render.kind === "field") {
       const id = patch.categoryId ?? values.categoryId;
       const name = categories.categories.find((c) => c.categoryId === id)?.name ?? null;
@@ -297,6 +314,10 @@ export function ProductEditForm({
             categoriesFailed={categories.failed}
             categoriesLoading={categories.isLoading}
             refusedCategory={categoryRefused}
+            brands={brands.brands}
+            brandsLoading={brands.isLoading}
+            brandsFailed={brands.failed}
+            refusedBrand={brandRefused}
             product={base.product}
           />
         </FormSection>

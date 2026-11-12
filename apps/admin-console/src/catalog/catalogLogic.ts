@@ -62,6 +62,8 @@ export interface CatalogFilters {
   q: string;
   status: CatalogStatusFilter;
   categoryId: string;
+  /** RT-1338: only products of this brand; "" for any. */
+  brandId: string;
 }
 
 export const STATUS_FILTERS = ["active", "inactive", "retired", "any"] as const;
@@ -69,11 +71,16 @@ export const STATUS_FILTERS = ["active", "inactive", "retired", "any"] as const;
 const DEFAULT_STATUS: CatalogStatusFilter = "active";
 
 export function defaultFilters(): CatalogFilters {
-  return { q: "", status: DEFAULT_STATUS, categoryId: "" };
+  return { q: "", status: DEFAULT_STATUS, categoryId: "", brandId: "" };
 }
 
 export function isDefaultFilters(filters: CatalogFilters): boolean {
-  return filters.q === "" && filters.status === DEFAULT_STATUS && filters.categoryId === "";
+  return (
+    filters.q === "" &&
+    filters.status === DEFAULT_STATUS &&
+    filters.categoryId === "" &&
+    filters.brandId === ""
+  );
 }
 
 function statusOf(value: string | null): CatalogStatusFilter {
@@ -88,6 +95,7 @@ export function filtersFromSearch(search: URLSearchParams): CatalogFilters {
     status: statusOf(search.get("status")),
     // The contract's id is case-insensitive; the form's options carry it lower case.
     categoryId: (search.get("category") ?? "").toLowerCase(),
+    brandId: (search.get("brand") ?? "").toLowerCase(),
   };
 }
 
@@ -97,10 +105,11 @@ export function filtersToSearch(filters: CatalogFilters): URLSearchParams {
   if (filters.q !== "") search.set("q", filters.q);
   if (filters.status !== DEFAULT_STATUS) search.set("status", filters.status);
   if (filters.categoryId !== "") search.set("category", filters.categoryId);
+  if (filters.brandId !== "") search.set("brand", filters.brandId);
   return search;
 }
 
-export type FilterErrors = Partial<Record<"q" | "category", MessageKey>>;
+export type FilterErrors = Partial<Record<"q" | "category" | "brand", MessageKey>>;
 
 /** What the server would refuse with a 400, caught before the request. */
 export function validateFilters(filters: CatalogFilters): FilterErrors {
@@ -108,6 +117,9 @@ export function validateFilters(filters: CatalogFilters): FilterErrors {
   if (filters.q.length > MAX_QUERY_LENGTH) errors.q = "catalog.filter.qTooLong";
   if (filters.categoryId !== "" && !UUID_PATTERN.test(filters.categoryId)) {
     errors.category = "catalog.filter.categoryInvalid";
+  }
+  if (filters.brandId !== "" && !UUID_PATTERN.test(filters.brandId)) {
+    errors.brand = "catalog.filter.brandInvalid";
   }
   return errors;
 }
@@ -121,6 +133,7 @@ export function buildListQuery(
     ...(filters.q === "" ? {} : { q: filters.q }),
     status: filters.status,
     ...(filters.categoryId === "" ? {} : { category_id: filters.categoryId }),
+    ...(filters.brandId === "" ? {} : { brand_id: filters.brandId }),
     ...(storeId ? { store_id: storeId } : {}),
     limit: CATALOG_PAGE_SIZE,
   };

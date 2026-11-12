@@ -1,0 +1,295 @@
+import type { Messages } from "../types";
+
+/**
+ * Arabic copy for the offers screens (RT-1338, RT-286 S6).
+ *
+ * Glossary: Offer → «عرض» (pl. «العروض»); the offer type "buy X, get Y at P% off" → «اشترِ X
+ * واحصل على Y بخصم P٪»; include → «يشمل»; exclude → «يستثني»; Store → «المتجر» (never «الفرع»);
+ * Draft → «مسودة»; Publish → «نشر»; Pause → «إيقاف مؤقت»; Resume → «استئناف»; End → «إنهاء»;
+ * Archive → «أرشفة». Verb jurisdiction (UX-12.7): «حفظ» saves the draft, «نشر» makes a version
+ * live, «إيقاف مؤقت» is the emergency stop (a reason is required), «إنهاء» closes the offer for
+ * good, «أرشفة» hides an ended offer from the list.
+ */
+export const offers = {
+  "offers.nav.label": "العروض",
+
+  // --- States ---------------------------------------------------------------
+  "offers.state.draft": "مسودة",
+  "offers.state.scheduled": "مجدول",
+  "offers.state.active": "ساري",
+  "offers.state.paused": "موقوف مؤقتًا",
+  "offers.state.ended": "منتهٍ",
+  "offers.state.archived": "مؤرشف",
+  "offers.state.unknown": "حالة غير معروفة",
+  "offers.offline.allow_cached": "يعمل دون اتصال من آخر حزمة عروض",
+  "offers.offline.online_only": "يعمل مع الاتصال فقط",
+  "offers.schedule.open": "دون نهاية",
+  "offers.schedule.storeLocal": "بتوقيت المتجر",
+  "offers.scope.all": "كل المتاجر",
+  "offers.scope.unnamed": {
+    zero: "لا متاجر أخرى",
+    one: "متجر آخر",
+    two: "متجران آخران",
+    few: "{count} متاجر أخرى",
+    many: "{count} متجرًا آخر",
+    other: "{count} متجر آخر",
+  },
+
+  // --- List -----------------------------------------------------------------
+  "offers.list.title": "العروض",
+  "offers.list.subtitle": "عروض «اشترِ واحصل بخصم» التي تُطبَّق تلقائيًا عند الدفع في متاجر {tenant}.",
+  "offers.list.scopePrompt": "اختر مؤسسة لإدارة عروضها.",
+  "offers.list.create": "عرض جديد",
+  "offers.list.caption": "العروض، الأحدث أولًا",
+  "offers.list.loadingNoun": "العروض",
+  "offers.list.empty": "لا توجد عروض في هذه المؤسسة بعد.",
+  "offers.list.emptyFiltered": "لا توجد عروض في هذه الحالة.",
+  "offers.list.loadMore": "تحميل المزيد",
+  "offers.list.loadFailed": "تعذّر تحميل العروض.",
+  "offers.list.ownStoresNote": "تظهر هنا العروض التي تشمل متاجرك فقط.",
+  "offers.list.col.name": "العرض",
+  "offers.list.col.state": "الحالة",
+  "offers.list.col.schedule": "الجدول",
+  "offers.list.col.stores": "المتاجر",
+  "offers.list.col.version": "الإصدار",
+  "offers.list.col.actions": "الإجراءات",
+  "offers.list.hasDraft": "مسودة قيد التعديل",
+  "offers.list.open": "فتح",
+  "offers.list.openLabel": "فتح العرض {name}",
+  "offers.filters.label": "فلاتر العروض",
+  "offers.filters.state": "الحالة",
+  "offers.filters.stateAny": "كل الحالات المعروضة",
+
+  // --- Page -----------------------------------------------------------------
+  "offers.page.title": "العرض",
+  "offers.page.newTitle": "عرض جديد",
+  "offers.page.subtitle": "عرض تلقائي في متاجر {tenant}. تُحسب النتائج في الخادم، لا في هذه الشاشة.",
+  "offers.page.back": "العودة إلى العروض",
+  "offers.page.loadingNoun": "العرض",
+  "offers.page.loadFailed": "تعذّر تحميل العرض.",
+  "offers.page.notFound": "هذا العرض غير موجود أو لا يمكنك الاطلاع عليه.",
+
+  // --- Form -----------------------------------------------------------------
+  "offers.form.section.basics": "الاسم",
+  "offers.form.section.deal": "الخصم",
+  "offers.form.section.stores": "المتاجر",
+  "offers.form.section.schedule": "الجدول",
+  "offers.form.section.offline": "العمل دون اتصال",
+  "offers.form.nameAr": "الاسم بالعربية",
+  "offers.form.nameEn": "الاسم بالإنجليزية",
+  "offers.form.nameEnHint": "اختياري. يظهر عند اختيار الإنجليزية.",
+  "offers.form.formula": "اشترِ X واحصل على Y أخرى بخصم P٪. يُطبَّق الخصم على الأرخص.",
+  "offers.form.buy": "اشترِ (X)",
+  "offers.form.buyHint": "عدد صحيح من 1 إلى {max}.",
+  "offers.form.get": "واحصل على (Y)",
+  "offers.form.getHint": "عدد صحيح من 1 إلى {max}.",
+  "offers.form.percent": "نسبة الخصم (P٪)",
+  "offers.form.percentHint": "عدد صحيح من 1 إلى 100. وتعني 100 مجانًا.",
+  "offers.form.max": "أقصى عدد مرات التطبيق في البيعة",
+  "offers.form.maxHint": "اتركه فارغًا دون حد. أو عدد صحيح من 1 إلى {max}.",
+  "offers.form.scopeAll": "كل متاجر المؤسسة",
+  "offers.form.scopeStores": "متاجر محددة",
+  "offers.form.boundedScope": "صلاحيتك تشمل متاجر محددة، فلا يمكنك إنشاء عرض لكل المتاجر.",
+  "offers.form.noStores": "لا توجد متاجر لاختيارها.",
+  "offers.form.starts": "يبدأ في",
+  "offers.form.ends": "ينتهي في",
+  "offers.form.timeHint": "بتوقيت كل متجر.",
+  "offers.form.endsHint": "اختياري. اتركه فارغًا إذا لم تكن له نهاية.",
+  "offers.form.absoluteNote":
+    "كان جدول هذا العرض بتوقيت مطلق. عند الحفظ من هنا يُحفظ بتوقيت المتجر.",
+  "offers.form.offline": "عند انقطاع الاتصال بالمتجر",
+  "offers.form.offlineHint":
+    "تحدد هل تطبّق الكاشير العرض من آخر حزمة عروض وصلته حين لا يصل إلى الخادم.",
+  "offers.form.error.nameArRequired": "اكتب اسم العرض بالعربية.",
+  "offers.form.error.nameTooLong": "الاسم أطول من {max} حرفًا.",
+  "offers.form.error.wholeNumber": "أدخل عددًا صحيحًا من 1 إلى {max}.",
+  "offers.form.error.percent": "أدخل نسبة صحيحة من 1 إلى 100.",
+  "offers.form.error.includeRequired":
+    "اختر صنفًا أو فئة أو علامة تجارية واحدة على الأقل ليشملها العرض.",
+  "offers.form.error.tooManyRules":
+    "عدد الأصناف أو الفئات أو العلامات المختارة أكبر من الحد المسموح.",
+  "offers.form.error.allStoresNotAllowed": "لا يمكنك إنشاء عرض لكل المتاجر. اختر متاجرك.",
+  "offers.form.error.storesRequired": "اختر متجرًا واحدًا على الأقل.",
+  "offers.form.error.tooManyStores": "اختر {max} متجر على الأكثر.",
+  "offers.form.error.startRequired": "حدّد وقت البدء.",
+  "offers.form.error.endInvalid": "وقت الانتهاء غير صالح.",
+  "offers.form.error.endBeforeStart": "يجب أن ينتهي العرض بعد بدئه.",
+
+  // --- Rules ----------------------------------------------------------------
+  "offers.rules.title": "ما الذي يشمله العرض",
+  "offers.rules.exclusionWins":
+    "الاستثناء يغلب دائمًا: الصنف الذي يطابق أي قاعدة استثناء لا يدخل العرض، حتى لو طابق قاعدة شمول. الخادم هو من يحدد الأصناف المؤهلة؛ تظهر في المعاينة قبل النشر.",
+  "offers.rules.include.title": "يشمل",
+  "offers.rules.include.hint":
+    "يدخل العرض الصنف الذي يطابق أي قاعدة هنا. اختر قاعدة واحدة على الأقل.",
+  "offers.rules.include.noProducts": "لم تُضف أصناف بعينها.",
+  "offers.rules.include.addProduct": "إضافة صنف للشمول",
+  "offers.rules.exclude.title": "يستثني",
+  "offers.rules.exclude.hint":
+    "لا يدخل العرض الصنف الذي يطابق أي قاعدة هنا. الاستثناء يغلب الشمول.",
+  "offers.rules.exclude.noProducts": "لم تُضف أصناف مستثناة.",
+  "offers.rules.exclude.addProduct": "إضافة صنف للاستثناء",
+  "offers.rules.products": "أصناف بعينها",
+  "offers.rules.categories": "فئات",
+  "offers.rules.brands": "علامات تجارية",
+  "offers.rules.noneAvailable": "لا توجد خيارات.",
+  "offers.rules.unavailable": "غير متاحة (أُخرجت من الكتالوج)",
+  "offers.rules.selected": "مختارة",
+  "offers.rules.unavailableItem": "صنف غير متاح",
+  "offers.rules.removeProduct": "إزالة الصنف {name}",
+  "offers.rules.doneAdding": "تم",
+  "offers.rules.moreProducts": {
+    zero: "لا أصناف أخرى",
+    one: "صنف آخر",
+    two: "صنفان آخران",
+    few: "{count} أصناف أخرى",
+    many: "{count} صنفًا آخر",
+    other: "{count} صنف آخر",
+  },
+
+  // --- Save, preview, publish -------------------------------------------------
+  "offers.save.action": "حفظ المسودة",
+  "offers.save.done": "حُفظت المسودة.",
+  "offers.publish.title": "المعاينة والنشر",
+  "offers.publish.action": "نشر",
+  "offers.publish.done": "نُشر العرض. تطبّقه الكاشيرات عند وصول حزمة العروض الجديدة.",
+  "offers.publish.hintSave": "احفظ المسودة أولًا لتعاينها.",
+  "offers.publish.hintPreview": "عاين المسودة المحفوظة قبل النشر.",
+  "offers.preview.run": "تحقق وعاين",
+  "offers.preview.done": "تمت المعاينة.",
+  "offers.preview.publishable": "المسودة صالحة للنشر الآن.",
+  "offers.preview.blocked": "لا يمكن نشر المسودة الآن. راجع المشكلات أدناه.",
+  "offers.preview.issues": "مشكلات تمنع النشر",
+  "offers.preview.eligible": "الأصناف المؤهلة",
+  "offers.preview.eligibleCount": {
+    zero: "لا أصناف مؤهلة",
+    one: "صنف مؤهل واحد",
+    two: "صنفان مؤهلان",
+    few: "{count} أصناف مؤهلة",
+    many: "{count} صنفًا مؤهلًا",
+    other: "{count} صنف مؤهل",
+  },
+  "offers.preview.sampleHint": "عيّنة من {shown} صنفًا كحد أقصى.",
+  "offers.preview.conflicts": "تعارض مع عروض أخرى",
+  "offers.preview.conflictsHint":
+    "لا يمكن أن يكون الصنف في أكثر من عرض واحد في المتجر نفسه. أنهِ العرض الآخر أو غيّر قواعد هذا العرض.",
+  "offers.preview.sharedProducts": {
+    zero: "لا أصناف مشتركة",
+    one: "صنف مشترك واحد",
+    two: "صنفان مشتركان",
+    few: "{count} أصناف مشتركة",
+    many: "{count} صنفًا مشتركًا",
+    other: "{count} صنف مشترك",
+  },
+  "offers.issue.offer_reference_invalid":
+    "قاعدة تشير إلى صنف أو فئة أو علامة تجارية أو متجر غير موجود أو محذوف.",
+  "offers.issue.offer_eligible_set_empty": "لا يطابق العرض أي صنف نشط.",
+  "offers.issue.offer_eligible_set_too_large":
+    "عدد الأصناف المؤهلة أكبر من الحد المسموح لحزمة العروض.",
+  "offers.issue.offer_schedule_elapsed": "وقت انتهاء العرض مضى في كل متاجره.",
+  "offers.issue.offer_store_offer_limit_exceeded":
+    "سيتجاوز أحد المتاجر الحد الأقصى لعدد العروض الفعالة.",
+  "offers.issue.unknown": "مشكلة غير معروفة تمنع النشر.",
+
+  // --- Simulation -----------------------------------------------------------
+  "offers.sim.title": "محاكاة سلة",
+  "offers.sim.hint":
+    "اكتب أسعار الوحدات بالعملة {currency} لترى النتيجة التي ستحسبها الكاشيرات. المحاكاة لا تغيّر شيئًا.",
+  "offers.sim.price": "سعر الوحدة، السطر {n}",
+  "offers.sim.quantity": "الكمية، السطر {n}",
+  "offers.sim.addLine": "إضافة سطر",
+  "offers.sim.remove": "إزالة",
+  "offers.sim.removeLine": "إزالة السطر {n}",
+  "offers.sim.run": "تشغيل المحاكاة",
+  "offers.sim.summary":
+    "مرات التطبيق: {applications}. إجمالي الخصم: {discount}. الإجمالي: {total}.",
+  "offers.sim.resultCaption": "نتيجة محاكاة السلة",
+  "offers.sim.col.line": "السطر",
+  "offers.sim.col.price": "سعر الوحدة",
+  "offers.sim.col.quantity": "الكمية",
+  "offers.sim.col.eligible": "مؤهل",
+  "offers.sim.col.discount": "الخصم",
+  "offers.sim.col.amount": "قيمة السطر",
+  "offers.sim.yes": "نعم",
+  "offers.sim.no": "لا",
+  "offers.sim.error.price": "أدخل سعرًا صحيحًا، حتى أربع خانات عشرية.",
+  "offers.sim.error.quantity": "الكمية من 1 إلى 999.",
+  "offers.sim.error.noLines": "أضف سطرًا واحدًا على الأقل.",
+  "offers.sim.error.tooManyLines": "السلة حتى 100 سطر.",
+
+  // --- Facts ----------------------------------------------------------------
+  "offers.facts.state": "الحالة",
+  "offers.facts.published": "الإصدار المنشور",
+  "offers.facts.neverPublished": "لم يُنشر بعد",
+  "offers.facts.version": "الإصدار {version}",
+  "offers.facts.currentVersion": "الحالي",
+  "offers.facts.versions": "الإصدارات المنشورة",
+  "offers.facts.schedule": "الجدول",
+  "offers.facts.stores": "المتاجر",
+  "offers.facts.draft": "المسودة",
+  "offers.facts.draftRevision": "المراجعة {revision}",
+  "offers.facts.noDraft": "لا توجد مسودة",
+  "offers.facts.endedAt": "انتهى في",
+  "offers.facts.archivedAt": "أُرشف في",
+  "offers.facts.ownStoresNote":
+    "ما يظهر هنا من متاجر وإيقافات هو لمتاجرك فقط، وقد توجد متاجر أخرى لا تراها.",
+  "offers.facts.pauses": "الإيقافات المؤقتة",
+  "offers.facts.wholePause": "العرض كله موقوف",
+  "offers.facts.resumeStore": "استئناف",
+  "offers.facts.resumeStoreLabel": "استئناف العرض في {name}",
+  "offers.facts.removed": "أصناف خرجت من عروض بسبب تغيير الكتالوج",
+  "offers.facts.removedHint":
+    "بعد تغيير في الكتالوج صار صنف مطلوبًا في عرضين؛ بقي في العرض الأقدم وخرج من الأحدث.",
+
+  // --- Lifecycle ------------------------------------------------------------
+  "offers.lifecycle.title": "إدارة العرض",
+  "offers.lifecycle.keep": "إبقاء العرض كما هو",
+  "offers.pause.open": "إيقاف مؤقت",
+  "offers.pause.title": "إيقاف العرض مؤقتًا",
+  "offers.pause.note":
+    "الإيقاف المؤقت للطوارئ. يخرج العرض من حزمة العروض فورًا، ولا يُحذف شيء من السجل. سبب الإيقاف يُسجَّل في سجل المراجعة.",
+  "offers.pause.reason": "سبب الإيقاف",
+  "offers.pause.reasonHint": "إلزامي، حتى {max} حرف. لا تكتب بيانات شخصية.",
+  "offers.pause.scope": "ماذا يُوقف؟",
+  "offers.pause.scopeWhole": "العرض كله في كل المتاجر",
+  "offers.pause.scopeStores": "متاجر محددة",
+  "offers.pause.scopeOwnStores": "متاجري",
+  "offers.pause.noStores": "لا توجد متاجر يمكنك إيقاف العرض فيها.",
+  "offers.pause.confirm": "إيقاف مؤقت",
+  "offers.pause.done": "أُوقف العرض مؤقتًا.",
+  "offers.pause.error.reasonRequired": "اكتب سبب الإيقاف.",
+  "offers.pause.error.reasonTooLong": "السبب أطول من 500 حرف.",
+  "offers.pause.error.storesRequired": "اختر متجرًا واحدًا على الأقل.",
+  "offers.resume.open": "استئناف",
+  "offers.resume.prompt":
+    "يُرفع الإيقاف عن العرض في كل المتاجر. يُفحص التعارض مع العروض الأخرى مجددًا قبل أن يعود.",
+  "offers.resume.confirm": "استئناف العرض",
+  "offers.resume.done": "استؤنف العرض.",
+  "offers.end.open": "إنهاء العرض",
+  "offers.end.prompt":
+    "ينتهي العرض الآن ويخرج من حزمة العروض ولا يمكن إعادته؛ تُنشأ عروض جديدة بدلًا منه. تبقى بيانات المبيعات السابقة كما هي.",
+  "offers.end.confirm": "إنهاء العرض",
+  "offers.end.done": "انتهى العرض.",
+  "offers.archive.open": "أرشفة",
+  "offers.archive.prompt":
+    "يختفي العرض من قائمة العروض الافتراضية. تبقى كل إصداراته وبيانات المبيعات السابقة.",
+  "offers.archive.confirm": "أرشفة العرض",
+  "offers.archive.done": "أُرشف العرض.",
+
+  // --- Errors ---------------------------------------------------------------
+  "offers.error.validation": "رفض الخادم هذه القيم. راجع الحقول ثم حاول مرة أخرى.",
+  "offers.error.session": "انتهت جلستك. سجّل الدخول مرة أخرى.",
+  "offers.error.forbidden": "ليس لديك صلاحية لهذا الإجراء.",
+  "offers.error.origin": "رُفض الطلب لأن مصدره غير موثوق. أعد تحميل الصفحة وحاول مرة أخرى.",
+  "offers.error.notFound": "هذا العرض غير موجود أو لا يمكنك الاطلاع عليه.",
+  "offers.error.storeNotFound": "أحد المتاجر غير متاح لك.",
+  "offers.error.storeNotInScope": "أحد المتاجر المختارة ليس ضمن نطاق هذا العرض أو ليس موقوفًا فيه.",
+  "offers.error.stale": "تغيّرت المسودة منذ فتحتها. أُعيد تحميل العرض؛ راجعه ثم أعد المحاولة.",
+  "offers.error.staleSave":
+    "عدّل شخص آخر هذه المسودة بعد أن فتحتها، فلم تُحفظ تعديلاتك. ما كتبته ما زال أمامك؛ انسخه ثم أعد تحميل الصفحة لترى النسخة الأحدث.",
+  "offers.error.stateInvalid": "حالة العرض لا تسمح بهذا الإجراء الآن. أُعيد تحميله.",
+  "offers.error.conflict": "لم يتم الإجراء: يتعارض العرض مع عروض أخرى فعالة أو موقوفة.",
+  "offers.error.rateLimited": "طلبات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.",
+  "offers.error.uncertain": "لم يصل رد واضح، وقد يكون الطلب قد نُفّذ. أعد الضغط؛ لن يتكرر التنفيذ.",
+  "offers.error.generic": "تعذّر تنفيذ الطلب. حاول مرة أخرى.",
+} satisfies Messages;

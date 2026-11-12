@@ -9,19 +9,26 @@
  */
 import { FormField, type FormFieldProps } from "@/components/FormField";
 import { type MessageKey, useT } from "@/i18n";
+import type { CatalogBrand } from "@/lib/brand-queries";
 import type { CatalogCategory, CatalogProductDetail } from "@/lib/catalog-queries";
 import { TenantPrice } from "./CatalogDetailSections";
 import {
   type ExtraCategoryOption,
+  NO_BRAND,
   NO_CATEGORY,
   type ProductFormValues,
+  extraBrandOption,
   extraCategoryOptions,
 } from "./productFormLogic";
+
+/** A category or brand as the form knows it: an id, and a name when the read gave one. */
+type NamedRef = { id: string; name: string | null };
 
 export const FIELD_IDS = {
   name: "product-name",
   description: "product-description",
   categoryId: "product-category",
+  brandId: "product-brand",
   taxCategory: "product-tax-category",
 } as const;
 
@@ -60,10 +67,10 @@ function CategoryOptions({
   refused,
 }: Readonly<{
   categories: readonly CatalogCategory[];
-  current: { id: string; name: string | null } | null;
+  current: NamedRef | null;
   listKnown: boolean;
   /** A category the server refused: it stays selected, marked unavailable, until another is chosen. */
-  refused: { id: string; name: string | null } | null;
+  refused: NamedRef | null;
 }>): React.JSX.Element {
   const t = useT();
   const text = (option: ExtraCategoryOption): string =>
@@ -85,6 +92,51 @@ function CategoryOptions({
   );
 }
 
+/**
+ * RT-1338: «بدون علامة تجارية», the tenant's brands, and the item's own brand when the list does
+ * not have it (retired, or the list is loading or failed), so a controlled select never shows
+ * another option than its value.
+ */
+function BrandOptions({
+  brands,
+  current,
+  listKnown,
+  refused,
+}: Readonly<{
+  brands: readonly CatalogBrand[];
+  current: NamedRef | null;
+  listKnown: boolean;
+  /** A brand the server refused (422): it stays selected, marked unavailable, until another is chosen. */
+  refused: NamedRef | null;
+}>): React.JSX.Element {
+  const t = useT();
+  const extra = extraBrandOption(brands, refused ?? current, listKnown);
+  const flagged = refused !== null || (extra?.retired ?? false);
+  const choices = [
+    { id: NO_BRAND, label: t("catalog.form.brandNone") },
+    ...(extra
+      ? [
+          {
+            id: extra.id,
+            label: flagged
+              ? t("catalog.form.brandUnavailableOption", { name: extra.name })
+              : extra.name,
+          },
+        ]
+      : []),
+    ...brands.map((b) => ({ id: b.brandId, label: b.name })),
+  ];
+  return (
+    <>
+      {choices.map((choice) => (
+        <option key={choice.id} value={choice.id}>
+          {choice.label}
+        </option>
+      ))}
+    </>
+  );
+}
+
 export interface ProductFieldsProps {
   values: ProductFormValues;
   /** The errors to show now (inline); the form decides when each is visible. */
@@ -95,7 +147,13 @@ export interface ProductFieldsProps {
   categoriesLoading: boolean;
   /** The category the server refused (422), if any. */
   refusedCategory: { id: string; name: string | null } | null;
-  /** The product as loaded, for the current category and the read-only price. */
+  /** RT-1338: the tenant's brands, and whether that list is loading or failed. */
+  brands: readonly CatalogBrand[];
+  brandsLoading: boolean;
+  brandsFailed: boolean;
+  /** The brand the server refused (422 `brand_unavailable`), if any. */
+  refusedBrand: { id: string; name: string | null } | null;
+  /** The product as loaded, for the current category and brand and the read-only price. */
   product: CatalogProductDetail;
 }
 
@@ -107,6 +165,10 @@ export function ProductFields({
   categoriesFailed,
   categoriesLoading,
   refusedCategory,
+  brands,
+  brandsLoading,
+  brandsFailed,
+  refusedBrand,
   product,
 }: Readonly<ProductFieldsProps>): React.JSX.Element {
   const t = useT();
@@ -114,6 +176,7 @@ export function ProductFields({
   const current = summary.categoryId
     ? { id: summary.categoryId, name: summary.categoryName }
     : null;
+  const currentBrand = summary.brandId ? { id: summary.brandId, name: summary.brandName } : null;
   return (
     <>
       <Field id={FIELD_IDS.name} label={t("catalog.form.name")} required error={errors.name}>
@@ -167,6 +230,30 @@ export function ProductFields({
               current={current}
               listKnown={!categoriesLoading && !categoriesFailed}
               refused={refusedCategory}
+            />
+          </select>
+        )}
+      </Field>
+
+      <Field
+        id={FIELD_IDS.brandId}
+        label={t("catalog.form.brand")}
+        hint={brandsFailed ? t("catalog.form.brandsFailed") : undefined}
+        error={errors.brandId}
+      >
+        {(aria) => (
+          <select
+            id={FIELD_IDS.brandId}
+            className="input"
+            value={values.brandId}
+            onChange={(e) => onChange("brandId", e.target.value)}
+            {...aria}
+          >
+            <BrandOptions
+              brands={brands}
+              current={currentBrand}
+              listKnown={!brandsLoading && !brandsFailed}
+              refused={refusedBrand}
             />
           </select>
         )}
