@@ -1,8 +1,8 @@
 -- Domain-role grants for Tracking Identity birth and the per-identity
--- Inventory Anchor (RT-453, migration 0102). See
+-- Inventory Anchor (RT-453, migration 0103). See
 -- docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0102 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0103 and BEFORE the
 -- API and worker images that need it are rolled, as the migration owner (or
 -- any role allowed to grant on these tables). This file holds NO credential.
 -- Give psql the connection through libpq environment variables

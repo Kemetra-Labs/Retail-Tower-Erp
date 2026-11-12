@@ -1,4 +1,4 @@
--- 0102_tracking_identity_birth.sql
+-- 0103_tracking_identity_birth.sql
 --
 -- RT-453 (RT-50 Gate 7 F6; rules G7-3 and G7-12, owner decision RT-50 comment
 -- 11765, Q2 and Q13): Tracking Identity birth from ERP evidence, the
@@ -7,9 +7,9 @@
 -- [GATED: migration] authorized on RT-453 comment 16685 (2026-11-12), under the
 -- owner's delegation of 2026-11-11; coordinator decisions in comment 16686 (the
 -- lot code is the ERPNext Batch name; the `tracking_mismatch` class). Applying
--- it to a lab or live database is a separate owner step. Number 0102: 0093,
--- 0094-0098, 0100 and 0101 are on main (0100 and 0101 from #522), and 0099 is
--- held by #519.
+-- it to a lab or live database is a separate owner step. Number 0103
+-- (coordinator, 2026-11-12): 0093-0098, 0100 and 0101 are on main, and 0099
+-- and 0102 are held by #519.
 --
 -- Source of truth:
 --   - RT-50 comments 11763 / 11764 (G7-2, G7-3, G7-12) and 11765 (approval);
@@ -67,7 +67,7 @@
 -- they name (RESTRICT FKs).
 --
 -- Deploy window: none. Every table is new and only the new runtime writes it;
--- the CHECK widening admits a superset. Apply 0102 and the grants script
+-- the CHECK widening admits a superset. Apply 0103 and the grants script
 -- before the API and worker that write them roll out.
 --
 -- Lock impact: ONE transaction for the tables. They are created empty; their
@@ -82,7 +82,7 @@
 -- the 0066 pattern. lock_timeout 2s: if a lock is not granted in time the
 -- migration rolls back and is re-run.
 --
--- Reversal: 0102_tracking_identity_birth.down.sql REFUSES while any birth,
+-- Reversal: 0103_tracking_identity_birth.down.sql REFUSES while any birth,
 -- resolution, identity anchor or `tracking_mismatch` result exists, and
 -- otherwise drops the four tables and restores the 0066 CHECK.
 
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS erp_stock_import_row_resolutions (
 
 -- The ERP event type an import row would import under (DC-4), so a row that
 -- awaited its identity can be imported later: its purpose and correction
--- reference are not kept. NULL on a row recorded before 0102 or with no
+-- reference are not kept. NULL on a row recorded before 0103 or with no
 -- ERP-owned family. A nullable column with no default: no rewrite.
 ALTER TABLE erp_stock_import_rows ADD COLUMN IF NOT EXISTS event_type TEXT;
 ALTER TABLE erp_stock_import_rows

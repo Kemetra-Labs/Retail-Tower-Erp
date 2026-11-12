@@ -87,7 +87,7 @@ export const GRANTS: GrantFragment = {
     ["stock_locations", "SELECT"],
     ["stock_locations", "INSERT"],
     // RT-448 (0045): the tracking-identity list reads identities. Read-only in
-    // that release; identity birth (RT-453, 0102) adds INSERT in
+    // that release; identity birth (RT-453, 0103) adds INSERT in
     // tracking-identity-birth.grants.ts. RT-451 S3 adds SELECT on erpnext_tracking_map in
     // sale-line-findings.grants.ts (capture reads it). No UPDATE / DELETE
     // policy; never UPDATE, DELETE or TRUNCATE.

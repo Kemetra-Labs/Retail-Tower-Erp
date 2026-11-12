@@ -355,7 +355,7 @@ A script without the marker, such as the owner-gated
   `-v domain_role=<role>`. It grants the domain role `SELECT` on
   `tracking_identities`, which the tracking-identity list reads. Nothing writes
   identities or `erpnext_tracking_map` in this release; identity birth
-  (RT-453) adds `INSERT` on both in the 0102 step below. Neither
+  (RT-453) adds `INSERT` on both in the 0103 step below. Neither
   table has an `UPDATE` or `DELETE` policy; never grant `UPDATE`, `DELETE` or
   `TRUNCATE`. Without the grant the API refuses to boot
   (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
@@ -748,7 +748,7 @@ A script without the marker, such as the owner-gated
   `tenant_product_categories`; neither needs a maintenance window. The 0101
   down migration refuses while any offer or Offer Pack revision is stored.
 
-- **Migration `0102_tracking_identity_birth` (RT-453).** Run
+- **Migration `0103_tracking_identity_birth` (RT-453).** Run
   [`sql/tracking-identity-birth-domain-grants.sql`](sql/tracking-identity-birth-domain-grants.sql)
   after `migrate up` and before the API and worker start, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
@@ -764,7 +764,7 @@ A script without the marker, such as the owner-gated
   correction, whose privileges the 0072 step already grants. Without the grants
   the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
   hold no privilege on the four new tables (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
-  0102 creates four new, empty tables and widens the
+  0103 creates four new, empty tables and widens the
   `erpnext_reconciliation_result` class CHECK with `tracking_mismatch` (`NOT
   VALID`, then `VALIDATE` under SHARE UPDATE EXCLUSIVE after the commit); it
   needs no maintenance window. Its down migration refuses while any birth,

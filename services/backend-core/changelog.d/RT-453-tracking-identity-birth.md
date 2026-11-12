@@ -18,7 +18,7 @@
   `tracking_consistency` checks (`inventory.yaml` 1.14.0-draft, wording only),
   and the Q13 preconditions `identity_anchor` and
   `tracking_grain_reconciliation` are confirmed from the server's own data.
-  Migration 0102 adds `tracking_identity_births`,
+  Migration 0103 adds `tracking_identity_births`,
   `erp_stock_import_row_resolutions`, `inventory_identity_anchors` and
   `_lines` (FORCE RLS, append-only), `erp_stock_import_rows.event_type`, and
   the class in the result CHECK; run

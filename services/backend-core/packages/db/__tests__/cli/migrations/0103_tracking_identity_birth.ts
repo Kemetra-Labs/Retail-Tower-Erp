@@ -1,5 +1,5 @@
 /**
- * 0102_tracking_identity_birth (RT-453): [the four birth / resolution / identity
+ * 0103_tracking_identity_birth (RT-453): [the four birth / resolution / identity
  * anchor tables, their eight policies, and `tracking_mismatch` in the validated
  * reconciliation class CHECK].
  */
@@ -13,7 +13,7 @@ const TABLES = [
 ];
 
 export const MIGRATION: MigrationEntry = {
-  id: "0102_tracking_identity_birth",
+  id: "0103_tracking_identity_birth",
   probe: {
     measure: async (db) => [
       await countTables(db, TABLES),

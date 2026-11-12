@@ -1,6 +1,6 @@
--- 0102_tracking_identity_birth.down.sql
+-- 0103_tracking_identity_birth.down.sql
 --
--- RT-453 — rollback for 0102_tracking_identity_birth.sql.
+-- RT-453 — rollback for 0103_tracking_identity_birth.sql.
 --
 -- Drops the four tables (with their indexes, policies and grants), the
 -- awaiting-row index and `erp_stock_import_rows.event_type`, and restores the 0066 CHECK on
@@ -50,7 +50,7 @@ BEGIN
     found := found + n;
   END LOOP;
   IF found > 0 THEN
-    RAISE EXCEPTION '0102 down refused: % identity birth(s), import row resolution(s), identity anchor(s) or tracking_mismatch result(s) exist; back up and delete them explicitly first', found;
+    RAISE EXCEPTION '0103 down refused: % identity birth(s), import row resolution(s), identity anchor(s) or tracking_mismatch result(s) exist; back up and delete them explicitly first', found;
   END IF;
 END
 $$;

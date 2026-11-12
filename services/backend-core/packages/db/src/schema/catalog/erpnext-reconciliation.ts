@@ -143,7 +143,7 @@ export const erpnextReconciliationResult = pgTable(
     check(
       "erpnext_reconciliation_result_class_valid",
       // 0066 (RT-428) adds the pending-aware classes 927–929 and uom_mismatch;
-      // 0102 (RT-453) adds tracking_mismatch (the tracking grain, G7-12).
+      // 0103 (RT-453) adds tracking_mismatch (the tracking grain, G7-12).
       sql`${t.mismatchClass} IN ('match', 'quantity_divergence', 'unmapped_store', 'unmapped_item', 'dp2_only', 'erpnext_only', 'negative_balance_flagged', 'expected_pending_erp', 'expected_pending_retail', 'erp_snapshot_stale', 'uom_mismatch', 'tracking_mismatch')`,
     ),
     check(

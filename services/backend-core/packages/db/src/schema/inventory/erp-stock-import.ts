@@ -108,7 +108,7 @@ export const erpStockImportRows = pgTable("erp_stock_import_rows", {
   tenantProductRef: uuid("tenant_product_ref"),
   trackingIdentityId: uuid("tracking_identity_id"),
   effectId: uuid("effect_id"),
-  /** 0102 (RT-453): the DC-4 event type the row imports under; null before 0102 or with no ERP-owned family. */
+  /** 0103 (RT-453): the DC-4 event type the row imports under; null before 0103 or with no ERP-owned family. */
   eventType: text("event_type"),
   recordedAt: tz("recorded_at").notNull().defaultNow(),
 });

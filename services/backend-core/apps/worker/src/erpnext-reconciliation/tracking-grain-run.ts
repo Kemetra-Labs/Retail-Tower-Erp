@@ -33,7 +33,7 @@ import type { PoolClient } from "pg";
 
 import { classifyPendingAware, type PendingAwareClass } from "./pending-aware-classify";
 
-/** The tracking-mismatch class (0102 CHECK; `reconciliation.yaml` 1.7.0-draft). */
+/** The tracking-mismatch class (0103 CHECK; `reconciliation.yaml` 1.7.0-draft). */
 export const TRACKING_MISMATCH_CLASS = "tracking_mismatch";
 
 type TrackingGrainClass = PendingAwareClass | "erpnext_only" | typeof TRACKING_MISMATCH_CLASS;

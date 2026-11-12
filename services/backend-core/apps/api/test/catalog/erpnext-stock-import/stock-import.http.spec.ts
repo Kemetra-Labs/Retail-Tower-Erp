@@ -748,7 +748,7 @@ describe("stockImportReportRows — identity birth (RT-453, G7-3)", () => {
     expect(compensates.rows[0].compensates_effect_id).toBe(o!.effect_id);
   });
 
-  it("records the event type on every classified row (0102)", async () => {
+  it("records the event type on every classified row (0103)", async () => {
     if (skip) return;
     const r = row({ item: ITEM_EXP, batch: "EXP-ET", voucherType: "Stock Reconciliation", purpose: "Opening Stock" });
     await importA([r]);

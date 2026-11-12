@@ -1,8 +1,8 @@
 /**
- * RT-453: `0102_tracking_identity_birth` migration test (authorization: Jira
+ * RT-453: `0103_tracking_identity_birth` migration test (authorization: Jira
  * RT-453 comment 16685).
  *
- * Validates `packages/db/drizzle/0102_tracking_identity_birth.sql` (+ `.down.sql`):
+ * Validates `packages/db/drizzle/0103_tracking_identity_birth.sql` (+ `.down.sql`):
  *   - the four tables, FORCE RLS, SELECT and INSERT policies only;
  *   - a birth names exactly its own evidence (a run XOR an import row), and
  *     the identity of its own product and tenant;
@@ -24,9 +24,9 @@ import { applyMigrationsBefore, asApp, asMigrationOwner, runSqlFile } from "../_
 import { ensureAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP_NAME = "0102_tracking_identity_birth.sql";
+const UP_NAME = "0103_tracking_identity_birth.sql";
 const UP_PATH = resolve(DRIZZLE_DIR, UP_NAME);
-const DOWN_PATH = resolve(DRIZZLE_DIR, "0102_tracking_identity_birth.down.sql");
+const DOWN_PATH = resolve(DRIZZLE_DIR, "0103_tracking_identity_birth.down.sql");
 
 const id = (n: string): string => `10000000-0000-7000-8000-0000000${n}`;
 const TENANT_A = id("0a001");
@@ -171,14 +171,14 @@ const RESOLUTION_SQL = `INSERT INTO erp_stock_import_row_resolutions
     (id, tenant_id, row_id, tracking_identity_id, tenant_product_ref, outcome, effect_key, effect_id)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
 
-describe("0102: files exist", () => {
+describe("0103: files exist", () => {
   it("up + down migration files are present", () => {
     expect(existsSync(UP_PATH)).toBe(true);
     expect(existsSync(DOWN_PATH)).toBe(true);
   });
 });
 
-describe("0102: tables, RLS and CHECKs", () => {
+describe("0103: tables, RLS and CHECKs", () => {
   it("creates the four tables with FORCE ROW LEVEL SECURITY and SELECT / INSERT policies only", async () => {
     if (skip()) return;
     const r = await guard().admin.query<{ relname: string; force: boolean }>(
@@ -307,7 +307,7 @@ describe("0102: tables, RLS and CHECKs", () => {
   });
 });
 
-describe("0102: tenant isolation (FORCE RLS)", () => {
+describe("0103: tenant isolation (FORCE RLS)", () => {
   it("writes and reads only the caller's tenant, and nothing under an empty GUC", async () => {
     if (skip()) return;
     await guard().admin.query(BIRTH_SQL, [id("0b141"), TENANT_B, IDENTITY_B, PRODUCT_B, "tracking_master", RUN_B, null]);
@@ -333,7 +333,7 @@ describe("0102: tenant isolation (FORCE RLS)", () => {
   });
 });
 
-describe("0102: UP -> DOWN -> UP", () => {
+describe("0103: UP -> DOWN -> UP", () => {
   const exists = async (): Promise<boolean> =>
     (await guard().admin.query<{ t: string | null }>(`SELECT to_regclass('tracking_identity_births')::text AS t`)).rows[0]!
       .t !== null;

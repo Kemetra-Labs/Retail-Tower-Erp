@@ -478,7 +478,7 @@ async function resolveAwaitingRows(client: PoolClient, ctx: IngestContext): Prom
        JOIN tracking_identities i
          ON i.id = m.tracking_identity_id AND i.tenant_product_ref = row.tenant_product_ref
       WHERE row.outcome = 'awaiting_identity'
-        -- Recorded with its event type (0102); 0096 was applied nowhere before it.
+        -- Recorded with its event type (0103); 0096 was applied nowhere before it.
         AND row.event_type IS NOT NULL
         AND row.store_id = $1 AND row.erpnext_warehouse_ref = $2
         AND NOT EXISTS (SELECT 1 FROM erp_stock_import_row_resolutions res WHERE res.row_id = row.id)
