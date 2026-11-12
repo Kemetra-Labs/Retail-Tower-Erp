@@ -30,6 +30,15 @@ interface AsarFile {
   readonly unpacked?: boolean;
   /** Header integrity hash to record instead of the true one (to simulate a bad archive). */
   readonly integrityHash?: string;
+  /** Leave the header integrity entry out, or record another algorithm (to simulate a bad archive). */
+  readonly integrity?: 'none' | 'md5';
+}
+
+function integrityEntry(file: AsarFile): { integrity?: object } {
+  if (file.integrity === 'none') return {};
+  const hash = createHash('sha256').update(file.bytes).digest('hex');
+  if (file.integrity === 'md5') return { integrity: { algorithm: 'MD5', hash } };
+  return { integrity: { algorithm: 'SHA256', hash: file.integrityHash ?? hash } };
 }
 
 /** A minimal asar: [4][pickleSize][payloadSize][jsonLength][json, padded to 4][file data]. */
@@ -52,10 +61,7 @@ function buildAsar(files: Readonly<Record<string, AsarFile>>): Buffer {
     dir.files[leaf] = {
       size: file.bytes.length,
       offset: String(offset),
-      integrity: {
-        algorithm: 'SHA256',
-        hash: file.integrityHash ?? createHash('sha256').update(file.bytes).digest('hex'),
-      },
+      ...integrityEntry(file),
     };
     chunks.push(file.bytes);
     offset += file.bytes.length;
@@ -122,6 +128,19 @@ describe('readAsarEntry', () => {
       }),
     );
     expect(() => readAsarEntry(file, ['dist', 'lane-config.json'])).toThrow(/integrity hash/);
+  });
+
+  it.each([
+    ['no integrity entry', 'none'],
+    ['an unknown integrity algorithm', 'md5'],
+  ] as const)('refuses an entry with %s (fail closed, never skipped)', (_label, integrity) => {
+    const file = write(
+      buildAsar({
+        ...withLane(text(GOOD)),
+        'dist/lane-config.json': { bytes: text(GOOD), integrity },
+      }),
+    );
+    expect(() => readAsarEntry(file, ['dist', 'lane-config.json'])).toThrow(/no SHA256 integrity/);
   });
 
   it('refuses a file that is not an asar and a truncated archive', () => {

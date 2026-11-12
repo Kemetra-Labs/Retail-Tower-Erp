@@ -99,12 +99,15 @@ function findNode(tree: AsarNode, entry: readonly string[]): AsarNode {
 }
 
 /**
- * electron-builder records a SHA-256 of each packed file in the header (`integrity.hash`). When it is there it
+ * electron-builder records a SHA-256 of each packed file in the header (`integrity.hash`). It must be there and
  * must equal the bytes just read: that proves the offset and size were read the way the archive means them.
+ * A missing or unknown hash is refused (fail closed), never skipped.
  */
 function assertIntegrity(node: AsarNode, bytes: Buffer, name: string): void {
   const { integrity } = node;
-  if (integrity?.algorithm !== 'SHA256' || typeof integrity.hash !== 'string') return;
+  if (integrity?.algorithm !== 'SHA256' || typeof integrity.hash !== 'string') {
+    throw new Error(`${name} has no SHA256 integrity hash in the archive header`);
+  }
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== integrity.hash.toLowerCase()) {
     throw new Error(`${name} does not match the integrity hash in the archive header`);
