@@ -184,7 +184,8 @@ For a return of some units of a sale that had offer O, counting every earlier re
 
 ```
 D_held      = Σ discountAmount of the O units not returned before this return
-              − Σ clawbacks of O already recorded on earlier returns of the sale
+              − the OUTSTANDING clawback of O: Σ clawbacks of O recorded on earlier returns of the sale,
+                net of the give-backs those returns made (never below 0)
 disc_ret    = min( Σ discountAmount of the O units returned now, D_held )
 D_remaining = evaluate(the O-eligible units the customer still keeps after this return,
                        O's frozen version and prices).totalDiscount
@@ -194,9 +195,14 @@ clawback_O  = max( 0, D_held − D_remaining − disc_ret )
 
 On a first return `D_held = D_orig` (Σ discountAmount over the sale's O lines), and the rule reads
 `refund_O = min(Σ net of returned O units, Σ gross of returned O units − (D_orig − D_remaining))`.
-Subtracting earlier clawbacks from `D_held` stops a second return from clawing back the same discount twice
+Subtracting the outstanding clawback from `D_held` stops a second return from clawing back the same discount twice
 (RT-1335 review; for example E1: return the 300 → 220.00 with a clawback of 80.00, then the 200 → 200.00, 420.00 in
 all, which is what was paid). `returnTotal` = Σ returned `lineAmount` − Σ clawback + Σ give-back (OD-11 Hybrid, below).
+The outstanding clawback is netted against give-backs, not just summed: a buy-1-get-2 offer at 40% on 300 + 2 × 200
+(540.00 paid) claws back 160.00 on the trigger return (refund 140.00); the first reward then gives back 80.00 (refund
+200.00, outstanding 80.00) and the last reward gives back 80.00 again (refund 200.00). Summing recorded clawbacks alone
+would read that last return's `D_held` as 80 − 160 = −80 and give back 160.00 on an 80.00 discount
+(`offer-return-history.unit.spec.ts`).
 
 - The `max` stops a return from **creating** a discount the customer did not get at sale time.
 - If `refund_O < 0`, the return is **refused** with `promotion_clawback_exceeds_refund`. The till asks the cashier to add the reward units to the return. This can only happen when `Y > X` or `P` is high (OD-10).

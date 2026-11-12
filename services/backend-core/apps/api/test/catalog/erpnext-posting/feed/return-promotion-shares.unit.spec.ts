@@ -26,17 +26,24 @@ interface Fixture {
   readonly allLinesTotal: string;
   readonly returnTotal: string;
   readonly currency?: string;
-  /** Clawbacks recorded on EARLIER returns of the sale, per offer. */
-  readonly earlier?: ReadonlyArray<{ offer_id: string; offer_version: number; total: string }>;
-  /** Every promoted line of the sale, with the units returned before this return. */
-  readonly sale?: ReadonlyArray<{ line_ref: string; sold: string; discount: string; offer_id: string; offer_version: number; before: string }>;
+  /** The sale's returns up to and including this one, as the replay reads them (`sale-return-history.ts`). */
+  readonly history?: {
+    readonly seq: number;
+    readonly claws: ReadonlyArray<{ return_seq: number; offer_id: string; offer_version: number; amount: string }>;
+    readonly promoted: ReadonlyArray<{ line_ref: string; sold: string; discount: string; offer_id: string; offer_version: number }>;
+    readonly returned: ReadonlyArray<{ return_seq: number; line_ref: string; quantity: string }>;
+  };
 }
 
 function fakeClient(f: Fixture): PoolClient {
   return {
     query: async (sql: string) => {
-      if (sql.includes("e.return_seq < r.return_seq")) return { rows: f.earlier ?? [] };
-      if (sql.includes("AS before")) return { rows: f.sale ?? [] };
+      if (sql.includes("FROM sale_returns WHERE id")) {
+        return { rows: [{ sale_id: "s", tenant_id: "t", return_seq: f.history?.seq ?? 1 }] };
+      }
+      if (sql.includes("c JOIN sale_returns r ON r.id = c.return_id")) return { rows: f.history?.claws ?? [] };
+      if (sql.includes("FROM sale_line_promotions lp JOIN sale_lines sl ON sl.id = lp.sale_line_id")) return { rows: f.history?.promoted ?? [] };
+      if (sql.includes("FROM sale_return_lines rl JOIN sale_returns r ON r.id = rl.return_id")) return { rows: f.history?.returned ?? [] };
       if (sql.includes("FROM sale_return_promotion_clawbacks WHERE return_id")) return { rows: f.clawbacks };
       if (sql.includes("SUM(line_amount)")) return { rows: [{ total: f.allLinesTotal }] };
       if (sql.includes("JOIN sale_line_promotions lp ON lp.sale_line_id = sl.id\n      WHERE rl.return_id")) {
@@ -74,12 +81,19 @@ describe("loadReturnPromotionShares", () => {
         lines: [line(REWARD, "120.0000", "80.0000")],
         allLinesTotal: "120.0000",
         returnTotal: "200.0000",
-        // Step 1 returned the 300 with a clawback of 80.00; the reward line (sold 1, discount 80) is still held.
-        earlier: [{ offer_id: OFFER, offer_version: 1, total: "80.0000" }],
-        sale: [
-          { line_ref: PLAIN, sold: "1.000000", discount: "0.0000", offer_id: OFFER, offer_version: 1, before: "1.000000" },
-          { line_ref: REWARD, sold: "1.000000", discount: "80.0000", offer_id: OFFER, offer_version: 1, before: "0" },
-        ],
+        // Return 1 gave back the 300 with a clawback of 80.00; return 2 (this one) returns the reward unit.
+        history: {
+          seq: 2,
+          claws: [{ return_seq: 1, offer_id: OFFER, offer_version: 1, amount: "80.0000" }],
+          promoted: [
+            { line_ref: PLAIN, sold: "1.000000", discount: "0.0000", offer_id: OFFER, offer_version: 1 },
+            { line_ref: REWARD, sold: "1.000000", discount: "80.0000", offer_id: OFFER, offer_version: 1 },
+          ],
+          returned: [
+            { return_seq: 1, line_ref: PLAIN, quantity: "1.000000" },
+            { return_seq: 2, line_ref: REWARD, quantity: "1.000000" },
+          ],
+        },
       }),
       RETURN_ID,
     );
@@ -93,15 +107,53 @@ describe("loadReturnPromotionShares", () => {
         lines: [line(REWARD, "120.0000", "80.0000", OFFER), line(REWARD_B, "30.0000", "20.0000", OFFER_B)],
         allLinesTotal: "150.0000",
         returnTotal: "230.0000",
-        earlier: [{ offer_id: OFFER, offer_version: 1, total: "80.0000" }],
-        sale: [
-          { line_ref: REWARD, sold: "1.000000", discount: "80.0000", offer_id: OFFER, offer_version: 1, before: "0" },
-          { line_ref: REWARD_B, sold: "1.000000", discount: "20.0000", offer_id: OFFER_B, offer_version: 1, before: "0" },
-        ],
+        history: {
+          seq: 2,
+          claws: [{ return_seq: 1, offer_id: OFFER, offer_version: 1, amount: "80.0000" }],
+          promoted: [
+            { line_ref: PLAIN, sold: "1.000000", discount: "0.0000", offer_id: OFFER, offer_version: 1 },
+            { line_ref: REWARD, sold: "1.000000", discount: "80.0000", offer_id: OFFER, offer_version: 1 },
+            { line_ref: REWARD_B, sold: "1.000000", discount: "20.0000", offer_id: OFFER_B, offer_version: 1 },
+          ],
+          returned: [
+            { return_seq: 1, line_ref: PLAIN, quantity: "1.000000" },
+            { return_seq: 2, line_ref: REWARD, quantity: "1.000000" },
+            { return_seq: 2, line_ref: REWARD_B, quantity: "1.000000" },
+          ],
+        },
       }),
       RETURN_ID,
     );
     expect([...shares]).toEqual([[REWARD, { promotionGiveBackAmount: "80.0000" }]]);
+  });
+
+  it("third return of a buy-1-get-2 sale: the last reward gives back 80.00, not 160.00 (earlier give-backs net the clawback)", async () => {
+    const REWARD_2 = "0d000000-0000-7000-8000-000000000004";
+    const shares = await loadReturnPromotionShares(
+      fakeClient({
+        clawbacks: [],
+        lines: [line(REWARD_2, "120.0000", "80.0000")],
+        allLinesTotal: "120.0000",
+        returnTotal: "200.0000",
+        history: {
+          seq: 3,
+          // Return 1 (the trigger) clawed back 160.00; return 2 returned the first reward and gave back 80.00.
+          claws: [{ return_seq: 1, offer_id: OFFER, offer_version: 1, amount: "160.0000" }],
+          promoted: [
+            { line_ref: PLAIN, sold: "1.000000", discount: "0.0000", offer_id: OFFER, offer_version: 1 },
+            { line_ref: REWARD, sold: "1.000000", discount: "80.0000", offer_id: OFFER, offer_version: 1 },
+            { line_ref: REWARD_2, sold: "1.000000", discount: "80.0000", offer_id: OFFER, offer_version: 1 },
+          ],
+          returned: [
+            { return_seq: 1, line_ref: PLAIN, quantity: "1.000000" },
+            { return_seq: 2, line_ref: REWARD, quantity: "1.000000" },
+            { return_seq: 3, line_ref: REWARD_2, quantity: "1.000000" },
+          ],
+        },
+      }),
+      RETURN_ID,
+    );
+    expect([...shares]).toEqual([[REWARD_2, { promotionGiveBackAmount: "80.0000" }]]);
   });
 
   it("a return with neither a clawback nor a give-back has no shares, so its lines are byte-identical", async () => {

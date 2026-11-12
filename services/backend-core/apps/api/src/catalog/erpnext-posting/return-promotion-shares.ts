@@ -26,7 +26,7 @@
  */
 import type { PoolClient } from "pg";
 
-import { formatColumnAmount, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import { formatColumnAmount, scaled } from "../../offers/evaluator/offer-decimal";
 import {
   allocateReturnPromotion,
   allocationLineOf,
@@ -34,6 +34,7 @@ import {
   type AllocationLine,
 } from "../../offers/evaluator/offer-return-allocation";
 import { minorUnitExponent } from "../sales/iso4217-minor-units";
+import { replaySaleReturns } from "../sales/sale-return-history";
 
 /** The `NonNegativeDecimalAmount` scale of the feed (4 fractional digits). */
 const FEED_SCALE = 4;
@@ -48,55 +49,20 @@ export { ReturnPromotionInvariantError };
 
 const sumOf = (m: ReadonlyMap<string, bigint>): bigint => [...m.values()].reduce((a, v) => a + v, 0n);
 
-/** The give-back of each offer version `offerId:offerVersion` of a stored return, in minor units, above 0 only. */
-async function deriveGiveBacks(
-  client: PoolClient,
-  returnId: string,
-  minorUnit: number,
-  returnedNow: ReadonlyArray<AllocationLine>,
-): Promise<Map<string, bigint>> {
-  const earlier = await client.query<{ offer_id: string; offer_version: number; total: string }>(
-    `SELECT c.offer_id::text AS offer_id, c.offer_version, SUM(c.amount)::text AS total
-       FROM sale_return_promotion_clawbacks c
-       JOIN sale_returns e ON e.id = c.return_id
-       JOIN sale_returns r ON r.id = $1 AND r.sale_id = e.sale_id AND e.return_seq < r.return_seq
-      GROUP BY c.offer_id, c.offer_version`,
+/**
+ * The give-back of each offer version `offerId:offerVersion` of a stored return, in minor units, above 0 only: the
+ * last step of the replay of the sale's returns up to and including this one (`offer-return-history.ts`, the same rule
+ * admission used, with the outstanding clawback net of earlier give-backs).
+ */
+async function deriveGiveBacks(client: PoolClient, returnId: string, minorUnit: number): Promise<Map<string, bigint>> {
+  const header = await client.query<{ sale_id: string; tenant_id: string; return_seq: number }>(
+    `SELECT sale_id::text AS sale_id, tenant_id::text AS tenant_id, return_seq FROM sale_returns WHERE id = $1`,
     [returnId],
   );
-  // No earlier clawback means D_held covers every unit returned now: no give-back.
-  if (earlier.rows.length === 0) return new Map();
-  const clawbackBefore = new Map<string, bigint>(earlier.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.total, minorUnit)] as const));
-
-  const sale = await client.query<{ line_ref: string; sold: string; discount: string; offer_id: string; offer_version: number; before: string }>(
-    `SELECT sl.id::text AS line_ref, sl.quantity::text AS sold, lp.discount_amount::text AS discount,
-            lp.offer_id::text AS offer_id, lp.offer_version,
-            COALESCE((SELECT SUM(x.quantity) FROM sale_return_lines x JOIN sale_returns xr ON xr.id = x.return_id
-                       WHERE x.sale_line_id = sl.id AND xr.return_seq < r.return_seq), 0)::text AS before
-       FROM sale_returns r
-       JOIN sale_line_promotions lp ON lp.sale_id = r.sale_id
-       JOIN sale_lines sl ON sl.id = lp.sale_line_id
-      WHERE r.id = $1`,
-    [returnId],
-  );
-  const held = new Map<string, bigint>();
-  for (const l of sale.rows) {
-    const sold = wholeUnits(l.sold);
-    const before = wholeUnits(l.before);
-    const discount = scaled(l.discount, minorUnit);
-    if (sold === null || sold === 0n || before === null || discount % sold !== 0n) {
-      throw new ReturnPromotionInvariantError(`return ${returnId} line ${l.line_ref} is not a whole promoted quantity`);
-    }
-    const key = `${l.offer_id}:${l.offer_version}`;
-    held.set(key, (held.get(key) ?? 0n) + (discount / sold) * (sold - before));
-  }
-  const giveBacks = new Map<string, bigint>();
-  for (const key of new Set(returnedNow.map((l) => l.offerKey))) {
-    const discNow = returnedNow.filter((l) => l.offerKey === key).reduce((a, l) => a + l.discountReturned, 0n);
-    const dHeld = (held.get(key) ?? 0n) - (clawbackBefore.get(key) ?? 0n);
-    const discReturned = discNow < dHeld ? discNow : dHeld;
-    if (discNow - discReturned > 0n) giveBacks.set(key, discNow - discReturned);
-  }
-  return giveBacks;
+  const h = header.rows[0];
+  if (h === undefined) throw new ReturnPromotionInvariantError(`return ${returnId} not found`);
+  const replay = await replaySaleReturns(client, { saleId: h.sale_id, tenantId: h.tenant_id, minorUnit, upToSeq: h.return_seq });
+  return new Map(replay.giveBacks[replay.giveBacks.length - 1] ?? []);
 }
 
 /** The shares of one return keyed by `lineRef`; empty when the return has none. */
@@ -145,7 +111,7 @@ export async function loadReturnPromotionShares(
   );
 
   const clawbackByOffer = new Map<string, bigint>(claw.rows.map((c) => [`${c.offer_id}:${c.offer_version}`, scaled(c.amount, minorUnit)] as const));
-  const giveBackByOffer = await deriveGiveBacks(client, returnId, minorUnit, allocationLines);
+  const giveBackByOffer = await deriveGiveBacks(client, returnId, minorUnit);
   if (sumOf(clawbackByOffer) === 0n && sumOf(giveBackByOffer) === 0n) return new Map();
 
   // Cross-check at the column scale 4: return_total = Σ ALL lines − Σ clawback + Σ give-back.

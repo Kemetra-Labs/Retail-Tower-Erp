@@ -198,7 +198,7 @@ function settleReturn(sale: Sale, returned: Returned, history: ReturnHistory): S
         : "accepted";
   if (refund >= 0n) {
     for (const [ref, q] of now) history.returnedUnits.set(ref, (history.returnedUnits.get(ref) ?? 0n) + q);
-    history.clawbacks += clawback;
+    history.clawbacks += clawback - giveBack;
   }
   return {
     dHeld: format(held, minorUnit),

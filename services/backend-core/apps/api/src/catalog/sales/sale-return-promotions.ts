@@ -37,6 +37,7 @@ import {
 } from "../../offers/evaluator/offer-return-allocation";
 import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
 import { minorUnitExponent } from "./iso4217-minor-units";
+import { replaySaleReturns } from "./sale-return-history";
 import { PromotionClawbackExceedsRefundError, PromotionReturnRequiresClawbackError } from "./sale-reversal";
 
 export interface ReturnClawback {
@@ -70,6 +71,13 @@ const NO_PROMOTION_SETTLEMENT: ReturnPromotionSettlement = { clawbacks: [], give
 /** Records `value` under `key` when it is above 0. */
 function setWhenPositive(into: Map<string, bigint>, key: string, value: bigint): void {
   if (value > 0n) into.set(key, value);
+}
+
+/** The promoted lines of the sale grouped by offer version `offerId:offerVersion`, in sale line order. */
+function groupByOffer(lines: ReadonlyArray<PromotedSaleLine>): Map<string, PromotedSaleLine[]> {
+  const groups = new Map<string, PromotedSaleLine[]>();
+  for (const l of lines) groups.set(`${l.offerId}:${l.offerVersion}`, [...(groups.get(`${l.offerId}:${l.offerVersion}`) ?? []), l]);
+  return groups;
 }
 
 /** The clawbacks and the give-back of one return (none when the sale has no promoted line or the return needs none). */
@@ -121,9 +129,8 @@ export async function settleReturnPromotions(
   );
   const returnedBefore = new Map(before.rows.map((r) => [r.line_ref, wholeUnits(r.returned) ?? 0n] as const));
 
-  const groups = new Map<string, PromotedSaleLine[]>();
-  for (const l of lines) groups.set(`${l.offerId}:${l.offerVersion}`, [...(groups.get(`${l.offerId}:${l.offerVersion}`) ?? []), l]);
-
+  const groups = groupByOffer(lines);
+  const history = await replaySaleReturns(client, { saleId: args.saleRef, tenantId: args.tenantId, minorUnit: exponent, upToSeq: null });
   const clawbacks: ReturnClawback[] = [];
   const clawbackByOffer = new Map<string, bigint>();
   const giveBackByOffer = new Map<string, bigint>();
@@ -132,14 +139,8 @@ export async function settleReturnPromotions(
     if (!members.some((m) => returnedNow.has(m.lineRef))) continue;
     const first = members[0]!;
     const offer = await loadVersionParameters(client, args.tenantId, first.offerId, first.offerVersion);
-    const earlier = await client.query<{ total: string }>(
-      `SELECT COALESCE(SUM(c.amount), 0)::text AS total
-         FROM sale_return_promotion_clawbacks c JOIN sale_returns r ON r.id = c.return_id
-        WHERE r.sale_id = $1::uuid AND r.tenant_id = $4::uuid AND c.tenant_id = $4::uuid
-          AND c.offer_id = $2::uuid AND c.offer_version = $3::int`,
-      [args.saleRef, first.offerId, first.offerVersion, args.tenantId],
-    );
-    const clawbacksBefore = scaled(earlier.rows[0]!.total, 4) / 10n ** BigInt(4 - exponent);
+    // The OUTSTANDING clawback of this offer: recorded clawbacks net of the give-backs of earlier returns.
+    const clawbacksBefore = history.outstanding.get(`${first.offerId}:${first.offerVersion}`) ?? 0n;
     const s = settleOfferReturn({
       offer,
       minorUnit: exponent,
@@ -151,12 +152,13 @@ export async function settleReturnPromotions(
     if (s.refund < 0n) throw new PromotionClawbackExceedsRefundError();
     giveBack += s.giveBack;
     setWhenPositive(giveBackByOffer, `${first.offerId}:${first.offerVersion}`, s.giveBack);
-    if (s.clawback !== null && s.clawback > 0n) {
-      clawbacks.push({ offerId: first.offerId, offerVersion: first.offerVersion, amount: formatColumnAmount(s.clawback, exponent) });
-      clawbackByOffer.set(`${first.offerId}:${first.offerVersion}`, s.clawback);
-    }
+    setWhenPositive(clawbackByOffer, `${first.offerId}:${first.offerVersion}`, s.clawback ?? 0n);
   }
 
+  for (const [key, amount] of clawbackByOffer) {
+    const [offerId, offerVersion] = key.split(":");
+    clawbacks.push({ offerId: offerId!, offerVersion: Number(offerVersion), amount: formatColumnAmount(amount, exponent) });
+  }
   const rewardReturned = lines.some((l) => returnedNow.has(l.lineRef) && scaled(l.discountAmount, exponent) > 0n);
   assertReturnedLinesHold({ lines, returned: args.lines, returnedNow, exponent, clawbackByOffer, giveBackByOffer });
 

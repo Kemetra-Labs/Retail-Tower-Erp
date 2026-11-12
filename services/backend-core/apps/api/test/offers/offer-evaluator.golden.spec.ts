@@ -71,7 +71,8 @@ function settle(sale: Sale, returned: Returned, history: { units: Map<string, bi
   });
   if (s.refund >= 0n) {
     for (const [ref, q] of unitsOf(returned)) history.units.set(ref, (history.units.get(ref) ?? 0n) + q);
-    history.clawbacks += s.clawback ?? 0n;
+    // The outstanding clawback: recorded clawbacks net of the give-backs of earlier returns.
+    history.clawbacks += (s.clawback ?? 0n) - s.giveBack;
   }
   return s;
 }

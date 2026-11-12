@@ -1198,8 +1198,9 @@ paths:
         each offer O of the sale with a returned unit, counting every earlier
         return of the sale:
         `D_held` = Σ `discountAmount` of the O units not returned before this
-        return − Σ `promotionClawbacks` of O already recorded on earlier
-        returns of the sale (the discount the customer still holds);
+        return − the OUTSTANDING clawback of O, that is Σ `promotionClawbacks` of
+        O recorded on earlier returns of the sale net of the give-backs those
+        returns made (the discount the customer still holds, never below 0);
         `disc_ret` = min(Σ `discountAmount` of the O units returned now,
         `D_held`);
         `D_remaining` = the §6 evaluation of the O-eligible units the customer
