@@ -2,6 +2,8 @@
  * RT-1292: the pilot resolver's decision logic, with fakes for the database and
  * the presigner. The real-Postgres proof is `pos-pilot-release.never-cross.spec.ts`.
  */
+import { inspect } from "node:util";
+
 import type { PilotReleaseConfig } from "../../src/pos-pilot-releases/pilot-release.config";
 import {
   resolveLatestPilotRelease,
@@ -149,20 +151,24 @@ describe("RT-1292 pilot resolver", () => {
    * a failed audit write) runs with stdout, stderr and the console captured, and the only value
    * the metric receives is a closed outcome name.
    */
-  it("writes no URL, signature, object key or version id to any log, and labels the metric with closed outcomes only", async () => {
+  it("regression guard: the resolver writes no URL, signature, object key or version id to any log, and hands the metric closed outcomes only", async () => {
     const written: string[] = [];
     const capture = (chunk: unknown): boolean => {
       written.push(String(chunk));
       return true;
     };
+    // Objects are inspected, not joined, so `console.log({ url })` would be seen.
+    const record = (...args: unknown[]): void => {
+      written.push(args.map((arg) => (typeof arg === "string" ? arg : inspect(arg, { depth: 6 }))).join(" "));
+    };
     const spies = [
       jest.spyOn(process.stdout, "write").mockImplementation(capture),
       jest.spyOn(process.stderr, "write").mockImplementation(capture),
-      jest.spyOn(console, "log").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
-      jest.spyOn(console, "info").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
-      jest.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
-      jest.spyOn(console, "error").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
-      jest.spyOn(console, "debug").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
+      jest.spyOn(console, "log").mockImplementation(record),
+      jest.spyOn(console, "info").mockImplementation(record),
+      jest.spyOn(console, "warn").mockImplementation(record),
+      jest.spyOn(console, "error").mockImplementation(record),
+      jest.spyOn(console, "debug").mockImplementation(record),
     ];
     const outcomes: string[] = [];
     try {
@@ -185,6 +191,14 @@ describe("RT-1292 pilot resolver", () => {
       expect(everything).not.toContain(secret);
     }
     expect(outcomes.length).toBeGreaterThan(0);
-    for (const outcome of outcomes) expect(outcome).toMatch(/^(issued|none_[a-z_]+)$/);
+    const closed = [
+      "issued",
+      "none_not_configured",
+      "none_not_allowlisted",
+      "none_no_current_release",
+      "none_class_mismatch",
+      "none_pin_mismatch",
+    ];
+    for (const outcome of outcomes) expect(closed).toContain(outcome);
   });
 });
