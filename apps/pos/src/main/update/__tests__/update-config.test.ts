@@ -34,6 +34,14 @@ describe('resolveUpdateConfig', () => {
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: ' lab' }).channel).toBeNull();
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'lab ' }).channel).toBeNull();
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'Lab' }).channel).toBeNull();
+    expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: '   ' }).channel).toBeNull();
+    // ...and a stray space is not an unset value, so the baked channel does not replace it.
+    expect(
+      resolveUpdateConfig(
+        { POS_PULSE_UPDATE_CHANNEL: ' ' },
+        { lane: 'pilot', updateChannel: 'canary' },
+      ).channel,
+    ).toBeNull();
   });
 
   it('trims the origin', () => {

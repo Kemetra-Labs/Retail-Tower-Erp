@@ -28,15 +28,15 @@ There are **two** runtime configuration channels (RT-1346, decision RT-1345 D1/D
    **without any Windows environment variable**. The environment still wins over
    it (§4).
 
-| Baked field | Replaces this variable when the variable is unset | Validation (same as the variable) |
+| Baked field | Replaces this variable when the variable is unset | Validation of the baked value |
 | :-- | :-- | :-- |
 | `lane` (`lab`, `pilot`, `production`) | none (identifies the lane in the log) | one of the three |
 | `apiBaseUrl` | `VITE_API_BASE_URL` | `https` URL, no credentials, query or fragment |
 | `descopeProjectId` | `DESCOPE_PROJECT_ID` | Descope id shape, US region only |
 | `updateOrigin` | `ELECTRON_UPDATE_FEED_URL` | `https` URL, no credentials, query or fragment |
-| `updateChannel` | `POS_PULSE_UPDATE_CHANNEL` | `lab`, `canary` or `stable` |
+| `updateChannel` | `POS_PULSE_UPDATE_CHANNEL` | `lab`, `canary` or `stable`; `lab` only with the `lab` lane |
 
-The file holds **public, non-secret values only**. There is no field for a secret
+The channel also selects the telemetry class and the channel the heartbeat reports, so a baked channel changes both exactly as the variable would; that is why a `pilot` or `production` file may not carry `lab`. The file holds **public, non-secret values only**. There is no field for a secret
 and the build refuses a value that looks like one. It sits inside the asar, never
 in `resources\`, because `resources\` is writable by the cashier on a per-user
 install and a file there could redirect the API address. A build with **no
@@ -137,8 +137,8 @@ start the POS.
 
 | Variable | Pilot rule | Sensitivity |
 | :-- | :-- | :-- |
-| `VITE_API_BASE_URL` | **Required.** The pilot Backend-Core base URL. Unset falls back to the non-routable `https://example.invalid`, so pairing, read-down and sync fail closed. | Not a secret, but environment endpoints are **not** published in the repo, Jira or screenshots. |
-| `DESCOPE_PROJECT_ID` | **Required** for manager/admin sign-in (Descope is the only identity provider, RT-945). Unset or malformed means sign-in refuses. Leave `OPERATOR_IDENTITY_PROVIDER` unset or `descope`; any other value refuses sign-in. | Not a secret (a public project id). Still kept out of the repo. |
+| `VITE_API_BASE_URL` | **Required, unless the build bakes `apiBaseUrl` (§1).** The pilot Backend-Core base URL. Unset falls back to the non-routable `https://example.invalid`, so pairing, read-down and sync fail closed. | Not a secret, but environment endpoints are **not** published in the repo, Jira or screenshots. |
+| `DESCOPE_PROJECT_ID` | **Required, unless the build bakes `descopeProjectId` (§1),** for manager/admin sign-in (Descope is the only identity provider, RT-945). Unset or malformed means sign-in refuses. Leave `OPERATOR_IDENTITY_PROVIDER` unset or `descope`; any other value refuses sign-in. | Not a secret (a public project id). Still kept out of the repo. |
 | `SENTRY_DSN` | Optional. Unset means crash reporting is inert. | Treat as sensitive: never printed, pasted or screenshotted. |
 | `POS_PULSE_FEATURE_SALE_VOID` | **Off (unset) until the Backend-Core void approval (RT-530, `sales.yaml` 1.8.0-draft, migration `0046_sale_void_approval`) is deployed.** Then `1` turns on «إلغاء بيع» (`/app/void`): a finalized sale is voided only the same business day, with another manager's RT-114 PIN (never the requester, never the sale's selling operator). The void is queued and sent under the requester's own operator envelope once the sale has synced and the requester is signed in online; Backend-Core may still refuse it, and a refusal stays visible until acknowledged. The terminal's clock and timezone must match the store's timezone (Backend-Core compares the sale's business day in the store timezone). | Not a secret. |
 | `POS_PULSE_FEATURE_SHIFT_CASHUP` | **Off (unset) on every pilot terminal until the owner accepts the RT-17 evidence.** Then `1` turns on the shift cash-up: open a shift with a float, record pay-ins and pay-outs, close with a blind count. It needs Backend-Core `481eb26` or later with migration `0036_shift_cash_up` and both domain-grant scripts applied first (the Backend-Core deploy runbook, `deploy/README.md`). See §7 for the rule when a terminal is revoked, re-paired or moved. | Not a secret. |
@@ -177,8 +177,8 @@ process environment  >  baked lane-config.json  >  refuse (fail closed)
   value that fails validation refuses the whole file (one `lane_config.refused`
   log line); nothing is partly applied and the terminal falls back to the
   environment alone.
-- At start-up the main log records `lane_config.loaded` with the lane and, per
-  setting, whether it came from `env` or `baked`. It never logs a value.
+- At start-up the main log records `lane_config.loaded` with the lane and, for each of
+  the four settings, whether it came from `env`, `baked` or `none`. It never logs a value.
 
 **What the cashier sees when a setting is missing (D4).** When, after this
 resolution, the **server address** is missing or not a URL, or the **Descope project
@@ -356,6 +356,13 @@ Sign in to Windows as the cashier, open a normal (non-admin) PowerShell window
 from the Start menu, and paste the block below. It prints names and PASS/FAIL
 only: URL, key and DSN values are never shown. The process scope it reads is the
 environment a POS launched from the same session would receive.
+
+> **Baked configuration (RT-1346).** This block checks the **environment channel**
+> and still requires `VITE_API_BASE_URL` and `DESCOPE_PROJECT_ID` in Machine scope.
+> It does not know about a baked `lane-config.json`: no pilot release carries one
+> until RT-1347 lands, and the readiness check for a baked build belongs to the
+> verification RT-1349. Until then, a terminal that relies on a baked file is not
+> checked by this block.
 
 ```powershell
 # RT-163 pilot readiness - environment check. Prints no secret values.

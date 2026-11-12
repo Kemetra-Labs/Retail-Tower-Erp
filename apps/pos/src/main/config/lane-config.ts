@@ -129,6 +129,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** A field name from a file is logged only when it looks like a name (it is untrusted text). */
+function safeFieldName(key: string): string {
+  return /^[A-Za-z0-9_]{1,40}$/.test(key) ? key : '(invalid name)';
+}
+
 function refuse(reason: LaneConfigRefusalReason, field?: string): LaneConfigVerdict {
   return field === undefined ? { ok: false, reason } : { ok: false, reason, field };
 }
@@ -142,7 +147,7 @@ export function validateLaneConfig(raw: unknown): LaneConfigVerdict {
   if (!isRecord(raw)) return refuse('not_an_object');
   const known = LANE_CONFIG_FIELDS as readonly string[];
   const unknown = Object.keys(raw).find((key) => !known.includes(key));
-  if (unknown !== undefined) return refuse('unknown_field', unknown);
+  if (unknown !== undefined) return refuse('unknown_field', safeFieldName(unknown));
   if (!('lane' in raw)) return refuse('missing_lane', 'lane');
   for (const field of LANE_CONFIG_FIELDS) {
     if (!(field in raw)) continue;
@@ -150,6 +155,11 @@ export function validateLaneConfig(raw: unknown): LaneConfigVerdict {
     if (typeof value !== 'string') return refuse('invalid_value', field);
     if (looksLikeSecret(value)) return refuse('looks_like_secret', field);
     if (!FIELD_SHAPES[field](value)) return refuse('invalid_value', field);
+  }
+  // The channel drives the telemetry class and the heartbeat channel (`lab` is the lab
+  // class), so a pilot or production build must not claim it.
+  if (raw['updateChannel'] === 'lab' && raw['lane'] !== 'lab') {
+    return refuse('invalid_value', 'updateChannel');
   }
   return { ok: true, config: pickValidated(raw) };
 }
@@ -228,13 +238,16 @@ export interface ResolvedValue {
 /**
  * THE precedence rule (D2): a non-blank environment value wins; otherwise the baked
  * value; otherwise nothing (the caller then refuses, fail closed). A blank or
- * whitespace-only environment value counts as unset, as it does today.
+ * whitespace-only environment value counts as unset, as it does today; a caller whose
+ * setting is stricter today (the update channel: only the empty string is unset, so a
+ * stray space is refused) passes its own `isBlank`.
  */
 export function resolveLaneValue(
   fromEnv: string | undefined,
   baked: string | undefined,
+  isBlank: (value: string) => boolean = (value) => value.trim().length === 0,
 ): ResolvedValue {
-  if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
+  if (typeof fromEnv === 'string' && !isBlank(fromEnv)) {
     return { value: fromEnv, source: 'env' };
   }
   if (baked !== undefined) return { value: baked, source: 'baked' };
@@ -257,6 +270,8 @@ export function setBakedLaneConfig(config: LaneConfig | null): void {
 
 export const ENV_API_BASE_URL = 'VITE_API_BASE_URL';
 export const ENV_DESCOPE_PROJECT_ID = 'DESCOPE_PROJECT_ID';
+export const ENV_UPDATE_ORIGIN = 'ELECTRON_UPDATE_FEED_URL';
+export const ENV_UPDATE_CHANNEL = 'POS_PULSE_UPDATE_CHANNEL';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -289,6 +304,12 @@ export function initBakedLaneConfig(deps: InitBakedLaneConfigDeps): void {
         deps.env[ENV_DESCOPE_PROJECT_ID],
         config.descopeProjectId,
       ).source,
+      update_origin: resolveLaneValue(deps.env[ENV_UPDATE_ORIGIN], config.updateOrigin).source,
+      update_channel: resolveLaneValue(
+        deps.env[ENV_UPDATE_CHANNEL],
+        config.updateChannel,
+        (value) => value === '',
+      ).source,
     },
     'baked lane configuration loaded',
   );
@@ -302,9 +323,11 @@ export function initBakedLaneConfig(deps: InitBakedLaneConfigDeps): void {
  */
 export type RuntimeConfigProblem = 'server_address' | 'identity_provider';
 
+/** An http(s) URL with a host. `host:8443` and `file:` parse as URLs but are not an address. */
 function isUrl(value: string): boolean {
   try {
-    return new URL(value.trim()).protocol !== '';
+    const url = new URL(value.trim());
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname !== '';
   } catch {
     return false;
   }

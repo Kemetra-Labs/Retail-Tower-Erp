@@ -44,6 +44,15 @@ describe('validateLaneConfig', () => {
     expect(validateLaneConfig(FULL)).toEqual({ ok: true, config: FULL });
   });
 
+  it('accepts the lab channel on the lab lane', () => {
+    expect(validateLaneConfig({ lane: 'lab', updateChannel: 'lab' }).ok).toBe(true);
+  });
+
+  it('refuses a field name from the file that does not look like a name', () => {
+    const verdict = validateLaneConfig({ lane: 'lab', 'a b\nc': 'x' });
+    expect(verdict).toEqual({ ok: false, reason: 'unknown_field', field: '(invalid name)' });
+  });
+
   it('accepts the lane alone, and each lane', () => {
     for (const lane of ['lab', 'pilot', 'production']) {
       expect(validateLaneConfig({ lane })).toEqual({ ok: true, config: { lane } });
@@ -86,6 +95,7 @@ describe('validateLaneConfig', () => {
     ['updateOrigin', 'http://updates.example'],
     ['updateChannel', 'beta'],
     ['updateChannel', 'LAB'],
+    ['updateChannel', 'lab'], // the lab channel belongs to the lab lane only (FULL is the pilot lane)
     ['apiBaseUrl', 42],
     ['descopeProjectId', null],
   ])('refuses %s = %j (wrong shape)', (field, value) => {
@@ -257,6 +267,8 @@ describe('initBakedLaneConfig and the holder', () => {
           lane: 'pilot',
           api_base_url: 'env',
           descope_project_id: 'baked',
+          update_origin: 'baked',
+          update_channel: 'baked',
         },
         expect.any(String),
       );
@@ -317,10 +329,19 @@ describe('assessRuntimeConfig — what is missing after resolution', () => {
     );
   });
 
-  it('names the server address when the value is not a URL', () => {
-    expect(assessRuntimeConfig({ ...ENV_OK, VITE_API_BASE_URL: 'not a url' }, BAKED)).toBe(
-      'server_address',
-    );
+  it.each(['not a url', 'api.pilot.example:8443', 'localhost:3000', 'file:///x', 'https://'])(
+    'names the server address when the value is not an http(s) URL (%j)',
+    (value) => {
+      expect(assessRuntimeConfig({ ...ENV_OK, VITE_API_BASE_URL: value }, BAKED)).toBe(
+        'server_address',
+      );
+    },
+  );
+
+  it('accepts a lab or dev http address from the environment (today)', () => {
+    expect(
+      assessRuntimeConfig({ ...ENV_OK, VITE_API_BASE_URL: 'http://localhost:3000' }, BAKED),
+    ).toBeNull();
   });
 
   it('names the sign-in identity when neither source has a project id', () => {

@@ -68,7 +68,7 @@ function inputName(field: string | undefined): string | undefined {
 /** The stamp the build-time inputs call for: none, a file, or a refusal. */
 export function laneConfigStamp(env: Env): LaneConfigStamp {
   const unknown = Object.keys(env).find(
-    (name) => name.startsWith(INPUT_PREFIX) && !(name in INPUTS) && isSet(env[name]),
+    (name) => name.toUpperCase().startsWith(INPUT_PREFIX) && !(name in INPUTS) && isSet(env[name]),
   );
   if (unknown !== undefined) return { kind: 'refused', reason: 'unknown_field', name: unknown };
   const fields = Object.entries(INPUTS)

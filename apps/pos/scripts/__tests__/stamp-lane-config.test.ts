@@ -81,6 +81,16 @@ describe('laneConfigStamp', () => {
     expect(laneConfigStamp({ ...FULL_ENV, POS_LANE_CONFIG_OTHER: '' }).kind).toBe('stamp');
   });
 
+  it('refuses a mis-cased POS_LANE_CONFIG_* name instead of ignoring it (case-sensitive runners)', () => {
+    expect(
+      laneConfigStamp({ ...FULL_ENV, pos_lane_config_api_base_url: 'https://other.example' }),
+    ).toEqual({
+      kind: 'refused',
+      reason: 'unknown_field',
+      name: 'pos_lane_config_api_base_url',
+    });
+  });
+
   it('refuses any input without a lane', () => {
     expect(laneConfigStamp({ POS_LANE_CONFIG_API_BASE_URL: 'https://api.pilot.example' })).toEqual({
       kind: 'refused',
