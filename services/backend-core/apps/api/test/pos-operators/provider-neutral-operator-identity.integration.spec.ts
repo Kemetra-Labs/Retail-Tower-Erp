@@ -446,11 +446,76 @@ describe("cashier eligibility and roster resolve operator_id from the active lin
   it("the roster is exactly the admissible set: active links only, ordered by display name", async () => {
     if (skip()) return;
     const roster = await asTenant((c) => eligibility.roster(c, scope));
-    expect(roster).toEqual([
+    expect(roster.cashiers).toEqual([
       { user_id: U_LEGACY, operator_id: SUB_LEGACY, display_name: "Alpha Legacy" },
       { user_id: U_DESCOPE, operator_id: SUB_DESCOPE, display_name: "Beta Descope" },
       { user_id: U_CUTOVER, operator_id: SUB_CUTOVER_NEW, display_name: "Gamma Cutover" },
     ]);
+    expect(roster.suspended).toEqual([]);
+  });
+});
+
+describe("RT-1138: a suspended cashier is flagged for admission and moves to suspended_cashiers", () => {
+  const scope = { deviceId: DEVICE_ID, tenantId: TENANT_ID, storeId: STORE_ID };
+  const OTHER_STORE = id(90);
+  const asTenant = <T>(fn: (client: import("pg").PoolClient) => Promise<T>): Promise<T> =>
+    runWithTenantContext(env!.app, { tenantId: TENANT_ID, isPlatformAdmin: false }, fn);
+  const setState = (store: string, user: string, status: "suspended" | "active"): Promise<unknown> =>
+    admin!.query(
+      `INSERT INTO cashier_suspensions (tenant_id, store_id, user_id, status, changed_by_user_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (tenant_id, store_id, user_id) DO UPDATE SET status = EXCLUDED.status`,
+      [TENANT_ID, store, user, status, U_ADMIN],
+    );
+
+  beforeAll(async () => {
+    if (skip()) return;
+    await admin!.query(`INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $2, 'rt1138-b', 'RT-1138 other')`, [
+      OTHER_STORE,
+      TENANT_ID,
+    ]);
+  });
+
+  afterEach(async () => {
+    if (skip()) return;
+    await admin!.query(`DELETE FROM cashier_suspensions WHERE tenant_id = $1`, [TENANT_ID]);
+  });
+
+  it("a cashier with no row is eligible and on the roster (nothing suspended)", async () => {
+    if (skip()) return;
+    const roster = await asTenant((c) => eligibility.roster(c, scope));
+    expect(roster.suspended).toEqual([]);
+    expect(roster.cashiers.map((x) => x.user_id)).toContain(U_DESCOPE);
+  });
+
+  it("a suspended cashier is flagged and listed only in suspended_cashiers, but `check` stays eligible so past sales still attribute", async () => {
+    if (skip()) return;
+    await setState(STORE_ID, U_DESCOPE, "suspended");
+    expect(await asTenant((c) => eligibility.isSuspended(c, scope, U_DESCOPE))).toBe(true);
+    expect(await asTenant((c) => eligibility.isSuspended(c, scope, U_LEGACY))).toBe(false);
+    expect(await asTenant((c) => eligibility.check(c, scope, U_DESCOPE))).toMatchObject({ eligible: true });
+    const roster = await asTenant((c) => eligibility.roster(c, scope));
+    expect(roster.cashiers.map((x) => x.user_id)).not.toContain(U_DESCOPE);
+    expect(roster.suspended).toEqual([{ user_id: U_DESCOPE, operator_id: SUB_DESCOPE }]);
+    // The other cashiers are untouched.
+    expect(roster.cashiers.map((x) => x.user_id)).toEqual([U_LEGACY, U_CUTOVER]);
+  });
+
+  it("a reactivated cashier is no longer flagged and is back on the roster", async () => {
+    if (skip()) return;
+    await setState(STORE_ID, U_DESCOPE, "suspended");
+    await setState(STORE_ID, U_DESCOPE, "active");
+    expect(await asTenant((c) => eligibility.isSuspended(c, scope, U_DESCOPE))).toBe(false);
+    const roster = await asTenant((c) => eligibility.roster(c, scope));
+    expect(roster.suspended).toEqual([]);
+    expect(roster.cashiers.map((x) => x.user_id)).toContain(U_DESCOPE);
+  });
+
+  it("a suspension at another store does not affect this store", async () => {
+    if (skip()) return;
+    await setState(OTHER_STORE, U_DESCOPE, "suspended");
+    expect(await asTenant((c) => eligibility.isSuspended(c, scope, U_DESCOPE))).toBe(false);
+    expect((await asTenant((c) => eligibility.roster(c, scope))).suspended).toEqual([]);
   });
 });
 

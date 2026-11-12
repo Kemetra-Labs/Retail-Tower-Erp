@@ -805,6 +805,22 @@ A script without the marker, such as the owner-gated
   Its down migration drops the table and so discards every restriction: a
   restricted tenant then reads `unrestricted`.
 
+- **Migration `0106_cashier_suspensions` (RT-1138).** Run
+  [`sql/cashier-suspensions-domain-grants.sql`](sql/cashier-suspensions-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `cashier_suspensions` (whether a cashier is suspended at a store):
+  cashier admission, the POS roster and the Console list select it, and the
+  suspend and reactivate routes insert and update it. The RLS policies fence each
+  tenant to its own rows. Never grant `DELETE` or `TRUNCATE`. Without the grants
+  the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0106 creates
+  one new, empty table (no backfill: a cashier with no row is not suspended) and
+  needs no maintenance window; its foreign keys run under `lock_timeout` 2s. Its
+  down migration drops the table, which would make every suspended cashier
+  admissible again, so it refuses while any cashier is still suspended.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

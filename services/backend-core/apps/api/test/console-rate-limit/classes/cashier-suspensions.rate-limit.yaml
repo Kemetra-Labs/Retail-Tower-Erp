@@ -1,0 +1,9 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/cashier-suspensions.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1138: the Console page's list of suspended cashiers.
+consoleListCashierSuspensions: cheapRead
+# RT-1138: suspending a cashier is an incident-control action (as revoking a membership).
+consoleSuspendCashier: incidentControl
+# RT-1138: reactivating a cashier is the same incident-control class, so a suspend can always be undone.
+consoleReactivateCashier: incidentControl

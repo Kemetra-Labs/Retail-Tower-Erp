@@ -41,7 +41,7 @@ import type {
   StoredAdmittedBody,
   StoredRequest,
 } from "./cashier-admissions.repository";
-import type { CashierEligibilityReader, Eligibility, RefusalReason } from "./cashier-eligibility";
+import type { AdmissionRefusalReason, CashierEligibilityReader, Eligibility } from "./cashier-eligibility";
 import type { DeviceScope } from "./device-scope";
 import type { AdmissionRequestInput, AdmittedBody, EndedBody, RosterBody } from "./dto";
 import type { TakeoverLimit } from "./takeover-rate-limit";
@@ -139,8 +139,8 @@ export class CashierAdmissionsService {
   }
 
   async roster(scope: DeviceScope): Promise<RosterBody> {
-    const cashiers = await this.ports.tx(scope.tenantId, (client) => this.ports.eligibility.roster(client, scope));
-    return { cashiers };
+    const roster = await this.ports.tx(scope.tenantId, (client) => this.ports.eligibility.roster(client, scope));
+    return { cashiers: roster.cashiers, suspended_cashiers: roster.suspended };
   }
 
   // -------------------------------------------------------------------------
@@ -165,6 +165,10 @@ export class CashierAdmissionsService {
 
     const eligibility = await this.ports.eligibility.check(ctx.client, ctx.scope, ctx.userId);
     if (!eligibility.eligible) return this.refuse(ctx, eligibility.reason);
+    // RT-1138: a suspended cashier is not admitted, nor is a stored admission replayed for them.
+    if (await this.ports.eligibility.isSuspended(ctx.client, ctx.scope, ctx.userId)) {
+      return this.refuse(ctx, "suspended");
+    }
     if (replay) return { kind: "admitted", body: replayBody(replay.responseBody) };
     return this.decide(ctx, eligibility);
   }
@@ -195,7 +199,7 @@ export class CashierAdmissionsService {
     return await this.ports.takeoverLimit.allow(ctx.scope.deviceId, ctx.policy.takeoverLimit);
   }
 
-  private async refuse(ctx: AdmitContext, reason: RefusalReason): Promise<AdmitOutcome> {
+  private async refuse(ctx: AdmitContext, reason: AdmissionRefusalReason): Promise<AdmitOutcome> {
     // The cause is server-side only, keyed by request_id (SR-6/7).
     this.ports.logger.warn({ request_id: ctx.requestId, refusal: reason }, "cashier admission refused");
     await this.ports.audit.record(ctx.client, {

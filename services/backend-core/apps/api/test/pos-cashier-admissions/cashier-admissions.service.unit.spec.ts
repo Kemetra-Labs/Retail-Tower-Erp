@@ -36,6 +36,7 @@ const SCOPE = {
 };
 const OTHER_DEVICE = "0190f5a2-3b4c-7d8e-9f01-00000000d002";
 const USER = "0190f5a2-3b4c-7d8e-9f01-00000000c001";
+const OTHER_USER = "0190f5a2-3b4c-7d8e-9f01-00000000c0f1";
 const LIVE_ID = "0190f5a2-3b4c-7d8e-9f01-00000000e001";
 const NEW_ID = "0190f5a2-3b4c-7d8e-9f01-00000000e002";
 const KEY = "pos-pulse:4f6f1c1e-8a52-4c1b-9a0e-6d1f2b3c4d5e";
@@ -82,6 +83,8 @@ interface World {
   priorLiveOnDevice: boolean;
   allowTakeover: boolean;
   eligibility: Eligibility;
+  /** RT-1138: the cashier is suspended at the device's store. */
+  suspended: boolean;
   live: { id: string; deviceId: string } | null;
 }
 
@@ -91,6 +94,7 @@ function world(overrides: Partial<World> = {}): World {
     priorLiveOnDevice: false,
     allowTakeover: true,
     eligibility: ELIGIBLE,
+    suspended: false,
     live: null,
     ...overrides,
   };
@@ -123,7 +127,8 @@ function build(w: World) {
     admissions: store,
     eligibility: {
       check: track("eligibility.check", w.eligibility),
-      roster: track("eligibility.roster", []),
+      isSuspended: track("eligibility.isSuspended", w.suspended),
+      roster: track("eligibility.roster", { cashiers: [], suspended: [] }),
     },
     takeoverLimit: { allow: track("takeoverLimit.allow", w.allowTakeover) },
     audit: { record: track("audit.record", undefined) },
@@ -190,6 +195,32 @@ describe("CashierAdmissionsService.admit — outcome order", () => {
     expect(ports.logger.warn).toHaveBeenCalledWith(
       { request_id: "req-9", refusal: "role_ineligible" },
       expect.any(String),
+    );
+  });
+
+  it("RT-1138: a suspended cashier is refused, audited as `suspended`, and nothing is created or renewed", async () => {
+    const { service, store, ports } = build(world({ suspended: true }));
+    expect(await service.admit(SCOPE, onlineBody(), "req-10")).toEqual({ kind: "refused" });
+    expect(ports.audit.record).toHaveBeenCalledWith(
+      CLIENT,
+      expect.objectContaining({
+        action: "pos.cashier_admission.refused",
+        metadata: { device_id: SCOPE.deviceId, user_id: USER, category: "suspended" },
+      }),
+    );
+    expect(ports.logger.warn).toHaveBeenCalledWith({ request_id: "req-10", refusal: "suspended" }, expect.any(String));
+    expect(store.create).not.toHaveBeenCalled();
+    expect(store.renew).not.toHaveBeenCalled();
+    expect(store.saveRequest).not.toHaveBeenCalled();
+  });
+
+  it("RT-1138: an ineligible cashier keeps its own refusal category, and the suspension is not consulted", async () => {
+    const { service, ports } = build(world({ eligibility: INELIGIBLE, suspended: true }));
+    await service.admit(SCOPE, onlineBody(), "req-11");
+    expect(ports.eligibility.isSuspended).not.toHaveBeenCalled();
+    expect(ports.audit.record).toHaveBeenCalledWith(
+      CLIENT,
+      expect.objectContaining({ metadata: expect.objectContaining({ category: "role_ineligible" }) }),
     );
   });
 
@@ -337,6 +368,13 @@ describe("CashierAdmissionsService.admit — replay", () => {
     expect(await service.admit(SCOPE, body, "req-1")).toEqual({ kind: "refused" });
   });
 
+  it("RT-1138: a stored admission is not replayed for a cashier suspended since → 403", async () => {
+    const body = onlineBody();
+    const { service, store } = build(world({ prior: storedRequest(body), priorLiveOnDevice: true, suspended: true }));
+    expect(await service.admit(SCOPE, body, "req-1")).toEqual({ kind: "refused" });
+    expect(store.renew).not.toHaveBeenCalled();
+  });
+
   it("stored admission no longer live → evaluated as new", async () => {
     const body = onlineBody();
     const { service, store } = build(world({ prior: storedRequest(body), priorLiveOnDevice: false }));
@@ -399,8 +437,9 @@ describe("CashierAdmissionsService.roster", () => {
   it("returns the eligibility reader's roster for the device scope", async () => {
     const { service, ports } = build(world());
     const entries = [{ user_id: USER, operator_id: "user_2abc", display_name: "Mona A." }];
-    (ports.eligibility.roster as jest.Mock).mockResolvedValueOnce(entries);
-    expect(await service.roster(SCOPE)).toEqual({ cashiers: entries });
+    const suspended = [{ user_id: OTHER_USER, operator_id: "user_9xyz" }];
+    (ports.eligibility.roster as jest.Mock).mockResolvedValueOnce({ cashiers: entries, suspended });
+    expect(await service.roster(SCOPE)).toEqual({ cashiers: entries, suspended_cashiers: suspended });
     expect(ports.eligibility.roster).toHaveBeenCalledWith(CLIENT, SCOPE);
   });
 });

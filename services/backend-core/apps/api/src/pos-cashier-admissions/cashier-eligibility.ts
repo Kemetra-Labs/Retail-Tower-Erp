@@ -16,6 +16,13 @@
  *     `operator_id` — the link's subject — and `display_name` are required on
  *     the wire).
  *
+ * Suspension (RT-1138) is NOT part of this set. A cashier suspended at the
+ * store is not admitted (`isSuspended`, checked by the admission flow only) and
+ * is moved from `cashiers` to `suspended` in the roster. `check` is also used
+ * to attribute a sale to its cashier and for the sale-history, tracked-line and
+ * voucher guards, and a sale rung before the suspension must still sync, so
+ * suspension never makes `check` refuse.
+ *
  * These are the existing predicates of `PosOperatorsService` (membership /
  * store access / the store_staff roster query) applied to the device's scope.
  * The membership queries run on the caller's tenant-scoped client, under RLS.
@@ -28,7 +35,7 @@
 import type { PoolClient } from "pg";
 
 import { activeLinkSubjects, type LinkQueryable } from "../auth/identity-link-lookup";
-import type { RosterEntry } from "./dto";
+import type { RosterEntry, SuspendedRosterEntry } from "./dto";
 import type { DeviceScope } from "./device-scope";
 
 /** The POS-eligible cashier role (the roster's `cashier`). */
@@ -42,6 +49,9 @@ export type RefusalReason =
   | "store_inactive"
   | "store_not_accessible"
   | "profile_incomplete";
+
+/** A refusal of the admission flow: the eligibility causes, plus a suspension (RT-1138). */
+export type AdmissionRefusalReason = RefusalReason | "suspended";
 
 export type Eligibility =
   | { readonly eligible: true; readonly displayName: string; readonly operatorId: string }
@@ -85,6 +95,12 @@ const STORE_ACTIVE_SQL = `EXISTS (
    WHERE s.id = $2 AND s.tenant_id = $1 AND s.deleted_at IS NULL AND s.is_active
 )`;
 
+/** RT-1138: user `m.user_id` is suspended at store `$2` of tenant `$1`. No row = not suspended. */
+const SUSPENDED_SQL = `EXISTS (
+  SELECT 1 FROM cashier_suspensions cs
+   WHERE cs.tenant_id = $1 AND cs.store_id = $2 AND cs.user_id = m.user_id AND cs.status = 'suspended'
+)`;
+
 const ACTIVE_MEMBERSHIP_SQL = `m.tenant_id = $1 AND m.revoked_at IS NULL AND m.deleted_at IS NULL`;
 
 const ELIGIBILITY_SQL = `
@@ -101,7 +117,8 @@ const ELIGIBILITY_SQL = `
    LIMIT 1`;
 
 const ROSTER_SQL = `
-  SELECT u.id AS user_id, u.display_name AS display_name
+  SELECT u.id AS user_id, u.display_name AS display_name,
+         ${SUSPENDED_SQL} AS suspended
     FROM memberships m
     JOIN roles r ON r.id = m.role_id
     JOIN users u ON u.id = m.user_id
@@ -113,10 +130,22 @@ const ROSTER_SQL = `
      AND ${STORE_ACCESSIBLE_SQL}
    ORDER BY u.display_name, u.id`;
 
+/** The cashier roster: the admissible cashiers, and those suspended at the store (RT-1138). */
+export interface CashierRoster {
+  readonly cashiers: RosterEntry[];
+  readonly suspended: SuspendedRosterEntry[];
+}
+
 export interface CashierEligibilityReader {
   check(client: PoolClient, scope: DeviceScope, userId: string): Promise<Eligibility>;
-  roster(client: PoolClient, scope: DeviceScope): Promise<RosterEntry[]>;
+  /** RT-1138: the user is suspended at the device's store. Read by the admission flow only. */
+  isSuspended(client: PoolClient, scope: DeviceScope, userId: string): Promise<boolean>;
+  roster(client: PoolClient, scope: DeviceScope): Promise<CashierRoster>;
 }
+
+const IS_SUSPENDED_SQL = `
+  SELECT 1 FROM cashier_suspensions
+   WHERE tenant_id = $1 AND store_id = $2 AND user_id = $3 AND status = 'suspended'`;
 
 type MembershipFacts = Omit<EligibilityRow, "operator_id">;
 
@@ -134,8 +163,13 @@ export class CashierEligibilityRepository implements CashierEligibilityReader {
     return classifyEligibility({ ...facts, operator_id: subjects.get(userId) ?? null });
   }
 
-  async roster(client: PoolClient, scope: DeviceScope): Promise<RosterEntry[]> {
-    const r = await client.query<{ user_id: string; display_name: string }>(ROSTER_SQL, [
+  async isSuspended(client: PoolClient, scope: DeviceScope, userId: string): Promise<boolean> {
+    const r = await client.query(IS_SUSPENDED_SQL, [scope.tenantId, scope.storeId, userId]);
+    return (r.rowCount ?? 0) > 0;
+  }
+
+  async roster(client: PoolClient, scope: DeviceScope): Promise<CashierRoster> {
+    const r = await client.query<{ user_id: string; display_name: string; suspended: boolean }>(ROSTER_SQL, [
       scope.tenantId,
       scope.storeId,
     ]);
@@ -143,11 +177,14 @@ export class CashierEligibilityRepository implements CashierEligibilityReader {
       this.linkReader ?? client,
       r.rows.map((row) => row.user_id),
     );
-    return r.rows.flatMap((row) => {
+    const cashiers: RosterEntry[] = [];
+    const suspended: SuspendedRosterEntry[] = [];
+    for (const row of r.rows) {
       const operatorId = subjects.get(row.user_id);
-      return operatorId === undefined
-        ? []
-        : [{ user_id: row.user_id, operator_id: operatorId, display_name: row.display_name }];
-    });
+      if (operatorId === undefined) continue;
+      if (row.suspended) suspended.push({ user_id: row.user_id, operator_id: operatorId });
+      else cashiers.push({ user_id: row.user_id, operator_id: operatorId, display_name: row.display_name });
+    }
+    return { cashiers, suspended };
   }
 }
