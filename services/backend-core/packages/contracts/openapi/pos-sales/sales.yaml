@@ -562,7 +562,8 @@ info:
     line invariant becomes `lineAmount = unitPrice × quantity −
     promotion.discountAmount` when `promotion` is present; a reward line
     (`discountAmount` > 0) has `quantity` 1 (OD-4), and `promotion` and the
-    manual `discount` on the same line are 400 (OD-5). Like every line field,
+    manual `discount` on the same line are 400 (OD-5), and so are `promotion` and `responsibilities` (a credit sale) on
+    one sale (the credit reversal does not settle a clawback yet). Like every line field,
     `promotion` is part of the sale's payload hash and of the
     `Idempotency-Key` fingerprint. Unlike the manual discount, the fact is
     stored (the RT-1336 table) and returned: `SaleLine` gains an OPTIONAL

@@ -21,7 +21,7 @@
  * cannot carry a give-back, so the service refuses such a return (fail
  * closed); the arithmetic is kept here because the golden sequence S3 pins it.
  */
-import { totalDiscountOf, type EvaluatorOffer } from "./offer-evaluator";
+import { MAX_EVALUATED_UNITS, totalDiscountOf, type EvaluatorOffer } from "./offer-evaluator";
 import { scaled, wholeUnits } from "./offer-decimal";
 
 /** One sale line that cites offer version O (its `promotion` fact), as frozen at capture. */
@@ -92,6 +92,7 @@ export function settleOfferReturn(input: ReturnSettlementInput): ReturnSettlemen
     const lineAmount = scaled(line.lineAmount, minorUnit);
     if ((lineAmount * now) % sold !== 0n) throw new OfferReturnInvariantError(`line ${line.lineRef} net does not divide by its quantity`);
     net += (lineAmount * now) / sold;
+    if (sold > MAX_EVALUATED_UNITS) throw new OfferReturnInvariantError(`line ${line.lineRef} has more units than one evaluation expands`);
     for (let i = 0n; i < sold - before - now; i++) kept.push({ price, order, productId: line.productId });
   });
   const dHeld = held - clawbacksBefore;

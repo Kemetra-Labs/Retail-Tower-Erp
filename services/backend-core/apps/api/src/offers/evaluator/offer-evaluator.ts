@@ -20,7 +20,7 @@
  *   6. Split (OD-4): each reward unit becomes its own quantity-1 line after
  *      the rest of its source line.
  */
-import { formatMinor, grossMinor, percentOf, scaled, wholeUnits } from "./offer-decimal";
+import { formatMinor, grossMinor, OfferDecimalError, percentOf, scaled, wholeUnits } from "./offer-decimal";
 
 /** The parameters of one `buy_x_get_y_percent` version that the evaluation uses. */
 export interface EvaluatorOffer {
@@ -101,12 +101,19 @@ export function totalDiscountOf(
   return pickRewards(units, offer).rewards.reduce((sum, r) => sum + percentOf(r.price, offer.percentOff), 0n);
 }
 
+/** The most units one evaluation expands. Far above any retail basket; a larger quantity is refused as arithmetic. */
+export const MAX_EVALUATED_UNITS = 100_000n;
+
 /** Spec 048 §6 steps 1–6 over one cart. */
 export function evaluateOffer(input: EvaluateInput): Evaluation {
   const { offer, minorUnit, cart } = input;
+  let evaluatedUnits = 0n;
   const units: Unit[] = cart.flatMap((line, order) => {
     const whole = wholeUnits(line.quantity);
     if (!line.eligible || line.manualDiscount !== undefined || whole === null) return [];
+    evaluatedUnits += whole;
+    // Units are expanded one by one (spec §6); a bound keeps a hostile quantity from exhausting the process.
+    if (evaluatedUnits > MAX_EVALUATED_UNITS) throw new OfferDecimalError(line.quantity, 0, `more than ${MAX_EVALUATED_UNITS} units in one evaluation`);
     const price = scaled(line.unitPrice, minorUnit);
     return Array.from({ length: Number(whole) }, () => ({ price, order, productId: line.productId }));
   });

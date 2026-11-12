@@ -28,7 +28,7 @@ import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
-import { OfferDecimalError, formatMinor, percentOf, scaled } from "../../offers/evaluator/offer-decimal";
+import { OfferDecimalError, formatMinor, percentOf, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
 import { evaluateOffer, type CartLine } from "../../offers/evaluator/offer-evaluator";
 import type { CaptureSaleLineDto, CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { minorUnitExponent } from "./iso4217-minor-units";
@@ -38,7 +38,7 @@ export const SALE_OFFER_REVIEW_ACTION = "sale.offer_review_flagged";
 
 type PromotedLine = CaptureSaleLineDto & { readonly promotion: NonNullable<CaptureSaleLineDto["promotion"]> };
 
-type PromotionReviewReason = "cited_product_not_in_eligible_set" | "discount_differs_from_server_evaluation";
+type PromotionReviewReason = "cited_product_not_in_eligible_set" | "discount_differs_from_server_evaluation" | "participant_not_cited";
 
 interface PromotionReviewFinding {
   readonly offerId: string;
@@ -132,6 +132,13 @@ export async function planSalePromotions(
     }
     const recorded = members.reduce((sum, m) => sum + scaled(m.line.promotion.discountAmount, exponent), 0n);
     if (formatMinor(recorded, exponent) !== expected.totalDiscount) reasons.add("discount_differs_from_server_evaluation");
+    // A unit the server counted as taking part but the till did not cite has no fact row: its later return would
+    // settle without the offer. Flagged for review (OD-9), the sale is accepted.
+    if (expected.applications > 0) {
+      const cited = new Set(members.map((m) => String(m.index)));
+      const uncited = cart.some((c) => c.eligible && (wholeUnits(c.quantity) ?? 0n) > 0n && !cited.has(c.lineRef));
+      if (uncited) reasons.add("participant_not_cited");
+    }
     if (reasons.size > 0) {
       findings.push({
         offerId: cited.offerId,

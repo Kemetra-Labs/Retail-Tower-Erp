@@ -90,24 +90,24 @@ async function readPack(
 ): Promise<OfferPackBody> {
   const { tenantId, storeId } = scope;
   const issuedAt = await dbNow(client);
-  const store = await client.query<{ timezone: string; applied: string | null }>(
+  // One statement, so one snapshot: the applied revision and the rows it labels cannot come from two revisions
+  // (a rebuild committing between two READ COMMITTED statements would otherwise pair N with N+1's content).
+  const snapshot = await client.query<{ timezone: string; applied: string | null; sets: ReadonlyArray<{ offer_id: string; offer_version: number; product_ids: string[] }> }>(
     `SELECT s.timezone,
             (SELECT r.applied_revision::text FROM offer_pack_store_revisions r
-              WHERE r.tenant_id = s.tenant_id AND r.store_id = s.id) AS applied
+              WHERE r.tenant_id = s.tenant_id AND r.store_id = s.id) AS applied,
+            COALESCE((SELECT jsonb_agg(jsonb_build_object('offer_id', g.offer_id, 'offer_version', g.offer_version, 'product_ids', g.product_ids) ORDER BY g.offer_id)
+                        FROM (SELECT offer_id::text AS offer_id, offer_version, array_agg(product_id::text ORDER BY product_id) AS product_ids
+                                FROM offer_pack_eligible_products
+                               WHERE tenant_id = s.tenant_id AND store_id = s.id AND to_revision IS NULL
+                               GROUP BY offer_id, offer_version) g), '[]'::jsonb) AS sets
        FROM stores s WHERE s.tenant_id = $1::uuid AND s.id = $2::uuid`,
     [tenantId, storeId],
   );
-  const row = store.rows[0];
+  const row = snapshot.rows[0];
   if (row === undefined) throw new Error("device store not found");
+  const sets = { rows: row.sets };
 
-  const sets = await client.query<{ offer_id: string; offer_version: number; product_ids: string[] }>(
-    `SELECT offer_id::text AS offer_id, offer_version, array_agg(product_id::text ORDER BY product_id) AS product_ids
-       FROM offer_pack_eligible_products
-      WHERE tenant_id = $1::uuid AND store_id = $2::uuid AND to_revision IS NULL
-      GROUP BY offer_id, offer_version
-      ORDER BY offer_id`,
-    [tenantId, storeId],
-  );
   const records = await loadVersions(client, tenantId, sets.rows.map((r) => r.offer_id), { currentOnly: false });
   const byKey = new Map(records.map((r) => [`${r.offerId}:${r.version}`, r]));
   const offers: PackOfferBody[] = sets.rows.flatMap((s) => {

@@ -42,7 +42,7 @@ interface PromotedSaleLine extends SaleOfferLine {
 /** The clawbacks of one return (empty when the sale has no promoted line or the return needs none). */
 export async function settleReturnPromotions(
   client: PoolClient,
-  args: { readonly saleRef: string; readonly currencyCode: string; readonly lines: ReadonlyArray<{ readonly lineRef: string; readonly quantity: string }> },
+  args: { readonly saleRef: string; readonly tenantId: string; readonly currencyCode: string; readonly lines: ReadonlyArray<{ readonly lineRef: string; readonly quantity: string }> },
 ): Promise<ReturnClawback[]> {
   const promoted = await client.query<{
     line_ref: string; product: string | null; unit_price: string; quantity: string; line_amount: string;
@@ -52,9 +52,9 @@ export async function settleReturnPromotions(
             sl.quantity::text AS quantity, sl.line_amount::text AS line_amount, lp.discount_amount::text AS discount,
             lp.offer_id::text AS offer_id, lp.offer_version
        FROM sale_line_promotions lp JOIN sale_lines sl ON sl.id = lp.sale_line_id
-      WHERE lp.sale_id = $1::uuid
+      WHERE lp.sale_id = $1::uuid AND lp.tenant_id = $2::uuid AND sl.tenant_id = $2::uuid
       ORDER BY sl.line_seq NULLS LAST, sl.line_name, sl.id`,
-    [args.saleRef],
+    [args.saleRef, args.tenantId],
   );
   if (promoted.rows.length === 0) return [];
   const exponent = minorUnitExponent(args.currencyCode);
@@ -78,8 +78,8 @@ export async function settleReturnPromotions(
 
   const before = await client.query<{ line_ref: string; returned: string }>(
     `SELECT rl.sale_line_id::text AS line_ref, SUM(rl.quantity)::text AS returned
-       FROM sale_return_lines rl WHERE rl.sale_line_id = ANY($1::uuid[]) GROUP BY rl.sale_line_id`,
-    [lines.map((l) => l.lineRef)],
+       FROM sale_return_lines rl WHERE rl.tenant_id = $2::uuid AND rl.sale_line_id = ANY($1::uuid[]) GROUP BY rl.sale_line_id`,
+    [lines.map((l) => l.lineRef), args.tenantId],
   );
   const returnedBefore = new Map(before.rows.map((r) => [r.line_ref, wholeUnits(r.returned) ?? 0n] as const));
 
@@ -90,12 +90,13 @@ export async function settleReturnPromotions(
   for (const members of groups.values()) {
     if (!members.some((m) => returnedNow.has(m.lineRef))) continue;
     const first = members[0]!;
-    const offer = await loadVersionParameters(client, args.saleRef, first.offerId, first.offerVersion);
+    const offer = await loadVersionParameters(client, args.tenantId, first.offerId, first.offerVersion);
     const earlier = await client.query<{ total: string }>(
       `SELECT COALESCE(SUM(c.amount), 0)::text AS total
          FROM sale_return_promotion_clawbacks c JOIN sale_returns r ON r.id = c.return_id
-        WHERE r.sale_id = $1::uuid AND c.offer_id = $2::uuid AND c.offer_version = $3::int`,
-      [args.saleRef, first.offerId, first.offerVersion],
+        WHERE r.sale_id = $1::uuid AND r.tenant_id = $4::uuid AND c.tenant_id = $4::uuid
+          AND c.offer_id = $2::uuid AND c.offer_version = $3::int`,
+      [args.saleRef, first.offerId, first.offerVersion, args.tenantId],
     );
     const clawbacksBefore = scaled(earlier.rows[0]!.total, 4) / 10n ** BigInt(4 - exponent);
     const s = settleOfferReturn({
@@ -121,15 +122,15 @@ export async function settleReturnPromotions(
 
 async function loadVersionParameters(
   client: PoolClient,
-  saleRef: string,
+  tenantId: string,
   offerId: string,
   offerVersion: number,
 ): Promise<{ buyQuantity: number; getQuantity: number; percentOff: string; maxApplicationsPerSale: number | null }> {
   const r = await client.query<{ buy_quantity: number; get_quantity: number; percent_off: number; max_applications_per_sale: number | null }>(
     `SELECT v.buy_quantity, v.get_quantity, v.percent_off::int AS percent_off, v.max_applications_per_sale
-       FROM offer_versions v JOIN sales s ON s.tenant_id = v.tenant_id AND s.id = $1::uuid
-      WHERE v.offer_id = $2::uuid AND v.version = $3::int`,
-    [saleRef, offerId, offerVersion],
+       FROM offer_versions v
+      WHERE v.tenant_id = $1::uuid AND v.offer_id = $2::uuid AND v.version = $3::int`,
+    [tenantId, offerId, offerVersion],
   );
   const v = r.rows[0];
   if (v === undefined) throw new Error(`offer ${offerId} version ${offerVersion} of a captured sale is missing`);
@@ -151,11 +152,11 @@ export async function insertReturnClawbacks(
 }
 
 /** The `promotionClawbacks` of a stored return, ordered by offer for a replay-stable projection. */
-export async function loadReturnClawbacks(client: PoolClient, returnId: string): Promise<ReturnClawback[]> {
+export async function loadReturnClawbacks(client: PoolClient, tenantId: string, returnId: string): Promise<ReturnClawback[]> {
   const r = await client.query<{ offer_id: string; offer_version: number; amount: string }>(
     `SELECT offer_id::text AS offer_id, offer_version, amount::text AS amount
-       FROM sale_return_promotion_clawbacks WHERE return_id = $1::uuid ORDER BY offer_id, offer_version`,
-    [returnId],
+       FROM sale_return_promotion_clawbacks WHERE tenant_id = $2::uuid AND return_id = $1::uuid ORDER BY offer_id, offer_version`,
+    [returnId, tenantId],
   );
   return r.rows.map((c) => ({ offerId: c.offer_id, offerVersion: c.offer_version, amount: c.amount }));
 }

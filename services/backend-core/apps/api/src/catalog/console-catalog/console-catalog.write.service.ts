@@ -193,12 +193,15 @@ const UPDATED_MS_SQL = `
          floor(extract(epoch FROM date_trunc('milliseconds', updated_at)) * 1000)::bigint::text AS updated_ms,
          date_trunc('milliseconds', now()) > date_trunc('milliseconds', updated_at) AS can_advance`;
 
+// FOR NO KEY UPDATE, not FOR UPDATE (RT-1337): the offer Pack writes take FOR KEY SHARE on this row through
+// their foreign keys while holding the tenant offers lock; FOR UPDATE here would deadlock against them
+// once this transaction reaches that lock. A product edit changes no key column, and two edits still queue.
 const LOCK_PRODUCT_SQL = `
   SELECT name, description, category_id::text AS category_id, brand_id::text AS brand_id, tax_category, is_active,
          retired_at IS NOT NULL AS retired,${UPDATED_MS_SQL}
     FROM tenant_products
    WHERE tenant_id = $1::uuid AND id = $2::uuid
-     FOR UPDATE`;
+     FOR NO KEY UPDATE`;
 
 const CATEGORY_USABLE_SQL = `
   SELECT 1 FROM tenant_product_categories
@@ -212,7 +215,7 @@ const LOCK_BRAND_SQL = `
   SELECT name,${UPDATED_MS_SQL}
     FROM tenant_product_brands
    WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL
-     FOR NO KEY UPDATE`;
+     FOR UPDATE`;
 
 const LIVE_STORE_SQL = `SELECT 1 FROM stores WHERE id = $1::uuid AND tenant_id = $2::uuid AND deleted_at IS NULL`;
 

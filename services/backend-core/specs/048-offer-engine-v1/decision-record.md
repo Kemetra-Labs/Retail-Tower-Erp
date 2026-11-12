@@ -155,8 +155,11 @@ Consequences:
   give back an earlier clawback (S3 step 2) stays refused with `promotion_return_requires_clawback`.
 - **Not yet postable, needs a contract change first** (recorded on RT-1340):
   1. The Connector's posting feed (`erpnext-connector/posting-feed.yaml`) carries no clawback and no line promotion,
-     so the Connector cannot learn the clawback or which returned units take it. The interim refusal
-     `promotion_return_requires_clawback` stays until a contract issue adds them and RT-1340 implements A.
+     so the Connector cannot learn the clawback or which returned units take it. RT-1337 lifts the interim refusal in
+     Backend-Core as briefed (a return with a clawback is accepted and the cash refund is net of it), so until a
+     contract issue adds them and RT-1340 implements A, the ERPNext credit note of such a return is **not yet
+     reconciled** with that refund. Reported on the RT-1337 PR and RT-1340 as an open gap; only the give-back case
+     below stays refused.
   2. ERPNext refuses a credit-note rate above the original row's rate. So a return that gives back an earlier clawback
      (golden sequence S3 step 2: the reward unit refunded at 200.00 after a sale net of 120.00) cannot be posted under
      A alone. A give-back row of quantity −1 on a non-stock item, next to the reward unit at its net, does post. The
@@ -173,3 +176,13 @@ Consequences:
 **Guardrails, still proposed** (not yet asked):
 
 - Price guardrails (a minimum selling price, a tenant maximum percent, §17) are deferred until the catalog has a price-floor field. V1 is bounded only by `P ≤ 100`.
+
+## RT-1337 review round (2026-11-12) — V1 limits recorded
+
+- **Credit sale:** a capture whose envelope carries `responsibilities` cannot carry a line `promotion` (400
+  `validation_error`). A credit sale returns through the credit reversal, which does not settle a clawback yet, so an
+  offer on it would refund the discount twice. Lifting this needs the credit reversal to call the same settlement.
+- **Unit bound:** one evaluation expands at most 100,000 units; a larger eligible quantity is a till defect (422
+  `sale_line_pricing_invalid`).
+- **Participant citation:** an eligible unit the server counts as taking part but the till did not cite is flagged for
+  review (`participant_not_cited`); the sale is accepted.

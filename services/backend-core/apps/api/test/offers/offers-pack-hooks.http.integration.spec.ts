@@ -261,6 +261,24 @@ describe("concurrent writers", () => {
     expect(revs.map((r) => Number(r.revision))).toEqual(revs.map((_, i) => i + 1));
   });
 
+  it("a catalog edit racing a publish and a resume that name the same product never deadlocks (no 500)", async () => {
+    if (skip()) return;
+    for (let round = 0; round < 6; round += 1) {
+      const rule = await publishOk(definition({ nameAr: `ر${round}`, eligibility: { include: { productIds: [P_HAT] } } }));
+      const other = await create(definition({ nameAr: `س${round}`, eligibility: { include: { productIds: [P_BARE] } } }));
+      await call("post", `/api/v1/offers/${rule.offerId}/pause`, { reason: "r" }).expect(200);
+      const results = await Promise.all([
+        patchProduct(P_HAT, { categoryId: round % 2 === 0 ? CAT_SHOES : CAT_HATS }),
+        call("post", `/api/v1/offers/${rule.offerId}/resume`, {}),
+        call("post", `/api/v1/offers/${other}/publish`, { expectedDraftRevision: 1 }),
+        patchProduct(P_HAT, { categoryId: round % 2 === 0 ? CAT_HATS : CAT_SHOES }),
+      ]);
+      expect(results.map((r) => r.status).filter((st) => st >= 500)).toEqual([]);
+      await endAll();
+      await resetCatalog();
+    }
+  });
+
   it("many writes at once all land: every pause, publish and end is serialised on the tenant lock", async () => {
     if (skip()) return;
     const ids = await Promise.all([P_RUN, P_TRAIN, P_HAT, P_BARE].map((p, i) => create(definition({ nameAr: `س${i}`, eligibility: { include: { productIds: [p] } } }))));

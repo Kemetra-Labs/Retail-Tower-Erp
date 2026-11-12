@@ -318,6 +318,33 @@ describe("captureSale with an automatic-offer promotion", () => {
     expect((await reviewRows(res.body.saleRef))[0]!.metadata.findings[0].reasons).toContain("cited_product_not_in_eligible_set");
   });
 
+  it("flags a counted participant the till did not cite (its later return would settle without the offer)", async () => {
+    if (skip()) return;
+    const o = await seedOffer({ products: 2 });
+    // 1+1 at 40%: A 100.00 (not cited) and B 60.00 (the reward, 24.00, cited). The totals agree, the citation is incomplete.
+    const res = await capture(
+      body([
+        { product: o.productIds[0]!, unitPrice: "100.00", lineAmount: "100.00" },
+        { product: o.productIds[1]!, unitPrice: "60.00", lineAmount: "36.00", promotion: cite(o, "24.00") },
+      ]),
+    );
+    expect(res.status).toBe(201);
+    const flags = await reviewRows(res.body.saleRef);
+    expect(flags[0]!.metadata.findings[0].reasons).toEqual(["participant_not_cited"]);
+  });
+
+  it("is 422 sale_line_pricing_invalid, not a crash, for a quantity no evaluation may expand, and records nothing", async () => {
+    if (skip()) return;
+    const o = await seedOffer({ products: 2 });
+    const res = await capture(
+      body([
+        { product: o.productIds[0]!, unitPrice: "1.00", quantity: "30000000", lineAmount: "30000000.00" },
+        { product: o.productIds[1]!, unitPrice: "1.00", lineAmount: "0.60", promotion: cite(o, "0.40") },
+      ]),
+    );
+    expect([res.status, res.body.error?.code]).toEqual([422, "sale_line_pricing_invalid"]);
+  });
+
   it("a sale without any promotion is captured exactly as before (no offer query needed, no fact, no flag)", async () => {
     if (skip()) return;
     const res = await capture(captureBody({ externalId: nextExternalId() }));

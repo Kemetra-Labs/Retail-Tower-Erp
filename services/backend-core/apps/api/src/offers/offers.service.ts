@@ -322,8 +322,9 @@ export class OffersService {
   async pause(input: OfferCallInput, offerId: string, body: OfferPauseBody) {
     return this.writeOffer(input, offerId, "offers.pause", async ({ client, caller, header, loaded }) => {
       // A store manager pauses their own stores only, never the whole offer.
-      if (isStoreBounded(caller.roleCode) && body.storeIds === undefined) throw new OfferRefusedError("forbidden");
+      // Visibility first: a hidden offer answers 404 whatever the role is allowed to ask (non-disclosing).
       if (!isVisible(header, loaded.versions.get(offerId), caller.viewer)) throw new OfferRefusedError("offer_not_found");
+      if (isStoreBounded(caller.roleCode) && body.storeIds === undefined) throw new OfferRefusedError("forbidden");
       const changed =
         body.storeIds === undefined
           ? await this.pauseWhole(client, input, { header, loaded }, body.reason)

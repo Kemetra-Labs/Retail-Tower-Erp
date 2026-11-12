@@ -617,6 +617,16 @@ describe("what a store_manager sees", () => {
     if (!skip()) await endAll();
   });
 
+  it("answers the same 404 for an offer outside their stores as for no offer at all, on a whole-offer pause too", async () => {
+    if (skip()) return;
+    const onlyY = await publishOk(definition({ nameAr: "واي فقط", storeScope: { storeIds: [STORE_A_Y] }, eligibility: { include: { productIds: [P_HAT] } } }));
+    const missing = "0a000000-0000-7000-8000-00000000d0d0";
+    const hidden = await post(`/api/v1/offers/${onlyY.offerId}/pause`, SES_MANAGER, { reason: "r" });
+    const absent = await post(`/api/v1/offers/${missing}/pause`, SES_MANAGER, { reason: "r" });
+    expect([hidden.status, absent.status]).toEqual([404, 404]);
+    expect((hidden.body as { error: { code: string } }).error.code).toBe((absent.body as { error: { code: string } }).error.code);
+  });
+
   it("lists and reads only offers whose scope includes one of their stores, with store lists filtered to those stores", async () => {
     if (skip()) return;
     const both = await publishOk(definition({ nameAr: "الاتنين", storeScope: { storeIds: [STORE_A_X, STORE_A_Y] }, eligibility: { include: { productIds: [P_RUN] } } }));

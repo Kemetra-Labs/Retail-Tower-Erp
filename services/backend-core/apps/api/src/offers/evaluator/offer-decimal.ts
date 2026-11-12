@@ -13,8 +13,8 @@ const ONE_QUANTITY = 10n ** BigInt(QUANTITY_SCALE);
 
 /** An exact-decimal string was malformed, or has more digits than the scale allows. */
 export class OfferDecimalError extends Error {
-  constructor(value: string, scale: number) {
-    super(`"${value}" is not a non-negative decimal with at most ${scale} fractional digits`);
+  constructor(value: string, scale: number, message?: string) {
+    super(message ?? `"${value}" is not a non-negative decimal with at most ${scale} fractional digits`);
     this.name = "OfferDecimalError";
   }
 }

@@ -213,6 +213,7 @@ function checkAdmissionCheckAt(
     operatorUserId?: string | undefined;
     admissionCheckAt?: string | undefined;
     lines?: ReadonlyArray<{ promotion?: unknown; discount?: unknown }> | undefined;
+    responsibilities?: ReadonlyArray<unknown> | undefined;
   },
   ctx: z.RefinementCtx,
 ): void {
@@ -220,6 +221,11 @@ function checkAdmissionCheckAt(
   body.lines?.forEach((l, i) => {
     if (l.promotion !== undefined && l.discount !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines", i, "promotion"], message: "a line cannot carry both an offer promotion and a manual discount" });
+    }
+    // RT-1337: a credit sale (a responsibility on the envelope) returns through the credit reversal, which does not
+    // settle an offer clawback yet; an offer on such a sale would refund the discount twice. Refused until it does.
+    if (l.promotion !== undefined && (body.responsibilities?.length ?? 0) > 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines", i, "promotion"], message: "an offer promotion cannot be combined with sale responsibilities (credit sale)" });
     }
   });
   if (body.admissionCheckAt === undefined) return;

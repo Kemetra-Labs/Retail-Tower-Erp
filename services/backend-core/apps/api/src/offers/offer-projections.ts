@@ -55,7 +55,7 @@ export function toOfferBody(args: {
   const whole = mine.find((p) => p.storeId === null) ?? null;
   const draftDef = header.draft === null ? null : visibleDefinition(header.draft.definition, viewer);
   const currentDef = record === undefined ? null : visibleDefinition(record.definition, viewer);
-  const conflicts = plan?.conflicts.get(header.id) ?? [];
+  const conflicts = visibleConflicts(loaded, plan, header.id, viewer);
   return {
     offerId: header.id,
     state: stateOf(loaded, header),
@@ -97,6 +97,14 @@ export function toOfferBody(args: {
   };
 }
 
+/** The conflicts whose winning offer the viewer may see: a hidden offer's identity stays hidden (OD-12). */
+function visibleConflicts(loaded: LoadedTenantOffers, plan: PackPlan | null, offerId: string, viewer: Viewer) {
+  return (plan?.conflicts.get(offerId) ?? []).filter((c) => {
+    const winner = loaded.headers.find((h) => h.id === c.winnerOfferId);
+    return winner !== undefined && isVisible(winner, loaded.versions.get(c.winnerOfferId), viewer);
+  });
+}
+
 export function toSummary(args: {
   readonly loaded: LoadedTenantOffers;
   readonly header: OfferHeader;
@@ -117,7 +125,7 @@ export function toSummary(args: {
     schedule: shown.schedule,
     storeScope: shown.storeScope,
     updatedAt: iso(header.updatedAt),
-    rematerialisationConflictCount: Math.min(50, plan?.conflicts.get(header.id)?.length ?? 0),
+    rematerialisationConflictCount: Math.min(50, visibleConflicts(loaded, plan, header.id, viewer).length),
   };
 }
 
