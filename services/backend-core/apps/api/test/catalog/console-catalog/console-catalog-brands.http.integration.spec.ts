@@ -122,17 +122,10 @@ beforeAll(async () => {
     error: compiled("Error"),
   };
 
+  // Only the container start may be skipped (Docker unavailable); every setup
+  // step after it is a real failure, even with MIGRATION_TEST_ALLOW_SKIP=1.
   try {
     env = await startPgEnv();
-    await applyAllUpAndCreateAppRole(env);
-    await seedConsoleCatalogFixture(env);
-    await env.admin.query(`INSERT INTO users (id, email) VALUES ($1, 'rt1334-actor@example.test')`, [ACTOR]);
-    await env.admin.query(
-      `INSERT INTO tenant_product_brands (id, tenant_id, name, retired_at, created_by) VALUES
-         ($1, $3, 'RT1334 B brand', NULL, $4),
-         ($2, $5, 'RT1334 Retired brand', now(), $4)`,
-      [BRAND_B, BRAND_RETIRED, TENANT_B, ACTOR, TENANT_A],
-    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
@@ -143,6 +136,15 @@ beforeAll(async () => {
     }
     throw new Error(`Container start failed: ${msg}`);
   }
+  await applyAllUpAndCreateAppRole(env);
+  await seedConsoleCatalogFixture(env);
+  await env.admin.query(`INSERT INTO users (id, email) VALUES ($1, 'rt1334-actor@example.test')`, [ACTOR]);
+  await env.admin.query(
+    `INSERT INTO tenant_product_brands (id, tenant_id, name, retired_at, created_by) VALUES
+       ($1, $3, 'RT1334 B brand', NULL, $4),
+       ($2, $5, 'RT1334 Retired brand', now(), $4)`,
+    [BRAND_B, BRAND_RETIRED, TENANT_B, ACTOR, TENANT_A],
+  );
   const redis = new FakeRedis();
   const marker = new FakeMarker();
   const store = new IdempotencyKeyStore({
