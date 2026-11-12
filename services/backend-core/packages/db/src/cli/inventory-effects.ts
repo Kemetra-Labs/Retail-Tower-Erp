@@ -146,11 +146,11 @@ async function run(client: Client, cmd: InventoryEffectsCommand): Promise<number
     if (!("actorId" in cmd)) return await runReadOnly(client, cmd);
     const input = { tenantId: cmd.tenantId, actorId: cmd.actorId };
     const outcome =
-      cmd.kind === "activate"
-        ? await activateSaleEffects(client, input)
-        : cmd.kind === "anchor-identities"
-          ? await anchorTrackedIdentities(client, input)
-          : await attestBatchPosting(client, { ...input, evidenceRef: cmd.evidenceRef });
+      cmd.kind === "attest-batch-posting"
+        ? await attestBatchPosting(client, { ...input, evidenceRef: cmd.evidenceRef })
+        : cmd.kind === "activate"
+          ? await activateSaleEffects(client, input)
+          : await anchorTrackedIdentities(client, input);
     const ok = outcome.kind !== "refused";
     await client.query(ok && !cmd.dryRun ? "COMMIT" : "ROLLBACK");
     console.log(JSON.stringify({ tenantId: cmd.tenantId, dryRun: cmd.dryRun, outcome }, null, 2));
