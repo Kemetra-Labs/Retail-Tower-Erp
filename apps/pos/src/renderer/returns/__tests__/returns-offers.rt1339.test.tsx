@@ -59,6 +59,10 @@ describe('the line picker on a sale sold under an offer', () => {
     expect(screen.queryByTestId('offer-return-note')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'زيادة بانادول 500 مجم' }));
     expect(screen.getByTestId('offer-return-note')).toHaveTextContent(OFFER_ROLE_COPY.note);
+    // Backend-Core refuses every return with a reward line for now: the note sends the cashier to
+    // the manager and never tells them to add the reward units (a retry that would be refused).
+    expect(OFFER_ROLE_COPY.note).toContain('راجع المدير');
+    expect(OFFER_ROLE_COPY.note).not.toContain('أضف إلى المرتجع');
   });
 
   it('a sale without an offer is as before: no marks, no note', async () => {

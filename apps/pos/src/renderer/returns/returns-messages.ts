@@ -80,7 +80,7 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
 export const OFFER_ROLE_COPY = Object.freeze({
   reward: 'أخذت هذه الوحدة خصم عرض',
   participant: 'ضمن عرض',
-  note: 'بعض الأصناف المختارة بيعت ضمن عرض. قد يرفض الخادم المرتجع أو يُنقص مبلغ الاسترداد حسب العرض، وتظهر نتيجته هنا. عند الرفض أضف إلى المرتجع الوحدات التي أخذت خصم العرض.',
+  note: 'بعض الأصناف المختارة بيعت ضمن عرض. قد يرفض الخادم المرتجع أو يُنقص مبلغ الاسترداد حسب العرض، وتظهر نتيجته هنا. عند الرفض راجع المدير.',
 });
 
 /** Non-refusal outcomes and notices; each distinct from every refusal line. */
