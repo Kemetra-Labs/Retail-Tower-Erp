@@ -25,6 +25,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** An offer whose `parameters` carry these overrides (the evaluator's const semantics). */
+function withParameters(over: Record<string, unknown>): Record<string, unknown> {
+  const offer = packOffer();
+  return { ...offer, parameters: { ...(offer['parameters'] as object), ...over } };
+}
+
 describe('offer pack reader — strict', () => {
   it('reads the contract shape', () => {
     const pack = readOfferPack(packBody());
@@ -55,6 +61,12 @@ describe('offer pack reader — strict', () => {
     ['a non-uuid product id', packOffer({ eligibleProductIds: ['dev-p-001'] })],
     ['an empty eligible set', packOffer({ eligibleProductIds: [] })],
     ['an offline policy outside the closed set', { ...packOffer(), offlinePolicy: 'never' }],
+    [
+      'a reward selection other than cheapest',
+      withParameters({ rewardSelection: 'most_expensive' }),
+    ],
+    ['a price basis other than the resolved store price', withParameters({ priceBasis: 'list' })],
+    ['no reward selection', withParameters({ rewardSelection: undefined })],
   ])('refuses an offer with %s', (_name, offer) => {
     expect(readOfferPack(packBody({ offers: [offer] }))).toBeNull();
   });

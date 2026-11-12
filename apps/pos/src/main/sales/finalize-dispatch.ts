@@ -44,7 +44,7 @@ import type {
 import type { SalesTenderType } from '../../shared/sales/types.js';
 import type { FinalizeInput, FinalizeTenderLineSummary } from './finalize-transaction.js';
 import { freezeLinePromotions } from '../offers/freeze-line-promotions.js';
-import type { PromotionFact } from '../../shared/offers/types.js';
+import { promotionTotalMinor, type PromotionFact } from '../../shared/offers/types.js';
 import {
   freezeLineDiscounts,
   type FreezeLineDiscountsResult,
@@ -183,10 +183,7 @@ function saleLines(db: DatabaseHandle, cart_id: string, attempt: AttemptRow): Sa
   const envelopeJson = finalizableEnvelopeJson(cartStmt.get(cart_id));
   const envelope = envelopeJson === null ? null : readEnvelope(envelopeJson);
   if (envelope === null) return { kind: 'refused', reason: 'cart_envelope_not_found' };
-  const promoTotal = envelope.promotions.reduce(
-    (sum, f) => sum + f.reward_discounts_minor.reduce((a, d) => a + d, 0),
-    0,
-  );
+  const promoTotal = promotionTotalMinor(envelope.promotions);
   // The manual-discount check is Σ gross − Σ manual; the offers' share is part of that gap.
   const manual = freezeLineDiscounts(db, {
     tenant_id: attempt.tenant_id,

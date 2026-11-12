@@ -23,6 +23,7 @@ import { evaluateOffer, type CartLine } from '../../shared/offers/offer-evaluato
 import { formatMinor } from '../../shared/offers/offer-decimal.js';
 import {
   NO_PROMOTIONS,
+  promotionTotalMinor,
   type PlanLine,
   type PromotionFact,
   type PromotionPreview,
@@ -84,10 +85,6 @@ function factsOf(
     }));
 }
 
-function totalOf(facts: readonly PromotionFact[]): number {
-  return facts.reduce((sum, f) => sum + f.reward_discounts_minor.reduce((a, b) => a + b, 0), 0);
-}
-
 /**
  * The offers that apply to `lines` under `view`. `currencyCode` is the till's
  * capture currency (what the sale's lines are priced in).
@@ -117,7 +114,7 @@ export function planPromotions(
   }
   return {
     promotions: facts,
-    promotion_total_minor: totalOf(facts),
+    promotion_total_minor: promotionTotalMinor(facts),
     unavailable_offline: unavailable,
   };
 }

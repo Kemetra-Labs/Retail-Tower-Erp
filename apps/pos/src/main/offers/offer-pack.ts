@@ -71,6 +71,11 @@ export function instantMsOf(value: unknown): number | null {
 function readParameters(value: unknown): PackOfferParameters | null {
   if (!isRecord(value)) return null;
   const { buyQuantity, getQuantity, percentOff, maxApplicationsPerSale } = value;
+  // The evaluator hard-codes the V1 semantics (the cheapest units, the resolved store price). A Pack that
+  // names anything else is off-contract for this till: no offer, never the wrong units discounted.
+  if (value.rewardSelection !== 'cheapest' || value.priceBasis !== 'resolved_store_price') {
+    return null;
+  }
   // null: unlimited; otherwise a positive integer; anything else is off-contract.
   const max =
     maxApplicationsPerSale === null || isPositiveInt(maxApplicationsPerSale)

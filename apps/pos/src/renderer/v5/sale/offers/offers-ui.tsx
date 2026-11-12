@@ -8,6 +8,7 @@ import { windowCartBridge } from '../../park/park-bridge';
 import {
   OFFER_UNAVAILABLE_OFFLINE_AR,
   promotionCopy,
+  promotionTotalMinor,
   type PromotionFact,
   type PromotionPreview,
 } from '../../../../shared/offers/types';
@@ -47,7 +48,7 @@ export function promotionViewsByLine(
       offerNameAr: fact.offer_name_ar,
       percentOff: fact.percent_off,
       rewardUnits: fact.reward_discounts_minor.length,
-      amountMinor: fact.reward_discounts_minor.reduce((sum, d) => sum + d, 0),
+      amountMinor: promotionTotalMinor([fact]),
     });
   }
   return byLine;

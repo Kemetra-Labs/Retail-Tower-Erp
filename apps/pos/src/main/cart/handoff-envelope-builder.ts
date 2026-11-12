@@ -24,7 +24,12 @@ import {
   type DiscountPlaceholderSnapshot,
 } from '../../shared/cart/handoff-envelope.js';
 import { envelopeDiscountTotals } from '../../shared/cart/manual-discount.js';
-import { NO_PROMOTIONS, type PlanLine, type PromotionPreview } from '../../shared/offers/types.js';
+import {
+  NO_PROMOTIONS,
+  promotionTotalMinor,
+  type PlanLine,
+  type PromotionPreview,
+} from '../../shared/offers/types.js';
 
 export interface BuildEnvelopeParams {
   cart_id: string;
@@ -81,6 +86,15 @@ export function planLinesOf(
     unit_price_minor: l.unit_price_minor,
     has_manual_discount: discounted.has(l.line_id),
   }));
+}
+
+function isPlanHonourable(plan: PromotionPreview, totalDueMinor: number): boolean {
+  const total = plan.promotion_total_minor;
+  return (
+    Number.isSafeInteger(total) &&
+    total <= totalDueMinor &&
+    total === promotionTotalMinor(plan.promotions)
+  );
 }
 
 function placeholderSnapshot(ph: DiscountPlaceholderRow): DiscountPlaceholderSnapshot {
@@ -144,12 +158,12 @@ export function buildPaymentIntentEnvelope(
     return { kind: 'discount_invalid' };
   }
 
-  const offers =
+  const planned =
     params.planPromotions?.(planLinesOf(lines, discount_placeholders)) ?? NO_PROMOTIONS;
+  // A plan that does not hold (an unsafe total, or more than is due) is a Pack or evaluator fault, not a
+  // manual-discount one: it never refuses the sale and never mislabels it. The customer pays the regular price.
+  const offers = isPlanHonourable(planned, totals.total_due_minor) ? planned : NO_PROMOTIONS;
   const promoTotal = offers.promotion_total_minor;
-  if (!Number.isSafeInteger(promoTotal) || promoTotal > totals.total_due_minor) {
-    return { kind: 'discount_invalid' };
-  }
 
   const envelope: PaymentIntentEnvelope = {
     envelope_version: 'v1',

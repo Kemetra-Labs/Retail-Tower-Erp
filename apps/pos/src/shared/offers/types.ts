@@ -42,6 +42,11 @@ export function promotionCopy(offerNameAr: string, percentOff: number): string {
   return `عرض: ${offerNameAr} (خصم ${String(percentOff)}%)`;
 }
 
+/** Σ of the reward discounts of these offer facts, in minor units: the one sum the plan, the envelope and finalize share. */
+export function promotionTotalMinor(facts: readonly PromotionFact[]): number {
+  return facts.reduce((sum, f) => sum + f.reward_discounts_minor.reduce((a, d) => a + d, 0), 0);
+}
+
 /** Shown when a stored Pack covers a cart line but its freshness cannot be proven. */
 export const OFFER_UNAVAILABLE_OFFLINE_AR = 'العرض غير متاح بدون اتصال';
 

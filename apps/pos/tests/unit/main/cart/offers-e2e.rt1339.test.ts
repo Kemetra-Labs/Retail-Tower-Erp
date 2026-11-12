@@ -28,6 +28,7 @@ import {
 } from '../../../../src/main/cart/__tests__/__helpers__/discount-harness.js';
 import { discountApprovalSubjectRef } from '../../../../src/shared/cart/discount-approval.js';
 import type { PaymentIntentEnvelope } from '../../../../src/shared/cart/handoff-envelope.js';
+import type { PlanLine, PromotionPreview } from '../../../../src/shared/offers/types.js';
 import { planPromotions } from '../../../../src/main/offers/promotion-plan.js';
 import {
   P1,
@@ -99,6 +100,8 @@ let h: DiscountHarness;
 let cart: CartBridgeHandlers;
 let current: OperatorSessionRecord;
 let packService = freshService();
+/** A test sets this to make the planner answer something else (a faulty Pack or evaluator). */
+let planOverride: ((lines: PlanLine[]) => PromotionPreview) | null = null;
 
 beforeAll(async () => {
   await initGrantSql();
@@ -107,6 +110,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   raw = freshGrantDb();
   PRICES = { ...DEFAULT_PRICES };
+  planOverride = null;
   const db = handleFor(raw);
   current = session('cashier', 'sess-cashier');
   packService = freshService();
@@ -140,7 +144,8 @@ beforeEach(async () => {
     cartPaymentStatus: () => 'none',
     approvals: h.service,
     clock: () => new Date(T0),
-    planPromotions: (lines) => planPromotions(lines, packService.service.view(), 'EGP'),
+    planPromotions: (lines) =>
+      planOverride?.([...lines]) ?? planPromotions(lines, packService.service.view(), 'EGP'),
   });
 });
 
@@ -400,6 +405,40 @@ describe('capture is byte-stable on re-send (RT-1240)', () => {
     const second = JSON.stringify(toWireBody(buildCapturePayload(saleRow()), 'EGP'));
     expect(second).toBe(first);
   });
+});
+
+describe('a plan that does not hold never refuses the sale', () => {
+  it.each<[string, number]>([
+    ['more than is due', 1_000_000],
+    ['an unsafe total', Number.MAX_SAFE_INTEGER + 2],
+    ['a total that is not the sum of its facts', 5],
+  ])(
+    '%s: the customer pays the regular price, with no offer on the envelope',
+    async (_n, total) => {
+      planOverride = (lines) => ({
+        promotions: [
+          {
+            line_id: lines[0]?.line_id ?? '',
+            offer_id: '0a000000-0000-7000-8000-000000000001',
+            offer_version: 3,
+            pack_revision: 118,
+            offer_name_ar: 'عرض',
+            percent_off: 40,
+            reward_discounts_minor: [8_000],
+          },
+        ],
+        promotion_total_minor: total,
+        unavailable_offline: false,
+      });
+      const { cartId, lineIds } = await newCart([
+        [P1, 1],
+        [P2, 1],
+      ]);
+      const envelope = await handoff(cartId, lineIds);
+      expect(envelope).not.toHaveProperty('promotions');
+      expect(envelope.total_due_minor).toBe(50_000);
+    },
+  );
 });
 
 describe('a till with no Pack sells exactly as before', () => {
