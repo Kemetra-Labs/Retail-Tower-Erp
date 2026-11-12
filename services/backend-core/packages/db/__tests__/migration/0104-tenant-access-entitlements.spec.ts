@@ -269,6 +269,16 @@ describe("0104: the forward-only trigger", () => {
     );
   });
 
+  it("the provisioning result is never rewritten once unrestricted (23514)", async () => {
+    if (skip()) return;
+    const a = guard().admin;
+    await insertRestricted(guard(), TENANT_A, true);
+    await a.query(PROVISION, [TENANT_A, ADMIN_USER]);
+    await expectCode(a.query(`UPDATE ${T} SET provisioned_by_user_id = $2 WHERE tenant_id = $1`, [TENANT_A, OTHER_USER]), "23514");
+    await expectCode(a.query(`UPDATE ${T} SET provisioned_at = now() + interval '1 hour' WHERE tenant_id = $1`, [TENANT_A]), "23514");
+    await expectCode(a.query(`UPDATE ${T} SET provisioning_source = NULL WHERE tenant_id = $1`, [TENANT_A]), "23514");
+  });
+
   it("the tenant never changes (23514) and updated_at moves on every change", async () => {
     if (skip()) return;
     const a = guard().admin;

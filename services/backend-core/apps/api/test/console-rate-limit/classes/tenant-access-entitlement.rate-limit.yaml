@@ -3,6 +3,7 @@
 
 # RT-1353: one tenant's access state for the Console banner.
 consoleGetTenantAccessEntitlement: cheapRead
-# RT-1353: the platform admin's unlock request, an onboarding-class action.
+# RT-1353: the platform admin's manual provisioning record, an onboarding-class action.
 platformMarkTenantProvisioned: onboarding
+# RT-1353: the platform admin's unlock request, an onboarding-class action.
 platformRequestTenantUnlock: onboarding

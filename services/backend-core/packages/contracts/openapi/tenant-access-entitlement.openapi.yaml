@@ -39,10 +39,14 @@ info:
         per-code and per-IP budgets, and no code is burned.
       - No ERP posting is created or sent. The worker does not create the
         `erpnext_posting_status` row for a posting request of a restricted
-        tenant (the outbox event stays retryable, it is not marked delivered
-        and not dropped), and the Connector posting feed offers nothing for it
-        (its pending rows are held, as with the RT-418 holds, and are offered
-        once the tenant is `unrestricted`).
+        tenant: it throws a typed retryable error, so the outbox event is
+        retried with backoff, never marked delivered. It dead-letters after
+        the outbox retry budget like any event (8 attempts, about 4 hours), and
+        a dead-lettered one needs an operator redrive after the unlock. A
+        restricted tenant cannot pair a POS, so it produces no sale events
+        today; this is defence in depth. The Connector posting feed offers
+        nothing for it (its pending rows are held, as with the RT-418 holds,
+        and are offered once the tenant is `unrestricted`).
       - Catalog, stores, members and settings keep working.
 
     **Unlock and provisioning (D2.1).** A platform admin requests the unlock.

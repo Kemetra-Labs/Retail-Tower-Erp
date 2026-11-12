@@ -59,6 +59,12 @@
 
 BEGIN;
 
+-- The foreign keys below take SHARE ROW EXCLUSIVE locks on `tenants` and
+-- `users`. lock_timeout 2s: if a lock is not granted in time the migration
+-- fails and rolls back, instead of queueing behind a long transaction and
+-- blocking every sign-in and session write (the 0097, 0101 and 0103 pattern).
+SET LOCAL lock_timeout = '2s';
+
 CREATE TABLE IF NOT EXISTS tenant_access_entitlements (
   tenant_id                    UUID         PRIMARY KEY REFERENCES tenants(id) ON DELETE RESTRICT,
   state                        TEXT         NOT NULL,
@@ -92,8 +98,8 @@ CREATE TABLE IF NOT EXISTS tenant_access_entitlements (
 );
 
 -- One forward path (see the header): the tenant never changes, `unrestricted`
--- never goes back, an unlock request is never cleared or rewritten, and
--- `updated_at` moves on every change.
+-- never goes back, the provisioning result and an unlock request are never
+-- cleared or rewritten, and `updated_at` moves on every change.
 CREATE OR REPLACE FUNCTION tenant_access_entitlements_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -105,6 +111,13 @@ BEGIN
   END IF;
   IF OLD.state = 'unrestricted' AND NEW.state <> 'unrestricted' THEN
     RAISE EXCEPTION 'tenant_access_entitlements: an unrestricted tenant is never restricted again here'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF OLD.state = 'unrestricted'
+     AND (NEW.provisioned_at IS DISTINCT FROM OLD.provisioned_at
+          OR NEW.provisioned_by_user_id IS DISTINCT FROM OLD.provisioned_by_user_id
+          OR NEW.provisioning_source IS DISTINCT FROM OLD.provisioning_source) THEN
+    RAISE EXCEPTION 'tenant_access_entitlements: the provisioning result is never rewritten'
       USING ERRCODE = 'check_violation';
   END IF;
   IF OLD.unlock_requested_at IS NOT NULL
