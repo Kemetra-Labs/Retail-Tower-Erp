@@ -927,3 +927,119 @@ class TestForwardSaleTaxNotDropped:
 		# A malformed taxAmount must map to validation, never escape as InvalidOperation ("other").
 		with pytest.raises(b.SaleTaxNotPosted):
 			self._build(tax_amount)
+
+
+# RT-1340 (RT-286 S8, spec 048 §8): every reward line of the Offer Engine V1 golden vectors
+# (`services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json`, `evaluate`), as
+# (vector id, currency, unitPrice, promotion.discountAmount, lineAmount). A reward line has quantity 1
+# (OD-4), so its net always divides; it reaches the Connector as an ordinary discounted feed line.
+_OFFER_REWARD_LINES = [
+	("E1", "EGP", "200.00", "80.00", "120.00"),
+	("E2", "EGP", "60.00", "24.00", "36.00"),
+	("E2", "EGP", "40.00", "16.00", "24.00"),
+	("E3", "EGP", "40.00", "16.00", "24.00"),
+	("E4", "EGP", "150.00", "60.00", "90.00"),
+	("E5", "EGP", "40.00", "16.00", "24.00"),
+	("E6", "EGP", "33.33", "13.33", "20.00"),
+	("E8", "EGP", "60.00", "24.00", "36.00"),
+	("X1-tie-cart-order", "EGP", "50.00", "20.00", "30.00"),
+	("X2-buy-2-get-1", "EGP", "10.00", "5.00", "5.00"),
+	("X2-buy-2-get-1", "EGP", "5.00", "2.50", "2.50"),
+	("X3-half-up", "EGP", "10.10", "0.51", "9.59"),
+	("X4-max-applications-one-line", "EGP", "100.00", "40.00", "60.00"),
+	("X6-whole-quantity-decimals", "EGP", "80.00", "32.00", "48.00"),
+	("X7-y-greater-than-x", "EGP", "40.00", "40.00", "0.00"),
+	("X7-y-greater-than-x", "EGP", "30.00", "30.00", "0.00"),
+	("X8-minor-unit-0", "JPY", "999", "250", "749"),
+	("X9-minor-unit-3", "OMR", "1.235", "0.618", "0.617"),
+]
+_MINOR_UNITS = {"EGP": 2, "JPY": 0, "OMR": 3}
+
+
+class TestOfferRewardLine:
+	"""RT-1340 scope 3 (spec 048 §8, F-4): an offer reward line posts exactly like an RT-857 line.
+
+	The feed carries no offer identity: a reward line is a quantity-1 line whose net ``lineAmount`` is
+	``unitPrice - discountAmount``. It must post ``price_list_rate = unitPrice``, ``discount_amount`` =
+	the offer discount and ``rate = amount = lineAmount``, which ERPNext v16 keeps unchanged.
+	"""
+
+	@pytest.mark.parametrize(("vector", "currency", "unit_price", "discount", "net"), _OFFER_REWARD_LINES)
+	def test_a_reward_line_posts_as_a_visible_discount(self, vector, currency, unit_price, discount, net):
+		item = _build_line(unit_price, "1", net, currency=currency)
+		assert (
+			item["qty"],
+			item["price_list_rate"],
+			item["discount_amount"],
+			item["rate"],
+			item["amount"],
+		) == (
+			"1",
+			unit_price,
+			discount,
+			net,
+			net,
+		), vector
+		assert _erpnext_v16_amount(item, minor=_MINOR_UNITS[currency]) == Decimal(net)
+
+	def test_an_e1_sale_posts_its_paid_total(self):
+		# E1: 300.00 (trigger, no discount) + 200.00 reward at 40% (80.00 off), 420.00 paid in cash.
+		sale = _line_sale("300.00", "1", "300.00", tenders=[{"method": "cash", "amount": "420.00"}])
+		reward = {
+			**sale["lines"][0],
+			"lineRef": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+			"lineName": "Item B",
+			"unitPrice": "200.00",
+			"lineAmount": "120.00",
+			"erpnextItemRef": {"doctype": "Item", "name": "ITEM-B"},
+		}
+		sale["lines"].append(reward)
+		sale["posTotal"] = "420.00"
+		doc = b.build_sales_invoice(
+			_work_item(sale=sale),
+			uom_for=_uom,
+			warehouse_for=_warehouse,
+			customer_for=_customer,
+			mode_of_payment_for=lambda method: "Cash",
+		)
+		trigger, posted_reward = doc["items"]
+		assert "discount_amount" not in trigger and trigger["rate"] == trigger["price_list_rate"] == "300.00"
+		assert (
+			posted_reward["price_list_rate"],
+			posted_reward["discount_amount"],
+			posted_reward["rate"],
+		) == (
+			"200.00",
+			"80.00",
+			"120.00",
+		)
+		assert doc["ignore_pricing_rule"] == 1  # ERPNext Pricing Rules never re-price an offer line
+		assert sum(_erpnext_v16_amount(i) for i in doc["items"]) == Decimal("420.00")
+		assert doc["payments"] == [{"mode_of_payment": "Cash", "amount": "420.00"}]
+
+	def test_the_reward_lines_match_the_golden_vectors(self):
+		# Drift guard: the list above is every discounted line of the contract's `evaluate` vectors. The
+		# vectors live in the Backend-Core contracts tree, which a staged Connector-only bench copy lacks.
+		import json
+		from pathlib import Path
+
+		vectors = (
+			Path(__file__).resolve().parents[5]
+			/ "services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json"
+		)
+		if not vectors.exists():
+			pytest.skip("golden vectors not in this checkout (Connector-only staging)")
+		data = json.loads(vectors.read_text(encoding="utf-8"))
+		expected = [
+			(v["id"], v["currencyCode"], line["unitPrice"], line["promotionDiscount"], line["lineAmount"])
+			for v in data["evaluate"]
+			for line in v["expected"]["lines"]
+			if line.get("promotionDiscount") is not None and Decimal(line["promotionDiscount"]) != 0
+		]
+		assert expected == _OFFER_REWARD_LINES
+		assert all(
+			line["quantity"] == "1"
+			for v in data["evaluate"]
+			for line in v["expected"]["lines"]
+			if line.get("promotionDiscount") is not None and Decimal(line["promotionDiscount"]) != 0
+		)

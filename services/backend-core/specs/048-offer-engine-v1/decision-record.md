@@ -2,8 +2,8 @@
 
 **Status.** OD-1 to OD-10 are **approved by the owner** in the RT-286 planning session of 2026-11-11 (chat):
 OD-1 to OD-5 first, then OD-2 (confirmed), OD-6 to OD-10 by answering the recommended option. They still need to be
-recorded on RT-286. OD-12's permissions are approved too; its guardrail deferral is still proposed. OD-11 is open for
-the Connector slice. None of them is in OpenAPI, a migration or code, so a reversal now costs only a doc change.
+recorded on RT-286. OD-12's permissions are approved too; its guardrail deferral is still proposed. OD-11 is decided
+(option A) by the RT-1340 bench proof, under the owner's delegation of 2026-11-11. None of them is in OpenAPI, a migration or code, so a reversal now costs only a doc change.
 
 Section numbers like §17 refer to Confluence RETAIL 23134209 (owner-approved 2026-10-07).
 
@@ -116,15 +116,39 @@ defined before offline scheduling ships.
 (`promotion_clawback_exceeds_refund`). The till asks the cashier to add the reward units to the return. A return
 never charges the customer in V1.
 
-## OD-11 — How a clawback is posted to ERPNext (open, for the Connector slice S8)
+## OD-11 — How a clawback is posted to ERPNext
 
 | Option | Content |
 |---|---|
-| A | Reduce the credit-note rate of the returned non-reward units by the clawback. The return line is split to quantity 1 where the clawback does not divide. |
+| **A (decided)** | Reduce the credit-note rate of the returned non-reward units by the clawback. The return line is split to quantity 1 where the clawback does not divide. |
 | B | Post the credit note at the original nets, plus a separate non-stock "promotion clawback" line. |
 
-**No recommendation yet.** S8 decides after a lab proof on ERPNext v16. Until then, a partial return that needs a
-clawback is refused (`promotion_return_requires_clawback`), which fails closed.
+**Decided: A** (2026-11-12, RT-1340). The owner delegated the choice on 2026-11-11 ("I delegate you to decide and
+choose recommended", RT-286 comment 16658), with the rule: implement A if it posts exactly on ERPNext v16, else B if
+B does, else stop. The bench proof is in
+[`integrations/erpnext-connector/docs/research/rt-1340-od11/`](../../../../integrations/erpnext-connector/docs/research/rt-1340-od11/README.md)
+(Frappe v16.52.0, ERPNext v16.51.0, a local disposable bench, not the lab):
+
+- **A posts exactly.** E1, return the 300 with a clawback of 80.00: one row of −1 × 220.00 (`price_list_rate` 300.00,
+  `discount_amount` 80.00), total −220.00, which equals the refund. GL balances. A clawback of 10.01 on 3 × 100.00
+  splits into rows of 96.66, 96.66 and 96.67 on the same original row: total −289.99. ERPNext's over-return cap still
+  holds.
+- **B does not post.** ERPNext v16 refuses a positive-quantity row in a return. It refuses a negative rate unless the
+  site-wide "Allow Negative rates for Items" is on, and the Connector never changes Selling Settings (RT-283 D6).
+
+Consequences:
+
+- The clawback shows on the credit note as a native visible discount on the returned units, in the RT-857 shape. No
+  item, account or ERPNext setting is added. Pricing Rules stay ignored (`ignore_pricing_rule = 1`).
+- Fail closed: a clawback that cannot be represented exactly at the currency minor unit is
+  `permanently_rejected / validation`, and nothing is posted.
+- **Not yet postable, needs a contract change first** (recorded on RT-1340):
+  1. The Connector's posting feed (`erpnext-connector/posting-feed.yaml`) carries no clawback and no line promotion,
+     so the Connector cannot learn the clawback or which returned units take it. The interim refusal
+     `promotion_return_requires_clawback` stays until a contract issue adds them and RT-1340 implements A.
+  2. ERPNext refuses a credit-note rate above the original row's rate. A return that gives back an earlier clawback
+     (golden sequence S3 step 2: the reward unit refunded at 200.00 after a sale net of 120.00) cannot be posted under
+     A or B. The `recordReturn` rule cannot carry it either (`returnTotal` = Σ `lineAmount` − Σ clawback = 120.00).
 
 ## OD-12 — Permissions and guardrails
 
