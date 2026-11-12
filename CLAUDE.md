@@ -470,6 +470,7 @@ For every push to a PR that targets `main` (the first push and each corrective p
    - **Revisit:** the owner turns `strict` back on before pilot or production hardening ([Confluence ADR](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/69140481)). Restore the pre-merge sync then.
 5. **Heavy tests before the push, on CircleCI (smart CI Phase 1).** When a fix touches code covered by a CircleCI `remote_suite` (`api`, `db-package`, `backend-fast`, `admin`, `admin-e2e`, `pos`), run that suite on CircleCI before pushing to the PR branch.
    - **When it applies:** only when pushing and triggering CircleCI are already authorized (the owner's standing authorization, or the task's own). This step never grants either.
+   - **Exception:** for Backend-Core db + worker work that is still **uncommitted**, use Depot CI instead (see "Provider selection" below). Depot replaces only the `db-package` run: `api`, `backend-fast` and every other suite still follow this step on CircleCI, and so does db + worker work that is already committed (only uncommitted work was proven on Depot).
    - **How:** push the fix to a separate branch with no PR (`<pr-branch>-preflight`), then trigger `remote_suite` under the RT-981 rules (RT-981 comment 14612):
      - the full 40-character expected SHA, taken from `git ls-remote`;
      - `.circleci/` equal to `origin/main` (the remote guard refuses otherwise);
@@ -479,12 +480,12 @@ For every push to a PR that targets `main` (the first push and each corrective p
      - log each run on the work's Jira issue.
    - **Then:** push to the PR branch only when the suite is green. The laptop runs only light checks.
    - **Limits:** this never replaces GitHub `required`.
-   - **Provider selection (RT-1366, INACTIVE until the RT-1366 live run, acceptance criterion 6, passes and the owner records the activation on RT-1366; until then use CircleCI as written above and ignore this block):**
-     1. **Depot CI** only for the proven family, Backend-Core db + worker (RT-1365), on **uncommitted** work, through the opt-in `.depot/workflows/preflight.yml`. Each run needs the owner's per-run authorization, and the Depot cap re-read before it. How to run it, its traps and its fallback: skill `merging-rt-pull-requests`.
+   - **Provider selection (RT-1366, ACTIVE since 2026-11-12: the live run passed, Depot run `jslc8wzr34`, and the owner approved activation in chat):**
+     1. **Depot CI** only for the proven family, Backend-Core db + worker (RT-1365), on **uncommitted** work, through the opt-in `.depot/workflows/preflight.yml`. Each run needs the owner's per-run authorization. Do not check or ask about the remaining Depot minutes or balance (owner decision 2026-11-12). How to run it, its traps and its fallback: skill `merging-rt-pull-requests`.
      2. **CircleCI `remote_suite`** for every other suite, and for any pushed branch. It stays the preflight of record, and Depot replaces it for a suite only when equivalent Depot coverage is independently verified **and** the owner approves the replacement.
      3. **Local:** light checks only.
      4. **STOP** and report when neither remote provider covers the change.
-     - Never run both providers on the same test by default. A CircleCI run for the same change still follows every RT-981 limit and fail-closed rule above, and a push still needs its authorization. Depot never replaces GitHub `required`. On activation, the owner's decision must also amend the unconditional "When it applies" and "How" lines above for db + worker.
+     - Never run both providers on the same test by default. A CircleCI run for the same change still follows every RT-981 limit and fail-closed rule above, and a push still needs its authorization. Depot never replaces GitHub `required`. The "Exception" line above is that amendment for db + worker.
 6. **Merge only on a completed green `required` (smart CI Phase 0).**
    - **When:** merge only when the newest (latest `started_at`) `required` check-run on the PR's current head SHA is `completed` with conclusion `success`. Check this with `gh api "repos/<owner>/<repo>/commits/<head>/check-runs?check_name=required&filter=all" --jq '.check_runs'` (keep the quotes), not only `gh pr checks`.
    - **How:** always pass `--match-head-commit <head>`. Never pass `--admin` or use any ruleset bypass; the bypass is the owner's, for a stated emergency written on the PR.
