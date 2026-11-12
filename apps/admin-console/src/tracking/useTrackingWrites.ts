@@ -8,10 +8,12 @@
  * outcome is unknown, never success.
  */
 import {
+  type BindResolutionCommand,
   type CorrectExpiryCommand,
   type CreateInventoryRecallCommand,
   type PlaceQualityHoldCommand,
   type ReleaseTrackingHoldCommand,
+  bindTrackingResolution,
   correctTrackingIdentityExpiry,
   createInventoryRecall,
   placeQualityHold,
@@ -131,6 +133,16 @@ export function useCorrectExpiry(identityId: string): GovernedWrite<CorrectExpir
     (command: CorrectExpiryCommand, key: string, signal: AbortSignal) =>
       correctTrackingIdentityExpiry(identityId, command, key, signal),
     [identityId],
+  );
+  return useGovernedWrite(send);
+}
+
+/** RT-455 part 2: bind existing identities to a sale's unresolved lines (owner only, one POST per submit). */
+export function useBindResolution(saleId: string): GovernedWrite<BindResolutionCommand> {
+  const send = useCallback(
+    (command: BindResolutionCommand, key: string, signal: AbortSignal) =>
+      bindTrackingResolution(saleId, command, key, signal),
+    [saleId],
   );
   return useGovernedWrite(send);
 }

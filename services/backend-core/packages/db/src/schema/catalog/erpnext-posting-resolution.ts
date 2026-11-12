@@ -14,6 +14,13 @@
  * resolution_version, never an edit. Composite FK (intent_id, tenant_id) ->
  * erpnext_posting_status (id, tenant_id) is declared in the 0037 SQL migration.
  * TENANT-only RLS by `tenant_id`.
+ *
+ * RT-451 S6 (0095): each line also freezes its tracking (posting-feed.yaml
+ * 1.10.0-draft, RT-50 G7-9 / G7-11): the product's Tracking Profile mode at
+ * intent time, the identity the line was sold from, the ERPNext Batch read
+ * from the edge map (`erpnext_tracking_map`) and, for G7-9 row 3, why the
+ * intent is held (`expired` | `edge_map_missing`). All four are NULL on a
+ * row written before 0095. The CHECKs are declared in the 0095 SQL.
  */
 import { sql } from "drizzle-orm";
 import {
@@ -51,6 +58,14 @@ export const erpnextPostingResolution = pgTable(
     // version (one payer per sale, so the same on every line, as
     // warehouse_ref is). NULL for a sale without responsibilities.
     payerExternalRef: text("payer_external_ref"),
+    // RT-451 S6 (0095): frozen tracking. `tracking_mode` none | batch |
+    // serial (NULL = written before 0095); an identity only on a batch line;
+    // `erpnext_batch_ref` from the edge map; `erp_hold_cause` expired |
+    // edge_map_missing holds the intent off the feed (G7-9 row 3).
+    trackingMode: text("tracking_mode"),
+    trackingIdentityId: uuid("tracking_identity_id"),
+    erpnextBatchRef: text("erpnext_batch_ref"),
+    erpHoldCause: text("erp_hold_cause"),
     resolvedBy: text("resolved_by").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true })
       .notNull()
@@ -76,6 +91,22 @@ export const erpnextPostingResolution = pgTable(
     check(
       "erpnext_posting_resolution_resolved_by_valid",
       sql`${t.resolvedBy} IN ('system', 'operator', 'backfill')`,
+    ),
+    check(
+      "erpnext_posting_resolution_tracking_mode_valid",
+      sql`${t.trackingMode} IS NULL OR ${t.trackingMode} IN ('none', 'batch', 'serial')`,
+    ),
+    check(
+      "erpnext_posting_resolution_batch_ref_length",
+      sql`${t.erpnextBatchRef} IS NULL OR char_length(${t.erpnextBatchRef}) BETWEEN 1 AND 140`,
+    ),
+    check(
+      "erpnext_posting_resolution_hold_cause_valid",
+      sql`${t.erpHoldCause} IS NULL OR ${t.erpHoldCause} IN ('expired', 'edge_map_missing')`,
+    ),
+    check(
+      "erpnext_posting_resolution_tracking_consistent",
+      sql`(${t.trackingIdentityId} IS NULL OR ${t.trackingMode} = 'batch') AND (${t.erpnextBatchRef} IS NULL OR ${t.trackingIdentityId} IS NOT NULL) AND (${t.erpHoldCause} IS NULL OR ${t.trackingIdentityId} IS NOT NULL) AND (${t.trackingIdentityId} IS NULL OR ${t.erpnextBatchRef} IS NOT NULL OR ${t.erpHoldCause} IS NOT NULL) AND (${t.erpHoldCause} IS DISTINCT FROM 'edge_map_missing' OR ${t.erpnextBatchRef} IS NULL)`,
     ),
     index("idx_erpnext_posting_resolution_tenant").on(t.tenantId),
   ],

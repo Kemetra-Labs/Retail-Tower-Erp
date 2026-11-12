@@ -161,7 +161,18 @@ async function assertNoReversalLineage(client: PoolClient, row: IntentRow): Prom
  * The new version must differ from the current one: an identical re-freeze would
  * only turn an in-flight post of the (still correct) current version into a
  * reconciliation case. Throwing rolls the new version back.
+ *
+ * RT-451 S6: the frozen tracking counts as a difference (identity, ERPNext Batch,
+ * hold cause). A repaired edge map changes only the Batch and the hold, and
+ * re-resolving is how a G7-9 row-3 `edge_map_missing` intent is "repaired and
+ * re-posted". EXCEPT compares NULLs as equal. A version frozen before 0095
+ * (`tracking_mode` NULL) compares as `none`, so re-resolving an untracked
+ * intent only to add `none` is still "unchanged", while one that now freezes
+ * `batch` is a change.
  */
+const RESOLUTION_COMPARED_COLUMNS =
+  "sale_line_id, erpnext_item_ref, warehouse_ref, COALESCE(tracking_mode, 'none'), tracking_identity_id, erpnext_batch_ref, erp_hold_cause";
+
 async function assertResolutionChanged(
   client: PoolClient,
   intentId: string,
@@ -171,16 +182,16 @@ async function assertResolutionChanged(
   if (previous === null) return;
   const diff = await client.query<{ changed: boolean }>(
     `SELECT EXISTS (
-       (SELECT sale_line_id, erpnext_item_ref, warehouse_ref
+       (SELECT ${RESOLUTION_COMPARED_COLUMNS}
           FROM erpnext_posting_resolution WHERE intent_id = $1 AND resolution_version = $2
         EXCEPT
-        SELECT sale_line_id, erpnext_item_ref, warehouse_ref
+        SELECT ${RESOLUTION_COMPARED_COLUMNS}
           FROM erpnext_posting_resolution WHERE intent_id = $1 AND resolution_version = $3)
        UNION ALL
-       (SELECT sale_line_id, erpnext_item_ref, warehouse_ref
+       (SELECT ${RESOLUTION_COMPARED_COLUMNS}
           FROM erpnext_posting_resolution WHERE intent_id = $1 AND resolution_version = $3
         EXCEPT
-        SELECT sale_line_id, erpnext_item_ref, warehouse_ref
+        SELECT ${RESOLUTION_COMPARED_COLUMNS}
           FROM erpnext_posting_resolution WHERE intent_id = $1 AND resolution_version = $2)
      ) AS changed`,
     [intentId, version, previous],

@@ -10,7 +10,11 @@
  * fallback label.
  */
 import { consoleGetCatalogProduct } from "@/lib/catalog-queries";
-import type { TrackingIdentity } from "@/lib/inventory-queries";
+import {
+  type TrackingIdentity,
+  type TrackingIdentityList,
+  listTrackingIdentities,
+} from "@/lib/inventory-queries";
 import {
   type ExpiryCorrection,
   type ExpiryCorrectionList,
@@ -18,7 +22,13 @@ import {
   type InventoryRecall,
   type RecallSummary,
   type RecallSummaryList,
+  type ResolutionQueue,
+  type ResolutionQueueItem,
+  type ResolutionStatusFilter,
   type SafetyFindingList,
+  type SaleLineFinding,
+  type SaleLineFindingKind,
+  type SaleLineFindingList,
   type TrackingHold,
   type TrackingHoldList,
   type TrackingIdentityPositions,
@@ -30,7 +40,9 @@ import {
   listExpiryCorrections,
   listInventoryRecalls,
   listSafetyFindings,
+  listSaleLineFindings,
   listTrackingHolds,
+  listTrackingResolutionQueue,
 } from "@/lib/tracking-queries";
 import { useMembers } from "@/operators/useMembers";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -59,6 +71,13 @@ export const trackingQueryKeys = {
   identity: (s: InventoryScope, id: string) => [...scopeKey(s), "identity", id] as const,
   positions: (s: InventoryScope, id: string) => [...scopeKey(s), "positions", id] as const,
   corrections: (s: InventoryScope, id: string) => [...scopeKey(s), "corrections", id] as const,
+  productIdentities: (s: InventoryScope, productId: string) =>
+    [...scopeKey(s), "product-identities", productId] as const,
+  resolutionCount: (s: InventoryScope) => [...scopeKey(s), "resolution-count"] as const,
+  resolutions: (s: InventoryScope, status: ResolutionStatusFilter) =>
+    [...scopeKey(s), "resolutions", status] as const,
+  saleLineFindings: (s: InventoryScope, kind: SaleLineFindingKind | undefined) =>
+    [...scopeKey(s), "sale-line-findings", kind ?? "all"] as const,
   productName: (tenantId: string | null, productId: string) =>
     ["tracking", tenantId, "product-name", productId] as const,
 };
@@ -121,6 +140,59 @@ export function useRecalls(scope: InventoryScope): PagedState<RecallSummary> {
     queryKey: trackingQueryKeys.recalls(scope),
     scope,
     fetchPage: listInventoryRecalls,
+  });
+}
+
+/**
+ * RT-455 part 2 (OD-9): the unresolved-sale count in the caller's scope. Every
+ * role that opens the screen may ask; a store_manager gets only this number
+ * (its `items` are always empty). One item is enough to read it. Unknown while
+ * loading or failed: never zero.
+ */
+export function useUnresolvedCount(scope: InventoryScope): ReadState<number> {
+  return useInventoryRead({
+    queryKey: trackingQueryKeys.resolutionCount(scope),
+    scope,
+    load: async () => {
+      const res = await listTrackingResolutionQueue({ status: "unresolved", limit: 1 });
+      return { ...res, data: res.data ? res.data.unresolvedCount : undefined };
+    },
+  });
+}
+
+/** The queue's sales, newest capture first (owner / tenant_admin only; never mounted for others). */
+export function useResolutionQueue(
+  scope: InventoryScope,
+  status: ResolutionStatusFilter,
+): PagedState<ResolutionQueueItem> {
+  return useInventoryPages<ResolutionQueueItem, ResolutionQueue>({
+    queryKey: trackingQueryKeys.resolutions(scope, status),
+    scope,
+    fetchPage: (page) => listTrackingResolutionQueue({ ...page, status }),
+  });
+}
+
+/** A product's batches and serials, for the bind's identity picker (owner / tenant_admin). */
+export function useProductIdentities(
+  scope: InventoryScope,
+  productId: string,
+): PagedState<TrackingIdentity> {
+  return useInventoryPages<TrackingIdentity, TrackingIdentityList>({
+    queryKey: trackingQueryKeys.productIdentities(scope, productId),
+    scope,
+    fetchPage: (page) => listTrackingIdentities(productId, page),
+  });
+}
+
+/** Recorded sale-line findings, newest first, optionally of one kind (OD-2). */
+export function useSaleLineFindings(
+  scope: InventoryScope,
+  kind: SaleLineFindingKind | undefined,
+): PagedState<SaleLineFinding> {
+  return useInventoryPages<SaleLineFinding, SaleLineFindingList>({
+    queryKey: trackingQueryKeys.saleLineFindings(scope, kind),
+    scope,
+    fetchPage: (page) => listSaleLineFindings({ ...page, kind }),
   });
 }
 

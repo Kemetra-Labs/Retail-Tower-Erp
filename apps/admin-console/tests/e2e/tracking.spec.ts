@@ -19,6 +19,8 @@ const IDENTITY = "0190f000-0000-7000-8000-0000000007b1";
 const HOLD = "0190f000-0000-7000-8000-0000000007e1";
 const OMAR = "0190f000-0000-7000-8000-0000000000c1";
 const INV = "/api/inventory/v1";
+const SALE = "0190f000-0000-7000-8000-000000000a01";
+const LINE = "0190f000-0000-7000-8000-000000000b01";
 
 const json = (body: unknown, status = 200) => ({
   status,
@@ -77,6 +79,41 @@ const hold = {
   releasedAt: null,
   releaseNote: null,
   active: true,
+};
+const unresolvedSale = {
+  saleId: SALE,
+  storeId: STORE,
+  businessDate: "2026-11-10",
+  occurredAt: "2026-11-10T09:00:00Z",
+  capturedAt: "2026-11-10T09:05:00Z",
+  status: "unresolved",
+  unresolvedLines: [
+    {
+      saleLineId: LINE,
+      tenantProductRef: PRODUCT,
+      reason: "identity_unknown",
+      sentIdentityId: null,
+      scannedCode: "LOT-X-77",
+      quantity: "2",
+      unit: "pcs",
+    },
+  ],
+  resolution: null,
+};
+const saleLineFinding = {
+  id: "0190f000-0000-7000-8000-000000000d01",
+  kind: "sold_under_hold",
+  severity: "critical",
+  cause: "quality_hold",
+  storeId: STORE,
+  saleId: SALE,
+  saleLineId: LINE,
+  tenantProductRef: PRODUCT,
+  trackingIdentityId: IDENTITY,
+  holdId: HOLD,
+  businessDate: "2026-11-10",
+  occurredAt: "2026-11-10T09:00:00Z",
+  recordedAt: "2026-11-10T09:05:00Z",
 };
 const statuses = [
   "sellable",
@@ -143,6 +180,36 @@ async function mock(page: Page, role: string, tracked = true): Promise<void> {
   );
   await page.route(`**${INV}/tracking-holds/${HOLD}`, (r) => r.fulfill(json(hold)));
   await page.route(`**${INV}/recalls**`, (r) => r.fulfill(json({ items: [], nextCursor: null })));
+  await page.route(`**${INV}/tracking-resolutions**`, (r) =>
+    r.fulfill(
+      json({
+        items: role === "store_manager" ? [] : [unresolvedSale],
+        nextCursor: null,
+        unresolvedCount: 1,
+      }),
+    ),
+  );
+  await page.route(`**${INV}/safety/sale-line-findings**`, (r) =>
+    r.fulfill(json({ items: [saleLineFinding], nextCursor: null })),
+  );
+  await page.route(`**${INV}/products/${PRODUCT}/tracking-identities**`, (r) =>
+    r.fulfill(
+      json({
+        items: [
+          {
+            id: IDENTITY,
+            productId: PRODUCT,
+            kind: "batch",
+            code: "LOT-2026-1004",
+            expiryDate: "2027-04-04",
+            manufacturedOn: null,
+            origin: "erp_external",
+          },
+        ],
+        nextCursor: null,
+      }),
+    ),
+  );
   await page.route(`**${INV}/tracking-identities/${IDENTITY}`, (r) =>
     r.fulfill(
       json({
@@ -237,22 +304,136 @@ test("owner: nav entry, band counts, active holds and the hold drawer", async ({
   await lightAndDark(page, testInfo, "hold-drawer");
 });
 
-test("owner: the resolution tab is «coming soon» and calls nothing", async ({
+test("owner: the resolution queue lists the unresolved sale and the count", async ({
   page,
   t,
 }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await mock(page, "owner");
-  const asked: string[] = [];
-  page.on("request", (req) => {
-    if (/tracking-resolution|sale-line-findings/.test(req.url())) asked.push(req.url());
+  await page.goto("/tracking?tab=resolution");
+  const table = page.getByTestId("tracking-queue-table");
+  await expect(table.getByText("LOT-X-77")).toBeVisible();
+  await expect(table.getByText("عصير مانجو 1 لتر")).toBeVisible();
+  await expect(page.getByRole("tab", { name: t("tracking.tab.resolution") })).toContainText("1");
+  await lightAndDark(page, testInfo, "resolution");
+});
+
+test("owner: binding captures the reason and the note, confirms, and shows the server's answer", async ({
+  page,
+  t,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mock(page, "owner");
+  let sent: { reasonCode?: string; note?: string; lines?: unknown[] } | undefined;
+  await page.route(`**${INV}/tracking-resolutions/${SALE}/bind`, async (r) => {
+    sent = r.request().postDataJSON();
+    await r.fulfill(
+      json({
+        id: "0190f000-0000-7000-8000-000000000e01",
+        saleId: SALE,
+        reasonCode: sent?.reasonCode,
+        note: sent?.note,
+        resolvedBy: OMAR,
+        resolvedAt: "2026-11-12T01:10:00Z",
+        lines: sent?.lines,
+      }),
+    );
   });
   await page.goto("/tracking?tab=resolution");
-  await expect(page.getByTestId("tracking-soon")).toBeVisible();
-  await expect(page.getByText(t("tracking.resolution.title"))).toBeVisible();
+  await page.getByRole("button", { name: t("tracking.resolution.bind") }).click();
+  const form = page.getByTestId("tracking-bind-form");
+  await form.getByRole("button", { name: t("tracking.resolution.submit") }).click();
+  await expect(form.getByText(t("tracking.write.error.bindNote"))).toBeVisible();
+  await form.getByRole("combobox", { name: /عصير مانجو/ }).selectOption(IDENTITY);
+  await form.getByLabel(t("tracking.write.reason")).selectOption("label_misprint");
+  await form.getByLabel(t("tracking.write.note")).fill("مسح الدفعة الخطأ عند الكاشير");
+  await lightAndDark(page, testInfo, "bind-form");
+  await form.getByRole("button", { name: t("tracking.resolution.submit") }).click();
+  await form.getByRole("button", { name: t("tracking.resolution.confirmYes") }).click();
+  await expect(form.getByText(t("tracking.resolution.recorded", { count: 1 }))).toBeVisible();
+  expect(sent?.reasonCode).toBe("label_misprint");
+  expect(sent?.note).toBe("مسح الدفعة الخطأ عند الكاشير");
+  expect(sent?.lines).toEqual([{ saleLineId: LINE, trackingIdentityId: IDENTITY }]);
+});
+
+test("owner: a 409 refusal is shown as sent and nothing reads as recorded", async ({ page, t }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mock(page, "owner");
+  await page.route(`**${INV}/tracking-resolutions/${SALE}/bind`, (r) =>
+    r.fulfill(
+      json(
+        {
+          error: {
+            code: "tracking_resolution_identity_held",
+            message: "The identity is held.",
+            request_id: "req-409",
+          },
+        },
+        409,
+      ),
+    ),
+  );
+  await page.goto("/tracking?tab=resolution");
+  await page.getByRole("button", { name: t("tracking.resolution.bind") }).click();
+  const form = page.getByTestId("tracking-bind-form");
+  await form.getByRole("combobox", { name: /عصير مانجو/ }).selectOption(IDENTITY);
+  await form.getByLabel(t("tracking.write.reason")).selectOption("other");
+  await form.getByLabel(t("tracking.write.note")).fill("n");
+  await form.getByRole("button", { name: t("tracking.resolution.submit") }).click();
+  await form.getByRole("button", { name: t("tracking.resolution.confirmYes") }).click();
+  await expect(form.getByTestId("tracking-write-refusal")).toBeVisible();
+  await expect(form.getByText(t("tracking.write.hint.resolutionHeld"))).toBeVisible();
+});
+
+test("tenant_admin: reads the queue, the bind is recessed with the owner-only reason", async ({
+  page,
+  t,
+}, testInfo) => {
+  await mock(page, "tenant_admin");
+  await page.goto("/tracking?tab=resolution");
+  const bind = page.getByRole("button", { name: t("tracking.resolution.bind") });
+  await expect(bind).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("tracking-bind-notice")).toBeVisible();
+  await bind.click({ force: true });
+  await expect(page.getByTestId("tracking-bind-form")).toHaveCount(0);
+  await lightAndDark(page, testInfo, "resolution-admin");
+});
+
+test("owner: empty, error and loading states of the queue", async ({ page, t }, testInfo) => {
+  await mock(page, "owner");
+  await page.route(`**${INV}/tracking-resolutions**`, (r) =>
+    r.fulfill(json({ items: [], nextCursor: null, unresolvedCount: 0 })),
+  );
+  await page.goto("/tracking?tab=resolution");
+  await expect(page.getByText(t("tracking.resolution.empty"))).toBeVisible();
+  await lightAndDark(page, testInfo, "resolution-empty");
+
+  await page.route(`**${INV}/tracking-resolutions**`, (r) =>
+    r.fulfill(json({ error: { code: "x", message: "x", request_id: "req-5" } }, 500)),
+  );
+  await page.goto("/tracking?tab=resolution");
+  await expect(page.getByText(t("tracking.resolution.loadFailed"))).toBeVisible();
+  await lightAndDark(page, testInfo, "resolution-error");
+
+  await page.route(`**${INV}/tracking-resolutions**`, async (r) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await r.fulfill(json({ items: [], nextCursor: null, unresolvedCount: 0 }));
+  });
+  await page.goto("/tracking?tab=resolution");
+  await expect(page.getByRole("status").first()).toBeVisible();
+});
+
+test("owner: the sale-line findings tab, and the consistency check shown as unavailable", async ({
+  page,
+  t,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await mock(page, "owner");
   await page.goto("/tracking?tab=saleLines");
-  await expect(page.getByTestId("tracking-soon")).toBeVisible();
-  expect(asked).toEqual([]);
-  await lightAndDark(page, testInfo, "sale-lines-soon");
+  const table = page.getByTestId("tracking-saleline-table");
+  await expect(table.getByText(t("tracking.saleLines.kind.sold_under_hold"))).toBeVisible();
+  await expect(page.getByTestId("tracking-consistency-unavailable")).toBeVisible();
+  await lightAndDark(page, testInfo, "sale-lines");
 });
 
 test("store_manager: findings only, no drawer, the OD-9 line", async ({ page, t }, testInfo) => {
@@ -262,7 +443,12 @@ test("store_manager: findings only, no drawer, the OD-9 line", async ({ page, t 
   await expect(table.getByText("LOT-2026-0912")).toBeVisible();
   await expect(table.getByRole("button")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: t("tracking.tab.recalls") })).toHaveCount(0);
-  await expect(page.getByTestId("tracking-manager-notes")).toBeVisible();
+  const notes = page.getByTestId("tracking-manager-notes");
+  await expect(notes).toBeVisible();
+  // OD-9: the count only, never a row.
+  await expect(notes.getByTestId("tracking-queue-count")).toContainText("1");
+  await page.goto("/tracking?tab=resolution");
+  await expect(page.getByTestId("tracking-queue-table")).toHaveCount(0);
   await lightAndDark(page, testInfo, "manager");
 });
 

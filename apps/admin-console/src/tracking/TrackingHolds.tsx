@@ -11,10 +11,13 @@
  *   tabs (OD-8), only when the server reports one.
  * - Tabs: active holds and expired-sellable (findings); «قريبة الانتهاء»
  *   (stopped: `expiring_lot` is never emitted); released holds and past recalls
- *   (owner / tenant_admin, TR-3); the resolution queue and sale-line findings
- *   (RT-451 Step 0, contract-only: «قريبًا», nothing called).
+ *   (owner / tenant_admin, TR-3).
+ * - RT-455 part 2 (RT-451 S3 and S5 runtime): the Tracking Resolution queue
+ *   (list and bind; the owner binds) and the sale-line findings on their own
+ *   keyset-paged read. The tracking consistency check has no emitter on `main`:
+ *   it is shown as unavailable, never as zero.
  * - A store_manager sees findings for its own stores, rows without «عرض», and
- *   the OD-9 count line as «قريبًا».
+ *   the OD-9 count of unresolved sales in its stores, never a row.
  *
  * The screen is hidden for a tenant with no tracked products (TR-6), and while
  * the tenant's tracked-selling switch is off or its deployment gate answers
@@ -41,19 +44,27 @@ import { type InventoryScope, type ReadState, useInventoryScope } from "../inven
 import { ActiveHoldsPanel, ConsistencyBand, ExpiredPanel, ExpiringPanel } from "./FindingPanels";
 import { RecallsPanel, ReleasedPanel } from "./HistoryPanels";
 import { RecallCreateDrawer } from "./RecallCreate";
+import { ManagerQueueCount, QueueCountLine, ResolutionPanel } from "./ResolutionPanels";
+import { SaleLinePanel } from "./SaleLinePanels";
 import { HoldDrawer, RecallDrawer } from "./TrackingDrawers";
-import { ComingSoon, TrackingNamesProvider } from "./parts";
+import { TrackingNamesProvider } from "./parts";
 import {
   type FindingGroups,
   type TrackingTab,
   canOpenTracking,
   canReadHolds,
+  canReadQueue,
   groupFindings,
   tabForKey,
   tabFromSearch,
   tabsFor,
 } from "./trackingLogic";
-import { useMemberNames, useSafetyFindings, useTrackingSummaryQuery } from "./useTracking";
+import {
+  useMemberNames,
+  useSafetyFindings,
+  useTrackingSummaryQuery,
+  useUnresolvedCount,
+} from "./useTracking";
 import "../shell/surface.css";
 import "../inventory/inventory.css";
 import "./tracking.css";
@@ -92,8 +103,16 @@ function panelId(tab: TrackingTab): string {
   return `tracking-panel-${tab}`;
 }
 
-/** A count beside a findings tab; none while the findings are unknown. */
-function tabCount(tab: TrackingTab, groups: FindingGroups | undefined): number | undefined {
+/**
+ * A count beside a tab: current-state findings, and the unresolved sales (OD-2,
+ * TR-8: the event findings are never counted). None while a count is unknown.
+ */
+function tabCount(
+  tab: TrackingTab,
+  groups: FindingGroups | undefined,
+  unresolved: number | undefined,
+): number | undefined {
+  if (tab === "resolution") return unresolved;
   if (!groups) return undefined;
   if (tab === "active") return groups.holds.length;
   if (tab === "expired") return groups.expired.length;
@@ -104,11 +123,13 @@ function TabList({
   tabs,
   selected,
   groups,
+  unresolved,
   onSelect,
 }: Readonly<{
   tabs: readonly TrackingTab[];
   selected: TrackingTab;
   groups: FindingGroups | undefined;
+  unresolved: number | undefined;
   onSelect: (tab: TrackingTab) => void;
 }>): React.JSX.Element {
   const t = useT();
@@ -125,7 +146,7 @@ function TabList({
     <div className="tracking-tabs" role="tablist" aria-label={t("tracking.tabs.label")}>
       {tabs.map((tab) => {
         const isSelected = selected === tab;
-        const count = tabCount(tab, groups);
+        const count = tabCount(tab, groups, unresolved);
         return (
           <button
             key={tab}
@@ -193,6 +214,7 @@ function FindingsGate({
 function TabPanel(props: Readonly<PanelProps>): React.JSX.Element {
   const t = useT();
   const { tab, scope, findings, groups } = props;
+  const reads = canReadQueue(scope.role);
   const canOpen = canReadHolds(scope.role);
   let body: React.ReactNode;
   if (tab === "active" || tab === "expired") {
@@ -212,16 +234,18 @@ function TabPanel(props: Readonly<PanelProps>): React.JSX.Element {
     body = <ReleasedPanel scope={scope} />;
   } else if (tab === "recalls") {
     body = <RecallsPanel scope={scope} onOpen={props.onOpenRecall} />;
-  } else {
-    const resolution = tab === "resolution";
-    body = (
+  } else if (tab === "resolution") {
+    // OD-9: a store_manager gets the count only, never a row.
+    body = reads ? (
+      <ResolutionPanel scope={scope} />
+    ) : (
       <div className="inventory__panel-body inventory__panel-body--solo">
-        <ComingSoon
-          title={t(resolution ? "tracking.resolution.title" : "tracking.saleLines.title")}
-          body={t(resolution ? "tracking.resolution.body" : "tracking.saleLines.body")}
-        />
+        <p className="tracking__muted">{t("tracking.resolution.title")}</p>
+        <ManagerQueueCount scope={scope} />
       </div>
     );
+  } else {
+    body = <SaleLinePanel scope={scope} />;
   }
   return (
     <section
@@ -237,15 +261,15 @@ function TabPanel(props: Readonly<PanelProps>): React.JSX.Element {
 
 // --- Page -------------------------------------------------------------------------
 
-function StoreManagerNotes(): React.JSX.Element {
+function StoreManagerNotes({
+  unresolved,
+}: Readonly<{ unresolved: ReadState<number> }>): React.JSX.Element {
   const t = useT();
   return (
     <div className="inventory__strip" data-testid="tracking-manager-notes">
       <p className="inventory__note">{t("tracking.manager.readOnly")}</p>
-      {/* OD-9: the count of unresolved sales in its stores comes from the queue read (RT-451). */}
-      <p className="inventory__note">
-        <span className="badge">{t("tracking.soon.tag")}</span> {t("tracking.manager.queueCount")}
-      </p>
+      {/* OD-9: the count of unresolved sales in its stores, from the queue read. */}
+      <QueueCountLine count={unresolved} />
     </div>
   );
 }
@@ -264,6 +288,7 @@ function HoldsView({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.El
     () => (findings.data ? groupFindings(findings.data.findings) : undefined),
     [findings.data],
   );
+  const unresolved = useUnresolvedCount(scope);
   const facts = useBandFacts(findings, groups ?? { holds: [], expired: [], consistency: [] });
   const holdsRole = canReadHolds(scope.role);
   const storeName = useStoreLabels(
@@ -322,9 +347,15 @@ function HoldsView({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.El
             {t("tracking.band.unknown")}
           </p>
         ) : null}
-        {holdsRole ? null : <StoreManagerNotes />}
+        {holdsRole ? null : <StoreManagerNotes unresolved={unresolved} />}
         {groups ? <ConsistencyBand findings={groups.consistency} /> : null}
-        <TabList tabs={tabs} selected={selected} groups={groups} onSelect={select} />
+        <TabList
+          tabs={tabs}
+          selected={selected}
+          groups={groups}
+          unresolved={unresolved.data}
+          onSelect={select}
+        />
         <TabPanel
           tab={selected}
           scope={scope}

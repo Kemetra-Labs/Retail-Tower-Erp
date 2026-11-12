@@ -446,3 +446,11 @@
     border-color: CanvasText;
   }
 }
+
+/* RT-455 part 2: the tracking profile's note. */
+.catalog-hint {
+  margin: var(--space-2) 0 0;
+  max-inline-size: 75ch;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
