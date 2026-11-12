@@ -115,6 +115,23 @@ const CaptureSaleLineTrackingSchema = z
   })
   .strict();
 
+/**
+ * RT-1335 / RT-1337 (contract `CaptureSaleLinePromotion`, spec 048 §8): the
+ * frozen fact of an automatic offer on a line, as the till applied it from the
+ * Offer Pack. The shape is here (400); the arithmetic and the rule-level check
+ * need the offer version and the Pack revision it cites, so they run in
+ * `sale-promotions.ts` (422 `sale_line_pricing_invalid` for arithmetic; a
+ * rule-level difference is accepted and flagged, OD-9).
+ */
+const CaptureSaleLinePromotionSchema = z
+  .object({
+    offerId: z.string().uuid().transform((id) => id.toLowerCase()),
+    offerVersion: z.number().int().min(1).max(2_147_483_647),
+    packRevision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    discountAmount: decimalAmount,
+  })
+  .strict();
+
 export const CaptureSaleLineSchema = z
   .object({
     lineName: z.string().min(1).max(500).refine(hasNoNul, NO_NUL_MESSAGE),
@@ -130,6 +147,8 @@ export const CaptureSaleLineSchema = z
     discount: CaptureSaleLineDiscountSchema.optional(),
     // RT-451 S3: the line's tracking identity (hashed; frozen on the line).
     tracking: CaptureSaleLineTrackingSchema.optional(),
+    // RT-1337 (spec 048): an automatic offer's frozen fact; lineAmount is then the net after it. Hashed and stored.
+    promotion: CaptureSaleLinePromotionSchema.optional(),
   })
   .strict();
 
@@ -189,9 +208,26 @@ function compareInstants(a: Instant, b: Instant, shiftMs = 0): number {
  *   - `occurredAt - admissionCheckAt <= 7 days`.
  */
 function checkAdmissionCheckAt(
-  body: { occurredAt: string; operatorUserId?: string | undefined; admissionCheckAt?: string | undefined },
+  body: {
+    occurredAt: string;
+    operatorUserId?: string | undefined;
+    admissionCheckAt?: string | undefined;
+    lines?: ReadonlyArray<{ promotion?: unknown; discount?: unknown }> | undefined;
+    responsibilities?: ReadonlyArray<unknown> | undefined;
+  },
   ctx: z.RefinementCtx,
 ): void {
+  // RT-1337 (OD-5): offers are exclusive of the manual discount; both on one line is a 400.
+  body.lines?.forEach((l, i) => {
+    if (l.promotion !== undefined && l.discount !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines", i, "promotion"], message: "a line cannot carry both an offer promotion and a manual discount" });
+    }
+    // RT-1337: a credit sale (a responsibility on the envelope) returns through the credit reversal, which does not
+    // settle an offer clawback yet; an offer on such a sale would refund the discount twice. Refused until it does.
+    if (l.promotion !== undefined && (body.responsibilities?.length ?? 0) > 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines", i, "promotion"], message: "an offer promotion cannot be combined with sale responsibilities (credit sale)" });
+    }
+  });
   if (body.admissionCheckAt === undefined) return;
   const path = ["admissionCheckAt"];
   if (body.operatorUserId === undefined) {

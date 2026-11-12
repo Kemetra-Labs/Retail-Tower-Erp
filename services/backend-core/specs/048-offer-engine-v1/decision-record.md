@@ -80,6 +80,12 @@ offline. The till runs the Pack and invents no rule (§19). Cost: a large catego
 any shared store during an overlapping window. The conflict preview names the other offer and the shared products.
 Evaluation never has to choose between offers. Best Deal (§17) comes later, together with stacking.
 
+**Runtime note (RT-1337).** The 0101 schema enforces the Pack invariant in SQL for every window: a product is in at
+most ONE offer per store in any Pack revision (an EXCLUDE constraint). So the conflict check refuses two live offers on
+the same product and store even when their windows are disjoint, and the earliest-published rule applies to every live
+offer (Scheduled, Active or Paused). An offer whose window has closed in a store, or that was ended, no longer holds
+products there.
+
 **Clarifications** (owner-delegated, RT-1335 contract review, 2026-11-11; contract `offers.openapi.yaml`):
 
 - **Paused offers count.** The conflict check covers Scheduled, Active **and Paused** offers, because a paused offer
@@ -145,10 +151,18 @@ Consequences:
   item, account or ERPNext setting is added. Pricing Rules stay ignored (`ignore_pricing_rule = 1`).
 - Fail closed: a clawback that cannot be represented exactly at the currency minor unit is
   `permanently_rejected / validation`, and nothing is posted.
+- **Backend-Core (RT-1337, 2026-11-12), corrected in the validation round:** the interim refusal STAYS. A return is
+  refused with 422 `promotion_return_requires_clawback` when an offer's clawback is above 0, when it would give back an
+  earlier clawback (S3 step 2), or when it includes a reward line. It lifts only after (a) the posting-feed contract
+  carries the per-line clawback and (b) the Connector implements option A.
 - **Not yet postable, needs a contract change first** (recorded on RT-1340):
   1. The Connector's posting feed (`erpnext-connector/posting-feed.yaml`) carries no clawback and no line promotion,
-     so the Connector cannot learn the clawback or which returned units take it. The interim refusal
-     `promotion_return_requires_clawback` stays until a contract issue adds them and RT-1340 implements A.
+     and the Connector on `main` has no option A (RT-1340 merged the decision and the bench proof only; `tender.py`
+     raises `TenderMismatch`, a permanent rejection with no re-drive). The refusal `promotion_return_requires_clawback`
+     therefore stays for every clawback above 0 until a contract issue adds the per-line clawback and a Connector issue
+     implements A. The return of a reward line is refused too: the Connector's return builder requires `unitPrice` ×
+     `quantity` = `lineAmount`, so a reward line (net of its discount) cannot post as it is. Both need the Connector to
+     apply the discount to a returned unit as it does to a sale. Do NOT extend the feed contract in RT-1337.
   2. ERPNext refuses a credit-note rate above the original row's rate. So a return that gives back an earlier clawback
      (golden sequence S3 step 2: the reward unit refunded at 200.00 after a sale net of 120.00) cannot be posted under
      A alone. A give-back row of quantity −1 on a non-stock item, next to the reward unit at its net, does post. The
@@ -165,3 +179,25 @@ Consequences:
 **Guardrails, still proposed** (not yet asked):
 
 - Price guardrails (a minimum selling price, a tenant maximum percent, §17) are deferred until the catalog has a price-floor field. V1 is bounded only by `P ≤ 100`.
+
+## RT-1337 review rounds (2026-11-12) — V1 limits recorded
+
+- **Credit sale:** a capture whose envelope carries `responsibilities` cannot carry a line `promotion` (400
+  `validation_error`). A credit sale returns through the credit reversal, which does not settle a clawback, so an offer
+  on it would refund the discount twice. The POS (RT-1339) does not apply offers to a credit sale. The RT-1312
+  quarantine is a till-initiated upload of a refused sale, not a server-side route, so it is not a fit for a
+  server-side diversion; follow-up: let the credit reversal call the settlement, or route such a sale to quarantine.
+- **OD-7 across disjoint windows:** accepted as stricter for V1 (any shared product in a shared store conflicts);
+  follow-up: make the exclusion window-aware.
+- **Unit bound:** one evaluation expands at most 100,000 units; a larger eligible quantity is a till defect (422
+  `sale_line_pricing_invalid`).
+- **Participant citation:** an eligible unit the server counts as taking part but the till did not cite is flagged
+  (`participant_not_cited`) in the `sale.offer_review_flagged` audit row; the sale is accepted (OD-9). The audit row is
+  the queryable surface for now; the RT-1312 quarantine does not fit an accepted sale. Gap: no review queue.
+- **Membership scope (RT-131):** a role never widens a membership. An `owner` or `tenant_admin` with a specific-stores
+  membership is bounded like a `store_manager` for reads and pauses, and manages or publishes only offers wholly inside
+  their stores (never an all-stores offer). Whole-offer pause is for tenant-wide callers only.
+- **Pack currency:** no guess. The store's resolved prices must use exactly one currency; otherwise `currencyCode` is
+  `XXX` and `offers` is empty. `freshnessWindowHours` 24 stays in the Pack body. `packRevision` is the latest tenant
+  revision that changed this store's Pack (0 before any), documented in the contract.
+

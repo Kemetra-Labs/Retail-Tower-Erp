@@ -6,21 +6,21 @@ info:
     Jira RT-1335 (RT-286 slice S2, Post-Pilot). Design record:
     `services/backend-core/specs/048-offer-engine-v1/spec.md` and its
     `decision-record.md` (OD-1 to OD-10 and the OD-12 permissions approved by
-    the owner on 2026-11-11; OD-11 open for the Connector slice). Section
+    the owner on 2026-11-11; OD-11 decided: option A, RT-1340). Section
     numbers such as §16 refer to Confluence RETAIL 23134209 (owner-approved
     2026-10-07).
 
 
-    **Posture.** `1.0.0-draft`, `[GATED: contract]` OpenAPI, and
-    **contract-only**: every operation carries `x-runtime-status:
-    contract-only`. Backend-Core has no controller, guard, service, table or
-    migration for these routes yet; the schema is RT-1336 (S3) and the
-    runtime is RT-1337 (S4). This file is a new contract, so it changes no
-    existing one. The sale-side facts (`CaptureSaleLine.promotion`,
-    `SaleLine.promotion`, `SaleReturn.promotionClawbacks` and the two return
-    refusals) are in `pos-sales/sales.yaml` 1.22.0-draft. The evaluation
-    golden vectors are `packages/contracts/fixtures/offers/golden-vectors.json`
-    (S5).
+    **Posture.** `1.0.0-draft`, `[GATED: contract]` OpenAPI, and LIVE since
+    RT-1337 (RT-286 S4): the eleven Console operations and `posGetOfferPack`
+    are served by Backend-Core, on the RT-1336 schema, and no operation
+    carries `x-runtime-status` any more. The sale-side facts
+    (`CaptureSaleLine.promotion`, `SaleLine.promotion`,
+    `SaleReturn.promotionClawbacks` and the two return refusals) are in
+    `pos-sales/sales.yaml` 1.22.0-draft; `SaleHistoryLine.promotion` is in
+    `pos-sales/sale-history.yaml` and `console-sales.openapi.yaml`. The
+    evaluation golden vectors are
+    `packages/contracts/fixtures/offers/golden-vectors.json` (S5).
 
 
     **What this surface is.** V1 has one offer type, `buy_x_get_y_percent`:
@@ -82,6 +82,13 @@ info:
         and `pausedStores` list to the caller's own stores, so another store's
         id, pause reason and pausing user are never returned; an all-stores
         offer reads `allStores: true`.
+      - A role never widens a membership (RT-131): an `owner` or
+        `tenant_admin` whose membership names **specific stores** is bounded
+        like a `store_manager` for reads and pauses (own stores only, no
+        whole-offer pause), and may create, edit, preview, publish, resume,
+        end or archive only an offer whose store scope lists stores that are
+        all their own (never an all-stores offer): another offer is 403
+        `forbidden`, or 404 `offer_not_found` when it is not visible to them.
       - Any other role is 403 `forbidden` on every operation.
 
 
@@ -101,11 +108,18 @@ info:
     **Conflicts (OD-7).** In V1 a unit belongs to at most one offer. A
     publish, or a resume, is refused with 409 `offer_conflict` when the
     offer's eligible set shares a product with another `scheduled`, `active`
-    or `paused` offer of the tenant, in a store both offers cover, during
-    overlapping windows. The refusal body lists each conflicting offer and
-    the number of shared products. A paused offer counts, so that resuming
-    it can never create an overlap (OD-7 clarification, decision record).
-    Best Deal and stacking come later (§17).
+    or `paused` offer of the tenant, in a store both offers cover. The
+    refusal body lists each conflicting offer and the number of shared
+    products. A paused offer counts, so that resuming it can never create an
+    overlap (OD-7 clarification, decision record). RT-1337 reads the rule
+    stricter than "overlapping windows", because the Pack invariant forces it
+    (the RT-1336 EXCLUDE constraint: a product is in at most one offer per
+    store in any Pack revision, whatever the windows): two live offers on
+    the same product and store are in conflict even when their windows are
+    disjoint. A store counts for an offer until the offer's window has
+    closed there; an offer whose window has closed in every store, or that
+    was ended, no longer holds anything. Best Deal and stacking come later
+    (§17).
 
 
     **Re-materialisation (OD-7 clarification).** A catalog change after
@@ -179,11 +193,11 @@ tags:
   - name: offers-console
     description: >
       Admin Console authoring and lifecycle of automatic offers (spec 048).
-      Contract-only until RT-1337.
+      Live since RT-1337.
   - name: offers-pos
     description: >
-      POS read of the store's current Offer Pack (spec 048 §7). Contract-only
-      until RT-1337.
+      POS read of the store's current Offer Pack (spec 048 §7). Live since
+      RT-1337.
 
 paths:
   /api/v1/offers:
@@ -195,11 +209,6 @@ paths:
         `store_manager` (only offers whose store scope includes one of their
         stores). Filters combine with AND. `state` is the derived state.
       operationId: consoleListOffers
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-audit-action: offers.listed
       tags: [offers-console]
       security:
@@ -254,11 +263,6 @@ paths:
         same-key retry with the same body replays the stored 201
         (`Idempotent-Replayed: true`).
       operationId: consoleCreateOfferDraft
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.draft_created
       tags: [offers-console]
@@ -309,11 +313,6 @@ paths:
         `tenant_admin`, `store_manager` (own-store offers only; any other
         offer is the same 404 as one that does not exist).
       operationId: consoleGetOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-audit-action: offers.read
       tags: [offers-console]
       security:
@@ -356,11 +355,6 @@ paths:
         as on create. A same-key retry with the same body replays the stored
         200.
       operationId: consoleUpdateOfferDraft
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.draft_updated
       tags: [offers-console]
@@ -437,11 +431,6 @@ paths:
         unit prices) is evaluated with the spec 048 §6 algorithm and the
         draft's parameters, and returns the result a till would compute.
       operationId: consolePreviewOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-audit-action: offers.previewed
       tags: [offers-console]
       security:
@@ -508,11 +497,6 @@ paths:
         shared products. A same-key retry with the same body replays the
         stored 200.
       operationId: consolePublishOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.published
       tags: [offers-console]
@@ -589,11 +573,6 @@ paths:
         reads the new revision; Backend-Core judges such a sale against the
         Pack revision it cites (§19).
       operationId: consolePauseOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.paused
       tags: [offers-console]
@@ -658,11 +637,6 @@ paths:
         have more than 200 live offers). A resume of an offer with no pause is
         409 `offer_state_invalid`. A new Pack revision follows.
       operationId: consoleResumeOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.resumed
       tags: [offers-console]
@@ -705,8 +679,10 @@ paths:
         "422":
           description: >
             `offer_store_not_in_scope` (a named store is not a paused store
-            of the offer), or `offer_store_offer_limit_exceeded` (a store
-            would have more than 200 live offers).
+            of the offer), `offer_store_offer_limit_exceeded` (a store
+            would have more than 200 live offers), or
+            `offer_eligible_set_too_large` (the rules, read from the current
+            catalog, now match more products than a Pack can carry).
           content:
             application/json:
               schema:
@@ -733,11 +709,6 @@ paths:
         409 `offer_state_invalid`. Sales already captured keep their frozen
         facts (§20).
       operationId: consoleEndOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.ended
       tags: [offers-console]
@@ -785,11 +756,6 @@ paths:
         facts of past sales still resolve (§21). Archiving an offer that is
         already `archived` is 200 with no change and no second audit row.
       operationId: consoleArchiveOffer
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-idempotency: required
       x-audit-action: offer.archived
       tags: [offers-console]
@@ -835,11 +801,6 @@ paths:
         was published with. Roles: `owner`, `tenant_admin`, `store_manager`
         (own-store offers only).
       operationId: consoleListOfferVersions
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service or table for this route until the RT-1336
-        schema and the RT-1337 runtime.
       x-audit-action: offers.versions_listed
       tags: [offers-console]
       security:
@@ -933,26 +894,39 @@ paths:
         flagged for review (OD-9); see `captureSale`.
 
 
-        This operation is not (yet) one of the RT-719 build identity
-        reporting operations or the RT-639 rotate-hint operations of
-        `pos-terminal-pairing.openapi.yaml`; it joins those sets only by
-        naming itself there when its runtime ships.
+        This operation is one of the RT-719 build identity reporting
+        operations and one of the RT-639 rotate-hint operations of
+        `pos-terminal-pairing.openapi.yaml` (it names itself there, from
+        RT-1337).
+
+
+        **Source of the Pack fields.** `packRevision` is the latest tenant
+        revision that changed this store's Pack (0 before any), so an
+        unrelated revision of another store does not change the ETag.
+        `freshnessWindowHours` is 24: no tenant setting exists yet.
+        `currencyCode` is the single currency of the store's resolved prices
+        (the store override's, else the product default's). When they use no
+        currency or more than one, no currency is guessed: `currencyCode` is
+        `XXX` (ISO 4217, no currency) and `offers` is empty, so the till
+        applies no offer; there is no store or tenant currency setting yet.
+        A deleted store is a 404.
       operationId: posGetOfferPack
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1335 (RT-286 S2) publishes the contract only. There is no
-        controller, guard, service, table or Pack materialisation for this
-        route until the RT-1336 schema and the RT-1337 runtime. Until then
-        the POS must not call it, and applies no offer.
       tags: [offers-pos]
       security:
         - device: []
       parameters:
+        - $ref: "#/components/parameters/PosBuildCommit"
+        - $ref: "#/components/parameters/PosAppVersion"
+        - $ref: "#/components/parameters/PosContractPin"
         - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
           description: The current Offer Pack of the device's store.
           headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
             ETag:
               $ref: "#/components/headers/ETag"
             Cache-Control:
@@ -969,6 +943,10 @@ paths:
             counts as a successful read for trusted time and freshness, from
             `X-Server-Time`.
           headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
             ETag:
               $ref: "#/components/headers/ETag"
             Cache-Control:
@@ -1005,6 +983,52 @@ components:
         non-disclosing 401.
 
   parameters:
+    PosBuildCommit:
+      name: X-POS-Build-Commit
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 40
+        maxLength: 40
+        pattern: "^[0-9a-f]{40}$"
+      description: >
+        RT-719. The POS git commit the running build was made from: exactly
+        40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that
+        sends no valid commit records the device's build as unknown; it is
+        never refused or slowed for it. Recorded only from a request to this
+        operation that authenticates with the device token. See "Build identity report
+        (RT-719)" in `pos-terminal-pairing.openapi.yaml`.
+    PosAppVersion:
+      name: X-POS-App-Version
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 5
+        maxLength: 32
+        pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+      description: >
+        RT-719. The POS semantic version: at most 32 characters of
+        `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release
+        version (POS has no signed release yet). Ignored without a valid
+        `X-POS-Build-Commit`. See "Build identity report (RT-719)" in
+        `pos-terminal-pairing.openapi.yaml`.
+    PosContractPin:
+      name: X-POS-Contract-Pin
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 40
+        maxLength: 40
+        pattern: "^[0-9a-f]{40}$"
+      description: >
+        RT-719. The Backend-Core commit in the build's
+        `contracts/backend-core/PIN` (the `commit` line): exactly 40
+        characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`.
+        See "Build identity report (RT-719)" in
+        `pos-terminal-pairing.openapi.yaml`.
     OfferId:
       name: offer_id
       in: path
@@ -1064,7 +1088,12 @@ components:
       schema:
         type: string
         pattern: '^"[0-9a-f]{64}"$'
-      description: The last `ETag` received; omit it when the cached Pack was lost.
+      description: >
+        The last `ETag` received (one strong tag, as the schema says); omit it
+        when the cached Pack was lost. The server is lenient beyond the schema,
+        per RFC 9110 `If-None-Match`: it also accepts `*` and a comma-separated
+        list of entity-tags, weak (`W/`) or strong, compares weakly, and answers
+        `304` on any match. Anything that is not a well-formed list is `400`.
 
   headers:
     IdempotentReplayed:
@@ -1072,6 +1101,29 @@ components:
       schema:
         type: string
         enum: ["true"]
+    DeviceTokenRotateAfter:
+      description: >
+        RT-639. Present only when this device credential has 15 days or less
+        left: the ISO-8601 instant `expires_at - 15 days` (the same instant as
+        `rotate_after` in the `posRotateTerminalToken` response). The terminal
+        rotates at or after it. Absent while more than 15 days remain. Never
+        carries token material. See `pos-terminal-pairing.openapi.yaml`,
+        "Credential rotation".
+      required: false
+      schema:
+        type: string
+        format: date-time
+    DeviceTokenRotateStage:
+      description: >
+        RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or
+        less left), `warning` (10 or less), `urgent` (3 or less, or already
+        past `expires_at`). The server keeps no per-device state, so it sends
+        the stage on every response while it holds; the terminal shows each
+        stage the first time it sees it.
+      required: false
+      schema:
+        type: string
+        enum: [notice, warning, urgent]
     ETag:
       description: >
         Strong ETag: the quoted lowercase hex SHA-256 of the canonical JSON
@@ -1682,7 +1734,9 @@ components:
       required: [offerId, offerVersion, nameAr, state, sharedProductCount, sharedProductSample]
       description: >
         Another offer whose eligible set shares products with this one, in a
-        shared store, during an overlapping window (OD-7).
+        store both hold (OD-7). Whatever the windows: the Pack holds a product
+        once per store, so two live offers on the same product and store
+        conflict even when their windows are disjoint.
       properties:
         offerId: { type: string, format: uuid }
         offerVersion:
@@ -1976,6 +2030,15 @@ components:
             request_id:
               type: string
               format: uuid
+            details:
+              type: array
+              description: >
+                The validation issues of a 400 `validation_error` (the platform
+                envelope's optional `details`): paths and rule names for the
+                request's own fields, never data of another tenant. Present on
+                a 400 only.
+              items:
+                type: object
             conflicts:
               type: array
               minItems: 1

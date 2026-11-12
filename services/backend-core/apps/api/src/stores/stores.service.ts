@@ -54,6 +54,7 @@
  *   - `previewTimezoneChange` is the read-only impact review (214).
  *   - persisted business dates are never rewritten (215).
  */
+import { rebuildOfferPackForStoreChange } from "../offers/offer-pack.rebuild";
 import {
   BadRequestException,
   ConflictException,
@@ -220,13 +221,16 @@ export class StoresService {
         if (input.timezone !== undefined) {
           await this.requireKnownZone(client, input.timezone);
         }
-        return this.stores.create(client, {
+        const created = await this.stores.create(client, {
           id: storeId,
           tenantId: ctx.tenantId as string,
           code: input.code,
           name: input.name,
           timezone: input.timezone,
         });
+        // RT-1337: an offer with `allStores: true` includes stores added later.
+        await rebuildOfferPackForStoreChange(client, ctx.tenantId as string);
+        return created;
       });
     } catch (err) {
       if (isUniqueViolation(err, "stores_tenant_code_uidx")) {
@@ -492,6 +496,8 @@ export class StoresService {
         throw notFound();
       }
       await this.stores.softDelete(client, storeId);
+      // RT-1337: a deleted store leaves every offer's Pack.
+      await rebuildOfferPackForStoreChange(client, ctx.tenantId as string);
     });
   }
 }

@@ -41,6 +41,7 @@
  *     same strictly-later `updatedAt` rule as a product. Both are audited in
  *     their transaction; neither touches the POS change log.
  */
+import { rebuildOfferPackForCatalogChange } from "../../offers/offer-pack.rebuild";
 import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
@@ -192,12 +193,15 @@ const UPDATED_MS_SQL = `
          floor(extract(epoch FROM date_trunc('milliseconds', updated_at)) * 1000)::bigint::text AS updated_ms,
          date_trunc('milliseconds', now()) > date_trunc('milliseconds', updated_at) AS can_advance`;
 
+// FOR NO KEY UPDATE, not FOR UPDATE (RT-1337): the offer Pack writes take FOR KEY SHARE on this row through
+// their foreign keys while holding the tenant offers lock; FOR UPDATE here would deadlock against them
+// once this transaction reaches that lock. A product edit changes no key column, and two edits still queue.
 const LOCK_PRODUCT_SQL = `
   SELECT name, description, category_id::text AS category_id, brand_id::text AS brand_id, tax_category, is_active,
          retired_at IS NOT NULL AS retired,${UPDATED_MS_SQL}
     FROM tenant_products
    WHERE tenant_id = $1::uuid AND id = $2::uuid
-     FOR UPDATE`;
+     FOR NO KEY UPDATE`;
 
 const CATEGORY_USABLE_SQL = `
   SELECT 1 FROM tenant_product_categories
@@ -278,6 +282,12 @@ export class ConsoleCatalogWriteService {
         targetId: productId,
         storeId: null,
         metadata: { product_id: productId, new: fields },
+      });
+      // RT-1337: a new product can match a live offer's category or brand rule.
+      await rebuildOfferPackForCatalogChange(client, input.tenantId, {
+        productId,
+        categoryIds: [fields.categoryId],
+        brandIds: [fields.brandId],
       });
       return this.reads.detailIn(client, input, productId);
     });
@@ -399,6 +409,12 @@ export class ConsoleCatalogWriteService {
         storeId: null,
         metadata: { product_id: productId, ...changes(before, after) },
       });
+      // RT-1337: a category, brand or active change can move the product into or out of a live offer's set.
+      await rebuildOfferPackForCatalogChange(client, input.tenantId, {
+        productId,
+        categoryIds: [before.categoryId, after.categoryId],
+        brandIds: [before.brandId, after.brandId],
+      });
       return this.reads.detailIn(client, input, productId);
     });
   }
@@ -422,6 +438,12 @@ export class ConsoleCatalogWriteService {
         targetId: productId,
         storeId: null,
         metadata: { product_id: productId, old: { status: current.is_active ? "active" : "inactive" }, new: { status: "retired" } },
+      });
+      // RT-1337: a retired product leaves every live offer's eligible set.
+      await rebuildOfferPackForCatalogChange(client, input.tenantId, {
+        productId,
+        categoryIds: [current.category_id],
+        brandIds: [current.brand_id],
       });
       return this.reads.detailIn(client, input, productId);
     });

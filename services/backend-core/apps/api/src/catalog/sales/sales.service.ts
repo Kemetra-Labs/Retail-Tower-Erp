@@ -45,7 +45,7 @@ import type {
 } from "./dto/capture-sale-request.dto";
 import type { RecordVoidRequestDto } from "./dto/record-void-request.dto";
 import type { RecordRefundRequestDto } from "./dto/record-refund-request.dto";
-import { SALE_SYNC_STATUS, type SaleSyncStatus } from "./sale-sync-status";
+import type { SaleSyncStatus } from "./sale-sync-status";
 import {
   findVoidByProvenance,
   mapApprovalReuseViolation,
@@ -60,8 +60,10 @@ import {
   assertVoucherTendersRedeemed,
   insertTenders,
 } from "./sale-tender-writes";
+import { insertSaleHeader, insertSaleLines } from "./sale-capture-writes";
 import { sha256CanonicalHex } from "./payload-hash";
 import { findLinePricingViolation } from "./sale-line-pricing";
+import { planSalePromotions, writeSalePromotions, type PromotionPlan } from "./sale-promotions";
 import {
   assertApproverEligible,
   assertRequesterIsStoreUser,
@@ -80,7 +82,6 @@ import {
   writeSaleLineFindings,
   type CaptureTracking,
 } from "./tracked-lines/capture-tracking";
-import type { LineClassification } from "./tracked-lines/capture-tracking.rules";
 import {
   assertCreditOperatorEligible,
   assertResponsibilityCoverage,
@@ -208,6 +209,16 @@ export interface SaleLineProjection {
   readonly returnableQuantity: string;
   /** RT-451 S3: the tracking snapshot the line was captured with; absent without one. */
   readonly tracking?: SaleLineTrackingProjection;
+  /** RT-1337 (spec 048 §8): the automatic-offer fact the line was captured with; absent without one. */
+  readonly promotion?: SaleLinePromotionProjection;
+}
+
+/** RT-1337: contract `SaleLinePromotion`, echoed as stored. */
+export interface SaleLinePromotionProjection {
+  readonly offerId: string;
+  readonly offerVersion: number;
+  readonly packRevision: number;
+  readonly discountAmount: string;
 }
 
 /** RT-451 S3: contract `SaleLineTracking`, echoed as recorded. */
@@ -291,6 +302,10 @@ interface SaleLineRow {
   tracking_expiry_date: string | null;
   tracking_selection: SaleLineTrackingProjection["selection"] | null;
   tracking_validation_id: string | null;
+  promotion_offer_id: string | null;
+  promotion_offer_version: number | null;
+  promotion_pack_revision: string | null;
+  promotion_discount_amount: string | null;
 }
 
 @Injectable()
@@ -336,7 +351,7 @@ export class SalesService {
         // A FIRST capture from here: every refusal throws and rolls the
         // transaction back, so the sales row is not kept and nothing is
         // recorded.
-        await assertFirstCaptureAccepted(client, {
+        const promotions = await assertFirstCaptureAccepted(client, {
           scope: { tenantId, storeId },
           actorUserId,
           authPath: input.authPath,
@@ -348,10 +363,12 @@ export class SalesService {
           saleId,
           tenantId,
           storeId,
+          actorUserId,
           body,
           tenders,
           responsibilities,
           tracking,
+          promotions,
         });
         // ONLY the created path emits: a replay returned above, so a
         // re-delivery does NOT double-emit.
@@ -412,8 +429,11 @@ export class SalesService {
                   sl.tracking_validation_id::text AS tracking_validation_id,
                   r.returned::text AS returned_quantity,
                   (CASE WHEN $2::boolean THEN 0 ELSE sl.quantity - r.returned END)
-                    ::numeric(19,6)::text AS returnable_quantity
+                    ::numeric(19,6)::text AS returnable_quantity,
+                  lp.offer_id::text AS promotion_offer_id, lp.offer_version AS promotion_offer_version,
+                  lp.pack_revision::text AS promotion_pack_revision, lp.discount_amount::text AS promotion_discount_amount
              FROM sale_lines sl
+             LEFT JOIN sale_line_promotions lp ON lp.sale_line_id = sl.id
              CROSS JOIN LATERAL (
                SELECT COALESCE(SUM(rl.quantity), 0)::numeric(19,6) AS returned
                  FROM sale_return_lines rl WHERE rl.sale_line_id = sl.id
@@ -740,6 +760,7 @@ function toBody(
       returnedQuantity: l.returned_quantity,
       returnableQuantity: l.returnable_quantity,
       ...lineTrackingField(l),
+      ...linePromotionField(l),
     })),
     tenders: tenders.map((t) => ({
       method: t.method,
@@ -752,6 +773,20 @@ function toBody(
     ...responsibilitiesField(responsibilities),
     safetyRevision: (row.safety_revision ?? null) === null ? null : Number(row.safety_revision),
     safetySyncedAt: row.safety_synced_at ? row.safety_synced_at.toISOString() : null,
+  };
+}
+
+/** RT-1337: a line's `promotion` echo, only when it was captured with an automatic-offer fact. */
+function linePromotionField(l: SaleLineRow): { promotion?: SaleLinePromotionProjection } {
+  // `?? null`: a unit-test row double may omit the promotion keys.
+  if ((l.promotion_offer_id ?? null) === null) return {};
+  return {
+    promotion: {
+      offerId: l.promotion_offer_id!,
+      offerVersion: l.promotion_offer_version!,
+      packRevision: Number(l.promotion_pack_revision),
+      discountAmount: l.promotion_discount_amount!,
+    },
   };
 }
 
@@ -773,25 +808,6 @@ function lineTrackingField(l: SaleLineRow): { tracking?: SaleLineTrackingProject
   };
 }
 
-/**
- * RT-539: the nine `sales.receipt_*` values in INSERT order ($17-$25), all
- * null without a snapshot. `receiptNumber` and `changeGiven` stay null when
- * omitted (omitted means equal to the sale number / no change).
- */
-function receiptColumns(receipt: CaptureSaleReceiptDto | undefined): ReadonlyArray<string | null> {
-  if (receipt === undefined) return Array.from({ length: 9 }, () => null);
-  return [
-    receipt.saleNumber,
-    receipt.receiptNumber ?? null,
-    receipt.terminalLabel,
-    receipt.operatorDisplayName,
-    receipt.settledAt,
-    receipt.branchName,
-    receipt.branchAddress,
-    receipt.taxRegistrationId,
-    receipt.changeGiven ?? null,
-  ];
-}
 
 /**
  * RT-1224: the advisory comparison total (gate A.3/A.4) — the half-up sum of
@@ -828,80 +844,6 @@ async function resolveStoreTimezone(client: PoolClient, storeId: string): Promis
   return storeTimezone;
 }
 
-/**
- * Write the `sales` header; returns false when the provenance already exists.
- *
- * Atomic dedup (FR-050/100): ON CONFLICT on the (tenant_id, source_system,
- * external_id) unique index makes the write race-safe — a concurrent or
- * re-delivered identical capture does NOT double-insert or surface a 500; it
- * falls through to `resolveReplay` (zero rows returned ⇒ the row already
- * exists).
- *
- * 032 §7: `sync_status` is set to 'captured' IN the capture transaction
- * (server-authoritative; POS never supplies it). The column also DEFAULTs to
- * 'captured' in 0026, but it is bound explicitly here so the capture write is
- * self-documenting and does not silently depend on the default. The
- * off-request drain advances it to 'synced' (see SaleProcessingProcessor).
- * processed_at stays NULL — the worker claims it.
- *
- * RT-539: the receipt snapshot columns ($17-$25) are written with the row; ON
- * CONFLICT DO NOTHING keeps a replay from rewriting them.
- */
-async function insertSaleHeader(
-  client: PoolClient,
-  input: CaptureSaleInput,
-  header: {
-    readonly saleId: string;
-    readonly payloadHash: string;
-    readonly mismatchFlag: boolean;
-    readonly storeTimezone: string;
-    readonly trackingStatus: "tracked" | "tracking_unresolved" | null;
-  },
-): Promise<boolean> {
-  const { body } = input;
-  const inserted = await client.query<{ id: string }>(
-    `INSERT INTO sales
-       (id, tenant_id, store_id, currency_code, pos_total, occurred_at,
-        business_date, source_clock_at, source_system, external_id,
-        payload_hash, mismatch_flag, created_by, sync_status,
-        device_id, tender_count, responsibility_count,
-        receipt_sale_number, receipt_number, receipt_terminal_label,
-        receipt_operator_display_name, receipt_settled_at, receipt_branch_name,
-        receipt_branch_address, receipt_tax_registration_id, receipt_change_given,
-        safety_revision, safety_synced_at, tracking_status)
-     VALUES ($1, $2, $3, $4, $5::numeric, $6::timestamptz,
-             ($6::timestamptz AT TIME ZONE $13)::date, $7::timestamptz,
-             $8, $9, $10, $11, $12, $14, $15, $16, $26,
-             $17, $18, $19, $20, $21::timestamptz, $22, $23, $24, $25::numeric,
-             $27::bigint, $28::timestamptz, $29)
-     ON CONFLICT (tenant_id, source_system, external_id) DO NOTHING
-     RETURNING id`,
-    [
-      header.saleId,
-      input.tenantId,
-      input.storeId,
-      body.currencyCode,
-      body.posTotal,
-      body.occurredAt,
-      body.sourceClockAt ?? null,
-      body.sourceSystem,
-      body.externalId,
-      header.payloadHash,
-      header.mismatchFlag,
-      input.actorUserId,
-      header.storeTimezone,
-      SALE_SYNC_STATUS.CAPTURED,
-      input.deviceId,
-      (body.tenders ?? []).length,
-      ...receiptColumns(input.receipt),
-      (body.responsibilities ?? []).length,
-      input.safety?.safetyRevision ?? null,
-      input.safety?.safetySyncedAt ?? null,
-      header.trackingStatus,
-    ],
-  );
-  return inserted.rows.length > 0;
-}
 
 /**
  * The provenance already exists — a prior re-delivery or a concurrent racing
@@ -967,10 +909,13 @@ async function insertCaptureRows(
     readonly saleId: string;
     readonly tenantId: string;
     readonly storeId: string;
+    readonly actorUserId: string;
     readonly body: CaptureSaleRequestDto;
     readonly tenders: ReadonlyArray<SaleTenderDto>;
     readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
     readonly tracking: CaptureTracking;
+    /** RT-1337: the automatic-offer facts to store, or null when no line carries one. */
+    readonly promotions: PromotionPlan | null;
   },
 ): Promise<void> {
   const { saleId, tenantId, storeId, body, tenders, responsibilities, tracking } = sale;
@@ -981,6 +926,10 @@ async function insertCaptureRows(
     lines: body.lines,
     classes: tracking.classes,
   });
+  // RT-1337: the frozen automatic-offer facts (and the OD-9 review flag), once the lines exist.
+  if (sale.promotions !== null) {
+    await writeSalePromotions(client, { saleId, tenantId, storeId, actorUserId: sale.actorUserId }, lineIds, sale.promotions);
+  }
   // RT-451 S3: the row-2 and row-3 findings, in the capture transaction.
   await writeSaleLineFindings(
     client,
@@ -1041,7 +990,8 @@ async function emitSaleCaptured(
  *      redemption of this tenant and store, for exactly its amount;
  *   4. RT-105 (RT-87 decision D): the line price invariant, or the line could
  *      never be returned exactly (a replay of a sale captured before RT-105
- *      still resolves, 200);
+ *      still resolves, 200); RT-1337: and an automatic-offer `promotion`'s
+ *      arithmetic against the cited offer version (OD-9);
  *   5. RT-418: every payer is billable for this sale.
  */
 async function assertFirstCaptureAccepted(
@@ -1054,7 +1004,7 @@ async function assertFirstCaptureAccepted(
     readonly tenders: ReadonlyArray<SaleTenderDto>;
     readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
   },
-): Promise<void> {
+): Promise<PromotionPlan | null> {
   const { scope, body, tenders, responsibilities } = capture;
   const credit = responsibilities.length > 0;
   if (credit && capture.authPath === "device") throw new SaleResponsibilityOfflineRefusedError();
@@ -1067,68 +1017,13 @@ async function assertFirstCaptureAccepted(
   await assertVoucherTendersRedeemed(client, { ...scope, currencyCode: body.currencyCode, tenders });
 
   if (findLinePricingViolation(body.lines) !== null) throw new SaleLinePricingInvalidError();
+  // RT-1337 (OD-9): the cited offer version and Pack revision must exist and the percent must hold (422);
+  // a rule-level difference is accepted and flagged after the lines are written.
+  const promotions = await planSalePromotions(client, scope, body);
 
   if (credit) await assertResponsibilityPayersEligible(client, scope, responsibilities);
+  return promotions;
 }
 
-/**
- * Write the frozen line snapshot in the capture transaction. RT-539
- * (sales.yaml 1.9.0): each line's 1-based position in lines[] is stored as its
- * receipt sequence (line_seq).
- */
-async function insertSaleLines(
-  client: PoolClient,
-  sale: {
-    readonly saleId: string;
-    readonly tenantId: string;
-    readonly storeId: string;
-    readonly lines: CaptureSaleRequestDto["lines"];
-    /** RT-451 S3: each line's G7-9 class (null when not classified), in line order. */
-    readonly classes: ReadonlyArray<LineClassification>;
-  },
-): Promise<string[]> {
-  const ids: string[] = [];
-  // sequential: sale lines are inserted on the capture transaction; pg runs one PoolClient's queries one at a time.
-  for (const [index, line] of sale.lines.entries()) {
-    const id = newId();
-    ids.push(id);
-    const c = sale.classes[index] ?? { trackingClass: null };
-    const t = line.tracking;
-    await client.query(
-      `INSERT INTO sale_lines
-         (id, sale_id, tenant_id, store_id, line_name, unit_price,
-          currency_code, quantity, line_amount, tax_amount, unit,
-          tenant_product_ref, line_seq,
-          tracking_identity_id, tracking_code, tracking_expiry_date, tracking_selection,
-          tracking_validation_id, tracking_class, tracking_unresolved_reason)
-       VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric,
-               $9::numeric, $10, $11, $12, $13,
-               $14, $15, $16::date, $17, $18, $19, $20)`,
-      [
-        id,
-        sale.saleId,
-        sale.tenantId,
-        sale.storeId,
-        line.lineName,
-        line.unitPrice,
-        line.currencyCode,
-        line.quantity,
-        line.lineAmount,
-        line.taxAmount ?? null,
-        line.unit,
-        line.tenantProductRef ?? null,
-        index + 1,
-        t?.identityId ?? null,
-        t?.code ?? null,
-        t?.expiryDate ?? null,
-        t?.selection ?? null,
-        t?.validationId ?? null,
-        c.trackingClass,
-        c.trackingClass === "unresolved" ? c.reason : null,
-      ],
-    );
-  }
-  return ids;
-}
 
 /** Build the `SaleTerminalEvent` wire projection for a void/refund event. */

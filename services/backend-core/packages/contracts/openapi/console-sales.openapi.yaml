@@ -590,6 +590,27 @@ components:
         returnedQuantity:
           type: string
           description: Cumulative quantity returned on this line ("0" when none).
+        promotion:
+          type: object
+          additionalProperties: false
+          required: [offerId, offerVersion, packRevision, discountAmount]
+          description: >
+            RT-1337 (spec 048 §8): the automatic-offer fact the line was
+            captured with (`CaptureSaleLinePromotion` of `pos-sales/sales.yaml`),
+            echoed as stored. Present only on a line that took part in an
+            offer; optional, never in `required`.
+          properties:
+            offerId:
+              type: string
+              format: uuid
+            offerVersion:
+              type: integer
+              minimum: 1
+            packRevision:
+              type: integer
+              minimum: 1
+            discountAmount:
+              $ref: "#/components/schemas/DecimalAmount"
 
     SaleTenderView:
       type: object

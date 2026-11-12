@@ -530,9 +530,13 @@ describe("console-sales — projections", () => {
     expect(objects.length).toBeGreaterThanOrEqual(12);
     for (const [name, s] of objects) {
       expect({ name, additionalProperties: s.additionalProperties }).toEqual({ name, additionalProperties: false });
+      // RT-1337: `SaleHistoryLine.promotion` is optional (absent on a line no offer touched).
+      const optional = name === "SaleHistoryLine" ? ["promotion"] : [];
       expect({ name, required: [...(s.required ?? [])].sort() }).toEqual({
         name,
-        required: Object.keys(s.properties ?? {}).sort(),
+        required: Object.keys(s.properties ?? {})
+          .filter((k) => !optional.includes(k))
+          .sort(),
       });
     }
   });

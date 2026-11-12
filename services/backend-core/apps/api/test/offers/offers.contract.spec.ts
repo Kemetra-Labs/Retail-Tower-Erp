@@ -1,13 +1,14 @@
 /**
  * RT-1335 (RT-286 slice S2) — the Offer Engine V1 contract
- * (`offers.openapi.yaml`), contract-only.
+ * (`offers.openapi.yaml`); live since RT-1337 (the runtime markers are lifted).
  *
  * Structural / load-only, plus AJV fixtures against the contract schemas. No
  * app boot and no HTTP. What this pins:
  *
  *   1. Eleven Console operations and the device Pack read at the planned
- *      method and path, every one marked `x-runtime-status: contract-only`
- *      with an RT-1335 note naming the RT-1336 schema and RT-1337 runtime.
+ *      method and path, none marked `x-runtime-status` any more (RT-1337 lifted
+ *      the contract-only markers; the conformance suite then requires a route
+ *      for every operation).
  *   2. `cookieAuth` on the Console operations and `device` on the Pack read;
  *      the OD-12 roles and capabilities; no tenant id in any request.
  *   3. The offer definition of spec 048 §5: closed schemas, the parameter
@@ -161,21 +162,19 @@ describe("offers — document and operations", () => {
     expect(Object.keys(doc.paths![PACK]!)).toEqual(["get"]);
   });
 
-  it.each(CONSOLE_OPERATIONS)("%s is contract-only, with an RT-1335 note and its audit action", (id, path, method, audit) => {
+  it.each(CONSOLE_OPERATIONS)("%s is live (no runtime marker) and keeps its audit action", (id, path, method, audit) => {
     const o = op(path, method);
     expect(o.operationId).toBe(id);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(flat(o["x-runtime-note"])).toEqual(expect.stringContaining("RT-1335"));
-    expect(flat(o["x-runtime-note"])).toEqual(expect.stringContaining("RT-1336 schema and the RT-1337 runtime"));
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(o["x-audit-action"]).toBe(audit);
   });
 
-  it("posGetOfferPack is contract-only with an RT-1335 note, and writes no audit row", () => {
+  it("posGetOfferPack is live, and writes no audit row", () => {
     const o = op(PACK, "get");
     expect(o.operationId).toBe("posGetOfferPack");
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(flat(o["x-runtime-note"])).toEqual(expect.stringContaining("RT-1335"));
-    expect(flat(o["x-runtime-note"])).toEqual(expect.stringContaining("the POS must not call it"));
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(o["x-audit-action"]).toBeUndefined();
     expect(flat(doc.info?.description)).toContain("A Pack read writes no audit row");
   });
@@ -185,11 +184,17 @@ describe("offers — document and operations", () => {
     expect(otherOperationIds.has("posGetOfferPack")).toBe(false);
   });
 
-  it("states the posture and the slices it waits on", () => {
+  it("states the posture: live since RT-1337, on the RT-1336 schema", () => {
     const info = flat(doc.info?.description);
-    expect(info).toContain("`[GATED: contract]` OpenAPI, and **contract-only**");
-    expect(info).toContain("the schema is RT-1336 (S3) and the runtime is RT-1337 (S4)");
+    expect(info).toContain("`[GATED: contract]` OpenAPI, and LIVE since RT-1337 (RT-286 S4)");
+    expect(info).toContain("on the RT-1336 schema");
     expect(info).toContain("`pos-sales/sales.yaml` 1.22.0-draft");
+    expect(info).not.toContain("contract-only");
+  });
+
+  it("reads OD-7 stricter than overlapping windows, as the Pack invariant forces it (RT-1337)", () => {
+    const info = flat(doc.info?.description);
+    expect(info).toContain("two live offers on the same product and store are in conflict even when their windows are disjoint");
   });
 
   it("declares its two tags at the top level", () => {
@@ -524,9 +529,20 @@ describe("offers — the Offer Pack (spec 048 §7, OD-6, OD-8)", () => {
 
   it("is a conditional device read: 200 or 304, with ETag, no-cache and the server time", () => {
     const read = op(PACK, "get");
-    expect(read.parameters).toEqual([{ $ref: "#/components/parameters/IfNoneMatch" }]);
+    expect(read.parameters).toEqual([
+      { $ref: "#/components/parameters/PosBuildCommit" },
+      { $ref: "#/components/parameters/PosAppVersion" },
+      { $ref: "#/components/parameters/PosContractPin" },
+      { $ref: "#/components/parameters/IfNoneMatch" },
+    ]);
     for (const status of ["200", "304"]) {
-      expect(Object.keys(read.responses?.[status]?.headers ?? {}).sort()).toEqual(["Cache-Control", "ETag", "X-Server-Time"]);
+      expect(Object.keys(read.responses?.[status]?.headers ?? {}).sort()).toEqual([
+        "Cache-Control",
+        "ETag",
+        "X-Device-Token-Rotate-After",
+        "X-Device-Token-Rotate-Stage",
+        "X-Server-Time",
+      ]);
     }
     expect(bodyOf(read.responses?.["304"])).toBeUndefined();
     expect(doc.components?.headers?.["ETag"]?.description).toEqual(expect.stringContaining("without `issuedAt`"));
@@ -556,11 +572,13 @@ describe("offers — the Offer Pack (spec 048 §7, OD-6, OD-8)", () => {
     expect(api.schema("PackOffer")["properties"]).toMatchObject({ eligibleProductIds: { maxItems: 20000, uniqueItems: true } });
   });
 
-  it("is not a build identity reporting or rotate-hint operation yet", () => {
+  it("is a build identity reporting (RT-719) and rotate-hint (RT-639) operation, named in the pairing contract", () => {
     const read = op(PACK, "get");
-    const names = (read.parameters ?? []).map((p) => p.$ref ?? p.name);
-    expect(names.join(",")).not.toMatch(/PosBuildCommit|X-POS-/);
-    expect(Object.keys(read.responses?.["200"]?.headers ?? {})).not.toContain("X-Device-Token-Rotate-After");
+    const names = (read.parameters ?? []).map((p) => p.$ref ?? p.name).join(",");
+    expect(names).toMatch(/PosBuildCommit.*PosAppVersion.*PosContractPin/);
+    expect(Object.keys(read.responses?.["200"]?.headers ?? {})).toContain("X-Device-Token-Rotate-After");
+    expect(Object.keys(read.responses?.["304"]?.headers ?? {})).toContain("X-Device-Token-Rotate-Stage");
+    expect(flat(read.description)).toContain("one of the RT-719 build identity reporting operations and one of the RT-639 rotate-hint operations");
   });
 });
 
@@ -592,7 +610,9 @@ describe("offers — the closed error set", () => {
     const envelope = validator("OfferError");
     expect(envelope({ error: { code: "offer_not_found", message: "no" } })).toBe(true);
     expect(envelope({ error: { code: "voucher_not_found", message: "no" } })).toBe(false);
-    expect(envelope({ error: { code: "offer_not_found", message: "no", details: [] } })).toBe(false);
+    // `details` carries the validation issues of a 400 (the platform envelope's optional field); nothing else is open.
+    expect(envelope({ error: { code: "validation_error", message: "no", details: [{ path: ["x"] }] } })).toBe(true);
+    expect(envelope({ error: { code: "offer_not_found", message: "no", surprise: [] } })).toBe(false);
   });
 
   it("keeps the platform envelope's code a free string, so a real 401 or 403 still decodes", () => {

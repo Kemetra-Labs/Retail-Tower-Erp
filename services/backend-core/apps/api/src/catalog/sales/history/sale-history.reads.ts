@@ -66,8 +66,11 @@ const LINES_SQL = `
          sl.currency_code, sl.quantity::text AS quantity, sl.line_amount::text AS line_amount,
          sl.tax_amount::text AS tax_amount, sl.unit,
          (SELECT COALESCE(SUM(rl.quantity), 0)::numeric(19,6)
-            FROM sale_return_lines rl WHERE rl.sale_line_id = sl.id)::text AS returned_quantity
+            FROM sale_return_lines rl WHERE rl.sale_line_id = sl.id)::text AS returned_quantity,
+         lp.offer_id::text AS promotion_offer_id, lp.offer_version AS promotion_offer_version,
+         lp.pack_revision::text AS promotion_pack_revision, lp.discount_amount::text AS promotion_discount_amount
     FROM sale_lines sl
+    LEFT JOIN sale_line_promotions lp ON lp.sale_line_id = sl.id
    WHERE sl.sale_id = $1 AND sl.tenant_id = $2 AND sl.store_id = $3
    ORDER BY sl.line_seq NULLS LAST, sl.line_name, sl.id`;
 

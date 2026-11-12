@@ -66,6 +66,11 @@ import type { ResolvedContext } from "../../src/context/types";
 
 import { newId } from "@data-pulse-2/shared";
 
+// RT-1337: store create / delete refresh the offer Pack; these unit specs run on a bare fake client.
+jest.mock("../../src/offers/offer-pack.rebuild", () => ({
+  rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
+}));
+
 const mockNewId = newId as jest.MockedFunction<typeof newId>;
 
 // ---------------------------------------------------------------------------

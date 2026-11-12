@@ -79,6 +79,7 @@ import {
 import { PG_POOL } from "../../auth/auth.module";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { StoreScope } from "../../context/store-scope";
+import { rebuildOfferPackForCatalogChange } from "../../offers/offer-pack.rebuild";
 import {
   recordUnknownItemResolved,
   recordDuplicateAliasConflict,
@@ -531,6 +532,13 @@ export class ReconciliationService {
             input.actorUserId,
           ],
         );
+
+        // RT-1337: a product born here can match a live offer's category rule.
+        await rebuildOfferPackForCatalogChange(client, input.tenantId, {
+          productId,
+          categoryIds: [input.categoryId],
+          brandIds: [null],
+        });
 
         // Step 4: INSERT product_aliases — 23505 surfaces as alias_conflict.
         // Throw the sentinel to abort runWithTenantContext — the prior

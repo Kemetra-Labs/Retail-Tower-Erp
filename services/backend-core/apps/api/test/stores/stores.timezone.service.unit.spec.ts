@@ -24,6 +24,11 @@ import type {
 } from "../../src/stores/stores.repository";
 import { StoresService } from "../../src/stores/stores.service";
 
+// RT-1337: store create / delete refresh the offer Pack; these unit specs run on a bare fake client.
+jest.mock("../../src/offers/offer-pack.rebuild", () => ({
+  rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
+}));
+
 const passthroughTx = async <T>(
   _pool: Pool,
   _ctx: TenantContext,

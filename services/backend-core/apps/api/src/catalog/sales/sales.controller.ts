@@ -106,6 +106,8 @@ import {
   CreditSaleReversalRestrictedError,
   ReturnLineInvalidError,
   ReturnOverReturnError,
+  PromotionClawbackExceedsRefundError,
+  PromotionReturnRequiresClawbackError,
   ReturnQuantityNotWholeError,
   ReturnTenderMismatchError,
   SaleAlreadyReversedError,
@@ -265,6 +267,18 @@ export function toReversalHttpError(err: unknown): unknown {
     return new UnprocessableEntityException({
       code: "return_tender_mismatch",
       message: "refund tenders do not match the return total",
+    });
+  }
+  if (err instanceof PromotionClawbackExceedsRefundError) {
+    return new UnprocessableEntityException({
+      code: "promotion_clawback_exceeds_refund",
+      message: "the offer discount to take back is more than the refund of the returned units, so this return cannot be recorded",
+    });
+  }
+  if (err instanceof PromotionReturnRequiresClawbackError) {
+    return new UnprocessableEntityException({
+      code: "promotion_return_requires_clawback",
+      message: "returns that take back an offer discount, give one back, or include a discounted reward unit cannot be recorded yet",
     });
   }
   if (err instanceof ReturnLineInvalidError) {

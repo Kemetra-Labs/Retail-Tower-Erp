@@ -41,6 +41,7 @@ import { resolveReturnLandingStatus } from "../../inventory/position-events/posi
 import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-report";
 import type { RecordReturnRequestDto } from "./dto/record-return-request.dto";
 import { sha256CanonicalHex } from "./payload-hash";
+import { insertReturnClawbacks, loadReturnClawbacks, settleReturnPromotions, type ReturnClawback } from "./sale-return-promotions";
 import { assertAllocationRules, assertOriginalTendersOfSale } from "./refund-allocation";
 import { isRefundSettleBeforePostEnabled } from "./refund-gates";
 import { TerminalEventProvenanceConflictError } from "./sale-errors";
@@ -86,6 +87,8 @@ export interface SaleReturnProjection {
   readonly lines: ReadonlyArray<ReturnLineProjection>;
   readonly refundTenders: ReadonlyArray<RefundAllocationProjection>;
   readonly reason: string | null;
+  /** RT-1337 (spec 048 §9): per automatic offer, the discount taken back; absent when none. */
+  readonly promotionClawbacks?: ReadonlyArray<ReturnClawback>;
 }
 
 /** One refund allocation (contract `RefundTender`); the RT-490 fields only when recorded. */
@@ -132,7 +135,7 @@ export class SaleReturnsService {
           return replay(client, existing, saleRef, payloadHash);
         }
 
-        const { lines, total } = await admitReturn(client, { sale, saleRef, body });
+        const { lines, total, clawbacks } = await admitReturn(client, { sale, saleRef, tenantId, body });
         const postingDeferred = isPostingDeferred(body, total);
         const returnId = await insertReturn(client, { input, sale, total, payloadHash, postingDeferred });
         if (!returnId) {
@@ -144,6 +147,7 @@ export class SaleReturnsService {
           return replay(client, winner, saleRef, payloadHash);
         }
         await insertLinesAndTenders(client, input, returnId, lines);
+        await insertReturnClawbacks(client, { returnId, tenantId, storeId: input.storeId, clawbacks });
         const scope = { tenantId, storeId: input.storeId, saleId: saleRef };
         const resolveLandingStatus = (c: PoolClient) => resolveReturnLandingStatus(c, tenantId);
         effects.add(await writeReturnEffects(client, { ...scope, returnId, resolveLandingStatus }), {
@@ -169,8 +173,8 @@ export class SaleReturnsService {
  */
 async function admitReturn(
   client: PoolClient,
-  args: { sale: LockedSale; saleRef: string; body: RecordReturnRequestDto },
-): Promise<{ lines: PricedLine[]; total: string }> {
+  args: { sale: LockedSale; saleRef: string; tenantId: string; body: RecordReturnRequestDto },
+): Promise<{ lines: PricedLine[]; total: string; clawbacks: ReturnClawback[] }> {
   const { sale, saleRef, body } = args;
   // RT-577: a credit sale is refused for every operator, before exclusivity
   // and the line and tender checks.
@@ -180,9 +184,11 @@ async function admitReturn(
   }
   await assertOriginalTendersOfSale(client, saleRef, body.refundTenders);
   const lines = await priceReturnLines(client, saleRef, body.lines);
-  const total = await totalMatchingTenders(client, lines, body.refundTenders);
+  // RT-1337 (spec 048 §9): the clawback of each automatic offer of the sale, from its frozen version and prices.
+  const clawbacks = await settleReturnPromotions(client, { saleRef, tenantId: args.tenantId, currencyCode: sale.currencyCode, lines });
+  const total = await totalMatchingTenders(client, lines, body.refundTenders, clawbacks);
   await assertAllocationRules(client, saleRef, body.refundTenders);
-  return { lines, total };
+  return { lines, total, clawbacks };
 }
 
 /**
@@ -315,17 +321,24 @@ export async function priceReturnLines(
   }));
 }
 
-/** Σ line amounts, and D3: the tenders must equal it numerically ("5" = "5.0000"). */
+/**
+ * Σ line amounts less Σ promotion clawbacks (RT-1337), and D3: the tenders must
+ * equal it numerically ("5" = "5.0000").
+ */
 async function totalMatchingTenders(
   client: PoolClient,
   lines: ReadonlyArray<PricedLine>,
   tenders: RecordReturnRequestDto["refundTenders"],
+  clawbacks: ReadonlyArray<ReturnClawback>,
 ): Promise<string> {
   const r = await client.query<{ total: string; matches: boolean }>(
-    `SELECT (SELECT SUM(a) FROM unnest($1::numeric[]) a)::numeric(19,4)::text AS total,
-            (SELECT SUM(a) FROM unnest($1::numeric[]) a)
-              = (SELECT SUM(t) FROM unnest($2::numeric[]) t) AS matches`,
-    [lines.map((l) => l.lineAmount), tenders.map((t) => t.amount)],
+    `WITH t AS (
+       SELECT (SELECT SUM(a) FROM unnest($1::numeric[]) a)
+              - COALESCE((SELECT SUM(c) FROM unnest($3::numeric[]) c), 0) AS total)
+     SELECT t.total::numeric(19,4)::text AS total,
+            t.total = (SELECT SUM(x) FROM unnest($2::numeric[]) x) AS matches
+       FROM t`,
+    [lines.map((l) => l.lineAmount), tenders.map((t) => t.amount), clawbacks.map((c) => c.amount)],
   );
   const row = r.rows[0];
   if (!row?.matches) throw new ReturnTenderMismatchError();
@@ -408,6 +421,7 @@ async function insertLinesAndTenders(
 /** Build the `SaleReturn` projection from the stored rows (replay-stable). */
 export async function loadSaleReturn(client: PoolClient, returnId: string): Promise<SaleReturnProjection> {
   const header = await client.query<{
+    tenant_id: string;
     sale_id: string;
     returned_at: Date;
     business_date: string;
@@ -417,7 +431,7 @@ export async function loadSaleReturn(client: PoolClient, returnId: string): Prom
     return_total: string;
     reason: string | null;
   }>(
-    `SELECT sale_id, returned_at, business_date::text AS business_date,
+    `SELECT tenant_id::text AS tenant_id, sale_id, returned_at, business_date::text AS business_date,
             source_system, external_id, currency_code,
             return_total::text AS return_total, reason
        FROM sale_returns WHERE id = $1`,
@@ -425,6 +439,7 @@ export async function loadSaleReturn(client: PoolClient, returnId: string): Prom
   );
   const h = header.rows[0];
   if (!h) throw new Error("return row not found");
+  const clawbacks = await loadReturnClawbacks(client, h.tenant_id, returnId);
   const lines = await client.query<{
     line_ref: string;
     quantity: string;
@@ -460,6 +475,7 @@ export async function loadSaleReturn(client: PoolClient, returnId: string): Prom
     })),
     refundTenders: await loadRefundAllocations(client, returnId),
     reason: h.reason,
+    ...(clawbacks.length === 0 ? {} : { promotionClawbacks: clawbacks }),
   };
 }
 

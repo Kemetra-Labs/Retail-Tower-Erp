@@ -39,6 +39,11 @@ import type {
 } from "../../src/stores/stores.repository";
 import { StoresService } from "../../src/stores/stores.service";
 
+// RT-1337: store create / delete refresh the offer Pack; these unit specs run on a bare fake client.
+jest.mock("../../src/offers/offer-pack.rebuild", () => ({
+  rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
+}));
+
 /**
  * Passthrough runner — fabricates a fake `PoolClient` and invokes the
  * work fn. The repository fakes ignore the client, so the orchestration

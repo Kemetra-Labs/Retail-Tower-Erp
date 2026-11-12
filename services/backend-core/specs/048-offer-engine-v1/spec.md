@@ -171,7 +171,7 @@ E2 shows the OD-2 rule: the discount goes to the **cheapest units in the whole b
 - It is part of the payload hash and the `Idempotency-Key` fingerprint, like every other line field.
 - **Server check (OD-9).** Backend-Core re-runs §6 with the cited Pack revision:
   - It **rejects** a body that breaks arithmetic (the line invariant, rounding, or quantity 1 on reward lines), with 422 `sale_line_pricing_invalid`, the existing RT-105 and RT-740 refusal for a line whose price does not hold. A malformed object is 400 `validation_error`.
-  - It **accepts and flags for review** a sale whose offer result differs from the server's (for example, a wrong eligible set on the till). The sale happened and money was taken, so the fact is kept and the mismatch goes to the sale-review path. It is never silently re-priced.
+  - It **accepts and flags for review** a sale whose offer result differs from the server's (for example, a wrong eligible set on the till). The sale happened and money was taken, so the fact is kept and the mismatch goes to the sale-review path. It is never silently re-priced. **Runtime (RT-1337):** the server judges each cited `(offerId, offerVersion, packRevision)` against the materialised eligible set of the sale's store at that Pack revision: a cited product outside the set, or a total discount other than the §6 evaluation of the sale's lines, is a mismatch. The flag is an `audit_events` row `sale.offer_review_flagged` (sale, store, offer, recorded and expected discount, reasons) written in the capture transaction. There is no sale-review queue table yet.
 - **Receipt.** Under each reward line, print the offer name and the discount, for example «عرض: القطعة التانية بخصم 40% −16.00». Copy is finalised under the UX Constitution in the POS slice.
 - **ERPNext.** Nothing new is needed for the sale: a reward line is a discounted line with quantity 1, which RT-857 already posts as a visible discount (F-4). ERPNext stays out of offer authority (§20, 465).
 
@@ -213,13 +213,23 @@ Using E3 (100, 60, 40, with the 40 discounted 16.00 and 184.00 paid):
 **Where it changes code.** The return contract gains a per-offer clawback amount. Backend-Core `recordReturn`
 computes it, which is the authority, and the POS quote shows it. The Connector must post a credit note whose total
 equals the refund. OD-11 decides how the clawback appears in ERPNext: option A, a reduced credit-note rate on the
-returned units (RT-1340 bench proof). It fails closed. Until the S4 and S8
-clawback work lands, a partial return that needs a clawback (`clawback_O > 0`) is
-**refused**, with `promotion_return_requires_clawback`. Full returns of every O unit, and returns where no clawback
-is due, are accepted by Backend-Core from day one. The Connector does not yet post a return that includes a discounted
-line (RT-857 scope), and every return of a reward unit does (RT-1340 finding). The single returns and the multi-return
-sequences are golden vectors in
-`packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`).
+returned units (RT-1340 bench proof). It fails closed.
+
+**Runtime (RT-1337, S4, as validated).** Backend-Core fails closed. A return is refused with 422
+`promotion_return_requires_clawback`, and nothing is recorded, when (a) an offer's clawback is above 0, (b) it would
+**give back** a discount an earlier return clawed back (golden sequence S3, step 2, where the refund 200.00 exceeds the
+returned line's net 120.00), or (c) it includes a **reward** line (`discountAmount` above 0). A return whose `refund_O`
+would be below 0 is refused first (`promotion_clawback_exceeds_refund`, OD-10; the "add the reward units" remedy only
+works after reward-line returns are allowed). The reason is the ledger: the posting feed carries no clawback and no line
+promotion, and the Connector has no option A yet (RT-1340 merged the decision and the bench proof only), so such a
+return would be rejected at ERPNext for good; the Connector's return builder also needs `unitPrice` × `quantity` =
+`lineAmount`, which a reward line does not satisfy. The refusals lift after (1) the posting-feed contract carries the
+per-line clawback and (2) the Connector implements option A and applies the discount to a returned unit as it does to a
+sale (S8). Until then `promotionClawbacks` is never present; `sale_return_promotion_clawbacks` and the net-of-clawback
+refund rule stay in place for that lift. A return of a non-reward promoted line that changes no discount is an ordinary
+return. The single returns and the multi-return sequences are golden vectors in
+`packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`); the pure settlement spec runs
+all of them, the integration specs run the first step of each against the refusals.
 
 ## 10. Administration (Admin Console, control surface only)
 
