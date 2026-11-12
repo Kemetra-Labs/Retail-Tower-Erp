@@ -141,4 +141,50 @@ describe("RT-1292 pilot resolver", () => {
     await expect(resolveLatestPilotRelease(deps)).rejects.toThrow("audit failed");
     expect(calls.outcomes).toEqual([]);
   });
+
+  /**
+   * RT-1292 acceptance criterion 5: no URL appears in logs, metrics or audit rows.
+   * The audit half is `pos-pilot-release.never-cross.spec.ts` (real Postgres). This is the log
+   * and metric half at the resolver: every path (issued, each ineligible case, a failed presign,
+   * a failed audit write) runs with stdout, stderr and the console captured, and the only value
+   * the metric receives is a closed outcome name.
+   */
+  it("writes no URL, signature, object key or version id to any log, and labels the metric with closed outcomes only", async () => {
+    const written: string[] = [];
+    const capture = (chunk: unknown): boolean => {
+      written.push(String(chunk));
+      return true;
+    };
+    const spies = [
+      jest.spyOn(process.stdout, "write").mockImplementation(capture),
+      jest.spyOn(process.stderr, "write").mockImplementation(capture),
+      jest.spyOn(console, "log").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
+      jest.spyOn(console, "info").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
+      jest.spyOn(console, "warn").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
+      jest.spyOn(console, "error").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
+      jest.spyOn(console, "debug").mockImplementation((...args: unknown[]) => void written.push(args.join(" "))),
+    ];
+    const outcomes: string[] = [];
+    try {
+      const paths: ReadonlyArray<Parameters<typeof harness>[0]> = [
+        {},
+        ...unavailable.map(([, overrides]) => overrides),
+        { presigner: "throws" },
+        { issuedThrows: true },
+      ];
+      for (const overrides of paths) {
+        const { deps, calls } = harness(overrides);
+        await resolveLatestPilotRelease(deps).catch(() => undefined);
+        outcomes.push(...calls.outcomes);
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    const everything = written.join("\n");
+    for (const secret of ["bucket.example", "sig=abc", RELEASE.artifactKey, RELEASE.artifactVersionId, "pos/pilot/"]) {
+      expect(everything).not.toContain(secret);
+    }
+    expect(outcomes.length).toBeGreaterThan(0);
+    for (const outcome of outcomes) expect(outcome).toMatch(/^(issued|none_[a-z_]+)$/);
+  });
 });
