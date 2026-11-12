@@ -215,19 +215,21 @@ computes it, which is the authority, and the POS quote shows it. The Connector m
 equals the refund. OD-11 decides how the clawback appears in ERPNext: option A, a reduced credit-note rate on the
 returned units (RT-1340 bench proof). It fails closed.
 
-**Runtime (RT-1337, S4).** Backend-Core accepts a return whose clawback is above 0 and records it (one
-`sale_return_promotion_clawbacks` row per return and offer, `SaleReturn.promotionClawbacks`); `returnTotal` is the
-sum of the returned `lineAmount` less the clawbacks, so the refund tenders sum to it. A return whose `refund_O` would
-be below 0 is refused (`promotion_clawback_exceeds_refund`, OD-10). One case stays refused, fail closed, with
-`promotion_return_requires_clawback`: a return that would **give back** a discount an earlier return clawed back
-(golden sequence S3, step 2, where the refund 200.00 exceeds the returned line's net 120.00). A clawback row is a
-positive amount, so the recorded facts cannot carry a give-back, and the ERPNext credit note cannot post one yet (the
-RT-1340 finding). Lifting that refusal needs a contract and schema change for the give-back first. The Connector
-does not yet post a return that includes a discounted line (RT-857 scope), and every return of a reward unit does
-(RT-1340 finding): until the Connector reads the clawback (S8), Backend-Core records it, but the ERPNext credit note
-of such a return is not yet reconciled with the refund. The single returns and the multi-return
-sequences are golden vectors in
-`packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`).
+**Runtime (RT-1337, S4, as validated).** Backend-Core fails closed. A return is refused with 422
+`promotion_return_requires_clawback`, and nothing is recorded, when (a) an offer's clawback is above 0, (b) it would
+**give back** a discount an earlier return clawed back (golden sequence S3, step 2, where the refund 200.00 exceeds the
+returned line's net 120.00), or (c) it includes a **reward** line (`discountAmount` above 0). A return whose `refund_O`
+would be below 0 is refused first (`promotion_clawback_exceeds_refund`, OD-10; the "add the reward units" remedy only
+works after reward-line returns are allowed). The reason is the ledger: the posting feed carries no clawback and no line
+promotion, and the Connector has no option A yet (RT-1340 merged the decision and the bench proof only), so such a
+return would be rejected at ERPNext for good; the Connector's return builder also needs `unitPrice` × `quantity` =
+`lineAmount`, which a reward line does not satisfy. The refusals lift after (1) the posting-feed contract carries the
+per-line clawback and (2) the Connector implements option A and applies the discount to a returned unit as it does to a
+sale (S8). Until then `promotionClawbacks` is never present; `sale_return_promotion_clawbacks` and the net-of-clawback
+refund rule stay in place for that lift. A return of a non-reward promoted line that changes no discount is an ordinary
+return. The single returns and the multi-return sequences are golden vectors in
+`packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`); the pure settlement spec runs
+all of them, the integration specs run the first step of each against the refusals.
 
 ## 10. Administration (Admin Console, control surface only)
 

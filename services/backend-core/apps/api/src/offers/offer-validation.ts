@@ -114,7 +114,11 @@ export async function checkDefinition(
 
   const scoped = definitionScopeStores(definition, loaded.stores);
   const windows = scoped.map((s) => ({ id: s.id, window: resolveWindow(definition.schedule, s.timezone) }));
-  const holding = windows.filter((w) => !windowClosed(w.window, loaded.now)).map((w) => w.id);
+  // A window whose end does not come after its start in the store's zone (two local times in one DST gap resolve to the
+  // same instant) is never open: it holds nothing, so an offer empty in every store is refused as elapsed.
+  const holding = windows
+    .filter((w) => !windowClosed(w.window, loaded.now) && (w.window.endsAt === null || w.window.endsAt.getTime() > w.window.startsAt.getTime()))
+    .map((w) => w.id);
   if (scoped.length > 0 && holding.length === 0) {
     issues.push({ code: "offer_schedule_elapsed", field: "/schedule/endsAt", message: "The offer has already ended in every store of its scope." });
   }

@@ -118,6 +118,9 @@ export async function rebuildOfferPackForCatalogChange(
   tenantId: string,
   change: { readonly productId: string; readonly categoryIds: ReadonlyArray<string | null>; readonly brandIds: ReadonlyArray<string | null> },
 ): Promise<RebuildResult> {
+  // The tenant lock first: a concurrent publish holds it while it reads the catalog, so the gate below must see
+  // that publish's committed rules (and the publish, if it comes after us, sees our committed product).
+  await lockTenantOffers(client, tenantId);
   const r = await client.query<{ affected: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM offer_version_rules
@@ -131,6 +134,7 @@ export async function rebuildOfferPackForCatalogChange(
 
 /** A store was created, restored or deleted: all-stores offers follow the stores of the chain. */
 export async function rebuildOfferPackForStoreChange(client: PoolClient, tenantId: string): Promise<RebuildResult> {
+  await lockTenantOffers(client, tenantId); // before the gate, as in the catalog hook
   const r = await client.query<{ any: boolean }>(
     `SELECT EXISTS (SELECT 1 FROM offer_versions WHERE tenant_id = $1::uuid AND all_stores) AS any`,
     [tenantId],

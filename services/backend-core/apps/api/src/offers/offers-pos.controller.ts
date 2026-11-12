@@ -33,7 +33,15 @@ import type { TenantContextRequest } from "../context/types";
 import { OfferPackService, packEtag, type OfferPackBody } from "./offer-pack.service";
 
 const NoQuerySchema = z.object({}).strict();
-const IF_NONE_MATCH = /^"[0-9a-f]{64}"$/;
+/** RFC 9110 If-None-Match: `*`, or a comma-separated list of (weak) entity-tags. */
+const IF_NONE_MATCH = /^\s*(\*|(?:W\/)?"[!#-~]*"(?:\s*,\s*(?:W\/)?"[!#-~]*")*)\s*$/;
+const ENTITY_TAG = /(?:W\/)?"[!#-~]*"/g;
+
+/** Weak comparison (RFC 9110 13.1.2): `*` matches, else any listed tag equal to ours once the `W/` prefix is dropped. */
+function revalidates(header: string, etag: string): boolean {
+  if (header.trim() === "*") return true;
+  return (header.match(ENTITY_TAG) ?? []).some((tag) => tag.replace(/^W\//, "") === etag);
+}
 
 @Controller()
 export class OffersPosController {
@@ -59,7 +67,7 @@ export class OffersPosController {
     res.setHeader("ETag", etag);
     res.setHeader("Cache-Control", "no-cache, private");
     res.setHeader("X-Server-Time", body.issuedAt);
-    if (ifNoneMatch === etag) {
+    if (ifNoneMatch !== undefined && revalidates(ifNoneMatch, etag)) {
       res.status(304);
       return undefined;
     }

@@ -34,6 +34,7 @@ export {
   TOKEN_X,
   TOKEN_Y,
   USER_ADMIN_ALL,
+  USER_MANAGER,
   USER_OWNER_ALL,
 } from "../../cash-variance-policy/__support__/policy-fixture";
 export { SES_OWNER_ALL } from "../../catalog/erpnext-reconciliation/__support__/read-store-scope";

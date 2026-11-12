@@ -20,11 +20,13 @@ export interface Viewer {
 
 /**
  * A caller is bounded to their stores when their role is store-bounded, or their membership names specific
- * stores: a role never widens a membership (RT-131, `context/operator-store-scope.ts`).
+ * stores: a role never widens a membership (RT-131, `context/operator-store-scope.ts`). A store-bounded role whose
+ * membership covers every store (`tenant` scope) owns every live store of the tenant, passed as `tenantStoreIds`.
  */
-export function viewerOf(scope: StoreScope, roleBounded: boolean): Viewer {
+export function viewerOf(scope: StoreScope, roleBounded: boolean, tenantStoreIds: ReadonlyArray<string> = []): Viewer {
   if (!roleBounded && scope.kind === "tenant") return { ownStoreIds: null };
-  return { ownStoreIds: new Set(scope.kind === "tenant" ? [] : scope.storeIds.map((s) => s.toLowerCase())) };
+  const own = scope.kind === "tenant" ? tenantStoreIds : scope.storeIds;
+  return { ownStoreIds: new Set(own.map((s) => s.toLowerCase())) };
 }
 
 /** The definition as the viewer may see it, or null when a bounded viewer's stores are not in an explicit scope. */

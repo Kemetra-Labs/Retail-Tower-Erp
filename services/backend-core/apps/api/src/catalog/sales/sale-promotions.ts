@@ -29,7 +29,7 @@ import type { PoolClient } from "pg";
 import { newId } from "@data-pulse-2/shared";
 
 import { OfferDecimalError, formatMinor, percentOf, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
-import { evaluateOffer, type CartLine } from "../../offers/evaluator/offer-evaluator";
+import { MAX_EVALUATED_UNITS, evaluateOffer, type CartLine } from "../../offers/evaluator/offer-evaluator";
 import type { CaptureSaleLineDto, CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { minorUnitExponent } from "./iso4217-minor-units";
 import { SaleLinePricingInvalidError } from "./sale-errors";
@@ -60,6 +60,31 @@ export interface PromotionPlan {
   }>;
   readonly findings: ReadonlyArray<PromotionReviewFinding>;
 }
+
+/** The server's §6 evaluation of the cart under a cited version; a cart it cannot evaluate is a till defect (422). */
+function evaluateCited(facts: VersionFacts, minorUnit: number, cart: ReadonlyArray<CartLine>) {
+  try {
+    return evaluateOffer({
+      offer: { buyQuantity: facts.buyQuantity, getQuantity: facts.getQuantity, percentOff: facts.percentOff, maxApplicationsPerSale: facts.maxApplicationsPerSale },
+      minorUnit,
+      cart,
+    });
+  } catch (err) {
+    // A line priced beyond the promoted lines' minor unit (mixed currencies) cannot be evaluated.
+    if (err instanceof OfferDecimalError) throw new SaleLinePricingInvalidError();
+    throw err;
+  }
+}
+
+/** The units of the lines that take part in an evaluation (whole quantities of eligible lines). */
+const eligibleUnits = (cart: ReadonlyArray<CartLine>): bigint =>
+  cart.reduce((sum, c) => sum + (c.eligible ? (wholeUnits(c.quantity) ?? 0n) : 0n), 0n);
+
+/** An eligible line with at least one whole unit that none of the citing lines covers. */
+const hasUncitedParticipant = (cart: ReadonlyArray<CartLine>, members: ReadonlyArray<{ readonly index: number }>): boolean => {
+  const cited = new Set(members.map((m) => String(m.index)));
+  return cart.some((c) => c.eligible && (wholeUnits(c.quantity) ?? 0n) > 0n && !cited.has(c.lineRef));
+};
 
 const isPromoted = (line: CaptureSaleLineDto): line is PromotedLine => line.promotion !== undefined;
 
@@ -100,45 +125,35 @@ export async function planSalePromotions(
     groups.set(key, [...(groups.get(key) ?? []), p]);
   }
   const findings: PromotionReviewFinding[] = [];
+  let work = 0n;
   for (const members of groups.values()) {
     const cited = members[0]!.line.promotion;
     const facts = versions.get(versionKey(cited.offerId, cited.offerVersion))!;
     const eligible = await eligibleAt(client, scope, cited);
     const exponent = minorUnitExponent(members[0]!.line.currencyCode)!;
     const reasons = new Set<PromotionReviewReason>();
-    if (members.some((m) => m.line.tenantProductRef === undefined || !eligible.has(m.line.tenantProductRef))) {
+    if (members.some((m) => m.line.tenantProductRef === undefined || !eligible.has(m.line.tenantProductRef.toLowerCase()))) {
       reasons.add("cited_product_not_in_eligible_set");
     }
     // The server's evaluation over the whole sale: every line whose product is in the set takes part,
     // unless it carries a manual discount (OD-5).
     const cart: CartLine[] = body.lines.map((l, i) => ({
       lineRef: String(i),
-      productId: l.tenantProductRef ?? "",
+      productId: l.tenantProductRef?.toLowerCase() ?? "",
       unitPrice: l.unitPrice,
       quantity: l.quantity,
-      eligible: l.tenantProductRef !== undefined && eligible.has(l.tenantProductRef) && l.discount === undefined,
+      eligible: l.tenantProductRef !== undefined && eligible.has(l.tenantProductRef.toLowerCase()) && l.discount === undefined,
     }));
-    let expected;
-    try {
-      expected = evaluateOffer({
-        offer: { buyQuantity: facts.buyQuantity, getQuantity: facts.getQuantity, percentOff: facts.percentOff, maxApplicationsPerSale: facts.maxApplicationsPerSale },
-        minorUnit: exponent,
-        cart,
-      });
-    } catch (err) {
-      // A line priced beyond the promoted lines' minor unit (mixed currencies) cannot be evaluated: a till defect.
-      if (err instanceof OfferDecimalError) throw new SaleLinePricingInvalidError();
-      throw err;
-    }
+    // One request-wide budget of expanded units: every distinct citation re-evaluates the whole cart, so a request
+    // citing many offers or Pack revisions could otherwise repeat the per-call bound once per citation.
+    work += eligibleUnits(cart);
+    if (work > MAX_EVALUATED_UNITS) throw new SaleLinePricingInvalidError();
+    const expected = evaluateCited(facts, exponent, cart);
     const recorded = members.reduce((sum, m) => sum + scaled(m.line.promotion.discountAmount, exponent), 0n);
     if (formatMinor(recorded, exponent) !== expected.totalDiscount) reasons.add("discount_differs_from_server_evaluation");
     // A unit the server counted as taking part but the till did not cite has no fact row: its later return would
     // settle without the offer. Flagged for review (OD-9), the sale is accepted.
-    if (expected.applications > 0) {
-      const cited = new Set(members.map((m) => String(m.index)));
-      const uncited = cart.some((c) => c.eligible && (wholeUnits(c.quantity) ?? 0n) > 0n && !cited.has(c.lineRef));
-      if (uncited) reasons.add("participant_not_cited");
-    }
+    if (expected.applications > 0 && hasUncitedParticipant(cart, members)) reasons.add("participant_not_cited");
     if (reasons.size > 0) {
       findings.push({
         offerId: cited.offerId,

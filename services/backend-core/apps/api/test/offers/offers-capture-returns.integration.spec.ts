@@ -345,6 +345,35 @@ describe("captureSale with an automatic-offer promotion", () => {
     expect([res.status, res.body.error?.code]).toEqual([422, "sale_line_pricing_invalid"]);
   });
 
+  it("compares product references case-insensitively: an upper-case tenantProductRef of an eligible product is not flagged", async () => {
+    if (skip()) return;
+    const o = await seedOffer({ products: 2 });
+    const res = await capture(
+      body([
+        { product: o.productIds[0]!.toUpperCase(), unitPrice: "100.00", lineAmount: "100.00", promotion: cite(o, "0.00") },
+        { product: o.productIds[1]!.toUpperCase(), unitPrice: "60.00", lineAmount: "36.00", promotion: cite(o, "24.00") },
+      ]),
+    );
+    expect([res.status, res.body.error]).toEqual([201, undefined]);
+    expect(await reviewRows(res.body.saleRef)).toEqual([]);
+  });
+
+  it("bounds the evaluation work of the whole request, not only of one citation", async () => {
+    if (skip()) return;
+    const first = await seedOffer({ products: 2 });
+    await seedOffer({ products: 1 }); // a later Pack revision that still holds the first offer's rows
+    const later = await latestRevision();
+    expect(later).toBeGreaterThan(first.packRevision);
+    // The same offer cited at two Pack revisions is two evaluations of the whole cart: 2 x 80,000 units.
+    const res = await capture(
+      body([
+        { product: first.productIds[0]!, unitPrice: "1.00", quantity: "40000", lineAmount: "40000.00", promotion: cite(first, "0.00") },
+        { product: first.productIds[1]!, unitPrice: "1.00", quantity: "40000", lineAmount: "40000.00", promotion: cite(first, "0.00", { packRevision: later }) },
+      ]),
+    );
+    expect([res.status, res.body.error?.code]).toEqual([422, "sale_line_pricing_invalid"]);
+  });
+
   it("a sale without any promotion is captured exactly as before (no offer query needed, no fact, no flag)", async () => {
     if (skip()) return;
     const res = await capture(captureBody({ externalId: nextExternalId() }));

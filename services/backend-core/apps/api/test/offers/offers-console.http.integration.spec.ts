@@ -36,6 +36,7 @@ import {
   SES_OWNER_ALL,
   SES_OWNER_B,
   SES_STAFF,
+  USER_MANAGER,
   STORE_A_X,
   STORE_A_Y,
   STORE_ABSENT,
@@ -598,12 +599,42 @@ describe("lifecycle: pause, resume, end, archive", () => {
     expect(((await get(`/api/v1/offers/${id}/versions`, SES_OWNER_ALL)).body as { items: unknown[] }).items).toHaveLength(1);
   });
 
+  it("refuses a window that is empty in the store's zone: two local times inside one DST gap resolve to one instant", async () => {
+    if (skip()) return;
+    await h.env().admin.query(`UPDATE stores SET timezone = 'America/New_York' WHERE id = $1`, [STORE_A_Y]);
+    try {
+      // 2027-03-14 02:00 to 03:00 does not exist in New York: both ends resolve to the first instant after the gap.
+      const offer = await createOffer(definition({ storeScope: { storeIds: [STORE_A_Y] }, schedule: { timeBasis: "store_local", startsAt: "2027-03-14T02:15", endsAt: "2027-03-14T02:30" } }));
+      expectError(await publishOffer(offer), 422, "offer_schedule_elapsed");
+    } finally {
+      await h.env().admin.query(`UPDATE stores SET timezone = 'UTC' WHERE id = $1`, [STORE_A_Y]);
+    }
+  });
+
+  it("hides an archived offer from the default list, and lists it for state=archived", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition({ nameAr: "للأرشفة" }));
+    await post(`/api/v1/offers/${offer.offerId}/end`, SES_OWNER_ALL).expect(200);
+    await post(`/api/v1/offers/${offer.offerId}/archive`, SES_OWNER_ALL).expect(200);
+    const ids = async (query: Record<string, string>): Promise<string[]> =>
+      ((await get("/api/v1/offers", SES_OWNER_ALL, { page_size: 100, ...query })).body as { items: Array<{ offerId: string }> }).items.map((i) => i.offerId);
+    expect(await ids({})).not.toContain(offer.offerId);
+    expect(await ids({ state: "archived" })).toContain(offer.offerId);
+  });
+
   it("a window that closed by itself reads as ended, and its rows are swept by the next write", async () => {
     if (skip()) return;
-    const offer = await createOffer(definition({ schedule: { timeBasis: "absolute", startsAt: "2020-01-01T00:00:00Z", endsAt: new Date(Date.now() + 1500).toISOString() } }));
+    // Publish with a far end, then move the version's end into the past through the admin pool: no wall-clock race
+    // between this process and the database clock.
+    const offer = await createOffer(definition({ schedule: { timeBasis: "absolute", startsAt: "2020-01-01T00:00:00Z", endsAt: "2099-01-01T00:00:00Z" } }));
     expect((await publishOffer(offer)).status).toBe(200);
     expect((await openRows(STORE_A_X)).length).toBeGreaterThan(0);
-    await new Promise((r) => setTimeout(r, 1700));
+    await h.env().admin.query(`ALTER TABLE offer_versions DISABLE TRIGGER USER`);
+    try {
+      await h.env().admin.query(`UPDATE offer_versions SET ends_at = '2021-01-01T00:00:00Z' WHERE offer_id = $1`, [offer.offerId]);
+    } finally {
+      await h.env().admin.query(`ALTER TABLE offer_versions ENABLE TRIGGER USER`);
+    }
     expect(((await get(`/api/v1/offers/${offer.offerId}`, SES_OWNER_ALL)).body as OfferBody).state).toBe("ended");
     // A new offer on the same products publishes: the closed window no longer holds them.
     const next = await publishOk(definition({ nameAr: "التالي" }));
@@ -615,6 +646,24 @@ describe("lifecycle: pause, resume, end, archive", () => {
 describe("what a store_manager sees", () => {
   beforeEach(async () => {
     if (!skip()) await endAll();
+  });
+
+  it("a store_manager whose membership covers every store reads and pauses in every store, never the whole offer", async () => {
+    if (skip()) return;
+    const onlyY = await publishOk(definition({ nameAr: "واي", storeScope: { storeIds: [STORE_A_Y] }, eligibility: { include: { productIds: [P_HAT] } } }));
+    const admin = h.env().admin;
+    const grants = (await admin.query(`SELECT sa.membership_id, sa.store_id, sa.tenant_id FROM store_access sa JOIN memberships m ON m.id = sa.membership_id WHERE m.user_id = $1`, [USER_MANAGER])).rows;
+    await admin.query(`DELETE FROM store_access WHERE membership_id IN (SELECT id FROM memberships WHERE user_id = $1)`, [USER_MANAGER]);
+    await admin.query(`UPDATE memberships SET store_access_kind = 'all' WHERE user_id = $1`, [USER_MANAGER]);
+    try {
+      // STORE_A_Y is not in the fixture manager's own grant, but the membership is now tenant-wide.
+      expect((await get(`/api/v1/offers/${onlyY.offerId}`, SES_MANAGER)).status).toBe(200);
+      expectError(await post(`/api/v1/offers/${onlyY.offerId}/pause`, SES_MANAGER, { reason: "r" }), 403, "forbidden");
+      expect((await post(`/api/v1/offers/${onlyY.offerId}/pause`, SES_MANAGER, { reason: "r", storeIds: [STORE_A_Y] })).status).toBe(200);
+    } finally {
+      await admin.query(`UPDATE memberships SET store_access_kind = 'specific' WHERE user_id = $1`, [USER_MANAGER]);
+      for (const g of grants) await admin.query(`INSERT INTO store_access (membership_id, store_id, tenant_id) VALUES ($1, $2, $3)`, [g.membership_id, g.store_id, g.tenant_id]);
+    }
   });
 
   it("answers the same 404 for an offer outside their stores as for no offer at all, on a whole-offer pause too", async () => {
@@ -691,7 +740,10 @@ describe("the Offer Pack read (posGetOfferPack)", () => {
     expect((await h.get("/api/pos/v1/store/offer-pack", null)).status).toBe(401);
     expect((await h.get("/api/pos/v1/store/offer-pack", SES_OWNER_ALL)).status).toBe(401);
     expect((await h.get("/api/pos/v1/store/offer-pack", null, { store_id: STORE_A_Y }).set("Authorization", `Bearer ${TOKEN_X}`)).status).toBe(400);
-    expect((await packRead(TOKEN_X, { "If-None-Match": 'W/"abc"' })).status).toBe(400);
+    expect((await packRead(TOKEN_X, { "If-None-Match": "abc" })).status).toBe(400);
+    expect((await packRead(TOKEN_X, { "If-None-Match": '"a", ' })).status).toBe(400);
+    // Well-formed tags that are not the current one just return the Pack.
+    expect((await packRead(TOKEN_X, { "If-None-Match": 'W/"abc"' })).status).toBe(200);
   });
 
   it("is an empty revision-0 Pack before any offer, with trusted-time headers and an ETag that revalidates to 304", async () => {
@@ -703,6 +755,11 @@ describe("the Offer Pack read (posGetOfferPack)", () => {
     expect(res.headers["cache-control"]).toBe("no-cache, private");
     expect(res.headers["x-server-time"]).toBe((res.body as { issuedAt: string }).issuedAt);
     expect(res.headers["etag"]).toMatch(/^"[0-9a-f]{64}"$/);
+    const tag = res.headers["etag"] as string;
+    // RFC 9110: a tag list, a weak form of the tag, and `*` all revalidate.
+    for (const header of [`"x", ${tag}`, `W/${tag}`, `W/"x" , W/${tag}`, "*"]) {
+      expect([header, (await packRead(TOKEN_Y, { "If-None-Match": header })).status]).toEqual([header, 304]);
+    }
     const again = await packRead(TOKEN_Y, { "If-None-Match": res.headers["etag"] as string });
     expect(again.status).toBe(304);
     expect(again.headers["x-server-time"]).toEqual(expect.any(String));

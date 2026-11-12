@@ -120,7 +120,11 @@ export function evaluateOffer(input: EvaluateInput): Evaluation {
   const { applications, rewards } = pickRewards(units, offer);
   const participating = new Set(units.map((u) => u.order));
   const perLine = new Map<number, bigint[]>();
-  for (const r of rewards) perLine.set(r.order, [...(perLine.get(r.order) ?? []), percentOf(r.price, offer.percentOff)]);
+  for (const r of rewards) {
+    const discounts = perLine.get(r.order) ?? [];
+    discounts.push(percentOf(r.price, offer.percentOff)); // append: copying the array per reward is quadratic
+    perLine.set(r.order, discounts);
+  }
 
   const lines: EvaluatedLine[] = cart.flatMap((line, order): EvaluatedLine[] => {
     const price = scaled(line.unitPrice, minorUnit);

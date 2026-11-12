@@ -74,7 +74,6 @@ import {
   liveStoreIdsOf,
   loadLiveStores,
   loadOfferHeader,
-  loadOfferHeaders,
   loadOpenPauses,
   loadVersions,
   lockTenantOffers,
@@ -136,11 +135,12 @@ export class OffersService {
             })();
       const now = await dbNow(client);
       const loaded = await loadTenantOffers(client, input.tenantId, now);
-      const all = await loadOfferHeaders(client, input.tenantId);
-      const matching = all.filter((h) => {
+      const matching = loaded.headers.filter((h) => {
         const record = loaded.versions.get(h.id);
         if (!isVisible(h, record, caller.viewer)) return false;
-        if (query.state !== undefined && stateOf(loaded, h) !== query.state) return false;
+        const state = stateOf(loaded, h);
+        // Archiving hides an offer from the default list; `state=archived` asks for it.
+        if (query.state === undefined ? state === "archived" : state !== query.state) return false;
         if (query.store_id !== undefined) {
           const def = (record?.definition ?? h.draft?.definition)!;
           if ("storeIds" in def.storeScope && !def.storeScope.storeIds.includes(query.store_id)) return false;
@@ -260,15 +260,15 @@ export class OffersService {
       }
       const definition = header.draft.definition;
       const { check } = await this.check(client, input.tenantId, offerId, definition);
-      const eligible = check.eligible.slice(0, 20_000);
       return {
         offerId,
         draftRevision: header.draftRevision,
         publishable: check.issues.length === 0 && check.conflicts.length === 0,
         issues: check.issues.slice(0, 100).map((i) => ({ code: i.code, field: i.field, message: i.message })),
         eligibleSet: {
-          count: check.eligible.length > 20_000 ? 20_000 : check.eligible.length,
-          sample: await sampleProducts(client, input.tenantId, eligible),
+          // The whole set the check found (one past the bound at most): the bound limits the sample, not the set.
+          count: check.eligible.length,
+          sample: await sampleProducts(client, input.tenantId, check.eligible),
         },
         conflicts: check.conflicts,
         simulation:
@@ -282,7 +282,7 @@ export class OffersService {
                   percentOff: definition.parameters.percentOff,
                   maxApplicationsPerSale: definition.parameters.maxApplicationsPerSale,
                 },
-                new Set(eligible),
+                new Set(check.eligible),
               ),
       };
     });
@@ -491,7 +491,10 @@ export class OffersService {
   private async caller(client: PoolClient, input: OfferCallInput): Promise<Caller> {
     const scope = await callerStoreScope(client, this.memberships, { tenantId: input.tenantId, context: input.context });
     const roleCode = await this.memberships.findRoleCodeForUserInTenant(input.actorUserId, input.tenantId, client);
-    return { roleCode, scope, viewer: viewerOf(scope, isStoreBounded(roleCode)) };
+    // A store_manager whose membership covers every store reads and pauses in every live store of the tenant.
+    const bounded = isStoreBounded(roleCode);
+    const tenantStores = bounded && scope.kind === "tenant" ? (await loadLiveStores(client, input.tenantId)).map((s) => s.id) : [];
+    return { roleCode, scope, viewer: viewerOf(scope, bounded, tenantStores) };
   }
 
   /**

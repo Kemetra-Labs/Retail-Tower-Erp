@@ -1217,7 +1217,8 @@ paths:
         `returnTotal`. Units not under an offer are refunded as before. If
         `refund_O < 0` (possible when Y > X or the percent is high) the return
         is refused with 422 `promotion_clawback_exceeds_refund` (OD-10): the
-        till asks the cashier to add the reward units to the return; a return
+        till would ask the cashier to add the reward units to the return (possible
+        once reward-line returns are allowed, see below); a return
         never charges the customer. OD-11 (how a clawback posts to ERPNext)
         is decided, option A (RT-1340), but is not implemented in the
         Connector yet and the posting feed carries no clawback, so the
@@ -4200,8 +4201,9 @@ components:
         `error.code` is one of, in this order:
         `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from
         the RT-1337 runtime) — an automatic offer's `refund_O` would be
-        negative (see `recordReturn`, Automatic offers); add the reward units
-        to the return;
+        negative (see `recordReturn`, Automatic offers); the return cannot be
+        recorded as it is (adding the reward units is the remedy once
+        reward-line returns are allowed);
         `promotion_return_requires_clawback` (RT-1335; from the RT-1337
         runtime) — the return has a clawback above 0, would give back a
         discount an earlier return clawed back, or includes a reward line:

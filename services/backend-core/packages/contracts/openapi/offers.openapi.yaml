@@ -1085,8 +1085,11 @@ components:
       required: false
       schema:
         type: string
-        pattern: '^"[0-9a-f]{64}"$'
-      description: The last `ETag` received; omit it when the cached Pack was lost.
+        pattern: '^\s*(\*|(W/)?"[!#-~]*"(\s*,\s*(W/)?"[!#-~]*")*)\s*$'
+      description: >
+        The last `ETag` received; omit it when the cached Pack was lost. RFC 9110
+        `If-None-Match`: `*`, or a comma-separated list of entity-tags, weak
+        (`W/`) or strong, compared weakly; any match is `304`.
 
   headers:
     IdempotentReplayed:

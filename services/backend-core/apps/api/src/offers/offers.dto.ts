@@ -85,8 +85,20 @@ function checkLocalSchedule(s: ScheduleInput, bad: (path: string, message: strin
   if (start !== null && end !== null && end <= start) bad("endsAt", "must be after startsAt");
 }
 
-const OFFSET_INSTANT = /(Z|[+-]\d{2}:\d{2})$/;
-const instantMs = (value: string): number => (OFFSET_INSTANT.test(value) ? Date.parse(value) : Number.NaN);
+const RFC3339_INSTANT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/;
+
+/** An RFC 3339 instant with an offset as epoch ms; NaN for bad syntax or an impossible date (Date.parse would roll 02-30 over to 03-02). */
+function instantMs(value: string): number {
+  const m = RFC3339_INSTANT.exec(value);
+  if (m === null) return Number.NaN;
+  const [year, month, day, hour, minute, second] = [m[1], m[2], m[3], m[4], m[5], m[6]].map(Number) as [number, number, number, number, number, number];
+  const offsetHour = m[7] === undefined ? 0 : Number(m[7]);
+  const offsetMinute = m[8] === undefined ? 0 : Number(m[8]);
+  const calendar = new Date(Date.UTC(year, month - 1, day));
+  const realDate = calendar.getUTCFullYear() === year && calendar.getUTCMonth() === month - 1 && calendar.getUTCDate() === day;
+  if (!realDate || hour > 23 || minute > 59 || second > 59 || offsetHour > 23 || offsetMinute > 59) return Number.NaN;
+  return Date.parse(value);
+}
 
 /** `absolute`: RFC 3339 instants with an offset, the end after the start. */
 function checkAbsoluteSchedule(s: ScheduleInput, bad: (path: string, message: string) => void): void {
