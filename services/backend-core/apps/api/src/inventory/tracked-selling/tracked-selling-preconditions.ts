@@ -44,8 +44,26 @@ const CHECKS: Readonly<Record<TrackedSellingPrecondition, Check>> = {
   // RT-435: status moves and the return-inspection landing ship in this build
   // (`createStatusMove`, `setReturnLandingPolicy`) for every tenant.
   status_moves_available: () => Promise.resolve(true),
-  // RT-293 (Gate 8): the ERP-origin import with tracking. Not built yet.
-  erp_tracking_import: notYetConfirmable,
+  // RT-1288 (Gate 8 P4): the ERP-origin stock import ran. Every live store has an
+  // active `stock` warehouse mapping and a completed import run on that mapping
+  // (a run on a retired mapping does not count: the store was re-pointed).
+  erp_tracking_import: async (client, tenantId) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM stores WHERE tenant_id = $1 AND deleted_at IS NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM stores s
+                 WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM erpnext_warehouse_map m
+                      WHERE m.tenant_id = $1 AND m.store_id = s.id
+                        AND m.purpose = 'stock' AND m.retired_at IS NULL
+                        AND EXISTS (SELECT 1 FROM erp_stock_import_runs r
+                                     WHERE r.tenant_id = $1 AND r.warehouse_map_id = m.id
+                                       AND r.status = 'completed'))) AS met`,
+      [tenantId],
+    );
+    return r.rows[0]?.met === true;
+  },
   // G7-11 (RT-452): the Connector's batch posting. Its bench evidence is not a
   // signal this server can read, so it stays unmet until one exists.
   erp_batch_posting_verified: notYetConfirmable,
