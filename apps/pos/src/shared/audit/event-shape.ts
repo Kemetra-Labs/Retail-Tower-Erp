@@ -291,6 +291,13 @@ export type Fr025MandatoryAttribute = (typeof FR025_MANDATORY_ATTRIBUTES)[number
  * admission carried. Backend-Core refuses a cashier sale outside that tolerance,
  * so every sale would later be refused and stranded on the till. Fix the Windows
  * date and time, then sign in again. Carries no time values.
+ *
+ * `server_address_unconfigured` and `identity_unconfigured` (RT-1346, RT-1345 D4) —
+ * manager sign-in refused because the terminal has no usable configuration after
+ * resolution (environment, then the build's baked file): the Backend-Core address, or
+ * the Descope project id. Not a credential problem, so it must not read as one: the
+ * renderer names the missing setting and says the store administrator or Kemetra
+ * support fixes it. Carries no configuration value.
  */
 export const REFUSAL_CATEGORIES = [
   'invalid_input',
@@ -307,6 +314,8 @@ export const REFUSAL_CATEGORIES = [
   'close_blocked',
   'closed_here_unsent',
   'clock_skew',
+  'server_address_unconfigured',
+  'identity_unconfigured',
 ] as const;
 export type RefusalCategory = (typeof REFUSAL_CATEGORIES)[number];
 

@@ -16,17 +16,62 @@ back so it cannot keep taking payments.
 
 ---
 
-## 1. How a packaged terminal receives its configuration today
+## 1. How a packaged terminal receives its configuration
 
-There is exactly **one** runtime configuration channel: **the process
-environment `POS Pulse.exe` inherits when it starts.**
+There are **two** runtime configuration channels (RT-1346, decision RT-1345 D1/D2):
 
-| Surface | Packaged behaviour (verified at `main@4881eb6`) |
+1. **The process environment `POS Pulse.exe` inherits when it starts.** This is
+   the channel for everything in §3 and the only one for the feature flags.
+2. **The lane configuration baked into the build** (`dist/lane-config.json`,
+   inside the signed, integrity-protected `app.asar`). It carries only the public
+   values below, so a terminal installed from the downloaded installer works
+   **without any Windows environment variable**. The environment still wins over
+   it (§4).
+
+| Baked field | Replaces this variable when the variable is unset | Validation (same as the variable) |
+| :-- | :-- | :-- |
+| `lane` (`lab`, `pilot`, `production`) | none (identifies the lane in the log) | one of the three |
+| `apiBaseUrl` | `VITE_API_BASE_URL` | `https` URL, no credentials, query or fragment |
+| `descopeProjectId` | `DESCOPE_PROJECT_ID` | Descope id shape, US region only |
+| `updateOrigin` | `ELECTRON_UPDATE_FEED_URL` | `https` URL, no credentials, query or fragment |
+| `updateChannel` | `POS_PULSE_UPDATE_CHANNEL` | `lab`, `canary` or `stable` |
+
+The file holds **public, non-secret values only**. There is no field for a secret
+and the build refuses a value that looks like one. It sits inside the asar, never
+in `resources\`, because `resources\` is writable by the cashier on a per-user
+install and a file there could redirect the API address. A build with **no
+inputs writes no file**, and the terminal behaves exactly as described for the
+environment alone. Nothing else is baked: the feature flags, `SENTRY_DSN`,
+`OPERATOR_IDENTITY_PROVIDER` and every other variable stay environment-only.
+
+**Build-time inputs (stamp step, `apps/pos/scripts/stamp-lane-config.ts`).** Run as
+part of `npm run build:main`, from dedicated variables that deliberately differ from
+the runtime names (a developer machine that has `VITE_API_BASE_URL` set must never
+bake it by accident):
+
+| Build input | File field |
 | :-- | :-- |
-| Main-process settings | Main is compiled with `tsc`, not Vite. It reads `process.env` directly (`src/main/index.ts`; flags in `src/main/app/feature-flags.ts`). Nothing is baked in at build time. |
+| `POS_LANE_CONFIG_LANE` | `lane` (required when any other input is set) |
+| `POS_LANE_CONFIG_API_BASE_URL` | `apiBaseUrl` |
+| `POS_LANE_CONFIG_DESCOPE_PROJECT_ID` | `descopeProjectId` |
+| `POS_LANE_CONFIG_UPDATE_ORIGIN` | `updateOrigin` |
+| `POS_LANE_CONFIG_UPDATE_CHANNEL` | `updateChannel` |
+
+All blank means no file (and a stale `dist\lane-config.json` is removed). Any
+other `POS_LANE_CONFIG_*` name, a missing lane, a wrong shape or a secret-looking
+value **fails the build** with the input name (never its value). At start-up the
+POS applies the same checks: a file that fails them is **refused entirely** (none of
+it is applied), with one `lane_config.refused` log line naming the reason and the
+field. The release workflow that supplies these inputs from GitHub variables is
+RT-1347; until a release carries them, the pilot build is still provisioned through
+the environment (§2 to §5).
+
+| Surface | Packaged behaviour (verified at `main@4881eb6`; baked file added by RT-1346) |
+| :-- | :-- |
+| Main-process settings | Main is compiled with `tsc`, not Vite. It reads `process.env` directly (`src/main/index.ts`; flags in `src/main/app/feature-flags.ts`). The only values baked in at build time are the five lane fields above, read once at start-up (`src/main/config/lane-config.ts`). |
 | `.env` file | **Not read by any build.** No `dotenv` or `--env-file` exists. `.env` is gitignored and not in `electron-builder.yml` `files`. A `.env` placed next to the exe does nothing. |
-| Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env`. No runtime `import.meta.env.VITE_*` value is inlined into the bundle. |
-| Installer / auto-update | The `package:dir` pilot artifact has no installer and no pinned publisher (`electron-builder.yml` targets `dir`), so `UpdateService` refuses it with `publisher_not_pinned` even when the variables below are set; only the lab installer build (`electron-builder.lab.yml`) can self-update today. The service reads its origin and channel from the process environment only (§3.2, `ELECTRON_UPDATE_FEED_URL`, `POS_PULSE_UPDATE_CHANNEL`). A per-launch override did **not** survive the installer relaunch in the RT-772 drill, so Machine scope is the chosen source; that it survives the relaunch is **expected, not yet proven** (RT-322 S-D lab drill). |
+| Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env` (the feature flags only). No runtime `import.meta.env.VITE_*` value is inlined into the bundle, and the baked address, project id and update values never cross the bridge. |
+| Installer / auto-update | The `package:dir` pilot artifact has no installer and no pinned publisher (`electron-builder.yml` targets `dir`), so `UpdateService` refuses it with `publisher_not_pinned` even when the variables below are set; only the lab installer build (`electron-builder.lab.yml`) can self-update today. The service reads its origin and channel from the process environment, then from the baked `updateOrigin` and `updateChannel` (§3.2, §4, `ELECTRON_UPDATE_FEED_URL`, `POS_PULSE_UPDATE_CHANNEL`); the pilot lane still ships no `app-update.yml` and so no updater. A per-launch override did **not** survive the installer relaunch in the RT-772 drill, so Machine scope is the chosen source; that it survives the relaunch is **expected, not yet proven** (RT-322 S-D lab drill). |
 | In-app settings screen / DB | None for these settings. |
 | Device credential | **Not** an environment value. Pairing stores the device token in the local DB, encrypted with Electron `safeStorage` (DPAPI). Never put it, or any credential, in the environment. |
 
@@ -114,7 +159,39 @@ start the POS.
 
 ## 4. Source, precedence, ownership, persistence
 
-**Precedence.** Windows builds each logon session's environment from Machine
+**Precedence between channels (RT-1346, RT-1345 D2).** For each of the five
+baked fields (§1) the POS uses the first source that has a value:
+
+```text
+process environment  >  baked lane-config.json  >  refuse (fail closed)
+```
+
+- A **non-blank** environment value always wins, **even when it is wrong**: a bad
+  `DESCOPE_PROJECT_ID` is not silently replaced by the baked one, so a mistaken
+  override stays visible. A blank value counts as unset.
+- With neither source the behaviour is today's: the address falls back to the
+  non-routable `https://example.invalid` (pairing and sync fail closed), a missing
+  Descope id refuses sign-in, no update origin means updates stay disabled, and
+  the channel defaults to `stable`.
+- The baked file is **all or nothing**. A malformed file, an unknown field or a
+  value that fails validation refuses the whole file (one `lane_config.refused`
+  log line); nothing is partly applied and the terminal falls back to the
+  environment alone.
+- At start-up the main log records `lane_config.loaded` with the lane and, per
+  setting, whether it came from `env` or `baked`. It never logs a value.
+
+**What the cashier sees when a setting is missing (D4).** When, after this
+resolution, the **server address** is missing or not a URL, or the **Descope project
+id** is missing, malformed or regional, the manager sign-in screen shows an Arabic
+message that names the problem («عنوان الخادم غير مضبوط» or «معرّف مشروع الهوية غير
+مضبوط») and says the store administrator or Kemetra support fixes it, instead of the
+generic credential refusal. Nothing is sent to the identity provider or Backend-Core
+in that case. The main log carries `operator.sign_in.refused` with category
+`server_address_unconfigured` or `identity_unconfigured` and stage `configuration`.
+The pairing screen is unchanged: a missing address still shows its network error
+there (the pairing change belongs to RT-1348).
+
+**Precedence inside the environment channel.** Windows builds each logon session's environment from Machine
 scope, then User scope; a User value **overrides** a Machine value with the same
 name. Any process that starts the exe can override both for that one launch.
 
@@ -138,6 +215,7 @@ Pilot rules that follow:
 | :-- | :-- |
 | Pilot deployment owner (Retail Tower) | The approved profile for each terminal (this runbook) and the go/no-go decision |
 | Store IT administrator (local admin on the terminal) | Setting and removing the Machine variables, rebooting, running the readiness check, recording sign-off |
+| Release owner (Retail Tower) | The values stamped into a lane's build (RT-1347 supplies them from GitHub variables), never a secret. A wrong baked value is fixed by a new build, not on the terminal. |
 | Cashier (standard Windows account, **not** a local admin) | Nothing in this runbook. Reports the refusal dialog if it ever appears. |
 
 **Persistence.** Machine variables are stored in the registry. They survive POS

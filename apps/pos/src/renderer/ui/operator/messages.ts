@@ -51,6 +51,13 @@ export const SIGN_IN_REFUSAL_COPY: Readonly<Record<RefusalCategory, string>> = O
   // A cashier often cannot change the Windows clock, so the copy also names who can (review).
   clock_skew:
     'ساعة هذا الجهاز غير مضبوطة. اضبط التاريخ والوقت في Windows أو أبلغ المدير، ثم سجّل الدخول مرة أخرى.',
+  // RT-1346 (RT-1345 D4) — the terminal has no usable setting for the server address or the
+  // sign-in identity. What -> who fixes it. Not a credential problem: no «حاول مرة أخرى»
+  // (a retry cannot help), and no value or setting name (those stay in the main log).
+  server_address_unconfigured:
+    'عنوان الخادم غير مضبوط أو غير صحيح على هذا الجهاز، فلا يمكن تسجيل الدخول. اطلب من مسؤول المتجر أو دعم Kemetra ضبطه.',
+  identity_unconfigured:
+    'إعداد تسجيل الدخول (معرّف مشروع الهوية) غير مضبوط أو غير صحيح على هذا الجهاز. اطلب من مسؤول المتجر أو دعم Kemetra ضبطه.',
 });
 
 export const EMPTY_INPUT_MESSAGE = 'أدخل بيانات الدخول للمتابعة.';

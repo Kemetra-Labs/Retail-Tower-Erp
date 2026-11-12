@@ -96,6 +96,10 @@ waitOn(
     // RT-719 — a dev session reports an UNKNOWN build identity: Vite serves a live-edited
     // renderer, so no stamp could stay true. Drop one left by an earlier `npm run build`.
     fs.rmSync(path.join(ROOT, 'dist', 'build-identity.json'), { force: true });
+    // RT-1346 — nor does a dev session read a baked lane configuration (dist/lane-config.json):
+    // a file left by an earlier `npm run build` with POS_LANE_CONFIG_* set would silently point
+    // `npm run dev` at that lane's server. Drop it; dev takes its settings from the environment.
+    fs.rmSync(path.join(ROOT, 'dist', 'lane-config.json'), { force: true });
 
     console.log('[dev-electron] Launching Electron...');
     const electronBin = require('electron');
