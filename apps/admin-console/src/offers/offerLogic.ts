@@ -107,18 +107,29 @@ export interface OfferActions {
 const EDITABLE: readonly OfferState[] = ["draft", "scheduled", "active", "paused"];
 const LIVE: readonly OfferState[] = ["scheduled", "active", "paused"];
 
+/** Does the offer's own scope (draft, else published version) cover every store? */
+function isAllStores(offer: Offer): boolean {
+  const scope = (offer.draft ?? offer.currentVersion)?.definition.storeScope;
+  return scope !== undefined && "allStores" in scope;
+}
+
 /** Which lifecycle controls an offer offers this caller. The server re-checks every one. */
 export function offerActions(offer: Offer, access: OfferAccess): OfferActions {
   const { state } = offer;
   const hasDraft = offer.draft !== null;
+  // A membership bounded to specific stores may author only offers confined to its own stores: an
+  // all-stores offer is refused server-side (403), so its author controls are not offered.
+  const confined = access.tenantWide || !isAllStores(offer);
+  const manage = access.canManage && confined;
+  const publish = access.canPublish && confined;
   return {
-    edit: access.canManage && EDITABLE.includes(state),
-    preview: access.canManage && hasDraft && EDITABLE.includes(state),
-    publish: access.canPublish && hasDraft && EDITABLE.includes(state),
+    edit: manage && EDITABLE.includes(state),
+    preview: manage && hasDraft && EDITABLE.includes(state),
+    publish: publish && hasDraft && EDITABLE.includes(state),
     pause: access.canPause && (state === "scheduled" || state === "active" || state === "paused"),
-    resume: access.canPublish && (state === "paused" || offer.pausedStores.length > 0),
-    end: access.canManage && LIVE.includes(state),
-    archive: access.canManage && state === "ended",
+    resume: publish && (state === "paused" || offer.pausedStores.length > 0),
+    end: manage && LIVE.includes(state),
+    archive: manage && state === "ended",
   };
 }
 

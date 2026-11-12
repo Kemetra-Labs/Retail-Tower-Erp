@@ -32,6 +32,7 @@ import { DirtyGuardProvider } from "@/shell/dirty-guard";
 import { erpStatusRoutes } from "@/shell/erpStatusRoutes";
 import { inventoryRoutes } from "@/shell/inventoryRoutes";
 import { NavigationBlocker } from "@/shell/navigation-blocker";
+import { offerRoutes } from "@/shell/offerRoutes";
 import { payerRoutes } from "@/shell/payerRoutes";
 import { platformRoutes } from "@/shell/platformRoutes";
 import { productReconciliationRoutes } from "@/shell/productReconciliationRoutes";
@@ -44,7 +45,6 @@ import { saleSyncRoutes } from "@/shell/saleSyncRoutes";
 import { shiftCloseRoutes } from "@/shell/shiftCloseRoutes";
 import { stockDiscrepancyRoutes } from "@/shell/stockDiscrepancyRoutes";
 import { trackingRoutes } from "@/shell/trackingRoutes";
-import { offerRoutes } from "@/shell/offerRoutes";
 import { voucherRoutes } from "@/shell/voucherRoutes";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {

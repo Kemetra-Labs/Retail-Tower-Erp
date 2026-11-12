@@ -10,7 +10,7 @@
  *     edited form.
  *   - Publish names that revision and is offered only after a publishable preview of it.
  *
- * Typed values outlive every failure. The page keys the editor by offer and draft revision, so a
+ * Typed values outlive every failure, a stale Save included (the page is not reloaded under them). The page keys the editor by offer and draft revision, so a
  * saved, published or reloaded draft remounts it on the server's answer.
  */
 import type {
@@ -32,7 +32,7 @@ import {
   validateOfferForm,
 } from "./offerFormLogic";
 import type { OfferAccess } from "./offerLogic";
-import { type OfferNotice, noticeOf } from "./offerOutcomes";
+import { type OfferNotice, type OfferOutcome, noticeOf } from "./offerOutcomes";
 import type { OfferWrites } from "./useOffers";
 
 /** What a new draft starts from: the draft, else the published version, else a blank offer. */
@@ -40,6 +40,16 @@ function baselineOf(offer: Offer | undefined, tenantWide: boolean): OfferFormVal
   const definition: OfferDefinition | undefined =
     offer?.draft?.definition ?? offer?.currentVersion?.definition;
   return definition ? formOf(definition) : emptyOfferForm(tenantWide);
+}
+
+/**
+ * The banner after a Save. A moved draft keeps what was typed (the page is not reloaded under it, so
+ * the copy says to copy it out); a moved state reloads and says so.
+ */
+function saveNotice(outcome: OfferOutcome<Offer>): OfferNotice {
+  const notice = noticeOf(outcome, "offers.save.done");
+  const draftMoved = outcome.kind === "stale" && !outcome.stateInvalid;
+  return draftMoved ? { ...notice, messageKey: "offers.error.staleSave" } : notice;
 }
 
 export type PublishHint = "offers.publish.hintSave" | "offers.publish.hintPreview";
@@ -108,8 +118,8 @@ export function useOfferEditor({
       ? await writes.saveDraft(offer.offerId, draftRevision, built.definition)
       : await writes.create(built.definition);
     setBusy(null);
-    onNotice(noticeOf(outcome, "offers.save.done"));
-    if (outcome.kind === "stale") onStale();
+    onNotice(saveNotice(outcome));
+    if (outcome.kind === "stale" && outcome.stateInvalid) onStale();
     if (outcome.kind !== "ok") return;
     setPreview(null);
     setSubmitted(false);

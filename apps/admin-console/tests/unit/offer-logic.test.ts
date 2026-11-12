@@ -109,6 +109,21 @@ describe("offerActions by state and role", () => {
     });
   });
 
+  test("a membership bounded to specific stores gets no author or publish controls on an all-stores offer", () => {
+    const bound = offerAccess("owner", "specific");
+    const allStores = offerActions(draftOffer({ state: "active" }), bound);
+    expect(allStores).toMatchObject({ edit: false, preview: false, publish: false, end: false });
+    expect(allStores.pause).toBe(true);
+    const scoped = offer({
+      state: "active",
+      currentVersion: {
+        ...(offer().currentVersion as NonNullable<ReturnType<typeof offer>["currentVersion"]>),
+        definition: definition({ storeScope: { storeIds: [STORE_A] } }),
+      },
+    });
+    expect(offerActions(scoped, bound)).toMatchObject({ edit: true, end: true });
+  });
+
   test("acceptance 2: a role without offers.publish cannot publish; a store_manager can only pause", () => {
     const withDraft = draftOffer({ state: "active" });
     const actions = offerActions(withDraft, manager);

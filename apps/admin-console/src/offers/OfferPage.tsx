@@ -90,6 +90,14 @@ function OfferSide({
   writes: OfferWrites;
   onNotice: (notice: OfferNotice) => void;
 }>): React.JSX.Element {
+  const [resumingStore, setResumingStore] = useState<string | null>(null);
+  async function resumeStore(storeId: string): Promise<void> {
+    if (resumingStore !== null) return;
+    setResumingStore(storeId);
+    const outcome = await writes.resume(offer.offerId, { storeIds: [storeId] });
+    setResumingStore(null);
+    onNotice(noticeOf(outcome, "offers.resume.done"));
+  }
   return (
     <>
       <OfferFacts
@@ -99,11 +107,8 @@ function OfferSide({
         actions={actions}
         versions={versions}
         storeScoped={storeScoped}
-        onResumeStore={(storeId) =>
-          void writes
-            .resume(offer.offerId, { storeIds: [storeId] })
-            .then((outcome) => onNotice(noticeOf(outcome, "offers.resume.done")))
-        }
+        resumingStore={resumingStore}
+        onResumeStore={(storeId) => void resumeStore(storeId)}
       />
       <OfferLifecycle
         offer={offer}

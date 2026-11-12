@@ -265,6 +265,8 @@ export const offers: MessagesOf<typeof ar> = {
   "offers.error.storeNotFound": "One of the stores isn't available to you.",
   "offers.error.storeNotInScope":
     "One of the chosen stores isn't in this offer's scope or isn't paused there.",
+  "offers.error.staleSave":
+    "Someone else changed this draft after you opened it, so your changes were not saved. What you typed is still here; copy it, then reload the page to see the newer version.",
   "offers.error.stale":
     "The draft changed since you opened it. The offer was reloaded; review it and try again.",
   "offers.error.stateInvalid": "The offer's state doesn't allow this now. It was reloaded.",

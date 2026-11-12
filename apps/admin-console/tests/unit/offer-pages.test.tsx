@@ -451,6 +451,37 @@ describe("the editor: Save → Preview → Publish", () => {
     expect(screen.getByText("Save the draft first to preview it.")).toBeTruthy();
   });
 
+  test("a stale Save keeps what was typed: nothing is reloaded under the form", async () => {
+    consoleUpdateOfferDraft.mockResolvedValue({
+      status: 409,
+      error: { error: { code: "offer_draft_changed_concurrently", message: "x" } },
+    });
+    renderAt(`/offers/${OFFER_ID}`);
+    const name = await screen.findByLabelText(/Name in English/);
+    fireEvent.change(name, { target: { value: "My long edit" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(await screen.findByText(/your changes were not saved/)).toBeTruthy();
+    expect((screen.getByLabelText(/Name in English/) as HTMLInputElement).value).toBe(
+      "My long edit",
+    );
+    expect(consoleGetOffer).toHaveBeenCalledTimes(1);
+  });
+
+  test("a 409 offer_state_invalid reads the offer again", async () => {
+    consoleGetOffer.mockResolvedValueOnce({ status: 200, data: offer({ state: "active" }) });
+    consoleEndOffer.mockResolvedValue({
+      status: 409,
+      error: { error: { code: "offer_state_invalid", message: "x" } },
+    });
+    consoleGetOffer.mockResolvedValue({ status: 200, data: offer({ state: "ended" }) });
+    renderAt(`/offers/${OFFER_ID}`);
+    fireEvent.click(await screen.findByRole("button", { name: "End offer" }));
+    fireEvent.click(screen.getByRole("button", { name: "End the offer" }));
+    expect(await screen.findByText(/state doesn't allow this now/)).toBeTruthy();
+    await waitFor(() => expect(consoleGetOffer.mock.calls.length).toBeGreaterThan(1));
+    expect(await screen.findByRole("button", { name: "Archive" })).toBeTruthy();
+  });
+
   test("a 409 on publish is shown as stale and the offer is read again", async () => {
     consolePreviewOffer.mockResolvedValue({ status: 200, data: preview() });
     consolePublishOffer.mockResolvedValue({

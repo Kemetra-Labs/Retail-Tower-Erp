@@ -208,6 +208,8 @@ export function useOfferWrites(tenantId: string | null): OfferWrites {
     fingerprint: string,
     offerId: string | undefined,
     call: Call<Offer>,
+    // A stale Save must not refetch: the editor remounts on a moved draft and would drop typed work.
+    refreshOnStale = true,
   ): Promise<OfferOutcome<Offer>> {
     const attempt = attempts.current.get(op) ?? new KeyedAttempt();
     attempts.current.set(op, attempt);
@@ -222,7 +224,7 @@ export function useOfferWrites(tenantId: string | null): OfferWrites {
     if (outcome.kind === "ok") {
       qc.setQueryData(offerQueryKeys.detail(tenantId, outcome.data.offerId), outcome.data);
       refresh();
-    } else if (outcome.kind === "stale") {
+    } else if (outcome.kind === "stale" && refreshOnStale) {
       refresh(offerId);
     }
     return outcome;
@@ -234,8 +236,12 @@ export function useOfferWrites(tenantId: string | null): OfferWrites {
         consoleCreateOfferDraft(definition, key),
       ),
     saveDraft: (offerId, rev, definition) =>
-      run("save", JSON.stringify([offerId, rev, definition]), offerId, (key) =>
-        consoleUpdateOfferDraft(offerId, rev, definition, key),
+      run(
+        "save",
+        JSON.stringify([offerId, rev, definition]),
+        offerId,
+        (key) => consoleUpdateOfferDraft(offerId, rev, definition, key),
+        false,
       ),
     preview: async (offerId, rev, simulation) => {
       try {
@@ -253,7 +259,7 @@ export function useOfferWrites(tenantId: string | null): OfferWrites {
         consolePauseOffer(offerId, body, key),
       ),
     resume: (offerId, body) =>
-      run("resume", JSON.stringify([offerId, body]), offerId, (key) =>
+      run(`resume:${JSON.stringify(body)}`, JSON.stringify([offerId, body]), offerId, (key) =>
         consoleResumeOffer(offerId, body, key),
       ),
     end: (offerId) => run("end", offerId, offerId, (key) => consoleEndOffer(offerId, key)),

@@ -12,7 +12,7 @@
  *   404 offer_not_found                  → the offer is gone or not visible
  *   404 store_not_found                  → a store is outside the caller's scope
  *   409 offer_draft_changed_concurrently → stale: the draft moved; read it again
- *   409 offer_state_invalid              → the offer is no longer in a state that allows this
+ *   409 offer_state_invalid              → stale view: the offer moved state; read it again
  *   409 offer_conflict                   → conflicts, listed (OD-7)
  *   409 idempotency_key_conflict         → generic (the key was used with another body)
  *   422 offer_*                          → one named reason (a publish refusal or a pause scope)
@@ -28,7 +28,8 @@ import { type WrapperResult, errorCodeOf, errorRequestIdOf } from "@/lib/write-o
 export type OfferOutcome<T> =
   | { kind: "ok"; data: T }
   | { kind: "conflict"; conflicts: OfferConflict[]; requestId?: string }
-  | { kind: "stale"; requestId?: string }
+  /** The draft or the offer moved under the caller; `stateInvalid` is the state, not the draft. */
+  | { kind: "stale"; requestId?: string; stateInvalid?: boolean }
   | { kind: "failed"; messageKey: MessageKey; requestId?: string; keepKey: boolean };
 
 const UNPROCESSABLE: Record<string, MessageKey> = {
@@ -58,7 +59,7 @@ function classify409(code: string | undefined, error: unknown, requestId?: strin
     case "offer_draft_changed_concurrently":
       return { kind: "stale", requestId } as const;
     case "offer_state_invalid":
-      return fail("offers.error.stateInvalid", requestId);
+      return { kind: "stale", requestId, stateInvalid: true } as const;
     default:
       return fail("offers.error.generic", requestId);
   }
@@ -142,7 +143,11 @@ export function noticeOf(outcome: OfferOutcome<unknown>, okKey: MessageKey): Off
         conflicts: outcome.conflicts,
       };
     case "stale":
-      return { variant: "warning", messageKey: "offers.error.stale", requestId: outcome.requestId };
+      return {
+        variant: "warning",
+        messageKey: outcome.stateInvalid ? "offers.error.stateInvalid" : "offers.error.stale",
+        requestId: outcome.requestId,
+      };
     default:
       return {
         variant: outcome.keepKey ? "warning" : "danger",

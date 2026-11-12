@@ -60,7 +60,9 @@ export function OfferList(): React.JSX.Element {
         subtitle={subtitle}
         actions={newButton}
       />
-      {access.tenantWide ? null : <p className="field__hint">{t("offers.list.ownStoresNote")}</p>}
+      {access.tenantWide && context?.active_role_code !== "store_manager" ? null : (
+        <p className="field__hint">{t("offers.list.ownStoresNote")}</p>
+      )}
       <OfferFilterBar onApply={setFilters} />
       <OfferListBody
         list={list}

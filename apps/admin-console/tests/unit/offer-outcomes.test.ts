@@ -34,12 +34,11 @@ describe("classifyOfferResult", () => {
     });
   });
 
-  test("409 draft changed is stale; 409 state invalid is a terminal failure", () => {
+  test("409 draft changed and 409 state invalid are both stale views (the offer is read again)", () => {
     expect(classifyOfferResult(err(409, "offer_draft_changed_concurrently")).kind).toBe("stale");
     expect(classifyOfferResult(err(409, "offer_state_invalid"))).toMatchObject({
-      kind: "failed",
-      messageKey: "offers.error.stateInvalid",
-      keepKey: false,
+      kind: "stale",
+      stateInvalid: true,
     });
   });
 
@@ -108,6 +107,9 @@ describe("noticeOf", () => {
       messageKey: "offers.save.done",
     });
     expect(noticeOf({ kind: "stale" }, "offers.save.done")).toMatchObject({ variant: "warning" });
+    expect(noticeOf({ kind: "stale", stateInvalid: true }, "offers.save.done").messageKey).toBe(
+      "offers.error.stateInvalid",
+    );
     expect(noticeOf({ kind: "conflict", conflicts: [] }, "offers.save.done")).toMatchObject({
       variant: "danger",
       messageKey: "offers.error.conflict",

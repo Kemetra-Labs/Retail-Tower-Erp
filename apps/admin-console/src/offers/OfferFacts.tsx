@@ -39,11 +39,14 @@ function Pauses({
   offer,
   roster,
   canResume,
+  resumingStore,
   onResumeStore,
 }: Readonly<{
   offer: Offer;
   roster: readonly Store[];
   canResume: boolean;
+  /** The store whose resume is in flight: every resume button waits. */
+  resumingStore: string | null;
   onResumeStore: (storeId: string) => void;
 }>): React.JSX.Element | null {
   const t = useT();
@@ -71,6 +74,7 @@ function Pauses({
                   <button
                     type="button"
                     className="btn-ghost"
+                    disabled={resumingStore !== null}
                     onClick={() => onResumeStore(p.storeId)}
                     aria-label={t("offers.facts.resumeStoreLabel", { name: nameOf(p.storeId) })}
                   >
@@ -115,6 +119,7 @@ export interface OfferFactsProps {
   actions: OfferActions;
   versions: readonly OfferVersion[];
   storeScoped: boolean;
+  resumingStore: string | null;
   onResumeStore: (storeId: string) => void;
 }
 
@@ -125,6 +130,7 @@ export function OfferFacts({
   actions,
   versions,
   storeScoped,
+  resumingStore,
   onResumeStore,
 }: Readonly<OfferFactsProps>): React.JSX.Element {
   const t = useT();
@@ -177,6 +183,7 @@ export function OfferFacts({
         offer={offer}
         roster={roster}
         canResume={actions.resume && access.canPublish}
+        resumingStore={resumingStore}
         onResumeStore={onResumeStore}
       />
       <Rematerialisation offer={offer} />

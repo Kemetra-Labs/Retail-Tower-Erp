@@ -49,7 +49,6 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.list.col.barcode": "Barcode",
   "catalog.list.col.category": "Category",
   "catalog.list.col.availability": "Store availability",
-  "catalog.list.col.brand": "Brand",
   "catalog.list.col.taxCategory": "Tax category",
   "catalog.list.col.tracking": "Tracking",
   "catalog.list.col.updatedAt": "Updated",

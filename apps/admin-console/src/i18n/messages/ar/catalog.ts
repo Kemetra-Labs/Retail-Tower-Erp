@@ -50,7 +50,6 @@ export const catalog = {
   "catalog.list.col.barcode": "الباركود",
   "catalog.list.col.category": "الفئة",
   "catalog.list.col.availability": "الإتاحة في المتجر",
-  "catalog.list.col.brand": "العلامة التجارية",
   "catalog.list.col.taxCategory": "فئة الضريبة",
   "catalog.list.col.tracking": "التتبع",
   "catalog.list.col.updatedAt": "آخر تحديث",
