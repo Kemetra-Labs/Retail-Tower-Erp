@@ -20,41 +20,23 @@
  * also keeps the cookie-only RT-430 / RT-414 origin path (which needs a route
  * handler) out of this pre-routing context.
  */
-import { type ExecutionContext, UnauthorizedException } from "@nestjs/common";
-import type { Request, Response } from "express";
+import { UnauthorizedException } from "@nestjs/common";
 
 import type { SnapshotCallerAuthorizer } from "../common/json-body-limits";
 import type { AuthTokenRepository } from "./auth-token.repository";
 import { readSessionCookie, type AuthedRequest } from "./auth.guard";
 import { ConnectorAuthGuard } from "./connector-auth.guard";
 import { ConnectorEnvironmentGuard } from "./connector-environment.guard";
+import { preRouteHttpContext } from "./pre-route-context";
 import type { SessionRepository } from "./session.repository";
 
 /**
- * A minimal HTTP `ExecutionContext` for running guards from Express middleware.
  * The connector guards only call `switchToHttp().getRequest()`; there is no
  * route handler or class yet, so those accessors throw if a guard ever needs
  * them (fails closed as a refusal, never as an admit).
  */
-function httpContext(req: Request, res: Response): ExecutionContext {
-  const noRoute = (): never => {
-    throw new UnauthorizedException("Unauthorized");
-  };
-  const http = {
-    getRequest: <T>() => req as unknown as T,
-    getResponse: <T>() => res as unknown as T,
-    getNext: <T>() => (() => undefined) as unknown as T,
-  };
-  return {
-    getType: <T extends string>() => "http" as T,
-    getArgs: <T extends unknown[]>() => [req, res] as unknown as T,
-    getArgByIndex: <T>(index: number) => [req, res][index] as unknown as T,
-    switchToHttp: () => http,
-    switchToRpc: noRoute,
-    switchToWs: noRoute,
-    getHandler: noRoute,
-    getClass: noRoute,
-  } as ExecutionContext;
+function noRoute(): never {
+  throw new UnauthorizedException("Unauthorized");
 }
 
 /** The production authorizer for `registerJsonBodyParsers` (main.ts). */
@@ -68,7 +50,7 @@ export function connectorSnapshotCallerAuthorizer(
     if (readSessionCookie(req as AuthedRequest) !== null) {
       throw new UnauthorizedException("Unauthorized");
     }
-    const context = httpContext(req, res);
+    const context = preRouteHttpContext(req, res, noRoute);
     await authGuard.canActivate(context);
     environmentGuard.canActivate(context);
   };

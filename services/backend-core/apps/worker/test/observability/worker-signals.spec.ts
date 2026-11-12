@@ -254,6 +254,8 @@ describe("T465 — bounded enums: queue, job_name, and error_class are documente
       "Timeout",
       // RT-207: the expected RT-173 reversal deferral, counted under its own class.
       "ReversalAwaitingSalePostError",
+      // RT-1353: a posting request of a restricted tenant, an expected retried deferral.
+      "TenantAccessRestrictedError",
       "UnknownError",
     ];
     expect([...WORKER_ERROR_CLASSES].sort()).toEqual([...expected].sort());

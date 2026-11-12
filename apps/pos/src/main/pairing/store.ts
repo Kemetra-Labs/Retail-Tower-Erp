@@ -1,7 +1,10 @@
+import type { Logger } from 'pino';
+
 import type { DatabaseHandle } from '../db/client.js';
 import type { SecretKey, SecretStore } from '../../shared/secret-store.js';
 import type { PairingStatus } from '../../shared/pairing-types.js';
 
+import { isOtherServer, normalizeApiOrigin } from './api-origin.js';
 import {
   bindingOf,
   openDeviceToken,
@@ -31,6 +34,9 @@ import {
  *   garbled| any     | invalid    | decrypt_failed  (DPAPI cannot decrypt)
  *   other  | present | invalid    | inconsistent    (RT-306; token sealed for another
  *          |         |            |                  pairing, or unreadable)
+ *   any    | other   | invalid    | other_server    (RT-1348; the row's `api_origin` is not
+ *          | origin  |            |                  this process's; checked BEFORE the rest,
+ *          |         |            |                  the token is never read or sent)
  *
  * Reason mapping rationale: `orphaned_row` describes the row's state
  * (it is orphaned); `missing_token` describes what is missing relative
@@ -87,6 +93,14 @@ export interface TerminalAssignmentRow {
   branch_name: string | null;
   branch_address: string | null;
   tenant_tax_registration_id: string | null;
+  /**
+   * RT-1348 (RT-1345 D3, migration 0061) — the normalized Backend-Core origin the
+   * pairing was made against. `null` / absent: a pairing from before 0061 (it
+   * adopts the current origin once Backend-Core accepts its token), or one made
+   * while the API address could not be parsed. Optional so a row written before
+   * 0061 still type-checks.
+   */
+  api_origin?: string | null;
 }
 
 /**
@@ -131,6 +145,13 @@ export interface PairingStoreDb {
    * (a "Check again" the server answered 2xx). Idempotent.
    */
   clearDeviceRevoked(): void;
+  /**
+   * RT-1348 — set `api_origin` on the single row ONLY while it is NULL (a legacy
+   * pairing adopts the origin once; an origin already stored is never replaced).
+   * Optional so an adapter written before 0061 still type-checks: without it
+   * adoption is a no-op.
+   */
+  adoptApiOrigin?(origin: string): void;
   /** Run `fn` inside BEGIN/COMMIT; rollback + rethrow on error. */
   transaction<T>(fn: () => T): T;
 }
@@ -254,6 +275,28 @@ export interface DeviceRevocationStore {
   getStoredPairingBinding(): PairingBinding | null;
 }
 
+/**
+ * RT-1348 (RT-1345 D3) — the pairing's backend origin. Kept off
+ * {@link PairingStore} for the same reason as {@link DeviceRevocationStore}:
+ * read-only consumers and their fakes do not grow methods.
+ */
+export interface ApiOriginBinding {
+  /**
+   * SYNC: true when the stored pairing was made against another Backend-Core
+   * origin than the one this process is configured for. Nothing is sent to the
+   * other origin while it is true; it is NOT a revocation. False when nothing
+   * is stored (a legacy pairing, or no pairing).
+   */
+  isOtherServer: () => boolean;
+  /**
+   * A legacy pairing (no stored origin) adopts the current origin the first time
+   * Backend-Core accepts its device token. Idempotent; never replaces an origin
+   * that is already stored; a no-op when nothing is paired or the current origin
+   * is unusable.
+   */
+  adoptApiOrigin: () => void;
+}
+
 export interface PersistInput extends TerminalAssignmentRow {
   /** Opaque server-issued token. SECRET — never logged. */
   device_token: string;
@@ -270,6 +313,15 @@ export interface CreatePairingStoreOptions {
   deviceTokenKey: SecretKey;
   /** RT-215 — wall clock for `device_revoked_at`. Defaults to `new Date()`. */
   now?: () => Date;
+  /**
+   * RT-1348 — the API address this process was started with
+   * (`resolveApiBaseUrl()`). Its normalized origin (null when unusable) is what a
+   * pairing stamps, and a stored origin that differs reads as another server.
+   * Left out (`undefined`), no origin is stamped or compared: only for fakes.
+   */
+  apiBaseUrl?: string;
+  /** RT-1348 — logs the origin transitions (`pairing.api_origin.*`). */
+  logger?: Pick<Logger, 'info' | 'warn'>;
 }
 
 type TokenState =
@@ -317,12 +369,35 @@ function sameStoredPairing(a: PairingBinding | null, b: PairingBinding | null): 
   return a === null || b === null ? a === b : sameBinding(a, b);
 }
 const INCONSISTENT_STATUS: PairingStatus = { kind: 'invalid', reason: 'inconsistent' };
+/** RT-1348 — paired against another Backend-Core than this process is configured for. */
+const OTHER_SERVER_STATUS: PairingStatus = { kind: 'invalid', reason: 'other_server' };
 
 export function createPairingStore(
   options: CreatePairingStoreOptions,
-): PairingStore & DeviceRevocationStore {
-  const { secretStore, db, deviceTokenKey } = options;
+): PairingStore & DeviceRevocationStore & ApiOriginBinding {
+  const { secretStore, db, deviceTokenKey, logger } = options;
+  const apiOrigin =
+    options.apiBaseUrl === undefined ? undefined : normalizeApiOrigin(options.apiBaseUrl);
   const now = options.now ?? ((): Date => new Date());
+  /** RT-1348 — the mismatch is logged once per process, not on every status read. */
+  let otherServerLogged = false;
+  /** RT-1348 — set once the row is seen holding an origin (or adopted): no more reads per 2xx. */
+  let originSettled = false;
+
+  /** RT-1348 — is this stored row bound to another backend than this process uses? */
+  function otherServer(row: StoredAssignmentRow | null): boolean {
+    return apiOrigin !== undefined && row !== null && isOtherServer(row.api_origin, apiOrigin);
+  }
+
+  function logOtherServerOnce(): void {
+    if (otherServerLogged) return;
+    otherServerLogged = true;
+    // Event name only: no origin, URL or identifier reaches the log (OBS-1 allowlist).
+    logger?.warn(
+      { event: 'pairing.api_origin.mismatch' },
+      'terminal is paired with another server; the device token is not sent',
+    );
+  }
   /**
    * RT-215 — set by markDeviceRevoked() BEFORE the row write, cleared by a
    * re-pair (persist) or clear(). Makes the revocation take effect in this
@@ -334,6 +409,11 @@ export function createPairingStore(
 
   function rowRevoked(row: StoredAssignmentRow): boolean {
     return revokedInMemory || typeof row.device_revoked_at === 'number';
+  }
+
+  /** Revoked, or bound to another backend: no usable pairing in this process. */
+  function notUsable(row: StoredAssignmentRow): boolean {
+    return rowRevoked(row) || otherServer(row);
   }
 
   function storedBinding(): PairingBinding | null {
@@ -374,6 +454,15 @@ export function createPairingStore(
 
   return {
     async getStatus(): Promise<PairingStatus> {
+      // RT-1348: a pairing made against another backend is reported before
+      // anything else, so nothing downstream (not even a revoked marker left by
+      // the other backend) reads it as this backend's pairing. Local only: the
+      // token is never read, let alone sent.
+      if (otherServer(db.readAssignment())) {
+        logOtherServerOnce();
+        return OTHER_SERVER_STATUS;
+      }
+
       // RT-215 (review F7): the pairing row is the source of truth for
       // revocation, and it is reported FIRST — whatever state the token half
       // is in, even an undecryptable one, the terminal must re-pair.
@@ -445,6 +534,8 @@ export function createPairingStore(
             branch_name: input.branch_name,
             branch_address: input.branch_address,
             tenant_tax_registration_id: input.tenant_tax_registration_id,
+            // RT-1348: the pairing was just made against THIS process's backend.
+            api_origin: apiOrigin ?? null,
           });
         });
       } catch (err) {
@@ -463,6 +554,9 @@ export function createPairingStore(
     markDeviceRevoked(): RevokedTerminalScope | null {
       const row = db.readAssignment();
       if (row === null) return null;
+      // RT-1348: a revocation is a statement about the backend the pairing was
+      // made on; another backend's answer never records one.
+      if (otherServer(row)) return null;
       // In memory FIRST: the token stops being sendable at once, even if the
       // durable write below throws (the caller logs that failure).
       revokedInMemory = true;
@@ -485,9 +579,30 @@ export function createPairingStore(
       return isRevokedNow();
     },
 
+    isOtherServer: (): boolean => otherServer(db.readAssignment()),
+
+    adoptApiOrigin: (): void => {
+      // Only a legacy row (no origin) adopts; the SQL repeats the NULL guard so a
+      // re-pair that lands between the read and the write is never overwritten.
+      if (originSettled) return;
+      if (apiOrigin === undefined || apiOrigin === null) return;
+      const row = db.readAssignment();
+      if (row === null) return;
+      if (typeof row.api_origin === 'string') {
+        originSettled = true;
+        return;
+      }
+      db.adoptApiOrigin?.(apiOrigin);
+      originSettled = true;
+      logger?.info(
+        { event: 'pairing.api_origin.adopted' },
+        'legacy pairing recorded the backend origin it was accepted on',
+      );
+    },
+
     getPairingEpoch(): string | null {
       const row = db.readAssignment();
-      if (row === null || rowRevoked(row)) return null;
+      if (row === null || notUsable(row)) return null;
       return `${String(generation)}|${row.terminal_id}|${String(row.paired_at)}`;
     },
 
@@ -528,6 +643,7 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
   let deleteStmt: RunStmt | null = null;
   let revokeStmt: RunStmt | null = null;
   let unrevokeStmt: RunStmt | null = null;
+  let adoptStmt: RunStmt | null = null;
 
   return {
     readAssignment(): StoredAssignmentRow | null {
@@ -541,21 +657,22 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
       selectStmt ??= handle.prepare(
         `SELECT tenant_id, branch_id, terminal_id, terminal_label, paired_at,
                 branch_name, branch_address, tenant_tax_registration_id,
-                device_revoked_at
+                device_revoked_at, api_origin
          FROM terminal_assignment WHERE id = 1`,
       ) as SelectStmt;
       const row = selectStmt.get();
       return row === undefined ? null : row;
     },
     writeAssignment(row: TerminalAssignmentRow): void {
-      // INSERT OR REPLACE writes 8 columns. RT-1183: the three unused
+      // INSERT OR REPLACE writes 9 columns. RT-1183: the three unused
       // printer_* columns (migration 0027) are not written, so a re-pair
-      // leaves them NULL (the row is replaced as a whole).
+      // leaves them NULL (the row is replaced as a whole). RT-1348: + `api_origin`
+      // (migration 0061), the backend this pairing was made against.
       insertStmt ??= handle.prepare(
         `INSERT OR REPLACE INTO terminal_assignment
            (id, tenant_id, branch_id, terminal_id, terminal_label, paired_at,
-            branch_name, branch_address, tenant_tax_registration_id)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            branch_name, branch_address, tenant_tax_registration_id, api_origin)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ) as RunStmt;
       insertStmt.run(
         row.tenant_id,
@@ -566,6 +683,7 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
         row.branch_name,
         row.branch_address,
         row.tenant_tax_registration_id,
+        row.api_origin ?? null,
       );
     },
     deleteAssignment(): void {
@@ -587,6 +705,13 @@ export function bindPairingStoreDb(handle: DatabaseHandle): PairingStoreDb {
         'UPDATE terminal_assignment SET device_revoked_at = NULL WHERE id = 1',
       ) as RunStmt;
       unrevokeStmt.run();
+    },
+    adoptApiOrigin(origin: string): void {
+      // RT-1348 — only while the origin is still NULL; never replaces one.
+      adoptStmt ??= handle.prepare(
+        'UPDATE terminal_assignment SET api_origin = ? WHERE id = 1 AND api_origin IS NULL',
+      ) as RunStmt;
+      adoptStmt.run(origin);
     },
     transaction<T>(fn: () => T): T {
       // better-sqlite3's transaction() returns a wrapped callable.

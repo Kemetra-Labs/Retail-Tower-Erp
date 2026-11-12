@@ -97,21 +97,3 @@ export function DateValue({ value }: Readonly<{ value: string | null }>): React.
   const t = useT();
   return value ? <Machine value={value} /> : <span>{t("tracking.date.none")}</span>;
 }
-
-/**
- * A tab whose contract is merged but has no route yet (RT-451 Step 0): it says
- * so and calls nothing, so no empty list or zero is ever shown in its place.
- */
-export function ComingSoon({
-  title,
-  body,
-}: Readonly<{ title: string; body: string }>): React.JSX.Element {
-  const t = useT();
-  return (
-    <div className="tracking__soon" data-testid="tracking-soon">
-      <span className="badge">{t("tracking.soon.tag")}</span>
-      <p className="tracking__soon-title">{title}</p>
-      <p className="tracking__muted">{body}</p>
-    </div>
-  );
-}

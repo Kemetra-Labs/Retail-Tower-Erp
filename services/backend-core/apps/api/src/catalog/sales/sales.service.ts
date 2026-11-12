@@ -54,7 +54,12 @@ import {
   toTerminalEvent,
   type TerminalEventResult,
 } from "./sale-terminal-provenance";
-import { assertSameTenders, assertTendersMatchTotal, insertTenders } from "./sale-tender-writes";
+import {
+  assertSameTenders,
+  assertTendersMatchTotal,
+  assertVoucherTendersRedeemed,
+  insertTenders,
+} from "./sale-tender-writes";
 import { sha256CanonicalHex } from "./payload-hash";
 import { findLinePricingViolation } from "./sale-line-pricing";
 import {
@@ -104,6 +109,7 @@ export {
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
+  SaleVoucherTenderInvalidError,
   TerminalEventProvenanceConflictError,
 } from "./sale-errors";
 
@@ -174,13 +180,15 @@ export interface SaleProjection {
 /**
  * RT-77: one recorded tender (contract `SaleTender`); `reference` only when set.
  * RT-360: `tenderRef` / `sequence` only when recorded (never on a legacy tender).
+ * RT-1114: `redemptionId` on a `voucher` tender only.
  */
 export interface SaleTenderProjection {
-  readonly method: "cash" | "card_external";
+  readonly method: "cash" | "card_external" | "voucher";
   readonly amount: string;
   readonly reference?: string;
   readonly tenderRef?: string;
   readonly sequence?: number;
+  readonly redemptionId?: string;
 }
 
 export interface SaleLineProjection {
@@ -258,11 +266,12 @@ interface SaleRow {
 }
 
 interface SaleTenderRow {
-  method: "cash" | "card_external";
+  method: "cash" | "card_external" | "voucher";
   amount: string;
   reference: string | null;
   tender_ref: string | null;
   sequence: number | null;
+  redemption_id: string | null;
 }
 
 interface SaleLineRow {
@@ -424,7 +433,7 @@ export class SalesService {
           row.tender_count > 0
             ? (
                 await client.query<SaleTenderRow>(
-                  `SELECT method, amount::text AS amount, reference, tender_ref, sequence
+                  `SELECT method, amount::text AS amount, reference, tender_ref, sequence, redemption_id
                      FROM sale_tenders WHERE sale_id = $1
                     ORDER BY sequence NULLS LAST, method, tender_ref`,
                   [saleId],
@@ -738,6 +747,7 @@ function toBody(
       ...(t.reference === null ? {} : { reference: t.reference }),
       ...(t.tender_ref === null ? {} : { tenderRef: t.tender_ref }),
       ...(t.sequence === null ? {} : { sequence: t.sequence }),
+      ...(t.redemption_id === null ? {} : { redemptionId: t.redemption_id }),
     })),
     ...responsibilitiesField(responsibilities),
     safetyRevision: (row.safety_revision ?? null) === null ? null : Number(row.safety_revision),
@@ -1027,10 +1037,12 @@ async function emitSaleCaptured(
  *   2. coverage, in Postgres numeric (never JS float): RT-77 (RT-10 D1)
  *      without responsibilities, tenders sum to posTotal exactly; RT-418 with
  *      them, sum(tenders) (absent = 0) + sum(responsibilities) = posTotal;
- *   3. RT-105 (RT-87 decision D): the line price invariant, or the line could
+ *   3. RT-1114 (RT-1098 R-4a): every voucher tender names a live, unused
+ *      redemption of this tenant and store, for exactly its amount;
+ *   4. RT-105 (RT-87 decision D): the line price invariant, or the line could
  *      never be returned exactly (a replay of a sale captured before RT-105
  *      still resolves, 200);
- *   4. RT-418: every payer is billable for this sale.
+ *   5. RT-418: every payer is billable for this sale.
  */
 async function assertFirstCaptureAccepted(
   client: PoolClient,
@@ -1050,6 +1062,9 @@ async function assertFirstCaptureAccepted(
 
   if (credit) await assertResponsibilityCoverage(client, { tenders, responsibilities, posTotal: body.posTotal });
   else if (tenders.length > 0) await assertTendersMatchTotal(client, tenders, body.posTotal);
+
+  // RT-1114: after the coverage rule; a no-op unless a voucher tender is present.
+  await assertVoucherTendersRedeemed(client, { ...scope, currencyCode: body.currencyCode, tenders });
 
   if (findLinePricingViolation(body.lines) !== null) throw new SaleLinePricingInvalidError();
 

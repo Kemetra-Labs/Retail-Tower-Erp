@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 5e46cc513ca5ba4f3e04f3d5a57c22e063355cdf
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 7210c6daa305edb225aa6ffca7a1bac722f1533a
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -4052,10 +4052,10 @@ export namespace ErpnextReconciliationSchema {
                 /** Format: uuid */
                 runId: string;
                 /**
-                 * @description 014's mismatch-class vocabulary (014 data-model §6.2). 017 owns no class. `negative_balance_flagged` is derived from the 009 `stock_movements` ledger (a negative Retail Tower on-hand balance); it is NOT an ERPNext Bin signal and must not be presented as "negative ERPNext stock". Negative ERPNext Bin quantities are surfaced by `listErpnextNegativeOnHand` / `listErpnextNegativeOnHandStores`. RT-428 (1.4.0-draft, RT-289 DC-7, Reconciliation 926–930): for a tenant with activated sale effects the compared Retail Tower side is the expected ERP book, i.e. the Inventory Anchor plus the effects since it, minus the effects ERPNext has not booked yet. Classes: `match` (926, in sync); `expected_pending_erp` (927, the gap is explained by effects with an ERP intent that ERPNext has not booked as-is: pending, rejected or reconciliation_required); `expected_pending_retail` (928, explained by Retail effects with no ERP intent yet, such as a manual adjustment); `erp_snapshot_stale` (929, the Bin was read before an effect's ERP confirmation); `quantity_divergence` (930, a residual the pending terms do not explain); `uom_mismatch` (the Retail Tower unit differs from the Bin stock UOM, never a quantity divergence). Every other tenant keeps the comparison against the raw 009 SUM and never receives the four RT-428 classes. A class is explanatory: no reconciliation result changes an effect or ERPNext stock. `detail` then also carries `expected_erp_book`, `pending_erp`, `pending_retail` and `legacy_on_hand`.
+                 * @description 014's mismatch-class vocabulary (014 data-model §6.2). 017 owns no class. `negative_balance_flagged` is derived from the 009 `stock_movements` ledger (a negative Retail Tower on-hand balance); it is NOT an ERPNext Bin signal and must not be presented as "negative ERPNext stock". Negative ERPNext Bin quantities are surfaced by `listErpnextNegativeOnHand` / `listErpnextNegativeOnHandStores`. RT-428 (1.4.0-draft, RT-289 DC-7, Reconciliation 926–930): for a tenant with activated sale effects the compared Retail Tower side is the expected ERP book, i.e. the Inventory Anchor plus the effects since it, minus the effects ERPNext has not booked yet. Classes: `match` (926, in sync); `expected_pending_erp` (927, the gap is explained by effects with an ERP intent that ERPNext has not booked as-is: pending, rejected or reconciliation_required); `expected_pending_retail` (928, explained by Retail effects with no ERP intent yet, such as a manual adjustment); `erp_snapshot_stale` (929, the Bin was read before an effect's ERP confirmation); `quantity_divergence` (930, a residual the pending terms do not explain); `uom_mismatch` (the Retail Tower unit differs from the Bin stock UOM, never a quantity divergence). Every other tenant keeps the comparison against the raw 009 SUM and never receives the four RT-428 classes. A class is explanatory: no reconciliation result changes an effect or ERPNext stock. `detail` then also carries `expected_erp_book`, `pending_erp`, `pending_retail` and `legacy_on_hand`. RT-453 (1.7.0-draft, RT-50 G7-12): for a store with a per-identity anchor, a batch-tracked product is compared per tracking identity (one result per identity, same classes, `detail.grain` `tracking_identity`). `tracking_mismatch` is one result per tracked product that cannot be fully reconciled at that grain; `detail.reasons` names why (`tracking_evidence_missing`, `erp_flags_disagree`, `batch_without_identity`, `batches_differ_from_item`, `untracked_effects`).
                  * @enum {string}
                  */
-                mismatchClass: "match" | "quantity_divergence" | "unmapped_store" | "unmapped_item" | "dp2_only" | "erpnext_only" | "negative_balance_flagged" | "expected_pending_erp" | "expected_pending_retail" | "erp_snapshot_stale" | "uom_mismatch";
+                mismatchClass: "match" | "quantity_divergence" | "unmapped_store" | "unmapped_item" | "dp2_only" | "erpnext_only" | "negative_balance_flagged" | "expected_pending_erp" | "expected_pending_retail" | "erp_snapshot_stale" | "uom_mismatch" | "tracking_mismatch";
                 /**
                  * Format: uuid
                  * @description The originating product ref for a stock line; null for an aggregate line.
@@ -11738,7 +11738,7 @@ export namespace InventorySchema {
             };
             /**
              * List the tracking identities (batches / serials) of a product.
-             * @description RT-448 (RT-50 Gate 7 G7-2): the tenant's tracking identities of the path product, ordered by `kind`, then `expiryDate` (earliest first, none last), then `code`. Identities are tenant-wide, not store-scoped. Read-only: identities are ERP-born (G7-3) and nothing in this version creates one, so the list is empty until identity birth lands (RT-453). Owner / tenant-admin only; a product outside the caller's tenant, and a caller without the role, is a non-disclosing 404. Keyset-paged: a serial product has one identity per unit. `cursor` is the opaque `nextCursor` of the previous page for the same product; a malformed cursor, or one from another product, is a 400.
+             * @description RT-448 (RT-50 Gate 7 G7-2): the tenant's tracking identities of the path product, ordered by `kind`, then `expiryDate` (earliest first, none last), then `code`. Identities are tenant-wide, not store-scoped. Read-only: identities are ERP-born (G7-3). Since 1.14.0 (RT-453) they are born from the Connector tracking master read and from ERP-origin stock import rows carrying a Batch; no operation here creates one. Owner / tenant-admin only; a product outside the caller's tenant, and a caller without the role, is a non-disclosing 404. Keyset-paged: a serial product has one identity per unit. `cursor` is the opaque `nextCursor` of the previous page for the same product; a malformed cursor, or one from another product, is a 400.
              */
             get: operations["listTrackingIdentities"];
             put?: never;
@@ -11930,7 +11930,7 @@ export namespace InventorySchema {
             };
             /**
              * List the tenant's computed inventory safety findings.
-             * @description RT-449 (H6; decisions 953, 954): computed on read, never stored. `active_tracking_hold` (critical): one per active hold, with `storeIds` = the stores where the held identity has a non-zero position. `expired_lot_sellable` (critical): one per identity, store and stocking unit whose `sellable` position is positive while the identity's expiry date is before the store's local business date (a lot is sellable through its expiry date, G7-5); the prompt for the governed `sellable → expired` status move. `expiring_lot` (warning) is reserved and never emitted in 1.8.0: the near-expiry window is a policy value that stays off until RT-50 B1. `tracking_consistency` (critical, 1.10.0, OD-8) is reserved: a tracked product or identity whose records disagree, one finding per `check` grain; each `check` is emitted only once the runtime producing its data ships (RT-451, RT-453), so 1.10.0 emits none. Order: severity, then kind, then ids. Owner and tenant_admin see the tenant (their membership's stores); a store_manager sees only findings in its store scope: a hold appears when the held identity has stock in one of its stores, with `storeIds` narrowed to them. The list is not paginated.
+             * @description RT-449 (H6; decisions 953, 954): computed on read, never stored. `active_tracking_hold` (critical): one per active hold, with `storeIds` = the stores where the held identity has a non-zero position. `expired_lot_sellable` (critical): one per identity, store and stocking unit whose `sellable` position is positive while the identity's expiry date is before the store's local business date (a lot is sellable through its expiry date, G7-5); the prompt for the governed `sellable → expired` status move. `expiring_lot` (warning) is reserved and never emitted in 1.8.0: the near-expiry window is a policy value that stays off until RT-50 B1. `tracking_consistency` (critical, 1.10.0, OD-8): a tracked product or identity whose records disagree, one finding per `check` grain. 1.10.0 to 1.13.0 emitted none. Since 1.14.0 (RT-453) all four checks are emitted (see `TrackingConsistencyFinding`). Order: severity, then kind, then ids. Owner and tenant_admin see the tenant (their membership's stores); a store_manager sees only findings in its store scope: a hold appears when the held identity has stock in one of its stores, with `storeIds` narrowed to them. The list is not paginated.
              */
             get: operations["listInventorySafetyFindings"];
             put?: never;
@@ -12164,7 +12164,7 @@ export namespace InventorySchema {
             put?: never;
             /**
              * Resolve a tracking_unresolved sale by binding an identity to every unresolved line.
-             * @description RT-451 scope item 4 (RT-50 DC-2; RT-455 TR-2): the governed, audited, high-sensitivity Tracking Resolution of one `tracking_unresolved` sale. One command binds an existing tracking identity to EVERY unresolved line of the sale: `lines` names each unresolved line exactly once and nothing else, or the command is a 400 and nothing is written. In one transaction it records the resolution and its audit record, then commits the sale's Inventory effects at the bound identities and its ERP posting intent together, with the ERP Batch ref frozen from the edge map as at capture. A bound identity with no ERP edge-map row still commits its effect, and the intent is held (G7-9 row 3): the bind records an `erp_intent_held` finding with cause `edge_map_missing` for that line. A bind records no other finding: it refuses a held or expired identity, and it is itself the governed check, so a bound line is never an `unvalidated_tracked_line`. The sale then leaves the unresolved queue. Refusals, nothing written: a sale that is not of this tenant or was never `tracking_unresolved`, and an identity that does not exist or is of another tenant, is a non-disclosing 404; a `saleLineId` that is not an unresolved line of the sale is a 400. 409 `tracking_resolution_identity_mismatch`: an identity is not of the line's product. 409 `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. 409 `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date (a lot is sellable through its expiry date, G7-5). 409 `tracking_resolution_already_resolved`: the sale was already resolved by another command. The `reasonCode` and a non-blank `note` are required; the runtime trims the note, and a blank one is a 400. It does not step the Inventory Safety Revision. Owner only (high sensitivity, as `releaseTrackingHold`); any other role is a 403. Idempotent via the `Idempotency-Key` header: a replay with the same key and body returns the recorded resolution and writes nothing.
+             * @description RT-451 scope item 4 (RT-50 DC-2; RT-455 TR-2): the governed, audited, high-sensitivity Tracking Resolution of one `tracking_unresolved` sale. One command binds an existing tracking identity to EVERY unresolved line of the sale: `lines` names each unresolved line exactly once and nothing else, or the command is a 400 and nothing is written. In one transaction it records the resolution and its audit record, then commits the sale's Inventory effects at the bound identities and its ERP posting intent together, with the ERP Batch ref frozen from the edge map as at capture. A bound identity with no ERP edge-map row still commits its effect, and the intent is held (G7-9 row 3): the bind records an `erp_intent_held` finding with cause `edge_map_missing` for that line. A bind records no other finding: it refuses a held or expired identity, and it is itself the governed check, so a bound line is never an `unvalidated_tracked_line`. The sale then leaves the unresolved queue. The same transaction also commits what the sale's voids and returns recorded before the bind were denied: their Inventory restores (a void compensates the exact identity position; a return lands at the bound identity in `return_inspection`, or `recall_hold` for an identity ever recalled), and the reversal posting intents they emitted, each one posted exactly once. A sale the server has not processed yet gets its effects and its intent when it is processed. Refusals, nothing written: a sale that is not of this tenant, is outside the caller's store scope or was never `tracking_unresolved`, and an identity that does not exist, is of another tenant or is not a batch identity, is a non-disclosing 404; a `saleLineId` that is not an unresolved line of the sale is a 400. 409 `tracking_resolution_identity_mismatch`: an identity is not of the line's product. 409 `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. 409 `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date (a lot is sellable through its expiry date, G7-5), or the identity has no expiry and the line's product requires one (fail closed). 409 `tracking_resolution_already_resolved`: the sale was already resolved by another command. The `reasonCode` and a non-blank `note` are required; the runtime trims the note, and a blank one is a 400. It does not step the Inventory Safety Revision. Owner only (high sensitivity, as `releaseTrackingHold`); any other role is a 403. Idempotent via the `Idempotency-Key` header: a replay with the same key and body returns the recorded resolution and writes nothing.
              */
             post: operations["bindTrackingResolution"];
             delete?: never;
@@ -12421,7 +12421,7 @@ export namespace InventorySchema {
                 safetyTtlSeconds: number | null;
             };
             /**
-             * @description RT-451 S2: the six RT-50 Q13 preconditions of switching tracked selling on. `sale_effects_active`: sale, void and return Inventory effects are active for the tenant (RT-427). `status_moves_available`: status moves and the return-inspection landing are available (RT-435). `erp_tracking_import`: ERP-origin stock import with tracking is in place, so newly received lots exist (RT-293). `erp_batch_posting_verified`: the ERPNext-Connector posts batch-tracked lines with the batch ref (G7-11, RT-452). `identity_anchor`: the per-identity anchor is set (G7-12, RT-453). `tracking_grain_reconciliation`: tracking-grain reconciliation is in place (RT-428).
+             * @description RT-451 S2: the six RT-50 Q13 preconditions of switching tracked selling on. `sale_effects_active`: sale, void and return Inventory effects are active for the tenant (RT-427). `status_moves_available`: status moves and the return-inspection landing are available (RT-435). `erp_tracking_import`: ERP-origin stock import with tracking is in place, so newly received lots exist (RT-293). `erp_batch_posting_verified`: the ERPNext-Connector posts batch-tracked lines with the batch ref (G7-11, RT-452). `identity_anchor`: every live store has its per-identity anchor (G7-12, RT-453; taken by the operator). `tracking_grain_reconciliation`: every live store has a stock reconciliation run completed after that anchor (RT-453). Before 1.14.0 it read: tracking-grain reconciliation is in place (RT-428).
              * @enum {string}
              */
             TrackedSellingPrecondition: "sale_effects_active" | "status_moves_available" | "erp_tracking_import" | "erp_batch_posting_verified" | "identity_anchor" | "tracking_grain_reconciliation";
@@ -12540,7 +12540,7 @@ export namespace InventorySchema {
                 sellableQuantity: components["schemas"]["PositiveDecimalQuantity"];
                 stockingUnit: components["schemas"]["StockingUnit"];
             };
-            /** @description RT-50 G7-12 (956), reserved in 1.10.0-draft (RT-1081): a tracked product or identity whose records disagree, one finding per check grain (identity; product × store × unit; identity × store × unit; product). Each `check` is emitted only once the runtime that produces its data has shipped; 1.10.0 emits none. A store_manager sees a finding only when `storeId` is in its scope; a tenant-wide finding (`storeId` null) is owner / tenant_admin only. */
+            /** @description RT-50 G7-12 (956), reserved in 1.10.0-draft (RT-1081), emitted from 1.14.0-draft (RT-453): a tracked product or identity whose records disagree, one finding per check grain (identity; product × store × unit; identity × store × unit; product). `identity_without_edge_map`: an identity with no ERP edge-map row. `untracked_effect_on_tracked_product`: an effect without an identity on a product whose tracking mode is not `none`, recorded since the store's latest per-identity anchor (tracked activation); before it a tracked product is sold untracked by design while tracked selling is off (OD-T4), so a store without that anchor has none. `serial_position_out_of_range`: a serial identity's position at a store, summed over its locations and statuses, is outside {0, 1}. `profile_erp_flag_mismatch`: the ERP Item flags reported with a store's latest complete Bin snapshot disagree with the Tracking Profile (`batch` needs `hasBatchNo`, `serial` needs `hasSerialNo`, `none` needs neither, and `expiryRequired` needs `hasExpiryDate`); an entry without tracking evidence is not compared. A store_manager sees a finding only when `storeId` is in its scope; a tenant-wide finding (`storeId` null) is owner / tenant_admin only. */
             TrackingConsistencyFinding: {
                 /**
                  * @description discriminator enum property added by openapi-typescript
@@ -12688,6 +12688,7 @@ export namespace InventorySchema {
             };
             /** @description Strict command. Tenant, sale scope and actor are resolved server-side. */
             BindTrackingResolutionCommand: {
+                /** @description A governed machine reason code (lower snake case), recorded and audited with the resolution. The bind always requires a `note`, so it takes the `SafetyReasonCode` pattern, not the `SafetyReasonCodeInput` list of the hold, recall and expiry correction commands (RT-451 S5). */
                 reasonCode: components["schemas"]["SafetyReasonCode"];
                 /** @description Required operator note (no PII). The runtime trims it; a blank note is a 400. */
                 note: string;
@@ -12721,7 +12722,7 @@ export namespace InventorySchema {
                 /** @description One binding per line the resolution bound. No `maxItems` yet: capture lines are uncapped until RT-1052, so a cap could leave a sale that cannot be resolved; add one when RT-1052 caps them. */
                 lines: components["schemas"]["TrackingResolutionLineBinding"][];
             };
-            /** @description RT-449: a machine reason code of a hold, recall or expiry correction, lower snake case (e.g. `supplier_notice`, `authority_notice`, `label_misprint`). Projections keep this pattern (RT-1081, TR-5), so a code recorded before 1.10.0 still reads back; commands accept only `SafetyReasonCodeInput`. */
+            /** @description RT-449: a machine reason code of a hold, recall or expiry correction, lower snake case (e.g. `supplier_notice`, `authority_notice`, `label_misprint`). Projections keep this pattern (RT-1081, TR-5), so a code recorded before 1.10.0 still reads back; the hold, recall and expiry correction commands accept only `SafetyReasonCodeInput`. `bindTrackingResolution` takes this pattern with a required note (RT-451 S5). */
             SafetyReasonCode: string;
             /**
              * @description RT-1081 / RT-455 TR-5 (owner decision RT-972 c14943; OD-4, OD-7): the governed reason a command accepts for a quality hold, a recall or an expiry correction. `other` («أخرى») requires a `note` that is not empty after trimming; without one the command is a 400 `validation_error` and nothing is written. Projections keep `SafetyReasonCode` (the pattern), so a recorded code outside this list still reads back.
@@ -12847,7 +12848,7 @@ export namespace InventorySchema {
                 note: string | null;
                 /**
                  * Format: uuid
-                 * @description The acting principal's user id (an internal actor reference, not PII).
+                 * @description The acting principal's user id (an internal actor reference, not PII). For a correction carried by ERP evidence (`reasonCode` `erp_evidence`, RT-453), it is the stock reconciliation run whose tracking master read carried the new expiry, not a user.
                  */
                 createdBy: string;
                 /** Format: date-time */
@@ -13109,7 +13110,7 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 409 — RT-451. `tracking_resolution_identity_mismatch`: an identity is not of the line's product. `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date. `tracking_resolution_already_resolved`: the sale is already resolved. `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. */
+            /** @description 409 — RT-451. `tracking_resolution_identity_mismatch`: an identity is not of the line's product. `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date, or it has none and the line's product requires one. `tracking_resolution_already_resolved`: the sale is already resolved. `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. */
             TrackingResolutionConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -14137,14 +14138,14 @@ export namespace ConsoleCatalogSchema {
             };
             /**
              * Search and list the tenant's catalog products (keyset paginated).
-             * @description The products of the session's tenant that match every given filter (filters combine with AND), in the order described under **Ordering and paging**. `status` defaults to `active`. With `store_id`, each item adds that store's effective `storeView`; a `store_id` outside the caller's scope or of another tenant is the non-disclosing 404. A `category_id` that names no category of the tenant matches nothing (an empty 200, never a 404). An empty page (`items: []`, `nextCursor: null`) is a 200. Any query key not listed here is 400 `validation_error`.
+             * @description The products of the session's tenant that match every given filter (filters combine with AND), in the order described under **Ordering and paging**. `status` defaults to `active`. With `store_id`, each item adds that store's effective `storeView`; a `store_id` outside the caller's scope or of another tenant is the non-disclosing 404. A `category_id` that names no category of the tenant, or a `brand_id` that names no brand of the tenant, matches nothing (an empty 200, never a 404). An empty page (`items: []`, `nextCursor: null`) is a 200. Any query key not listed here is 400 `validation_error`.
              *     Not audited per request (decision O-6).
              */
             get: operations["consoleListCatalogProducts"];
             put?: never;
             /**
              * Create a catalog product (interim, CAT-W1).
-             * @description Interim (pre Change Sets, decision 400). Creates one product in the session's tenant with the given fields; it has no price (O-2), no identifier, no store override and the `none` tracking profile. Roles `owner` / `tenant_admin`. `categoryId`, when given, must name a category of the tenant that is not retired (else 422 `category_unavailable`). An identical retry with the same `Idempotency-Key` replays the stored `201` with `Idempotent-Replayed: true` and creates nothing. Audited as `catalog.product.create`.
+             * @description Interim (pre Change Sets, decision 400). Creates one product in the session's tenant with the given fields; it has no price (O-2), no identifier, no store override and the `none` tracking profile. Roles `owner` / `tenant_admin`. `categoryId`, when given, must name a category of the tenant that is not retired (else 422 `category_unavailable`); `brandId`, when given, must name a brand of the tenant that is not retired (else 422 `brand_unavailable`). An identical retry with the same `Idempotency-Key` replays the stored `201` with `Idempotent-Replayed: true` and creates nothing. Audited as `catalog.product.create`.
              */
             post: operations["consoleCreateCatalogProduct"];
             delete?: never;
@@ -14173,7 +14174,7 @@ export namespace ConsoleCatalogSchema {
             head?: never;
             /**
              * Edit a catalog product's simple fields (interim, CAT-W1).
-             * @description Interim (pre Change Sets, decision 400). Changes the given fields of one product of the session's tenant; a field that is absent is left as is. Editable: `name`, `description` (null clears it), `categoryId` (null clears it), `taxCategory` and `isActive`. Price, the tracking profile and identifiers are not editable here. Roles `owner` / `tenant_admin`. A retired product is 409 `product_retired`; an `expectedUpdatedAt` that is not the product's current `updatedAt` is 409 `stale_write`; a `categoryId` that names no category of the tenant, or a retired one, is 422 `category_unavailable`. Audited as `catalog.product.update`.
+             * @description Interim (pre Change Sets, decision 400). Changes the given fields of one product of the session's tenant; a field that is absent is left as is. Editable: `name`, `description` (null clears it), `categoryId` (null clears it), `brandId` (null clears it), `taxCategory` and `isActive`. Price, the tracking profile and identifiers are not editable here. Roles `owner` / `tenant_admin`. A retired product is 409 `product_retired`; an `expectedUpdatedAt` that is not the product's current `updatedAt` is 409 `stale_write`; a `categoryId` that names no category of the tenant, or a retired one, is 422 `category_unavailable`; a `brandId` that names no brand of the tenant, or a retired one, is 422 `brand_unavailable`. Audited as `catalog.product.update`.
              */
             patch: operations["consoleUpdateCatalogProduct"];
             trace?: never;
@@ -14197,6 +14198,51 @@ export namespace ConsoleCatalogSchema {
             options?: never;
             head?: never;
             patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/brands": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the tenant's product brands (flat).
+             * @description RT-1334. Every brand of the session's tenant that is not retired, ordered `name ASC, brandId ASC`. Brands are flat (no parent). The list is not paginated: it is the whole set. The operation takes no query parameter; any query key is 400 `validation_error`.
+             *     Not audited per request (decision O-6).
+             */
+            get: operations["consoleListCatalogBrands"];
+            put?: never;
+            /**
+             * Create a catalog brand (RT-1334).
+             * @description Creates one active brand in the session's tenant. Roles `owner` / `tenant_admin`. A `name` an active brand of the tenant already holds is 409 `brand_name_conflict`. An identical retry with the same `Idempotency-Key` replays the stored `201` with `Idempotent-Replayed: true` and creates nothing. Audited as `catalog.brand.create`.
+             */
+            post: operations["consoleCreateCatalogBrand"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/brands/{brandId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            /**
+             * Rename a catalog brand (RT-1334).
+             * @description Renames one active brand of the session's tenant. Roles `owner` / `tenant_admin`. A brand of another tenant, an absent brand and a retired brand are the non-disclosing 404; an `expectedUpdatedAt` that is not the brand's current `updatedAt` is 409 `stale_write`; a `name` another active brand of the tenant holds is 409 `brand_name_conflict`. Every accepted rename, also to the same name, gives the brand a new, strictly later `updatedAt`. Its products keep the brand. Audited as `catalog.brand.rename`.
+             */
+            patch: operations["consoleRenameCatalogBrand"];
             trace?: never;
         };
         "/api/v1/catalog/products/{productId}/retire": {
@@ -14354,6 +14400,13 @@ export namespace ConsoleCatalogSchema {
                 categoryId: string | null;
                 /** @description The category's name (also when the category is retired); null without a category. */
                 categoryName: string | null;
+                /**
+                 * Format: uuid
+                 * @description RT-1334. The product's brand; null without a brand.
+                 */
+                brandId: string | null;
+                /** @description The brand's name (also when the brand is retired); null without a brand. */
+                brandName: string | null;
                 /** @description The value of the product's oldest active tenant-wide `sku` identifier (by creation time, then value); null when it has none. */
                 primarySku: string | null;
                 /** @description The value of the product's oldest active tenant-wide `barcode` identifier (by creation time, then value); null when it has none. */
@@ -14427,6 +14480,20 @@ export namespace ConsoleCatalogSchema {
             ConsoleCatalogCategoryList: {
                 items: components["schemas"]["ConsoleCatalogCategory"][];
             };
+            /** @description RT-1334. One active brand of the tenant. */
+            ConsoleCatalogBrand: {
+                /** Format: uuid */
+                brandId: string;
+                name: string;
+                /**
+                 * Format: date-time
+                 * @description The `expectedUpdatedAt` of a rename.
+                 */
+                updatedAt: string;
+            };
+            ConsoleCatalogBrandList: {
+                items: components["schemas"]["ConsoleCatalogBrand"][];
+            };
             /** @description 1 to 500 characters with at least one that is not whitespace, and no NUL. Stored as sent (no trimming). */
             ProductName: string;
             /** @description 1 to 2000 characters with no NUL, stored as sent; `null` for none. */
@@ -14447,6 +14514,11 @@ export namespace ConsoleCatalogSchema {
                  * @description A category of the tenant that is not retired; `null` or absent for none.
                  */
                 categoryId?: string | null;
+                /**
+                 * Format: uuid
+                 * @description RT-1334. A brand of the tenant that is not retired; `null` or absent for none.
+                 */
+                brandId?: string | null;
                 taxCategory: components["schemas"]["TaxCategoryValue"];
                 /**
                  * @description The tenant `is_active`; `true` when absent.
@@ -14454,7 +14526,7 @@ export namespace ConsoleCatalogSchema {
                  */
                 isActive: boolean;
             };
-            /** @description `expectedUpdatedAt` and at least one field to change. An absent field is left as is; `description` and `categoryId` accept `null` to clear. Price, status, tracking and identifiers are not here. */
+            /** @description `expectedUpdatedAt` and at least one field to change. An absent field is left as is; `description`, `categoryId` and `brandId` accept `null` to clear. Price, status, tracking and identifiers are not here. */
             UpdateCatalogProductRequest: {
                 expectedUpdatedAt: components["schemas"]["ExpectedUpdatedAt"];
                 name?: components["schemas"]["ProductName"];
@@ -14464,9 +14536,25 @@ export namespace ConsoleCatalogSchema {
                  * @description A category of the tenant that is not retired; `null` clears the category.
                  */
                 categoryId?: string | null;
+                /**
+                 * Format: uuid
+                 * @description RT-1334. A brand of the tenant that is not retired; `null` clears the brand.
+                 */
+                brandId?: string | null;
                 taxCategory?: components["schemas"]["TaxCategoryValue"];
                 isActive?: boolean;
-            } | unknown | unknown | unknown | unknown | unknown;
+            } | unknown | unknown | unknown | unknown | unknown | unknown;
+            /** @description RT-1334. 1 to 200 characters with at least one that is not whitespace, and no NUL. Stored as sent (no trimming) and compared exactly. */
+            BrandName: string;
+            /** @description RT-1334. A new active brand. */
+            CreateCatalogBrandRequest: {
+                name: components["schemas"]["BrandName"];
+            };
+            /** @description RT-1334. The brand's new name and the `updatedAt` last read. */
+            RenameCatalogBrandRequest: {
+                expectedUpdatedAt: components["schemas"]["ExpectedUpdatedAt"];
+                name: components["schemas"]["BrandName"];
+            };
             /** @description The precondition of a retire: the product's `summary.updatedAt` (product retire) or the active override's `updatedAt` (override retire). */
             RetireRequest: {
                 expectedUpdatedAt: components["schemas"]["ExpectedUpdatedAt"];
@@ -14640,8 +14728,35 @@ export namespace ConsoleCatalogSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 `category_unavailable`: `categoryId` names no category of the tenant, or a retired one. Nothing is written. */
-            CategoryUnavailable: {
+            /** @description 422, `error.code` one of: `category_unavailable` (`categoryId` names no category of the tenant, or a retired one); `brand_unavailable` (RT-1334: `brandId` names no brand of the tenant, or a retired one). Nothing is written. */
+            ProductReferenceUnavailable: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside the write's list and, on the rename, a brand of another tenant, an absent brand and a retired brand. Nothing is written. */
+            BrandNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `idempotency_key_conflict` (the same `Idempotency-Key` was used with a different body); `brand_name_conflict` (an active brand of the tenant already has this name; the body never names it). Nothing is written. */
+            BrandCreateConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `stale_write` (`expectedUpdatedAt` is not the brand's current `updatedAt`; reload and retry); `brand_name_conflict` (another active brand of the tenant has this name; the body never names it). Nothing is written. */
+            BrandWriteConflict: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14676,9 +14791,11 @@ export namespace ConsoleCatalogSchema {
             StatusQuery: components["schemas"]["ProductStatusFilter"];
             /** @description Only products in this category. Case insensitive. A category the tenant does not have matches nothing (an empty 200). */
             CategoryIdQuery: string;
+            /** @description RT-1334. Only products of this brand (also a retired brand's products). Case insensitive. A brand the tenant does not have matches nothing (an empty 200). */
+            BrandIdQuery: string;
             /** @description Adds each item's `storeView` for this store, and limits store-scoped identifiers in the `q` match to this store. It does not filter the products: a product the store does not sell is listed with `storeView.effectiveActive: false`. Validated against the caller's store scope: a store outside it, soft-deleted, or of another tenant, is the non-disclosing 404. Case insensitive. */
             StoreIdQuery: string;
-            /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and every filter (`q`, `status`, `category_id`, `store_id`). Do not decode or construct it; omit it for the first page. Its keyset position includes the last product's name (up to 500 characters), so it can be up to 4096 characters long. A value the server did not issue, cannot decode, or that is reused with other filters is 400 `validation_error`. The caller's store scope is checked on every request and is never carried by the cursor. The cursor carries only a keyset position and a digest of the filters; its position is ANDed with the tenant and the filters and never replaces them. It is never used to look a product up. */
+            /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and every filter (`q`, `status`, `category_id`, `brand_id`, `store_id`). Do not decode or construct it; omit it for the first page. Its keyset position includes the last product's name (up to 500 characters), so it can be up to 4096 characters long. A value the server did not issue, cannot decode, or that is reused with other filters is 400 `validation_error`. The caller's store scope is checked on every request and is never carried by the cursor. The cursor carries only a keyset position and a digest of the filters; its position is ANDed with the tenant and the filters and never replaces them. It is never used to look a product up. */
             Cursor: string;
             /** @description Maximum items per page. The server MAY return fewer. */
             Limit: number;
@@ -14686,7 +14803,9 @@ export namespace ConsoleCatalogSchema {
             ProductId: string;
             /** @description The store (`stores.id`) of the override. Case insensitive. A store outside the caller's store scope, of another tenant or soft-deleted is the non-disclosing 404. */
             StoreIdPath: string;
-            /** @description REQUIRED on `consoleCreateCatalogProduct`: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant. An identical retry replays the stored `201` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+            /** @description The brand id (`tenant_product_brands.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+            BrandIdPath: string;
+            /** @description REQUIRED on `consoleCreateCatalogProduct` and `consoleCreateCatalogBrand`: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant. An identical retry replays the stored `201` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
             IdempotencyKey: string;
         };
         requestBodies: never;
@@ -14695,7 +14814,7 @@ export namespace ConsoleCatalogSchema {
             CacheControlNoStore: "no-store";
             /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
             ConsoleRetryAfter: number;
-            /** @description Present and `true` on a same-`Idempotency-Key` replay of `consoleCreateCatalogProduct`, which carries the stored `201`. Absent on a first-time create. */
+            /** @description Present and `true` on a same-`Idempotency-Key` replay of `consoleCreateCatalogProduct` or `consoleCreateCatalogBrand`, which carries the stored `201`. Absent on a first-time create. */
             IdempotentReplayed: boolean;
             /** @description Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body. */
             RetryAfterInProgress: number;
@@ -14713,9 +14832,11 @@ export namespace ConsoleCatalogSchema {
                     status?: components["parameters"]["StatusQuery"];
                     /** @description Only products in this category. Case insensitive. A category the tenant does not have matches nothing (an empty 200). */
                     category_id?: components["parameters"]["CategoryIdQuery"];
+                    /** @description RT-1334. Only products of this brand (also a retired brand's products). Case insensitive. A brand the tenant does not have matches nothing (an empty 200). */
+                    brand_id?: components["parameters"]["BrandIdQuery"];
                     /** @description Adds each item's `storeView` for this store, and limits store-scoped identifiers in the `q` match to this store. It does not filter the products: a product the store does not sell is listed with `storeView.effectiveActive: false`. Validated against the caller's store scope: a store outside it, soft-deleted, or of another tenant, is the non-disclosing 404. Case insensitive. */
                     store_id?: components["parameters"]["StoreIdQuery"];
-                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and every filter (`q`, `status`, `category_id`, `store_id`). Do not decode or construct it; omit it for the first page. Its keyset position includes the last product's name (up to 500 characters), so it can be up to 4096 characters long. A value the server did not issue, cannot decode, or that is reused with other filters is 400 `validation_error`. The caller's store scope is checked on every request and is never carried by the cursor. The cursor carries only a keyset position and a digest of the filters; its position is ANDed with the tenant and the filters and never replaces them. It is never used to look a product up. */
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and every filter (`q`, `status`, `category_id`, `brand_id`, `store_id`). Do not decode or construct it; omit it for the first page. Its keyset position includes the last product's name (up to 500 characters), so it can be up to 4096 characters long. A value the server did not issue, cannot decode, or that is reused with other filters is 400 `validation_error`. The caller's store scope is checked on every request and is never carried by the cursor. The cursor carries only a keyset position and a digest of the filters; its position is ANDed with the tenant and the filters and never replaces them. It is never used to look a product up. */
                     cursor?: components["parameters"]["Cursor"];
                     /** @description Maximum items per page. The server MAY return fewer. */
                     limit?: components["parameters"]["Limit"];
@@ -14747,7 +14868,7 @@ export namespace ConsoleCatalogSchema {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description REQUIRED on `consoleCreateCatalogProduct`: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant. An identical retry replays the stored `201` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    /** @description REQUIRED on `consoleCreateCatalogProduct` and `consoleCreateCatalogBrand`: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant. An identical retry replays the stored `201` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
                     "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                 };
                 path?: never;
@@ -14775,7 +14896,7 @@ export namespace ConsoleCatalogSchema {
                 403: components["responses"]["OriginRejected"];
                 404: components["responses"]["WriteNotFound"];
                 409: components["responses"]["CreateConflict"];
-                422: components["responses"]["CategoryUnavailable"];
+                422: components["responses"]["ProductReferenceUnavailable"];
                 425: components["responses"]["IdempotencyInProgress"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
@@ -14841,7 +14962,7 @@ export namespace ConsoleCatalogSchema {
                 403: components["responses"]["OriginRejected"];
                 404: components["responses"]["WriteNotFound"];
                 409: components["responses"]["ProductWriteConflict"];
-                422: components["responses"]["CategoryUnavailable"];
+                422: components["responses"]["ProductReferenceUnavailable"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };
@@ -14868,6 +14989,104 @@ export namespace ConsoleCatalogSchema {
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleListCatalogBrands: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's active brands. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleCatalogBrandList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleCreateCatalogBrand: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on `consoleCreateCatalogProduct` and `consoleCreateCatalogBrand`: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor and tenant. An identical retry replays the stored `201` with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCatalogBrandRequest"];
+                };
+            };
+            responses: {
+                /** @description Created. The body is the new brand. A same-key retry replays this `201` with `Idempotent-Replayed: true`. */
+                201: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleCatalogBrand"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["BrandNotFound"];
+                409: components["responses"]["BrandCreateConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleRenameCatalogBrand: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The brand id (`tenant_product_brands.id`). Case insensitive. A value that is not a UUID is 400 `validation_error` and never reaches the database. */
+                    brandId: components["parameters"]["BrandIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RenameCatalogBrandRequest"];
+                };
+            };
+            responses: {
+                /** @description Renamed. The body is the brand after the change. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleCatalogBrand"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["BrandNotFound"];
+                409: components["responses"]["BrandWriteConflict"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };

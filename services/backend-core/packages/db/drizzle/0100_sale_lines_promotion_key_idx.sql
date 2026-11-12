@@ -1,0 +1,35 @@
+-- 0100_sale_lines_promotion_key_idx.sql
+--
+-- The composite key of `sale_lines` that `sale_line_promotions` references
+-- (Jira RT-1336, RT-286 spec 048 slice S3). [GATED: migration]. 0099 is held
+-- by an open PR (RT-1114, #519), so the Offer Engine schema takes 0100 (this
+-- key) and 0101 (the tables, which need it).
+--
+-- Why: a promotion fact must belong to a sale line of the SAME tenant, store
+-- and sale. A foreign key check bypasses row-level security, so a plain
+-- `sale_line_id -> sale_lines(id)` FK would accept another tenant's line.
+-- `sale_lines` has no composite unique key, so 0101's FK
+--   (sale_line_id, sale_id, tenant_id, store_id)
+--     -> sale_lines (id, sale_id, tenant_id, store_id)
+-- needs this unique index as its target. `id` is already the primary key, so
+-- the index can never refuse an existing or future row; it only exists to be
+-- referenced. PostgreSQL accepts a valid, non-partial unique index without
+-- expressions as a foreign key target.
+--
+-- One statement, CONCURRENTLY (the 0064 / 0085 / 0098 pattern;
+-- landing-gated-changes "an index on a hot table"): `sale_lines` is written by
+-- every sale capture, and the runner sends each file as one query, wrapping a
+-- multi-statement file in a transaction block that CREATE INDEX CONCURRENTLY
+-- refuses. The build takes SHARE UPDATE EXCLUSIVE, which blocks no read or
+-- write. If a build fails it leaves an INVALID index: 0101 then fails loudly
+-- (an invalid index is not a foreign key target); drop it with the down file
+-- and re-run. No IF NOT EXISTS: an invalid leftover must fail loudly, never be
+-- skipped.
+--
+-- DATA-LIFECYCLE CLASSIFICATION (SI-012 / §XIV): an index only; no new data.
+--
+-- Reversible via 0100_sale_lines_promotion_key_idx.down.sql (after 0101 is
+-- rolled back: the 0101 FK depends on this index).
+
+CREATE UNIQUE INDEX CONCURRENTLY uq_sale_lines_id_sale_tenant_store
+  ON sale_lines (id, sale_id, tenant_id, store_id);

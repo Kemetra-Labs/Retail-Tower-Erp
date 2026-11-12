@@ -47,6 +47,21 @@ export class PostingResolutionIncompleteError extends Error {
   }
 }
 
+/**
+ * RT-451 S6: a frozen tracked (`batch`) line that cannot be posted: it has no
+ * frozen ERPNext Batch, or its intent is held (G7-9 row 3). The feed filters
+ * such rows out before the build (`pullPostings`), so reaching this is an
+ * invariant breach. The build fails rather than offer a batch Item without
+ * its Batch; the feed then re-offers the row under the retry budget and
+ * dead-letters it visibly, never posting it.
+ */
+export class TrackedLineNotPostableError extends Error {
+  constructor(workItemRef: string, version: number) {
+    super(`posting ${workItemRef}: resolution v${version} has a tracked line that is held or has no ERPNext Batch`);
+    this.name = "TrackedLineNotPostableError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Wire shape — the 012 PostingWorkItem (subset 015 populates in the interim mode)
 // ---------------------------------------------------------------------------
@@ -70,6 +85,17 @@ export interface WorkItemLine {
    */
   readonly erpnextItemRef: { readonly doctype: "Item"; readonly name: string };
   readonly tenantProductRef: string | null;
+  /**
+   * RT-451 S6 (posting-feed.yaml 1.10.0-draft, G7-11): the ERPNext Batch frozen
+   * with the resolution; null on an untracked line. OMITTED unless tracked
+   * selling is in effect for the tenant (the contract's per-tenant flag), and
+   * on a line whose tracking was not frozen (a version written before 0095) or
+   * that has no identity although its product is batch- or serial-profiled (a
+   * line captured while tracked selling was off).
+   */
+  readonly erpnextBatchRef?: { readonly doctype: "Batch"; readonly name: string } | null;
+  /** RT-451 S6: the frozen Tracking Profile mode, `none` or `batch` (never `serial`); omitted with `erpnextBatchRef`. */
+  readonly trackingMode?: "none" | "batch";
 }
 
 /** RT-73: one returned line, a non-negative magnitude priced by Backend-Core. */
@@ -94,9 +120,12 @@ export class ReturnTendersNotVisibleError extends Error {
   }
 }
 
-/** RT-77: one way the sale was paid (RT-10 D1/D2), net of change, a non-negative magnitude. */
+/**
+ * RT-77: one way the sale was paid (RT-10 D1/D2), net of change, a non-negative magnitude.
+ * RT-1114 (RT-1098 decision 4A): `voucher` is a tender too, carrying its `redemptionId`.
+ */
 export interface SaleWorkTender {
-  readonly method: "cash" | "card_external";
+  readonly method: "cash" | "card_external" | "voucher";
   readonly amount: string;
   /** card_external only — the card terminal's short reference. */
   readonly reference?: string;
@@ -104,6 +133,8 @@ export interface SaleWorkTender {
   readonly tenderRef?: string;
   /** RT-360: the tender's 1-based apply order; omitted for a legacy tender. */
   readonly sequence?: number;
+  /** RT-1114: `voucher` only — the redemption that paid it (V-A `redemption_id`). */
+  readonly redemptionId?: string;
 }
 
 /**
@@ -213,6 +244,13 @@ export async function buildWorkItem(
     /** RT-330: the frozen resolution version to read; null/absent = live map join. */
     readonly currentResolutionVersion?: number | null;
   },
+  /**
+   * RT-451 S6: emit the frozen `trackingMode` / `erpnextBatchRef` on each line.
+   * True only while tracked selling is in effect for the tenant (the
+   * posting-feed.yaml per-tenant flag); absent or false keeps every line
+   * byte-identical to the feed before S6.
+   */
+  emitTracking = false,
 ): Promise<PostingWorkItem | null> {
   const sale = await client.query<{
     id: string;
@@ -250,6 +288,10 @@ export async function buildWorkItem(
     erpnext_item_ref: string | null;
     tenant_product_ref: string | null;
     warehouse_ref: string | null;
+    tracking_mode: string | null;
+    tracking_identity_id: string | null;
+    erpnext_batch_ref: string | null;
+    erp_hold_cause: string | null;
   }>(
     `SELECT sl.id::text AS line_ref, sl.line_name,
             sl.unit_price::text AS unit_price, sl.currency_code,
@@ -257,7 +299,9 @@ export async function buildWorkItem(
             sl.tax_amount::text AS tax_amount, sl.unit,
             COALESCE(r.erpnext_item_ref, m.erpnext_item_ref) AS erpnext_item_ref,
             sl.tenant_product_ref::text AS tenant_product_ref,
-            r.warehouse_ref
+            r.warehouse_ref,
+            r.tracking_mode, r.tracking_identity_id::text AS tracking_identity_id,
+            r.erpnext_batch_ref, r.erp_hold_cause
        FROM sale_lines sl
        LEFT JOIN erpnext_posting_resolution r
          ON $2::int IS NOT NULL
@@ -304,6 +348,7 @@ export async function buildWorkItem(
       // 012 ErpnextItemRef object shape (issue #506) — doctype fixed to "Item", name = Item code.
       erpnextItemRef: { doctype: "Item", name: l.erpnext_item_ref },
       tenantProductRef: l.tenant_product_ref,
+      ...lineTracking(l, { workItemRef: row.id, version: frozenVersion, emit: emitTracking }),
     });
   }
 
@@ -353,6 +398,42 @@ export async function buildWorkItem(
     itemCursor: row.sequence,
     ...frozenVersionField(frozenVersion),
   };
+}
+
+/**
+ * RT-451 S6: a line's `trackingMode` / `erpnextBatchRef` (posting-feed.yaml
+ * 1.10.0-draft). Nothing unless `emit` (tracked selling in effect for the
+ * tenant) and the row has a frozen version whose line froze its tracking
+ * (0095). Then:
+ *   - an untracked product's line: `trackingMode: none`, `erpnextBatchRef: null`;
+ *   - a line sold from an identity: `trackingMode: batch` and its frozen
+ *     Batch. One without a Batch, or held (G7-9 row 3), is never offered: the
+ *     feed filters its row out, and reaching it here throws
+ *     {@link TrackedLineNotPostableError};
+ *   - a batch- or serial-profiled line with no identity (captured while
+ *     tracked selling was off, comment 16269): nothing, as before S6. The
+ *     contract never lets `batch` go out without its Batch, and never
+ *     `serial`; how the switched-off case should post is the open owner
+ *     question RT-451 comment 16538 item 3, so it keeps today's wire.
+ */
+function lineTracking(
+  l: {
+    readonly tracking_mode: string | null;
+    readonly tracking_identity_id: string | null;
+    readonly erpnext_batch_ref: string | null;
+    readonly erp_hold_cause: string | null;
+  },
+  ctx: { readonly workItemRef: string; readonly version: number | null; readonly emit: boolean },
+): Pick<WorkItemLine, "trackingMode" | "erpnextBatchRef"> {
+  if (!ctx.emit || ctx.version === null || l.tracking_mode === null) return {};
+  if (l.tracking_identity_id !== null) {
+    if (l.erpnext_batch_ref === null || l.erp_hold_cause !== null) {
+      throw new TrackedLineNotPostableError(ctx.workItemRef, ctx.version);
+    }
+    return { trackingMode: "batch", erpnextBatchRef: { doctype: "Batch", name: l.erpnext_batch_ref } };
+  }
+  if (l.tracking_mode === "none") return { trackingMode: "none", erpnextBatchRef: null };
+  return {};
 }
 
 /** RT-332: `sale.warehouseRef` for a frozen row; nothing for a pre-0037 row. */
@@ -450,13 +531,14 @@ async function loadSaleTenders(
   // one transaction), so the pre-RT-77 feed does not depend on the new table's grant.
   if (expected === 0) return [];
   const st = await client.query<{
-    method: "cash" | "card_external";
+    method: "cash" | "card_external" | "voucher";
     amount: string;
     reference: string | null;
     tender_ref: string | null;
     sequence: number | null;
+    redemption_id: string | null;
   }>(
-    `SELECT method, amount::text AS amount, reference, tender_ref, sequence
+    `SELECT method, amount::text AS amount, reference, tender_ref, sequence, redemption_id
        FROM sale_tenders WHERE sale_id = $1
       ORDER BY sequence NULLS LAST, method, tender_ref`,
     [saleId],
@@ -470,6 +552,7 @@ async function loadSaleTenders(
     ...(t.reference === null ? {} : { reference: t.reference }),
     ...(t.tender_ref === null ? {} : { tenderRef: t.tender_ref }),
     ...(t.sequence === null ? {} : { sequence: t.sequence }),
+    ...(t.redemption_id === null ? {} : { redemptionId: t.redemption_id }),
   }));
 }
 

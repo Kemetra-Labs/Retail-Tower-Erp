@@ -20,6 +20,8 @@ import { ZodValidationPipe } from "./common/zod-validation.pipe";
 import { assertPublicAuthKeySecretConfigured } from "./auth/public-auth-key-secret";
 import { AuthTokenRepository } from "./auth/auth-token.repository";
 import { connectorSnapshotCallerAuthorizer } from "./auth/connector-snapshot-preauth";
+import { posDeviceCallerAuthorizer } from "./auth/device-body-preauth";
+import { DeviceRepository } from "./pos-operators/device.repository";
 import { SessionRepository } from "./auth/session.repository";
 import { assertDeploymentEnvironmentConfigured } from "./connector/deployment-environment";
 import { loadOpenApiContracts } from "./openapi/loader";
@@ -96,12 +98,16 @@ async function bootstrap(): Promise<void> {
   // application/json is consumed by the JSON parser.
   // RT-1295: a large snapshot body is read only after its caller passes the
   // route's connector guards on its headers alone.
+  // RT-1312 Phase 3(b): a 256 kB limit for posQuarantineSale; a large upload
+  // body is read only after its caller passes PosDeviceAuthGuard on its
+  // headers alone.
   registerJsonBodyParsers(
     app,
     connectorSnapshotCallerAuthorizer(
       app.get(SessionRepository, { strict: false }),
       app.get(AuthTokenRepository, { strict: false }),
     ),
+    posDeviceCallerAuthorizer(app.get(DeviceRepository, { strict: false })),
   );
 
   // Global interceptors — RequestIdInterceptor must run first so the others

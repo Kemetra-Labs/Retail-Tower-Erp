@@ -2,13 +2,13 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 5e46cc513ca5ba4f3e04f3d5a57c22e063355cdf
+commit: 7210c6daa305edb225aa6ffca7a1bac722f1533a
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
 file: auth.openapi.yaml 251e47b60becf178d51e39b2350e7e6a9e1509f3
 file: cash-variance-policy.openapi.yaml 0af127c7d43cb5bc87306dae6367960a428cacfb
-file: catalog/console-catalog.yaml ce1f6626fdcd340cd7d0233325798906a458b3bc
+file: catalog/console-catalog.yaml c7580b1e8dc5abfafdef3b7e68dc4819429c98f5
 file: catalog/erpnext-item-map.yaml 467bf860f4d00028fc4cd476d1959b93c9ce52a2
 file: catalog/erpnext-warehouse-map.yaml d2db8f505c0879a7b2c6e4c866985670e07da46a
 file: catalog/product-reconciliation.yaml c66f63f605930e33aa33fe0e259581ae3c92d3e1
@@ -25,9 +25,9 @@ file: console-telemetry.openapi.yaml 3c28599418ec7a749641b214886c08c2cc49a1ba
 file: context.openapi.yaml c90fc013d84bc03b02db59af87a125996b64be9c
 file: devices.openapi.yaml 00e999747e20603f521537e2cc0c4a5f090038b4
 file: erpnext-connector/connector-health.yaml b0cc7095899e3d6c3b9ec7aa60c595a53861470a
-file: erpnext-reconciliation/reconciliation.yaml d0b39ef54f535e15dd051f4c622dfb7cb13d24cc
+file: erpnext-reconciliation/reconciliation.yaml 75f2867ba664e86667fc2bd33de1bd525a4fe39d
 file: erpnext-sync-ops/console-sync-ops.yaml 2681ab9969030d9dd4038177e2b474cdaf3f930b
-file: inventory/inventory.yaml f5d9b8efe20b267ce32b182ef833b690b0135117
+file: inventory/inventory.yaml fc27613c79f8c394b3a82e8a425fc1f7481067c5
 file: inventory/low-stock.yaml ba440d5fc42ca89d939a9abe9ca6c446417e8e72
 file: memberships.openapi.yaml 3aad5b26c9c162fb0e7dc685f5738e40431d92b1
 file: platform-support-sessions.openapi.yaml b1bde3d4d40e5998b8e2cf027868b05cd694c92a

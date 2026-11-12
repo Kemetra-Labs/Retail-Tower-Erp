@@ -29,6 +29,7 @@ import {
   isPosSaleTendersEnabled,
   isPosSaleTendersSameMethodEnabled,
 } from "../../src/catalog/sales/sale-tenders-gate";
+import { isTrackedSellingEnabled } from "../../src/catalog/sales/tracked-lines/tracked-selling-gate";
 import { checkTrustProxyConfig } from "../../src/common/trust-proxy";
 import { readConsoleRateLimitConfig } from "../../src/console-rate-limit/console-rate-limit.config";
 import { resolveForwardTarget } from "../../src/console-telemetry/console-telemetry.forwarder";
@@ -52,8 +53,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-336 single origin: CORS and extra trusted origins stay off by construction (caddy-same-origin.spec.ts)",
   ERPNEXT_FEED_RESPONSIBILITIES_ENABLED:
     "unmapped until the RT-419 hold lift, which must re-head the held rows in the same release step",
-  POS_TRACKED_SELLING_ENABLED:
-    "RT-451: unmapped, so production stays off, until the owner approves activating tracked selling (per-tenant flag, Q13 preconditions)",
+  POS_SALE_VOUCHER_TENDER_ENABLED:
+    "RT-1114: unmapped, so production stays off (acceptance 2), until RT-1330 (R-4b, the Connector voucher Mode of Payment) is deployed and the owner turns voucher tenders on",
   TRUST_PROXY_DIRECT_DEPLOYMENT:
     "RT-625: only for a deployment with no proxy in front of the API; this compose runs behind Caddy and pins TRUST_PROXY to 1",
   RT_LAB_FIXTURES:
@@ -213,6 +214,7 @@ describe("RT-984 production compose passes every API env setting", () => {
     const probes: ReadonlyArray<[string, () => unknown]> = [
       ["POS_SALE_TENDERS_ENABLED", isPosSaleTendersEnabled],
       ["POS_SALE_TENDERS_SAME_METHOD_ENABLED", isPosSaleTendersSameMethodEnabled],
+      ["POS_TRACKED_SELLING_ENABLED", isTrackedSellingEnabled],
       ["POS_RETURNS_ENABLED", isPosReturnsEnabled],
       ["POS_REFUND_SETTLE_BEFORE_POST_ENABLED", isRefundSettleBeforePostEnabled],
       ["POS_LEGACY_REFUND_ENABLED", isLegacyRefundEnabled],

@@ -919,6 +919,34 @@ describe('bindPairingStoreDb', () => {
       null,
       null,
       null,
+      // RT-1348: the ninth value is `api_origin` (migration 0061); a row
+      // without one writes NULL.
+      null,
+    );
+  });
+
+  it('writeAssignment forwards a stored api_origin as the last INSERT value (RT-1348)', () => {
+    const m = makeMockHandle();
+    const db = bindPairingStoreDb(m.handle);
+    db.writeAssignment({
+      tenant_id: 'tenant',
+      branch_id: 'branch',
+      terminal_id: 'term',
+      terminal_label: 'Counter 1',
+      paired_at: 1735689600,
+      ...T094A_STUB_FIELDS,
+      api_origin: 'https://api.example.com',
+    });
+    expect(m.insertStmt.run).toHaveBeenCalledWith(
+      'tenant',
+      'branch',
+      'term',
+      'Counter 1',
+      1735689600,
+      null,
+      null,
+      null,
+      'https://api.example.com',
     );
   });
 

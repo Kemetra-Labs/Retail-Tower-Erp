@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Reconciliation & Repair API
-  version: "1.6.0-draft"
+  version: "1.7.0-draft"
   description: >
     Spec 017 (erpnext-reconciliation-and-repair) — the ERPNext arc's OPERATIONAL
     reconciliation surface (011→017): run → report → repair. The human
@@ -118,6 +118,23 @@ info:
     classification is recorded in the RT-1061 PR: the classification is
     unchanged, the reader set gains one surface, the readers are unchanged.
     No schema change.
+
+    **1.7.0-draft (RT-453, RT-50 G7-12, additive; [GATED: contract]
+    RT-453 comment 16685 and coordinator decision on the class name).**
+    Tracking-grain reconciliation. Once a store has its per-identity Inventory
+    Anchor (tracked activation), a batch-tracked product is compared per
+    tracking identity, not per product, against the run's batch-wise Bin
+    evidence (`stock-view.yaml` 1.4). Its results use the RT-428 classes, one
+    result per identity, with `detail.grain` `tracking_identity`,
+    `detail.tracking_identity_id` and `detail.erpnext_batch_ref`.
+    `ReconciliationResult.mismatchClass` adds `tracking_mismatch`: one result
+    per tracked product that cannot be fully reconciled at that grain.
+    `detail.reasons` lists one or more of `tracking_evidence_missing`,
+    `erp_flags_disagree`, `batch_without_identity`,
+    `batches_differ_from_item` and `untracked_effects`.
+    Every other product and store keeps its RT-428 or legacy comparison. A
+    class is explanatory: no result changes an effect, an identity or ERPNext
+    stock. No new operation and no new field.
 
 servers:
   - url: https://api.example.com
@@ -1059,6 +1076,7 @@ components:
             - expected_pending_retail
             - erp_snapshot_stale
             - uom_mismatch
+            - tracking_mismatch
           description: >
             014's mismatch-class vocabulary (014 data-model §6.2). 017 owns no
             class. `negative_balance_flagged` is derived from the 009
@@ -1083,7 +1101,14 @@ components:
             RT-428 classes. A class is explanatory: no reconciliation result
             changes an effect or ERPNext stock. `detail` then also carries
             `expected_erp_book`, `pending_erp`, `pending_retail` and
-            `legacy_on_hand`.
+            `legacy_on_hand`. RT-453 (1.7.0-draft, RT-50 G7-12): for a store
+            with a per-identity anchor, a batch-tracked product is compared per
+            tracking identity (one result per identity, same classes,
+            `detail.grain` `tracking_identity`). `tracking_mismatch` is one
+            result per tracked product that cannot be fully reconciled at that
+            grain; `detail.reasons` names why (`tracking_evidence_missing`,
+            `erp_flags_disagree`, `batch_without_identity`,
+            `batches_differ_from_item`, `untracked_effects`).
         sourceRef:
           type: [string, "null"]
           format: uuid

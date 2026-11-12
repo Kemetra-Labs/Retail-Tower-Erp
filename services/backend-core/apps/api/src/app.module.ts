@@ -62,6 +62,7 @@ import { DevicesModule } from "./devices/devices.module";
 import { StoresModule } from "./stores/stores.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { PlatformSupportSessionsModule } from "./platform-support-sessions/platform-support-sessions.module";
+import { TenantAccessEntitlementModule } from "./tenant-access-entitlement/tenant-access-entitlement.module";
 import {
   registerDbPoolGauges,
   registerDbMigrationStatusGauge,
@@ -243,7 +244,7 @@ class ApiDbMigrationStatusGaugeRegistrar extends GaugeHandleOwner implements OnM
  * pipe are registered in `main.ts`.
  */
 @Module({
-  imports: [RootLoggerModule, AuditModule, AuthModule, ContextModule, TenantsModule, PlatformSupportSessionsModule, StoresModule, MembershipsModule, OutboxAdminModule, PosOperatorsModule, CashierAdmissionsModule, PosApproversModule, DeviceHealthModule, PosPilotReleasesModule, PosAuditEventsModule, PosShiftsModule, ShiftClosesModule, CashVariancePolicyModule, TenantBrandingModule, AiEntitlementsModule, ConsoleSalesModule, ConsoleSystemStatusModule, ConsolePeopleModule, ConsoleCatalogModule, StockLevelsModule, ConsoleLowStockModule, DevicesModule, UnknownItemsModule, ReconciliationModule, SalesModule, InventoryModule, ReadDownModule, ErpnextItemMapModule, ErpnextWarehouseMapModule, TrackingProfileModule, ErpnextPostingModule, ErpnextReconciliationModule, ErpnextProductReconciliationModule, ErpnextBinViewModule, ErpnextStockImportModule, ErpnextSyncOpsModule, SaleSyncOpsModule, SettlementModule, PayerAccountsModule, VouchersAdminModule, VouchersPosModule, ConnectorModule, ConnectorHealthModule, PairingModule, DeviceRotationModule, HealthModule, ConsoleTelemetryModule, PosTelemetryModule, ConsoleRateLimitModule, PreAuthRateLimitModule],
+  imports: [RootLoggerModule, AuditModule, AuthModule, ContextModule, TenantsModule, PlatformSupportSessionsModule, StoresModule, MembershipsModule, OutboxAdminModule, PosOperatorsModule, CashierAdmissionsModule, PosApproversModule, DeviceHealthModule, PosPilotReleasesModule, PosAuditEventsModule, PosShiftsModule, ShiftClosesModule, CashVariancePolicyModule, TenantBrandingModule, AiEntitlementsModule, TenantAccessEntitlementModule, ConsoleSalesModule, ConsoleSystemStatusModule, ConsolePeopleModule, ConsoleCatalogModule, StockLevelsModule, ConsoleLowStockModule, DevicesModule, UnknownItemsModule, ReconciliationModule, SalesModule, InventoryModule, ReadDownModule, ErpnextItemMapModule, ErpnextWarehouseMapModule, TrackingProfileModule, ErpnextPostingModule, ErpnextReconciliationModule, ErpnextProductReconciliationModule, ErpnextBinViewModule, ErpnextStockImportModule, ErpnextSyncOpsModule, SaleSyncOpsModule, SettlementModule, PayerAccountsModule, VouchersAdminModule, VouchersPosModule, ConnectorModule, ConnectorHealthModule, PairingModule, DeviceRotationModule, HealthModule, ConsoleTelemetryModule, PosTelemetryModule, ConsoleRateLimitModule, PreAuthRateLimitModule],
   controllers: [],
   providers: [
     ApiDbPoolGaugeRegistrar,

@@ -354,8 +354,8 @@ A script without the marker, such as the owner-gated
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
   `-v domain_role=<role>`. It grants the domain role `SELECT` on
   `tracking_identities`, which the tracking-identity list reads. Nothing writes
-  identities or `erpnext_tracking_map` in this release (identity birth is
-  RT-453), so no `INSERT` and no edge-map privilege is granted yet. Neither
+  identities or `erpnext_tracking_map` in this release; identity birth
+  (RT-453) adds `INSERT` on both in the 0103 step below. Neither
   table has an `UPDATE` or `DELETE` policy; never grant `UPDATE`, `DELETE` or
   `TRUNCATE`. Without the grant the API refuses to boot
   (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
@@ -640,6 +640,23 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any intent or redemption is stored.
 
+- **Migration `0093_sale_quarantine_items` (RT-1312 Phase 3(b)).** Run
+  [`sql/sale-quarantine-items-domain-grants.sql`](sql/sale-quarantine-items-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `sale_quarantine_items`, plus column-level `UPDATE` only on the mutable
+  columns: the upload conflict count, the state with its resolution, sale,
+  repair and write-off columns, and the body with its purge time. The
+  provenance, the till's claim, the facts digest, the summary and the scope
+  are written once. The boot check reads the columns from
+  `domainRequiredColumns`. No `DELETE` policy: never grant `DELETE` or
+  `TRUNCATE`, nor a wider `UPDATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0093 creates one new, empty
+  table (no backfill) and needs no maintenance window. Its down migration
+  refuses while any item is stored.
+
 - **Migration `0094_tracking_resolutions` (RT-451 S5).** Run
   [`sql/tracking-resolutions-domain-grants.sql`](sql/tracking-resolutions-domain-grants.sql)
   after `migrate up` and before the API and the worker start (the worker's
@@ -656,6 +673,19 @@ A script without the marker, such as the owner-gated
   either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0094 creates two new, empty
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any resolution is stored.
+
+- **Migration `0095_posting_resolution_tracking` (RT-451 S6).** No grant
+  step: it adds four nullable columns to `erpnext_posting_resolution`
+  (`tracking_mode`, `tracking_identity_id`, `erpnext_batch_ref`,
+  `erp_hold_cause`), which the domain role's existing `SELECT` and `INSERT`
+  cover. The worker's freeze also reads `erpnext_tracking_map`,
+  `sale_line_findings` and `tracking_resolution_lines`, which the 0089 and 0094
+  grant steps already give the domain role, so those steps must have run (they
+  run every release). Lock impact: a short ACCESS EXCLUSIVE for the catalog-only
+  column adds and `NOT VALID` CHECKs, then each `VALIDATE` scans under SHARE
+  UPDATE EXCLUSIVE without blocking the feed or the worker; no maintenance
+  window. Its down migration refuses while any line has a frozen tracking
+  identity.
 
 - **Migration `0096_erp_stock_import` (RT-1288).** Run
   [`sql/erp-stock-import-domain-grants.sql`](sql/erp-stock-import-domain-grants.sql)
@@ -691,6 +721,89 @@ A script without the marker, such as the owner-gated
   0097 creates one new, empty table and adds a nullable column (no backfill);
   it needs no maintenance window. Its down migration refuses while any brand
   is stored.
+
+- **Migration `0099_sale_tender_voucher` (RT-1114).** No new grant. It adds
+  the nullable `sale_tenders.redemption_id` column (covered by the existing
+  table-level `SELECT` and `INSERT` on `sale_tenders`), a CHECK, an FK onto a
+  new `voucher_redemptions (tenant_id, store_id, id)` key. Its partial unique
+  index (one tender per redemption) is the separate single-statement
+  `0102_sale_tenders_redemption_idx`, built `CONCURRENTLY` (no lock that
+  blocks reads or writes of `sale_tenders`); apply both before the flag below
+  is ever turned on. Capture validates a voucher tender by locking its redemption row
+  `FOR NO KEY UPDATE`, which needs the column-level `UPDATE` that
+  [`sql/voucher-redemptions-domain-grants.sql`](sql/voucher-redemptions-domain-grants.sql)
+  (0092) already grants; nothing reaches that path while
+  `POS_SALE_VOUCHER_TENDER_ENABLED` is off. 0099 rewrites no table, builds no
+  index on `sale_tenders`, takes short `ACCESS EXCLUSIVE` locks on
+  `sale_tenders` and `voucher_redemptions` (every CHECK and the FK are
+  `NOT VALID`) and needs no maintenance window. Its down migration refuses
+  while any voucher tender is stored.
+
+- **Migrations `0100_sale_lines_promotion_key_idx` and `0101_offer_engine`
+  (RT-1336, RT-286 S3).** Run
+  [`sql/offer-engine-domain-grants.sql`](sql/offer-engine-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  the ten Offer Engine tables (`offers`, `offer_versions`,
+  `offer_version_stores`, `offer_version_rules`, `offer_pauses`,
+  `offer_pack_revisions`, `offer_pack_store_revisions`,
+  `offer_pack_eligible_products`, `sale_line_promotions`,
+  `sale_return_promotion_clawbacks`), plus column-level `UPDATE` only on
+  `offers` (the draft, end and archive columns), `offer_pauses (resumed_at,
+  resumed_by_user_id)`, `offer_pack_store_revisions (applied_revision)` and
+  `offer_pack_eligible_products (to_revision)`; the boot check reads the
+  columns from `domainRequiredColumns`. Versions, their scope and rules, Pack
+  revisions, promotion facts and clawbacks get no `UPDATE`: they are
+  append-only, and a 0101 trigger also refuses `UPDATE`, `DELETE` and
+  `TRUNCATE` on them for every role. No `DELETE` policy on any of the ten:
+  never grant `DELETE` or `TRUNCATE`, nor a wider `UPDATE`. Without the grants
+  the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0100 builds one
+  index on `sale_lines` CONCURRENTLY (one statement, blocks no read or write);
+  0101 creates ten new, empty tables (no backfill) and a key on
+  `tenant_product_categories`; neither needs a maintenance window. The 0101
+  down migration refuses while any offer or Offer Pack revision is stored.
+
+- **Migration `0103_tracking_identity_birth` (RT-453).** Run
+  [`sql/tracking-identity-birth-domain-grants.sql`](sql/tracking-identity-birth-domain-grants.sql)
+  after `migrate up` and before the API and worker start, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `INSERT` on
+  `tracking_identities` and `erpnext_tracking_map`: identity birth from ERP
+  evidence (the worker's tracking master read and the API's stock import
+  report) now writes them, which the 0045 entry above deferred. It also grants
+  `SELECT` and `INSERT` on the four new append-only tables
+  `tracking_identity_births`, `erp_stock_import_row_resolutions`,
+  `inventory_identity_anchors` and `inventory_identity_anchor_lines`. No
+  `UPDATE` or `DELETE` policy on any of them: never grant `UPDATE`, `DELETE`
+  or `TRUNCATE`. An ERP-evidence expiry change goes through the RT-449
+  correction, whose privileges the 0072 step already grants. Without the grants
+  the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on the four new tables (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+  0103 creates four new, empty tables and widens the
+  `erpnext_reconciliation_result` class CHECK with `tracking_mismatch` (`NOT
+  VALID`, then `VALIDATE` under SHARE UPDATE EXCLUSIVE after the commit); it
+  needs no maintenance window. Its down migration refuses while any birth,
+  resolution, identity anchor or `tracking_mismatch` result is stored.
+
+- **Migration `0105_tenant_access_entitlements` (RT-1353).** Run
+  [`sql/tenant-access-entitlements-domain-grants.sql`](sql/tenant-access-entitlements-domain-grants.sql)
+  after `migrate up` and before the API and worker start, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `tenant_access_entitlements` (the tenant access state,
+  `restricted` or `unrestricted`): POS pairing, the posting row creation, the
+  posting feed and the Console read select it, the signup transaction inserts
+  it and the platform-admin unlock and mark-provisioned actions update it. The
+  RLS policies decide who may write (a platform admin only, inside the target
+  tenant's context). Never grant `DELETE` or `TRUNCATE`. Without the grants the
+  API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold
+  no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0105 creates one
+  new, empty table (no backfill: a tenant with no row is `unrestricted`) and
+  needs no maintenance window; its foreign keys run under `lock_timeout` 2s.
+  Its down migration drops the table and so discards every restriction: a
+  restricted tenant then reads `unrestricted`.
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)

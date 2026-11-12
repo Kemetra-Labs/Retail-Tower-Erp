@@ -228,7 +228,7 @@ test("main reads a JSON pinned contract instead of treating its paths as unpinne
   try {
     const h = harness({
       readText: async () => POS_PIN.replace("pos-terminal-pairing.openapi.yaml", "pos-terminal-pairing.json"),
-      gitShow: async (_commit, file) =>
+      gitBlob: async (_blob, file) =>
         file.endsWith(".json") ? JSON.stringify({ paths: { [PAIR_PATH]: {} } }) : "paths: {}\n",
     });
     const code = await main(f.ignoreFile, { ...h.opts, mode: "enforce", consumersFile: f.consumersFile });
@@ -273,8 +273,8 @@ function harness(overrides = {}) {
         fetchCalls.push(file);
         return POS_PIN;
       },
-      gitShow: async (commit, file) => {
-        gitCalls.push(`${commit}:${file}`);
+      gitBlob: async (blob, file) => {
+        gitCalls.push(`${blob}:${file}`);
         return PAIR_YAML;
       },
       ...overrides,
@@ -307,7 +307,7 @@ test("main in report mode exits 0 on violations; enforce mode exits 1", async ()
   }
 });
 
-test("main builds the impact set from the files at the consumer's PIN commit", async () => {
+test("main builds the impact set from the consumer's pinned blobs", async () => {
   const f = fixture([withTag("consumer:POS")]);
   try {
     const h = harness();
@@ -320,9 +320,30 @@ test("main builds the impact set from the files at the consumer's PIN commit", a
     assert.equal(h.gitCalls.length, 8);
     assert.ok(
       h.gitCalls.includes(
-        "c06c7b48c654e46b6a0edb149e5f410e45963097:services/backend-core/packages/contracts/openapi/pos-terminal-pairing.openapi.yaml",
+        "c9966b9baa27e291097fadf720762d47d25db8dd:services/backend-core/packages/contracts/openapi/pos-terminal-pairing.openapi.yaml",
       ),
     );
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
+// RT-453: a file pinned at a later commit than the PIN's `commit:` (RT-1287 allows it) does not
+// exist at `<commit>:<path>`. Its blob does, so the check reads the blob and the file still counts.
+test("main reads a file pinned at a later commit than commit: by its blob", async () => {
+  const LATER_BLOB = "1111111111111111111111111111111111111111";
+  const pin = `${POS_PIN}# stock-import.yaml is pinned at its own merge commit (later than commit:).\nfile: stock-import.yaml ${LATER_BLOB}\n`;
+  const f = fixture([withTag("consumer:none")]);
+  try {
+    const h = harness({
+      readText: async () => pin,
+      // Only the later file holds the line's path; reading it by commit would have thrown.
+      gitBlob: async (blob) => (blob === LATER_BLOB ? PAIR_YAML : "paths: {}\n"),
+    });
+    const code = await main(f.ignoreFile, { ...h.opts, mode: "enforce", consumersFile: f.consumersFile });
+    assert.equal(code, 1);
+    assert.ok(h.out.some((l) => l.includes("consumer:none, but the pinned contracts contain this path")));
+    assert.ok(h.out.some((l) => l.includes("0 consumer error(s)")));
   } finally {
     rmSync(f.dir, { recursive: true, force: true });
   }
@@ -367,7 +388,7 @@ test("main reports an unresolvable pinned file instead of treating it as no cons
   const f = fixture([withTag("consumer:POS")]);
   try {
     const h = harness({
-      gitShow: async () => {
+      gitBlob: async () => {
         throw new Error("fatal: invalid object name");
       },
     });
@@ -448,30 +469,30 @@ test("the CLI reports a bad CONSUMER_IMPACT_MODE as an error annotation and exit
   assert.match(run.stderr, /^::error::consumer-impact: unknown CONSUMER_IMPACT_MODE/);
 });
 
-// Default I/O (no readText/gitShow overrides): the real consumers.txt, the in-tree PINs and
-// `git show` at their pinned commits, run from outside the repository root.
-// A shallow checkout (bc/fast clones at depth 1) does not hold the pinned commits; skip there.
+// Default I/O (no readText/gitBlob overrides): the real consumers.txt, the in-tree PINs and
+// `git cat-file blob` on their pinned blobs, run from outside the repository root.
+// A shallow checkout (bc/fast clones at depth 1) may not hold the pinned blobs; skip there.
 const commitsReachable = () => {
   const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
   const pinDirs = ["apps/pos", "apps/admin-console", "integrations/erpnext-connector"];
   // A missing or malformed PIN throws here and fails the test; only a shallow clone lacking a commit skips it.
-  const commits = pinDirs.map((dir) =>
-    parsePin(readFileSync(path.join(root, dir, "contracts/backend-core/PIN"), "utf8")).commit,
+  const blobs = pinDirs.flatMap((dir) =>
+    parsePin(readFileSync(path.join(root, dir, "contracts/backend-core/PIN"), "utf8")).files.map((f) => f.blobSha),
   );
   const shallow =
     execFileSync("git", ["rev-parse", "--is-shallow-repository"], { cwd: root, encoding: "utf8" }).trim() === "true";
-  return commits.every((commit) => {
+  return blobs.every((blob) => {
     try {
-      execFileSync("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: root, stdio: "ignore" });
+      execFileSync("git", ["cat-file", "-e", `${blob}^{blob}`], { cwd: root, stdio: "ignore" });
       return true;
     } catch (error) {
       if (shallow) return false; // history is missing, not wrong: skip
-      throw error; // a complete clone must hold every pinned commit
+      throw error; // a complete clone must hold every pinned blob
     }
   });
 };
 
-test("the CLI resolves the real consumers with the default I/O", { skip: !commitsReachable() && "pinned commits not in this clone (shallow checkout)" }, () => {
+test("the CLI resolves the real consumers with the default I/O", { skip: !commitsReachable() && "pinned blobs not in this clone (shallow checkout)" }, () => {
   const run = (line) =>
     spawnSync(process.execPath, [CLI], {
       input: `${line}\n`,

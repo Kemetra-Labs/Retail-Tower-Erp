@@ -124,6 +124,9 @@ services:
       # tender map is deployed, and SAME_METHOD only after RT-361.
       POS_SALE_TENDERS_ENABLED: ${POS_SALE_TENDERS_ENABLED:-false}
       POS_SALE_TENDERS_SAME_METHOD_ENABLED: ${POS_SALE_TENDERS_SAME_METHOD_ENABLED:-false}
+      # RT-451: the tracked-selling (batch/expiry) deployment gate. Off by default;
+      # it also needs the per-tenant switch and the RT-50 Q13 preconditions.
+      POS_TRACKED_SELLING_ENABLED: ${POS_TRACKED_SELLING_ENABLED:-false}
       # RT-984: every other setting the api reads, so backend.env can reach it.
       # Off-by-default gates; see deploy/prod.env.example before turning one on.
       # Deliberately unmapped (test/deploy/compose-api-env.spec.ts lists why):

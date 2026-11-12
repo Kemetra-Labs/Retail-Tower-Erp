@@ -299,6 +299,11 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
   // RT-360 (0041) — re-reviewed under SI-012: `tender_ref` is the POS tender
   // line's opaque UUID and `sequence` its apply ordinal; neither carries card,
   // account or customer data.
+  // RT-1114 (0099) — re-reviewed under SI-012 for the `voucher` method (a
+  // promotional voucher, RT-1098 decision 4A): `redemption_id` is the opaque
+  // UUID of the voucher_redemptions row that paid the tender (BUSINESS-CLASS
+  // with a monetary attribute, 0092). No voucher code, code hash, intent token,
+  // holder or customer reference.
   {
     name: "sale_tenders",
     table: saleTenders,
@@ -314,6 +319,7 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "created_at",
       "tender_ref",
       "sequence",
+      "redemption_id",
     ],
   },
   // RT-538 (0047) — reviewed under SI-012: the reprint record holds opaque

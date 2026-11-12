@@ -28,9 +28,6 @@ export type TrackedSellingPrecondition = (typeof TRACKED_SELLING_PRECONDITIONS)[
 
 type Check = (client: PoolClient, tenantId: string) => Promise<boolean>;
 
-/** Unconfirmable in this build: unmet until the named issue ships a signal. */
-const notYetConfirmable: Check = () => Promise.resolve(false);
-
 const CHECKS: Readonly<Record<TrackedSellingPrecondition, Check>> = {
   // RT-427: sale / void / return Inventory effects are activated for the tenant.
   sale_effects_active: async (client, tenantId) => {
@@ -44,15 +41,66 @@ const CHECKS: Readonly<Record<TrackedSellingPrecondition, Check>> = {
   // RT-435: status moves and the return-inspection landing ship in this build
   // (`createStatusMove`, `setReturnLandingPolicy`) for every tenant.
   status_moves_available: () => Promise.resolve(true),
-  // RT-293 (Gate 8): the ERP-origin import with tracking. Not built yet.
-  erp_tracking_import: notYetConfirmable,
-  // G7-11 (RT-452): the Connector's batch posting. Its bench evidence is not a
-  // signal this server can read, so it stays unmet until one exists.
-  erp_batch_posting_verified: notYetConfirmable,
-  // G7-12 (RT-453): the per-identity anchor. Not built yet.
-  identity_anchor: notYetConfirmable,
-  // RT-428 / RT-453: reconciliation at the tracking grain. Not built yet.
-  tracking_grain_reconciliation: notYetConfirmable,
+  // RT-1288 (Gate 8 P4): the ERP-origin stock import ran. Every live store has an
+  // active `stock` warehouse mapping and a completed import run on that mapping
+  // (a run on a retired mapping does not count: the store was re-pointed).
+  erp_tracking_import: async (client, tenantId) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM stores WHERE tenant_id = $1 AND deleted_at IS NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM stores s
+                 WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM erpnext_warehouse_map m
+                      WHERE m.tenant_id = $1 AND m.store_id = s.id
+                        AND m.purpose = 'stock' AND m.retired_at IS NULL
+                        AND EXISTS (SELECT 1 FROM erp_stock_import_runs r
+                                     WHERE r.tenant_id = $1 AND r.warehouse_map_id = m.id
+                                       AND r.status = 'completed'))) AS met`,
+      [tenantId],
+    );
+    return r.rows[0]?.met === true;
+  },
+  // G7-11 (RT-452): the Connector's batch posting. Its bench evidence is not
+  // something this server can read, so the owner attests it (owner decision
+  // 2026-11-12), recorded by the operator CLI `inventory-effects
+  // attest-batch-posting` on the tenant's settings row (migration 0104).
+  erp_batch_posting_verified: async (client, tenantId) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT erp_batch_posting_attested_at IS NOT NULL AS met
+         FROM tenant_inventory_settings WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    return r.rows[0]?.met === true;
+  },
+  // G7-12 (RT-453): every live store has its per-identity anchor (taken by the
+  // operator CLI `inventory-effects anchor-identities`).
+  identity_anchor: async (client) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM stores WHERE deleted_at IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM stores s WHERE s.deleted_at IS NULL
+                                AND NOT EXISTS (SELECT 1 FROM inventory_identity_anchors a
+                                                 WHERE a.store_id = s.id)) AS met`,
+    );
+    return r.rows[0]?.met === true;
+  },
+  // RT-428 / RT-453: reconciliation at the tracking grain is in place: every
+  // live store has an identity anchor and a 017 stock run completed after it
+  // (that run compared the store's tracked products at identity grain).
+  tracking_grain_reconciliation: async (client) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM stores WHERE deleted_at IS NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM stores s
+                 WHERE s.deleted_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM erpnext_reconciliation_run run
+                      WHERE run.store_id = s.id AND run.kind = 'stock' AND run.status = 'completed'
+                        AND run.finished_at > (SELECT max(a.activated_at) FROM inventory_identity_anchors a
+                                                WHERE a.store_id = s.id))) AS met`,
+    );
+    return r.rows[0]?.met === true;
+  },
 };
 
 /** The Q13 precondition checks (a provider, so a test can stand in for the build's signals). */

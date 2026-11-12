@@ -11,8 +11,9 @@
  *
  * Structural / load-only, plus AJV fixtures. No app boot and no HTTP. What
  * this pins:
- *   1. The five new operations at their paths, each contract-only with a note
- *      and an audit action; no operationId collision.
+ *   1. The five new operations at their paths, each with its audit action;
+ *      the four Console ones contract-only with a note, the upload
+ *      implemented since RT-1312 Phase 3(b); no operationId collision.
  *   2. The upload: device bearer only, with the rotation headers; tenant,
  *      store and device never in the body; natural idempotency (no
  *      Idempotency-Key header); 200/201/409/413 answers; the stored body is an
@@ -136,15 +137,23 @@ describe("sale quarantine — operations", () => {
     expect(Object.keys(ops.paths ?? {}).filter((p) => p.startsWith("/api/pos/"))).toEqual([]);
   });
 
-  it.each([
-    ["posQuarantineSale", POS_ID, UPLOAD, "post", "pos_sales.quarantine_uploaded"] as const,
-    ...CONSOLE_OPS.map(([id, path, method, audit]) => [id, OPS_ID, path, method, audit] as const),
-  ])("%s is contract-only, with an RT-1312 note and its audit action", (id, docId, path, method, audit) => {
-    const o = op(docId === POS_ID ? pos : ops, path, method);
-    expect(o.operationId).toBe(id);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toEqual(expect.stringContaining("RT-1312 Phase 3(b)"));
-    expect(o["x-audit-action"]).toBe(audit);
+  it.each(CONSOLE_OPS)(
+    "%s is contract-only, with an RT-1312 note and its audit action",
+    (id, path, method, audit) => {
+      const o = op(ops, path, method);
+      expect(o.operationId).toBe(id);
+      expect(o["x-runtime-status"]).toBe("contract-only");
+      expect(o["x-runtime-note"]).toEqual(expect.stringContaining("RT-1312 Phase 3(b)"));
+      expect(o["x-audit-action"]).toBe(audit);
+    },
+  );
+
+  it("posQuarantineSale is implemented (RT-1312 Phase 3(b)): no contract-only marker, its audit action kept", () => {
+    const o = op(pos, UPLOAD, "post");
+    expect(o.operationId).toBe("posQuarantineSale");
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
+    expect(o["x-audit-action"]).toBe("pos_sales.quarantine_uploaded");
   });
 
   it("collides with no operationId elsewhere", () => {

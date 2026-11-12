@@ -34,6 +34,14 @@ describe('resolveUpdateConfig', () => {
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: ' lab' }).channel).toBeNull();
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'lab ' }).channel).toBeNull();
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'Lab' }).channel).toBeNull();
+    expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: '   ' }).channel).toBeNull();
+    // ...and a stray space is not an unset value, so the baked channel does not replace it.
+    expect(
+      resolveUpdateConfig(
+        { POS_PULSE_UPDATE_CHANNEL: ' ' },
+        { lane: 'pilot', updateChannel: 'canary' },
+      ).channel,
+    ).toBeNull();
   });
 
   it('trims the origin', () => {
@@ -53,6 +61,57 @@ describe('resolveUpdateConfig', () => {
   it('marks an unknown channel invalid (null), never silently stable', () => {
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'beta' }).channel).toBeNull();
     expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'LAB ' }).channel).toBeNull();
+  });
+});
+
+/**
+ * RT-1346 (RT-1345 D2) — origin and channel resolve process environment, then the value
+ * baked into the build, then nothing (no origin; the channel defaults to stable).
+ */
+describe('resolveUpdateConfig — baked lane configuration', () => {
+  const BAKED = {
+    lane: 'lab',
+    updateOrigin: 'https://updates.baked.example/lab',
+    updateChannel: 'canary',
+  } as const;
+
+  it('uses the baked origin and channel when the environment has none', () => {
+    expect(resolveUpdateConfig({}, BAKED)).toEqual({
+      origin: 'https://updates.baked.example/lab',
+      channel: 'canary',
+    });
+  });
+
+  it('the environment wins, input by input', () => {
+    expect(
+      resolveUpdateConfig(
+        {
+          ELECTRON_UPDATE_FEED_URL: 'https://updates.env.example/x',
+          POS_PULSE_UPDATE_CHANNEL: 'lab',
+        },
+        BAKED,
+      ),
+    ).toEqual({ origin: 'https://updates.env.example/x', channel: 'lab' });
+    expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'lab' }, BAKED)).toEqual({
+      origin: 'https://updates.baked.example/lab',
+      channel: 'lab',
+    });
+  });
+
+  it('an invalid environment channel stays invalid: it does not fall back to the baked one', () => {
+    expect(resolveUpdateConfig({ POS_PULSE_UPDATE_CHANNEL: 'beta' }, BAKED).channel).toBeNull();
+  });
+
+  it('with neither source: no origin, channel stable (today)', () => {
+    expect(resolveUpdateConfig({}, { lane: 'pilot' })).toEqual({
+      origin: undefined,
+      channel: 'stable',
+    });
+    expect(resolveUpdateConfig({}, null)).toEqual({ origin: undefined, channel: 'stable' });
+  });
+
+  it('defaults to the configuration loaded at start-up, which is none in a test', () => {
+    expect(resolveUpdateConfig({})).toEqual({ origin: undefined, channel: 'stable' });
   });
 });
 

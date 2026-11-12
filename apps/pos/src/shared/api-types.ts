@@ -2243,6 +2243,17 @@ export namespace PosPaymentsVouchers {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                /** @description Too Many Requests (ADR 0009; RT-1112). The device has spent its failed-lookup budget: about 10 lookups per 15 minutes per device that found no intent (an unknown token, or one of another tenant or store). A lookup that finds its intent does not count. The limit is keyed per device and is checked after the cashier claim and before the lookup, so a device over its budget looks nothing up. `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on the `pos-sales` routes). A POS client treats it as transient and retries after `Retry-After`. The limiter fails open on a datastore outage, so a 429 is a real budget breach. */
+                429: {
+                    headers: {
+                        /** @description Seconds to wait before retrying, clamped to [1, 300]. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
             };
         };
         posReverseVoucher: {
@@ -2395,6 +2406,17 @@ export namespace PosPaymentsVouchers {
                 425: {
                     headers: {
                         /** @description Seconds to wait before retrying. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Too Many Requests (ADR 0009; RT-1112). The device has spent its failed-lookup budget: about 10 lookups per 15 minutes per device that found no voucher (an unknown code, or another tenant's). A lookup that finds its voucher does not count. The limit is keyed per device and is checked after the cashier claim and before the lookup, so a device over its budget looks nothing up. `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on the `pos-sales` routes). A POS client treats it as transient and retries after `Retry-After`. The limiter fails open on a datastore outage, so a 429 is a real budget breach. */
+                429: {
+                    headers: {
+                        /** @description Seconds to wait before retrying, clamped to [1, 300]. */
                         "Retry-After"?: number;
                         [name: string]: unknown;
                     };
@@ -3000,7 +3022,8 @@ export namespace PosSalesSales {
              * @description Create the immutable `sales` header + frozen `sale_lines` snapshot from a completed POS sale. The authenticated principal supplies `tenant_id` and `store_id` (spec 002); body-supplied tenant / store / created_by / received_at / business_date / processed_at / mismatch_flag are rejected (FR-061). POS-reported totals are preserved verbatim (FR-030); the SaaS computes a per-line / half-up comparison total for an ADVISORY mismatch flag only — it never rewrites the POS total. Line snapshots (`line_name` / `unit_price` / `tax_amount` / `unit`) are frozen at capture and are unaffected by later catalog edits (FR-003). A line that resolves to no tenant product is still snapshotted; no tenant product is auto-created (FR-004).
              *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply. A provenance replay must carry the same sale facts (RT-1206): when the re-sent body, without `operatorUserId`, `admissionCheckAt` and `receipt`, hashes differently from the stored `payload_hash` (byte-exact, so reordered arrays or a differently written decimal differ), the answer is 409 `idempotency_key_conflict` and nothing is recorded. The store scope is decided first, so a replay never reveals another store's sale.
              *     Tender (RT-10 D1, from RT-77): the optional `tenders` list records how the sale was paid. Each `amount` is NET of change (cash = tendered − change), each entry is one tender line (RT-359: `tenderRef` / `sequence`; see the `tenders` field for the per-sale rules). When `responsibilities` is absent, the amounts MUST sum to `posTotal` exactly (else 422 `sale_tender_mismatch`); nothing is recorded on either failure. When it is present, the combined coverage rule replaces this one (RT-417, see Payer responsibilities below): the tenders cover only the part paid at the till. The tender list is hashed into the payload, so a replay that adds, drops or changes tenders is a different payload (409). An absent list is a tender-unknown sale (RT-10 D8): it is captured exactly as before, and the server NEVER derives tender from `posTotal`.
-             *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and an identical one still returns 200 with the stored projection.
+             *     Voucher tender (RT-1114, RT-1098 decision 4A): a `voucher` tender names the redemption that paid it (`redemptionId`). After the coverage rule, each must name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly its `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`; nothing is recorded. Accepted only while the deployment flag `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF until RT-1330 is deployed); while it is off a `voucher` tender is a 400.
+             *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). A line with an automatic offer `promotion` (RT-1335, from the RT-1337 runtime) satisfies it with `lineAmount = unitPrice × quantity − promotion.discountAmount` (see `CaptureSaleLinePromotion`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and an identical one still returns 200 with the stored projection.
              *     Cashier attribution (RT-224): a sale may instead be sent with the `device` scheme (the paired terminal's device bearer) plus the cashier's `operatorUserId` in the body. The presence of `operatorUserId` selects this path; without it the request is an `operatorAuthorization` request exactly as before. On this path the device row supplies the tenant, store and device, and the server accepts the sale only if the device is active, a cashier admission of that device and store for that user covers `occurredAt` (see `operatorUserId`), and the cashier's membership, store access and account are still live. A missing, invalid or revoked device credential is the same generic 401 as an invalid envelope. A refused cashier claim from an authenticated device (no covering admission, an ineligible cashier, a sale outside the window or beyond the dating caps, an unknown or foreign `operatorUserId`) is the generic 403 `refused`, with one body for every cause: it never reveals whether the user or the admission exists, and it is never a sign that the device was revoked. A malformed body from an authenticated device is the usual 400. Idempotency, provenance dedup, the 409 divergence rule and the per-device rate limit apply unchanged; the idempotency key is scoped to the verified cashier, as it is scoped to the operator on the envelope path.
              *     Admission check time (RT-225): on this path the body may also carry `admissionCheckAt`, which then replaces `occurredAt` in the admission-window comparison only (see the field). Sent without `operatorUserId`, it is a 400.
              *     Payer responsibilities (RT-417, from RT-418): the optional `responsibilities` list records who owes the part of the sale not paid by `tenders`. When it is present, `sum(tenders) + sum(responsibilities) = posTotal` must hold exactly (else 422 `sale_responsibility_mismatch`), and every payer must be eligible (else 422 `sale_responsibility_payer_invalid`); see the field and `CaptureUnprocessable`. Responsibilities are accepted only on the `operatorAuthorization` path (owner decision 2026-10-16, option A). On the `device` path a body with `responsibilities` is 422 `sale_responsibility_offline_refused`, decided before the coverage rule and after authentication and the RT-224 cashier-claim check (403 `refused`). On the envelope path the role check (403 `sale_responsibility_role_refused`) is decided after authentication and before every 422. Order of the 422s: the device-path offline refusal, then the coverage rule, then the line price invariant, then the payers (as in `CaptureUnprocessable`). A replay of an already-captured sale answers after authentication and the RT-224 cashier-claim check (403 `refused`), and before the role check (403 `sale_responsibility_role_refused`) and every 422, so a payer suspended after capture never turns a stored result into a 403 or a 422. Nothing is recorded on any failure.
@@ -3154,6 +3177,8 @@ export namespace PosSalesSales {
              *     DEPLOYMENT GATE (RT-73 AC4): the route is live but answers 404 `not_found` and records nothing unless the API runs with `POS_RETURNS_ENABLED=true`. Enable it only once the Connector posts `reversalKind: return` (RT-16) AND supports settlement (RT-78). Before RT-16 a return would be dead-lettered as an unparseable work-item; before RT-78 it would post as an outstanding credit note (terminal) although cash was paid out (RT-76, `erpnext-connector/posting-feed.yaml` INVARIANT).
              *
              *     Money (RT-14 D1, amended by option (a) — RT-73 comment 10406): the client sends quantities only; the server prices every returned line from the frozen sale line. For a line sold with `quantity` Q and `lineAmount` A, of which c is already returned, a return of `quantity` q is priced `lineAmount = round4(A × (c + q) / Q) − round4(A × c / Q)`, and the line's snapshot `taxAmount` is split the same way (a null line tax stays null). The amount depends only on cumulative quantities (`readSale` exposes `returnedQuantity`), so a client can recompute it exactly, and all returns on a line sum to A once it is fully returned. `round4` is `round(numeric, 4)` in Postgres `numeric`, never a float. A line captured under the RT-105 price invariant (`lineAmount = unitPrice × quantity`, minor-unit precision, whole quantity) prices to exactly `unitPrice × q` at every step, which ERPNext can post, because its returned quantities are whole too: a line sold in a whole quantity accepts only a whole return `quantity` (`"1.000000"` is whole), else 400 `validation_error` (with a fractional q, round4 is not `unitPrice × q`: 0.01 × 0.333333 prices to 0.0033). A line captured before RT-105 may still price to more fractional digits than its currency allows; one sold in a fractional quantity still accepts fractional returns. `returnTotal` = Σ returned `lineAmount`, the same basis as capture's `posTotal` = Σ `lineAmount`; the tax share is carried inside it for posting, not added on top.
+             *
+             *     Automatic offers (RT-1335, spec 048 §9, OD-3, OD-10; from the RT-1337 runtime). Returns use the FROZEN offer version and unit prices of the sale (`SaleLine.promotion`), never the current offers. The per-line pricing above is unchanged; a clawback is a separate deduction. For each offer O of the sale with a returned unit, counting every earlier return of the sale: `D_held` = Σ `discountAmount` of the O units not returned before this return − Σ `promotionClawbacks` of O already recorded on earlier returns of the sale (the discount the customer still holds); `disc_ret` = min(Σ `discountAmount` of the O units returned now, `D_held`); `D_remaining` = the §6 evaluation of the O-eligible units the customer still keeps after this return, with O's frozen version and prices; `refund_O = Σ gross of the returned O units − max(disc_ret, D_held − D_remaining)`; and the clawback of O is `max(0, D_held − D_remaining − disc_ret)`. The `max` stops a return from creating a discount the customer did not get at sale time, and the earlier clawbacks stop a second return from clawing back the same discount twice. On a first return `D_held` is the sale's whole O discount `D_orig`, and the rule reads `refund_O = min(Σ net of the returned O units, Σ gross of the returned O units − (D_orig − D_remaining))`. A clawback above 0 is listed in `promotionClawbacks`, and `returnTotal` = Σ returned `lineAmount` − Σ clawback, so `refundTenders` still sum to `returnTotal`. Units not under an offer are refunded as before. If `refund_O < 0` (possible when Y > X or the percent is high) the return is refused with 422 `promotion_clawback_exceeds_refund` (OD-10): the till asks the cashier to add the reward units to the return; a return never charges the customer. While OD-11 (how a clawback posts to ERPNext) is open, a return whose clawback would be above 0 is refused with 422 `promotion_return_requires_clawback` (RT-1340, fail closed): a full return of every O unit, and a return where no clawback is due, work from the RT-1337 runtime. Worked cases are the `returns` and `returnSequences` of `packages/contracts/fixtures/offers/golden-vectors.json`.
              *
              *     Refund allocation (D3, reinterpreted by RT-271 R-2; RT-490): `refundTenders` are the return's refund ALLOCATIONS: how the refund is to be paid, by which instrument and against which original tender. They are NOT a record that cash left the drawer. The POS pays out after the return is confirmed and reports that payout separately, as a refund execution (`recordRefundExecution`). The amounts MUST sum to the server-computed `returnTotal`, else 422 `return_tender_mismatch`. Cash only for the pilot; the `method` enum stays cash-only under RT-10 D2 and R-12.
              *
@@ -3348,12 +3373,14 @@ export namespace PosSalesSales {
              *     Price invariant (RT-105, RT-87 decision D), compared numerically in exact decimal (`"3.3300"` equals `"3.33"`): `unitPrice` and `lineAmount` have no more significant fractional digits than the line currency's ISO-4217 minor unit (JPY 0, EGP 2, OMR 3, CLF 4 — the exponent of the line's `currencyCode`, never an assumed 2; a code with no ISO-4217 minor unit, such as `XAU` or an unassigned code, cannot meet it); `lineAmount = unitPrice × quantity` exactly; and `quantity` is a whole number (`"2.000000"` is whole; fractional quantities, such as weighed goods, are not accepted yet). A line that breaks any of them is 422 `sale_line_pricing_invalid`.
              *     Manual discount (RT-740): when `discount` is present, `lineAmount` is the line's NET and the price condition becomes `lineAmount = unitPrice × quantity − discount.amount` exactly; the minor-unit and whole-quantity conditions are unchanged, and `discount.amount` must fit the minor unit too. Without `discount` the condition is `lineAmount = unitPrice × quantity`, exactly as before.
              *     Tracking (RT-450): a line of a batch-tracked product also carries `tracking` (`CaptureSaleLineTracking`). It does not change the price invariant or any other rule of the line; how it is classified is stated on `captureSale`.
+             *     Automatic offer (RT-1335, spec 048; from the RT-1337 runtime): a line that took part in an offer carries `promotion` (`CaptureSaleLinePromotion`). `lineAmount` is then the line's NET and the price condition becomes `lineAmount = unitPrice × quantity − promotion.discountAmount` exactly; the minor-unit and whole-quantity conditions are unchanged. `promotion` and `discount` on the same line are 400 `validation_error` (OD-5: offers are exclusive).
              */
             CaptureSaleLine: {
                 currencyCode: components["schemas"]["CurrencyCode"];
                 discount?: components["schemas"]["CaptureSaleLineDiscount"];
                 lineAmount: components["schemas"]["NonNegativeDecimalAmount"];
                 lineName: string;
+                promotion?: components["schemas"]["CaptureSaleLinePromotion"];
                 /** @description Line quantity as reported (exact-decimal string, no float). Bound is numeric(19,6): at most 13 integer digits and 6 fractional digits. */
                 quantity: string;
                 taxAmount?: components["schemas"]["NonNegativeDecimalAmount"];
@@ -3410,6 +3437,29 @@ export namespace PosSalesSales {
                 /** @description For `percent`: a whole percent, `1` to `100`, with no leading zero and no fraction (`^(100|[1-9][0-9]?)$`). For `amount`: a positive exact-decimal amount in the line currency, equal to `amount`. */
                 value: string;
             } & (unknown & unknown);
+            /**
+             * @description RT-1335 (spec 048 §8, §20): the frozen fact of an automatic offer on this line. Absent means the line took no part in an offer. The till evaluates the offer with the spec 048 §6 algorithm from the Offer Pack it holds (`offers.openapi.yaml` `posGetOfferPack`) and splits each reward unit into its own line (OD-4), so:
+             *
+             *     - every line whose units took part in offer `offerId` cites it, with
+             *       `discountAmount` `0` on a line that is eligible but not a reward;
+             *     - a reward line (`discountAmount` > 0) has `quantity` 1, and
+             *       `discountAmount` is `percentOff`% of `unitPrice`, rounded half up
+             *       once at the line currency's ISO-4217 minor unit (OD-28-3);
+             *     - `lineAmount = unitPrice × quantity − discountAmount` exactly, and
+             *       `discountAmount` fits the minor unit and is at most the line gross.
+             *
+             *
+             *     A malformed object (an unknown key, a bad id or number) or a line that carries both `promotion` and the manual `discount` (OD-5) is 400 `validation_error`. A line whose arithmetic does not hold (the net invariant, the minor unit, `discountAmount` above the gross, a reward line with a quantity other than 1, or a `discountAmount` above 0 that is not the cited offer version's `percentOff`% of `unitPrice` rounded half up once at the minor unit) is 422 `sale_line_pricing_invalid`, and nothing is recorded. The body does not carry the percent: Backend-Core takes it from the offer version that `packRevision` cites, and a mismatch is arithmetic (OD-9), not a rule-level difference. Backend-Core then re-runs the evaluation with the cited `packRevision`: a sale whose offer result differs at the rule level (the eligible set, the number of applications, which units are rewards) is ACCEPTED and flagged to the sale-review path (OD-9). The sale happened, so its frozen facts are kept; it is never re-priced. `promotion` is part of the sale's payload hash and of the `Idempotency-Key` fingerprint, like every other line field. ROLLOUT: until RT-1337 is deployed the strict capture DTO rejects the unknown field (400); the POS MUST NOT send it before then.
+             */
+            CaptureSaleLinePromotion: {
+                discountAmount: components["schemas"]["NonNegativeDecimalAmount"];
+                /** Format: uuid */
+                offerId: string;
+                /** @description The immutable offer version the till applied. */
+                offerVersion: number;
+                /** @description The Offer Pack revision the till evaluated with; Backend-Core judges the sale against it (§19). */
+                packRevision: number;
+            };
             /**
              * @description RT-450 (RT-50 G7-9, G7-13; contract-only until RT-451): the tracking identity a line of a batch-tracked product sold. One identity per line: a quantity from two lots is two lines (G7-4). Absent on a line of an untracked product. The line freezes this snapshot at capture (437), and it is included in the sale `payload_hash`.
              *     Source of truth, field by field: `identityId`, `code` and `expiryDate` are the Backend-Core Inventory tracking identity record (G7-2), as the till received them from the validation; they are never defined by the till and never taken from the ERPNext Batch. The ERP Batch ref is not here: it comes from the Inventory edge map and is frozen with the posting intent. `selection` and `validationId` are the till's account of how the lot was chosen and which online validation covered it.
@@ -3518,7 +3568,7 @@ export namespace PosSalesSales {
                 sourceClockAt?: string;
                 /** @description Provenance + dedup key (FR-040/041). Not body-assignable authority. */
                 sourceSystem: string;
-                /** @description OPTIONAL (RT-10 D1) — how the sale was paid, one entry per tender line. Net of change. Without `responsibilities`, summing to `posTotal` exactly (else 422 `sale_tender_mismatch`); with them, the combined coverage rule applies instead (RT-417). Absent = a tender-unknown sale (RT-10 D8). Accepted from RT-77; do not send before then (see the versioning note). Per-sale rules (RT-359), each a 400 `validation_error`: `tenderRef` is unique within the sale; `sequence` is unique within the sale; more than one entry with the same `method` is accepted only when EVERY entry carries a `tenderRef`, and only once RT-360's same-method flag is on (until then at most one entry per method). `tenderRef` / `sequence`: Accepted from RT-360; do not send before then. */
+                /** @description OPTIONAL (RT-10 D1) — how the sale was paid, one entry per tender line. Net of change. Without `responsibilities`, summing to `posTotal` exactly (else 422 `sale_tender_mismatch`); with them, the combined coverage rule applies instead (RT-417). Absent = a tender-unknown sale (RT-10 D8). Accepted from RT-77; do not send before then (see the versioning note). Per-sale rules (RT-359), each a 400 `validation_error`: `tenderRef` is unique within the sale; `sequence` is unique within the sale; more than one entry with the same `method` is accepted only when EVERY entry carries a `tenderRef`, and only once RT-360's same-method flag is on (until then at most one entry per method); RT-1114: `redemptionId` is unique within the sale. `tenderRef` / `sequence`: Accepted from RT-360; do not send before then. */
                 tenders?: components["schemas"]["SaleTender"][];
             };
             /** @description RT-577 D8 (owner ruling 2026-10-17). One refund payout of a credit reversal, in the sale's currency. A `void` mirrors each collected sale tender with one of these (RT-10 D6: card to card, cash to cash); a `return` is restricted to the cash-only `RefundTender` shape. */
@@ -3623,6 +3673,13 @@ export namespace PosSalesSales {
             NonNegativeDecimalAmount: string;
             /** @description Strictly positive exact-decimal amount as a string (`numeric(19,4)`): at most 15 integer and 4 fractional digits, no sign, zero rejected (RT-417). Paired with the sale's `currency_code`. */
             PositiveDecimalAmount: string;
+            /** @description RT-1335: one offer's clawback on a return, `max(0, D_held − D_remaining − disc_ret)` (see `recordReturn`), computed with the frozen offer version and prices of the sale and net of the clawbacks of earlier returns. */
+            PromotionClawback: {
+                amount: components["schemas"]["PositiveDecimalAmount"];
+                /** Format: uuid */
+                offerId: string;
+                offerVersion: number;
+            };
             /** @description RT-577. The part of a credit-sale reversal that reduces what the payer owes instead of being paid out. A fact recorded with the reversal, NOT a receivable balance (ERPNext owns the A/R balance): it reaches the payer's ERPNext Customer only through the posting feed (Backend-Core → ERPNext-Connector → ERPNext), held until RT-571 / RT-419 define its shape. */
             ReceivableAdjustment: {
                 /**
@@ -3876,6 +3933,7 @@ export namespace PosSalesSales {
                  * @description Stable line identity (= `sale_lines.id`). A return names the line by it (RT-14 D1); store it at capture.
                  */
                 lineRef: string;
+                promotion?: components["schemas"]["SaleLinePromotion"];
                 quantity: string;
                 /** @description Quantity still returnable: `quantity` − `returnedQuantity`, and "0" when the sale is voided. */
                 returnableQuantity: string;
@@ -3888,6 +3946,14 @@ export namespace PosSalesSales {
                 tracking?: components["schemas"]["SaleLineTracking"];
                 unit: string;
                 unitPrice: components["schemas"]["DecimalAmount"];
+            };
+            /** @description RT-1335 (spec 048 §8, §20): the automatic offer fact a line was captured with (`CaptureSaleLinePromotion`), echoed as stored. Absent on a line captured without one and from a Backend-Core that predates RT-1337; optional, never in `SaleLine.required`. Returns use it with the frozen offer version, never the current offers (§9). */
+            SaleLinePromotion: {
+                discountAmount: components["schemas"]["NonNegativeDecimalAmount"];
+                /** Format: uuid */
+                offerId: string;
+                offerVersion: number;
+                packRevision: number;
             };
             /** @description RT-450 (RT-50 G7-9): the tracking snapshot a line was captured with, echoed as recorded (`CaptureSaleLineTracking`). Absent on a line captured without it and from a Backend-Core that predates RT-451; optional, never in `SaleLine.required`. The identity fields are the Backend-Core Inventory tracking identity as the till reported it: the line freezes the snapshot, and a later change of the identity record does not rewrite it. A return takes the identity from this line through `lineRef`; a client never supplies it (G7-10). */
             SaleLineTracking: {
@@ -3925,6 +3991,8 @@ export namespace PosSalesSales {
                 currencyCode: components["schemas"]["CurrencyCode"];
                 externalId: string;
                 lines: components["schemas"]["ReturnLine"][];
+                /** @description RT-1335 (spec 048 §9, OD-3): per automatic offer of the sale, the discount the customer no longer earns on the units they keep, deducted from `returnTotal`. Absent when no offer is clawed back and from a Backend-Core that predates RT-1337. While OD-11 is open (RT-1340) a return that needs a clawback is refused, so no accepted return carries an entry yet. */
+                promotionClawbacks?: components["schemas"]["PromotionClawback"][];
                 reason: string | null;
                 /**
                  * Format: date-time
@@ -3938,7 +4006,7 @@ export namespace PosSalesSales {
                  * @description Stable reference to the return row.
                  */
                 returnRef: string;
-                /** @description Σ returned `lineAmount` — the server-computed refund total. */
+                /** @description Σ returned `lineAmount` — the server-computed refund total — less Σ `promotionClawbacks.amount` when an automatic offer is clawed back (RT-1335, see `recordReturn`). */
                 returnTotal: components["schemas"]["DecimalAmount"];
                 /**
                  * Format: uuid
@@ -3958,10 +4026,15 @@ export namespace PosSalesSales {
             SaleTender: {
                 amount: components["schemas"]["NonNegativeDecimalAmount"];
                 /**
-                 * @description RT-10 D2 pilot methods. `cash` — the till drawer. `card_external` — a standalone card terminal (not integrated with the POS). Vouchers are excluded from the pilot.
+                 * @description RT-10 D2 pilot methods. `cash` — the till drawer. `card_external` — a standalone card terminal (not integrated with the POS). RT-1114 (RT-1098 decision 4A): `voucher` — a promotional voucher redeemed through `pos-payments/vouchers.yaml`; it pays part of the sale at full price, carries `redemptionId`, and is accepted only while `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF, else 400).
                  * @enum {string}
                  */
-                method: "cash" | "card_external";
+                method: "cash" | "card_external" | "voucher";
+                /**
+                 * Format: uuid
+                 * @description RT-1114 — REQUIRED on a `voucher` tender and accepted on no other method (else 400): the `redemption_id` that `posRedeemVoucher` (`pos-payments/vouchers.yaml`) returned for this voucher. Unique within the sale (else 400); one redemption pays at most one tender, ever. On a first capture it must be un-reversed, of this tenant and store, and applied for exactly `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`. Part of the payload hash. Never a voucher code.
+                 */
+                redemptionId?: string;
                 /** @description OPTIONAL, `card_external` only (else 400): the short reference the card terminal printed, as keyed by the cashier. NEVER a card number or any other card data. */
                 reference?: string;
                 /** @description OPTIONAL (RT-359) — the line's 1-based position among the sale's tender lines, in the order they were applied. Unique within the sale. Gives a deterministic order to tenders that share a `method`. */
@@ -4053,7 +4126,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path). `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the line price invariant, then the payers. Deterministic; nothing is recorded. */
+            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`; with a RT-1335 `promotion`: the net condition, or the arithmetic in `CaptureSaleLinePromotion`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path); `sale_voucher_tender_invalid` (RT-1114) — a `voucher` tender whose `redemptionId` does not name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly the tender's `amount` in the sale's currency, with one body for every cause, never naming which. `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the voucher tenders, then the line price invariant, then the payers. Deterministic; nothing is recorded. */
             CaptureUnprocessable: {
                 headers: {
                     [name: string]: unknown;
@@ -4125,7 +4198,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490). `error.code` is one of, in this order: `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do not sum to the server-computed `returnTotal`; `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) — the sale carries a tender whose `method` is not `cash` (pilot returns are cash-only, for all-cash sales only); `refund_allocation_exceeds_tender` (RT-490, R-5; from the F-2 runtime) — the allocations would exceed a tender's refundable balance, counted over every accepted return and legacy refund of the sale (see `recordReturn`, Allocation rules). Deterministic; nothing is recorded. */
+            /** @description 422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490). `error.code` is one of, in this order: `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from the RT-1337 runtime) — an automatic offer's `refund_O` would be negative (see `recordReturn`, Automatic offers); add the reward units to the return; `promotion_return_requires_clawback` (RT-1335, interim while OD-11 is open, RT-1340; from the RT-1337 runtime) — the return would need an offer clawback above 0, which cannot be posted yet; `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do not sum to the server-computed `returnTotal`; `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) — the sale carries a tender whose `method` is not `cash` (pilot returns are cash-only, for all-cash sales only); `refund_allocation_exceeds_tender` (RT-490, R-5; from the F-2 runtime) — the allocations would exceed a tender's refundable balance, counted over every accepted return and legacy refund of the sale (see `recordReturn`, Allocation rules). Deterministic; nothing is recorded. */
             ReturnUnprocessable: {
                 headers: {
                     [name: string]: unknown;
@@ -5891,7 +5964,7 @@ export namespace PosTerminalPairing {
                 };
             };
             TerminalPairRequest: {
-                /** @description Short-lived pairing code, issued through the Console (`consoleIssuePairingCode`: 16 characters from an alphabet without look-alikes) or the owner-run bootstrap CLI (24 base64url characters with `--generate`). Format is opaque to the POS terminal; send it exactly as entered. Single-use: a successful pair burns the code server-side. */
+                /** @description Short-lived pairing code, issued through the Console (`consoleIssuePairingCode`: 16 characters from the alphabet `ABCDEFGHJKMNPQRSTVWXYZ23456789`, which has no look-alikes) or the owner-run bootstrap CLI (24 base64url characters with `--generate`, or a code the owner supplies). The POS terminal normalises only Console-shaped codes (RT-1316): it removes whitespace and dashes from the entry and upper-cases it, and when the result is exactly 16 characters, all from that alphabet, it sends the result. Any other entry, such as a generated bootstrap CLI code, is sent trimmed and otherwise exactly as entered. An owner-supplied bootstrap code that normalises to the Console shape is therefore sent normalised, so supply such a code in upper case without separators. The server does no normalisation: it matches the SHA-256 of the exact value it receives. Single-use: a successful pair burns the code server-side. */
                 pairing_code: string;
             };
             /** @description Successful pairing envelope. The `device_token` is a SECRET — stored only via the terminal's OS secret storage, never logged or echoed to any renderer. All other fields populate the single-row `terminal_assignment` table at the terminal and are read by the POS receipt + print pipelines. */

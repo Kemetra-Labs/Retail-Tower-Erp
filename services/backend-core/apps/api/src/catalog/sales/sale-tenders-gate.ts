@@ -29,6 +29,23 @@ export function isPosSaleTendersSameMethodEnabled(): boolean {
   return isEnvFlagOn("POS_SALE_TENDERS_SAME_METHOD_ENABLED");
 }
 
+/**
+ * RT-1114 (RT-1098 R-4a) deployment gate for `voucher` tenders on `captureSale`.
+ *
+ * The posting-feed INVARIANT (RT-10 c10413): a voucher-tendered sale must never
+ * be offered to a Connector that cannot settle it. A Connector without the
+ * R-4b (RT-1330) voucher Mode of Payment refuses it, or worse, a pre-RT-1114
+ * one could post it unpaid. So capture accepts a `voucher` tender only once the
+ * API runs with `POS_SALE_VOUCHER_TENDER_ENABLED=true`, a deploy step AFTER
+ * R-4b is deployed, and only while `POS_SALE_TENDERS_ENABLED` is on too. Until
+ * then a `voucher` tender is the same 400 as any unknown method, and nothing
+ * is recorded. Default OFF: RT-1114 builds this guard and does not turn it on
+ * (acceptance criterion 2). Same parsing as above.
+ */
+export function isPosSaleVoucherTenderEnabled(): boolean {
+  return isEnvFlagOn("POS_SALE_VOUCHER_TENDER_ENABLED");
+}
+
 /** A deployment flag: "1", "true" or "yes", case-insensitive, trimmed; anything else is off. */
 export function isEnvFlagOn(name: string): boolean {
   const raw = (process.env[name] ?? "").trim().toLowerCase();

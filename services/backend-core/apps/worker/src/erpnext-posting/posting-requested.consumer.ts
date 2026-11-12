@@ -55,6 +55,13 @@
  * creation verdict is `permanently_rejected`. A re-delivery inserts nothing
  * and links nothing; a refund has no effects.
  *
+ * Restricted tenants (RT-1353): while `tenant_access_entitlements` says
+ * `restricted` no row is created and the typed retryable
+ * `TenantAccessRestrictedError` is thrown, so the outbox event is retried, not
+ * delivered or dropped. A restricted tenant cannot pair a POS, so this is
+ * defence in depth; a restriction that outlasts the outbox retry budget
+ * dead-letters the event like any other, visible in the outbox.
+ *
  * Payload shape: IDs + provenance only (sale_id / store_id / kind / source_ref_id)
  * — NO money / PII. The ENVELOPE tenant_id is authoritative (a tampered payload
  * tenant must not redirect the write).
@@ -63,6 +70,10 @@ import { z } from "zod";
 import {
   linkEffectsToPostingIntent,
   lockPostingFeedSequence,
+  readTenantAccessState,
+  RESOLUTION_TRACKING_COLUMNS,
+  resolutionTrackingJoin,
+  resolutionTrackingSelect,
   runWithTenantContext,
 } from "@data-pulse-2/db";
 import {
@@ -108,6 +119,20 @@ export class ReversalAwaitingSalePostError extends Error {
   constructor() {
     super("reversal deferred: the sale's sale_post posting row does not exist yet");
     this.name = "ReversalAwaitingSalePostError";
+  }
+}
+
+/**
+ * RT-1353: the tenant's access state is `restricted` (`tenant_access_entitlements`),
+ * so no posting row, the job the Connector feed offers, may be created. Thrown
+ * inside the creation transaction before anything is written: the outbox row is
+ * marked failed with backoff (never delivered, never dropped) and the event is
+ * re-delivered, creating its row once the tenant is `unrestricted`.
+ */
+export class TenantAccessRestrictedError extends Error {
+  constructor() {
+    super("posting deferred: the tenant is restricted");
+    this.name = "TenantAccessRestrictedError";
   }
 }
 
@@ -178,6 +203,11 @@ export class PostingRequestedConsumer
         // below). Take the tenant's sequence lock FIRST — before the reversal's
         // FOR SHARE on its sale_post row — so commit order is sequence order.
         await lockPostingFeedSequence(client, tenantId);
+        // RT-1353: a restricted tenant gets no posting row (no ERP posting is
+        // enqueued); no row = unrestricted, so existing tenants are unchanged.
+        if ((await readTenantAccessState(client, tenantId)) === "restricted") {
+          throw new TenantAccessRestrictedError();
+        }
         if (kind === "reversal") {
           await this.assertSalePostExists(client, event, parsed.data);
         }
@@ -369,7 +399,11 @@ export class PostingRequestedConsumer
    * version. RT-418: each line also freezes the sale's payer ERPNext Customer
    * link (`payer_external_ref`, one payer per sale; NULL without
    * responsibilities), copied with the lineage on a reversal, so a later edit
-   * of the payer cannot retarget the work item. If nothing could be frozen it throws
+   * of the payer cannot retarget the work item. RT-451 S6 (0095): each line
+   * also freezes its tracking (profile mode, identity, the ERPNext Batch from
+   * the edge map, and the G7-9 row-3 hold cause; `resolutionTrackingJoin`),
+   * copied with the lineage on a reversal, so a later edge-map write can
+   * neither retarget nor release the work item. If nothing could be frozen it throws
    * {@link PostingResolutionNotFrozenError}, rolling the intent back.
    */
   private async freezeResolution(
@@ -388,10 +422,11 @@ export class PostingRequestedConsumer
         `INSERT INTO erpnext_posting_resolution
            (tenant_id, intent_id, resolution_version, sale_line_id,
             erpnext_item_ref, item_map_id, warehouse_ref, warehouse_map_id, resolved_by,
-            payer_external_ref)
+            payer_external_ref, ${RESOLUTION_TRACKING_COLUMNS})
          SELECT $1, $2, 1, r.sale_line_id,
                 r.erpnext_item_ref, r.item_map_id, r.warehouse_ref, r.warehouse_map_id, 'system',
-                r.payer_external_ref
+                r.payer_external_ref, r.tracking_mode, r.tracking_identity_id,
+                r.erpnext_batch_ref, r.erp_hold_cause
            FROM erpnext_posting_status sp
            JOIN erpnext_posting_resolution r
              ON r.intent_id = sp.id AND r.resolution_version = sp.current_resolution_version
@@ -406,16 +441,17 @@ export class PostingRequestedConsumer
         `INSERT INTO erpnext_posting_resolution
            (tenant_id, intent_id, resolution_version, sale_line_id,
             erpnext_item_ref, item_map_id, warehouse_ref, warehouse_map_id, resolved_by,
-            payer_external_ref)
+            payer_external_ref, ${RESOLUTION_TRACKING_COLUMNS})
          SELECT $1, $2, 1, sl.id, m.erpnext_item_ref, m.id,
                 w.erpnext_warehouse_ref, w.id, 'system',
-                ${FROZEN_PAYER_LINK_SQL}
+                ${FROZEN_PAYER_LINK_SQL}, ${resolutionTrackingSelect}
            FROM sale_lines sl
            JOIN erpnext_warehouse_map w
              ON w.store_id = $4 AND w.purpose = 'stock' AND w.retired_at IS NULL
            JOIN erpnext_item_map m
              ON m.tenant_product_id = sl.tenant_product_ref
             AND m.state = 'confirmed' AND m.retired_at IS NULL
+           ${resolutionTrackingJoin("sl")}
           WHERE sl.sale_id = $3
             AND NOT EXISTS (
               SELECT 1 FROM sale_lines ul

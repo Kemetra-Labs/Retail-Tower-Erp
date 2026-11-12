@@ -9,6 +9,7 @@ const { getAppPath, resolveOperatorExchanger } = vi.hoisted(() => ({
 vi.mock('electron', () => ({ app: { getAppPath } }));
 vi.mock('../../operator/resolve-exchanger.js', () => ({ resolveOperatorExchanger }));
 
+import { setBakedLaneConfig } from '../../config/lane-config.js';
 import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from '../env.js';
 
 /**
@@ -33,6 +34,43 @@ describe('resolveApiBaseUrl', () => {
 
   it('treats a blank value as unset', () => {
     vi.stubEnv('VITE_API_BASE_URL', '   ');
+    expect(resolveApiBaseUrl()).toBe('https://example.invalid');
+  });
+});
+
+/**
+ * RT-1346 (RT-1345 D2) — the address a terminal with no environment variables uses is the
+ * one baked into its build: process environment, then the baked file, then fail closed.
+ */
+describe('resolveApiBaseUrl — baked lane configuration', () => {
+  const BAKED = { lane: 'pilot', apiBaseUrl: 'https://api.baked.test' } as const;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    setBakedLaneConfig(null);
+  });
+
+  it('the environment wins over the baked address', () => {
+    setBakedLaneConfig(BAKED);
+    vi.stubEnv('VITE_API_BASE_URL', 'https://api.env.test');
+    expect(resolveApiBaseUrl()).toBe('https://api.env.test');
+  });
+
+  it('uses the baked address when the environment has none', () => {
+    setBakedLaneConfig(BAKED);
+    vi.stubEnv('VITE_API_BASE_URL', undefined);
+    expect(resolveApiBaseUrl()).toBe('https://api.baked.test');
+  });
+
+  it('uses the baked address when the environment value is blank', () => {
+    setBakedLaneConfig(BAKED);
+    vi.stubEnv('VITE_API_BASE_URL', '  ');
+    expect(resolveApiBaseUrl()).toBe('https://api.baked.test');
+  });
+
+  it('with neither, stays on the fail-closed placeholder', () => {
+    setBakedLaneConfig({ lane: 'pilot' });
+    vi.stubEnv('VITE_API_BASE_URL', undefined);
     expect(resolveApiBaseUrl()).toBe('https://example.invalid');
   });
 });

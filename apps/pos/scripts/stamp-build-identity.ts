@@ -21,11 +21,17 @@
  * real branch commit.
  * The pin comes from `contracts/backend-core/PIN` (its `commit:` line); without a
  * valid one the stamp carries the commit alone. Nothing is defaulted or guessed.
+ *
+ * RT-1346: the same run also stamps `dist/lane-config.json` (public per-lane
+ * configuration) from the `POS_LANE_CONFIG_*` build inputs, see `stamp-lane-config.ts`;
+ * a refused input fails the build. `--check` leaves that file alone.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { laneConfigFile, stampLaneConfig } from './stamp-lane-config.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STAMP_FILE = path.join(ROOT, 'dist', 'build-identity.json');
@@ -157,6 +163,7 @@ function check(): number {
 
 function main(): number {
   if (process.argv.includes('--check')) return check();
+  const laneStatus = stampLaneConfig(laneConfigFile(ROOT), process.env);
   const stamp = buildIdentityStamp({ ...treeFacts(), pinText: readPin() });
   writeBuildIdentityStamp(STAMP_FILE, stamp);
   console.log(
@@ -166,7 +173,7 @@ function main(): number {
           stamp.contractPin === undefined ? 'unknown' : stamp.contractPin.slice(0, 12)
         })`,
   );
-  return 0;
+  return laneStatus;
 }
 
 const invokedAsScript = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];

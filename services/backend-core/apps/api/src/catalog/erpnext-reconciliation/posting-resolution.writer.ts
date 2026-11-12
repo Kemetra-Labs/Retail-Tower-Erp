@@ -9,6 +9,11 @@
  */
 import type { PoolClient } from "pg";
 
+import {
+  RESOLUTION_TRACKING_COLUMNS,
+  resolutionTrackingJoin,
+  resolutionTrackingSelect,
+} from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
 import type { MembershipRepository } from "../../context/membership.repository";
@@ -36,9 +41,15 @@ export interface AuditEventInput {
  * Integration baseline). A reversal copies its sale's `sale_post` current
  * resolution (original lineage); otherwise the current maps are read. Each
  * INSERT is all-or-nothing over the sale lines (the worker's
- * `freezeResolution` copy — SQL is duplicated per package). RT-418: each line
+ * `freezeResolution` copy — SQL is duplicated per package; the tracking
+ * fragment is shared through `@data-pulse-2/db`). RT-418: each line
  * also freezes the payer's ERPNext Customer link as it is NOW
- * (`payer_external_ref`; a reversal copies its sale's). Returns the new
+ * (`payer_external_ref`; a reversal copies its sale's). RT-451 S6 (0095):
+ * each line also re-freezes its tracking from the edge map as it is NOW
+ * (`resolutionTrackingJoin`; a reversal copies its sale's), so re-resolving a
+ * row-3 intent held as `edge_map_missing` once the edge map is repaired
+ * releases it ("an edge map is repaired and re-posted", G7-9), while an
+ * `expired` hold stays (it goes to the owner, RT-50 B1). Returns the new
  * version, or null when nothing could be frozen. The caller points the row at it.
  */
 export async function freezeOperatorResolution(
@@ -57,10 +68,11 @@ export async function freezeOperatorResolution(
         `INSERT INTO erpnext_posting_resolution
            (tenant_id, intent_id, resolution_version, sale_line_id,
             erpnext_item_ref, item_map_id, warehouse_ref, warehouse_map_id, resolved_by,
-            payer_external_ref)
+            payer_external_ref, ${RESOLUTION_TRACKING_COLUMNS})
          SELECT $1, $2, $3, r.sale_line_id,
                 r.erpnext_item_ref, r.item_map_id, r.warehouse_ref, r.warehouse_map_id, 'operator',
-                r.payer_external_ref
+                r.payer_external_ref, r.tracking_mode, r.tracking_identity_id,
+                r.erpnext_batch_ref, r.erp_hold_cause
            FROM erpnext_posting_status sp
            JOIN erpnext_posting_resolution r
              ON r.intent_id = sp.id AND r.resolution_version = sp.current_resolution_version
@@ -75,20 +87,22 @@ export async function freezeOperatorResolution(
         `INSERT INTO erpnext_posting_resolution
            (tenant_id, intent_id, resolution_version, sale_line_id,
             erpnext_item_ref, item_map_id, warehouse_ref, warehouse_map_id, resolved_by,
-            payer_external_ref)
+            payer_external_ref, ${RESOLUTION_TRACKING_COLUMNS})
          SELECT $1, $2, $3, sl.id, m.erpnext_item_ref, m.id,
                 w.erpnext_warehouse_ref, w.id, 'operator',
                 (SELECT p.external_ref
                    FROM sale_responsibilities sr
                    JOIN payer_account p ON p.id = sr.payer_id
                   WHERE sr.sale_id = $4
-                  ORDER BY sr.sequence LIMIT 1)
+                  ORDER BY sr.sequence LIMIT 1),
+                ${resolutionTrackingSelect}
            FROM sale_lines sl
            JOIN erpnext_warehouse_map w
              ON w.store_id = $5 AND w.purpose = 'stock' AND w.retired_at IS NULL
            JOIN erpnext_item_map m
              ON m.tenant_product_id = sl.tenant_product_ref
             AND m.state = 'confirmed' AND m.retired_at IS NULL
+           ${resolutionTrackingJoin("sl")}
           WHERE sl.sale_id = $4
             AND NOT EXISTS (
               SELECT 1 FROM sale_lines ul

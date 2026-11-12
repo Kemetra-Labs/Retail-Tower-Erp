@@ -20,6 +20,8 @@ const api = {
   getTrackingIdentity: vi.fn(),
   getTrackingIdentityPositions: vi.fn(),
   listExpiryCorrections: vi.fn(),
+  listTrackingResolutionQueue: vi.fn(),
+  listSaleLineFindings: vi.fn(),
 };
 vi.mock("@/lib/tracking-queries", () => ({
   getTenantTrackingSummary: (...a: unknown[]) => api.getTenantTrackingSummary(...a),
@@ -31,6 +33,8 @@ vi.mock("@/lib/tracking-queries", () => ({
   getTrackingIdentity: (...a: unknown[]) => api.getTrackingIdentity(...a),
   getTrackingIdentityPositions: (...a: unknown[]) => api.getTrackingIdentityPositions(...a),
   listExpiryCorrections: (...a: unknown[]) => api.listExpiryCorrections(...a),
+  listTrackingResolutionQueue: (...a: unknown[]) => api.listTrackingResolutionQueue(...a),
+  listSaleLineFindings: (...a: unknown[]) => api.listSaleLineFindings(...a),
 }));
 // RT-455 part 1 (OD-T4): the tracking pages show only while the switch is on.
 const getTrackedSelling = vi.fn();
@@ -202,6 +206,10 @@ beforeEach(() => {
   getTrackedSelling.mockReset();
   getTrackedSelling.mockResolvedValue(SWITCH_ON);
   api.getTenantTrackingSummary.mockResolvedValue(ok({ hasTrackedProducts: true }));
+  api.listTrackingResolutionQueue.mockResolvedValue(
+    ok({ items: [], nextCursor: null, unresolvedCount: 0 }),
+  );
+  api.listSaleLineFindings.mockResolvedValue(ok({ items: [], nextCursor: null }));
   api.listSafetyFindings.mockResolvedValue(
     ok({ findings: [activeHold, expiredRow], generatedAt: "2026-11-03T12:32:00Z" }),
   );
@@ -370,19 +378,12 @@ describe("holds screen (owner)", () => {
     expect(link.getAttribute("href")).toBe(`/inventory/stores/${STORE}/products/${PRODUCT}`);
   });
 
-  test.each(["resolution", "saleLines", "expiring"])(
-    "the %s tab says what is missing and calls nothing new",
-    async (tab) => {
-      renderAt(`/tracking?tab=${tab}`);
-      expect(
-        await screen.findByTestId(
-          tab === "expiring" ? "tracking-expiring-stopped" : "tracking-soon",
-        ),
-      ).toBeTruthy();
-      expect(api.listTrackingHolds).not.toHaveBeenCalled();
-      expect(api.listInventoryRecalls).not.toHaveBeenCalled();
-    },
-  );
+  test("the expiring tab says it is stopped and calls nothing new", async () => {
+    renderAt("/tracking?tab=expiring");
+    expect(await screen.findByTestId("tracking-expiring-stopped")).toBeTruthy();
+    expect(api.listTrackingHolds).not.toHaveBeenCalled();
+    expect(api.listInventoryRecalls).not.toHaveBeenCalled();
+  });
 
   test("empty findings: the empty copy, and no consistency band", async () => {
     api.listSafetyFindings.mockResolvedValue(
@@ -391,6 +392,8 @@ describe("holds screen (owner)", () => {
     renderAt("/tracking");
     expect(await screen.findByText("No active holds.")).toBeTruthy();
     expect(screen.queryByTestId("tracking-consistency")).toBeNull();
+    // No emitter on main: the check is shown as unavailable, never as «0».
+    expect(screen.getByTestId("tracking-consistency-unavailable")).toBeTruthy();
   });
 
   test("a consistency finding shows the critical band (OD-8)", async () => {

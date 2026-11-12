@@ -45,6 +45,19 @@ export function canReleaseHold(role: string | null | undefined): boolean {
   return role === "owner";
 }
 
+/** `bindTrackingResolution` is owner only (high sensitivity, as the release). */
+export function canBindResolution(role: string | null | undefined): boolean {
+  return role === "owner";
+}
+
+/**
+ * The queue's sales are for owner and tenant_admin; a store_manager gets the
+ * count only (OD-9), so it never sees a row.
+ */
+export function canReadQueue(role: string | null | undefined): boolean {
+  return hasRole(HOLD_ROLES, role);
+}
+
 /**
  * The nav entry (TR-1, TR-6): listed only for a role that can open the screen
  * AND once the summary has answered that the tenant has tracked products AND
@@ -107,6 +120,46 @@ const CHECK_KEYS: Record<string, MessageKey> = {
 
 export function checkKey(code: string): MessageKey {
   return keyOf(CHECK_KEYS, code) ?? "inventory.value.unknown";
+}
+
+const FINDING_KIND_KEYS: Record<string, MessageKey> = {
+  unvalidated_tracked_line: "tracking.saleLines.kind.unvalidated_tracked_line",
+  sold_under_hold: "tracking.saleLines.kind.sold_under_hold",
+  erp_intent_held: "tracking.saleLines.kind.erp_intent_held",
+};
+
+export const SALE_LINE_KINDS = [
+  "unvalidated_tracked_line",
+  "sold_under_hold",
+  "erp_intent_held",
+] as const;
+
+export function saleLineKindKey(code: string): MessageKey {
+  return keyOf(FINDING_KIND_KEYS, code) ?? "inventory.value.unknown";
+}
+
+const FINDING_CAUSE_KEYS: Record<string, MessageKey> = {
+  validation_missing: "tracking.saleLines.cause.validation_missing",
+  validation_mismatch: "tracking.saleLines.cause.validation_mismatch",
+  quality_hold: "tracking.saleLines.cause.quality_hold",
+  recall_hold: "tracking.saleLines.cause.recall_hold",
+  expired: "tracking.saleLines.cause.expired",
+  edge_map_missing: "tracking.saleLines.cause.edge_map_missing",
+};
+
+export function saleLineCauseKey(code: string): MessageKey {
+  return keyOf(FINDING_CAUSE_KEYS, code) ?? "inventory.value.unknown";
+}
+
+const LINE_REASON_KEYS: Record<string, MessageKey> = {
+  tracking_missing: "tracking.resolution.lineReason.tracking_missing",
+  identity_unknown: "tracking.resolution.lineReason.identity_unknown",
+  identity_other_product: "tracking.resolution.lineReason.identity_other_product",
+};
+
+/** Why a sale line is unresolved, as the contract names it. */
+export function lineReasonKey(code: string): MessageKey {
+  return keyOf(LINE_REASON_KEYS, code) ?? "inventory.value.unknown";
 }
 
 // --- Findings -----------------------------------------------------------------

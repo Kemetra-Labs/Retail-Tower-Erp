@@ -12,6 +12,7 @@
  */
 export * from "./schema";
 export * from "./helpers/with-tenant";
+export { isTenantRestricted, readTenantAccessState } from "./helpers/tenant-access";
 export * from "./middleware/tenant-context";
 export { insertAuditEvent, type AuditEventInsertRow } from "./helpers/audit-insert";
 export * from "./outbox";
@@ -19,6 +20,11 @@ export {
   lockPostingFeedSequence,
   POSTING_FEED_LOCK_NAMESPACE,
 } from "./helpers/posting-feed-lock";
+export {
+  RESOLUTION_TRACKING_COLUMNS,
+  resolutionTrackingJoin,
+  resolutionTrackingSelect,
+} from "./helpers/posting-resolution-tracking";
 export {
   AI_USAGE_RESERVATION_LOCK_NAMESPACE,
   listExpiredAiReservations,
@@ -59,6 +65,34 @@ export {
   type AnchorComparisonRow,
   type AnchoredStore,
 } from "./helpers/inventory-effects/activation";
+export {
+  applyTrackingMasterEvidence,
+  birthBatchIdentity,
+  correctExpiryFromErpEvidence,
+  ERP_EVIDENCE_REASON_CODE,
+  IDENTITY_BIRTH_LOCK_NAMESPACE,
+  lockIdentityBirth,
+  lotCodeFromBatchName,
+  recordIdentityBirth,
+  type BatchBirthInput,
+  type BirthEvidence,
+  type BirthOutcome,
+  type BirthRefusal,
+  type TrackingMasterSummary,
+} from "./helpers/inventory-effects/identity-birth";
+export {
+  anchorTrackedIdentities,
+  hasIdentityAnchor,
+  readIdentityPositions,
+  readUntrackedTrackedEffects,
+  SINCE_IDENTITY_ANCHOR,
+  type AnchoredIdentityStore,
+  type AnchorTrackedIdentitiesInput,
+  type IdentityAnchorOutcome,
+  type IdentityAnchorRefusal,
+  type IdentityAnchorRefusalCode,
+  type IdentityPosition,
+} from "./helpers/inventory-effects/identity-anchor";
 export {
   buildCutoverEquivalenceReport,
   isStorePendingAware,

@@ -164,6 +164,12 @@ export const tenantInventorySettings = pgTable(
     trackedSellingEnabled: boolean("tracked_selling_enabled").notNull().default(false),
     trackedSellingChangedAt: timestamp("tracked_selling_changed_at", { withTimezone: true }),
     trackedSellingChangedBy: uuid("tracked_selling_changed_by"),
+    // 0104 (RT-452): the owner attestation of the ERP batch posting, recorded by
+    // the operator CLI `inventory-effects attest-batch-posting`. NULL = not
+    // attested; the three are all NULL or all set.
+    erpBatchPostingAttestedAt: timestamp("erp_batch_posting_attested_at", { withTimezone: true }),
+    erpBatchPostingAttestedBy: uuid("erp_batch_posting_attested_by"),
+    erpBatchPostingEvidenceRef: text("erp_batch_posting_evidence_ref"),
     updatedBy: uuid("updated_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -188,6 +194,14 @@ export const tenantInventorySettings = pgTable(
     check(
       "tenant_inventory_settings_tracked_selling_on_changed",
       sql`NOT ${t.trackedSellingEnabled} OR ${t.trackedSellingChangedAt} IS NOT NULL`,
+    ),
+    check(
+      "tenant_inventory_settings_batch_posting_attest_together",
+      sql`(${t.erpBatchPostingAttestedAt} IS NULL) = (${t.erpBatchPostingAttestedBy} IS NULL) AND (${t.erpBatchPostingAttestedAt} IS NULL) = (${t.erpBatchPostingEvidenceRef} IS NULL)`,
+    ),
+    check(
+      "tenant_inventory_settings_batch_posting_evidence_ref",
+      sql`${t.erpBatchPostingEvidenceRef} IS NULL OR (btrim(${t.erpBatchPostingEvidenceRef}) <> '' AND char_length(${t.erpBatchPostingEvidenceRef}) <= 200)`,
     ),
   ],
 );

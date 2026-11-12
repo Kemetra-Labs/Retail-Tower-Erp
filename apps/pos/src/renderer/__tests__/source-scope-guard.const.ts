@@ -564,3 +564,60 @@ export function isRt1316ExemptFile(branch: string, file: string): boolean {
     (RT_1316_STORE_NAME_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-1114-voucher-tender` implements Jira RT-1114 (RT-1098 R-4a): it adds `voucher` to the
+ * Backend-Core `SaleTender.method` enum (`pos-sales/sales.yaml` 1.23.0-draft) and, in the same
+ * PR, repins the POS to that contract commit (`npm run contracts:repin`), which regenerates
+ * `src/shared/api-types.ts`. The POS voucher tender stays off (RT-103).
+ *
+ * Authority: coordinator decision RT-1114 c16672 (option A, under the owner's standing
+ * delegation), following the RT-1110 repin pattern: exactly ONE file on exactly ONE branch
+ * (exact name, no `startsWith`; the `-preflight` branch is not exempt). Narrowness is asserted
+ * by `source-scope-guard-rt1114.test.ts`.
+ */
+export const RT_1114_VOUCHER_TENDER_REPIN_BRANCH = 'rt-1114-voucher-tender' as const;
+export const RT_1114_VOUCHER_TENDER_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1114 exemption allows on `branch`. */
+export function isRt1114ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1114_VOUCHER_TENDER_REPIN_BRANCH &&
+    (RT_1114_VOUCHER_TENDER_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
+
+/**
+ * `claude/rt-1348-pairing-origin-faee33` implements Jira RT-1348 (RT-1345 S3, decision D3): the pairing
+ * records the Backend-Core origin it was made against (`terminal_assignment.api_origin`, migration
+ * 0061), a terminal started against another origin reports `invalid / other_server` and never sends
+ * the device token there, and a legacy pairing adopts the origin on the first accepted device call.
+ * The pairing store, the sendable-token reader, the device-401 detector (the accepted-call hook) and
+ * the new origin helper live in `src/main/pairing/`, so the change necessarily touches it.
+ *
+ * Authority: Jira RT-1348 scope (owner-authored; items 1 to 3 name `pairing/store.ts` and the
+ * device-401 detector), following the RT-1183 file-list pattern: exactly EIGHT files on exactly ONE
+ * branch (exact name, no `startsWith`; the `-preflight` branch is not exempt). Narrowness is asserted
+ * by `source-scope-guard-rt1348.test.ts`.
+ */
+export const RT_1348_PAIRING_ORIGIN_BRANCH = 'claude/rt-1348-pairing-origin-faee33' as const;
+export const RT_1348_PAIRING_ORIGIN_EXEMPT_FILES = [
+  'src/main/pairing/__tests__/api-origin.test.ts',
+  'src/main/pairing/__tests__/device-auth-detector-accepted.test.ts',
+  'src/main/pairing/__tests__/store-api-origin.test.ts',
+  'src/main/pairing/__tests__/store.test.ts',
+  'src/main/pairing/api-origin.ts',
+  'src/main/pairing/device-auth-detector.ts',
+  'src/main/pairing/device-token.ts',
+  'src/main/pairing/store.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1348 exemption allows on `branch`. */
+export function isRt1348ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1348_PAIRING_ORIGIN_BRANCH &&
+    (RT_1348_PAIRING_ORIGIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

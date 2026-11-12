@@ -25,10 +25,13 @@
  *   7. `stockUom` differs from the product's established unit at the store →
  *      finding `uom_mismatch`.
  *   8. Tracking: a batch-tracked product needs a Batch whose edge-map identity
- *      is of the same product; an unknown Batch is handed to RT-453 identity
- *      birth (`awaiting_identity`, no effect); a Batch of another product, a
- *      missing Batch or a serial product is a finding `tracking_mismatch`. An
- *      untracked product imports at the product grain.
+ *      is of the same product. An unknown Batch births its identity from this
+ *      row (RT-453, G7-3) when the product requires no expiry (the row carries
+ *      none); otherwise it waits for the tracking master read
+ *      (`awaiting_identity`, no effect). A Batch of another product, a missing
+ *      Batch, a Batch name that is not a valid lot code or whose code another
+ *      identity holds, or a serial product is a finding `tracking_mismatch`.
+ *      An untracked product imports at the product grain.
  *   9. Key (DC-4, DC-6): the base key; a cancelled row whose base key is
  *      already recorded from another ledger position is the reverse row and
  *      takes the `cancel` key; any other repeat of a key is a finding
@@ -39,9 +42,24 @@
  *      `erp_confirmed_at` = `creation`. `received_at` is `clock_timestamp()`,
  *      read after the settings lock, so a committed activation's anchor never
  *      counts the effect as covered (`SINCE_ANCHOR`).
+ *
+ * Before the page's rows (RT-453): every `awaiting_identity` row of this store
+ * and warehouse whose Batch now has an identity of its product is resolved, in
+ * the order it was recorded: covered by the store's current anchor, imported
+ * (steps 9 and 10 at that identity), or a finding. Its resolution is recorded
+ * once (`erp_stock_import_row_resolutions`); the 0096 row record stays as it
+ * was. Identity births of the tenant serialize on `lockIdentityBirth`, taken
+ * here (when the page can birth or resolve) after the settings lock and before
+ * any identity row lock.
  */
 import type { PoolClient } from "pg";
-import { emit, OUTBOX_EVENT_TYPES } from "@data-pulse-2/db";
+import {
+  birthBatchIdentity,
+  emit,
+  lockIdentityBirth,
+  OUTBOX_EVENT_TYPES,
+  recordIdentityBirth,
+} from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
 import type { StockImportRowInput } from "./dto/stock-import.dto";
@@ -86,6 +104,8 @@ export interface IngestSummary {
   readonly replayed: number;
   readonly imported: readonly string[];
   readonly findings: number;
+  /** RT-453: `awaiting_identity` rows resolved before this page's rows. */
+  readonly resolved: number;
 }
 
 interface Decision {
@@ -98,6 +118,8 @@ interface Decision {
   readonly quantity?: string;
   /** The original effect a cancellation's reverse row compensates (DC-6). */
   readonly compensates?: string | null;
+  /** RT-453: the identity this row birthed (its birth is recorded after the row). */
+  readonly born?: { readonly identityId: string; readonly batchName: string };
 }
 
 const finding = (
@@ -118,10 +140,18 @@ export async function ingestRows(
   ctx: IngestContext,
   rows: readonly StockImportRowInput[],
 ): Promise<IngestSummary> {
+  // Births of the tenant serialize on this lock, taken before any identity
+  // row lock. Only a page that can birth or resolve takes it (a Batch row, or
+  // a row of this store still awaiting its identity): a row without a Batch
+  // never locks an identity, so other pages do not queue behind births.
+  if (rows.some((r) => r.erpnextBatchRef !== null) || (await hasAwaitingRows(client, ctx))) {
+    await lockIdentityBirth(client, ctx.tenantId);
+  }
+  const redrive = await resolveAwaitingRows(client, ctx);
   const covered = await coveredFlags(client, ctx.anchorReadAt, rows);
-  const imported: string[] = [];
+  const imported: string[] = [...redrive.imported];
   let replayed = 0;
-  let findings = 0;
+  let findings = redrive.findings;
   for (const [i, row] of rows.entries()) {
     // sequential: each row's key and duplicate checks read the records the rows before it wrote.
     if (await alreadyRecorded(client, ctx, row)) {
@@ -134,10 +164,24 @@ export async function ingestRows(
     let effectId: string | null = null;
     if (decision.outcome === "imported") {
       effectId = await writeEffect(client, ctx, row, rowId, decision);
-      if (effectId === null) final = finding("duplicate_effect_key", decision, { reason: "key_exists" });
+      if (effectId === null) {
+        // Keep the birth: the identity and its edge map exist whatever the row became.
+        const dup = finding("duplicate_effect_key", decision, { reason: "key_exists" });
+        final = decision.born === undefined ? dup : { ...dup, born: decision.born };
+      }
       else imported.push(effectId);
     }
     await recordRow(client, ctx, row, rowId, final, effectId);
+    if (final.born !== undefined) {
+      await recordIdentityBirth(client, {
+        tenantId: ctx.tenantId,
+        identityId: final.born.identityId,
+        productId: final.productId!,
+        erpnextItemRef: row.erpnextItemRef.name,
+        batchName: final.born.batchName,
+        evidence: { source: "stock_import", importRowId: rowId },
+      });
+    }
     if (final.finding !== undefined) {
       findings += 1;
       await recordFinding(client, ctx, rowId, final.finding.kind, {
@@ -156,7 +200,7 @@ export async function ingestRows(
       correlationId: null,
     });
   }
-  return { recorded: rows.length - replayed, replayed, imported, findings };
+  return { recorded: rows.length - replayed, replayed, imported, findings, resolved: redrive.resolved };
 }
 
 /** For each row, whether its `creation` is at or before the anchor snapshot (exact, in SQL). */
@@ -224,12 +268,16 @@ async function decide(
   if (unit !== null && unit !== row.stockUom) {
     return finding("uom_mismatch", withProduct, { stockUom: row.stockUom, establishedUnit: unit });
   }
-  const tracking = await resolveTracking(client, product, row);
+  const tracking = await resolveTracking(client, ctx, product, row);
   if (tracking.kind === "mismatch") return finding("tracking_mismatch", withProduct, { reason: tracking.reason });
-  if (tracking.kind === "awaiting") return { outcome: "awaiting_identity", ...withProduct, identityId: null };
-  const key = await keyFor(client, base, row, ctx.anchorReadAt);
+  if (tracking.kind === "awaiting") return { outcome: "awaiting_identity", ...withProduct, identityId: null, eventType };
+  const key = await keyFor(client, base, row.isCancelled, ctx.anchorReadAt, null);
+  const born = tracking.born ? { identityId: tracking.identityId!, batchName: row.erpnextBatchRef!.name } : undefined;
   if (key.kind === "duplicate") {
-    return finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId }, { reason: key.reason });
+    return {
+      ...finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId }, { reason: key.reason }),
+      ...(born === undefined ? {} : { born }),
+    };
   }
   return {
     outcome: "imported",
@@ -239,6 +287,7 @@ async function decide(
     eventType,
     quantity,
     compensates: key.compensates,
+    ...(born === undefined ? {} : { born }),
   };
 }
 
@@ -286,11 +335,16 @@ async function establishedUnit(client: PoolClient, storeId: string, productId: s
 }
 
 type Tracking =
-  | { readonly kind: "ok"; readonly identityId: string | null }
+  | { readonly kind: "ok"; readonly identityId: string | null; readonly born?: boolean }
   | { readonly kind: "awaiting" }
   | { readonly kind: "mismatch"; readonly reason: string };
 
-async function resolveTracking(client: PoolClient, product: ProductFacts, row: StockImportRowInput): Promise<Tracking> {
+async function resolveTracking(
+  client: PoolClient,
+  ctx: IngestContext,
+  product: ProductFacts,
+  row: StockImportRowInput,
+): Promise<Tracking> {
   if (product.trackingMode === "none") return { kind: "ok", identityId: null };
   if (product.trackingMode !== "batch") return { kind: "mismatch", reason: "serial_not_supported" };
   const batch = row.erpnextBatchRef?.name ?? null;
@@ -303,9 +357,39 @@ async function resolveTracking(client: PoolClient, product: ProductFacts, row: S
     [batch],
   );
   const identity = r.rows[0];
-  if (identity === undefined) return { kind: "awaiting" };
+  if (identity === undefined) return birthFromRow(client, ctx, product, row, batch);
   if (identity.tenant_product_ref !== product.id) return { kind: "mismatch", reason: "batch_of_other_product" };
   return { kind: "ok", identityId: identity.id };
+}
+
+/**
+ * RT-453 (G7-3): birth the identity of an unknown Batch from this ERP-origin
+ * row. The row carries no expiry, so an expiry-required product's Batch waits
+ * for the tracking master read (`awaiting_identity`).
+ */
+async function birthFromRow(
+  client: PoolClient,
+  ctx: IngestContext,
+  product: ProductFacts,
+  row: StockImportRowInput,
+  batch: string,
+): Promise<Tracking> {
+  const outcome = await birthBatchIdentity(client, {
+    tenantId: ctx.tenantId,
+    productId: product.id,
+    erpnextItemRef: row.erpnextItemRef.name,
+    batchName: batch,
+    expiryDate: null,
+  });
+  switch (outcome.kind) {
+    case "born":
+      return { kind: "ok", identityId: outcome.identityId, born: true };
+    case "existing":
+      return { kind: "ok", identityId: outcome.identityId };
+    default:
+      if (outcome.reason === "expiry_required") return { kind: "awaiting" };
+      return { kind: "mismatch", reason: outcome.reason };
+  }
 }
 
 type KeyChoice =
@@ -327,19 +411,30 @@ type KeyChoice =
 async function keyFor(
   client: PoolClient,
   base: string,
-  row: StockImportRowInput,
+  isCancelled: boolean,
   anchorReadAt: string,
+  before: { readonly rowId: string } | null,
 ): Promise<KeyChoice> {
+  // Each recorded row at its EFFECTIVE key and outcome: an `awaiting_identity`
+  // row resolved later (RT-453) counts as its resolution. With `before`, only
+  // the rows recorded before that row (a re-driven row sees what an ingest in
+  // its own recording order would have seen).
   const r = await client.query<{ effect_key: string; outcome: string; effect_id: string | null; in_anchor: boolean }>(
-    `SELECT effect_key, outcome, effect_id, (creation <= $2::timestamptz) AS in_anchor
-       FROM erp_stock_import_rows
-      WHERE effect_key = ANY($1::text[])
-      ORDER BY recorded_at, id`,
-    [[base, cancelKey(base)], anchorReadAt],
+    `SELECT COALESCE(res.effect_key, row.effect_key) AS effect_key,
+            COALESCE(res.outcome, row.outcome) AS outcome,
+            COALESCE(res.effect_id, row.effect_id) AS effect_id,
+            (row.creation <= $2::timestamptz) AS in_anchor
+       FROM erp_stock_import_rows row
+       LEFT JOIN erp_stock_import_row_resolutions res ON res.row_id = row.id
+      WHERE COALESCE(res.effect_key, row.effect_key) = ANY($1::text[])
+        AND ($3::uuid IS NULL
+             OR (row.recorded_at, row.id) < (SELECT b.recorded_at, b.id FROM erp_stock_import_rows b WHERE b.id = $3::uuid))
+      ORDER BY row.recorded_at, row.id`,
+    [[base, cancelKey(base)], anchorReadAt, before?.rowId ?? null],
   );
   const original = r.rows.find((x) => x.effect_key === base);
   if (original === undefined) return { kind: "key", key: base, compensates: null };
-  if (!row.isCancelled) return { kind: "duplicate", reason: "key_exists" };
+  if (!isCancelled) return { kind: "duplicate", reason: "key_exists" };
   if (r.rows.some((x) => x.effect_key === cancelKey(base))) return { kind: "duplicate", reason: "cancel_exists" };
   // In the books: imported, covered when it was read, or covered by the store's
   // CURRENT anchor (a later activation's snapshot holds it even if it was a
@@ -348,6 +443,141 @@ async function keyFor(
     return { kind: "duplicate", reason: `original_${original.outcome}` };
   }
   return { kind: "key", key: cancelKey(base), compensates: original.effect_id };
+}
+
+// ---------------------------------------------------------------------------
+// RT-453: resolving `awaiting_identity` rows once their Batch has an identity
+// ---------------------------------------------------------------------------
+
+interface AwaitingRow {
+  id: string;
+  page_id: string;
+  voucher_type: string;
+  voucher_no: string;
+  creation: string;
+  is_cancelled: boolean;
+  actual_qty: string;
+  stock_uom: string;
+  effect_key: string | null;
+  tenant_product_ref: string;
+  identity_id: string;
+  event_type: ErpInventoryEventType;
+  covered: boolean;
+}
+
+/** Whether the page's store and warehouse has an unresolved `awaiting_identity` row. */
+async function hasAwaitingRows(client: PoolClient, ctx: IngestContext): Promise<boolean> {
+  const r = await client.query(
+    `SELECT 1 FROM erp_stock_import_rows row
+      WHERE row.outcome = 'awaiting_identity' AND row.store_id = $1 AND row.erpnext_warehouse_ref = $2
+        AND NOT EXISTS (SELECT 1 FROM erp_stock_import_row_resolutions res WHERE res.row_id = row.id)
+      LIMIT 1`,
+    [ctx.storeId, ctx.erpnextWarehouseRef],
+  );
+  return (r.rowCount ?? 0) > 0;
+}
+
+interface RedriveSummary {
+  readonly imported: readonly string[];
+  readonly findings: number;
+  readonly resolved: number;
+}
+
+/**
+ * Resolve, in recording order, every unresolved `awaiting_identity` row of the
+ * page's store and warehouse whose Batch now maps to an identity of the row's
+ * product: `covered` when the store's current anchor snapshot holds it (DC-8),
+ * else imported at that identity under the DC-4 / DC-6 key rules, else a
+ * finding (a duplicate key, or a reverse row whose original moved nothing).
+ */
+async function resolveAwaitingRows(client: PoolClient, ctx: IngestContext): Promise<RedriveSummary> {
+  const r = await client.query<AwaitingRow>(
+    `SELECT row.id, row.page_id, row.voucher_type, row.voucher_no, row.creation::text AS creation,
+            row.is_cancelled, row.actual_qty::text AS actual_qty, row.stock_uom, row.effect_key,
+            row.tenant_product_ref, i.id AS identity_id, row.event_type,
+            (row.creation <= $3::timestamptz) AS covered
+       FROM erp_stock_import_rows row
+       JOIN erpnext_tracking_map m ON m.kind = 'batch' AND m.erpnext_ref = row.erpnext_batch_ref
+       JOIN tracking_identities i
+         ON i.id = m.tracking_identity_id AND i.tenant_product_ref = row.tenant_product_ref
+       -- Still batch-tracked now (a profile can change while a product has no effect).
+       JOIN tenant_products p ON p.id = row.tenant_product_ref AND p.tracking_mode = 'batch'
+      WHERE row.outcome = 'awaiting_identity'
+        -- Recorded with its event type (0103); 0096 was applied nowhere before it.
+        AND row.event_type IS NOT NULL
+        AND row.store_id = $1 AND row.erpnext_warehouse_ref = $2
+        AND NOT EXISTS (SELECT 1 FROM erp_stock_import_row_resolutions res WHERE res.row_id = row.id)
+      ORDER BY row.recorded_at, row.id`,
+    [ctx.storeId, ctx.erpnextWarehouseRef, ctx.anchorReadAt],
+  );
+  const imported: string[] = [];
+  let findings = 0;
+  // sequential: each resolution's key check reads the resolutions written before it.
+  for (const row of r.rows) {
+    const outcome = await resolveOne(client, ctx, row);
+    if (outcome.effectId !== null) imported.push(outcome.effectId);
+    if (outcome.outcome === "finding") findings += 1;
+  }
+  return { imported, findings, resolved: r.rows.length };
+}
+
+async function resolveOne(
+  client: PoolClient,
+  ctx: IngestContext,
+  row: AwaitingRow,
+): Promise<{ outcome: "imported" | "covered" | "finding"; effectId: string | null }> {
+  const record = (outcome: "imported" | "covered" | "finding", effectKey: string | null, effectId: string | null) =>
+    client.query(
+      `INSERT INTO erp_stock_import_row_resolutions
+         (id, tenant_id, row_id, tracking_identity_id, tenant_product_ref, outcome, effect_key, effect_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [newId(), ctx.tenantId, row.id, row.identity_id, row.tenant_product_ref, outcome, effectKey, effectId],
+    );
+  const quantity = journalQuantity(row.actual_qty);
+  if (row.covered || row.effect_key === null || quantity === null) {
+    // An awaiting row passed the key and precision checks when it was recorded;
+    // only the anchor can have moved since.
+    await record("covered", null, null);
+    return { outcome: "covered", effectId: null };
+  }
+  const findingOf = async (
+    kind: "duplicate_effect_key" | "uom_mismatch",
+    detail: Record<string, unknown>,
+  ): Promise<{ outcome: "finding"; effectId: null }> => {
+    await record("finding", null, null);
+    await recordFinding(client, { ...ctx, pageId: row.page_id }, row.id, kind, {
+      voucherType: row.voucher_type,
+      voucherNo: row.voucher_no,
+      ...detail,
+      resolution: "awaiting_identity",
+    });
+    return { outcome: "finding", effectId: null };
+  };
+  // The unit may have been established since the row was recorded (step 7 again).
+  const unit = await establishedUnit(client, ctx.storeId, row.tenant_product_ref);
+  if (unit !== null && unit !== row.stock_uom) {
+    return findingOf("uom_mismatch", { stockUom: row.stock_uom, establishedUnit: unit });
+  }
+  const key = await keyFor(client, row.effect_key, row.is_cancelled, ctx.anchorReadAt, { rowId: row.id });
+  if (key.kind === "duplicate") return findingOf("duplicate_effect_key", { reason: key.reason });
+  const effectId = await writeEffect(
+    client,
+    ctx,
+    { voucherType: row.voucher_type, voucherNo: row.voucher_no, creation: row.creation, stockUom: row.stock_uom },
+    row.id,
+    {
+      outcome: "imported",
+      effectKey: key.key,
+      productId: row.tenant_product_ref,
+      identityId: row.identity_id,
+      eventType: row.event_type,
+      quantity,
+      compensates: key.compensates,
+    },
+  );
+  if (effectId === null) return findingOf("duplicate_effect_key", { reason: "key_exists" });
+  await record("imported", key.key, effectId);
+  return { outcome: "imported", effectId };
 }
 
 /** The landing status of an identity-grain effect: its active hold, recall over quality (G7-4). */
@@ -367,7 +597,7 @@ async function landingStatus(client: PoolClient, identityId: string | null): Pro
 async function writeEffect(
   client: PoolClient,
   ctx: IngestContext,
-  row: StockImportRowInput,
+  row: Pick<StockImportRowInput, "voucherType" | "voucherNo" | "creation" | "stockUom">,
   rowId: string,
   d: Decision,
 ): Promise<string | null> {
@@ -433,9 +663,9 @@ async function recordRow(
        (id, tenant_id, store_id, page_id, erpnext_warehouse_ref, ledger_entry_ref, entry_index,
         voucher_type, voucher_no, voucher_detail_no, erpnext_item_ref, erpnext_batch_ref, creation,
         is_cancelled, actual_qty, stock_uom, outcome, effect_key, tenant_product_ref,
-        tracking_identity_id, effect_id)
+        tracking_identity_id, effect_id, event_type)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz,
-             $14, $15::numeric, $16, $17, $18, $19, $20, $21)`,
+             $14, $15::numeric, $16, $17, $18, $19, $20, $21, $22)`,
     [
       rowId,
       ctx.tenantId,
@@ -458,6 +688,7 @@ async function recordRow(
       d.productId,
       d.identityId,
       effectId,
+      d.eventType ?? null,
     ],
   );
 }

@@ -146,6 +146,14 @@ export interface DeviceAuthDetectorDeps {
    * #545 send mark). Optional; a throw is contained.
    */
   onUnauthorized?: (source: DeviceRevokedSource) => void;
+  /**
+   * RT-1348 — Backend-Core ACCEPTED the device credential (a device-bearer 2xx,
+   * from an observed call or the confirmation call) while the detector is
+   * neither stopped nor confirmed. The pairing store uses it to let a legacy
+   * pairing (no stored backend origin) adopt the origin it was just accepted on.
+   * Optional; a throw is contained.
+   */
+  onDeviceAccepted?: () => void;
   logger?: Pick<Logger, 'info' | 'warn'>;
 }
 
@@ -222,6 +230,7 @@ export function createDeviceAuthDetector(deps: DeviceAuthDetectorDeps): DeviceAu
       return;
     }
     if (outcome === 'ok') {
+      reportAccepted();
       toClear();
       return;
     }
@@ -237,9 +246,19 @@ export function createDeviceAuthDetector(deps: DeviceAuthDetectorDeps): DeviceAu
     }
   }
 
+  /** RT-1348: a device-bearer 2xx reaches the hook (contained). */
+  function reportAccepted(): void {
+    try {
+      deps.onDeviceAccepted?.();
+    } catch {
+      // The hook's owner logs its own failures; the count is reset regardless.
+    }
+  }
+
   function observeOutcome(source: DeviceRevokedSource, outcome: DeviceAuthOutcome): void {
     if (stopped || state === 'confirmed') return;
     if (outcome === 'ok') {
+      reportAccepted();
       toClear();
       return;
     }

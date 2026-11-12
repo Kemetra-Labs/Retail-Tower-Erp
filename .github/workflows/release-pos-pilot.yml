@@ -14,6 +14,12 @@
 #                 ref whose version equals apps/pos/package.json, a dry-run needs nothing else.
 #   build         the Windows package (win-unpacked), unsigned: the same steps as release-pos build, including
 #                 the fuse read-back and native-load smoke. No cache, no secrets, no environment.
+#                 RT-1347: it also stamps the pilot lane configuration (lane `pilot`, the pilot Backend-Core
+#                 API address and the Descope project id) into the app from two REPOSITORY variables
+#                 (POS_PILOT_LANE_API_BASE_URL, POS_PILOT_LANE_DESCOPE_PROJECT_ID; public values, kept out of
+#                 the repository), refuses a blank value before installing anything, then reads lane-config.json
+#                 back out of the packaged app.asar and refuses a file that is not exactly that stamp. The update
+#                 origin and channel stay empty (RT-1345 D5 is not approved).
 #   sign-dry-run  dry-run mode only. Builds the NSIS installer from the prebuilt win-unpacked with an ephemeral
 #                 self-signed pilot leaf (release-pilot-installer.ps1 -Mode dry-run) and runs the same checks
 #                 (signatures Valid, exact subject, timestamp, silent install and uninstall, no app-update.yml).
@@ -22,7 +28,9 @@
 #                 pilot signing PFX). Installs with --ignore-scripts, signs with the pilot leaf, verifies, and
 #                 always removes the certificates it added.
 #   manifest      release-manifest.json + unsigned provenance + SHA256SUMS (.github/release/manifest.py, product
-#                 pos-pilot: the manifest carries signing=pilot). Every run, dry-run included.
+#                 pos-pilot: the manifest carries signing=pilot, and lane_config, the SHA-256 of the stamped
+#                 lane-config.json the build job read back: a field of its own, never a second artifact). Every
+#                 run, dry-run included.
 #   publish       release mode only, behind the release-pos-pilot environment (tag-only deployment policy;
 #                 publish refuses unless it is protected that way and release-pos-pilot-sign has a required
 #                 reviewer and admits only pos-pilot/v* tags). Attests the signed installer's build provenance and creates the GitHub
@@ -115,6 +123,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    outputs:
+      lane_config_digest: ${{ steps.lane.outputs.lane_config_digest }}
     defaults:
       run:
         shell: bash
@@ -130,6 +140,25 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # RT-1347: the pilot lane's public values are REPOSITORY variables (this job has no environment). A blank or
+      # unset one stops the run here, before a minute of build; the message names the variable, never a value.
+      # The shape of each value is checked by the build's own stamp step, and the packaged file by the step below.
+      - name: Check the pilot lane variables
+        env:
+          POS_PILOT_LANE_API_BASE_URL: ${{ vars.POS_PILOT_LANE_API_BASE_URL }}
+          POS_PILOT_LANE_DESCOPE_PROJECT_ID: ${{ vars.POS_PILOT_LANE_DESCOPE_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in POS_PILOT_LANE_API_BASE_URL POS_PILOT_LANE_DESCOPE_PROJECT_ID; do
+            value="${!name:-}"
+            [ -n "${value//[[:space:]]/}" ] || missing+=("$name")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::the repository variable(s) ${missing[*]} are not set or are blank: the pilot build cannot carry its lane configuration (RT-1347). The owner sets them under Settings, Secrets and variables, Actions, Variables."
+            exit 1
+          fi
+
       # Full install: postinstall runs electron-rebuild -f -w better-sqlite3.
       - name: Install dependencies
         run: npm ci
@@ -137,7 +166,16 @@ jobs:
       - name: Rebuild argon2 for Electron ABI (packaging)
         run: npx electron-rebuild -f -w argon2
 
+      # RT-1347: build:main ends with the lane stamp (scripts/stamp-lane-config.ts), which writes
+      # dist/lane-config.json into the asar from these inputs and fails the build on a value its validator refuses.
+      # Public values only: no secret. The update origin and channel are explicitly empty for the pilot lane.
       - name: Build (renderer + main + preload)
+        env:
+          POS_LANE_CONFIG_LANE: pilot
+          POS_LANE_CONFIG_API_BASE_URL: ${{ vars.POS_PILOT_LANE_API_BASE_URL }}
+          POS_LANE_CONFIG_DESCOPE_PROJECT_ID: ${{ vars.POS_PILOT_LANE_DESCOPE_PROJECT_ID }}
+          POS_LANE_CONFIG_UPDATE_ORIGIN: ""
+          POS_LANE_CONFIG_UPDATE_CHANNEL: ""
         run: npm run build
 
       # Unsigned: electron-builder finds no signing credential in this job. Signing is the sign-* jobs.
@@ -152,6 +190,17 @@ jobs:
 
       - name: Native-load smoke (packaged better-sqlite3 + argon2)
         run: npx tsx scripts/verify-packaged.ts native
+
+      # RT-1347: reads dist/lane-config.json out of the packaged app.asar (the file the app will read) and refuses
+      # anything but lane pilot with the API address and the Descope project id and no update origin or channel.
+      # Its digest goes to the manifest. Runs before the upload, so a bad package never reaches a signing job.
+      - name: Verify the packaged pilot lane configuration
+        id: lane
+        env:
+          # The values the package must carry: the same two repository variables the build stamped from.
+          POS_PILOT_LANE_API_BASE_URL: ${{ vars.POS_PILOT_LANE_API_BASE_URL }}
+          POS_PILOT_LANE_DESCOPE_PROJECT_ID: ${{ vars.POS_PILOT_LANE_DESCOPE_PROJECT_ID }}
+        run: npx tsx scripts/pilot/verify-pilot-lane-config.ts
 
       # The signing jobs build the installer from exactly this fused, smoke-tested directory.
       - name: Upload win-unpacked (for the signing jobs)
@@ -321,10 +370,13 @@ jobs:
           TAG: ${{ needs.resolve.outputs.tag }}
           REPOSITORY: ${{ github.repository }}
           CI_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          LANE_CONFIG_DIGEST: ${{ needs.build.outputs.lane_config_digest }}
         run: |
           set -euo pipefail
           shopt -s nullglob
           fail() { echo "::error::$*"; exit 1; }
+          # RT-1347: the digest of the lane-config.json the build job read back from the packaged app.
+          [[ "$LANE_CONFIG_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "the build job gave no lane configuration digest"
           PKG="$RUNNER_TEMP/pkg"
           exes=("$PKG"/POS-Pulse-Setup-*.exe)
           [ "${#exes[@]}" -eq 1 ] || fail "expected one installer, found ${#exes[@]}"
@@ -332,7 +384,7 @@ jobs:
           [ "$(ls "$PKG" | paste -sd ' ' -)" = "$EXE" ] \
             || fail "the installer package must hold exactly $EXE (got: $(ls "$PKG" | paste -sd ' ' -))"
           args=(--product pos-pilot --sha "$SHA" --mode "$MODE" --repository "$REPOSITORY" --ci-url "$CI_URL"
-                --artifact "pos-installer=$PKG/$EXE"
+                --artifact "pos-installer=$PKG/$EXE" --lane-config-digest "$LANE_CONFIG_DIGEST"
                 --note "certificate=self-signed pilot leaf (CN=Kemetra POS PILOT), privately trusted, not publicly trusted (RT-1290, RT-1294)"
                 --note "updater=none: the installer ships no update configuration"
                 --out "$RUNNER_TEMP/manifest")
