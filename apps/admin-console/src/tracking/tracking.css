@@ -241,3 +241,21 @@
     border-inline-start-color: CanvasText;
   }
 }
+
+/* RT-455 part 2: the resolution queue's lines, and the filters of the queue and
+ * the sale-line findings. */
+.tracking__lines {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tracking__line {
+  overflow-wrap: anywhere;
+}
+
+.tracking__filter {
+  max-inline-size: 22rem;
+}

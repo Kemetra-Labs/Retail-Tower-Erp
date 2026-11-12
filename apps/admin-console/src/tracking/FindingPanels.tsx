@@ -238,15 +238,30 @@ export function ExpiringPanel(): React.JSX.Element {
 // --- Tracking consistency (critical) ---------------------------------------------------
 
 /**
- * OD-8: a critical band above the tabs, only while the server reports one. No
- * finding renders nothing: 1.10.0 emits none, so an empty set is no evidence of
- * consistency and is never drawn as «0».
+ * OD-8: a critical band above the tabs, only while the server reports a finding.
+ * No emitter of this kind is on `main` yet (RT-451 and RT-453 own them), so an
+ * empty set is no evidence of consistency: it is never drawn as «0». The Health
+ * view says it is unavailable instead (RT-455 part 2: nothing is faked).
  */
 export function ConsistencyBand({
   findings,
 }: Readonly<{ findings: readonly ConsistencyFinding[] }>): React.JSX.Element | null {
   const t = useT();
-  if (findings.length === 0) return null;
+  if (findings.length === 0) {
+    return (
+      <section
+        className="tracking__soon"
+        aria-labelledby="tracking-consistency-unavailable-title"
+        data-testid="tracking-consistency-unavailable"
+      >
+        <span className="badge">{t("tracking.expiring.tag")}</span>
+        <h2 id="tracking-consistency-unavailable-title" className="tracking__soon-title">
+          {t("tracking.consistency.unavailable.title")}
+        </h2>
+        <p className="tracking__muted">{t("tracking.consistency.unavailable.body")}</p>
+      </section>
+    );
+  }
   return (
     <section
       className="tracking__consistency"

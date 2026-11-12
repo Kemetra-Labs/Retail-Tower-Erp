@@ -30,6 +30,8 @@ const api = {
   getTrackingIdentity: vi.fn(),
   getTrackingIdentityPositions: vi.fn(),
   listExpiryCorrections: vi.fn(),
+  listTrackingResolutionQueue: vi.fn(),
+  listSaleLineFindings: vi.fn(),
   placeQualityHold: vi.fn(),
   releaseTrackingHold: vi.fn(),
   createInventoryRecall: vi.fn(),
@@ -45,6 +47,8 @@ vi.mock("@/lib/tracking-queries", () => ({
   getTrackingIdentity: (...a: unknown[]) => api.getTrackingIdentity(...a),
   getTrackingIdentityPositions: (...a: unknown[]) => api.getTrackingIdentityPositions(...a),
   listExpiryCorrections: (...a: unknown[]) => api.listExpiryCorrections(...a),
+  listTrackingResolutionQueue: (...a: unknown[]) => api.listTrackingResolutionQueue(...a),
+  listSaleLineFindings: (...a: unknown[]) => api.listSaleLineFindings(...a),
   placeQualityHold: (...a: unknown[]) => api.placeQualityHold(...a),
   releaseTrackingHold: (...a: unknown[]) => api.releaseTrackingHold(...a),
   createInventoryRecall: (...a: unknown[]) => api.createInventoryRecall(...a),
@@ -182,6 +186,10 @@ beforeEach(() => {
   getTrackedSelling.mockReset();
   getTrackedSelling.mockResolvedValue(SWITCH_ON);
   api.getTenantTrackingSummary.mockResolvedValue(ok({ hasTrackedProducts: true }));
+  api.listTrackingResolutionQueue.mockResolvedValue(
+    ok({ items: [], nextCursor: null, unresolvedCount: 0 }),
+  );
+  api.listSaleLineFindings.mockResolvedValue(ok({ items: [], nextCursor: null }));
   api.listSafetyFindings.mockResolvedValue(
     ok({ findings: [], generatedAt: "2026-11-03T12:32:00Z" }),
   );
