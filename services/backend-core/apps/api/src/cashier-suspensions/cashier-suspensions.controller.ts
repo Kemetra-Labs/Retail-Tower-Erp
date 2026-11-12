@@ -51,9 +51,10 @@ function uuid(value: string, name: string): string {
   return value.toLowerCase();
 }
 
+/** The resolved context; a null tenant (a platform admin with no active tenant) is the service's non-disclosing 404. */
 function contextOf(request: TenantContextRequest): ResolvedContext {
   const ctx = request.context;
-  if (!ctx || ctx.tenantId === null) throw new UnauthorizedException("Unauthorized");
+  if (!ctx) throw new UnauthorizedException("Unauthorized");
   return ctx;
 }
 
