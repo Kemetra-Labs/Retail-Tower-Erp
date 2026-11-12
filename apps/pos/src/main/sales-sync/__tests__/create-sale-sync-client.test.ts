@@ -453,6 +453,22 @@ describe('RT-79 — tenders on the wire (RT-10 D1; SaleTender contract)', () => 
     }
   });
 
+  it('RT-1331: a voucher tender goes out as {method, amount, redemptionId[, tenderRef]} and sums with cash', () => {
+    const RED = '3f1c6a52-9d0e-4b7a-8a41-0c2d5e7f9a10';
+    const REF = 'a1111111-1111-4111-8111-111111111111';
+    const withVoucher: CaptureSalePayload = {
+      ...PAYLOAD,
+      tenders: [
+        { method: 'cash', amountMinor: PAYLOAD.totalMinor - 500 },
+        { method: 'voucher', amountMinor: 500, redemptionId: RED, tenderRef: REF },
+      ],
+    };
+    expect(toWireBody(withVoucher, 'EGP').tenders).toEqual([
+      { method: 'cash', amount: minorUnitsToDecimalString(PAYLOAD.totalMinor - 500, 2) },
+      { method: 'voucher', amount: '5.00', redemptionId: RED, tenderRef: REF },
+    ]);
+  });
+
   it('a payload without tenders has no tenders key (byte-identical to pre-RT-79)', () => {
     expect('tenders' in toWireBody(PAYLOAD, 'EGP')).toBe(false);
   });

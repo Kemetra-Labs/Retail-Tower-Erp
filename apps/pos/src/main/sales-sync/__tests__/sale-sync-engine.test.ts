@@ -289,7 +289,16 @@ describe('sale-sync-engine', () => {
 
 describe('RT-79 — tenders through the engine', () => {
   const CASH = JSON.stringify([{ tender_type: 'cash', amount_applied_minor: 1500 }]);
+  const REDEMPTION = '3f1c6a52-9d0e-4b7a-8a41-0c2d5e7f9a10';
+  // RT-1331: a voucher line with no frozen redemption id can never be sent.
   const VOUCHER = JSON.stringify([{ tender_type: 'internal_voucher', amount_applied_minor: 1500 }]);
+  const REDEEMED_VOUCHER = JSON.stringify([
+    {
+      tender_type: 'internal_voucher',
+      amount_applied_minor: 1500,
+      voucher_authority_redemption_id: REDEMPTION,
+    },
+  ]);
   const SINCE = '2026-06-01T00:00:00.000Z';
 
   async function tendered(tenderJson: string, tendersSince: string | null | undefined) {
@@ -325,15 +334,25 @@ describe('RT-79 — tenders through the engine', () => {
       tendersSince: SINCE,
       onDeadLetter: (_saleId, reason) => reasons.push(reason),
     });
-    expect(reasons).toEqual(['tender not sendable: unsupported tender type internal_voucher']);
+    expect(reasons).toEqual(['tender not sendable: voucher tender has no redemption id']);
     h.db.close();
   });
 
-  it('a voucher-tendered sale is dead-lettered with NO POST', async () => {
+  it('a voucher-tendered sale WITHOUT a redemption id is dead-lettered with NO POST', async () => {
     const { h, client } = await tendered(VOUCHER, SINCE);
     expect(client.calls).toHaveLength(0);
     expect(nn(h.stateRepo.read('sale-1')).sync_status).toBe('dead_letter');
     expect(h.deadLetters).toEqual(['sale-1']);
+    h.db.close();
+  });
+
+  it('RT-1331: a voucher-tendered sale WITH its redemption id is sent and synced (not dead-lettered)', async () => {
+    const { h, client } = await tendered(REDEEMED_VOUCHER, SINCE);
+    expect(client.calls[0]?.tenders).toEqual([
+      { method: 'voucher', amountMinor: 1500, redemptionId: REDEMPTION },
+    ]);
+    expect(nn(h.stateRepo.read('sale-1')).sync_status).toBe('synced');
+    expect(h.deadLetters).toEqual([]);
     h.db.close();
   });
 });

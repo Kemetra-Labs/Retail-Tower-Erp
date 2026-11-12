@@ -100,6 +100,7 @@ import type {
   CaptureSaleLinePromotion,
   CaptureSalePayload,
   CaptureSaleReceipt,
+  CaptureSaleTender,
 } from './capture-payload.js';
 import type { PosSalesSales } from '../../shared/api-types.js';
 import { parseRetryAfterMs } from './retry-after.js';
@@ -354,10 +355,16 @@ type CaptureSaleReceiptWire = Omit<CaptureSaleReceipt, 'changeGivenMinor'> & {
   changeGiven?: string;
 };
 
-/** The DP-2 `SaleTender` wire shape (RT-10 D1) — `reference` is deliberately never sent. */
+/**
+ * The DP-2 `SaleTender` wire shape (RT-10 D1) — `reference` is deliberately never sent.
+ * RT-1331: a `voucher` tender carries `redemptionId` (never a voucher code); `tenderRef`
+ * only when the method repeats.
+ */
 interface CaptureSaleTenderWire {
-  method: 'cash' | 'card_external';
+  method: 'cash' | 'card_external' | 'voucher';
   amount: string;
+  redemptionId?: string;
+  tenderRef?: string;
 }
 
 /**
@@ -449,7 +456,18 @@ function tendersWire(
   return tenders.map((t) => ({
     method: t.method,
     amount: minorUnitsToDecimalString(t.amountMinor, exponent),
+    ...tenderIdentityWire(t),
   }));
+}
+
+/** RT-1331: the voucher redemption id and the tender ref, only when the tender has them. */
+function tenderIdentityWire(
+  t: CaptureSaleTender,
+): Pick<CaptureSaleTenderWire, 'redemptionId' | 'tenderRef'> {
+  return {
+    ...(t.redemptionId === undefined ? {} : { redemptionId: t.redemptionId }),
+    ...(t.tenderRef === undefined ? {} : { tenderRef: t.tenderRef }),
+  };
 }
 
 /** Why a 200/201 capture answer yielded `saleRef: null` (closed set; no body content). */

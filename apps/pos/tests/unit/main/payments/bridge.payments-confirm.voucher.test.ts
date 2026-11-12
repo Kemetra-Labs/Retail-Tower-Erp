@@ -345,6 +345,78 @@ describe('T221 — payments.confirm voucher path', () => {
     expect(fsm.confirm).not.toHaveBeenCalled();
   });
 
+  // ── RT-1331 — the redeem-time refusal reason reaches the attempt result ────
+  // The WHOLE attempt fails (same as any mid-sweep failure; already-redeemed lines are
+  // compensated); only the failure reason changes. The renderer still shows one generic
+  // refusal (F-A4B-003): the reason is for the audit trail and the attempt row.
+
+  const PASS_THROUGH = [
+    'voucher_not_found',
+    'voucher_expired',
+    'voucher_cancelled',
+    'voucher_already_redeemed',
+    'voucher_tenant_mismatch',
+    'voucher_branch_mismatch',
+  ] as const;
+
+  async function confirmWithRedeemOutcome(outcome: RedeemVoucherOutcome) {
+    const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
+    const fsm = makePaymentAttemptFsmDouble();
+    const auditEmitter = makeAuditEmitterDouble();
+    const handler = createPaymentsConfirmHandler({
+      ...makeSettlementDeps(fsm, auditEmitter),
+      getCurrentSession: sessionSource.getCurrentSession,
+      attemptsRepo: makeAttemptsRepoDouble([makeAttemptRow({ envelope_subtotal_minor: 1500 })]),
+      linesRepo: makeLinesRepoDouble([
+        makeLineRow({
+          tender_line_id: 'tl-voucher-1',
+          tender_type: 'internal_voucher',
+          amount_applied_minor: 1500,
+          voucher_redemption_intent_token: 'TOKEN-SECRET',
+          applied_at: '2026-05-25T10:00:01.000Z',
+        }),
+      ]),
+      paymentAttemptFsm: fsm,
+      tenderLineFsm: makeTenderLineFsmDouble(),
+      idempotency: makeIdempotencyHelperDouble(),
+      auditEmitter,
+      redeemVoucher: makeRedeemVoucherDouble(outcome),
+      reverseVoucher: makeReverseVoucherDouble(),
+      uuid: () => 'uuid-confirm-v',
+      clock: () => new Date('2026-05-25T10:00:05.000Z'),
+    });
+    return { result: await handler(validRequest()), fsm, auditEmitter };
+  }
+
+  it.each(PASS_THROUGH)(
+    'RT-1331: a redeem refused with %s fails the attempt WITH that reason (fail + audit + response)',
+    async (reason) => {
+      const { result, fsm, auditEmitter } = await confirmWithRedeemOutcome({
+        kind: 'refused',
+        reason,
+      });
+      expect(result).toEqual({ kind: 'refused', reason });
+      expect(fsm.fail).toHaveBeenCalledTimes(1);
+      expect(fsm.fail).toHaveBeenCalledWith(expect.objectContaining({ failure_reason: reason }));
+      expect(auditEmitter.emitPaymentFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ failure_reason: reason }),
+      );
+      expect(fsm.confirm).not.toHaveBeenCalled();
+    },
+  );
+
+  it('RT-1331: a redeem refusal outside the closed attempt reasons stays dependency_unavailable', async () => {
+    for (const reason of ['validation_failure', 'intent_token_not_found'] as const) {
+      const { result } = await confirmWithRedeemOutcome({ kind: 'refused', reason });
+      expect(result).toEqual({ kind: 'refused', reason: 'dependency_unavailable' });
+    }
+  });
+
+  it('RT-1331: authority_unreachable (incl. a 429) stays dependency_unavailable', async () => {
+    const { result } = await confirmWithRedeemOutcome({ kind: 'authority_unreachable' });
+    expect(result).toEqual({ kind: 'refused', reason: 'dependency_unavailable' });
+  });
+
   it('refuses dependency_unavailable when voucher lines exist but redeemVoucher dep is missing (pre-Wave-4)', async () => {
     const sessionSource = makeSessionSource(makeSession({ user_id: OPERATOR_USER_ID }));
     const row = makeAttemptRow({ envelope_subtotal_minor: 1500 });

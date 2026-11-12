@@ -117,10 +117,18 @@ export interface CaptureSaleLineDiscount {
   approverRole: 'manager' | 'admin';
 }
 
-/** One way the sale was paid. `amountMinor` is NET of change. No card data/reference (D-A). */
+/**
+ * One way the sale was paid. `amountMinor` is NET of change. No card data/reference (D-A).
+ * RT-1331: a `voucher` entry is one redeemed voucher line (never merged with another): it
+ * carries the V-A `redemptionId` and its amount is exactly the redeemed amount. `tenderRef`
+ * (the POS tender line id) is set on a voucher entry only when the method repeats, as the
+ * contract requires (`captureSale` `tenders`, RT-360).
+ */
 export interface CaptureSaleTender {
-  method: 'cash' | 'card_external';
+  method: 'cash' | 'card_external' | 'voucher';
   amountMinor: number;
+  redemptionId?: string;
+  tenderRef?: string;
 }
 
 /** The `captureSale` request body. Money is integer minor units. */
@@ -343,12 +351,20 @@ interface PersistedTenderLine {
   tender_type?: unknown;
   amount_applied_minor?: unknown;
   change_due_minor?: unknown;
+  /** RT-1331: the V-A redemption id frozen on an `internal_voucher` line. */
+  voucher_authority_redemption_id?: unknown;
+  /** RT-362: the line's stable identity, frozen with the summary. */
+  tender_line_id?: unknown;
 }
 
 const TENDER_METHOD: Readonly<Record<string, CaptureSaleTender['method']>> = {
   cash: 'cash',
   external_card_terminal: 'card_external',
+  internal_voucher: 'voucher',
 };
+
+/** A V-A redemption id / POS tender line id is a UUID (`SaleTender`, format uuid). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * RFC 3339 instant with an EXPLICIT zone (`Z` or `+hh:mm`). `Date.parse` alone would also
@@ -408,13 +424,8 @@ function isSafeNonNegativeInt(n: unknown): n is number {
   return typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
 }
 
-/**
- * Frozen `tender_lines_summary_json` -> contract tenders: cash NET of change,
- * `external_card_terminal` -> `card_external` (reference deliberately omitted), one
- * entry per method in first-seen order, zero-net entries dropped. Throws
- * `TenderNotSendableError` for anything that cannot be sent faithfully.
- */
-function buildTenders(sale: SaleRow): CaptureSaleTender[] {
+/** Read the frozen summary into a list of lines; `null` stands for an empty (tender-unknown) one. */
+function parseTenderLines(sale: SaleRow): PersistedTenderLine[] | null {
   let lines: unknown;
   try {
     lines = JSON.parse(sale.tender_lines_summary_json);
@@ -422,38 +433,103 @@ function buildTenders(sale: SaleRow): CaptureSaleTender[] {
     throw new TenderNotSendableError('unreadable tender summary');
   }
   if (!Array.isArray(lines)) throw new TenderNotSendableError('tender summary is not a list');
-  if (lines.length === 0) return []; // tender-unknown (RT-10 D8): nothing to reconcile
-
-  const net = new Map<CaptureSaleTender['method'], number>();
-  for (const raw of lines as unknown[]) {
-    if (typeof raw !== 'object' || raw === null) {
-      throw new TenderNotSendableError('malformed tender line');
-    }
-    const line = raw as PersistedTenderLine;
-    const method =
-      typeof line.tender_type === 'string' ? TENDER_METHOD[line.tender_type] : undefined;
-    if (method === undefined) {
-      throw new TenderNotSendableError(`unsupported tender type ${String(line.tender_type)}`);
-    }
-    const applied = line.amount_applied_minor;
-    const change = line.change_due_minor ?? 0;
-    if (!isSafeNonNegativeInt(applied) || !isSafeNonNegativeInt(change) || change > applied) {
-      throw new TenderNotSendableError(`invalid ${method} amount`);
-    }
-    net.set(method, (net.get(method) ?? 0) + (applied - change));
+  if (lines.length === 0) return null; // tender-unknown (RT-10 D8): nothing to reconcile
+  if ((lines as unknown[]).some((raw) => typeof raw !== 'object' || raw === null)) {
+    throw new TenderNotSendableError('malformed tender line');
   }
-  const sum = [...net.values()].reduce((a, b) => a + b, 0);
+  return lines as PersistedTenderLine[];
+}
+
+/** One summary line, validated: its method and its amount applied / change due (minor units). */
+function readTenderLine(line: PersistedTenderLine): {
+  method: CaptureSaleTender['method'];
+  applied: number;
+  change: number;
+} {
+  const method = typeof line.tender_type === 'string' ? TENDER_METHOD[line.tender_type] : undefined;
+  if (method === undefined) {
+    throw new TenderNotSendableError(`unsupported tender type ${String(line.tender_type)}`);
+  }
+  const applied = line.amount_applied_minor;
+  const change = line.change_due_minor ?? 0;
+  if (!isSafeNonNegativeInt(applied) || !isSafeNonNegativeInt(change) || change > applied) {
+    throw new TenderNotSendableError(`invalid ${method} amount`);
+  }
+  return { method, applied, change };
+}
+
+/** One `internal_voucher` line, validated; it becomes exactly one `voucher` entry. */
+interface VoucherLine {
+  amountMinor: number;
+  redemptionId: string;
+  tenderLineId: unknown;
+}
+
+function voucherLineOf(line: PersistedTenderLine, applied: number, change: number): VoucherLine {
+  const redemptionId = line.voucher_authority_redemption_id;
+  if (typeof redemptionId !== 'string' || !UUID.test(redemptionId)) {
+    throw new TenderNotSendableError('voucher tender has no redemption id');
+  }
+  // A voucher pays at full price: no change, and an amount of exactly what was redeemed.
+  if (change !== 0 || applied === 0) throw new TenderNotSendableError('invalid voucher amount');
+  return { amountMinor: applied, redemptionId, tenderLineId: line.tender_line_id };
+}
+
+/**
+ * RT-1331: one `voucher` entry per voucher line, in line order. `tenderRef` goes on every
+ * voucher entry only when the method repeats (`SaleTender`, RT-360), so a repeat needs each
+ * line's frozen identity; a redemption id may appear once per sale.
+ */
+function voucherTenders(vouchers: readonly VoucherLine[]): CaptureSaleTender[] {
+  if (new Set(vouchers.map((v) => v.redemptionId)).size !== vouchers.length) {
+    throw new TenderNotSendableError('voucher redemption id repeated');
+  }
+  const repeated = vouchers.length > 1;
+  return vouchers.map((v) => {
+    if (!repeated) {
+      return { method: 'voucher', amountMinor: v.amountMinor, redemptionId: v.redemptionId };
+    }
+    if (typeof v.tenderLineId !== 'string' || !UUID.test(v.tenderLineId)) {
+      throw new TenderNotSendableError('repeated voucher tender has no line identity');
+    }
+    return {
+      method: 'voucher',
+      amountMinor: v.amountMinor,
+      redemptionId: v.redemptionId,
+      tenderRef: v.tenderLineId,
+    };
+  });
+}
+
+/**
+ * Frozen `tender_lines_summary_json` -> contract tenders: cash NET of change,
+ * `external_card_terminal` -> `card_external` (reference deliberately omitted), one
+ * entry per method in first-seen order, zero-net entries dropped. RT-1331: each
+ * `internal_voucher` line is its own `voucher` entry, after the cash and card ones.
+ * Throws `TenderNotSendableError` for anything that cannot be sent faithfully.
+ */
+function buildTenders(sale: SaleRow): CaptureSaleTender[] {
+  const lines = parseTenderLines(sale);
+  if (lines === null) return [];
+
+  const net = new Map<'cash' | 'card_external', number>();
+  const vouchers: VoucherLine[] = [];
+  for (const line of lines) {
+    const { method, applied, change } = readTenderLine(line);
+    if (method === 'voucher') vouchers.push(voucherLineOf(line, applied, change));
+    else net.set(method, (net.get(method) ?? 0) + (applied - change));
+  }
+  const sum =
+    [...net.values()].reduce((a, b) => a + b, 0) + vouchers.reduce((a, v) => a + v.amountMinor, 0);
   if (sum !== sale.subtotal_minor) {
     throw new TenderNotSendableError(
       `tenders sum ${String(sum)} != sale total ${String(sale.subtotal_minor)}`,
     );
   }
-  return [...net]
+  const fungible = [...net]
     .filter(([, amountMinor]) => amountMinor > 0)
-    .map(([method, amountMinor]) => ({
-      method,
-      amountMinor,
-    }));
+    .map(([method, amountMinor]): CaptureSaleTender => ({ method, amountMinor }));
+  return [...fungible, ...voucherTenders(vouchers)];
 }
 
 /** The sale's tenders: its frozen summary, or the RT-858 zero-total tender when that is empty. */
