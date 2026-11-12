@@ -32,21 +32,52 @@
 #
 # It runs on main only: a copy of this file on another branch could print a verification it did not do, and the
 # Backend-Core `ref` pin and the upload role's trust are each one exact value (refs/heads/main).
+#
+# RT-1363, WITHDRAW mode (`mode` = withdraw): Backend-Core takes a withdrawal (RT-1298) only from this workflow's own
+# GitHub OIDC token, and its `job_workflow_ref` pin names this file, so the withdraw jobs live here and in no other
+# file. In withdraw mode the four promote jobs above do not run; in promote mode the two below do not run. It takes
+# the version (`tag`) and the registry id (`release_id`) of the release to withdraw.
+#
+#   withdraw-check  every withdraw run, dry or live, with no environment, no token and no credential: main only, a
+#                   person started it, the tag and the id are well formed. It prints what a live run would withdraw
+#                   and, in a live run, what the approver should confirm. A dry run (`dry_run` true, the default)
+#                   stops here and withdraws nothing.
+#   withdraw        LIVE only (dry_run false), behind the same protected environment as the promote jobs, so it asks
+#                   for the same approval. One POST to the withdraw route with a GitHub OIDC token for the
+#                   Backend-Core audience. It accepts exactly a 200 whose release is the one asked for and is now
+#                   withdrawn, and refuses any other answer with its code. A withdrawal is for good, and repeating
+#                   it is safe (an already-withdrawn release answers 200), so a failed run may simply be run again.
+#
+# Withdrawing only stops the resolver offering the release and frees the slot for the next one: it never activates
+# a release (a platform admin does that in the Console), no object is deleted and nothing here touches the bucket.
 name: promote-pos-pilot
 
 "on":
   workflow_dispatch:
     inputs:
+      mode:
+        description: promote (the default) verifies a pilot release and, with dry_run false, uploads and registers it. withdraw withdraws one registered release for good (RT-1363) and needs tag and release_id.
+        type: choice
+        options:
+          - promote
+          - withdraw
+        default: promote
       tag:
-        description: The pilot release tag to verify, pos-pilot/vX.Y.Z. It must be on main.
+        description: The pilot release tag, pos-pilot/vX.Y.Z. Promote verifies it and it must be on main. Withdraw takes the version of the release that release_id names.
         type: string
         required: true
       leaf_sha1:
-        description: SHA-1 thumbprint (40 hex) of the pilot signing leaf, as the release-pos-pilot signing step printed it.
+        description: Promote only. SHA-1 thumbprint (40 hex) of the pilot signing leaf, from the protected environment's POS_PILOT_LEAF_SHA1. Withdraw does not use it.
         type: string
-        required: true
+        required: false
+        default: ''
+      release_id:
+        description: Withdraw only. The registry id (a UUID) of the release to withdraw, as the register job of its promotion run printed it or the Console release list shows it.
+        type: string
+        required: false
+        default: ''
       dry_run:
-        description: Verify only (true, the default). False also uploads the verified bytes and registers them; it never activates.
+        description: True (the default) changes nothing. Promote then only verifies; withdraw only checks the request and prints what it would withdraw. False promotes (uploads and registers, never activates) or withdraws, after the environment's approval.
         type: boolean
         default: true
 
@@ -59,6 +90,7 @@ concurrency:
 jobs:
   resolve:
     name: promote/resolve
+    if: ${{ inputs.mode == 'promote' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -102,6 +134,7 @@ jobs:
   verify:
     name: promote/verify (dry-run, nothing is uploaded or registered)
     needs: resolve
+    if: ${{ inputs.mode == 'promote' }}
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
@@ -254,7 +287,7 @@ jobs:
   upload:
     name: promote/upload (live, the private bucket, behind the approval environment)
     needs: [resolve, verify]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ inputs.mode == 'promote' && !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: release-pos-pilot-promote
@@ -456,7 +489,7 @@ jobs:
   register:
     name: promote/register (live, Backend-Core, behind the approval environment)
     needs: [resolve, upload]
-    if: ${{ !inputs.dry_run }}
+    if: ${{ inputs.mode == 'promote' && !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release-pos-pilot-promote
@@ -504,4 +537,113 @@ jobs:
             echo
             echo "- release \`$(jq -r '.releaseId // "unknown"' "$RESP")\`, version \`$VERSION\`"
             echo "- a platform admin activates it separately in the Console; nothing here makes it downloadable"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # RT-1363, withdraw mode, every run. No environment, no token, no credential and no checkout: it validates the
+  # request and says what it would withdraw. The live job repeats the checks that matter, because it holds the token.
+  withdraw-check:
+    name: withdraw/check (no environment and no token, nothing is withdrawn here)
+    if: ${{ inputs.mode == 'withdraw' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      REF: ${{ github.ref }}
+      ACTOR: ${{ github.actor }}
+      TAG: ${{ inputs.tag }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Check the withdraw request
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          # A value this run was given is never echoed as it came: only its plain characters, and only a few.
+          show() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._/@-' | head -c 60 || true; }
+          [ "$REF" = refs/heads/main ] || fail "run this workflow from main, not '$(show "$REF")': another branch's copy of it could withdraw a release without the review of main's copy"
+          [[ "$ACTOR" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]] && [ "${#ACTOR}" -le 39 ] || fail "the actor '$(show "$ACTOR")' is not a GitHub login the registry accepts (start the run as a person, not an app)"
+          [[ "$TAG" =~ ^pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "tag '$(show "$TAG")' is not pos-pilot/vX.Y.Z: name the version of the release to withdraw"
+          ID="$(printf '%s' "$RELEASE_ID" | tr 'A-F' 'a-f')"
+          [[ "$ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || fail "release_id '$(show "$RELEASE_ID")' is not a release id (the UUID the registry gave the release)"
+          VERSION="${TAG#pos-pilot/v}"
+          if [ "$DRY_RUN" = true ]; then
+            {
+              echo "### withdraw (dry run): release \`$ID\` as $TAG"
+              echo
+              echo "- a live run would withdraw the registry row \`$ID\`, which must be version \`$VERSION\`, for good: the resolver stops offering it at once and it is never approved again"
+              echo "- nothing was withdrawn: this run held no environment and no token"
+              echo "- the installer is not touched by a withdrawal, and nothing is activated"
+              echo "- run it again with dry_run false to withdraw: it first asks for your approval on the protected environment"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### withdraw requested: release \`$ID\` as $TAG"
+              echo
+              echo "- the next job withdraws it for good, after your approval on the protected environment"
+              echo "- approve only if the Console release list shows this id as version \`$VERSION\`: the check after the withdrawal can report a mix-up but cannot undo it"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # RT-1363, withdraw mode, LIVE only (dry_run false). One POST with a GitHub OIDC token for the Backend-Core audience,
+  # in the same protected environment as the promote jobs (the token's `environment` claim is one of the five pins).
+  # It never activates a release and never touches the installer.
+  withdraw:
+    name: withdraw/live (Backend-Core, behind the approval environment)
+    needs: withdraw-check
+    if: ${{ inputs.mode == 'withdraw' && !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-pos-pilot-promote
+    permissions:
+      id-token: write
+    env:
+      REF: ${{ github.ref }}
+      ACTOR: ${{ github.actor }}
+      TAG: ${{ inputs.tag }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      API_BASE: ${{ vars.POS_PILOT_API_BASE_URL }}
+      AUDIENCE: ${{ vars.POS_PILOT_PROMOTION_OIDC_AUDIENCE }}
+    steps:
+      - name: Withdraw the release through Backend-Core (OIDC bearer; it is not re-activated or deleted)
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          show() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._/@-' | head -c 60 || true; }
+          # Everything below is checked again here, before any token is requested: this job holds the credential.
+          [ "$REF" = refs/heads/main ] || fail "run this workflow from main, not '$(show "$REF")'"
+          [[ "$ACTOR" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]] && [ "${#ACTOR}" -le 39 ] || fail "the actor '$(show "$ACTOR")' is not a GitHub login the registry accepts (start the run as a person, not an app)"
+          [[ "$TAG" =~ ^pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "tag '$(show "$TAG")' is not pos-pilot/vX.Y.Z"
+          ID="$(printf '%s' "$RELEASE_ID" | tr 'A-F' 'a-f')"
+          [[ "$ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || fail "release_id '$(show "$RELEASE_ID")' is not a release id"
+          VERSION="${TAG#pos-pilot/v}"
+          [[ "$API_BASE" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$ ]] || fail "POS_PILOT_API_BASE_URL must be an https origin with no path and no trailing slash"
+          [[ "$AUDIENCE" =~ ^[A-Za-z0-9._:/@-]{3,200}$ ]] && [ "$AUDIENCE" != sts.amazonaws.com ] || fail "POS_PILOT_PROMOTION_OIDC_AUDIENCE is blank, malformed, or the audience of another service"
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] || fail "no OIDC token request is available: this job needs id-token: write"
+          # The credentials go through curl's config on stdin, never through the argument list.
+          TOKEN="$(printf 'header = "Authorization: Bearer %s"\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            | curl -K - --silent --show-error --fail --max-time 20 --proto '=https' --tlsv1.2 --get --data-urlencode "audience=$AUDIENCE" "$ACTIONS_ID_TOKEN_REQUEST_URL" \
+            | jq -r '.value // empty')" || fail "GitHub did not issue an OIDC token"
+          [ -n "$TOKEN" ] || fail "GitHub issued an empty OIDC token"
+          echo "::add-mask::$TOKEN"
+          RESP="$RUNNER_TEMP/answer.json"
+          HTTP="$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+            | curl -K - --silent --show-error --max-time 30 --proto '=https' --tlsv1.2 -o "$RESP" -w '%{http_code}' -X POST --data '' \
+                "$API_BASE/api/v1/platform/pos-pilot-releases/$ID/withdraw")" \
+            || fail "cannot reach Backend-Core, so it is not known whether release $ID was withdrawn: a withdrawal is safe to repeat, run this job again"
+          # The envelope is { error: { code } }; read only a short plain code out of whatever came back.
+          CODE="$(jq -r '((.error | objects | .code) // .code // "no code") | tostring' "$RESP" 2>/dev/null | tr -cd 'A-Za-z0-9_. -' | head -c 80 || true)"
+          [ -n "$CODE" ] || CODE="no code"
+          [ "$HTTP" = 200 ] || fail "Backend-Core answered $HTTP ($CODE) for release $ID: nothing is reported as withdrawn. 401 or 403 means the five POS_PILOT_PROMOTION_OIDC_* pins on the host do not match this token (fix the host, then run this job again). 404 means no release has this id."
+          jq -e --arg id "$ID" '.releaseId == $id and .approved == false and (.withdrawnAt | type) == "string"' "$RESP" >/dev/null 2>&1 \
+            || fail "Backend-Core answered 200 but not with release $ID now withdrawn: do not trust this run, read the release in the Console"
+          ANSWERED="$(jq -r '.version | if type == "string" then . else "none" end' "$RESP" | tr -cd '0-9A-Za-z.+-' | head -c 40 || true)"
+          [ "$ANSWERED" = "$VERSION" ] || fail "WITHDREW release $ID, which is version ${ANSWERED:-none}, not $VERSION as this run named it. A withdrawal is for good: tell the owner now, the release cannot be un-withdrawn and a fix ships as a higher version."
+          WITHDRAWN_BY="$(jq -r '.withdrawnBy // "unknown"' "$RESP" | tr -cd 'A-Za-z0-9-' | head -c 39 || true)"
+          WITHDRAWN_AT="$(jq -r '.withdrawnAt' "$RESP" | tr -cd '0-9TZ:.+-' | head -c 40 || true)"
+          {
+            echo "### Withdrew $TAG (release \`$ID\`): HTTP 200"
+            echo
+            echo "- withdrawn by \`$WITHDRAWN_BY\` at \`$WITHDRAWN_AT\` (a release that was already withdrawn answers 200 too: the login and time are then those of the first withdrawal)"
+            echo "- the resolver stops offering it at once and it is never approved again: a fix ships as a higher version"
+            echo "- the installer is untouched and the release is not re-activated or deleted; a platform admin can now activate the next release in the Console"
           } >> "$GITHUB_STEP_SUMMARY"
