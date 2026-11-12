@@ -82,7 +82,13 @@ describe('main/index.ts wires the operator namespace (004 S1)', () => {
   it('reads DESCOPE_PROJECT_ID from process.env (public project id, not secret)', () => {
     const envSource = readFileSync(resolve(__dirname, '../bootstrap/env.ts'), 'utf-8');
     expect(envSource).toContain('env: process.env,');
-    expect(resolverSource).toContain("env['DESCOPE_PROJECT_ID']");
+    // RT-1346: the read goes through the one precedence rule, environment value FIRST and the
+    // baked lane configuration only as the fallback (`config/lane-config.ts`).
+    expect(resolverSource).toMatch(
+      /resolveLaneValue\(\s*deps\.env\[ENV_DESCOPE_PROJECT_ID\],\s*baked\?\.descopeProjectId/,
+    );
+    const laneSource = readFileSync(resolve(__dirname, '../config/lane-config.ts'), 'utf-8');
+    expect(laneSource).toContain("ENV_DESCOPE_PROJECT_ID = 'DESCOPE_PROJECT_ID'");
   });
 
   it('has no Clerk exchanger left (RT-945: Descope is the only provider)', () => {

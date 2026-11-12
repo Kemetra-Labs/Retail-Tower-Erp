@@ -48,7 +48,7 @@ const INPUTS: Readonly<Record<string, keyof LaneConfig>> = {
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-export type LaneConfigStamp =
+type LaneConfigStamp =
   | { readonly kind: 'none' }
   | { readonly kind: 'stamp'; readonly config: LaneConfig }
   | {

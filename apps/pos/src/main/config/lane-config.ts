@@ -29,8 +29,8 @@ import type { UpdateChannel } from '../update/update-types.js';
  * reason only.
  */
 
-export const LANES = ['lab', 'pilot', 'production'] as const;
-export type Lane = (typeof LANES)[number];
+const LANES = ['lab', 'pilot', 'production'] as const;
+type Lane = (typeof LANES)[number];
 
 /** The file name inside `dist/` (and so inside the asar). */
 export const LANE_CONFIG_FILE = 'lane-config.json';
@@ -56,7 +56,7 @@ const OPTIONAL_FIELDS: readonly OptionalField[] = [
 ];
 
 /** Every field the file may hold. Anything else refuses the file. */
-export const LANE_CONFIG_FIELDS: readonly (keyof LaneConfig)[] = ['lane', ...OPTIONAL_FIELDS];
+const LANE_CONFIG_FIELDS: readonly (keyof LaneConfig)[] = ['lane', ...OPTIONAL_FIELDS];
 
 export type LaneConfigRefusalReason =
   | 'unreadable'
@@ -67,7 +67,7 @@ export type LaneConfigRefusalReason =
   | 'invalid_value'
   | 'looks_like_secret';
 
-export type LaneConfigVerdict =
+type LaneConfigVerdict =
   | { readonly ok: true; readonly config: LaneConfig }
   | {
       readonly ok: false;
@@ -184,7 +184,7 @@ export function parseLaneConfig(text: string): LaneConfigVerdict {
   return validateLaneConfig(raw);
 }
 
-export interface LaneConfigLogger {
+interface LaneConfigLogger {
   info(payload: object, msg: string): void;
   warn(payload: object, msg: string): void;
 }
@@ -227,9 +227,9 @@ export function loadLaneConfig(
 }
 
 /** What a setting resolved from. Logged by name, never with the value. */
-export type ConfigSource = 'env' | 'baked' | 'none';
+type ConfigSource = 'env' | 'baked' | 'none';
 
-export interface ResolvedValue {
+interface ResolvedValue {
   /** The raw environment string when the environment supplied it, else the baked value. */
   readonly value: string | undefined;
   readonly source: ConfigSource;
@@ -275,7 +275,7 @@ export const ENV_UPDATE_CHANNEL = 'POS_PULSE_UPDATE_CHANNEL';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-export interface InitBakedLaneConfigDeps {
+interface InitBakedLaneConfigDeps {
   /** `app.getAppPath()`: the asar root, which holds `dist/lane-config.json`. */
   readonly appPath: string;
   readonly logger: LaneConfigLogger;
