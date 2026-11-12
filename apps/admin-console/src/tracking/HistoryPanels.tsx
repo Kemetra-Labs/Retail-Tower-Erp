@@ -10,82 +10,15 @@
  * per-row identity read: that would be a request per row).
  */
 import { TableScrollRegion } from "@/components/DataTableScroll";
-import { ListState } from "@/components/ListState";
 import { useT } from "@/i18n";
 import type { RecallSummary, TrackingHold } from "@/lib/tracking-queries";
 import { Link } from "react-router";
-import { LoadMore, Machine, ReadError, StaleError } from "../inventory/parts";
-import type { InventoryScope, PagedState } from "../inventory/useInventory";
+import { Machine } from "../inventory/parts";
+import type { InventoryScope } from "../inventory/useInventory";
+import { PagedPanel } from "./PagedPanel";
 import { ActorName, ProductName, ReasonLabel, When } from "./parts";
 import { holdKindKey } from "./trackingLogic";
 import { useRecalls, useTrackingHolds } from "./useTracking";
-
-function Body({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <div className="inventory__panel-body inventory__panel-body--solo">{children}</div>;
-}
-
-/** Loading, a first-page failure or the empty list; null once there are rows. */
-function PagedStatus<T>({
-  list,
-  noun,
-  failedKey,
-  emptyKey,
-}: Readonly<{
-  list: PagedState<T>;
-  noun: string;
-  failedKey: "tracking.released.loadFailed" | "tracking.recalls.loadFailed";
-  emptyKey: "tracking.released.empty" | "tracking.recalls.empty";
-}>): React.JSX.Element | null {
-  const t = useT();
-  if (list.isLoading) {
-    return (
-      <Body>
-        <ListState state="loading" label={noun} />
-      </Body>
-    );
-  }
-  if (list.error) {
-    return (
-      <Body>
-        <ReadError
-          error={list.error}
-          failedKey={failedKey}
-          notFoundKey={failedKey}
-          onRetry={list.retry}
-        />
-      </Body>
-    );
-  }
-  if (list.rows.length === 0 && !list.hasMore) {
-    return (
-      <Body>
-        <ListState state="empty" emptyMessage={t(emptyKey)} />
-      </Body>
-    );
-  }
-  return null;
-}
-
-function Continuation<T>({
-  list,
-  label,
-}: Readonly<{ list: PagedState<T>; label: string }>): React.JSX.Element {
-  return (
-    <>
-      {list.inlineError ? (
-        <Body>
-          <StaleError error={list.inlineError} onRetry={list.retry} />
-        </Body>
-      ) : null}
-      <LoadMore
-        hasMore={list.hasMore}
-        isFetching={list.isFetchingNextPage}
-        label={label}
-        onLoadMore={list.loadMore}
-      />
-    </>
-  );
-}
 
 /** A hold's identity: the detail link (the hold carries no code). */
 export function IdentityLink({ id }: Readonly<{ id: string }>): React.JSX.Element {
@@ -149,22 +82,17 @@ function ReleasedTable({ rows }: Readonly<{ rows: readonly TrackingHold[] }>): R
 }
 
 export function ReleasedPanel({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Element {
-  const t = useT();
   const list = useTrackingHolds(scope, "released");
-  const status = (
-    <PagedStatus
+  return (
+    <PagedPanel
       list={list}
-      noun={t("tracking.released.loadingNoun")}
+      loadingKey="tracking.released.loadingNoun"
       failedKey="tracking.released.loadFailed"
       emptyKey="tracking.released.empty"
-    />
-  );
-  if (list.isLoading || list.error || (list.rows.length === 0 && !list.hasMore)) return status;
-  return (
-    <>
-      <ReleasedTable rows={list.rows} />
-      <Continuation list={list} label={t("tracking.released.loadMore")} />
-    </>
+      moreKey="tracking.released.loadMore"
+    >
+      {(rows) => <ReleasedTable rows={rows} />}
+    </PagedPanel>
   );
 }
 
@@ -242,21 +170,16 @@ export function RecallsPanel({
   scope,
   onOpen,
 }: Readonly<{ scope: InventoryScope; onOpen: (id: string) => void }>): React.JSX.Element {
-  const t = useT();
   const list = useRecalls(scope);
-  const status = (
-    <PagedStatus
+  return (
+    <PagedPanel
       list={list}
-      noun={t("tracking.recalls.loadingNoun")}
+      loadingKey="tracking.recalls.loadingNoun"
       failedKey="tracking.recalls.loadFailed"
       emptyKey="tracking.recalls.empty"
-    />
-  );
-  if (list.isLoading || list.error || (list.rows.length === 0 && !list.hasMore)) return status;
-  return (
-    <>
-      <RecallsTable rows={list.rows} onOpen={onOpen} />
-      <Continuation list={list} label={t("tracking.recalls.loadMore")} />
-    </>
+      moreKey="tracking.recalls.loadMore"
+    >
+      {(rows) => <RecallsTable rows={rows} onOpen={onOpen} />}
+    </PagedPanel>
   );
 }

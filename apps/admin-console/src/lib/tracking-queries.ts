@@ -16,9 +16,12 @@
  *     `correctTrackingIdentityExpiry`, each with `SafetyReasonCodeInput`. Until
  *     RT-453 writes identities they answer 404; the caller shows the refusal.
  *
- * Boundary: the RT-451 Step 0 operations (`listTrackingResolutionQueue`,
- * `bindTrackingResolution`, `listSaleLineFindings`) are contract-only (no route
- * yet) and are NOT wrapped or called: their tabs render a «قريبًا» frame.
+ *   - RT-455 part 2 (RT-451 S3 and S5 runtime on main): `listTrackingResolutionQueue`
+ *     (owner / tenant_admin read the sales; a store_manager gets the count only, OD-9),
+ *     `bindTrackingResolution` (owner only, high sensitivity, reason and note required)
+ *     and `listSaleLineFindings` (keyset-paged, OD-2).
+ *   - `tenantAdminGetTrackingProfile`: a product's tracking profile, read only.
+ *
  * Same `{ status, data?, error?, retryAfter? }` shape as `inventory-queries.ts`.
  */
 import { apiClient } from "@/generated/client";
@@ -51,6 +54,13 @@ export type PlaceQualityHoldCommand = Schemas["PlaceQualityHoldCommand"];
 export type ReleaseTrackingHoldCommand = Schemas["ReleaseTrackingHoldCommand"];
 export type CreateInventoryRecallCommand = Schemas["CreateInventoryRecallCommand"];
 export type CorrectExpiryCommand = Schemas["CorrectTrackingIdentityExpiryCommand"];
+export type ResolutionQueue = Schemas["TrackingResolutionQueue"];
+export type ResolutionQueueItem = Schemas["TrackingResolutionQueueItem"];
+export type UnresolvedLine = Schemas["UnresolvedTrackedLine"];
+export type BindResolutionCommand = Schemas["BindTrackingResolutionCommand"];
+export type SaleLineFindingList = Schemas["SaleLineFindingList"];
+export type SaleLineFinding = Schemas["SaleLineFinding"];
+export type SaleLineFindingKind = Schemas["SaleLineFindingKind"];
 
 /** A 429's wait in seconds via the shared RT-621 classifier (30 s fallback, [1, 3600]). */
 function retryAfterOf(response: Response): number | undefined {
@@ -70,6 +80,18 @@ function resultOf<D, E>(res: { data?: D; error?: E; response: Response }) {
 }
 
 export type HoldStatusFilter = "active" | "released" | "all";
+
+export type ResolutionStatusFilter = "unresolved" | "resolved" | "all";
+
+export interface ResolutionQuery extends PageQuery {
+  status?: ResolutionStatusFilter;
+  storeId?: string;
+}
+
+export interface SaleLineFindingQuery extends PageQuery {
+  kind?: SaleLineFindingKind;
+  storeId?: string;
+}
 
 export interface HoldQuery extends PageQuery {
   status?: HoldStatusFilter;
@@ -203,6 +225,47 @@ export async function correctTrackingIdentityExpiry(
       params: { path: { identityId }, header: { "Idempotency-Key": idempotencyKey } },
       body: command,
       signal,
+    }),
+  );
+}
+
+// --- RT-451 Tracking Resolution and sale-line findings (RT-455 part 2) -----------
+
+/** GET /api/inventory/v1/tracking-resolutions — items for owner / tenant_admin; the count only for a store_manager. */
+export async function listTrackingResolutionQueue(query: ResolutionQuery = {}) {
+  return resultOf(
+    await apiClient.GET("/api/inventory/v1/tracking-resolutions", { params: { query } }),
+  );
+}
+
+/** POST /api/inventory/v1/tracking-resolutions/{saleId}/bind — owner only; Idempotency-Key required. */
+export async function bindTrackingResolution(
+  saleId: string,
+  command: BindResolutionCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/tracking-resolutions/{saleId}/bind", {
+      params: { path: { saleId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
+/** GET /api/inventory/v1/safety/sale-line-findings — keyset-paged, newest first. */
+export async function listSaleLineFindings(query: SaleLineFindingQuery = {}) {
+  return resultOf(
+    await apiClient.GET("/api/inventory/v1/safety/sale-line-findings", { params: { query } }),
+  );
+}
+
+/** GET /api/v1/catalog/products/{productId}/tracking-profile — read only here. */
+export async function getTrackingProfile(productId: string) {
+  return resultOf(
+    await apiClient.GET("/api/v1/catalog/products/{productId}/tracking-profile", {
+      params: { path: { productId } },
     }),
   );
 }

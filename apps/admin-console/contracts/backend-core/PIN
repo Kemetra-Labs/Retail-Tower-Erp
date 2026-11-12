@@ -2,7 +2,7 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 5e46cc513ca5ba4f3e04f3d5a57c22e063355cdf
+commit: 977533495b6c5cef74946821e557f73c05926938
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
@@ -27,7 +27,7 @@ file: devices.openapi.yaml 00e999747e20603f521537e2cc0c4a5f090038b4
 file: erpnext-connector/connector-health.yaml b0cc7095899e3d6c3b9ec7aa60c595a53861470a
 file: erpnext-reconciliation/reconciliation.yaml d0b39ef54f535e15dd051f4c622dfb7cb13d24cc
 file: erpnext-sync-ops/console-sync-ops.yaml 2681ab9969030d9dd4038177e2b474cdaf3f930b
-file: inventory/inventory.yaml f5d9b8efe20b267ce32b182ef833b690b0135117
+file: inventory/inventory.yaml d054d45d825c122dd2e3247ccb0af5cbd1c2f779
 file: inventory/low-stock.yaml ba440d5fc42ca89d939a9abe9ca6c446417e8e72
 file: memberships.openapi.yaml 3aad5b26c9c162fb0e7dc685f5738e40431d92b1
 file: platform-support-sessions.openapi.yaml b1bde3d4d40e5998b8e2cf027868b05cd694c92a

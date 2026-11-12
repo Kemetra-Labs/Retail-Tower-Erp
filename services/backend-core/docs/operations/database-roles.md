@@ -640,6 +640,23 @@ A script without the marker, such as the owner-gated
   tables (no backfill) and needs no maintenance window. Its down migration
   refuses while any intent or redemption is stored.
 
+- **Migration `0093_sale_quarantine_items` (RT-1312 Phase 3(b)).** Run
+  [`sql/sale-quarantine-items-domain-grants.sql`](sql/sale-quarantine-items-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `sale_quarantine_items`, plus column-level `UPDATE` only on the mutable
+  columns: the upload conflict count, the state with its resolution, sale,
+  repair and write-off columns, and the body with its purge time. The
+  provenance, the till's claim, the facts digest, the summary and the scope
+  are written once. The boot check reads the columns from
+  `domainRequiredColumns`. No `DELETE` policy: never grant `DELETE` or
+  `TRUNCATE`, nor a wider `UPDATE`. Without the grants the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on
+  the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0093 creates one new, empty
+  table (no backfill) and needs no maintenance window. Its down migration
+  refuses while any item is stored.
+
 - **Migration `0094_tracking_resolutions` (RT-451 S5).** Run
   [`sql/tracking-resolutions-domain-grants.sql`](sql/tracking-resolutions-domain-grants.sql)
   after `migrate up` and before the API and the worker start (the worker's
@@ -704,6 +721,32 @@ A script without the marker, such as the owner-gated
   0097 creates one new, empty table and adds a nullable column (no backfill);
   it needs no maintenance window. Its down migration refuses while any brand
   is stored.
+
+- **Migrations `0100_sale_lines_promotion_key_idx` and `0101_offer_engine`
+  (RT-1336, RT-286 S3).** Run
+  [`sql/offer-engine-domain-grants.sql`](sql/offer-engine-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  the ten Offer Engine tables (`offers`, `offer_versions`,
+  `offer_version_stores`, `offer_version_rules`, `offer_pauses`,
+  `offer_pack_revisions`, `offer_pack_store_revisions`,
+  `offer_pack_eligible_products`, `sale_line_promotions`,
+  `sale_return_promotion_clawbacks`), plus column-level `UPDATE` only on
+  `offers` (the draft, end and archive columns), `offer_pauses (resumed_at,
+  resumed_by_user_id)`, `offer_pack_store_revisions (applied_revision)` and
+  `offer_pack_eligible_products (to_revision)`; the boot check reads the
+  columns from `domainRequiredColumns`. Versions, their scope and rules, Pack
+  revisions, promotion facts and clawbacks get no `UPDATE`: they are
+  append-only, and a 0101 trigger also refuses `UPDATE`, `DELETE` and
+  `TRUNCATE` on them for every role. No `DELETE` policy on any of the ten:
+  never grant `DELETE` or `TRUNCATE`, nor a wider `UPDATE`. Without the grants
+  the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0100 builds one
+  index on `sale_lines` CONCURRENTLY (one statement, blocks no read or write);
+  0101 creates ten new, empty tables (no backfill) and a key on
+  `tenant_product_categories`; neither needs a maintenance window. The 0101
+  down migration refuses while any offer or Offer Pack revision is stored.
 
 - **Migration `0102_tracking_identity_birth` (RT-453).** Run
   [`sql/tracking-identity-birth-domain-grants.sql`](sql/tracking-identity-birth-domain-grants.sql)

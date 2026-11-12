@@ -93,16 +93,81 @@ export const tracking: MessagesOf<typeof ar> = {
   "tracking.expiring.body":
     "The window of days before expiry has not been approved. This does not mean no batch is about to expire.",
 
-  "tracking.soon.tag": "Coming soon",
-  "tracking.resolution.title": "The resolution queue is not on yet.",
-  "tracking.resolution.body":
-    "Sales recorded without a confirmed tracking identity, bound to an existing identity through a governed command with a reason. The contract is approved and the server has not turned it on yet, so no list or count is shown here.",
-  "tracking.saleLines.title": "Sale-line findings are not on yet.",
-  "tracking.saleLines.body":
-    "Sold under hold, unvalidated tracked line and held ERPNext posting, per sale line. The contract is approved and the server has not turned it on yet, so no list or count is shown here.",
+  "tracking.resolution.title": "Resolution queue",
+  "tracking.resolution.intro":
+    "Sales captured without a confirmed tracking identity. They are bound to an existing identity by a governed command with a reason. Until then the sale has no effect on stock and no ERPNext posting.",
+  "tracking.resolution.caption":
+    "Sales without a confirmed tracking identity, newest capture first",
+  "tracking.resolution.loadingNoun": "the resolution queue",
+  "tracking.resolution.loadFailed":
+    "The resolution queue could not be loaded. The count is unknown.",
+  "tracking.resolution.empty": "No sales are waiting to be bound.",
+  "tracking.resolution.statusLabel": "Status",
+  "tracking.resolution.status.unresolved": "Waiting to be bound",
+  "tracking.resolution.status.resolved": "Bound",
+  "tracking.resolution.status.all": "All",
+  "tracking.resolution.ownerOnly":
+    "Binding an identity is sensitive and is for the tenant owner only. Ask the owner to bind it if needed.",
+  "tracking.resolution.col.sale": "Sale",
+  "tracking.resolution.col.businessDate": "Business date",
+  "tracking.resolution.col.capturedAt": "Received",
+  "tracking.resolution.col.lines": "Lines",
+  "tracking.resolution.col.resolution": "Recorded binding",
+  "tracking.resolution.lineReason.tracking_missing": "No tracking data",
+  "tracking.resolution.lineReason.identity_unknown": "Unknown identity",
+  "tracking.resolution.lineReason.identity_other_product": "Another product's identity",
+  "tracking.resolution.bind": "Bind identity",
+  "tracking.resolution.drawer.title": "Bind identities to the sale's lines",
+  "tracking.resolution.drawer.scope": "Sale {sale}",
+  "tracking.resolution.drawer.sensitive":
+    "A sensitive, audited action. Choose an existing identity for every unresolved line, then give the reason and a note. The binding is final: its stock effect and its ERPNext posting are recorded together.",
+  "tracking.resolution.identityChoose": "Choose the batch",
+  "tracking.resolution.serialNotBindable": "serials cannot be bound",
+  "tracking.resolution.identitiesLoading": "Loading the product's identities",
+  "tracking.resolution.identitiesFailed": "This product's identities could not be loaded.",
+  "tracking.resolution.identitiesNone": "This product has no recorded identity.",
+  "tracking.resolution.identitiesMore": "Load more identities",
+  "tracking.resolution.loadMore": "Load more sales",
+  "tracking.saleLines.loadMore": "Load more findings",
+  "tracking.resolution.submit": "Review binding",
+  "tracking.resolution.confirm": {
+    one: "Bind an identity to the line? The binding is final and cannot be undone.",
+    other: "Bind an identity to all {count} lines? The binding is final and cannot be undone.",
+  },
+  "tracking.resolution.confirmYes": "Confirm binding",
+  "tracking.resolution.recorded": {
+    one: "The binding was recorded on 1 line.",
+    other: "The binding was recorded on {count} lines.",
+  },
+  "tracking.saleLines.title": "Sale-line findings",
+  "tracking.saleLines.intro":
+    "Fixed records of what happened at the sale: sold under a hold, a tracked line without validation, a held ERPNext posting. They are not removed when the cause is fixed and are not part of the band's counts.",
+  "tracking.saleLines.caption": "Sale-line findings, newest recorded first",
+  "tracking.saleLines.loadingNoun": "sale-line findings",
+  "tracking.saleLines.loadFailed": "Sale-line findings could not be loaded.",
+  "tracking.saleLines.empty": "No sale-line findings are recorded.",
+  "tracking.saleLines.kindLabel": "Kind",
+  "tracking.saleLines.kindAll": "All kinds",
+  "tracking.saleLines.col.kind": "Kind",
+  "tracking.saleLines.col.cause": "Cause",
+  "tracking.saleLines.col.recordedAt": "Recorded",
+  "tracking.saleLines.kind.unvalidated_tracked_line": "Tracked line without validation",
+  "tracking.saleLines.kind.sold_under_hold": "Sold under a hold",
+  "tracking.saleLines.kind.erp_intent_held": "ERPNext posting held",
+  "tracking.saleLines.cause.validation_missing": "No validation id",
+  "tracking.saleLines.cause.validation_mismatch": "Validation does not match the identity",
+  "tracking.saleLines.cause.quality_hold": "Quality hold",
+  "tracking.saleLines.cause.recall_hold": "Recall hold",
+  "tracking.saleLines.cause.expired": "The batch was expired",
+  "tracking.saleLines.cause.edge_map_missing": "No ERPNext batch mapped",
+  "tracking.consistency.unavailable.title": "The tracking consistency check is not available",
+  "tracking.consistency.unavailable.body":
+    "The server does not emit this check's findings yet, so having none does not mean the records are consistent.",
   "tracking.manager.readOnly":
     "Recording a recall and placing a hold are for the tenant owner and admin. Rows show the finding's fields only.",
-  "tracking.manager.queueCount": "The number of sales waiting for an identity in your stores.",
+  "tracking.manager.queueCount": "Sales waiting for an identity in your stores:",
+  "tracking.manager.queueCountFailed":
+    "The number of sales waiting for an identity could not be loaded. The count is unknown.",
 
   "tracking.consistency.title": {
     one: "1 tracking consistency finding",
@@ -212,6 +277,18 @@ export const tracking: MessagesOf<typeof ar> = {
   "tracking.write.hint.notFound":
     "The server did not find this batch. Tracking commands work only once batches are imported from ERPNext.",
   "tracking.write.hint.forbidden": "This command is not available to your role.",
+  "tracking.write.hint.bindNotFound":
+    "The server did not find this sale or one of the identities, or the sale is no longer waiting. Nothing was recorded.",
+  "tracking.write.hint.resolutionMismatch":
+    "One of the identities is not of its line's product. Nothing was recorded.",
+  "tracking.write.hint.resolutionHeld":
+    "One of the identities has an active hold now, or had one at the time of the sale. Nothing was recorded.",
+  "tracking.write.hint.resolutionExpired":
+    "One of the identities expired before the sale's business date. Nothing was recorded.",
+  "tracking.write.hint.resolutionResolved":
+    "This sale was already bound by another command. Reload the list.",
+  "tracking.write.error.bindNote": "Write a note explaining the binding: it is required.",
+  "tracking.write.error.bindLines": "Choose an identity for every line.",
   "tracking.write.hint.holdActive":
     "This batch already has an active hold of this kind, so nothing was recorded. Open the existing hold from the active holds list.",
   "tracking.write.hint.expiryUnchanged":

@@ -83,6 +83,8 @@ import {
 import { TrackedLineValidationAuthGuard } from "./tracked-lines/tracked-line-validation-auth.guard";
 import { TrackedLineValidationController } from "./tracked-lines/tracked-line-validation.controller";
 import { TrackedLineValidationService } from "./tracked-lines/tracked-line-validation.service";
+import { SaleQuarantineController } from "./quarantine/sale-quarantine.controller";
+import { SaleQuarantineService } from "./quarantine/sale-quarantine.service";
 
 /**
  * 008 Option Y wiring (its PosOperatorSaleAuthGuard is retired; 031 replaced
@@ -112,6 +114,9 @@ import { TrackedLineValidationService } from "./tracked-lines/tracked-line-valid
     // RT-451 S2: the Tracked Line Validation (envelope, or the device token
     // with a live cashier claim; behind the gate AND the tenant switch).
     TrackedLineValidationController,
+    // RT-1312 Phase 3(b): the till's upload of a refused or held sale
+    // (device token alone, its own per-device write bucket).
+    SaleQuarantineController,
   ],
   providers: [
     SalesService,
@@ -122,6 +127,7 @@ import { TrackedLineValidationService } from "./tracked-lines/tracked-line-valid
     SaleHistoryService,
     TrackedLotsService,
     TrackedLineValidationService,
+    SaleQuarantineService,
     {
       provide: IDENTITY_PROVIDER_PORT,
       useFactory: (pool: Pool): IdentityProviderPort =>

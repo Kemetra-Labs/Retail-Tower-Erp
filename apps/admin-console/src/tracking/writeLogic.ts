@@ -15,6 +15,7 @@
  */
 import type { MessageKey } from "@/i18n";
 import type {
+  BindResolutionCommand,
   CorrectExpiryCommand,
   CreateInventoryRecallCommand,
   PlaceQualityHoldCommand,
@@ -38,6 +39,8 @@ export type WriteFieldError =
   | "tracking.write.error.reason"
   | "tracking.write.error.noteRequired"
   | "tracking.write.error.noteLength"
+  | "tracking.write.error.bindNote"
+  | "tracking.write.error.bindLines"
   | "tracking.write.error.reference"
   | "tracking.write.error.identities"
   | "tracking.write.error.tooMany"
@@ -46,7 +49,10 @@ export type WriteFieldError =
   | "tracking.write.error.dateRequired";
 
 export type WriteErrors = Partial<
-  Record<"reason" | "note" | "reference" | "identities" | "effectiveAt" | "date", WriteFieldError>
+  Record<
+    "reason" | "note" | "reference" | "identities" | "effectiveAt" | "date" | "lines",
+    WriteFieldError
+  >
 >;
 
 export function isReasonCode(value: string): value is SafetyReasonCodeInput {
@@ -189,6 +195,43 @@ export function buildExpiryCommand(draft: ExpiryDraft): CorrectExpiryCommand {
   };
 }
 
+// --- Bind a Tracking Resolution (RT-451 S5) ----------------------------------------
+
+export interface BindDraft extends ReasonDraft {
+  /** The identity chosen for each unresolved line, by `saleLineId`. */
+  identities: Readonly<Record<string, string>>;
+}
+
+/**
+ * The bind always needs a note (unlike a hold), a reason from the fixed list
+ * and one identity for every unresolved line: the command names each line
+ * exactly once or the server answers 400 and writes nothing. Which identity is
+ * legal (product, hold, expiry) is the server's call.
+ */
+export function validateBind(draft: BindDraft, lineIds: readonly string[]): WriteErrors {
+  const errors: WriteErrors = {};
+  if (!isReasonCode(draft.reason)) errors.reason = "tracking.write.error.reason";
+  const note = draft.note.trim();
+  if (!note) errors.note = "tracking.write.error.bindNote";
+  else if (note.length > NOTE_MAX_LENGTH) errors.note = "tracking.write.error.noteLength";
+  if (lineIds.some((id) => !draft.identities[id])) errors.lines = "tracking.write.error.bindLines";
+  return errors;
+}
+
+export function buildBindCommand(
+  draft: BindDraft,
+  lineIds: readonly string[],
+): BindResolutionCommand {
+  return {
+    reasonCode: draft.reason as SafetyReasonCodeInput,
+    note: draft.note.trim(),
+    lines: lineIds.map((saleLineId) => ({
+      saleLineId,
+      trackingIdentityId: draft.identities[saleLineId],
+    })),
+  };
+}
+
 // --- Idempotency -------------------------------------------------------------------
 
 export interface KeyedCommand {
@@ -252,16 +295,23 @@ export function isKeyConflict(outcome: WriteOutcome): boolean {
 const CODE_HINTS: Record<string, MessageKey> = {
   hold_already_active: "tracking.write.hint.holdActive",
   expiry_unchanged: "tracking.write.hint.expiryUnchanged",
+  tracking_resolution_identity_mismatch: "tracking.write.hint.resolutionMismatch",
+  tracking_resolution_identity_held: "tracking.write.hint.resolutionHeld",
+  tracking_resolution_identity_expired: "tracking.write.hint.resolutionExpired",
+  tracking_resolution_already_resolved: "tracking.write.hint.resolutionResolved",
 };
 
 /**
  * A line the console adds under a refusal (the server's own words stay as sent):
  * the known 409 codes, and the 404 every command answers until RT-453.
  */
-export function refusalHint(outcome: WriteOutcome): MessageKey | undefined {
+export function refusalHint(
+  outcome: WriteOutcome,
+  notFound: MessageKey = "tracking.write.hint.notFound",
+): MessageKey | undefined {
   if (outcome.kind !== "rejected") return undefined;
   if (outcome.code && Object.hasOwn(CODE_HINTS, outcome.code)) return CODE_HINTS[outcome.code];
-  if (outcome.status === 404) return "tracking.write.hint.notFound";
+  if (outcome.status === 404) return notFound;
   if (outcome.status === 403) return "tracking.write.hint.forbidden";
   return undefined;
 }
