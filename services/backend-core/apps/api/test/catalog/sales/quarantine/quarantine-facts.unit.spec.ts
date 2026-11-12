@@ -3,7 +3,9 @@
  * sale-facts digest (RT-1206) and the decision C5 summary. Both run on an
  * unvalidated body, so neither may throw on a field's shape.
  */
+import { CaptureSaleRequestWithTendersSchema } from "../../../../src/catalog/sales/dto/capture-sale-request.dto";
 import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { SalesController } from "../../../../src/catalog/sales/sales.controller";
 import {
   CAPTURE_HASH_EXCLUDED_FIELDS,
   saleFactsDigest,
@@ -42,6 +44,28 @@ describe("saleFactsDigest (the RT-1206 same-facts rule)", () => {
       "safetyRevision",
       "safetySyncedAt",
     ]);
+  });
+
+  it("leaves out exactly the fields the real capture controller drops before hashing", async () => {
+    // Every top-level field the capture request can carry (the widest schema,
+    // with tenders), each with a marker value. The controller is driven for
+    // real, so a field capture starts dropping (or stops dropping) breaks this.
+    const keys = Object.keys(CaptureSaleRequestWithTendersSchema.innerType().shape);
+    const raw = Object.fromEntries(keys.map((k) => [k, `v-${k}`]));
+    const service = { captureSale: jest.fn().mockResolvedValue({ created: true, projection: {} }) };
+    const controller = new SalesController(service as never, undefined as never);
+    const request = {
+      context: { tenantId: "t", storeId: "s", userId: "u" },
+      posDeviceId: "d",
+    };
+    await controller.captureSale(request as never, raw as never, {
+      status: jest.fn(),
+      setHeader: jest.fn(),
+    } as never);
+
+    const hashed = (service.captureSale.mock.calls[0]?.[0] as { body: Record<string, unknown> }).body;
+    expect(hashed).toEqual(saleFactsOf(raw));
+    expect(keys.filter((k) => !(k in hashed)).sort()).toEqual([...CAPTURE_HASH_EXCLUDED_FIELDS].sort());
   });
 
   it("ignores key order and the excluded fields, and sees every other change", () => {

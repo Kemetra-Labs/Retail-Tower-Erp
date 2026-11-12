@@ -68,7 +68,9 @@ SELECT c.col, has_column_privilege(:'domain_role', 'sale_quarantine_items', c.co
 SELECT c.col, has_column_privilege(:'domain_role', 'sale_quarantine_items', c.col, 'UPDATE') AS granted
   FROM (VALUES ('tenant_id'), ('store_id'), ('device_id'), ('previous_terminal_id'), ('source_system'),
                ('external_id'), ('idempotency_key'), ('reason_kind'), ('till_http_status'),
-               ('facts_digest'), ('summary_pos_total'), ('received_at')) AS c(col);
+               ('facts_digest'), ('summary_pos_total'), ('received_at'), ('id'), ('till_error_code'),
+               ('till_recorded_at'), ('summary_occurred_at'), ('summary_currency_code'), ('summary_line_count'),
+               ('created_at'), ('updated_at')) AS c(col);
 
 SELECT (SELECT bool_and(has_table_privilege(:'domain_role', 'sale_quarantine_items', t.priv))
           FROM (VALUES ('SELECT'), ('INSERT')) AS t(priv))
@@ -79,7 +81,9 @@ SELECT (SELECT bool_and(has_table_privilege(:'domain_role', 'sale_quarantine_ite
        AND NOT (SELECT bool_or(has_column_privilege(:'domain_role', 'sale_quarantine_items', c.col, 'UPDATE'))
                   FROM (VALUES ('tenant_id'), ('store_id'), ('device_id'), ('previous_terminal_id'), ('source_system'),
                                ('external_id'), ('idempotency_key'), ('reason_kind'), ('till_http_status'),
-                               ('facts_digest'), ('summary_pos_total'), ('received_at')) AS c(col))
+                               ('facts_digest'), ('summary_pos_total'), ('received_at'), ('id'), ('till_error_code'),
+                               ('till_recorded_at'), ('summary_occurred_at'), ('summary_currency_code'), ('summary_line_count'),
+                               ('created_at'), ('updated_at')) AS c(col))
        AS domain_ok \gset
 
 \if :domain_ok

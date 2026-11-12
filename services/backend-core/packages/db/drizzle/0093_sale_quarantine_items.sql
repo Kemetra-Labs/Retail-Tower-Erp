@@ -80,6 +80,9 @@
 -- Deploy window: none. The table is new and empty; nothing writes it until the
 -- quarantine runtime ships with it. Apply 0093 and the grants script before
 -- the API that uses them rolls out (migrate is step 1, grants step 2).
+-- 0094_tracking_resolutions landed on main first, so a database already at
+-- 0094 applies 0093 after it. The two migrations touch independent tables;
+-- `migrate down` (ORDER BY id DESC) rolls 0094 back before 0093.
 --
 -- Lock impact: ONE transaction. The table is created empty. The FKs take SHARE
 -- ROW EXCLUSIVE on `tenants`, `stores`, `devices` and `sales` while the
@@ -190,7 +193,7 @@ CREATE TABLE sale_quarantine_items (
   CONSTRAINT sale_quarantine_items_last_repair_outcome
     CHECK (last_repair_outcome IS NULL OR last_repair_outcome IN ('captured', 'already-captured', 'refused')),
   CONSTRAINT sale_quarantine_items_last_repair_detail
-    CHECK (last_repair_outcome = 'refused'
+    CHECK (last_repair_outcome IS NOT DISTINCT FROM 'refused'
            OR (last_repair_http_status IS NULL AND last_repair_error_code IS NULL)),
   CONSTRAINT sale_quarantine_items_last_repair_http_status
     CHECK (last_repair_http_status IS NULL OR last_repair_http_status BETWEEN 400 AND 499),

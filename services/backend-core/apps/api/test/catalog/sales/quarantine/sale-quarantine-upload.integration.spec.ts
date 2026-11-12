@@ -233,6 +233,16 @@ describe("RT-1312 quarantine upload: first upload and repeats", () => {
     expect(results.map((r) => r.status).sort()).toEqual([200, 200, 201]);
     expect(await items(h.env().admin)).toHaveLength(1);
   });
+
+  it("converges concurrent first uploads of one provenance from two stores to one item (one 201, one 409, nothing counted)", async () => {
+    if (h.skipped()) return;
+    const results = await Promise.all([upload(DEV_A1A, UPLOAD), upload(DEV_A2A, UPLOAD)]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(results.find((r) => r.status === 409)?.body.error.code).toBe("quarantine_conflict");
+    const rows = await items(h.env().admin);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.upload_conflict_count).toBe(0);
+  });
 });
 
 describe("RT-1312 quarantine upload: the earlier pairing", () => {

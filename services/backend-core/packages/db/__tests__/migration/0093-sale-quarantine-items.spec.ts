@@ -360,6 +360,8 @@ describe("0093: CHECKs", () => {
     ["an unknown repair outcome", { repair_count: 1, last_repair_at: LATER, last_repair_outcome: "lost" }],
     ["a captured repair outcome with a status", { ...CAPTURED, last_repair_http_status: 422 }],
     ["a captured repair outcome with a code", { ...CAPTURED, last_repair_error_code: "validation_error" }],
+    ["a repair status without a repair", { last_repair_http_status: 404 }],
+    ["a repair code without a repair", { last_repair_error_code: "validation_error" }],
     ["a refused repair status of 500", { repair_count: 1, last_repair_at: LATER, last_repair_outcome: "refused", last_repair_http_status: 500 }],
     ["a negative conflict count", { upload_conflict_count: -1 }],
   ])("refuses %s (23514)", async (_why, change) => {
