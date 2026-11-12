@@ -3,7 +3,8 @@
 **Status.** OD-1 to OD-10 are **approved by the owner** in the RT-286 planning session of 2026-11-11 (chat):
 OD-1 to OD-5 first, then OD-2 (confirmed), OD-6 to OD-10 by answering the recommended option. They still need to be
 recorded on RT-286. OD-12's permissions are approved too; its guardrail deferral is still proposed. OD-11 is decided
-(option A) by the RT-1340 bench proof, under the owner's delegation of 2026-11-11. None of them is in OpenAPI, a
+(option A plus Hybrid): A by the RT-1340 bench proof under the owner's delegation of 2026-11-11, and the Hybrid give-back by
+the owner on 2026-11-12. None of them is in OpenAPI, a
 migration or code, so a reversal now costs only a doc change.
 
 Section numbers like §17 refer to Confluence RETAIL 23134209 (owner-approved 2026-10-07).
@@ -128,6 +129,7 @@ never charges the customer in V1.
 | Option | Content |
 |---|---|
 | **A (decided)** | Reduce the credit-note rate of the returned non-reward units by the clawback. The return line is split to quantity 1 where the clawback does not divide. |
+| **Hybrid give-back (decided)** | A returned reward unit after an earlier clawback is refunded at its net, plus a give-back amount posted as a non-stock "promotion give-back" row of quantity −1 (S3 step 2: 120.00 + 80.00 = 200.00). |
 | B | Post the credit note at the original nets, plus a separate non-stock "promotion clawback" line. |
 
 **Decided: A** (2026-11-12, RT-1340). The owner delegated the choice on 2026-11-11 ("I delegate you to decide and
@@ -154,19 +156,24 @@ Consequences:
 - **Backend-Core (RT-1337, 2026-11-12), corrected in the validation round:** the interim refusal STAYS. A return is
   refused with 422 `promotion_return_requires_clawback` when an offer's clawback is above 0, when it would give back an
   earlier clawback (S3 step 2), or when it includes a reward line. It lifts only after (a) the posting-feed contract
-  carries the per-line clawback and (b) the Connector implements option A.
-- **Not yet postable, needs a contract change first** (recorded on RT-1340):
-  1. The Connector's posting feed (`erpnext-connector/posting-feed.yaml`) carries no clawback and no line promotion,
-     and the Connector on `main` has no option A (RT-1340 merged the decision and the bench proof only; `tender.py`
-     raises `TenderMismatch`, a permanent rejection with no re-drive). The refusal `promotion_return_requires_clawback`
-     therefore stays for every clawback above 0 until a contract issue adds the per-line clawback and a Connector issue
-     implements A. The return of a reward line is refused too: the Connector's return builder requires `unitPrice` ×
-     `quantity` = `lineAmount`, so a reward line (net of its discount) cannot post as it is. Both need the Connector to
-     apply the discount to a returned unit as it does to a sale. Do NOT extend the feed contract in RT-1337.
-  2. ERPNext refuses a credit-note rate above the original row's rate. So a return that gives back an earlier clawback
-     (golden sequence S3 step 2: the reward unit refunded at 200.00 after a sale net of 120.00) cannot be posted under
-     A alone. A give-back row of quantity −1 on a non-stock item, next to the reward unit at its net, does post. The
-     `recordReturn` rule cannot carry this refund either (`returnTotal` = Σ `lineAmount` − Σ clawback = 120.00).
+  carries the per-line clawback and give-back (done: 1.13.0-draft) and (b) the Connector implements option A and the
+  give-back row.
+- **Hybrid give-back (owner decision, 2026-11-12, coordinating-session chat, "Hybrid (Recommended)").** ERPNext
+  refuses a credit-note rate above the original row's rate, so a return that gives back an earlier clawback (golden
+  sequence S3 step 2: the reward unit refunded at 200.00 after a sale net of 120.00) cannot post under A alone. The
+  owner chose to refund exactly what the customer paid: the reward unit posts at its net, and a give-back of 80.00
+  posts as a non-stock row of quantity −1 next to it (the RT-1340 bench shows this posts, GL balanced, 420.00 refunded
+  in all). The alternative, capping the refund at the line's net, was not chosen.
+- **The posting feed now carries both (posting-feed.yaml 1.13.0-draft).** `ReturnLine.promotionClawbackAmount` is the
+  line's part of the clawback and `ReturnLine.promotionGiveBackAmount` its part of the give-back, both optional,
+  non-negative, omitted when 0. `refundTenders` sum to Σ `lineAmount` − Σ `promotionClawbackAmount` + Σ
+  `promotionGiveBackAmount`. The allocation rule is in `sales.yaml` `recordReturn` and spec §9. No migration: the
+  shares are derived from stored rows.
+- **Still not postable until the Connector supports it** (RT-1340 phase 2): the feed contract is the first half. The
+  Connector on `main` has no option A and no give-back (`tender.py` raises `TenderMismatch`, a permanent rejection with
+  no re-drive), and its return builder requires `unitPrice` × `quantity` = `lineAmount`, so a reward line cannot post as
+  it is. Backend-Core therefore keeps the 422 `promotion_return_requires_clawback` refusal for a clawback above 0, a
+  give-back and the return of a reward line, and lifts it in a second small PR after the Connector PR merges.
 
 ## OD-12 — Permissions and guardrails
 

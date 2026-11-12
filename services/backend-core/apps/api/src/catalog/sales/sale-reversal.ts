@@ -58,8 +58,8 @@ export class PromotionClawbackExceedsRefundError extends Error {
 }
 
 /**
- * RT-1337 (OD-11, RT-1340 finding): a return that would give back a discount an
- * earlier return clawed back cannot be recorded or posted yet → 422
+ * RT-1337 (OD-11, RT-1340 finding): a return with a clawback, a give-back of a discount an
+ * earlier return clawed back, or a reward line cannot be posted by the Connector yet → 422
  * `promotion_return_requires_clawback`, fail closed.
  */
 export class PromotionReturnRequiresClawbackError extends Error {
