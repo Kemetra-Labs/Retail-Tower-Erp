@@ -1,0 +1,1996 @@
+{
+  "version": 1,
+  "source": "spec 048 (services/backend-core/specs/048-offer-engine-v1/spec.md) §6, §6.1 and §9; Jira RT-1335 (RT-286 slice S5 seed)",
+  "notes": [
+    "Offer type buy_x_get_y_percent with rewardSelection cheapest (OD-2): eligible units are sorted by unit price, highest first, ties broken by cart line order (earlier line first) and then product id; the last k x Y units are the rewards, k = floor(n / (X + Y)), capped at maxApplicationsPerSale.",
+    "A cart line is eligible when its product is in the offer's materialised eligible set (OD-6). A line with a manual discount (OD-5) or a non-whole quantity (F-9) never takes part.",
+    "Discount of a reward unit = percentOff% of its unit price, rounded half up once at the currency minor unit (OD-28-3).",
+    "expected.lines are the capture lines after the OD-4 split: each reward unit on its own quantity-1 line after the rest of its source line. promotionDiscount is the CaptureSaleLine.promotion.discountAmount, or null when the line carries no promotion (no application, or not eligible). lineAmount is the line's net.",
+    "Returns (spec 048 §9, multi-return form), per offer O: D_held = the discountAmount of the O units not returned before this return, less the clawbacks of O already recorded on earlier returns of the sale; disc_ret = min(discountAmount of the O units returned now, D_held); D_remaining = the evaluation of the O-eligible units still kept after this return; refund = gross returned - max(disc_ret, D_held - D_remaining); clawback = max(0, D_held - D_remaining - disc_ret). For a first return D_held = D_orig and refund = min(net returned, gross returned - (D_orig - D_remaining)). outcome is accepted, promotion_clawback_exceeds_refund (refund < 0, OD-10; clawback is then null) or promotion_return_requires_clawback (clawback > 0 while OD-11 is open, RT-1340).",
+    "returnSequences apply their steps in order to one sale; each step's expected assumes every earlier step was recorded with its clawback (a step refused only by the OD-11 interim rule is counted as recorded, the behaviour once OD-11 is decided)."
+  ],
+  "evaluate": [
+    {
+      "id": "E1",
+      "description": "Spec 048 §6.1 E1: 300, 200.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "300.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "200.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "200.00",
+            "discountAmount": "80.00"
+          }
+        ],
+        "totalDiscount": "80.00",
+        "total": "420.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "300.00",
+            "lineAmount": "300.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "200.00",
+            "lineAmount": "120.00",
+            "promotionDiscount": "80.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "E2",
+      "description": "Spec 048 §6.1 E2 (OD-2): the cheapest units of the whole basket take the reward, 60 and 40, not 80 and 40.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "80.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000004",
+          "productId": "0b000000-0000-7000-8000-000000000004",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 2,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "unitPrice": "60.00",
+            "discountAmount": "24.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000004",
+            "unitPrice": "40.00",
+            "discountAmount": "16.00"
+          }
+        ],
+        "totalDiscount": "40.00",
+        "total": "240.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "100.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "80.00",
+            "lineAmount": "80.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "60.00",
+            "lineAmount": "36.00",
+            "promotionDiscount": "24.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000004",
+            "productId": "0b000000-0000-7000-8000-000000000004",
+            "quantity": "1",
+            "unitPrice": "40.00",
+            "lineAmount": "24.00",
+            "promotionDiscount": "16.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "E3",
+      "description": "Spec 048 §6.1 E3: 100, 60, 40.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "unitPrice": "40.00",
+            "discountAmount": "16.00"
+          }
+        ],
+        "totalDiscount": "16.00",
+        "total": "184.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "100.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "60.00",
+            "lineAmount": "60.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "40.00",
+            "lineAmount": "24.00",
+            "promotionDiscount": "16.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "E4",
+      "description": "Spec 048 §6.1 E4 (OD-4): one line A 150.00 x 2; the reward unit is split onto its own quantity-1 line.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "150.00",
+          "quantity": "2",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "unitPrice": "150.00",
+            "discountAmount": "60.00"
+          }
+        ],
+        "totalDiscount": "60.00",
+        "total": "240.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "150.00",
+            "lineAmount": "150.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "150.00",
+            "lineAmount": "90.00",
+            "promotionDiscount": "60.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "E5",
+      "description": "Spec 048 §6.1 E5: E2 with maxApplicationsPerSale = 1.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": 1
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "80.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000004",
+          "productId": "0b000000-0000-7000-8000-000000000004",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000004",
+            "unitPrice": "40.00",
+            "discountAmount": "16.00"
+          }
+        ],
+        "totalDiscount": "16.00",
+        "total": "264.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "100.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "80.00",
+            "lineAmount": "80.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "60.00",
+            "lineAmount": "60.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000004",
+            "productId": "0b000000-0000-7000-8000-000000000004",
+            "quantity": "1",
+            "unitPrice": "40.00",
+            "lineAmount": "24.00",
+            "promotionDiscount": "16.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "E6",
+      "description": "Spec 048 §6.1 E6: 33.33 x 40% = 13.332, rounded half up once at the minor unit to 13.33.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "33.33",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "unitPrice": "33.33",
+            "discountAmount": "13.33"
+          }
+        ],
+        "totalDiscount": "13.33",
+        "total": "70.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "33.33",
+            "lineAmount": "20.00",
+            "promotionDiscount": "13.33"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "50.00",
+            "lineAmount": "50.00",
+            "promotionDiscount": "0.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "E7",
+      "description": "Spec 048 §6.1 E7 (OD-5): the 100 line carries a manual 10% discount, so it never takes part; one eligible unit, no application.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true,
+          "manualDiscount": {
+            "kind": "percent",
+            "value": "10",
+            "amount": "10.00"
+          }
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 0,
+        "rewards": [],
+        "totalDiscount": "0.00",
+        "total": "150.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "90.00",
+            "promotionDiscount": null
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "60.00",
+            "lineAmount": "60.00",
+            "promotionDiscount": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "E8",
+      "description": "Spec 048 §6.1 E8 (OD-1): E3 where the 40 is an excluded product (not in the eligible set).",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "eligible": false
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "60.00",
+            "discountAmount": "24.00"
+          }
+        ],
+        "totalDiscount": "24.00",
+        "total": "176.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "100.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "60.00",
+            "lineAmount": "36.00",
+            "promotionDiscount": "24.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "40.00",
+            "lineAmount": "40.00",
+            "promotionDiscount": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "X1-tie-cart-order",
+      "description": "Equal prices: ties break by cart line order (earlier line first), then product id, so the later cart line (L2) takes the reward even though its product id sorts first.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-0000000000b2",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-0000000000a1",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "50.00",
+            "discountAmount": "20.00"
+          }
+        ],
+        "totalDiscount": "20.00",
+        "total": "180.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-0000000000b2",
+            "quantity": "1",
+            "unitPrice": "50.00",
+            "lineAmount": "50.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-0000000000a1",
+            "quantity": "1",
+            "unitPrice": "50.00",
+            "lineAmount": "30.00",
+            "promotionDiscount": "20.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "100.00",
+            "promotionDiscount": "0.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X2-buy-2-get-1",
+      "description": "Buy 2 get 1 at 50%: six units, two applications; the two cheapest units (10 and 5) are rewards.",
+      "offer": {
+        "buyQuantity": 2,
+        "getQuantity": 1,
+        "percentOff": "50",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "30.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "20.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "10.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000004",
+          "productId": "0b000000-0000-7000-8000-000000000004",
+          "unitPrice": "25.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000005",
+          "productId": "0b000000-0000-7000-8000-000000000005",
+          "unitPrice": "15.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000006",
+          "productId": "0b000000-0000-7000-8000-000000000006",
+          "unitPrice": "5.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 2,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "unitPrice": "10.00",
+            "discountAmount": "5.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000006",
+            "unitPrice": "5.00",
+            "discountAmount": "2.50"
+          }
+        ],
+        "totalDiscount": "7.50",
+        "total": "97.50",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "30.00",
+            "lineAmount": "30.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "20.00",
+            "lineAmount": "20.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "10.00",
+            "lineAmount": "5.00",
+            "promotionDiscount": "5.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000004",
+            "productId": "0b000000-0000-7000-8000-000000000004",
+            "quantity": "1",
+            "unitPrice": "25.00",
+            "lineAmount": "25.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000005",
+            "productId": "0b000000-0000-7000-8000-000000000005",
+            "quantity": "1",
+            "unitPrice": "15.00",
+            "lineAmount": "15.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000006",
+            "productId": "0b000000-0000-7000-8000-000000000006",
+            "quantity": "1",
+            "unitPrice": "5.00",
+            "lineAmount": "2.50",
+            "promotionDiscount": "2.50"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X3-half-up",
+      "description": "Half up at the minor unit: 10.10 x 5% = 0.505 rounds to 0.51.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "5",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "20.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "10.10",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "10.10",
+            "discountAmount": "0.51"
+          }
+        ],
+        "totalDiscount": "0.51",
+        "total": "29.59",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "20.00",
+            "lineAmount": "20.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "10.10",
+            "lineAmount": "9.59",
+            "promotionDiscount": "0.51"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X4-max-applications-one-line",
+      "description": "maxApplicationsPerSale = 1 on one line of four units: one reward unit is split off.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": 1
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "4",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "unitPrice": "100.00",
+            "discountAmount": "40.00"
+          }
+        ],
+        "totalDiscount": "40.00",
+        "total": "360.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "3",
+            "unitPrice": "100.00",
+            "lineAmount": "300.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "60.00",
+            "promotionDiscount": "40.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X5-fractional-quantity",
+      "description": "A measured line (quantity 1.500; capture accepts fractional quantities only once spec 046 lands) never takes part (F-9): one eligible unit, no application.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1.500",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 0,
+        "rewards": [],
+        "totalDiscount": "0.00",
+        "total": "190.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "100.00",
+            "lineAmount": "100.00",
+            "promotionDiscount": null
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1.500",
+            "unitPrice": "60.00",
+            "lineAmount": "90.00",
+            "promotionDiscount": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "X6-whole-quantity-decimals",
+      "description": "A quantity written with zero decimals (2.000000) is whole and takes part.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "80.00",
+          "quantity": "2.000000",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "unitPrice": "80.00",
+            "discountAmount": "32.00"
+          }
+        ],
+        "totalDiscount": "32.00",
+        "total": "128.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "80.00",
+            "lineAmount": "80.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "80.00",
+            "lineAmount": "48.00",
+            "promotionDiscount": "32.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X7-y-greater-than-x",
+      "description": "Buy 1 get 2 free (Y > X, P = 100): the two cheapest of three units are free.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 2,
+        "percentOff": "100",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "30.00",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "40.00",
+            "discountAmount": "40.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "unitPrice": "30.00",
+            "discountAmount": "30.00"
+          }
+        ],
+        "totalDiscount": "70.00",
+        "total": "50.00",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "50.00",
+            "lineAmount": "50.00",
+            "promotionDiscount": "0.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "40.00",
+            "lineAmount": "0.00",
+            "promotionDiscount": "40.00"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000003",
+            "productId": "0b000000-0000-7000-8000-000000000003",
+            "quantity": "1",
+            "unitPrice": "30.00",
+            "lineAmount": "0.00",
+            "promotionDiscount": "30.00"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X8-minor-unit-0",
+      "description": "JPY (minor unit 0): 999 x 25% = 249.75 rounds half up to 250.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "25",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "JPY",
+      "minorUnit": 0,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "1000",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "999",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "999",
+            "discountAmount": "250"
+          }
+        ],
+        "totalDiscount": "250",
+        "total": "1749",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "1000",
+            "lineAmount": "1000",
+            "promotionDiscount": "0"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "999",
+            "lineAmount": "749",
+            "promotionDiscount": "250"
+          }
+        ]
+      }
+    },
+    {
+      "id": "X9-minor-unit-3",
+      "description": "OMR (minor unit 3): 1.235 x 50% = 0.6175 rounds half up to 0.618.",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "50",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "OMR",
+      "minorUnit": 3,
+      "cart": [
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "2.000",
+          "quantity": "1",
+          "eligible": true
+        },
+        {
+          "lineRef": "0c000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "1.235",
+          "quantity": "1",
+          "eligible": true
+        }
+      ],
+      "expected": {
+        "applications": 1,
+        "rewards": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "unitPrice": "1.235",
+            "discountAmount": "0.618"
+          }
+        ],
+        "totalDiscount": "0.618",
+        "total": "2.617",
+        "lines": [
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000001",
+            "productId": "0b000000-0000-7000-8000-000000000001",
+            "quantity": "1",
+            "unitPrice": "2.000",
+            "lineAmount": "2.000",
+            "promotionDiscount": "0.000"
+          },
+          {
+            "lineRef": "0c000000-0000-7000-8000-000000000002",
+            "productId": "0b000000-0000-7000-8000-000000000002",
+            "quantity": "1",
+            "unitPrice": "1.235",
+            "lineAmount": "0.617",
+            "promotionDiscount": "0.618"
+          }
+        ]
+      }
+    }
+  ],
+  "returns": [
+    {
+      "id": "R1",
+      "description": "Spec 048 §9 table row 1: E3, return the 40 (the reward). The 60 would be the reward now, so D_remaining = 24; refund min(24, 40 - (16 - 24)) = 24.00. No clawback.",
+      "fromVector": "E3",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "100.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "lineAmount": "60.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "24.00",
+          "promotion": {
+            "discountAmount": "16.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "16.00",
+        "dHeld": "16.00",
+        "discReturned": "16.00",
+        "dRemaining": "24.00",
+        "netReturned": "24.00",
+        "grossReturned": "40.00",
+        "refund": "24.00",
+        "clawback": "0.00",
+        "outcome": "accepted"
+      }
+    },
+    {
+      "id": "R2",
+      "description": "Spec 048 §9 table row 2: E3, return the 100 (the trigger). 60 + 40 still qualify; refund min(100, 100 - 0) = 100.00.",
+      "fromVector": "E3",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "100.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "lineAmount": "60.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "24.00",
+          "promotion": {
+            "discountAmount": "16.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "16.00",
+        "dHeld": "16.00",
+        "discReturned": "0.00",
+        "dRemaining": "16.00",
+        "netReturned": "100.00",
+        "grossReturned": "100.00",
+        "refund": "100.00",
+        "clawback": "0.00",
+        "outcome": "accepted"
+      }
+    },
+    {
+      "id": "R3",
+      "description": "Spec 048 §9 table row 3: E1, return the 300. D_remaining = 0; refund min(300, 300 - 80) = 220.00. Clawback 80.00, so refused while OD-11 is open (RT-1340).",
+      "fromVector": "E1",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "300.00",
+          "quantity": "1",
+          "lineAmount": "300.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "200.00",
+          "quantity": "1",
+          "lineAmount": "120.00",
+          "promotion": {
+            "discountAmount": "80.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "80.00",
+        "dHeld": "80.00",
+        "discReturned": "0.00",
+        "dRemaining": "0.00",
+        "netReturned": "300.00",
+        "grossReturned": "300.00",
+        "refund": "220.00",
+        "clawback": "80.00",
+        "outcome": "promotion_return_requires_clawback"
+      }
+    },
+    {
+      "id": "R4",
+      "description": "E2, return the 100. 80, 60, 40 kept: the 40 is the reward now (16); refund min(100, 100 - (40 - 16)) = 76.00. Clawback 24.00, refused while OD-11 is open.",
+      "fromVector": "E2",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "100.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "80.00",
+          "quantity": "1",
+          "lineAmount": "80.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "lineAmount": "36.00",
+          "promotion": {
+            "discountAmount": "24.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000004",
+          "productId": "0b000000-0000-7000-8000-000000000004",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "24.00",
+          "promotion": {
+            "discountAmount": "16.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "40.00",
+        "dHeld": "40.00",
+        "discReturned": "0.00",
+        "dRemaining": "16.00",
+        "netReturned": "100.00",
+        "grossReturned": "100.00",
+        "refund": "76.00",
+        "clawback": "24.00",
+        "outcome": "promotion_return_requires_clawback"
+      }
+    },
+    {
+      "id": "R5",
+      "description": "E3, full return of every unit: refund min(184, 200 - 16) = 184.00, the amount paid. No clawback.",
+      "fromVector": "E3",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "100.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "lineAmount": "60.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "24.00",
+          "promotion": {
+            "discountAmount": "16.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "quantity": "1"
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "16.00",
+        "dHeld": "16.00",
+        "discReturned": "16.00",
+        "dRemaining": "0.00",
+        "netReturned": "184.00",
+        "grossReturned": "200.00",
+        "refund": "184.00",
+        "clawback": "0.00",
+        "outcome": "accepted"
+      }
+    },
+    {
+      "id": "R6",
+      "description": "OD-10: X7 (buy 1 get 2 free), return only the 50 (the trigger). refund min(50, 50 - (70 - 0)) = -20.00 < 0: refused; the till asks to add the reward units.",
+      "fromVector": "X7-y-greater-than-x",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 2,
+        "percentOff": "100",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "lineAmount": "50.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "0.00",
+          "promotion": {
+            "discountAmount": "40.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "30.00",
+          "quantity": "1",
+          "lineAmount": "0.00",
+          "promotion": {
+            "discountAmount": "30.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "70.00",
+        "dHeld": "70.00",
+        "discReturned": "0.00",
+        "dRemaining": "0.00",
+        "netReturned": "50.00",
+        "grossReturned": "50.00",
+        "refund": "-20.00",
+        "clawback": null,
+        "outcome": "promotion_clawback_exceeds_refund"
+      }
+    },
+    {
+      "id": "R7",
+      "description": "X7, full return of all three units: refund min(50, 120 - 70) = 50.00, the amount paid.",
+      "fromVector": "X7-y-greater-than-x",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 2,
+        "percentOff": "100",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "lineAmount": "50.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "0.00",
+          "promotion": {
+            "discountAmount": "40.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "30.00",
+          "quantity": "1",
+          "lineAmount": "0.00",
+          "promotion": {
+            "discountAmount": "30.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "quantity": "1"
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "70.00",
+        "dHeld": "70.00",
+        "discReturned": "70.00",
+        "dRemaining": "0.00",
+        "netReturned": "50.00",
+        "grossReturned": "120.00",
+        "refund": "50.00",
+        "clawback": "0.00",
+        "outcome": "accepted"
+      }
+    },
+    {
+      "id": "R8",
+      "description": "X4, return the split-off reward unit (net 60). Three units kept still earn the one application (max 1): refund min(60, 100 - 0) = 60.00.",
+      "fromVector": "X4-max-applications-one-line",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": 1
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "3",
+          "lineAmount": "300.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "60.00",
+          "promotion": {
+            "discountAmount": "40.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "40.00",
+        "dHeld": "40.00",
+        "discReturned": "40.00",
+        "dRemaining": "40.00",
+        "netReturned": "60.00",
+        "grossReturned": "100.00",
+        "refund": "60.00",
+        "clawback": "0.00",
+        "outcome": "accepted"
+      }
+    },
+    {
+      "id": "R9",
+      "description": "X4, return one unit of the quantity-3 line. Three units kept still earn the one application: refund 100.00.",
+      "fromVector": "X4-max-applications-one-line",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": 1
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "3",
+          "lineAmount": "300.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "60.00",
+          "promotion": {
+            "discountAmount": "40.00"
+          }
+        }
+      ],
+      "returned": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "quantity": "1"
+        }
+      ],
+      "expected": {
+        "dOrig": "40.00",
+        "dHeld": "40.00",
+        "discReturned": "0.00",
+        "dRemaining": "40.00",
+        "netReturned": "100.00",
+        "grossReturned": "100.00",
+        "refund": "100.00",
+        "clawback": "0.00",
+        "outcome": "accepted"
+      }
+    }
+  ],
+  "returnSequences": [
+    {
+      "id": "S1-y-greater-than-x",
+      "description": "X7 (buy 1 get 2 free, 50 paid for 50, 40, 30). Return 1: the 40 and the 30 (the rewards): D_held 70, disc_ret 70, nothing kept earns a discount; refund 70 - max(70, 70 - 0) = 0.00. Return 2: the 50: D_held 0 (no discount left on unreturned units, no clawback yet); refund 50 - max(0, 0) = 50.00, not refused. Total refunded 50.00 = paid.",
+      "fromVector": "X7-y-greater-than-x",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 2,
+        "percentOff": "100",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "50.00",
+          "quantity": "1",
+          "lineAmount": "50.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "0.00",
+          "promotion": {
+            "discountAmount": "40.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "30.00",
+          "quantity": "1",
+          "lineAmount": "0.00",
+          "promotion": {
+            "discountAmount": "30.00"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+              "quantity": "1"
+            },
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "70.00",
+            "discReturned": "70.00",
+            "dRemaining": "0.00",
+            "netReturned": "0.00",
+            "grossReturned": "70.00",
+            "refund": "0.00",
+            "clawback": "0.00",
+            "outcome": "accepted"
+          }
+        },
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "0.00",
+            "discReturned": "0.00",
+            "dRemaining": "0.00",
+            "netReturned": "50.00",
+            "grossReturned": "50.00",
+            "refund": "50.00",
+            "clawback": "0.00",
+            "outcome": "accepted"
+          }
+        }
+      ]
+    },
+    {
+      "id": "S2-three-returns",
+      "description": "E2 (100, 80, 60 -24, 40 -16; 240 paid). Return 1: the 40: D_held 40, disc_ret 16, kept 100, 80, 60 earn 24; refund 40 - max(16, 16) = 24.00. Return 2: the 60: D_held 24, disc_ret 24, kept 100, 80 earn 32; refund 60 - max(24, -8) = 36.00. Return 3: the 100: D_held 0; refund 100.00. No clawback anywhere; the customer keeps the 80 for 80.00.",
+      "fromVector": "E2",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "100.00",
+          "quantity": "1",
+          "lineAmount": "100.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "80.00",
+          "quantity": "1",
+          "lineAmount": "80.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+          "productId": "0b000000-0000-7000-8000-000000000003",
+          "unitPrice": "60.00",
+          "quantity": "1",
+          "lineAmount": "36.00",
+          "promotion": {
+            "discountAmount": "24.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000004",
+          "productId": "0b000000-0000-7000-8000-000000000004",
+          "unitPrice": "40.00",
+          "quantity": "1",
+          "lineAmount": "24.00",
+          "promotion": {
+            "discountAmount": "16.00"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000004",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "40.00",
+            "discReturned": "16.00",
+            "dRemaining": "24.00",
+            "netReturned": "24.00",
+            "grossReturned": "40.00",
+            "refund": "24.00",
+            "clawback": "0.00",
+            "outcome": "accepted"
+          }
+        },
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000003",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "24.00",
+            "discReturned": "24.00",
+            "dRemaining": "32.00",
+            "netReturned": "36.00",
+            "grossReturned": "60.00",
+            "refund": "36.00",
+            "clawback": "0.00",
+            "outcome": "accepted"
+          }
+        },
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "0.00",
+            "discReturned": "0.00",
+            "dRemaining": "0.00",
+            "netReturned": "100.00",
+            "grossReturned": "100.00",
+            "refund": "100.00",
+            "clawback": "0.00",
+            "outcome": "accepted"
+          }
+        }
+      ]
+    },
+    {
+      "id": "S3-clawback-then-reward",
+      "description": "E1 (300, 200 -80; 420 paid). Return 1: the 300: D_held 80, disc_ret 0, nothing kept earns a discount; refund 300 - max(0, 80) = 220.00, clawback 80.00 (refused while OD-11 is open; the later step assumes it was recorded, as after OD-11 is decided). Return 2: the 200: D_held 80 - 80 = 0, disc_ret min(80, 0) = 0; refund 200 - max(0, 0) = 200.00. Total refunded 420.00 = paid.",
+      "fromVector": "E1",
+      "offer": {
+        "buyQuantity": 1,
+        "getQuantity": 1,
+        "percentOff": "40",
+        "maxApplicationsPerSale": null
+      },
+      "currencyCode": "EGP",
+      "minorUnit": 2,
+      "saleLines": [
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+          "productId": "0b000000-0000-7000-8000-000000000001",
+          "unitPrice": "300.00",
+          "quantity": "1",
+          "lineAmount": "300.00",
+          "promotion": {
+            "discountAmount": "0.00"
+          }
+        },
+        {
+          "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+          "productId": "0b000000-0000-7000-8000-000000000002",
+          "unitPrice": "200.00",
+          "quantity": "1",
+          "lineAmount": "120.00",
+          "promotion": {
+            "discountAmount": "80.00"
+          }
+        }
+      ],
+      "steps": [
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "80.00",
+            "discReturned": "0.00",
+            "dRemaining": "0.00",
+            "netReturned": "300.00",
+            "grossReturned": "300.00",
+            "refund": "220.00",
+            "clawback": "80.00",
+            "outcome": "promotion_return_requires_clawback"
+          }
+        },
+        {
+          "returned": [
+            {
+              "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+              "quantity": "1"
+            }
+          ],
+          "expected": {
+            "dHeld": "0.00",
+            "discReturned": "0.00",
+            "dRemaining": "0.00",
+            "netReturned": "120.00",
+            "grossReturned": "200.00",
+            "refund": "200.00",
+            "clawback": "0.00",
+            "outcome": "accepted"
+          }
+        }
+      ]
+    }
+  ]
+}

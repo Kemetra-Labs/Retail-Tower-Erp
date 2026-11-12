@@ -45,7 +45,10 @@ export function toMovementBody(r: MovementRow): StockMovementBody {
     createdBy: r.created_by,
     origin: r.origin,
     integrationState: r.integration_state ?? null,
-    erpConfirmedAt: r.erp_confirmed_at ? r.erp_confirmed_at.toISOString() : null,
+    // inventory.yaml: null unless `confirmed`. An ERP-origin (`external`, RT-1288)
+    // effect stores the SLE creation there too; the API keeps the contract's meaning.
+    erpConfirmedAt:
+      r.integration_state === "confirmed" && r.erp_confirmed_at ? r.erp_confirmed_at.toISOString() : null,
     ...toPositionBody(r),
     trackingIdentityId: r.tracking_identity_id,
   };

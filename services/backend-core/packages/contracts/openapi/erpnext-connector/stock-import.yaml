@@ -1,18 +1,18 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector ERP-Origin Stock Import API
-  version: "1.0.0-draft"
+  version: "1.0.1-draft"
   description: >
     RT-1286 (Inventory Gate 8 follow-up P2; [GATED: OpenAPI] owner go-ahead
     2026-11-11, recorded on Jira RT-1286 comment 16540 and RT-1283 comment
     16534; planning record "Inventory Gate 8" Confluence page 70680596, §3
-    row (b) and §4, approved in RT-293 comment 16226): CONTRACT ONLY. The
+    row (b) and §4, approved in RT-293 comment 16226). The
     Backend-Core ↔ Connector boundary by which Backend-Core learns about
     stock that ERPNext moved at a mapped bucket warehouse without Retail
     Tower: ERP-origin receipts, opening stock and governed corrections, with
-    their Batch (DC-4, G7-3). Both operations are `x-runtime-status:
-    contract-only`: the Connector reader is RT-1287 and the Backend-Core
-    ingestion is RT-1288.
+    their Batch (DC-4, G7-3); the Connector reader is RT-1287 and the
+    Backend-Core ingestion is RT-1288, which serves both operations (1.0.1-draft
+    lifts their contract-only markers; wording only, no shape change).
 
     The transport mirrors `stock-view.yaml` (the connector is the ONLY
     component that talks to ERPNext; Backend-Core makes NO outbound HTTP — it
@@ -114,8 +114,9 @@ info:
     ROLLOUT ORDER (Backend-Core first, as for `stock-view.yaml` 1.4.0-draft,
     because the connector sends and Backend-Core validates): Backend-Core
     serves the feed and accepts reports (RT-1288) before the connector reads
-    and reports (RT-1287). Until then no route is registered and the
-    connector must not call these paths.
+    and reports (RT-1287). A connector must not call these paths against a
+    Backend-Core that does not serve them yet (RT-1287's site switch stays off
+    until it does).
 
     Serial Items are outside this version (serial selling is fail-closed,
     RT-50 Q11): a ledger row of a serial Item is reported with
@@ -138,11 +139,6 @@ paths:
     get:
       summary: Pull a page of wanted ERPNext Stock Ledger reads after a cursor.
       operationId: stockImportPullRequests
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1286 contract only. Backend-Core serves this feed in RT-1288 (import
-        ingestion, [GATED: migration]); the connector reader that pulls it is
-        RT-1287. No route is registered until RT-1288.
       tags: [erpnext-connector]
       security:
         - connectorBearer: []
@@ -186,12 +182,6 @@ paths:
     post:
       summary: Report the Stock Ledger facts read for a pulled import request.
       operationId: stockImportReportRows
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1286 contract only. Backend-Core records reports and classifies the
-        rows in RT-1288 (DC-4, anchor watermark, findings, [GATED: migration]);
-        the connector that reads ERPNext and reports is RT-1287. No route is
-        registered until RT-1288.
       x-idempotency: required
       tags: [erpnext-connector]
       security:
@@ -1030,9 +1020,9 @@ components:
       description: >
         `payload_too_large` (413) — the report body is above the route's JSON
         body limit and was refused before validation; nothing is recorded.
-        Backend-Core keeps the 100 kB default until RT-1288 sizes this route's
-        limit for a full page of `maxRows` rows at maximum field lengths, as
-        RT-1284 did for `binViewReportSnapshot`.
+        RT-1288 sizes this route's limit at 2 MiB, which covers a full page of
+        100 rows at maximum field lengths (about 1.2 MB with every name in
+        non-ASCII `\uXXXX` escapes), as RT-1284 did for `binViewReportSnapshot`.
       content:
         application/json:
           schema:

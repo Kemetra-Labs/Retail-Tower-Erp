@@ -33,6 +33,7 @@ import { stock } from "./en/stock";
 import { tenants } from "./en/tenants";
 import { trackedSelling } from "./en/trackedSelling";
 import { tracking } from "./en/tracking";
+import { vouchers } from "./en/vouchers";
 import type { MessagesOf } from "./types";
 
 export const EN_MODULES = {
@@ -65,6 +66,7 @@ export const EN_MODULES = {
   salesByStore,
   tracking,
   trackedSelling,
+  vouchers,
 };
 
 export const en: MessagesOf<typeof ar> = {
@@ -97,4 +99,5 @@ export const en: MessagesOf<typeof ar> = {
   ...salesByStore,
   ...tracking,
   ...trackedSelling,
+  ...vouchers,
 };
