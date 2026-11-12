@@ -163,7 +163,12 @@ beforeAll(async () => {
   await seedRedemption(R_B, { tenant: TENANT_B, store: STORE_B, device: DEVICE_B, hex: "b1" });
   // A pre-0099 cash sale (the UPGRADE path).
   await insertSale(TENANT_A, STORE_A, LEGACY_SALE);
-  expect(await tender(LEGACY_SALE, A, "cash", null)).toBeNull();
+  // Before 0099 there is no redemption_id column, so the legacy row is written without it.
+  await a.query(
+    `INSERT INTO sale_tenders (id, sale_id, tenant_id, store_id, method, amount, currency_code)
+     VALUES (gen_random_uuid(), $1, $2, $3, 'cash', 50, 'EGP')`,
+    [LEGACY_SALE, TENANT_A, STORE_A],
+  );
   await a.query(upSql);
   // The app role's table grants are taken after the DDL.
   await ensureAppRole(env);
