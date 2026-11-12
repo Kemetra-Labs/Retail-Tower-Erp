@@ -38,6 +38,8 @@ export interface PricedLineInput {
   readonly lineAmount: string;
   readonly currencyCode: string;
   readonly discount?: PricedLineDiscountInput | undefined;
+  /** RT-1337: an automatic offer's fact; mutually exclusive with `discount` (OD-5). */
+  readonly promotion?: { readonly discountAmount: string } | undefined;
 }
 
 const MONEY_SCALE = 4;
@@ -73,6 +75,21 @@ function discountAmountHolds(discount: PricedLineDiscountInput, gross: bigint, e
   return ((grossMinor * BigInt(discount.value) + 50n) / 100n) * minorUnit === amount;
 }
 
+/**
+ * RT-1337 (spec 048 §8): `lineAmount = unitPrice × quantity − discountAmount`
+ * exactly; the discount fits the minor unit and is at most the line gross; a
+ * reward line (discount above 0) has quantity 1 (OD-4). The percent against
+ * the cited offer version needs the database (`sale-promotions.ts`).
+ */
+function promotionArithmeticHolds(line: PricedLineInput, discountAmount: string, product: bigint, exponent: number): boolean {
+  if (!fitsMinorUnit(discountAmount, exponent)) return false;
+  const discount = toScaled(discountAmount, MONEY_SCALE);
+  const gross = product / 10n ** BigInt(QUANTITY_SCALE);
+  if (discount > gross) return false;
+  if (discount > 0n && toScaled(line.quantity, QUANTITY_SCALE) !== 10n ** BigInt(QUANTITY_SCALE)) return false;
+  return toScaled(line.lineAmount, MONEY_SCALE) + discount === gross;
+}
+
 function conforms(line: PricedLineInput): boolean {
   const exponent = minorUnitExponent(line.currencyCode);
   if (exponent === null) return false;
@@ -80,7 +97,11 @@ function conforms(line: PricedLineInput): boolean {
   if (!fitsMinorUnit(line.lineAmount, exponent)) return false;
   if (!isWhole(line.quantity)) return false;
   const product = toScaled(line.unitPrice, MONEY_SCALE) * toScaled(line.quantity, QUANTITY_SCALE);
-  const { discount } = line;
+  const { discount, promotion } = line;
+  if (promotion !== undefined) {
+    if (discount !== undefined) return false;
+    return promotionArithmeticHolds(line, promotion.discountAmount, product, exponent);
+  }
   if (discount === undefined) {
     return product === toScaled(line.lineAmount, MONEY_SCALE) * 10n ** BigInt(QUANTITY_SCALE);
   }

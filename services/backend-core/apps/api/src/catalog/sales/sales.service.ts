@@ -62,6 +62,7 @@ import {
 } from "./sale-tender-writes";
 import { sha256CanonicalHex } from "./payload-hash";
 import { findLinePricingViolation } from "./sale-line-pricing";
+import { planSalePromotions, writeSalePromotions, type PromotionPlan } from "./sale-promotions";
 import {
   assertApproverEligible,
   assertRequesterIsStoreUser,
@@ -208,6 +209,16 @@ export interface SaleLineProjection {
   readonly returnableQuantity: string;
   /** RT-451 S3: the tracking snapshot the line was captured with; absent without one. */
   readonly tracking?: SaleLineTrackingProjection;
+  /** RT-1337 (spec 048 §8): the automatic-offer fact the line was captured with; absent without one. */
+  readonly promotion?: SaleLinePromotionProjection;
+}
+
+/** RT-1337: contract `SaleLinePromotion`, echoed as stored. */
+export interface SaleLinePromotionProjection {
+  readonly offerId: string;
+  readonly offerVersion: number;
+  readonly packRevision: number;
+  readonly discountAmount: string;
 }
 
 /** RT-451 S3: contract `SaleLineTracking`, echoed as recorded. */
@@ -291,6 +302,10 @@ interface SaleLineRow {
   tracking_expiry_date: string | null;
   tracking_selection: SaleLineTrackingProjection["selection"] | null;
   tracking_validation_id: string | null;
+  promotion_offer_id: string | null;
+  promotion_offer_version: number | null;
+  promotion_pack_revision: string | null;
+  promotion_discount_amount: string | null;
 }
 
 @Injectable()
@@ -336,7 +351,7 @@ export class SalesService {
         // A FIRST capture from here: every refusal throws and rolls the
         // transaction back, so the sales row is not kept and nothing is
         // recorded.
-        await assertFirstCaptureAccepted(client, {
+        const promotions = await assertFirstCaptureAccepted(client, {
           scope: { tenantId, storeId },
           actorUserId,
           authPath: input.authPath,
@@ -348,10 +363,12 @@ export class SalesService {
           saleId,
           tenantId,
           storeId,
+          actorUserId,
           body,
           tenders,
           responsibilities,
           tracking,
+          promotions,
         });
         // ONLY the created path emits: a replay returned above, so a
         // re-delivery does NOT double-emit.
@@ -412,8 +429,11 @@ export class SalesService {
                   sl.tracking_validation_id::text AS tracking_validation_id,
                   r.returned::text AS returned_quantity,
                   (CASE WHEN $2::boolean THEN 0 ELSE sl.quantity - r.returned END)
-                    ::numeric(19,6)::text AS returnable_quantity
+                    ::numeric(19,6)::text AS returnable_quantity,
+                  lp.offer_id::text AS promotion_offer_id, lp.offer_version AS promotion_offer_version,
+                  lp.pack_revision::text AS promotion_pack_revision, lp.discount_amount::text AS promotion_discount_amount
              FROM sale_lines sl
+             LEFT JOIN sale_line_promotions lp ON lp.sale_line_id = sl.id
              CROSS JOIN LATERAL (
                SELECT COALESCE(SUM(rl.quantity), 0)::numeric(19,6) AS returned
                  FROM sale_return_lines rl WHERE rl.sale_line_id = sl.id
@@ -740,6 +760,7 @@ function toBody(
       returnedQuantity: l.returned_quantity,
       returnableQuantity: l.returnable_quantity,
       ...lineTrackingField(l),
+      ...linePromotionField(l),
     })),
     tenders: tenders.map((t) => ({
       method: t.method,
@@ -752,6 +773,20 @@ function toBody(
     ...responsibilitiesField(responsibilities),
     safetyRevision: (row.safety_revision ?? null) === null ? null : Number(row.safety_revision),
     safetySyncedAt: row.safety_synced_at ? row.safety_synced_at.toISOString() : null,
+  };
+}
+
+/** RT-1337: a line's `promotion` echo, only when it was captured with an automatic-offer fact. */
+function linePromotionField(l: SaleLineRow): { promotion?: SaleLinePromotionProjection } {
+  // `?? null`: a unit-test row double may omit the promotion keys.
+  if ((l.promotion_offer_id ?? null) === null) return {};
+  return {
+    promotion: {
+      offerId: l.promotion_offer_id!,
+      offerVersion: l.promotion_offer_version!,
+      packRevision: Number(l.promotion_pack_revision),
+      discountAmount: l.promotion_discount_amount!,
+    },
   };
 }
 
@@ -967,10 +1002,13 @@ async function insertCaptureRows(
     readonly saleId: string;
     readonly tenantId: string;
     readonly storeId: string;
+    readonly actorUserId: string;
     readonly body: CaptureSaleRequestDto;
     readonly tenders: ReadonlyArray<SaleTenderDto>;
     readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
     readonly tracking: CaptureTracking;
+    /** RT-1337: the automatic-offer facts to store, or null when no line carries one. */
+    readonly promotions: PromotionPlan | null;
   },
 ): Promise<void> {
   const { saleId, tenantId, storeId, body, tenders, responsibilities, tracking } = sale;
@@ -981,6 +1019,10 @@ async function insertCaptureRows(
     lines: body.lines,
     classes: tracking.classes,
   });
+  // RT-1337: the frozen automatic-offer facts (and the OD-9 review flag), once the lines exist.
+  if (sale.promotions !== null) {
+    await writeSalePromotions(client, { saleId, tenantId, storeId, actorUserId: sale.actorUserId }, lineIds, sale.promotions);
+  }
   // RT-451 S3: the row-2 and row-3 findings, in the capture transaction.
   await writeSaleLineFindings(
     client,
@@ -1041,7 +1083,8 @@ async function emitSaleCaptured(
  *      redemption of this tenant and store, for exactly its amount;
  *   4. RT-105 (RT-87 decision D): the line price invariant, or the line could
  *      never be returned exactly (a replay of a sale captured before RT-105
- *      still resolves, 200);
+ *      still resolves, 200); RT-1337: and an automatic-offer `promotion`'s
+ *      arithmetic against the cited offer version (OD-9);
  *   5. RT-418: every payer is billable for this sale.
  */
 async function assertFirstCaptureAccepted(
@@ -1054,7 +1097,7 @@ async function assertFirstCaptureAccepted(
     readonly tenders: ReadonlyArray<SaleTenderDto>;
     readonly responsibilities: ReadonlyArray<SaleResponsibilityDto>;
   },
-): Promise<void> {
+): Promise<PromotionPlan | null> {
   const { scope, body, tenders, responsibilities } = capture;
   const credit = responsibilities.length > 0;
   if (credit && capture.authPath === "device") throw new SaleResponsibilityOfflineRefusedError();
@@ -1067,8 +1110,12 @@ async function assertFirstCaptureAccepted(
   await assertVoucherTendersRedeemed(client, { ...scope, currencyCode: body.currencyCode, tenders });
 
   if (findLinePricingViolation(body.lines) !== null) throw new SaleLinePricingInvalidError();
+  // RT-1337 (OD-9): the cited offer version and Pack revision must exist and the percent must hold (422);
+  // a rule-level difference is accepted and flagged after the lines are written.
+  const promotions = await planSalePromotions(client, scope, body);
 
   if (credit) await assertResponsibilityPayersEligible(client, scope, responsibilities);
+  return promotions;
 }
 
 /**

@@ -95,6 +95,11 @@ export interface DetailLineRow {
   readonly tax_amount: string | null;
   readonly unit: string;
   readonly returned_quantity: string;
+  /** RT-1337: the line's automatic-offer fact; null (or absent in a row double) when it has none. */
+  readonly promotion_offer_id?: string | null;
+  readonly promotion_offer_version?: number | null;
+  readonly promotion_pack_revision?: string | null;
+  readonly promotion_discount_amount?: string | null;
 }
 
 export interface DetailTenderRow {
@@ -173,6 +178,13 @@ export interface SaleHistoryDetail {
     readonly taxAmount: string | null;
     readonly unit: string;
     readonly returnedQuantity: string;
+    /** RT-1337: present only when the line took part in an automatic offer. */
+    readonly promotion?: {
+      readonly offerId: string;
+      readonly offerVersion: number;
+      readonly packRevision: number;
+      readonly discountAmount: string;
+    };
   }>;
   readonly lineOrder: "recorded" | "not_recorded";
   readonly tenderState: "recorded" | "unknown";
@@ -358,6 +370,16 @@ export function toSaleHistoryDetail(input: SaleHistoryDetailInput): SaleHistoryD
       taxAmount: l.tax_amount,
       unit: l.unit,
       returnedQuantity: l.returned_quantity,
+      ...((l.promotion_offer_id ?? null) === null
+        ? {}
+        : {
+            promotion: {
+              offerId: l.promotion_offer_id!,
+              offerVersion: l.promotion_offer_version!,
+              packRevision: Number(l.promotion_pack_revision),
+              discountAmount: l.promotion_discount_amount!,
+            },
+          }),
     })),
     lineOrder: lines.every((l) => l.line_seq !== null) ? "recorded" : "not_recorded",
     tenderState: tenders.length > 0 ? "recorded" : "unknown",

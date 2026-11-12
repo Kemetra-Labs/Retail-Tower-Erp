@@ -45,6 +45,30 @@ export class ReturnOverReturnError extends Error {
   }
 }
 
+/**
+ * RT-1337 (spec 048 §9, OD-10): the refund of an offer's units would be below
+ * 0, so the customer would have to pay back → 422 `promotion_clawback_exceeds_refund`.
+ * The till asks the cashier to add the reward units to the return.
+ */
+export class PromotionClawbackExceedsRefundError extends Error {
+  constructor() {
+    super("the promotion clawback exceeds the refund of the returned units");
+    this.name = "PromotionClawbackExceedsRefundError";
+  }
+}
+
+/**
+ * RT-1337 (OD-11, RT-1340 finding): a return that would give back a discount an
+ * earlier return clawed back cannot be recorded or posted yet → 422
+ * `promotion_return_requires_clawback`, fail closed.
+ */
+export class PromotionReturnRequiresClawbackError extends Error {
+  constructor() {
+    super("this return needs a promotion give-back that cannot be recorded or posted yet");
+    this.name = "PromotionReturnRequiresClawbackError";
+  }
+}
+
 /** Refund tenders do not sum to the server-computed total (D3) → 422. */
 export class ReturnTenderMismatchError extends Error {
   constructor() {

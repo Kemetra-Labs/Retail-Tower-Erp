@@ -370,6 +370,9 @@ export class OffersService {
       const record = loaded.versions.get(offerId);
       const open = loaded.pauses.filter((p) => p.offerId === offerId);
       if (open.length === 0 || record === undefined) throw new OfferRefusedError("offer_state_invalid");
+      // An ended or archived offer cannot be resumed (its pause row may still be open).
+      const stateNow = stateOf(loaded, header);
+      if (stateNow === "ended" || stateNow === "archived") throw new OfferRefusedError("offer_state_invalid");
 
       let lifting = open;
       if (body.storeIds !== undefined) {

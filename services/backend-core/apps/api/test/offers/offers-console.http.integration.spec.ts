@@ -506,4 +506,248 @@ describe("lifecycle: pause, resume, end, archive", () => {
     expectError(await post(`/api/v1/offers/${offer.offerId}/resume`, SES_OWNER_ALL, {}), 409, "offer_state_invalid");
   });
 
+
+  it("a store_manager pauses only their own stores (200, audited with the stores), never the whole offer, and cannot resume, end or archive", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition());
+    const id = offer.offerId;
+    // A whole-offer pause (no storeIds) is a 403 for a store_manager.
+    expect((await post(`/api/v1/offers/${id}/pause`, SES_MANAGER, { reason: "r" })).status).toBe(403);
+    // A store outside their scope is the non-disclosing 404 store_not_found, nothing is paused.
+    expectError(await post(`/api/v1/offers/${id}/pause`, SES_MANAGER, { reason: "r", storeIds: [STORE_A_Y] }), 404, "store_not_found");
+    expectError(await post(`/api/v1/offers/${id}/pause`, SES_MANAGER, { reason: "r", storeIds: [STORE_ABSENT] }), 404, "store_not_found");
+    expect((await openRows(STORE_A_X)).length).toBeGreaterThan(0);
+    const res = await post(`/api/v1/offers/${id}/pause`, SES_MANAGER, { reason: "shelf label wrong", storeIds: [STORE_A_X] });
+    expect(res.status).toBe(200);
+    h.conforms("Offer", res.body);
+    expect(res.body).toMatchObject({ state: "active", pause: null, pausedStores: [{ storeId: STORE_A_X, reason: "shelf label wrong" }] });
+    expect(await openRows(STORE_A_X)).toEqual([]);
+    expect((await openRows(STORE_A_Y)).length).toBeGreaterThan(0);
+    const audit = await auditRows("offer.paused", id);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.metadata).toMatchObject({ reason: "shelf label wrong", store_ids: [STORE_A_X] });
+    // Pausing the same store again is a no-op (200, no second audit row).
+    expect((await post(`/api/v1/offers/${id}/pause`, SES_MANAGER, { reason: "again", storeIds: [STORE_A_X] })).status).toBe(200);
+    expect(await auditRows("offer.paused", id)).toHaveLength(1);
+    // A manager cannot resume, even the store they paused; the owner can.
+    expect((await post(`/api/v1/offers/${id}/resume`, SES_MANAGER, { storeIds: [STORE_A_X] })).status).toBe(403);
+    const resumed = await post(`/api/v1/offers/${id}/resume`, SES_OWNER_ALL, { storeIds: [STORE_A_X] });
+    expect(resumed.status).toBe(200);
+    expect(resumed.body).toMatchObject({ pausedStores: [] });
+    expect((await openRows(STORE_A_X)).length).toBeGreaterThan(0);
+  });
+
+  it("pauses named stores for an owner, refuses a store outside the offer's scope (422) and a resume of a store that is not paused (422)", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition({ storeScope: { storeIds: [STORE_A_X] } }));
+    const id = offer.offerId;
+    expectError(await post(`/api/v1/offers/${id}/pause`, SES_OWNER_ALL, { reason: "r", storeIds: [STORE_A_Y] }), 422, "offer_store_not_in_scope");
+    expect((await post(`/api/v1/offers/${id}/pause`, SES_OWNER_ALL, { reason: "r", storeIds: [STORE_A_X] })).status).toBe(200);
+    expectError(await post(`/api/v1/offers/${id}/resume`, SES_OWNER_ALL, { storeIds: [STORE_A_Y] }), 422, "offer_store_not_in_scope");
+    expectError(await post(`/api/v1/offers/${id}/resume`, SES_OWNER_ALL, { storeIds: [STORE_ABSENT] }), 404, "store_not_found");
+    expect((await post(`/api/v1/offers/${id}/resume`, SES_OWNER_ALL, {})).status).toBe(200);
+  });
+
+  it("a resume that would put products back into a store another live offer now holds is refused with 409 offer_conflict (OD-7)", async () => {
+    if (skip()) return;
+    const first = await publishOk(definition({ nameAr: "الأول" }));
+    expect((await post(`/api/v1/offers/${first.offerId}/pause`, SES_OWNER_ALL, { reason: "pause for the second" })).status).toBe(200);
+    // A paused offer still counts: the second cannot be published over it.
+    const second = await createOffer(definition({ nameAr: "الثاني", eligibility: { include: { productIds: [P_RUN] } } }));
+    expectError(await publishOffer(second), 409, "offer_conflict");
+    // End the paused offer, publish the second, and the first can no longer be resumed (it is ended).
+    await post(`/api/v1/offers/${first.offerId}/end`, SES_OWNER_ALL).expect(200);
+    expect((await publishOffer(second)).status).toBe(200);
+    expectError(await post(`/api/v1/offers/${first.offerId}/resume`, SES_OWNER_ALL, {}), 409, "offer_state_invalid");
+  });
+
+  it("ends an offer (200, leaves the Pack, audited once), a second end is a no-op, an ended offer cannot be edited or published", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition());
+    const id = offer.offerId;
+    const ended = await post(`/api/v1/offers/${id}/end`, SES_OWNER_ALL);
+    expect(ended.status).toBe(200);
+    h.conforms("Offer", ended.body);
+    expect(ended.body).toMatchObject({ state: "ended", endedAt: expect.any(String) });
+    expect(await openRows(STORE_A_X)).toEqual([]);
+    expect((await post(`/api/v1/offers/${id}/end`, SES_OWNER_ALL)).status).toBe(200);
+    expect(await auditRows("offer.ended", id)).toHaveLength(1);
+    expectError(await write("put", `/api/v1/offers/${id}/draft`, SES_OWNER_ALL, { expectedDraftRevision: null, definition: definition() }), 409, "offer_state_invalid");
+    expectError(await post(`/api/v1/offers/${id}/publish`, SES_OWNER_ALL, { expectedDraftRevision: 2 }), 409, "offer_state_invalid");
+    expectError(await post(`/api/v1/offers/${id}/pause`, SES_OWNER_ALL, { reason: "r" }), 409, "offer_state_invalid");
+    // Only a draft or an archived offer cannot be ended.
+    const draft = await createOffer(definition());
+    expectError(await post(`/api/v1/offers/${draft.offerId}/end`, SES_OWNER_ALL), 409, "offer_state_invalid");
+  });
+
+  it("archives only an ended offer; archiving twice is a no-op; an archived offer never changes", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition());
+    const id = offer.offerId;
+    expectError(await post(`/api/v1/offers/${id}/archive`, SES_OWNER_ALL), 409, "offer_state_invalid");
+    await post(`/api/v1/offers/${id}/end`, SES_OWNER_ALL).expect(200);
+    const archived = await post(`/api/v1/offers/${id}/archive`, SES_OWNER_ALL);
+    expect(archived.status).toBe(200);
+    expect(archived.body).toMatchObject({ state: "archived", archivedAt: expect.any(String) });
+    expect((await post(`/api/v1/offers/${id}/archive`, SES_OWNER_ALL)).status).toBe(200);
+    expect(await auditRows("offer.archived", id)).toHaveLength(1);
+    expectError(await post(`/api/v1/offers/${id}/end`, SES_OWNER_ALL), 409, "offer_state_invalid");
+    const listed = await get("/api/v1/offers", SES_OWNER_ALL, { state: "archived", page_size: 100 });
+    expect((listed.body as { items: Array<{ offerId: string }> }).items.map((o) => o.offerId)).toContain(id);
+    // The versions stay readable.
+    expect(((await get(`/api/v1/offers/${id}/versions`, SES_OWNER_ALL)).body as { items: unknown[] }).items).toHaveLength(1);
+  });
+
+  it("a window that closed by itself reads as ended, and its rows are swept by the next write", async () => {
+    if (skip()) return;
+    const offer = await createOffer(definition({ schedule: { timeBasis: "absolute", startsAt: "2020-01-01T00:00:00Z", endsAt: new Date(Date.now() + 1500).toISOString() } }));
+    expect((await publishOffer(offer)).status).toBe(200);
+    expect((await openRows(STORE_A_X)).length).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 1700));
+    expect(((await get(`/api/v1/offers/${offer.offerId}`, SES_OWNER_ALL)).body as OfferBody).state).toBe("ended");
+    // A new offer on the same products publishes: the closed window no longer holds them.
+    const next = await publishOk(definition({ nameAr: "التالي" }));
+    expect(next.state).toBe("active");
+    expect(await openRows(STORE_A_X)).toEqual([{ product_id: P_RUN, offer_id: next.offerId, offer_version: 1 }, { product_id: P_TRAIN, offer_id: next.offerId, offer_version: 1 }].sort((a, b) => (a.product_id < b.product_id ? -1 : 1)));
+  });
+});
+
+describe("what a store_manager sees", () => {
+  beforeEach(async () => {
+    if (!skip()) await endAll();
+  });
+
+  it("lists and reads only offers whose scope includes one of their stores, with store lists filtered to those stores", async () => {
+    if (skip()) return;
+    const both = await publishOk(definition({ nameAr: "الاتنين", storeScope: { storeIds: [STORE_A_X, STORE_A_Y] }, eligibility: { include: { productIds: [P_RUN] } } }));
+    const onlyY = await publishOk(definition({ nameAr: "واي", storeScope: { storeIds: [STORE_A_Y] }, eligibility: { include: { productIds: [P_HAT] } } }));
+    const everywhere = await publishOk(definition({ nameAr: "كله", eligibility: { include: { productIds: [P_BARE] } } }));
+    await post(`/api/v1/offers/${both.offerId}/pause`, SES_OWNER_ALL, { reason: "secret reason", storeIds: [STORE_A_Y] }).expect(200);
+
+    const list = await get("/api/v1/offers", SES_MANAGER, { page_size: 100 });
+    expect(list.status).toBe(200);
+    h.conforms("OfferPage", list.body);
+    const items = (list.body as { items: Array<{ offerId: string; storeScope: Record<string, unknown> }> }).items;
+    const byId = new Map(items.map((i) => [i.offerId, i]));
+    expect(byId.has(onlyY.offerId)).toBe(false);
+    expect(byId.get(both.offerId)!.storeScope).toEqual({ storeIds: [STORE_A_X] });
+    expect(byId.get(everywhere.offerId)!.storeScope).toEqual({ allStores: true });
+    expectError(await get(`/api/v1/offers/${onlyY.offerId}`, SES_MANAGER), 404, "offer_not_found");
+    expectError(await get(`/api/v1/offers/${onlyY.offerId}/versions`, SES_MANAGER), 404, "offer_not_found");
+    const read = await get(`/api/v1/offers/${both.offerId}`, SES_MANAGER);
+    expect(read.status).toBe(200);
+    h.conforms("Offer", read.body);
+    const body = read.body as OfferBody;
+    expect((body.currentVersion!.definition as { storeScope: unknown }).storeScope).toEqual({ storeIds: [STORE_A_X] });
+    // Another store's pause (its id, reason and user) is not returned.
+    expect(body.pausedStores).toEqual([]);
+    expect(JSON.stringify(read.body)).not.toContain("secret reason");
+    expect(JSON.stringify(read.body)).not.toContain(STORE_A_Y);
+    // The owner sees all of it.
+    const owner = await get(`/api/v1/offers/${both.offerId}`, SES_OWNER_ALL);
+    expect((owner.body as OfferBody).pausedStores).toHaveLength(1);
+    // The store filter: a store outside the manager's scope is a 404, an own store filters.
+    expectError(await get("/api/v1/offers", SES_MANAGER, { store_id: STORE_A_Y }), 404, "store_not_found");
+    const filtered = await get("/api/v1/offers", SES_MANAGER, { store_id: STORE_A_X, page_size: 100 });
+    expect((filtered.body as { items: Array<{ offerId: string }> }).items.map((i) => i.offerId)).toEqual(expect.arrayContaining([both.offerId, everywhere.offerId]));
+  });
+
+  it("lists by state with a keyset walk", async () => {
+    if (skip()) return;
+    await publishOk(definition({ nameAr: "1", eligibility: { include: { productIds: [P_RUN] } } }));
+    await publishOk(definition({ nameAr: "2", eligibility: { include: { productIds: [P_HAT] } } }));
+    await createOffer(definition({ nameAr: "3" }));
+    const active = await get("/api/v1/offers", SES_OWNER_ALL, { state: "active", page_size: 1 });
+    expect(active.status).toBe(200);
+    const first = active.body as { items: Array<{ offerId: string; state: string }>; nextCursor: string };
+    expect(first.items).toHaveLength(1);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    const second = await get("/api/v1/offers", SES_OWNER_ALL, { state: "active", page_size: 1, cursor: first.nextCursor });
+    const secondBody = second.body as { items: Array<{ offerId: string; state: string }> };
+    expect(secondBody.items[0]!.offerId).not.toBe(first.items[0]!.offerId);
+    expect([first.items[0]!.state, secondBody.items[0]!.state]).toEqual(["active", "active"]);
+    expectError(await get("/api/v1/offers", SES_OWNER_ALL, { cursor: Buffer.from(JSON.stringify({ t: TENANT_A })).toString("base64url") }), 400, "validation_error");
+    expectError(await get("/api/v1/offers", SES_OWNER_ALL, { state: "nonsense" }), 400, "validation_error");
+  });
+});
+
+describe("the Offer Pack read (posGetOfferPack)", () => {
+  beforeEach(async () => {
+    if (!skip()) await endAll();
+  });
+
+  it("is 401 without a device token and for a dashboard session; an unknown query key is 400; a malformed If-None-Match is 400", async () => {
+    if (skip()) return;
+    expect((await h.get("/api/pos/v1/store/offer-pack", null)).status).toBe(401);
+    expect((await h.get("/api/pos/v1/store/offer-pack", SES_OWNER_ALL)).status).toBe(401);
+    expect((await h.get("/api/pos/v1/store/offer-pack", null, { store_id: STORE_A_Y }).set("Authorization", `Bearer ${TOKEN_X}`)).status).toBe(400);
+    expect((await packRead(TOKEN_X, { "If-None-Match": 'W/"abc"' })).status).toBe(400);
+  });
+
+  it("is an empty revision-0 Pack before any offer, with trusted-time headers and an ETag that revalidates to 304", async () => {
+    if (skip()) return;
+    const tenantBefore = await h.env().admin.query(`SELECT count(*)::int AS n FROM offer_pack_store_revisions WHERE store_id = $1`, [STORE_A_X]);
+    const res = await packRead(TOKEN_Y).expect(200);
+    h.conforms("OfferPack", res.body);
+    expect(res.body).toMatchObject({ freshnessWindowHours: 24, storeTimezone: "UTC", currencyCode: "EGP" });
+    expect(res.headers["cache-control"]).toBe("no-cache, private");
+    expect(res.headers["x-server-time"]).toBe((res.body as { issuedAt: string }).issuedAt);
+    expect(res.headers["etag"]).toMatch(/^"[0-9a-f]{64}"$/);
+    const again = await packRead(TOKEN_Y, { "If-None-Match": res.headers["etag"] as string });
+    expect(again.status).toBe(304);
+    expect(again.headers["x-server-time"]).toEqual(expect.any(String));
+    expect(again.headers["etag"]).toBe(res.headers["etag"]);
+    expect(tenantBefore.rows[0]!.n).toBeGreaterThanOrEqual(0);
+  });
+
+  it("carries a published offer's version, parameters, schedule resolved in the store's zone, offline policy and disjoint eligible sets", async () => {
+    if (skip()) return;
+    const a = await publishOk(
+      definition({
+        nameAr: "أ",
+        eligibility: { include: { categoryIds: [CAT_SHOES] }, exclude: { productIds: [P_TRAIN] } },
+        schedule: { timeBasis: "store_local", startsAt: "2090-07-01T00:00", endsAt: "2090-08-01T00:00" },
+        offlinePolicy: "online_only",
+      }),
+    );
+    const b = await publishOk(definition({ nameAr: "ب", eligibility: { include: { productIds: [P_HAT] } }, storeScope: { storeIds: [STORE_A_X] } }));
+    const x = await packRead(TOKEN_X).expect(200);
+    h.conforms("OfferPack", x.body);
+    const pack = x.body as { packRevision: number; storeTimezone: string; offers: Array<Record<string, any>> };
+    expect(pack.storeTimezone).toBe("Africa/Cairo");
+    expect(pack.packRevision).toBeGreaterThan(0);
+    const offerA = pack.offers.find((o) => o.offerId === a.offerId)!;
+    // Cairo is UTC+3 in summer 2090 (the rule keeps DST): local midnight is 21:00Z the day before.
+    expect(offerA).toMatchObject({ offerVersion: 1, nameAr: "أ", offlinePolicy: "online_only", eligibleProductIds: [P_RUN], startsAt: "2090-06-30T21:00:00.000Z", endsAt: "2090-07-31T21:00:00.000Z" });
+    expect(offerA.parameters).toMatchObject({ buyQuantity: 1, getQuantity: 1, percentOff: "40", rewardSelection: "cheapest" });
+    expect(pack.offers.find((o) => o.offerId === b.offerId)).toMatchObject({ eligibleProductIds: [P_HAT] });
+    // The Pack invariant: no product in two offers.
+    const all = pack.offers.flatMap((o) => o.eligibleProductIds as string[]);
+    expect(new Set(all).size).toBe(all.length);
+    // The UTC store (Y) gets a's UTC window and not b (b is X-only).
+    const y = (await packRead(TOKEN_Y).expect(200)).body as { offers: Array<Record<string, any>> };
+    expect(y.offers.map((o) => o.offerId)).toEqual([a.offerId]);
+    expect(y.offers[0]).toMatchObject({ startsAt: "2090-07-01T00:00:00.000Z" });
+  });
+
+  it("changes its ETag only when the Pack changes (a pause for another store leaves it), and a tenant never sees another tenant's offers", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition({ eligibility: { include: { productIds: [P_RUN] } } }));
+    const x1 = await packRead(TOKEN_X).expect(200);
+    const y1 = await packRead(TOKEN_Y).expect(200);
+    await post(`/api/v1/offers/${offer.offerId}/pause`, SES_OWNER_ALL, { reason: "only Y", storeIds: [STORE_A_Y] }).expect(200);
+    const x2 = await packRead(TOKEN_X).expect(200);
+    expect(x2.headers["etag"]).toBe(x1.headers["etag"]);
+    expect((x2.body as { offers: unknown[] }).offers).toHaveLength(1);
+    const y2 = await packRead(TOKEN_Y).expect(200);
+    expect(y2.headers["etag"]).not.toBe(y1.headers["etag"]);
+    expect((y2.body as { offers: unknown[] }).offers).toEqual([]);
+    expect((await packRead(TOKEN_Y, { "If-None-Match": y1.headers["etag"] as string })).status).toBe(200);
+    // Tenant B's device sees an empty Pack: tenant A's offers are invisible to it.
+    const b = await packRead(TOKEN_B).expect(200);
+    expect((b.body as { offers: unknown[]; packRevision: number })).toMatchObject({ offers: [], packRevision: 0 });
+    // And tenant B's owner cannot read tenant A's offers.
+    expectError(await get(`/api/v1/offers/${offer.offerId}`, SES_OWNER_B), 404, "offer_not_found");
+    expect(((await get("/api/v1/offers", SES_OWNER_B)).body as { items: unknown[] }).items).toEqual([]);
+  });
 });
