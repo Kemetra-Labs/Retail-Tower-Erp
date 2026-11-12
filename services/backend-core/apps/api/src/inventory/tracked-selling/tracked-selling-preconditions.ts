@@ -28,9 +28,6 @@ export type TrackedSellingPrecondition = (typeof TRACKED_SELLING_PRECONDITIONS)[
 
 type Check = (client: PoolClient, tenantId: string) => Promise<boolean>;
 
-/** Unconfirmable in this build: unmet until the named issue ships a signal. */
-const notYetConfirmable: Check = () => Promise.resolve(false);
-
 const CHECKS: Readonly<Record<TrackedSellingPrecondition, Check>> = {
   // RT-427: sale / void / return Inventory effects are activated for the tenant.
   sale_effects_active: async (client, tenantId) => {
@@ -64,9 +61,18 @@ const CHECKS: Readonly<Record<TrackedSellingPrecondition, Check>> = {
     );
     return r.rows[0]?.met === true;
   },
-  // G7-11 (RT-452): the Connector's batch posting. Its bench evidence is not a
-  // signal this server can read, so it stays unmet until one exists.
-  erp_batch_posting_verified: notYetConfirmable,
+  // G7-11 (RT-452): the Connector's batch posting. Its bench evidence is not
+  // something this server can read, so the owner attests it (owner decision
+  // 2026-11-12), recorded by the operator CLI `inventory-effects
+  // attest-batch-posting` on the tenant's settings row (migration 0104).
+  erp_batch_posting_verified: async (client, tenantId) => {
+    const r = await client.query<{ met: boolean }>(
+      `SELECT erp_batch_posting_attested_at IS NOT NULL AS met
+         FROM tenant_inventory_settings WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    return r.rows[0]?.met === true;
+  },
   // G7-12 (RT-453): every live store has its per-identity anchor (taken by the
   // operator CLI `inventory-effects anchor-identities`).
   identity_anchor: async (client) => {

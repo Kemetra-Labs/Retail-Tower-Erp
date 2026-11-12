@@ -30,6 +30,37 @@ describe("parseInventoryEffectsArgs", () => {
     expect(() => parseInventoryEffectsArgs(["anchor-identities", "--tenant", T])).toThrow(/--actor/);
   });
 
+  it("parses attest-batch-posting (RT-452) with its evidence reference and --dry-run", () => {
+    expect(parseInventoryEffectsArgs(["attest-batch-posting", "--tenant", T, "--actor", U, "--evidence", "RT-452 bench 1"])).toEqual({
+      kind: "attest-batch-posting",
+      tenantId: T.toLowerCase(),
+      actorId: U,
+      evidenceRef: "RT-452 bench 1",
+      dryRun: false,
+    });
+    expect(
+      parseInventoryEffectsArgs(["attest-batch-posting", "--tenant", T, "--actor", U, "--evidence", "ref", "--dry-run"]),
+    ).toMatchObject({ dryRun: true, evidenceRef: "ref" });
+    // The reference is trimmed.
+    expect(
+      parseInventoryEffectsArgs(["attest-batch-posting", "--tenant", T, "--actor", U, "--evidence", "  ref  "]),
+    ).toMatchObject({ evidenceRef: "ref" });
+  });
+
+  it.each<[string, string[], RegExp]>([
+    ["no evidence", ["attest-batch-posting", "--tenant", T, "--actor", U], /--evidence/],
+    ["a blank evidence", ["attest-batch-posting", "--tenant", T, "--actor", U, "--evidence", "   "], /--evidence/],
+    [
+      "an evidence over 200 characters",
+      ["attest-batch-posting", "--tenant", T, "--actor", U, "--evidence", "x".repeat(201)],
+      /--evidence/,
+    ],
+    ["no actor", ["attest-batch-posting", "--tenant", T, "--evidence", "ref"], /--actor/],
+    ["no tenant", ["attest-batch-posting", "--actor", U, "--evidence", "ref"], /--tenant/],
+  ])("refuses attest-batch-posting with %s", (_label, argv, message) => {
+    expect(() => parseInventoryEffectsArgs(argv)).toThrow(message);
+  });
+
   it("parses compare", () => {
     expect(parseInventoryEffectsArgs(["compare", "--tenant", T])).toEqual({ kind: "compare", tenantId: T.toLowerCase() });
   });
