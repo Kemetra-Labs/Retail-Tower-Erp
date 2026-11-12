@@ -1,6 +1,6 @@
 ---
 name: operating-rt-lab
-description: Use when reading, verifying, deploying to or debugging the Retail Tower AWS lab (lab-01, lab-02, lab-03, the rt9 lab tenant) — which versions run there, /rt/lab/live-state, deploy-system-lab, SSM Run Command, Datadog "No Data" for the lab, a GitHub OIDC trust policy for an AWS role, or running the packaged POS against the lab.
+description: Use when reading, verifying, deploying to or debugging the Retail Tower AWS lab (lab-01, lab-02, lab-03, the rt9 lab tenant) — which versions run there, /rt/lab/live-state, deploy-system-lab, SSM Run Command, Datadog "No Data" for the lab, a GitHub OIDC trust policy for an AWS role, running the packaged POS against the lab, a Cloudflare 403 on a lab hostname, provisioning synthetic cashiers with the lab-fixtures CLI, or running k6 load tests against the lab.
 ---
 
 # Operating the RT lab
@@ -21,8 +21,20 @@ procedures are child pages of the Confluence "Lab and Bench Runbook" (page 18874
   (`dp2-api`, `dp2-worker`, caddy, redis, Datadog agent), **lab-02** Postgres and backups,
   **lab-03** ERPNext v16 (compose project `rt-erp`, site `lab.localhost`).
 - **rt9** is the lab tenant and store, not a host.
-- AWS CLI profile `rt` (owner's choice; root). Prefer the aws-mcp `run_script` tool; in Git Bash,
-  any `/rt/...` name needs `MSYS_NO_PATHCONV=1` or it reads as missing.
+- AWS CLI: use only the IAM-user profile `rt-readonly`; never root, the `default` profile, or an MCP
+  server that signs in as root (check `aws sts get-caller-identity` first; stop and say so if it
+  shows root). In Git Bash, any `/rt/...` name needs `MSYS_NO_PATHCONV=1` or it reads as missing.
+- Poll SSM with `aws ssm get-command-invocation ... 2>$null | ConvertFrom-Json` in PowerShell, so
+  stderr noise does not break the JSON.
+
+## Reaching the lab from outside
+
+- The public hostnames sit behind Cloudflare with Bot Fight Mode on. Server-to-server callers
+  (the ERPNext connector on lab-03) need an owner-made IP Access **Allow** rule; never turn Bot
+  Fight Mode off or change Cloudflare rules yourself.
+- Probe with `curl -4`: a Windows client may go out over IPv6, which the IPv4 allow rule does not
+  cover, and the resulting 403 is not a lab fault.
+- The connector's Backend-Core base URL must be `https://` (an `http://` URL is refused).
 
 ## Rules for host access
 
@@ -94,6 +106,35 @@ applies IAM changes.
 - Before any interaction, verify isolation: the scratch dir gains `pos-pulse.db`, and the real
   profile's files do not change.
 - Check which identity-provider env names the lab expects (names only) before preparing sign-in.
+  The POS needs, as process-scope env vars, `VITE_API_BASE_URL`, `DESCOPE_PROJECT_ID` (without it
+  every sign-in fails with "invalid credentials") and the `POS_PULSE_FEATURE_*` flags for the flows
+  under test (`CART`, `PRODUCT_SEARCH`, `PAYMENTS`, `SALE_FINALIZATION` set to `1`; the cart stays
+  disabled without them). Set the flags not under test to `0`.
+- The cashier roster shows only cashiers with access to the till's store. A till on a store with no
+  ERP mapping captures sales that the connector rejects as `unmapped_store`.
+
+## Cashier admission and synthetic cashiers
+
+- A cashier holds one active admission at a time; a second terminal gets `active_elsewhere`. Sign
+  the cashier out from the POS ("خروج", reason `device_end`) before a k6 run reuses them; closing
+  the app does not end the admission. Admissions expire after 12 hours.
+- Synthetic cashiers come only from the guarded lab-fixtures CLI (RT-1309), never from direct DB
+  writes or the Console: `docker exec -e RT_LAB_FIXTURES=enabled dp2-api node
+  dist/cli/lab-fixtures.js status|provision [--dry-run] --tenant <id> --store <id> --count <n>`.
+  It refuses outside database `rtlab`, an allow-listed synthetic tenant and a Descope test project.
+  Run `--dry-run` first; `provision` needs the owner's yes and a non-empty
+  `DESCOPE_MANAGEMENT_KEY` on lab-01 (an owner step). Descope test users need an email or phone
+  (`E011002`); fixtures use `@fixtures.invalid`, which needs Backend-Core with #492.
+
+## k6 against the lab
+
+- Run the harness in `services/backend-core/loadtests/k6` with `grafana/k6` in Docker under
+  `op run`, so terminal tokens stay in 1Password (`op://...` references, never values).
+- Start with one sale (1 VU, 1 iteration) and prove the whole path: capture `201`, one row in
+  Backend-Core, `posted` with a `document_ref`, exactly one ERPNext Sales Invoice, no new Sentry
+  issue. Only then scale.
+- `LOAD_UNIT` must be a UOM that exists in ERPNext (default `unit`); an unknown one fails posting
+  with `UnmappedUnit`, which looks like a stock problem but is not.
 
 ## Common mistakes
 
@@ -101,3 +142,6 @@ applies IAM changes.
 - Reporting a deleted parameter from a Git Bash read.
 - Setting `current_manifest` by hand.
 - A long `--user-data-dir` path.
+- Launching the POS without `DESCOPE_PROJECT_ID` or the feature flags.
+- Reading a Cloudflare 403 from an IPv6 probe as a lab fault.
+- Starting a k6 run while the cashier is still signed in on a POS till.

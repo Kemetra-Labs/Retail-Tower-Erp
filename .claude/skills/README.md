@@ -11,7 +11,7 @@ that official and shared skills cannot know. Jira: RT-1268 (first skill), RT-127
 | `merging-rt-pull-requests` | Push, CircleCI preflight, waiting on CI, merge, post-merge checks | `handling-git-and-prs-safely`, `triaging-pr-comments`, CircleCI `debug-failing-run` |
 | `landing-gated-changes` | `.github`, `.circleci`, `tools/project-graph`, contracts, migrations, dependencies, a new top-level folder | CircleCI `write-config`, `nestjs-drizzle-bullmq`, `api-design`, `reviewing-pull-requests` |
 | `troubleshooting-windows-dev` | A local command, install, lint or test fails on Windows or in a worktree | `driving-electron-via-cdp` |
-| `operating-rt-lab` | The AWS lab: versions, live-state, system deploys, Datadog, OIDC trust, packaged POS | `aws-core:aws-iam`, `driving-electron-via-cdp` |
+| `operating-rt-lab` | The AWS lab: versions, live-state, system deploys, Datadog, OIDC trust, packaged POS, Cloudflare reachability, synthetic cashiers, k6 | `aws-core:aws-iam`, `driving-electron-via-cdp` |
 | `reconciling-rt-jira-with-github` | Reconciling RT Jira with merged work; closeouts | `twg-jira`, `twg-engineering-work` |
 | `nestjs-drizzle-bullmq` | Backend-Core NestJS, Drizzle + RLS, BullMQ/outbox, Jest db-integration | — |
 | `driving-electron-via-cdp` | Screenshotting or smoke-testing the POS Electron app without the owner | — |
