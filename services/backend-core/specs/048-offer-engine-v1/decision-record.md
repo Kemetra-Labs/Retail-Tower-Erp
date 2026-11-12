@@ -79,6 +79,18 @@ offline. The till runs the Pack and invents no rule (§19). Cost: a large catego
 any shared store during an overlapping window. The conflict preview names the other offer and the shared products.
 Evaluation never has to choose between offers. Best Deal (§17) comes later, together with stacking.
 
+**Clarifications** (owner-delegated, RT-1335 contract review, 2026-11-11; contract `offers.openapi.yaml`):
+
+- **Paused offers count.** The conflict check covers Scheduled, Active **and Paused** offers, because a paused offer
+  can be resumed; a resume re-runs the same check and is refused with `offer_conflict` when it would create an
+  overlap.
+- **Catalog re-materialisation.** A catalog change after publish (a product moved into a category or brand) can make
+  two live offers (Scheduled, Active or Paused) want the same product in the same store. Backend-Core then keeps the
+  product only in the offer published **earliest** (tie: the lower `offerId`), removes it from the later offer's
+  eligible set in that Pack revision, and reports the later offer with a conflict (`rematerialisationConflicts` on
+  the Console offer read and preview). Each product id therefore appears in **at most one** offer's
+  `eligibleProductIds` per Pack, an invariant the till may rely on.
+
 ## OD-8 — Trusted time and freshness offline
 
 **Approved** (owner, 2026-11-11):
@@ -95,7 +107,7 @@ defined before offline scheduling ships.
 
 **Approved** (owner, 2026-11-11):
 
-- Arithmetic errors (line invariant, rounding, a reward line with quantity other than 1) are **400** (a till defect).
+- Arithmetic errors (line invariant, rounding, a reward line with quantity other than 1) are **rejected** as a till defect: 422 `sale_line_pricing_invalid`, the existing line-pricing refusal (RT-105, RT-740), as fixed by the RT-1335 contract. A malformed object is 400.
 - A rule-level mismatch (eligible set, `k`, which units are rewards) is **accepted and flagged** to the sale-review path. The sale happened, so its frozen facts are kept, and Backend-Core never re-prices it silently.
 
 ## OD-10 — A return that would need the customer to pay back
