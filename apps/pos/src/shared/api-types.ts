@@ -2243,6 +2243,17 @@ export namespace PosPaymentsVouchers {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                /** @description Too Many Requests (ADR 0009; RT-1112). The device has spent its failed-lookup budget: about 10 lookups per 15 minutes per device that found no intent (an unknown token, or one of another tenant or store). A lookup that finds its intent does not count. The limit is keyed per device and is checked after the cashier claim and before the lookup, so a device over its budget looks nothing up. `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on the `pos-sales` routes). A POS client treats it as transient and retries after `Retry-After`. The limiter fails open on a datastore outage, so a 429 is a real budget breach. */
+                429: {
+                    headers: {
+                        /** @description Seconds to wait before retrying, clamped to [1, 300]. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
             };
         };
         posReverseVoucher: {
@@ -2395,6 +2406,17 @@ export namespace PosPaymentsVouchers {
                 425: {
                     headers: {
                         /** @description Seconds to wait before retrying. */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Too Many Requests (ADR 0009; RT-1112). The device has spent its failed-lookup budget: about 10 lookups per 15 minutes per device that found no voucher (an unknown code, or another tenant's). A lookup that finds its voucher does not count. The limit is keyed per device and is checked after the cashier claim and before the lookup, so a device over its budget looks nothing up. `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on the `pos-sales` routes). A POS client treats it as transient and retries after `Retry-After`. The limiter fails open on a datastore outage, so a 429 is a real budget breach. */
+                429: {
+                    headers: {
+                        /** @description Seconds to wait before retrying, clamped to [1, 300]. */
                         "Retry-After"?: number;
                         [name: string]: unknown;
                     };
@@ -3000,6 +3022,7 @@ export namespace PosSalesSales {
              * @description Create the immutable `sales` header + frozen `sale_lines` snapshot from a completed POS sale. The authenticated principal supplies `tenant_id` and `store_id` (spec 002); body-supplied tenant / store / created_by / received_at / business_date / processed_at / mismatch_flag are rejected (FR-061). POS-reported totals are preserved verbatim (FR-030); the SaaS computes a per-line / half-up comparison total for an ADVISORY mismatch flag only — it never rewrites the POS total. Line snapshots (`line_name` / `unit_price` / `tax_amount` / `unit`) are frozen at capture and are unaffected by later catalog edits (FR-003). A line that resolves to no tenant product is still snapshotted; no tenant product is auto-created (FR-004).
              *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply. A provenance replay must carry the same sale facts (RT-1206): when the re-sent body, without `operatorUserId`, `admissionCheckAt` and `receipt`, hashes differently from the stored `payload_hash` (byte-exact, so reordered arrays or a differently written decimal differ), the answer is 409 `idempotency_key_conflict` and nothing is recorded. The store scope is decided first, so a replay never reveals another store's sale.
              *     Tender (RT-10 D1, from RT-77): the optional `tenders` list records how the sale was paid. Each `amount` is NET of change (cash = tendered − change), each entry is one tender line (RT-359: `tenderRef` / `sequence`; see the `tenders` field for the per-sale rules). When `responsibilities` is absent, the amounts MUST sum to `posTotal` exactly (else 422 `sale_tender_mismatch`); nothing is recorded on either failure. When it is present, the combined coverage rule replaces this one (RT-417, see Payer responsibilities below): the tenders cover only the part paid at the till. The tender list is hashed into the payload, so a replay that adds, drops or changes tenders is a different payload (409). An absent list is a tender-unknown sale (RT-10 D8): it is captured exactly as before, and the server NEVER derives tender from `posTotal`.
+             *     Voucher tender (RT-1114, RT-1098 decision 4A): a `voucher` tender names the redemption that paid it (`redemptionId`). After the coverage rule, each must name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly its `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`; nothing is recorded. Accepted only while the deployment flag `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF until RT-1330 is deployed); while it is off a `voucher` tender is a 400.
              *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and an identical one still returns 200 with the stored projection.
              *     Cashier attribution (RT-224): a sale may instead be sent with the `device` scheme (the paired terminal's device bearer) plus the cashier's `operatorUserId` in the body. The presence of `operatorUserId` selects this path; without it the request is an `operatorAuthorization` request exactly as before. On this path the device row supplies the tenant, store and device, and the server accepts the sale only if the device is active, a cashier admission of that device and store for that user covers `occurredAt` (see `operatorUserId`), and the cashier's membership, store access and account are still live. A missing, invalid or revoked device credential is the same generic 401 as an invalid envelope. A refused cashier claim from an authenticated device (no covering admission, an ineligible cashier, a sale outside the window or beyond the dating caps, an unknown or foreign `operatorUserId`) is the generic 403 `refused`, with one body for every cause: it never reveals whether the user or the admission exists, and it is never a sign that the device was revoked. A malformed body from an authenticated device is the usual 400. Idempotency, provenance dedup, the 409 divergence rule and the per-device rate limit apply unchanged; the idempotency key is scoped to the verified cashier, as it is scoped to the operator on the envelope path.
              *     Admission check time (RT-225): on this path the body may also carry `admissionCheckAt`, which then replaces `occurredAt` in the admission-window comparison only (see the field). Sent without `operatorUserId`, it is a 400.
@@ -3518,7 +3541,7 @@ export namespace PosSalesSales {
                 sourceClockAt?: string;
                 /** @description Provenance + dedup key (FR-040/041). Not body-assignable authority. */
                 sourceSystem: string;
-                /** @description OPTIONAL (RT-10 D1) — how the sale was paid, one entry per tender line. Net of change. Without `responsibilities`, summing to `posTotal` exactly (else 422 `sale_tender_mismatch`); with them, the combined coverage rule applies instead (RT-417). Absent = a tender-unknown sale (RT-10 D8). Accepted from RT-77; do not send before then (see the versioning note). Per-sale rules (RT-359), each a 400 `validation_error`: `tenderRef` is unique within the sale; `sequence` is unique within the sale; more than one entry with the same `method` is accepted only when EVERY entry carries a `tenderRef`, and only once RT-360's same-method flag is on (until then at most one entry per method). `tenderRef` / `sequence`: Accepted from RT-360; do not send before then. */
+                /** @description OPTIONAL (RT-10 D1) — how the sale was paid, one entry per tender line. Net of change. Without `responsibilities`, summing to `posTotal` exactly (else 422 `sale_tender_mismatch`); with them, the combined coverage rule applies instead (RT-417). Absent = a tender-unknown sale (RT-10 D8). Accepted from RT-77; do not send before then (see the versioning note). Per-sale rules (RT-359), each a 400 `validation_error`: `tenderRef` is unique within the sale; `sequence` is unique within the sale; more than one entry with the same `method` is accepted only when EVERY entry carries a `tenderRef`, and only once RT-360's same-method flag is on (until then at most one entry per method); RT-1114: `redemptionId` is unique within the sale. `tenderRef` / `sequence`: Accepted from RT-360; do not send before then. */
                 tenders?: components["schemas"]["SaleTender"][];
             };
             /** @description RT-577 D8 (owner ruling 2026-10-17). One refund payout of a credit reversal, in the sale's currency. A `void` mirrors each collected sale tender with one of these (RT-10 D6: card to card, cash to cash); a `return` is restricted to the cash-only `RefundTender` shape. */
@@ -3958,10 +3981,15 @@ export namespace PosSalesSales {
             SaleTender: {
                 amount: components["schemas"]["NonNegativeDecimalAmount"];
                 /**
-                 * @description RT-10 D2 pilot methods. `cash` — the till drawer. `card_external` — a standalone card terminal (not integrated with the POS). Vouchers are excluded from the pilot.
+                 * @description RT-10 D2 pilot methods. `cash` — the till drawer. `card_external` — a standalone card terminal (not integrated with the POS). RT-1114 (RT-1098 decision 4A): `voucher` — a promotional voucher redeemed through `pos-payments/vouchers.yaml`; it pays part of the sale at full price, carries `redemptionId`, and is accepted only while `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF, else 400).
                  * @enum {string}
                  */
-                method: "cash" | "card_external";
+                method: "cash" | "card_external" | "voucher";
+                /**
+                 * Format: uuid
+                 * @description RT-1114 — REQUIRED on a `voucher` tender and accepted on no other method (else 400): the `redemption_id` that `posRedeemVoucher` (`pos-payments/vouchers.yaml`) returned for this voucher. Unique within the sale (else 400); one redemption pays at most one tender, ever. On a first capture it must be un-reversed, of this tenant and store, and applied for exactly `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`. Part of the payload hash. Never a voucher code.
+                 */
+                redemptionId?: string;
                 /** @description OPTIONAL, `card_external` only (else 400): the short reference the card terminal printed, as keyed by the cashier. NEVER a card number or any other card data. */
                 reference?: string;
                 /** @description OPTIONAL (RT-359) — the line's 1-based position among the sale's tender lines, in the order they were applied. Unique within the sale. Gives a deterministic order to tenders that share a `method`. */
@@ -4053,7 +4081,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path). `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the line price invariant, then the payers. Deterministic; nothing is recorded. */
+            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path); `sale_voucher_tender_invalid` (RT-1114) — a `voucher` tender whose `redemptionId` does not name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly the tender's `amount` in the sale's currency, with one body for every cause, never naming which. `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the voucher tenders, then the line price invariant, then the payers. Deterministic; nothing is recorded. */
             CaptureUnprocessable: {
                 headers: {
                     [name: string]: unknown;
@@ -5891,7 +5919,7 @@ export namespace PosTerminalPairing {
                 };
             };
             TerminalPairRequest: {
-                /** @description Short-lived pairing code, issued through the Console (`consoleIssuePairingCode`: 16 characters from an alphabet without look-alikes) or the owner-run bootstrap CLI (24 base64url characters with `--generate`). Format is opaque to the POS terminal; send it exactly as entered. Single-use: a successful pair burns the code server-side. */
+                /** @description Short-lived pairing code, issued through the Console (`consoleIssuePairingCode`: 16 characters from the alphabet `ABCDEFGHJKMNPQRSTVWXYZ23456789`, which has no look-alikes) or the owner-run bootstrap CLI (24 base64url characters with `--generate`, or a code the owner supplies). The POS terminal normalises only Console-shaped codes (RT-1316): it removes whitespace and dashes from the entry and upper-cases it, and when the result is exactly 16 characters, all from that alphabet, it sends the result. Any other entry, such as a generated bootstrap CLI code, is sent trimmed and otherwise exactly as entered. An owner-supplied bootstrap code that normalises to the Console shape is therefore sent normalised, so supply such a code in upper case without separators. The server does no normalisation: it matches the SHA-256 of the exact value it receives. Single-use: a successful pair burns the code server-side. */
                 pairing_code: string;
             };
             /** @description Successful pairing envelope. The `device_token` is a SECRET — stored only via the terminal's OS secret storage, never logged or echoed to any renderer. All other fields populate the single-row `terminal_assignment` table at the terminal and are read by the POS receipt + print pipelines. */

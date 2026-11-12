@@ -564,3 +564,27 @@ export function isRt1316ExemptFile(branch: string, file: string): boolean {
     (RT_1316_STORE_NAME_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-1114-voucher-tender` implements Jira RT-1114 (RT-1098 R-4a): it adds `voucher` to the
+ * Backend-Core `SaleTender.method` enum (`pos-sales/sales.yaml` 1.23.0-draft) and, in the same
+ * PR, repins the POS to that contract commit (`npm run contracts:repin`), which regenerates
+ * `src/shared/api-types.ts`. The POS voucher tender stays off (RT-103).
+ *
+ * Authority: coordinator decision RT-1114 c16672 (option A, under the owner's standing
+ * delegation), following the RT-1110 repin pattern: exactly ONE file on exactly ONE branch
+ * (exact name, no `startsWith`; the `-preflight` branch is not exempt). Narrowness is asserted
+ * by `source-scope-guard-rt1114.test.ts`.
+ */
+export const RT_1114_VOUCHER_TENDER_REPIN_BRANCH = 'rt-1114-voucher-tender' as const;
+export const RT_1114_VOUCHER_TENDER_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1114 exemption allows on `branch`. */
+export function isRt1114ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1114_VOUCHER_TENDER_REPIN_BRANCH &&
+    (RT_1114_VOUCHER_TENDER_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Payments — Voucher Authority (Contract V-A)
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     POS-Pulse 006-payments-tender Slice 4 voucher contract surface
     (Contract V-A — Backend-authoritative). Defines three POS-authenticated
@@ -100,6 +100,17 @@ info:
     is short-lived (≤ 5 minutes recommended) and bound to a single
     `payment_attempt_id` — losing it does not leak voucher value.
 
+    **Version 1.1.0-draft (RT-1112, owner decisions RT-1112 c16636).** The
+    three operations are served (the `contract-only` markers are lifted).
+    `posValidateVoucher` and `posRedeemVoucher` add a 429 with `Retry-After`:
+    failed lookups are rate limited per device (ADR 0009). A same-key,
+    same-body replay of a successful `posRedeemVoucher` is answered before
+    the cashier admission check, so a terminal that retries after its
+    cashier signed out still receives its `redemption_id`. A reverse of a
+    voucher that has expired since it was redeemed succeeds: the voucher is
+    restored to `active` and still answers `voucher_expired`. Nothing else
+    changes.
+
 servers:
   - url: https://api.example.com
 
@@ -114,10 +125,6 @@ paths:
     post:
       summary: Validate a voucher code for a specific payment attempt + amount.
       operationId: posValidateVoucher
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Contract V-A is approved as a design boundary only. Backend-Core has no
-        voucher controller, guard, service, or persistence path for this route.
       x-idempotency: required
       tags: [pos-payments-vouchers]
       security:
@@ -251,15 +258,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            Too Many Requests (ADR 0009; RT-1112). The device has spent its
+            failed-lookup budget: about 10 lookups per 15 minutes per device that
+            found no voucher (an unknown code, or another tenant's). A lookup that
+            finds its voucher does not count. The
+            limit is keyed per device and is checked after the cashier claim and
+            before the lookup, so a device over its budget looks nothing up.
+            `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on
+            the `pos-sales` routes). A POS client treats it as transient and
+            retries after `Retry-After`. The limiter fails open on a datastore
+            outage, so a 429 is a real budget breach.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 300
+              description: Seconds to wait before retrying, clamped to [1, 300].
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/pos/v1/vouchers/redeem:
     post:
       summary: Atomically consume a redemption-intent token at confirm time.
       operationId: posRedeemVoucher
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Contract V-A is approved as a design boundary only. Backend-Core has no
-        voucher controller, guard, service, or persistence path for this route.
       x-idempotency: required
       tags: [pos-payments-vouchers]
       security:
@@ -383,15 +409,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "429":
+          description: >
+            Too Many Requests (ADR 0009; RT-1112). The device has spent its
+            failed-lookup budget: about 10 lookups per 15 minutes per device that
+            found no intent (an unknown token, or one of another tenant or store).
+            A lookup that finds its intent does not count. The
+            limit is keyed per device and is checked after the cashier claim and
+            before the lookup, so a device over its budget looks nothing up.
+            `error.code = "RATE_LIMITED"`, the per-device limiter's code (as on
+            the `pos-sales` routes). A POS client treats it as transient and
+            retries after `Retry-After`. The limiter fails open on a datastore
+            outage, so a 429 is a real budget breach.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 300
+              description: Seconds to wait before retrying, clamped to [1, 300].
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/pos/v1/vouchers/reverse:
     post:
       summary: Reverse a previously-committed voucher redemption.
       operationId: posReverseVoucher
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Contract V-A is approved as a design boundary only. Backend-Core has no
-        voucher controller, guard, service, or persistence path for this route.
       x-idempotency: required
       tags: [pos-payments-vouchers]
       security:
