@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ b8b0681c11348227a70d5e995f5452f2a6b94b00
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 5e46cc513ca5ba4f3e04f3d5a57c22e063355cdf
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -40,6 +40,7 @@
 // - services/backend-core/packages/contracts/openapi/inventory/low-stock.yaml
 // - services/backend-core/packages/contracts/openapi/pos-pilot-releases.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/pos-device-health.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/vouchers-admin.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -18918,6 +18919,474 @@ export namespace PosDeviceHealthSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations;
+export namespace VouchersAdminSchema {
+    export interface paths {
+        "/api/v1/vouchers": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List vouchers, newest first, never with a code.
+             * @description Keyset-paginated list of the session tenant's vouchers. Roles: `owner`, `tenant_admin`. The list never returns a code. `status` is the effective status. Filters combine with AND.
+             */
+            get: operations["consoleListVouchers"];
+            put?: never;
+            /**
+             * Issue a batch of vouchers; the codes are returned once.
+             * @description Creates `count` vouchers with the same value, expiry and store eligibility, in one transaction, under one `batch_id`. Roles: `owner`, `tenant_admin`.
+             *
+             *     **Non-replayable (RT-82 K3).** The issued codes are never stored, so a retry with the same `Idempotency-Key` never issues a second batch and never returns the first one: it is answered 409 `idempotency_key_conflict`, and so is the same key with a different body. A request still in progress under the key is 425. A caller that lost the response lists the newest vouchers with `consoleListVouchers`, cancels the ones it cannot recover, and issues again with a new key. Never retry with the same key. The key is held for the platform's idempotency replay window, 72 hours after the first request; a key reused after that window is treated as new and issues a new batch.
+             *
+             *     **Eligibility.** `applies_to_all_stores: true` requires `eligible_store_ids` to be omitted or empty, else 400 `validation_failure`. `applies_to_all_stores: false` requires a non-empty `eligible_store_ids`. A store that is not a store of the tenant, is soft-deleted, or is outside the caller's store scope, is 404 `store_not_found` (non-disclosing). `applies_to_all_stores: true` from a caller without tenant-wide scope is 403 `forbidden`. A store that exists but is inactive is 409 `store_inactive`. Currency is the tenant default and is returned as `currency_code`.
+             */
+            post: operations["consoleIssueVouchers"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/vouchers/{voucher_id}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    voucher_id: string;
+                };
+                cookie?: never;
+            };
+            /**
+             * Read one voucher, never with its code.
+             * @description Value, effective status, eligibility and the current redemption, if any. Roles: `owner`, `tenant_admin`. A voucher that is not of the session tenant is the same 404 as one that does not exist.
+             */
+            get: operations["consoleGetVoucher"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/vouchers/{voucher_id}/cancel": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    voucher_id: string;
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Cancel a voucher; idempotent.
+             * @description Roles: `owner`, `tenant_admin`. Cancels a voucher that is stored `active`, whether or not its `expires_at` has passed (decision 5A): no money moves and the audit row records who cancelled it. Cancelling a voucher that is already cancelled is 200 with `already_cancelled: true` and no second audit row. A voucher that has been redeemed cannot be cancelled: 409 `voucher_already_redeemed`. A cancel that races a redeem is settled by one conditional status change (RT-922 §5.4): exactly one wins, and the final status is `cancelled` or `redeemed`, never both. A same-key retry replays the stored 200 (`Idempotent-Replayed: true`).
+             */
+            post: operations["consoleCancelVoucher"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /**
+             * @description The effective status (RT-922 §5.4). `expired` is derived: the stored status is `active` and `expires_at` has passed.
+             * @enum {string}
+             */
+            VoucherStatus: "active" | "redeemed" | "cancelled" | "expired";
+            VoucherIssueRequest: {
+                /** @description How many vouchers to issue in this batch (decision 3A, 100). Raising the maximum later is non-breaking; lowering it is breaking. */
+                count: number;
+                /** @description The value of each voucher in minor currency units of the tenant default currency. */
+                amount_minor: number;
+                /**
+                 * Format: date-time
+                 * @description Optional. When present it must be in the future, else 400 `validation_failure`. Null or omitted means the voucher does not expire.
+                 */
+                expires_at?: string | null;
+                /** @description True: valid in every store of the tenant, including stores added later (D4). False: valid only in `eligible_store_ids` (D3). */
+                applies_to_all_stores: boolean;
+                /** @description Required and non-empty when `applies_to_all_stores` is false; omitted or empty when it is true. At most 100 stores, refused before any element is validated. */
+                eligible_store_ids?: string[];
+                /** @description Optional internal note. Never put personal data in it. */
+                note?: string | null;
+            };
+            VoucherIssueResponse: {
+                /** Format: uuid */
+                batch_id: string;
+                vouchers: components["schemas"]["IssuedVoucher"][];
+            };
+            IssuedVoucher: {
+                /** Format: uuid */
+                voucher_id: string;
+                /** @description SECRET. Present in this response only, once: 16 characters of Crockford base32 shown as `XXXX-XXXX-XXXX-XXXX`. It is never stored, logged or audited, and cannot be shown again. */
+                code: string;
+                amount_minor: number;
+                currency_code: string;
+                /** Format: date-time */
+                expires_at: string | null;
+            };
+            /** @description A voucher as read back. It has no `code` property by design: the schema is closed, and a code is never returned after issue. */
+            Voucher: {
+                /** Format: uuid */
+                voucher_id: string;
+                /** Format: uuid */
+                batch_id: string;
+                amount_minor: number;
+                currency_code: string;
+                status: components["schemas"]["VoucherStatus"];
+                /** Format: date-time */
+                expires_at: string | null;
+                applies_to_all_stores: boolean;
+                /** @description Empty when `applies_to_all_stores` is true. */
+                eligible_store_ids: string[];
+                note: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                cancelled_at: string | null;
+                /** @description The current, non-reversed redemption, or null. Always null until the redemption runtime ships (RT-1111, RT-1112). */
+                redemption: null | components["schemas"]["VoucherRedemptionSummary"];
+            };
+            VoucherRedemptionSummary: {
+                /** Format: date-time */
+                redeemed_at: string;
+                applied_amount_minor: number;
+                /** @description The unused remainder, lost on redemption (decision 1A). */
+                forfeited_amount_minor: number;
+            };
+            VoucherPage: {
+                items: components["schemas"]["Voucher"][];
+                /** @description Opaque cursor for the next page; null on the last page. */
+                next_cursor: string | null;
+            };
+            VoucherCancelResult: {
+                /** Format: uuid */
+                voucher_id: string;
+                /** @enum {string} */
+                status: "cancelled";
+                /** Format: date-time */
+                cancelled_at: string;
+                /** @description True when the voucher was already cancelled before this request. */
+                already_cancelled: boolean;
+            };
+            /**
+             * @description The closed error set of this surface: nine voucher and idempotency codes, plus the two platform codes `origin_rejected` (RT-430) and `rate_limited` (RT-574).
+             * @enum {string}
+             */
+            VoucherAdminErrorCode: "validation_failure" | "store_not_found" | "store_inactive" | "voucher_not_found" | "voucher_already_redeemed" | "forbidden" | "idempotency_key_required" | "idempotency_key_malformed" | "idempotency_key_conflict" | "origin_rejected" | "rate_limited";
+            /** @description The canonical error envelope (code, message, request_id). `code` is a free string, as in the sibling contracts: the platform guards answer 401 and 403 with codes this contract does not own, and a client must not fail to decode one it does not know. The voucher-domain 400, 404 and 409 bodies use `VoucherAdminError`, whose `code` is the closed set. */
+            Error: {
+                error: {
+                    code: string;
+                    /** @description Non-disclosing; never carries a code, a hash or another tenant's data. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                };
+            };
+            /** @description The error envelope of the voucher-domain 400, 404 and 409 responses. `code` is one of the closed `VoucherAdminErrorCode` set. */
+            VoucherAdminError: {
+                error: {
+                    code: components["schemas"]["VoucherAdminErrorCode"];
+                    /** @description Non-disclosing; never carries a code, a hash or another tenant's data. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                };
+            };
+            /** @description The platform idempotency interceptor's 425 body (not the canonical envelope). */
+            IdempotencyInProgress: {
+                /** @enum {string} */
+                error: "idempotency_in_progress";
+                retryAfterSec: number;
+            };
+        };
+        responses: {
+            /** @description No valid session cookie, or any bearer credential (`401`). 401 semantics are owned by spec 028. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `forbidden`: the session user is not an `owner` or `tenant_admin` of the active tenant (decision 2A; this includes `store_manager`), or, on `consoleIssueVouchers`, asks for all stores without tenant-wide store scope. Also `origin_rejected` (RT-430) on the two POSTs: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+            Forbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `voucher_not_found`. Non-disclosing: the same body for a voucher of another tenant, a voucher outside the caller's store scope, and one that never existed. */
+            VoucherNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherAdminError"];
+                };
+            };
+            /** @description Too Early (425): an issue request with this `Idempotency-Key` is still in progress. The key is non-replayable (RT-82 K3): once that request completes, any retry with the same key is 409 `idempotency_key_conflict` and never returns the codes. Do not retry with the same key. After `Retry-After` seconds, call `consoleListVouchers`, cancel any stray voucher the lost batch issued, and issue again with a new key. The body is the platform's `IdempotencyInProgress`, not the canonical envelope. */
+            IssueInProgress: {
+                headers: {
+                    /** @description Seconds to wait before checking. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgress"];
+                };
+            };
+            /** @description Too Early (425): a cancel with this `Idempotency-Key` is still in progress. Cancel is replayable, so retrying after `Retry-After` seconds with the same key and request is safe: it replays the stored 200. The body is the platform's `IdempotencyInProgress`, not the canonical envelope. */
+            CancelInProgress: {
+                headers: {
+                    /** @description Seconds to wait before retrying. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgress"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message; its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description Client-generated opaque token (UUIDv7 recommended). Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. On `consoleIssueVouchers` it is non-replayable (see that operation). On `consoleCancelVoucher` the same key with the same request replays the stored response, and the same key with a different request is 409 `idempotency_key_conflict`. */
+            IdempotencyKey: string;
+            /** @description Opaque keyset cursor from a prior page's `next_cursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_failure`. */
+            Cursor: string;
+            /** @description Maximum vouchers per page. The server may return fewer. */
+            PageSize: number;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleListVouchers: {
+            parameters: {
+                query?: {
+                    /** @description Effective-status filter. */
+                    status?: components["schemas"]["VoucherStatus"];
+                    /** @description Only the vouchers issued in this batch. */
+                    batch_id?: string;
+                    /** @description Only vouchers that are valid in this store: an "all stores" voucher, or a subset voucher that lists it. A store that is not of the tenant matches nothing; it is not an error. */
+                    eligible_store_id?: string;
+                    /** @description Only vouchers whose `expires_at` is at or after this instant (inclusive). A voucher that never expires (`expires_at` null) matches neither bound of the expiry window. */
+                    expires_from?: string;
+                    /** @description Only vouchers whose `expires_at` is before this instant (exclusive). */
+                    expires_before?: string;
+                    /** @description Opaque keyset cursor from a prior page's `next_cursor`. Do not decode or construct it; omit it for the first page. Reuse it only with the same filters. A value the server did not issue, or cannot decode, is 400 `validation_failure`. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description Maximum vouchers per page. The server may return fewer. */
+                    page_size?: components["parameters"]["PageSize"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of vouchers. `next_cursor` is null on the last page. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherPage"];
+                    };
+                };
+                /** @description `validation_failure`: a malformed filter, cursor or `page_size`. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        consoleIssueVouchers: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Client-generated opaque token (UUIDv7 recommended). Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. On `consoleIssueVouchers` it is non-replayable (see that operation). On `consoleCancelVoucher` the same key with the same request replays the stored response, and the same key with a different request is 409 `idempotency_key_conflict`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["VoucherIssueRequest"];
+                };
+            };
+            responses: {
+                /** @description The batch is issued. The body carries every code, once. The response is `Cache-Control: no-store`; do not cache or log it. */
+                201: {
+                    headers: {
+                        /** @description Always `no-store`: the body carries secret codes. */
+                        "Cache-Control"?: "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherIssueResponse"];
+                    };
+                };
+                /** @description `validation_failure` (malformed body, `count` outside 1 to 100, a non-positive `amount_minor`, an `expires_at` that is not in the future, or an eligibility combination described above), `idempotency_key_required` or `idempotency_key_malformed`. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description `store_not_found`: an `eligible_store_ids` entry is not a store of the tenant, or is soft-deleted. Non-disclosing: the same body for a store of another tenant and for one that never existed. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                /** @description `store_inactive` (an eligible store exists but is inactive), or `idempotency_key_conflict` (the same key was used before within the 72-hour replay window; terminal, generate a new key). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                425: components["responses"]["IssueInProgress"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        consoleGetVoucher: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    voucher_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The voucher. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Voucher"];
+                    };
+                };
+                /** @description `validation_failure`: `voucher_id` is not a UUID. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["VoucherNotFound"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        consoleCancelVoucher: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Client-generated opaque token (UUIDv7 recommended). Missing: 400 `idempotency_key_required`. Malformed: 400 `idempotency_key_malformed`. On `consoleIssueVouchers` it is non-replayable (see that operation). On `consoleCancelVoucher` the same key with the same request replays the stored response, and the same key with a different request is 409 `idempotency_key_conflict`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    voucher_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The voucher is cancelled, now or earlier. */
+                200: {
+                    headers: {
+                        /** @description Present with value `true` when this response replays an earlier request with the same key. */
+                        "Idempotent-Replayed"?: "true";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherCancelResult"];
+                    };
+                };
+                /** @description `validation_failure` (`voucher_id` is not a UUID), `idempotency_key_required` or `idempotency_key_malformed`. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["VoucherNotFound"];
+                /** @description `voucher_already_redeemed`, or `idempotency_key_conflict` (the same key was used with a different request; terminal, generate a new key). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VoucherAdminError"];
+                    };
+                };
+                425: components["responses"]["CancelInProgress"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations;

@@ -34,6 +34,7 @@ import { stock } from "./ar/stock";
 import { tenants } from "./ar/tenants";
 import { trackedSelling } from "./ar/trackedSelling";
 import { tracking } from "./ar/tracking";
+import { vouchers } from "./ar/vouchers";
 
 export const AR_MODULES = {
   common,
@@ -65,6 +66,7 @@ export const AR_MODULES = {
   salesByStore,
   tracking,
   trackedSelling,
+  vouchers,
 };
 
 export const ar = {
@@ -97,4 +99,5 @@ export const ar = {
   ...salesByStore,
   ...tracking,
   ...trackedSelling,
+  ...vouchers,
 };

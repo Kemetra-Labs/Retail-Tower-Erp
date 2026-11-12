@@ -670,6 +670,25 @@ A script without the marker, such as the owner-gated
   window. Its down migration refuses while any line has a frozen tracking
   identity.
 
+- **Migration `0096_erp_stock_import` (RT-1288).** Run
+  [`sql/erp-stock-import-domain-grants.sql`](sql/erp-stock-import-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `erp_stock_import_runs` and `erp_stock_import_pages` (the
+  Connector's stock-import pull opens runs and pages and closes stale ones; the
+  report records its page and closes or advances its run), and `SELECT` and
+  `INSERT` on `erp_stock_import_rows` and `erp_stock_import_findings`
+  (append-only). No `DELETE` policy on any of them: never grant `DELETE` or
+  `TRUNCATE`. The import writes `stock_movements` and
+  `inventory_effect_integration` with the privileges the domain role already
+  holds. Without the grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`).
+  The auth lookup role must hold no privilege on the four tables
+  (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0096 creates four new, empty tables and
+  swaps one CHECK on `inventory_effect_integration`, added `NOT VALID` (no
+  table scan; the brief swap lock only); it needs no maintenance window. Its
+  down migration refuses while any import run is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

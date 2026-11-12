@@ -517,6 +517,15 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "PosDeviceHealth",
     path: "services/backend-core/packages/contracts/openapi/pos-device-health.openapi.yaml",
   },
+  // Voucher issuance admin (RT-1101 contract, RT-1108 runtime #509; RT-1109): the four
+  // operations `consoleIssueVouchers`, `consoleListVouchers`, `consoleGetVoucher` and
+  // `consoleCancelVoucher`, wrapped in src/lib/client.ts for the vouchers page. A code
+  // appears only in the issue 201. Consume-only; no YAML authored here. Composed at the
+  // repin to the RT-1108 merge commit (5e46cc5).
+  {
+    name: "VouchersAdmin",
+    path: "services/backend-core/packages/contracts/openapi/vouchers-admin.openapi.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */

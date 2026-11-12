@@ -9,6 +9,7 @@
  * interceptor) branch on `status` uniformly.
  */
 import { apiClient } from "@/generated/client";
+import type { VouchersAdminSchema } from "@/generated/schema";
 
 export interface SignInBody {
   email: string;
@@ -227,4 +228,62 @@ export interface PayerAccountCreateBody {
   displayName: string;
   externalRef?: string | null;
   storeId?: string | null;
+}
+
+// --- RT-1109 vouchers admin (consume-only) -----------------------------------
+// The four operations of vouchers-admin.openapi.yaml (RT-1101 contract, RT-1108
+// runtime). Owner / tenant_admin only, cookie session only. The outcome
+// classifiers and the page live in src/vouchers/*.
+//
+// SECRET: a voucher code is in the issue 201 body only. The issue POST is
+// non-replayable: a same-key retry is 409 within the 72 h window, so every issue
+// attempt carries a NEW key (src/vouchers/voucherOutcomes.ts). No wrapper here
+// retries, logs or caches a body.
+
+type VoucherSchemas = VouchersAdminSchema.components["schemas"];
+
+/** `VoucherIssueRequest` (closed: `additionalProperties: false`). */
+export type VoucherIssueBody = VoucherSchemas["VoucherIssueRequest"];
+
+export interface VoucherListQuery {
+  status?: VoucherSchemas["VoucherStatus"];
+  batch_id?: string;
+  eligible_store_id?: string;
+  expires_from?: string;
+  expires_before?: string;
+  cursor?: string;
+  page_size?: number;
+}
+
+/** POST /api/v1/vouchers. The 201 body carries every code, once. */
+export async function consoleIssueVouchers(body: VoucherIssueBody, idempotencyKey: string) {
+  const { data, error, response } = await apiClient.POST("/api/v1/vouchers", {
+    params: { header: { "Idempotency-Key": idempotencyKey } },
+    body,
+  });
+  return { status: response.status, data, error };
+}
+
+/** GET /api/v1/vouchers: keyset-paginated, never with a code. */
+export async function consoleListVouchers(query: VoucherListQuery = {}) {
+  const { data, error, response } = await apiClient.GET("/api/v1/vouchers", {
+    params: { query },
+  });
+  return { status: response.status, data, error };
+}
+
+/** GET /api/v1/vouchers/{voucher_id}: one voucher, never with its code. */
+export async function consoleGetVoucher(voucherId: string) {
+  const { data, error, response } = await apiClient.GET("/api/v1/vouchers/{voucher_id}", {
+    params: { path: { voucher_id: voucherId } },
+  });
+  return { status: response.status, data, error };
+}
+
+/** POST /api/v1/vouchers/{voucher_id}/cancel: idempotent; a same-key retry replays the 200. */
+export async function consoleCancelVoucher(voucherId: string, idempotencyKey: string) {
+  const { data, error, response } = await apiClient.POST("/api/v1/vouchers/{voucher_id}/cancel", {
+    params: { path: { voucher_id: voucherId }, header: { "Idempotency-Key": idempotencyKey } },
+  });
+  return { status: response.status, data, error };
 }
