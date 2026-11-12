@@ -119,6 +119,15 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertTrue(plan["policy_change"])
         self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check"})
 
+    def test_depot_is_a_policy_change_that_selects_only_the_contracts_check(self):
+        # RT-1366: .depot/** is the opt-in Depot CI preflight; no mandatory job beyond the offline check
+        for path in (".depot/workflows/preflight.yml", ".depot/scripts/patch-evidence.sh"):
+            with self.subTest(path=path):
+                plan = _plan(path)
+                self.assertFalse(plan["select_all"])
+                self.assertTrue(plan["policy_change"] and plan["approval_required"])
+                self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check"})
+
     def test_system_manifest_class_selects_the_contracts_check_and_e2e_only(self):
         plan = _plan("system/releases/lab-2026.11.9.json")
         self.assertFalse(plan["select_all"])
@@ -145,6 +154,9 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertEqual(self.graph.classify(".github/release/x.py")[:2], ("class", "release_tooling"))
         self.assertEqual(self.graph.classify(".github/release/sub/x.py")[:2], ("class", "release_tooling"))
         self.assertEqual(self.graph.classify(".github/releases.yml")[:2], ("class", "policy"))
+        self.assertEqual(self.graph.classify(".depot/workflows/preflight.yml")[:2], ("class", "depot"))
+        self.assertEqual(self.graph.classify(".depot/scripts/patch-evidence.sh")[:2], ("class", "depot"))
+        self.assertEqual(self.graph.classify(".depotx/a.yml")[0], "unknown")
 
     def test_plan_reports_where_the_diff_starts(self):
         plan = _plan("apps/pos/src/a.ts")

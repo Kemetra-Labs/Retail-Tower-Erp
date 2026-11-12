@@ -35,9 +35,9 @@ This repository holds all four products (layout: [README.md](README.md)). The ru
 
 A change to any of these paths is a policy change (`graph.yaml` `shared_classes.policy`):
 
-`.github/**`, `.circleci/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`.
+`.github/**`, `.circleci/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `.depot/**`, `CODEOWNERS`.
 
-It selects every job, except `.circleci/**` and `.github/release/**`, which select only `contracts/check` (it runs their offline specs; RT-1173); both are still policy changes that need the approval below. In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
+It selects every job, except `.circleci/**`, `.depot/**` (RT-1366) and `.github/release/**`, which select only `contracts/check` (it runs their offline specs; RT-1173); all three are still policy changes that need the approval below. In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
 
 While `tools/project-graph/graph.yaml` has `policy_approval: observe` (owner decision 2026-10-27: the owner is the only maintainer), that approval is still evaluated and printed but a missing one does not fail `required`; `required` is red only for a real problem (a failed job, an invalid graph or plan). The aggregator reads the mode from the trusted base graph, so a PR cannot relax its own approval. Owner decision 2026-10-28 (RT-578): keep `observe` and keep the admin bypass (solo developer); revisit, by setting `policy_approval: required`, only when a second maintainer joins. An agent never changes this mode without owner authorization.
 
@@ -479,6 +479,12 @@ For every push to a PR that targets `main` (the first push and each corrective p
      - log each run on the work's Jira issue.
    - **Then:** push to the PR branch only when the suite is green. The laptop runs only light checks.
    - **Limits:** this never replaces GitHub `required`.
+   - **Provider selection (RT-1366, INACTIVE until the RT-1366 live run, acceptance criterion 6, passes and the owner records the activation on RT-1366; until then use CircleCI as written above and ignore this block):**
+     1. **Depot CI** only for the proven family, Backend-Core db + worker (RT-1365), on **uncommitted** work, through the opt-in `.depot/workflows/preflight.yml`. Each run needs the owner's per-run authorization, and the Depot cap re-read before it. How to run it, its traps and its fallback: skill `merging-rt-pull-requests`.
+     2. **CircleCI `remote_suite`** for every other suite, and for any pushed branch. It stays the preflight of record, and Depot replaces it for a suite only when equivalent Depot coverage is independently verified **and** the owner approves the replacement.
+     3. **Local:** light checks only.
+     4. **STOP** and report when neither remote provider covers the change.
+     - Never run both providers on the same test by default. A CircleCI run for the same change still follows every RT-981 limit and fail-closed rule above, and a push still needs its authorization. Depot never replaces GitHub `required`. On activation, the owner's decision must also amend the unconditional "When it applies" and "How" lines above for db + worker.
 6. **Merge only on a completed green `required` (smart CI Phase 0).**
    - **When:** merge only when the newest (latest `started_at`) `required` check-run on the PR's current head SHA is `completed` with conclusion `success`. Check this with `gh api "repos/<owner>/<repo>/commits/<head>/check-runs?check_name=required&filter=all" --jq '.check_runs'` (keep the quotes), not only `gh pr checks`.
    - **How:** always pass `--match-head-commit <head>`. Never pass `--admin` or use any ruleset bypass; the bypass is the owner's, for a stated emergency written on the PR.

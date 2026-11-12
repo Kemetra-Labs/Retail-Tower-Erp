@@ -7,7 +7,7 @@
 | **Primary repository** | `Kemetra-Labs/Retail-Tower-Erp`, `services/backend-core/` (the authority). Consumers: `apps/admin-console/`, `apps/pos/`, `integrations/erpnext-connector/` |
 | **Baseline** | `origin/main` @ `2beff6d` (2026-11-11) |
 | **Decisions honoured** | Confluence RETAIL 23134209 (owner-approved 2026-10-07) §11 and §16–21; Pricing decisions (Confluence RETAIL 23855106) 465, 537, 542, 610, 645 as routed to RT-286 by `docs/planning/rt-282-pricing-backlog-draft.md` |
-| **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-10 and OD-12 permissions approved by the owner on 2026-11-11; OD-11 open (Connector slice); OD-12 guardrail deferral proposed |
+| **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-10 and OD-12 permissions approved by the owner on 2026-11-11; OD-11 decided: option A plus Hybrid (2026-11-12); OD-12 guardrail deferral proposed |
 | **Status** | DRAFT for owner review |
 
 ## 1. Objective
@@ -184,7 +184,8 @@ For a return of some units of a sale that had offer O, counting every earlier re
 
 ```
 D_held      = Σ discountAmount of the O units not returned before this return
-              − Σ clawbacks of O already recorded on earlier returns of the sale
+              − the OUTSTANDING clawback of O: Σ clawbacks of O recorded on earlier returns of the sale,
+                net of the give-backs those returns made (never below 0)
 disc_ret    = min( Σ discountAmount of the O units returned now, D_held )
 D_remaining = evaluate(the O-eligible units the customer still keeps after this return,
                        O's frozen version and prices).totalDiscount
@@ -194,13 +195,20 @@ clawback_O  = max( 0, D_held − D_remaining − disc_ret )
 
 On a first return `D_held = D_orig` (Σ discountAmount over the sale's O lines), and the rule reads
 `refund_O = min(Σ net of returned O units, Σ gross of returned O units − (D_orig − D_remaining))`.
-Subtracting earlier clawbacks from `D_held` stops a second return from clawing back the same discount twice
+Subtracting the outstanding clawback from `D_held` stops a second return from clawing back the same discount twice
 (RT-1335 review; for example E1: return the 300 → 220.00 with a clawback of 80.00, then the 200 → 200.00, 420.00 in
-all, which is what was paid). `returnTotal` = Σ returned `lineAmount` − Σ clawback.
+all, which is what was paid). `returnTotal` = Σ returned `lineAmount` − Σ clawback + Σ give-back (OD-11 Hybrid, below).
+The outstanding clawback is netted against give-backs, not just summed: a buy-1-get-2 offer at 40% on 300 + 2 × 200
+(540.00 paid) claws back 160.00 on the trigger return (refund 140.00); the first reward then gives back 80.00 (refund
+200.00, outstanding 80.00) and the last reward gives back 80.00 again (refund 200.00). Summing recorded clawbacks alone
+would read that last return's `D_held` as 80 − 160 = −80 and give back 160.00 on an 80.00 discount
+(`offer-return-history.unit.spec.ts`).
 
 - The `max` stops a return from **creating** a discount the customer did not get at sale time.
 - If `refund_O < 0`, the return is **refused** with `promotion_clawback_exceeds_refund`. The till asks the cashier to add the reward units to the return. This can only happen when `Y > X` or `P` is high (OD-10).
 - Units not under offer O are refunded as today (F-8).
+- **Give-back (OD-11 Hybrid, owner decision 2026-11-12).** `giveBack_O = Σ discountAmount of the O units returned now − disc_ret`: the part of an EARLIER clawback that a returned reward unit gives back. It is 0 unless an earlier return recorded a clawback of O. Then `refund_O = net returned + giveBack_O − clawback_O` (the identity holds in every case). S3 step 2: the reward unit (net 120.00) refunds 200.00 = 120.00 + a give-back of 80.00, so the customer gets exactly what was paid.
+- **Allocation to lines.** The ledger needs both per returned line, in whole minor units. The clawback of O goes to the returned O lines that are not rewards, in proportion to their `lineAmount`, and only when those cannot hold it to the returned reward lines of O (a clawback the returned lines cannot hold is refused, `promotion_clawback_exceeds_refund`). The give-back of O goes to the returned reward lines of O in proportion to the discount of the units returned now. `taxAmount` on the feed line is not adjusted by either. Largest remainder first, ties by sale line order; no line takes more than its `lineAmount` (clawback) or that discount (give-back). The rule is written in `pos-sales/sales.yaml` `recordReturn` and implemented once in `offers/evaluator/offer-return-allocation.ts`.
 
 Using E3 (100, 60, 40, with the 40 discounted 16.00 and 184.00 paid):
 
@@ -211,25 +219,28 @@ Using E3 (100, 60, 40, with the 40 discounted 16.00 and 184.00 paid):
 | E1, return the 300 | 0 | min(300, 300 − 80) = **220.00** | the 200 item for 200.00, the regular price |
 
 **Where it changes code.** The return contract gains a per-offer clawback amount. Backend-Core `recordReturn`
-computes it, which is the authority, and the POS quote shows it. The Connector must post a credit note whose total
-equals the refund. OD-11 decides how the clawback appears in ERPNext: option A, a reduced credit-note rate on the
-returned units (RT-1340 bench proof). It fails closed.
+computes it, which is the authority, and the POS quote shows it. The posting feed
+(`erpnext-connector/posting-feed.yaml` 1.13.0-draft) carries the per-line split on `ReturnLine`:
+`promotionClawbackAmount` and `promotionGiveBackAmount`, both optional and omitted when 0. `refundTenders` sum to
+Σ `lineAmount` − Σ `promotionClawbackAmount` + Σ `promotionGiveBackAmount`. OD-11 decides how they appear in ERPNext:
+option A, a reduced credit-note rate on the returned units, plus the Hybrid give-back, a non-stock "promotion
+give-back" row of quantity −1 next to the reward unit at its net (RT-1340 bench proof). It fails closed. The shares
+are derived from stored rows (the per-offer clawback rows and the return and sale lines), so no column holds them.
 
 **Runtime (RT-1337, S4, as validated).** Backend-Core fails closed. A return is refused with 422
-`promotion_return_requires_clawback`, and nothing is recorded, when (a) an offer's clawback is above 0, (b) it would
-**give back** a discount an earlier return clawed back (golden sequence S3, step 2, where the refund 200.00 exceeds the
-returned line's net 120.00), or (c) it includes a **reward** line (`discountAmount` above 0). A return whose `refund_O`
-would be below 0 is refused first (`promotion_clawback_exceeds_refund`, OD-10; the "add the reward units" remedy only
-works after reward-line returns are allowed). The reason is the ledger: the posting feed carries no clawback and no line
-promotion, and the Connector has no option A yet (RT-1340 merged the decision and the bench proof only), so such a
-return would be rejected at ERPNext for good; the Connector's return builder also needs `unitPrice` × `quantity` =
-`lineAmount`, which a reward line does not satisfy. The refusals lift after (1) the posting-feed contract carries the
-per-line clawback and (2) the Connector implements option A and applies the discount to a returned unit as it does to a
-sale (S8). Until then `promotionClawbacks` is never present; `sale_return_promotion_clawbacks` and the net-of-clawback
-refund rule stay in place for that lift. A return of a non-reward promoted line that changes no discount is an ordinary
-return. The single returns and the multi-return sequences are golden vectors in
-`packages/contracts/fixtures/offers/golden-vectors.json` (`returns`, `returnSequences`); the pure settlement spec runs
-all of them, the integration specs run the first step of each against the refusals.
+`promotion_return_requires_clawback`, and nothing is recorded, when (a) an offer's clawback is above 0, (b) it carries
+a **give-back** (golden sequence S3, step 2, where the refund 200.00 exceeds the returned line's net 120.00), or (c) it
+includes a **reward** line (`discountAmount` above 0). A return whose `refund_O` would be below 0 is refused first
+(`promotion_clawback_exceeds_refund`, OD-10; the "add the reward units" remedy only works after reward-line returns
+are allowed). The reason is the ledger: the Connector has no option A or give-back yet (RT-1340), so such a return
+would be rejected at ERPNext for good; the Connector's return builder also needs `unitPrice` × `quantity` =
+`lineAmount`, which a reward line does not satisfy. The feed contract is now in place; the refusals lift after the
+Connector supports both feed fields and applies the discount to a returned unit as it does to a sale (S8). Until then
+`promotionClawbacks` is never present; `sale_return_promotion_clawbacks` and the net-of-clawback refund rule stay in
+place for that lift. A return of a non-reward promoted line that changes no discount is an ordinary return. The single
+returns and the multi-return sequences are golden vectors in `packages/contracts/fixtures/offers/golden-vectors.json`
+(`returns`, `returnSequences`, with `giveBack` and the per-line `feedLines`); the pure settlement and allocation specs
+run all of them, the integration specs run the first step of each against the refusals.
 
 ## 10. Administration (Admin Console, control surface only)
 

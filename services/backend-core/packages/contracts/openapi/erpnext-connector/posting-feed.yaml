@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.12.0-draft"
+  version: "1.13.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -331,6 +331,53 @@ info:
     is safe. Backend-Core MUST NOT emit a non-null `erpnextBatchRef` or
     `trackingMode: batch` to a Connector that has not accepted them: ignoring
     the Batch while posting the line would post it without one.
+
+    OD-11 return clawback and give-back (1.13.0-draft; [GATED: contract]
+    RT-286 spec 048 §9 and decision record OD-11; owner decision 2026-11-12,
+    "Hybrid"; `pos-sales/sales.yaml` `recordReturn` writes the rule):
+    `ReturnLine` gains two OPTIONAL, non-negative amounts,
+    `promotionClawbackAmount` and `promotionGiveBackAmount`. Backend-Core
+    allocates them; the Connector never works them out.
+    (1) `promotionClawbackAmount` is this line's part of the discount an
+    automatic offer clawed back on the return (option A): the Connector
+    posts the line's credit-note row at its original per-unit price with the
+    per-unit discount raised by that part, splitting the row to quantity 1
+    where the part does not divide by the quantity, so the row total is
+    `lineAmount` − `promotionClawbackAmount` exactly. Backend-Core puts the
+    clawback of an offer on the returned lines of that offer that are not
+    rewards, in proportion to their `lineAmount`, and only on returned reward
+    lines when those cannot hold it; no line takes more than its `lineAmount`.
+    (2) `promotionGiveBackAmount` is the discount of an earlier clawback that
+    this returned REWARD line gives back (golden sequence S3, step 2: the
+    reward unit is refunded at 200.00 after a clawback of 80.00). ERPNext
+    refuses a credit-note rate above the original row's, so the line posts at
+    its net (`lineAmount`) and the give-back posts as an extra non-stock
+    "promotion give-back" row of quantity -1 (RT-1340 bench proof, hybrid
+    case). Backend-Core puts the give-back of an offer on the returned reward
+    lines of that same offer in proportion to the discount of the units
+    returned now; no line takes more than that discount.
+    (2b) `taxAmount` is NOT adjusted: it stays the cumulative-difference share
+    of the original line's tax, and neither amount reduces it. Both amounts
+    are inside the price the customer paid, as a line discount is on a sale
+    (RT-857), so the Connector must not derive tax from `taxAmount` for the
+    reduced row or the give-back row; how ERPNext taxes them is the
+    Connector's concern (RT-1340).
+    (3) Both amounts are whole minor units of the currency, written at up to 4
+    fractional digits, and are OMITTED when 0. `refundTenders` still sum to
+    Σ `lineAmount` − Σ `promotionClawbackAmount` + Σ `promotionGiveBackAmount`,
+    which is what the customer is refunded. Σ `promotionClawbackAmount` of a
+    return = Σ `promotionClawbacks.amount` of `pos-sales/sales.yaml`
+    `SaleReturn`. A return with neither amount has no new field, so every
+    existing work item stays byte-identical.
+    ROLLOUT ORDER (Connector first, as for 1.10.0-draft): a Connector that
+    predates this version would not read the two amounts, so it would post
+    the full `lineAmount` while `refundTenders` are net of the clawback and
+    give-back, fail its tender check and reject the item permanently (no
+    re-drive). (1) the Connector supports both fields, with its give-back Item
+    and a repin to the merge commit of this version; (2) only then does
+    Backend-Core stop refusing a return with a clawback, a give-back or a
+    reward line (422 `promotion_return_requires_clawback`). Until then no
+    work item carries either field.
 
     RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114
     comment 16670, 2026-11-12, applying RT-1098 decision 4A of comment 16394:
@@ -803,7 +850,8 @@ components:
             $ref: "#/components/schemas/RefundTender"
           description: >
             RT-10 D6 — how a `return` is refunded, summing to the returned
-            total. For a return emitted at acceptance, its recorded refund
+            total: Σ `returnLines.lineAmount` − Σ `promotionClawbackAmount` +
+            Σ `promotionGiveBackAmount` (1.13.0-draft, OD-11). For a return emitted at acceptance, its recorded refund
             allocations (RT-14 D3); for a return emitted at settlement under
             the RT-490 settle-before-post flag, its settled cash executions,
             one entry per execution (R-7, see RT-490 above).
@@ -840,6 +888,24 @@ components:
           anyOf:
             - $ref: "#/components/schemas/NonNegativeDecimalAmount"
             - type: "null"
+        promotionClawbackAmount:
+          $ref: "#/components/schemas/NonNegativeDecimalAmount"
+          description: >
+            1.13.0-draft (OD-11 option A). This line's part of the discount an
+            automatic offer clawed back on the return, a non-negative
+            magnitude the Connector adds to the per-unit discount of the
+            line's credit-note row (splitting to quantity 1 where it does not
+            divide), so the row total is `lineAmount` − this amount. At most
+            `lineAmount`. Omitted when 0.
+        promotionGiveBackAmount:
+          $ref: "#/components/schemas/NonNegativeDecimalAmount"
+          description: >
+            1.13.0-draft (OD-11 Hybrid). The discount of an earlier clawback
+            that this returned reward line gives back, posted as an extra
+            non-stock "promotion give-back" row of quantity -1 next to the
+            line at its net. At most the discount of the units returned now,
+            and only for an offer clawed back on an earlier return. Omitted
+            when 0.
 
     # -----------------------------------------------------------------------
     # Sale projection — mirrors pos-sales/sales.yaml `Sale` / `SaleLine` (§IV).

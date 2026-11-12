@@ -26,6 +26,7 @@
 import type { PoolClient } from "pg";
 
 import { SaleTendersNotVisibleError } from "../sales/sale-errors";
+import { loadReturnPromotionShares } from "./return-promotion-shares";
 import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
 
 // RT-77: shared with the sale read path; re-exported for existing importers.
@@ -104,6 +105,16 @@ export interface ReturnWorkLine {
   readonly quantity: string;
   readonly lineAmount: string;
   readonly taxAmount: string | null;
+  /**
+   * posting-feed 1.13.0-draft (spec 048 §9, OD-11 option A): the part of the offer clawback this returned
+   * line carries, a non-negative magnitude the Connector takes off the credit-note rate. Omitted when 0.
+   */
+  readonly promotionClawbackAmount?: string;
+  /**
+   * posting-feed 1.13.0-draft (OD-11 Hybrid): the discount of an EARLIER clawback this returned reward unit
+   * gives back, posted as a non-stock give-back row. Omitted when 0.
+   */
+  readonly promotionGiveBackAmount?: string;
 }
 
 /**
@@ -495,13 +506,17 @@ async function buildReversalRef(
          FROM sale_return_lines WHERE return_id = $1 ORDER BY sale_line_id`,
       [sourceRefId],
     );
+    refundTenders = await loadRefundTenders(client, sourceRefId, rk.posting_deferred === true);
+    // OD-11 (posting-feed 1.13.0-draft): the per-line clawback and give-back, derived from stored rows; none for a
+    // return without an offer clawback, whose lines stay byte-identical.
+    const promotionShares = await loadReturnPromotionShares(client, sourceRefId);
     returnLines = rl.rows.map((l) => ({
       lineRef: l.line_ref,
       quantity: l.quantity,
       lineAmount: l.line_amount,
       taxAmount: l.tax_amount,
+      ...promotionShares.get(l.line_ref),
     }));
-    refundTenders = await loadRefundTenders(client, sourceRefId, rk.posting_deferred === true);
   }
 
   return {

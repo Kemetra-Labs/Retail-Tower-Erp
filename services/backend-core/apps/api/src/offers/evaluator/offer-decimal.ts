@@ -40,6 +40,12 @@ export function formatMinor(minor: bigint, minorUnit: number): string {
   return negative ? `-${text}` : text;
 }
 
+/** Minor units as a non-negative amount at the column scale 4 ("80.0000"), the scale of `numeric(19,4)` and the feed. */
+export function formatColumnAmount(minor: bigint, minorUnit: number): string {
+  const digits = (minor * 10n ** BigInt(4 - minorUnit)).toString().padStart(5, "0");
+  return `${digits.slice(0, -4)}.${digits.slice(-4)}`;
+}
+
 /** Half up once at the minor unit (OD-28-3): P% of a non-negative price. */
 export function percentOf(priceMinor: bigint, percent: string): bigint {
   return (priceMinor * BigInt(percent) + 50n) / 100n;

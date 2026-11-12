@@ -185,8 +185,8 @@ async function admitReturn(
   await assertOriginalTendersOfSale(client, saleRef, body.refundTenders);
   const lines = await priceReturnLines(client, saleRef, body.lines);
   // RT-1337 (spec 048 §9): the clawback of each automatic offer of the sale, from its frozen version and prices.
-  const clawbacks = await settleReturnPromotions(client, { saleRef, tenantId: args.tenantId, currencyCode: sale.currencyCode, lines });
-  const total = await totalMatchingTenders(client, lines, body.refundTenders, clawbacks);
+  const { clawbacks, giveBack } = await settleReturnPromotions(client, { saleRef, tenantId: args.tenantId, currencyCode: sale.currencyCode, lines });
+  const total = await totalMatchingTenders(client, lines, body.refundTenders, clawbacks, giveBack);
   await assertAllocationRules(client, saleRef, body.refundTenders);
   return { lines, total, clawbacks };
 }
@@ -322,23 +322,24 @@ export async function priceReturnLines(
 }
 
 /**
- * Σ line amounts less Σ promotion clawbacks (RT-1337), and D3: the tenders must
- * equal it numerically ("5" = "5.0000").
+ * Σ line amounts less Σ promotion clawbacks plus Σ promotion give-back (RT-1337, OD-11 Hybrid), and D3: the
+ * tenders must equal it numerically ("5" = "5.0000").
  */
 async function totalMatchingTenders(
   client: PoolClient,
   lines: ReadonlyArray<PricedLine>,
   tenders: RecordReturnRequestDto["refundTenders"],
   clawbacks: ReadonlyArray<ReturnClawback>,
+  giveBack: string,
 ): Promise<string> {
   const r = await client.query<{ total: string; matches: boolean }>(
     `WITH t AS (
        SELECT (SELECT SUM(a) FROM unnest($1::numeric[]) a)
-              - COALESCE((SELECT SUM(c) FROM unnest($3::numeric[]) c), 0) AS total)
+              - COALESCE((SELECT SUM(c) FROM unnest($3::numeric[]) c), 0) + $4::numeric AS total)
      SELECT t.total::numeric(19,4)::text AS total,
             t.total = (SELECT SUM(x) FROM unnest($2::numeric[]) x) AS matches
        FROM t`,
-    [lines.map((l) => l.lineAmount), tenders.map((t) => t.amount), clawbacks.map((c) => c.amount)],
+    [lines.map((l) => l.lineAmount), tenders.map((t) => t.amount), clawbacks.map((c) => c.amount), giveBack],
   );
   const row = r.rows[0];
   if (!row?.matches) throw new ReturnTenderMismatchError();

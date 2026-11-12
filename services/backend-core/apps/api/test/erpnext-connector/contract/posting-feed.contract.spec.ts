@@ -986,8 +986,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
   const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
   const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
 
-  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in RT-1114)", () => {
-    expect(feedDoc.info?.version).toBe("1.12.0-draft");
+  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.13.0-draft)", () => {
+    expect(feedDoc.info?.version).toBe("1.13.0-draft");
     expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
@@ -1062,8 +1062,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0
       | { type?: string; format?: string; enum?: string[]; description?: string }
       | undefined;
 
-  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.12.0-draft");
+  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.13.0-draft)", () => {
+    expect(feedDoc.info?.version).toBe("1.13.0-draft");
     expect(info()).toContain("RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info()).toContain("RT-1098 decision 4A");
     expect(info()).toContain("ROLLOUT ORDER (Connector first, RT-10 comments 10409 and 10413)");
@@ -1076,5 +1076,52 @@ describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0
     expect(tenderProp("redemptionId")).toMatchObject({ type: "string", format: "uuid" });
     expect(flat(tenderProp("redemptionId")?.description)).toContain("present on a `voucher` tender and on no other method");
     expect(feedDoc.components?.schemas?.["SaleTender"]?.required?.slice().sort()).toEqual(["amount", "method"]);
+  });
+});
+
+// ===========================================================================
+// OD-11 (spec 048 §9) — the return clawback and give-back per line (1.13.0-draft)
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give-back (1.13.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  // `feedDoc` is loaded in a beforeAll, so the validator is compiled on first use.
+  const validateLine = (value: unknown): boolean => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(feedDoc as object), $id: "posting-feed" });
+    return ajv.compile({ $ref: "posting-feed#/components/schemas/ReturnLine" })(value) as boolean;
+  };
+  const base = { lineRef: "00000000-0000-7000-8000-0000000000a1", quantity: "1", lineAmount: "300.0000", taxAmount: null };
+
+  it("bumps to 1.13.0-draft with the note, the owner decision and the Connector-first order", () => {
+    expect(feedDoc.info?.version).toBe("1.13.0-draft");
+    expect(info()).toContain("OD-11 return clawback and give-back (1.13.0-draft; [GATED: contract]");
+    expect(info()).toContain('owner decision 2026-11-12, "Hybrid"');
+    expect(info()).toContain("`promotionClawbackAmount` and `promotionGiveBackAmount`");
+    expect(info()).toContain("Σ `lineAmount` − Σ `promotionClawbackAmount` + Σ `promotionGiveBackAmount`");
+    expect(info()).toContain("fail its tender check and reject the item permanently");
+    expect(info()).toContain("then does Backend-Core stop refusing a return with a clawback");
+  });
+
+  it("ReturnLine gains the two optional non-negative amounts and stays closed", () => {
+    const line = feedDoc.components?.schemas?.["ReturnLine"];
+    expect(line?.additionalProperties).toBe(false);
+    expect(line?.required?.slice().sort()).toEqual(["lineAmount", "lineRef", "quantity", "taxAmount"]);
+    for (const field of ["promotionClawbackAmount", "promotionGiveBackAmount"]) {
+      expect((line?.properties ?? {})[field]).toMatchObject({ $ref: "#/components/schemas/NonNegativeDecimalAmount" });
+    }
+  });
+
+  it("a return line validates without the amounts (byte-identical for every existing return) and with them", () => {
+    expect(validateLine(base)).toBe(true);
+    expect(validateLine({ ...base, promotionClawbackAmount: "80.0000" })).toBe(true);
+    expect(validateLine({ ...base, lineAmount: "120.0000", promotionGiveBackAmount: "80.0000" })).toBe(true);
+  });
+
+  it("refuses a negative or malformed amount and any other unknown field", () => {
+    expect(validateLine({ ...base, promotionClawbackAmount: "-1.0000" })).toBe(false);
+    expect(validateLine({ ...base, promotionGiveBackAmount: "1e3" })).toBe(false);
+    expect(validateLine({ ...base, promotionClawback: "1.0000" })).toBe(false);
   });
 });
