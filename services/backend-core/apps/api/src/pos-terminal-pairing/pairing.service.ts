@@ -17,6 +17,8 @@
  *      hint, not a promise the same code becomes redeemable after it. The
  *      controller enforces the independent Redis-backed source-IP window before
  *      this service is called, including for unknown codes.
+ *   2b. RT-1353: the code's tenant is `restricted` → `invalid` (404
+ *      INVALID_CODE, the unknown-code answer), before the burn: not consumed.
  *   3. status used/cancelled OR past expiry → `expired` (410 EXPIRED_CODE).
  *   4. Already-paired checks (FR-14): a live device at the terminal id under the
  *      SAME branch → `already_paired` (409); under a DIFFERENT branch →
@@ -77,6 +79,12 @@ export class PairingService {
     if (attempts > MAX_ATTEMPTS_PER_CODE) {
       return { kind: "rate_limited", retryAfterSeconds: RETRY_AFTER_SECONDS };
     }
+
+    // RT-1353: a restricted tenant cannot complete a pairing. The answer is the
+    // one for an unknown code (404 INVALID_CODE), so nothing about the tenant is
+    // disclosed, and it comes before the burn, so the code is not consumed and
+    // pairs once the tenant is unrestricted. The attempt above still counts.
+    if (await this.repo.isTenantRestricted(code.tenant_id)) return { kind: "invalid" };
 
     if (this.isSpent(code)) return { kind: "expired" };
 

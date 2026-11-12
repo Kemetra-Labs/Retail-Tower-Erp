@@ -1,0 +1,452 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — Tenant Access Entitlement API
+  version: "1.0.0"
+  description: >
+    Jira RT-1353 (Epic RT-1332; design RT-1333 D2 = B, D2.1, P2). The minimal
+    tenant access state, `restricted` or `unrestricted` and nothing else, plus
+    the Console read for the "limited until activated" banner and the two
+    platform-admin actions that lift it. Packages, quotas, billing, payment and
+    the POS licence proof are NOT here: they stay with RT-1001.
+
+
+    **Posture.** `[GATED: contract]`, owner-approved: the owner selected
+    "RT-1353 entitlement" for wave 1 with "PR and merge authorized after Opus
+    review" (2026-11-12); RT-1001 comment 16753 records the agreement to pull
+    this slice forward. A self-signup tenant (RT-1350) is `active` but
+    `restricted` until a platform admin unlocks it and provisioning succeeds.
+    The restriction is NOT a `tenants.status` value, so the RT-669 / RT-213
+    tenant-status gate is unchanged.
+
+
+    **Default (the rule every reader shares).** A tenant with no stored state
+    is `unrestricted`. Every existing tenant therefore reads `unrestricted`
+    with no migration backfill, and pilot tenants see no change. Only a
+    tenant that was explicitly restricted reads `restricted`.
+
+
+    **Enforcement while `restricted`** (server behaviour, no wire change to the
+    contracts it affects):
+
+      - POS pairing-code issue (`devices.openapi.yaml`, `consoleIssuePairingCode`)
+        is refused with that contract's existing `404 not_found`, the same
+        answer as an unknown or out-of-scope store, so nothing about the
+        restriction is disclosed by the refusal. The Console shows the banner
+        from the read below.
+      - POS pairing completion (`pos-terminal-pairing.openapi.yaml`,
+        `posPairTerminal`) is refused with the existing `404 INVALID_CODE`, the
+        answer for an unknown code. The refused attempt still counts against the
+        per-code and per-IP budgets, and no code is burned.
+      - No ERP posting is created or sent. The worker does not create the
+        `erpnext_posting_status` row for a posting request of a restricted
+        tenant (the outbox event stays retryable, it is not marked delivered
+        and not dropped), and the Connector posting feed offers nothing for it
+        (its pending rows are held, as with the RT-418 holds, and are offered
+        once the tenant is `unrestricted`).
+      - Catalog, stores, members and settings keep working.
+
+    **Unlock and provisioning (D2.1).** A platform admin requests the unlock.
+    The request is recorded durably (who and when) and audited; that durable
+    request is the provisioning trigger the Connector-provisioning issue
+    (RT-1352, Planning) will consume. No outbox event is emitted here: the
+    outbox drainer treats an event type with no consumer as an error, and the
+    event payload is RT-1352's to define. **The request does not lift the
+    restriction.** The tenant becomes `unrestricted` only on a provisioning
+    result. Until automated provisioning exists (RT-1352), a platform admin
+    records that result by hand with the audited "mark provisioned" action.
+    Mark provisioned is refused unless an unlock was requested first.
+
+
+    **Auth and scope.** The HUMAN `cookieAuth` session only (`SessionOnlyAdminGuard`):
+    a bearer-only request is `401`; a cookie write without a trusted `Origin` is
+    `403 origin_rejected` (RT-430).
+
+      - `consoleGetTenantAccessEntitlement`: roles `owner`, `tenant_admin`,
+        `store_manager` of `{tenant_id}`, which must be the session's tenant. A
+        platform admin is admitted by the existing `RolesGuard` platform-admin
+        pass. A role outside the list, another tenant and an unknown tenant are
+        the same non-disclosing `404`. Reading is not audited as a change.
+      - `platformRequestTenantUnlock`, `platformMarkTenantProvisioned`: a
+        platform admin only (`users.is_platform_admin`), for any tenant. A
+        caller who is not a platform admin is `403 forbidden`. An unknown tenant
+        is `404 not_found`. Both are idempotent and write one audit row per
+        actual change (`tenant.access.unlock_requested`,
+        `tenant.access.provisioned`); a replay writes none.
+
+    Response bodies are explicit projections, never DB rows (§IV). They carry
+    no actor identity, no price, no plan and no package.
+
+x-runtime-note: >
+  The provisioning trigger is the durable unlock request on the access state
+  plus the `tenant.access.unlock_requested` audit row. RT-1352's implementation
+  may add an outbox emit from that request; this contract fixes no event shape.
+
+paths:
+  /api/v1/tenants/{tenant_id}/access-entitlement:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      summary: Read the tenant's access state (the Console banner).
+      operationId: consoleGetTenantAccessEntitlement
+      tags: [tenant-access-entitlement]
+      security:
+        - cookieAuth: []
+      description: >
+        Returns the state, whether an unlock was requested and when, and when
+        the tenant was provisioned. A tenant with no stored state reads
+        `unrestricted`. Roles `owner`, `tenant_admin`, `store_manager`.
+      responses:
+        "200":
+          description: The tenant's access state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantAccessEntitlement"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/tenants/{tenant_id}/access-entitlement/unlock-request:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      summary: Request the unlock of a restricted tenant (platform admin).
+      operationId: platformRequestTenantUnlock
+      tags: [tenant-access-entitlement]
+      security:
+        - cookieAuth: []
+      description: >
+        Records the unlock request (who and when) and writes
+        `tenant.access.unlock_requested`, in one transaction. Does NOT lift the
+        restriction. Outcomes: `requested` (first request); `already_requested`
+        (a replay: nothing changes, no audit); `already_unrestricted` (the
+        tenant is not restricted, which includes a tenant with no stored
+        state: nothing changes, no audit). No request body.
+      responses:
+        "200":
+          description: The unlock outcome and the resulting state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantAccessChange"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/tenants/{tenant_id}/access-entitlement/mark-provisioned:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    post:
+      summary: Record that provisioning succeeded; lifts the restriction (platform admin).
+      operationId: platformMarkTenantProvisioned
+      tags: [tenant-access-entitlement]
+      security:
+        - cookieAuth: []
+      description: >
+        The manual stand-in for the provisioning-success signal until RT-1352
+        exists. Moves the tenant to `unrestricted`, records the provisioner and
+        the time with source `manual_platform`, and writes
+        `tenant.access.provisioned`, in one transaction. Refused with `409
+        unlock_not_requested` unless an unlock was requested first (or the
+        tenant has no restriction to lift). Outcomes: `provisioned`;
+        `already_unrestricted` (a replay: nothing changes, no audit). No
+        request body.
+      responses:
+        "200":
+          description: The outcome and the resulting state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantAccessChange"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/UnlockNotRequested"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+
+  headers:
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The tenant addressed. The Console read checks it against the session's
+        tenant and role (a mismatch is `404`); the platform routes accept any
+        existing tenant for a platform admin.
+
+  schemas:
+    AccessState:
+      type: string
+      enum: [restricted, unrestricted]
+      description: >
+        `restricted`: no POS pairing and no ERP posting. `unrestricted`: no
+        restriction (the default for a tenant with no stored state).
+
+    TenantAccessEntitlement:
+      type: object
+      additionalProperties: false
+      required: [tenant_id, state, unlock_requested_at, provisioned_at]
+      description: >
+        The access state, whether an unlock was requested, and when
+        provisioning was recorded. `provisioned_at` is set exactly when the
+        state is `unrestricted` after a restriction; a tenant that never had a
+        restriction has `unlock_requested_at` and `provisioned_at` both null.
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/AccessState"
+        unlock_requested_at:
+          description: When a platform admin requested the unlock; `null` if never.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        provisioned_at:
+          description: When provisioning was recorded; `null` while restricted or never restricted.
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+
+    TenantAccessChange:
+      type: object
+      additionalProperties: false
+      required: [outcome, entitlement]
+      properties:
+        outcome:
+          type: string
+          enum: [requested, already_requested, provisioned, already_unrestricted]
+        entitlement:
+          $ref: "#/components/schemas/TenantAccessEntitlement"
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >
+        Canonical error envelope. Refusals are non-disclosing across tenants
+        (§II/§XII).
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          if:
+            properties:
+              code:
+                const: validation_error
+          else:
+            not:
+              required: [details]
+          properties:
+            code:
+              type: string
+              enum:
+                - validation_error
+                - unauthorized
+                - origin_rejected
+                - forbidden
+                - not_found
+                - unlock_not_requested
+                - internal_error
+              description: >
+                Stable machine-readable code, closed on this surface.
+                `unauthorized` and `internal_error` are the global exception
+                filter's generic 401 and 500 codes.
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
+            details:
+              type: array
+              description: >
+                Present only with `validation_error`: the validation issues
+                the global exception filter serialises (one object per issue).
+              items:
+                type: object
+
+    RateLimitedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >
+        The console 429 envelope (RT-620). Same shape as `Error`, whose closed
+        code set does not include the console rate limit's `rate_limited`.
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum: [rate_limited]
+            message:
+              type: string
+              description: Non-disclosing summary (no budget, class or window).
+            request_id:
+              type: string
+              format: uuid
+
+  responses:
+    ValidationFailure:
+      description: "`validation_error` — a malformed `tenant_id`."
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: validation_error
+    Unauthorized:
+      description: >
+        No human dashboard session: a bearer-only request (`dashboard_api`
+        included) is refused here (`SessionOnlyAdminGuard`).
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: unauthorized
+    Forbidden:
+      description: >
+        `forbidden` — the caller is not a platform admin; or `origin_rejected`
+        (RT-430): the request is authenticated by the `dp2_session` cookie and
+        its `Origin` header is missing, or is neither the API's own origin nor
+        listed in `ALLOWED_ORIGINS`.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        enum: [forbidden, origin_rejected]
+    NotFound:
+      description: >
+        `not_found` — on the Console read: another tenant, a role outside
+        `owner` / `tenant_admin` / `store_manager`, or an unknown tenant,
+        identical in all cases (§II/§XII). On the platform routes: an unknown
+        tenant.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: not_found
+    UnlockNotRequested:
+      description: >
+        `unlock_not_requested` — mark provisioned needs a prior unlock request,
+        and a tenant with no stored restriction has nothing to provision.
+        Nothing is changed.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: unlock_not_requested
+    SystemFailure:
+      description: >
+        `internal_error` — an unexpected server error, recorded server-side by
+        `request_id` and never returned.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: internal_error
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. Honour `Retry-After`; never auto-retry a
+        mutation. A 429 is not a 401: it never means the session ended.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RateLimitedError"
