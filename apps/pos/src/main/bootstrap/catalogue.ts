@@ -15,7 +15,7 @@ import { registerCatalogueHandlers } from '../ipc/catalogue.js';
 import type { SessionManager } from '../operator/session-manager.js';
 import { withDeviceAuthObservation } from '../pairing/device-auth-detector.js';
 import type { DeviceAuthDetector } from '../pairing/device-auth-detector.js';
-import type { PairingStore } from '../pairing/store.js';
+import type { DeviceRevocationStore, PairingStore } from '../pairing/store.js';
 import type { PairingStatus } from '../../shared/pairing-types.js';
 import { resolveApiBaseUrl } from './env.js';
 import { registerOffers } from './offers.js';
@@ -27,7 +27,7 @@ export interface CatalogueDeps {
   /** The open database handle the product repo, sync-state repo and read-down writer use. */
   db: DatabaseHandle;
   /** The pairing store: read once for the boot pairing state (device scope, not the operator). */
-  pairingStore: Pick<PairingStore, 'getStatus'>;
+  pairingStore: Pick<PairingStore, 'getStatus'> & Pick<DeviceRevocationStore, 'isDeviceRevoked'>;
   /** The once-latch for paired-only workers: notified at boot, and holds the read-down starter. */
   pairedWorkersLatch: PairedWorkers;
   /** The operator session holder the catalogue bridge's session gate reads. */

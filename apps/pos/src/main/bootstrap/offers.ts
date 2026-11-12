@@ -3,7 +3,13 @@ import type { DatabaseHandle } from '../db/client.js';
 import { createOfferPackClient } from '../offers/offer-pack-client.js';
 import { createOfferPackFileStore } from '../offers/offer-pack-file-store.js';
 import { createOfferPackWorker, OFFER_PACK_TICK_INTERVAL_MS } from '../offers/offer-pack-worker.js';
-import { bindOfferPackStore, offerMonotonicMs, offerPackService } from '../offers/offer-runtime.js';
+import {
+  bindOfferPackStore,
+  bindOfferRevocationCheck,
+  offerMonotonicMs,
+  offerPackService,
+} from '../offers/offer-runtime.js';
+import type { DeviceRevocationStore } from '../pairing/store.js';
 import type { BrandingDeps } from './branding.js';
 import { resolveApiBaseUrl } from './env.js';
 
@@ -16,7 +22,10 @@ type OffersDeps = Pick<
   | 'mainLogger'
   | 'backendFetch'
   | 'readSendableDeviceToken'
->;
+> & {
+  /** The pairing store's synchronous revocation flag (RT-215 review F3). */
+  readonly pairingStore: Pick<DeviceRevocationStore, 'isDeviceRevoked'>;
+};
 
 /** The folder of the till database (the Pack file sits beside it), or null when it cannot be told. */
 function dataFolderOf(db: DatabaseHandle): string | null {
@@ -41,6 +50,8 @@ function dataFolderOf(db: DatabaseHandle): string | null {
 export function registerOffers(deps: OffersDeps): void {
   const folder = dataFolderOf(deps.db);
   if (folder !== null) bindOfferPackStore(createOfferPackFileStore(path.join(folder, 'offers')));
+  // A revoked till applies no offer from the moment the revocation is confirmed.
+  bindOfferRevocationCheck(() => deps.pairingStore.isDeviceRevoked());
   const baseUrl = resolveApiBaseUrl();
   deps.pairedWorkersLatch.register('offer pack read-down', (terminal) => {
     const worker = createOfferPackWorker({

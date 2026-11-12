@@ -51,9 +51,21 @@ export function bindOfferPackStore(store: OfferPackStore): void {
   boundStore = store;
 }
 
+/**
+ * Is the device revoked right now? Read synchronously on every plan, so a confirmed revocation
+ * stops offers at once (the worker only drops the Pack at its next tick). A recheck that clears
+ * the revocation continues the same pairing, so its Pack applies again. Default: not revoked.
+ */
+let isDeviceRevoked: () => boolean = () => false;
+
+export function bindOfferRevocationCheck(check: () => boolean): void {
+  isDeviceRevoked = check;
+}
+
 /** The offers that apply to a cart's live lines now, or none. Never throws: an evaluation fault is "no offer". */
 export function planCartPromotions(lines: readonly PlanLine[]): PromotionPreview {
   try {
+    if (isDeviceRevoked()) return NO_PROMOTIONS;
     return planPromotions(lines, service.view(), DEFAULT_CURRENCY_CODE);
   } catch {
     return NO_PROMOTIONS;

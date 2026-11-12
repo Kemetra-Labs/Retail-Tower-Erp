@@ -14,6 +14,7 @@ const m = vi.hoisted(() => ({
   createOfferPackClient: vi.fn(),
   createOfferPackFileStore: vi.fn((dir: string) => ({ marker: dir })),
   bindOfferPackStore: vi.fn(),
+  bindOfferRevocationCheck: vi.fn(),
   resolveApiBaseUrl: vi.fn(() => 'https://bc.test'),
 }));
 
@@ -29,6 +30,7 @@ vi.mock('../../offers/offer-pack-file-store.js', () => ({
 }));
 vi.mock('../../offers/offer-runtime.js', () => ({
   bindOfferPackStore: m.bindOfferPackStore,
+  bindOfferRevocationCheck: m.bindOfferRevocationCheck,
   offerPackService: () => m.service,
   offerMonotonicMs: m.monotonicMs,
 }));
@@ -52,6 +54,7 @@ function harness(pragma: () => unknown) {
     mainLogger: { info: vi.fn(), warn: vi.fn() },
     backendFetch: vi.fn(),
     readSendableDeviceToken: vi.fn(() => Promise.resolve(null)),
+    pairingStore: { isDeviceRevoked: vi.fn(() => false) },
   };
   registerOffers(deps as unknown as Parameters<typeof registerOffers>[0]);
   return { deps, starters, stoppers };
@@ -91,6 +94,14 @@ describe('registerOffers', () => {
   ])('binds no file store for %s', (_label, pragma) => {
     harness(pragma);
     expect(m.bindOfferPackStore).not.toHaveBeenCalled();
+  });
+
+  it('binds the revocation check to the pairing store, read on every plan', () => {
+    const { deps } = harness(() => []);
+    const check = m.bindOfferRevocationCheck.mock.calls[0]?.[0] as () => boolean;
+    expect(check()).toBe(false);
+    deps.pairingStore.isDeviceRevoked.mockReturnValue(true);
+    expect(check()).toBe(true);
   });
 
   it('starts nothing until the till is paired', () => {

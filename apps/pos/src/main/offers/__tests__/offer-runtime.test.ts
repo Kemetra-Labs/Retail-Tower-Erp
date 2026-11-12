@@ -19,6 +19,7 @@ vi.mock('../promotion-plan.js', async (importOriginal) => {
 import { NO_OFFER_PACK_STORE } from '../offer-pack-file-store.js';
 import {
   bindOfferPackStore,
+  bindOfferRevocationCheck,
   offerMonotonicMs,
   offerPackService,
   planCartPromotions,
@@ -79,6 +80,32 @@ describe('offer runtime', () => {
     offerPackService().restore(TENANT);
     expect(store.saved).toBeNull();
     expect(offerPackService().view()).toEqual({ kind: 'none' });
+  });
+
+  it('plans no offer while the device is revoked, at once and without waiting for a worker tick', () => {
+    let revoked = false;
+    bindOfferRevocationCheck(() => revoked);
+    bindOfferPackStore(memoryStore());
+    try {
+      applyFixturePack();
+      expect(planCartPromotions(LINES).promotion_total_minor).toBe(8_000);
+      // Revocation confirmed mid-sale: the held Pack (and an answer still in flight) plans nothing.
+      revoked = true;
+      expect(planCartPromotions(LINES)).toEqual(NO_PROMOTIONS);
+      expect(applyFixturePack()).toBe(true);
+      expect(planCartPromotions(LINES)).toEqual(NO_PROMOTIONS);
+      // "Check again" cleared it: the same pairing continues, and its Pack is still good.
+      revoked = false;
+      expect(planCartPromotions(LINES).promotion_total_minor).toBe(8_000);
+      // A check that throws is treated as revoked: no offer, never a thrown cart.
+      bindOfferRevocationCheck(() => {
+        throw new Error('store closed');
+      });
+      expect(planCartPromotions(LINES)).toEqual(NO_PROMOTIONS);
+    } finally {
+      bindOfferRevocationCheck(() => false);
+      bindOfferPackStore(NO_OFFER_PACK_STORE);
+    }
   });
 
   it('an evaluation fault is "no offer", never a thrown cart', () => {
