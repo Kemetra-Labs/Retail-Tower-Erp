@@ -37,7 +37,7 @@ import {
 import { PostingFeedReporter } from "./posting-feed-reporter";
 import { sanitizeRejectionMessage } from "./rejection-message";
 import { isFeedResponsibilitiesEnabled } from "./responsibilities-feed-gate";
-import { readTrackedSellingOn } from "../sales/tracked-lines/capture-tracking";
+import { isTrackedSellingEnabled } from "../sales/tracked-lines/tracked-selling-gate";
 
 /**
  * Hard ceiling on a single pull page — the 012 contract `Limit.maximum` (500),
@@ -265,6 +265,8 @@ interface FeedRow {
   readonly payload_hash: string;
   readonly sequence: string;
   readonly current_resolution_version: number | null;
+  /** RT-451 S6: tracked selling in effect for the tenant, read in this row's own statement. */
+  readonly tracking_on: boolean;
 }
 
 /** A page row whose work item could not be built (RT-1325). */
@@ -350,16 +352,27 @@ export class ErpnextPostingService {
         //     posted without one or rejected. Switching it back on must
         //     re-head these rows, as for the RT-418 gate (switching on does,
         //     `tracked-selling-setting.service.ts`);
-        //   - a line capture classified as tracked has no frozen tracking (a
-        //     version written before 0095 or by the 0038 / catch-up backfill,
-        //     or no frozen version at all): fail closed rather than offer it
-        //     without its Batch; an operator re-resolution re-freezes it.
+        //   - it is a `sale_post` and a line capture classified as tracked has
+        //     no frozen tracking (a version written before 0095 or by the
+        //     0038 / catch-up backfill, or no frozen version at all): fail
+        //     closed rather than offer it without its Batch; an operator
+        //     re-resolution re-freezes it. Not a reversal: it mirrors what its
+        //     sale posted, and a reversal is never re-resolved.
         // A reversal copies its sale's lineage, so it is held with its sale.
-        const trackingOn = await readTrackedSellingOn(client, input.tenantId);
+        // "In effect" ($4 the deploy gate AND the tenant's switch) is read in
+        // this same statement, so one snapshot decides both the hold and the
+        // emission: a switch-on re-heads its rows under the feed sequence
+        // lock, and a snapshot that does not see the switch cannot see a
+        // later sequence either, so the cursor never passes them.
         const rows = await client.query<FeedRow>(
-          `SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
+          `WITH ts AS (
+             SELECT ($4::boolean AND COALESCE(
+                       (SELECT tracked_selling_enabled FROM tenant_inventory_settings
+                         WHERE tenant_id = $5::uuid), false)) AS on_
+           )
+           SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
                   payload_hash, sequence::text AS sequence,
-                  current_resolution_version
+                  current_resolution_version, (SELECT on_ FROM ts) AS tracking_on
              FROM erpnext_posting_status
             WHERE status = 'pending'
               AND ($1::bigint IS NULL OR sequence > $1::bigint)
@@ -394,13 +407,21 @@ export class ErpnextPostingService {
                    AND tr.sale_line_id = tsl.id
                  WHERE tsl.sale_id = erpnext_posting_status.sale_id
                    AND ((tr.tracking_identity_id IS NOT NULL
-                         AND (tr.erp_hold_cause IS NOT NULL OR NOT $4::boolean))
-                        OR (tr.tracking_mode IS NULL AND tsl.tracking_class IS NOT NULL)))
+                         AND (tr.erp_hold_cause IS NOT NULL OR NOT (SELECT on_ FROM ts)))
+                        OR (erpnext_posting_status.kind = 'sale_post'
+                            AND tr.tracking_mode IS NULL AND tsl.tracking_class IS NOT NULL)))
             ORDER BY erpnext_posting_status.sequence
             LIMIT $2`,
-          [input.since !== null ? input.since.toString() : null, limit, isFeedResponsibilitiesEnabled(), trackingOn],
+          [
+            input.since !== null ? input.since.toString() : null,
+            limit,
+            isFeedResponsibilitiesEnabled(),
+            isTrackedSellingEnabled(),
+            input.tenantId,
+          ],
         );
 
+        const trackingOn = rows.rows[0]?.tracking_on === true;
         const { items, unbuildable, omitted } = await this.buildPage(client, rows.rows, trackingOn);
         // RT-1325: the cursor below advances past every row of the page, so a
         // row left out must not stay where it was. Re-offer it in this same

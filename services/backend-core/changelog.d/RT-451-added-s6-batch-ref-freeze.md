@@ -9,7 +9,8 @@
   Resolution), that identity and its ERPNext Batch from the edge map. A reversal copies its
   sale's. An operator re-resolution re-freezes from the edge map as it is then. G7-9 row 3 is
   held, never offered: `expired` (from the capture finding) or `edge_map_missing` (no edge-map
-  row at the freeze), as is a line capture classified as tracked whose version froze no tracking.
+  row at the freeze), as is a `sale_post` with a line capture classified as tracked whose version
+  froze no tracking (a reversal mirrors what its sale posted).
   The operator re-resolution now counts the frozen identity, Batch and hold as a change, so
   re-resolving after the edge map is repaired releases an `edge_map_missing` hold; an expired lot
   stays held for the owner (RT-50 B1). The posting feed emits `trackingMode` (`none` / `batch`)

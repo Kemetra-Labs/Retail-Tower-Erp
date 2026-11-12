@@ -430,3 +430,38 @@ describe("RT-451 S6: switching tracked selling on re-heads the held tracked inte
     expect(line(item!, trackedLine).erpnextBatchRef).toEqual({ doctype: "Batch", name: "BATCH-S6-A" });
   });
 });
+
+// Last: it adds a reversal to sale A-X, after which the sale can no longer be re-resolved.
+describe("RT-451 S6: a reversal mirrors what its sale posted", () => {
+  it("a reversal copying a version frozen before 0095 is offered, not held (its sale posted without a Batch)", async () => {
+    if (skip) return;
+    await trackedSelling(false, false);
+    const a = pg().admin;
+    const voidId = "01960000-0000-7000-8000-0000000b5021";
+    const reversalId = "01960000-0000-7000-8000-0000000b5022";
+    await a.query(
+      `INSERT INTO sale_voids (id, sale_id, tenant_id, store_id, business_date, source_system, external_id, payload_hash, created_by)
+       SELECT $1, s.id, s.tenant_id, s.store_id, s.business_date, s.source_system, 'void-s6', s.payload_hash, $2
+         FROM sales s WHERE s.id = $3`,
+      [voidId, ACTOR_A, SALE_A_X],
+    );
+    await a.query(
+      `INSERT INTO erpnext_posting_status (id, tenant_id, store_id, sale_id, kind, source_ref_id, source_system,
+                                           external_id, payload_hash, status, current_resolution_version)
+       SELECT $1, s.tenant_id, s.store_id, s.id, 'reversal', $2, s.source_system, 'void-s6', s.payload_hash, 'pending', 1
+         FROM sales s WHERE s.id = $3`,
+      [reversalId, voidId, SALE_A_X],
+    );
+    // Its lineage copy of a sale_post version frozen before 0095: no tracking on the classified line.
+    await a.query(
+      `INSERT INTO erpnext_posting_resolution
+         (tenant_id, intent_id, resolution_version, sale_line_id, erpnext_item_ref, item_map_id,
+          warehouse_ref, warehouse_map_id, resolved_by)
+       VALUES ($1, $2, 1, $3, 'ITEM-NONE', $5, 'WH-S6', $7, 'system'),
+              ($1, $2, 1, $4, 'ITEM-BATCH', $6, 'WH-S6', $7, 'system')`,
+      [TENANT_A, reversalId, untrackedLine, trackedLine, itemMapNone, itemMapBatch, warehouseMap],
+    );
+    const page = await new ErpnextPostingService(pg().app).pullPostings({ tenantId: TENANT_A, since: null, limit: 100 });
+    expect(page.items.map((i) => i.workItemRef)).toContain(reversalId);
+  });
+});

@@ -391,5 +391,23 @@ describe("RT-451 S6: the worker freezes each line's tracking with resolution v1"
       expect(f.get(e.sale_line_id)?.tracking_identity_id ?? null).toBe(e.tracking_identity_id);
     }
     expect(new Map(effects.rows.map((e) => [e.sale_line_id, e.tracking_identity_id])).get(lineIds[0]!)).toBe(I_MAPPED);
+
+    // A row-4 line bound by a Tracking Resolution: both read the binding.
+    const bound = await seedSale(
+      [{ product: P_BATCH, cls: "unresolved", unresolvedReason: "tracking_missing" }],
+      "tracking_unresolved",
+    );
+    await bind(bound.saleId, bound.lineIds[0]!, I_MAPPED);
+    await runWithTenantContext(pg().app, { tenantId: TENANT, isPlatformAdmin: false }, (client) =>
+      writeSaleLineEffects(client, { tenantId: TENANT, storeId: STORE, saleId: bound.saleId }),
+    );
+    await postSale(bound.saleId);
+    const boundEffect = await pg().admin.query<{ tracking_identity_id: string | null }>(
+      `SELECT tracking_identity_id FROM stock_movements
+        WHERE tenant_id = $1 AND event_type = 'sale' AND event_ref_id = $2`,
+      [TENANT, bound.saleId],
+    );
+    expect(boundEffect.rows.map((r) => r.tracking_identity_id)).toEqual([I_MAPPED]);
+    expect((await frozen(bound.saleId)).get(bound.lineIds[0]!)?.tracking_identity_id).toBe(I_MAPPED);
   });
 });

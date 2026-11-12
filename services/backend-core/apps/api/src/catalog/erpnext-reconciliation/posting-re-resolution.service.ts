@@ -165,10 +165,13 @@ async function assertNoReversalLineage(client: PoolClient, row: IntentRow): Prom
  * RT-451 S6: the frozen tracking counts as a difference (identity, ERPNext Batch,
  * hold cause). A repaired edge map changes only the Batch and the hold, and
  * re-resolving is how a G7-9 row-3 `edge_map_missing` intent is "repaired and
- * re-posted". EXCEPT compares NULLs as equal.
+ * re-posted". EXCEPT compares NULLs as equal. A version frozen before 0095
+ * (`tracking_mode` NULL) compares as `none`, so re-resolving an untracked
+ * intent only to add `none` is still "unchanged", while one that now freezes
+ * `batch` is a change.
  */
 const RESOLUTION_COMPARED_COLUMNS =
-  "sale_line_id, erpnext_item_ref, warehouse_ref, tracking_identity_id, erpnext_batch_ref, erp_hold_cause";
+  "sale_line_id, erpnext_item_ref, warehouse_ref, COALESCE(tracking_mode, 'none'), tracking_identity_id, erpnext_batch_ref, erp_hold_cause";
 
 async function assertResolutionChanged(
   client: PoolClient,
