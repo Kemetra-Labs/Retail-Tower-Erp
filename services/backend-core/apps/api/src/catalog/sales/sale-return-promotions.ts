@@ -12,15 +12,16 @@
  *     (OD-10): the till asks the cashier to add the reward units; a return
  *     never charges the customer;
  *   - `clawback_O` above 0, a return that would GIVE BACK an earlier clawback
- *     (golden sequence S3, step 2), and the return of a REWARD line
- *     (`discountAmount` above 0) are REFUSED, 422
- *     `promotion_return_requires_clawback`, fail closed (coordinator decision,
- *     RT-1337 validation). The posting projection carries no clawback and the
- *     Connector has no option A yet (RT-1340 merged the decision and the bench
- *     proof only), so such a return would be permanently rejected at ERPNext.
- *     It lifts when (a) the posting-feed contract carries the per-line clawback
- *     and (b) the Connector implements option A; `insertReturnClawbacks` and
- *     the net-of-clawback tender rule stay ready for that lift.
+ *     (golden sequence S3, step 2) and the return of a REWARD line
+ *     (`discountAmount` above 0) are REFUSED, 422 `promotion_return_requires_clawback`,
+ *     fail closed (coordinator decision, RT-1337 validation). OD-11 is decided
+ *     (option A plus the Hybrid give-back) and the posting feed now carries the
+ *     per-line clawback and give-back (1.13.0-draft; the shares are derived by
+ *     `erpnext-posting/return-promotion-shares.ts`), but the Connector cannot post
+ *     them yet (RT-1340 phase 2), so such a return would be permanently rejected at
+ *     ERPNext. The refusal lifts when the Connector supports both feed fields;
+ *     `insertReturnClawbacks` and the net-of-clawback-plus-give-back tender rule are
+ *     ready for that lift.
  *
  * A return of a non-reward promoted line that changes no discount (clawback 0)
  * is accepted as an ordinary return.
@@ -28,6 +29,7 @@
 import type { PoolClient } from "pg";
 
 import { scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import { allocateReturnPromotion, ReturnPromotionOverflowError, type AllocationLine } from "../../offers/evaluator/offer-return-allocation";
 import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
 import { minorUnitExponent } from "./iso4217-minor-units";
 import { PromotionClawbackExceedsRefundError, PromotionReturnRequiresClawbackError } from "./sale-reversal";
@@ -44,11 +46,43 @@ interface PromotedSaleLine extends SaleOfferLine {
   readonly offerVersion: number;
 }
 
-/** The clawbacks of one return (empty when the sale has no promoted line or the return needs none). */
+/**
+ * PR 1 of the OD-11 contract slice keeps the fail-closed refusals: the posting feed now CARRIES the clawback and the
+ * give-back (1.13.0-draft), but the Connector cannot post them yet (RT-1340 phase 2). The second PR deletes this
+ * constant and the guard below it.
+ */
+const CONNECTOR_POSTS_PROMOTION_RETURNS = false;
+
+export interface ReturnPromotionSettlement {
+  /** One per offer version with a clawback above 0. */
+  readonly clawbacks: ReturnClawback[];
+  /** Σ give-back of the return at the column scale (4), "0.0000" when none: a reward unit of an earlier clawback. */
+  readonly giveBack: string;
+}
+
+const NO_PROMOTION_SETTLEMENT: ReturnPromotionSettlement = { clawbacks: [], giveBack: "0.0000" };
+
+/** Records `value` under `key` when it is above 0. */
+function setWhenPositive(into: Map<string, bigint>, key: string, value: bigint): void {
+  if (value > 0n) into.set(key, value);
+}
+
+/** Minor units as a column-scale (4) amount string. */
+function columnAmount(minor: bigint, minorUnit: number): string {
+  const v = (minor * 10n ** BigInt(4 - minorUnit)).toString().padStart(5, "0");
+  return `${v.slice(0, -4)}.${v.slice(-4)}`;
+}
+
+/** The clawbacks and the give-back of one return (none when the sale has no promoted line or the return needs none). */
 export async function settleReturnPromotions(
   client: PoolClient,
-  args: { readonly saleRef: string; readonly tenantId: string; readonly currencyCode: string; readonly lines: ReadonlyArray<{ readonly lineRef: string; readonly quantity: string }> },
-): Promise<ReturnClawback[]> {
+  args: {
+    readonly saleRef: string;
+    readonly tenantId: string;
+    readonly currencyCode: string;
+    readonly lines: ReadonlyArray<{ readonly lineRef: string; readonly quantity: string; readonly lineAmount: string }>;
+  },
+): Promise<ReturnPromotionSettlement> {
   const promoted = await client.query<{
     line_ref: string; product: string | null; unit_price: string; quantity: string; line_amount: string;
     discount: string; offer_id: string; offer_version: number;
@@ -61,7 +95,7 @@ export async function settleReturnPromotions(
       ORDER BY sl.line_seq NULLS LAST, sl.line_name, sl.id`,
     [args.saleRef, args.tenantId],
   );
-  if (promoted.rows.length === 0) return [];
+  if (promoted.rows.length === 0) return NO_PROMOTION_SETTLEMENT;
   const exponent = minorUnitExponent(args.currencyCode);
   if (exponent === null) throw new Error(`sale currency ${args.currencyCode} has no minor unit`);
 
@@ -79,7 +113,7 @@ export async function settleReturnPromotions(
   const returnedNow = new Map(
     args.lines.filter((l) => lines.some((p) => p.lineRef === l.lineRef)).map((l) => [l.lineRef, wholeUnits(l.quantity)!] as const),
   );
-  if (returnedNow.size === 0) return [];
+  if (returnedNow.size === 0) return NO_PROMOTION_SETTLEMENT;
 
   const before = await client.query<{ line_ref: string; returned: string }>(
     `SELECT rl.sale_line_id::text AS line_ref, SUM(rl.quantity)::text AS returned
@@ -92,6 +126,9 @@ export async function settleReturnPromotions(
   for (const l of lines) groups.set(`${l.offerId}:${l.offerVersion}`, [...(groups.get(`${l.offerId}:${l.offerVersion}`) ?? []), l]);
 
   const clawbacks: ReturnClawback[] = [];
+  const clawbackByOffer = new Map<string, bigint>();
+  const giveBackByOffer = new Map<string, bigint>();
+  let giveBack = 0n;
   for (const members of groups.values()) {
     if (!members.some((m) => returnedNow.has(m.lineRef))) continue;
     const first = members[0]!;
@@ -113,12 +150,52 @@ export async function settleReturnPromotions(
       returnedNow,
     });
     if (s.refund < 0n) throw new PromotionClawbackExceedsRefundError();
-    // Fail closed until the ledger can post it (RT-1340): a clawback, a give-back and the return of a reward line
-    // (the Connector's return builder needs unitPrice x quantity = lineAmount) are all refused.
-    const rewardReturned = members.some((m) => returnedNow.has(m.lineRef) && scaled(m.discountAmount, exponent) > 0n);
-    if (rewardReturned || s.giveBack > 0n || (s.clawback !== null && s.clawback > 0n)) throw new PromotionReturnRequiresClawbackError();
+    giveBack += s.giveBack;
+    setWhenPositive(giveBackByOffer, `${first.offerId}:${first.offerVersion}`, s.giveBack);
+    if (s.clawback !== null && s.clawback > 0n) {
+      clawbacks.push({ offerId: first.offerId, offerVersion: first.offerVersion, amount: columnAmount(s.clawback, exponent) });
+      clawbackByOffer.set(`${first.offerId}:${first.offerVersion}`, s.clawback);
+    }
   }
-  return clawbacks;
+
+  const rewardReturned = lines.some((l) => returnedNow.has(l.lineRef) && scaled(l.discountAmount, exponent) > 0n);
+  assertReturnedLinesHold({ lines, returned: args.lines, returnedNow, exponent, clawbackByOffer, giveBackByOffer });
+
+  // Fail closed until the Connector posts it (RT-1340 phase 2): a clawback, a give-back and the return of a reward
+  // line (the Connector's return builder needs unitPrice x quantity = lineAmount) are all refused.
+  if (!CONNECTOR_POSTS_PROMOTION_RETURNS && (rewardReturned || giveBack > 0n || clawbacks.length > 0)) {
+    throw new PromotionReturnRequiresClawbackError();
+  }
+  return { clawbacks, giveBack: columnAmount(giveBack, exponent) };
+}
+
+/** The per-line split the feed carries: refused when the returned lines cannot hold it (the customer would pay back, OD-10). */
+function assertReturnedLinesHold(args: {
+  readonly lines: ReadonlyArray<PromotedSaleLine>;
+  readonly returned: ReadonlyArray<{ readonly lineRef: string; readonly lineAmount: string }>;
+  readonly returnedNow: ReadonlyMap<string, bigint>;
+  readonly exponent: number;
+  readonly clawbackByOffer: ReadonlyMap<string, bigint>;
+  readonly giveBackByOffer: ReadonlyMap<string, bigint>;
+}): void {
+  // Only the promoted lines: a non-promoted line (for example a manually discounted partial return) may be priced below the minor unit.
+  const amountOf = new Map(
+    args.returned.filter((l) => args.returnedNow.has(l.lineRef)).map((l) => [l.lineRef, scaled(l.lineAmount, args.exponent)] as const),
+  );
+  const allocationLines: AllocationLine[] = args.lines
+    .filter((l) => args.returnedNow.has(l.lineRef))
+    .map((l) => ({
+      lineRef: l.lineRef,
+      offerKey: `${l.offerId}:${l.offerVersion}`,
+      lineAmount: amountOf.get(l.lineRef) ?? 0n,
+      discountReturned: (scaled(l.discountAmount, args.exponent) / wholeUnits(l.quantity)!) * args.returnedNow.get(l.lineRef)!,
+    }));
+  try {
+    allocateReturnPromotion({ lines: allocationLines, clawbackByOffer: args.clawbackByOffer, giveBackByOffer: args.giveBackByOffer });
+  } catch (error) {
+    if (error instanceof ReturnPromotionOverflowError) throw new PromotionClawbackExceedsRefundError();
+    throw error;
+  }
 }
 
 async function loadVersionParameters(

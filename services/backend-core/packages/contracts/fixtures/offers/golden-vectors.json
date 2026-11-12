@@ -6,8 +6,8 @@
     "A cart line is eligible when its product is in the offer's materialised eligible set (OD-6). A line with a manual discount (OD-5) or a non-whole quantity (F-9) never takes part.",
     "Discount of a reward unit = percentOff% of its unit price, rounded half up once at the currency minor unit (OD-28-3).",
     "expected.lines are the capture lines after the OD-4 split: each reward unit on its own quantity-1 line after the rest of its source line. promotionDiscount is the CaptureSaleLine.promotion.discountAmount, or null when the line carries no promotion (no application, or not eligible). lineAmount is the line's net.",
-    "Returns (spec 048 §9, multi-return form), per offer O: D_held = the discountAmount of the O units not returned before this return, less the clawbacks of O already recorded on earlier returns of the sale; disc_ret = min(discountAmount of the O units returned now, D_held); D_remaining = the evaluation of the O-eligible units still kept after this return; refund = gross returned - max(disc_ret, D_held - D_remaining); clawback = max(0, D_held - D_remaining - disc_ret). For a first return D_held = D_orig and refund = min(net returned, gross returned - (D_orig - D_remaining)). outcome is accepted, promotion_clawback_exceeds_refund (refund < 0, OD-10; clawback is then null) or promotion_return_requires_clawback (clawback > 0 while OD-11 is open, RT-1340).",
-    "returnSequences apply their steps in order to one sale; each step's expected assumes every earlier step was recorded with its clawback (a step refused only by the OD-11 interim rule is counted as recorded, the behaviour once OD-11 is decided)."
+    "Returns (spec 048 §9, multi-return form), per offer O: D_held = the discountAmount of the O units not returned before this return, less the clawbacks of O already recorded on earlier returns of the sale; disc_ret = min(discountAmount of the O units returned now, D_held); D_remaining = the evaluation of the O-eligible units still kept after this return; refund = gross returned - max(disc_ret, D_held - D_remaining); clawback = max(0, D_held - D_remaining - disc_ret); giveBack = discountAmount of the O units returned now - disc_ret (a discount an earlier return clawed back), so refund = netReturned + giveBack - clawback. For a first return D_held = D_orig and refund = min(net returned, gross returned - (D_orig - D_remaining)). outcome is accepted, promotion_clawback_exceeds_refund (refund < 0, OD-10; clawback is then null) or promotion_return_requires_clawback (clawback > 0, or giveBack > 0: the return carries a clawback or a give-back; OD-11 is decided, option A + Hybrid, and the posting feed carries both per line). feedLines is the per-line split the posting feed carries (posting-feed.yaml 1.13.0-draft ReturnLine.promotionClawbackAmount and promotionGiveBackAmount) at the currency scale: the clawback goes to the returned non-reward lines of O in proportion to their lineAmount (spill to returned reward lines only when those cannot hold it), the give-back of O to the returned reward lines of O in proportion to the discount of the units returned now; whole minor units, largest remainder first, ties by line order. A line not listed has no share.",
+    "returnSequences apply their steps in order to one sale; each step's expected assumes every earlier step was recorded with its clawback (a step whose outcome is promotion_return_requires_clawback counts as recorded). Hybrid (owner decision 2026-11-12): S3 step 2 refunds 200.00 = netReturned 120.00 + giveBack 80.00, so the customer is refunded exactly what was paid (420.00)."
   ],
   "evaluate": [
     {
@@ -1224,6 +1224,7 @@
         "grossReturned": "40.00",
         "refund": "24.00",
         "clawback": "0.00",
+        "giveBack": "0.00",
         "outcome": "accepted"
       }
     },
@@ -1286,12 +1287,13 @@
         "grossReturned": "100.00",
         "refund": "100.00",
         "clawback": "0.00",
+        "giveBack": "0.00",
         "outcome": "accepted"
       }
     },
     {
       "id": "R3",
-      "description": "Spec 048 §9 table row 3: E1, return the 300. D_remaining = 0; refund min(300, 300 - 80) = 220.00. Clawback 80.00, so refused while OD-11 is open (RT-1340).",
+      "description": "Spec 048 §9 table row 3: E1, return the 300. D_remaining = 0; refund min(300, 300 - 80) = 220.00. Clawback 80.00, so the feed carries it (OD-11 option A).",
       "fromVector": "E1",
       "offer": {
         "buyQuantity": 1,
@@ -1338,12 +1340,19 @@
         "grossReturned": "300.00",
         "refund": "220.00",
         "clawback": "80.00",
-        "outcome": "promotion_return_requires_clawback"
+        "giveBack": "0.00",
+        "outcome": "promotion_return_requires_clawback",
+        "feedLines": [
+          {
+            "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+            "promotionClawbackAmount": "80.00"
+          }
+        ]
       }
     },
     {
       "id": "R4",
-      "description": "E2, return the 100. 80, 60, 40 kept: the 40 is the reward now (16); refund min(100, 100 - (40 - 16)) = 76.00. Clawback 24.00, refused while OD-11 is open.",
+      "description": "E2, return the 100. 80, 60, 40 kept: the 40 is the reward now (16); refund min(100, 100 - (40 - 16)) = 76.00. Clawback 24.00, the feed carries it (OD-11 option A).",
       "fromVector": "E2",
       "offer": {
         "buyQuantity": 1,
@@ -1410,7 +1419,14 @@
         "grossReturned": "100.00",
         "refund": "76.00",
         "clawback": "24.00",
-        "outcome": "promotion_return_requires_clawback"
+        "giveBack": "0.00",
+        "outcome": "promotion_return_requires_clawback",
+        "feedLines": [
+          {
+            "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+            "promotionClawbackAmount": "24.00"
+          }
+        ]
       }
     },
     {
@@ -1480,6 +1496,7 @@
         "grossReturned": "200.00",
         "refund": "184.00",
         "clawback": "0.00",
+        "giveBack": "0.00",
         "outcome": "accepted"
       }
     },
@@ -1542,6 +1559,7 @@
         "grossReturned": "50.00",
         "refund": "-20.00",
         "clawback": null,
+        "giveBack": "0.00",
         "outcome": "promotion_clawback_exceeds_refund"
       }
     },
@@ -1612,6 +1630,7 @@
         "grossReturned": "120.00",
         "refund": "50.00",
         "clawback": "0.00",
+        "giveBack": "0.00",
         "outcome": "accepted"
       }
     },
@@ -1664,6 +1683,7 @@
         "grossReturned": "100.00",
         "refund": "60.00",
         "clawback": "0.00",
+        "giveBack": "0.00",
         "outcome": "accepted"
       }
     },
@@ -1716,6 +1736,7 @@
         "grossReturned": "100.00",
         "refund": "100.00",
         "clawback": "0.00",
+        "giveBack": "0.00",
         "outcome": "accepted"
       }
     }
@@ -1785,6 +1806,7 @@
             "grossReturned": "70.00",
             "refund": "0.00",
             "clawback": "0.00",
+            "giveBack": "0.00",
             "outcome": "accepted"
           }
         },
@@ -1803,6 +1825,7 @@
             "grossReturned": "50.00",
             "refund": "50.00",
             "clawback": "0.00",
+            "giveBack": "0.00",
             "outcome": "accepted"
           }
         }
@@ -1878,6 +1901,7 @@
             "grossReturned": "40.00",
             "refund": "24.00",
             "clawback": "0.00",
+            "giveBack": "0.00",
             "outcome": "accepted"
           }
         },
@@ -1896,6 +1920,7 @@
             "grossReturned": "60.00",
             "refund": "36.00",
             "clawback": "0.00",
+            "giveBack": "0.00",
             "outcome": "accepted"
           }
         },
@@ -1914,6 +1939,7 @@
             "grossReturned": "100.00",
             "refund": "100.00",
             "clawback": "0.00",
+            "giveBack": "0.00",
             "outcome": "accepted"
           }
         }
@@ -1921,7 +1947,7 @@
     },
     {
       "id": "S3-clawback-then-reward",
-      "description": "E1 (300, 200 -80; 420 paid). Return 1: the 300: D_held 80, disc_ret 0, nothing kept earns a discount; refund 300 - max(0, 80) = 220.00, clawback 80.00 (refused while OD-11 is open; the later step assumes it was recorded, as after OD-11 is decided). Return 2: the 200: D_held 80 - 80 = 0, disc_ret min(80, 0) = 0; refund 200 - max(0, 0) = 200.00. Total refunded 420.00 = paid.",
+      "description": "E1 (300, 200 -80; 420 paid). Return 1: the 300: D_held 80, disc_ret 0, nothing kept earns a discount; refund 300 - max(0, 80) = 220.00, clawback 80.00 (the feed carries it, OD-11 option A). Return 2: the 200: D_held 80 - 80 = 0, disc_ret min(80, 0) = 0; refund 200 - max(0, 0) = 200.00, which is the line's net 120.00 plus a give-back of 80.00 (OD-11 Hybrid). Total refunded 420.00 = paid.",
       "fromVector": "E1",
       "offer": {
         "buyQuantity": 1,
@@ -1969,7 +1995,14 @@
             "grossReturned": "300.00",
             "refund": "220.00",
             "clawback": "80.00",
-            "outcome": "promotion_return_requires_clawback"
+            "giveBack": "0.00",
+            "outcome": "promotion_return_requires_clawback",
+            "feedLines": [
+              {
+                "saleLineRef": "0d000000-0000-7000-8000-000000000001",
+                "promotionClawbackAmount": "80.00"
+              }
+            ]
           }
         },
         {
@@ -1987,7 +2020,14 @@
             "grossReturned": "200.00",
             "refund": "200.00",
             "clawback": "0.00",
-            "outcome": "accepted"
+            "giveBack": "80.00",
+            "outcome": "promotion_return_requires_clawback",
+            "feedLines": [
+              {
+                "saleLineRef": "0d000000-0000-7000-8000-000000000002",
+                "promotionGiveBackAmount": "80.00"
+              }
+            ]
           }
         }
       ]

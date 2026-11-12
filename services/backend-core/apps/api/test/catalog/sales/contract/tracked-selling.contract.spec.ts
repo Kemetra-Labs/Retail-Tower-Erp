@@ -489,8 +489,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-450 batch ref (1.10.0-draft
 
   it("bumps the version and the note cites the owner authorization and the freeze", () => {
     // Version moved on in RT-1286 (1.11.0-draft, reserved inventory_disposition kind), then RT-1114
-    // (1.12.0-draft, voucher tender).
-    expect(doc.info.version).toBe("1.12.0-draft");
+    // (1.12.0-draft, voucher tender), then OD-11 (1.13.0-draft, return clawback and give-back).
+    expect(doc.info.version).toBe("1.13.0-draft");
     const info = infoOf(doc);
     expect(info).toContain("RT-450 (1.10.0-draft; [GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21");
     expect(info).toContain("FROZEN when the posting intent is created");

@@ -41,7 +41,11 @@ type StepExpected = {
   grossReturned: string;
   refund: string;
   clawback: string | null;
+  /** A discount an earlier return clawed back, given back now (OD-11 Hybrid). */
+  giveBack: string;
   outcome: "accepted" | "promotion_clawback_exceeds_refund" | "promotion_return_requires_clawback";
+  /** The per-line split the posting feed carries; checked by `offer-evaluator.golden.spec.ts`. */
+  feedLines?: Array<{ saleLineRef: string; promotionClawbackAmount?: string; promotionGiveBackAmount?: string }>;
 };
 type Sale = { id: string; description: string; fromVector: string; offer: Offer; currencyCode: string; minorUnit: number; saleLines: SaleLine[] };
 type ReturnVector = Sale & { returned: Returned; expected: StepExpected & { dOrig: string } };
@@ -184,8 +188,14 @@ function settleReturn(sale: Sale, returned: Returned, history: ReturnHistory): S
   const lost = held - dRemaining;
   const refund = gross - (discReturned > lost ? discReturned : lost);
   const clawback = lost - discReturned > 0n ? lost - discReturned : 0n;
+  // What an earlier clawback took from the units returned now is given back (OD-11 Hybrid).
+  const giveBack = discNow - discReturned;
   const outcome =
-    refund < 0n ? "promotion_clawback_exceeds_refund" : clawback > 0n ? "promotion_return_requires_clawback" : "accepted";
+    refund < 0n
+      ? "promotion_clawback_exceeds_refund"
+      : clawback > 0n || giveBack > 0n
+        ? "promotion_return_requires_clawback"
+        : "accepted";
   if (refund >= 0n) {
     for (const [ref, q] of now) history.returnedUnits.set(ref, (history.returnedUnits.get(ref) ?? 0n) + q);
     history.clawbacks += clawback;
@@ -198,6 +208,7 @@ function settleReturn(sale: Sale, returned: Returned, history: ReturnHistory): S
     grossReturned: format(gross, minorUnit),
     refund: format(refund, minorUnit),
     clawback: refund < 0n ? null : format(clawback, minorUnit),
+    giveBack: format(giveBack, minorUnit),
     outcome,
   };
 }
@@ -285,7 +296,7 @@ describe("offers golden vectors — returns and clawback (spec 048 §9)", () => 
   const byId = new Map(vectors.evaluate.map((v) => [v.id, v]));
 
   it.each(vectors.returns.map((v) => [v.id, v] as const))("%s agrees with the reference refund", (_id, vector) => {
-    const { dOrig, ...expected } = vector.expected;
+    const { dOrig, feedLines: _feedLines, ...expected } = vector.expected;
     expect(settleReturn(vector, vector.returned, freshHistory())).toEqual(expected);
     // On a first return D_held is D_orig, and the refund is the single-return form of §9:
     // min(net returned, gross returned − (D_orig − D_remaining)).
@@ -311,7 +322,8 @@ describe("offers golden vectors — returns and clawback (spec 048 §9)", () => 
     const e = vector.expected;
     expect(m(e.refund) <= m(e.netReturned)).toBe(true);
     expect(m(e.refund) <= m(e.grossReturned) - (m(e.dOrig) - m(e.dRemaining))).toBe(true);
-    if (e.clawback !== null) expect(m(e.clawback)).toBe(m(e.netReturned) - m(e.refund));
+    // Hybrid: the refund is the net, plus a give-back of an earlier clawback, less this return's clawback.
+    if (e.clawback !== null) expect(m(e.netReturned) + m(e.giveBack) - m(e.clawback)).toBe(m(e.refund));
   });
 });
 
@@ -323,13 +335,17 @@ describe("offers golden vectors — return sequences (spec 048 §9, multi-return
     expect(refunds.get("S1-y-greater-than-x")).toEqual(["0.00", "50.00"]);
     expect(refunds.get("S2-three-returns")).toEqual(["24.00", "36.00", "100.00"]);
     expect(refunds.get("S3-clawback-then-reward")).toEqual(["220.00", "200.00"]);
+    // Hybrid (owner decision 2026-11-12): the second refund is the line's net 120.00 plus a give-back of 80.00.
+    const s3 = vectors.returnSequences.find((s) => s.id === "S3-clawback-then-reward")!;
+    expect([s3.steps[1]!.expected.netReturned, s3.steps[1]!.expected.giveBack]).toEqual(["120.00", "80.00"]);
   });
 
   it.each(vectors.returnSequences.map((v) => [v.id, v] as const))("%s agrees with the reference refund, step by step", (_id, sequence) => {
     const history = freshHistory();
     for (const [index, step] of sequence.steps.entries()) {
-      // A step refused only by the OD-11 interim rule is counted as recorded (the behaviour once OD-11 is decided).
-      expect([index, settleReturn(sequence, step.returned, history)]).toEqual([index, step.expected]);
+      // A step the runtime still refuses (a clawback or a give-back, until the Connector posts them) counts as recorded.
+      const { feedLines: _feedLines, ...expected } = step.expected;
+      expect([index, settleReturn(sequence, step.returned, history)]).toEqual([index, expected]);
     }
   });
 
