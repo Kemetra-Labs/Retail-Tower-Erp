@@ -215,8 +215,8 @@ class TestVoidSettlementMirror:
 		]
 
 	def test_cash_plus_voucher_void_mirrors_the_original_rows_through_the_voucher_mode(self):
-		# RT-1330: the Voucher Mode of Payment is copied from the ORIGINAL invoice's row, not looked
-		# up in the current tender map, so a void works even after the `voucher` map row is removed.
+		# RT-1330: the Voucher Mode of Payment is copied from the ORIGINAL invoice's own row; the
+		# mirror takes no tender map at all, so a later change to the `voucher` map row cannot redirect it.
 		doc = _link(
 			_paid_void((None, "-150.00"), (None, "-50.00")),
 			original_is_pos=1,

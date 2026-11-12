@@ -367,6 +367,13 @@ class TestSettlementInGlue:
 		assert client.acks[0]["reason"]["category"] == "validation"
 		assert fake.payloads == [] and fake.events == [] and store.writes == []
 
+	def test_reversal_logs_no_redemption_ids(self, load_glue):
+		# The evidence is only for an invoice this run built from these tenders (a sale_post).
+		glue = load_glue(_Frappe())
+		tender = c.SaleTender(method="voucher", amount="10.49", redemption_id=_REDEMPTION)
+		void = types.SimpleNamespace(kind="reversal", sale=types.SimpleNamespace(tenders=(tender,)))
+		assert glue._tender_evidence(void) == {}
+
 	def test_cash_sale_logs_no_redemption_ids(self, load_glue):
 		fake = _Frappe()
 		outcome, _client, _store = _post(load_glue(fake), _sale(_CASH), tender_map={"cash": "Cash"})
