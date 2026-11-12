@@ -97,11 +97,11 @@ class PromotePosPilotStatic(unittest.TestCase):
     text = read(WORKFLOW)
 
     @unittest.skipUnless(yaml, "PyYAML is needed")
-    def test_the_file_is_valid_yaml_with_the_four_jobs(self):
+    def test_the_file_is_valid_yaml_with_the_six_jobs(self):
         # A plain scalar such as a job name must not hold ": " (the project-graph privilege scan refuses the file).
         document = yaml.safe_load(self.text)
-        self.assertEqual(list(document["jobs"]), ["resolve", "verify", "upload", "register"])
-        for name in ("resolve", "verify", "upload", "register"):
+        self.assertEqual(list(document["jobs"]), ["resolve", "verify", "upload", "register", "withdraw-check", "withdraw"])
+        for name in ("resolve", "verify", "upload", "register", "withdraw-check", "withdraw"):
             self.assertIsInstance(document["jobs"][name]["name"], str)
 
     def test_the_run_must_be_on_main_and_the_runbook_says_so_and_takes_the_pin_from_the_protected_environment(self):
@@ -120,7 +120,7 @@ class PromotePosPilotStatic(unittest.TestCase):
         self.assertEqual(triggers(self.text), ["workflow_dispatch"])
         self.assertNotIn("pull_request", code(self.text))
         inputs = re.findall(r"^      ([a-z_0-9]+):$", re.search(r"workflow_dispatch:\n    inputs:\n((?:      .*\n|        .*\n)+)", self.text).group(1), re.M)
-        self.assertEqual(inputs, ["tag", "leaf_sha1", "dry_run"])
+        self.assertEqual(inputs, ["mode", "tag", "leaf_sha1", "release_id", "dry_run"])
 
     def test_every_action_is_pinned_by_sha_and_already_pinned_by_the_pilot_release_or_the_lab_deploys(self):
         pilot = read(WORKFLOWS / "release-pos-pilot.yml")
@@ -625,7 +625,7 @@ class PromotePosPilotLiveStatic(unittest.TestCase):
         self.assertEqual(needs_of(job(self.text, "upload")), ["resolve", "verify"])
         self.assertEqual(needs_of(job(self.text, "register")), ["resolve", "upload"])
         for name in ("upload", "register"):
-            self.assertIn("if: ${{ !inputs.dry_run }}", job(self.text, name), name)
+            self.assertIn("if: ${{ inputs.mode == 'promote' && !inputs.dry_run }}", job(self.text, name), name)
         for name in ("resolve", "verify"):
             self.assertNotIn("inputs.dry_run", job(self.text, name), name)
 
@@ -634,7 +634,7 @@ class PromotePosPilotLiveStatic(unittest.TestCase):
         self.assertIn("type: boolean", block)
         self.assertIn("default: true", block)
 
-    def test_exactly_the_two_live_jobs_hold_the_environment_and_an_id_token(self):
+    def test_exactly_the_live_jobs_hold_the_environment_and_an_id_token(self):
         for name in ("resolve", "verify", "upload", "register"):
             body = code(job(self.text, name))
             environment = re.search(r"^    environment: (\S+)$", body, re.M)
@@ -647,8 +647,9 @@ class PromotePosPilotLiveStatic(unittest.TestCase):
                 self.assertIsNone(environment, name)
                 self.assertFalse(token, name)
         # Permission lines only (six spaces in): a job's error message may name the permission it needs.
-        self.assertEqual(len(re.findall(r"^      id-token: write$", code(self.text), re.M)), 2)
-        self.assertEqual(len(re.findall(r"^    environment:", code(self.text), re.M)), 2)
+        # upload and register, plus the live withdraw (the dry-run withdraw job holds neither: see PromotePosPilotWithdrawStatic).
+        self.assertEqual(len(re.findall(r"^      id-token: write$", code(self.text), re.M)), 3)
+        self.assertEqual(len(re.findall(r"^    environment:", code(self.text), re.M)), 3)
 
     def test_the_live_jobs_hold_exactly_the_permissions_they_use(self):
         def perms(name: str) -> list[str]:
@@ -703,7 +704,7 @@ class PromotePosPilotLiveStatic(unittest.TestCase):
         self.assertNotIn("curl -L", self.text)
         self.assertNotIn("--location", self.text)
         calls = re.findall(r"curl (?:-K - )?--silent[^\n]*", code(self.text))
-        self.assertEqual(len(calls), 3, "the Backend-Core check, the id-token request and the register call")
+        self.assertEqual(len(calls), 5, "the Backend-Core check, then the id-token request and the call of register and of withdraw")
         for call in calls:
             self.assertIn("--proto '=https'", call, "every curl is https-only")
             self.assertIn("--tlsv1.2", call)
