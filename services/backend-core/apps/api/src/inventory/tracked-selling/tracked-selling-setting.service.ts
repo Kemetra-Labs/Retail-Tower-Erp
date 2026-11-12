@@ -22,9 +22,20 @@
  * The write takes the per-tenant settings advisory lock the other settings
  * writers take (`safety-ttl.service.ts`, the return landing policy), then the
  * row FOR UPDATE.
+ *
+ * RT-451 S6: while tracked selling is not in effect, the posting feed holds
+ * every intent sold from a tracking identity (its Batch is emitted only behind
+ * this switch), and the Connector's cursor can move past those rows. Switching
+ * on therefore re-heads them (`sequence = DEFAULT`) in the same transaction,
+ * as the RT-418 feed gate requires, so the feed offers them again. A row-3
+ * hold stays held (the feed still filters it). The tenant's posting-feed
+ * sequence lock is taken FIRST, before the settings lock, so commit order is
+ * sequence order (RT-456). Turning the `POS_TRACKED_SELLING_ENABLED` deploy gate
+ * off and on again needs the same re-head as a deploy step
+ * (`tracked-selling-gate.ts`).
  */
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
-import { runWithTenantContext } from '@data-pulse-2/db';
+import { lockPostingFeedSequence, runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
 import { PG_POOL } from '../../auth/auth.module';
@@ -94,6 +105,26 @@ function onOffBody(row: SwitchRow | undefined): TrackedSellingSettingBody {
   };
 }
 
+/**
+ * RT-451 S6: re-head the tenant's pending posting intents whose current frozen
+ * resolution has a line sold from a tracking identity, so the feed offers them
+ * again once tracked selling is in effect. Held row-3 intents are re-headed
+ * too; the feed keeps filtering them. Runs under the feed sequence lock.
+ */
+async function reheadTrackedPostings(client: PoolClient, tenantId: string): Promise<void> {
+  await client.query(
+    `UPDATE erpnext_posting_status s
+        SET sequence = DEFAULT, updated_at = now()
+      WHERE s.tenant_id = $1 AND s.status = 'pending'
+        AND EXISTS (
+          SELECT 1 FROM erpnext_posting_resolution tr
+           WHERE tr.intent_id = s.id
+             AND tr.resolution_version = s.current_resolution_version
+             AND tr.tracking_identity_id IS NOT NULL)`,
+    [tenantId],
+  );
+}
+
 @Injectable()
 export class TrackedSellingSettingService {
   constructor(
@@ -124,6 +155,8 @@ export class TrackedSellingSettingService {
       this.pool,
       { tenantId: caller.tenantId, isPlatformAdmin: false },
       async (client) => {
+        // RT-456 / RT-451 S6: switching on re-heads posting rows; the sequence lock comes first.
+        if (enabled) await lockPostingFeedSequence(client, caller.tenantId);
         await client.query(
           `SELECT pg_advisory_xact_lock(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`,
           [caller.tenantId],
@@ -156,6 +189,7 @@ export class TrackedSellingSettingService {
         );
         const row = r.rows[0];
         if (!row) throw new Error('TrackedSellingSettingService: settings upsert returned no row');
+        if (enabled) await reheadTrackedPostings(client, caller.tenantId);
         await writeAudit(client, {
           tenantId: caller.tenantId,
           userId: caller.userId,
