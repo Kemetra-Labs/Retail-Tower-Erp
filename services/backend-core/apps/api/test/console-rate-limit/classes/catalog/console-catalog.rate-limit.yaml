@@ -2,10 +2,13 @@
 # packages/contracts/openapi/catalog/console-catalog.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
 
 consoleAddProductIdentifier: write
+consoleCreateCatalogBrand: write
 consoleCreateCatalogProduct: write
 consoleGetCatalogProduct: cheapRead
+consoleListCatalogBrands: cheapRead
 consoleListCatalogCategories: cheapRead
 consoleListCatalogProducts: expensiveRead
+consoleRenameCatalogBrand: write
 consoleRetireCatalogProduct: write
 consoleRetireProductIdentifier: write
 consoleRetireStoreOverride: write

@@ -676,6 +676,22 @@ A script without the marker, such as the owner-gated
   table scan; the brief swap lock only); it needs no maintenance window. Its
   down migration refuses while any import run is stored.
 
+- **Migration `0097_tenant_product_brands` (RT-1334, RT-286 S1).** Run
+  [`sql/tenant-product-brands-domain-grants.sql`](sql/tenant-product-brands-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `tenant_product_brands` and column-level `UPDATE` on its `name` only (the
+  Console lists, creates and renames brands; the boot check reads the column
+  from `domainRequiredColumns`). No `DELETE` policy: never grant `DELETE` or
+  `TRUNCATE`, nor a wider `UPDATE`. `tenant_products.brand_id` needs nothing
+  new: the domain role already reads and writes `tenant_products`. Without the
+  grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup
+  role must hold no privilege on the table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`).
+  0097 creates one new, empty table and adds a nullable column (no backfill);
+  it needs no maintenance window. Its down migration refuses while any brand
+  is stored.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

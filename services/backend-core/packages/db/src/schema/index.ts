@@ -20,6 +20,7 @@ export * from "./cash-variance-policy";
 export * from "./outbox_events";
 export * from "./catalog/global-products";
 export * from "./catalog/tenant-product-categories";
+export * from "./catalog/tenant-product-brands";
 export * from "./catalog/tenant-products";
 export * from "./catalog/store-product-overrides";
 export * from "./catalog/product-aliases";

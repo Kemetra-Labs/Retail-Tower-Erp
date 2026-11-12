@@ -6,6 +6,7 @@
  *   GET /api/v1/catalog/products              consoleListCatalogProducts
  *   GET /api/v1/catalog/products/{productId}  consoleGetCatalogProduct
  *   GET /api/v1/catalog/categories            consoleListCatalogCategories
+ *   GET /api/v1/catalog/brands                consoleListCatalogBrands (RT-1334)
  *
  * Auth: the HUMAN `cookieAuth` session only → `SessionOnlyAdminGuard` (every
  * bearer is 401), then `TenantContextGuard` (publishes `request.context`),
@@ -42,6 +43,7 @@ import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.de
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import type { TenantContextRequest } from "../../context/types";
 import type {
+  ConsoleCatalogBrand,
   ConsoleCatalogCategory,
   ConsoleCatalogProductDetail,
   ConsoleCatalogProductPage,
@@ -143,6 +145,21 @@ export class ConsoleCatalogController {
     const scoped = requireTenant(request);
     rejectAnyQuery(query);
     return { items: await this.service.listCategories(scoped) };
+  }
+
+  /** GET — RT-1334: the tenant's active brands (flat). */
+  @Get("api/v1/catalog/brands")
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin", "store_manager")
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("cheapRead")
+  async listBrands(
+    @Req() request: TenantContextRequest,
+    @Query() query: Record<string, unknown>,
+  ): Promise<{ items: ConsoleCatalogBrand[] }> {
+    const scoped = requireTenant(request);
+    rejectAnyQuery(query);
+    return { items: await this.service.listBrands(scoped) };
   }
 }
 

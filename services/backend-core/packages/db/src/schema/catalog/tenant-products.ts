@@ -17,6 +17,12 @@
  *         table; `ON DELETE SET NULL` so retiring a category does not
  *         retire its products.
  *   - Q11: `tax_category` is `text NOT NULL` opaque label.
+ *   - 0097 (RT-1334, RT-286 S1): `brand_id` names at most one brand of the
+ *         same tenant (`tenant_product_brands`). The FK is composite,
+ *         `(tenant_id, brand_id)` -> `(tenant_id, id)`, with
+ *         `ON DELETE SET NULL (brand_id)`; it is declared in SQL only, because
+ *         Drizzle cannot express a column-list SET NULL (a Drizzle composite
+ *         `set null` would also null `tenant_id`). Not in the POS read-down.
  *   - 0045 (RT-448, RT-50 Gate 7 G7-1): the Tracking Profile. Catalog declares
  *         `tracking_mode` none | batch | serial (default none) and
  *         `expiry_required` (batch only) (852, 384, 386). After the product has
@@ -79,6 +85,8 @@ export const tenantProducts = pgTable(
     // ---- 0045 (RT-448): Tracking Profile (G7-1) ------------------------------
     trackingMode: text("tracking_mode").notNull().default("none"),
     expiryRequired: boolean("expiry_required").notNull().default(false),
+    // ---- 0097 (RT-1334): brand (FK in SQL only, see the header) ---------------
+    brandId: uuid("brand_id"),
   },
   (t) => [
     check(
@@ -111,6 +119,10 @@ export const tenantProducts = pgTable(
     index("idx_tenant_products_tenant_category")
       .on(t.tenantId, t.categoryId)
       .where(sql`${t.retiredAt} IS NULL`),
+    // 0098: built CONCURRENTLY in its own migration (RT-1334).
+    index("idx_tenant_products_tenant_brand")
+      .on(t.tenantId, t.brandId)
+      .where(sql`${t.brandId} IS NOT NULL`),
     index("idx_tenant_products_source_global")
       .on(t.sourceGlobalProductId)
       .where(sql`${t.sourceGlobalProductId} IS NOT NULL`),

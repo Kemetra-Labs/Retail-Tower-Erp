@@ -1,8 +1,11 @@
 /**
  * RT-730 (CAT-R2) — Docker-free units of the console catalog read: the query
  * schema, the filter-bound keyset cursor, the ILIKE escaping and the stored
- * amount rendering shared with the read-down.
+ * amount rendering shared with the read-down. RT-1334: the `brand_id` filter
+ * and its cursor binding.
  */
+import { createHash } from "node:crypto";
+
 import {
   catalogFiltersOf,
   CatalogProductListQuerySchema,
@@ -20,10 +23,11 @@ const TENANT = "0a000000-0000-7000-8000-00000000ada1";
 const OTHER_TENANT = "0b000000-0000-7000-8000-00000000bdb1";
 const PRODUCT = "0a000000-0000-7000-8000-0000007301a1";
 const STORE = "0a000000-0000-7000-8000-00000000a5a1";
+const BRAND = "0a000000-0000-7000-8000-00000000b4a1";
 
 const BINDING: CatalogCursorBinding = {
   tenantId: TENANT,
-  filters: { q: "water", status: "active", categoryId: null, storeId: STORE },
+  filters: { q: "water", status: "active", categoryId: null, brandId: null, storeId: STORE },
 };
 const KEYSET: CatalogProductKeyset = { matchRank: 1, name: "Water 1.5L", productId: PRODUCT };
 
@@ -31,11 +35,20 @@ describe("console catalog — list query schema", () => {
   const parse = (q: Record<string, unknown>) => CatalogProductListQuerySchema.safeParse(q);
 
   it("accepts the documented keys and defaults status to active", () => {
-    const r = parse({ q: "000123", status: "any", category_id: STORE.toUpperCase(), store_id: STORE, limit: "100" });
+    const r = parse({
+      q: "000123",
+      status: "any",
+      category_id: STORE.toUpperCase(),
+      brand_id: BRAND.toUpperCase(),
+      store_id: STORE,
+      limit: "100",
+    });
     expect(r.success).toBe(true);
     expect(r.success && r.data.limit).toBe(100);
     expect(r.success && r.data.category_id).toBe(STORE);
-    expect(catalogFiltersOf({})).toEqual({ q: null, status: "active", categoryId: null, storeId: null });
+    expect(r.success && r.data.brand_id).toBe(BRAND);
+    expect(r.success && catalogFiltersOf(r.data).brandId).toBe(BRAND);
+    expect(catalogFiltersOf({})).toEqual({ q: null, status: "active", categoryId: null, brandId: null, storeId: null });
   });
 
   it.each([
@@ -50,6 +63,8 @@ describe("console catalog — list query schema", () => {
     ["limit 101", { limit: "101" }],
     ["a non-integer limit", { limit: "5.5" }],
     ["a malformed store_id", { store_id: "not-a-uuid" }],
+    ["a malformed brand_id", { brand_id: "not-a-uuid" }],
+    ["a repeated brand_id", { brand_id: [BRAND, BRAND] }],
     ["a cursor with padding", { cursor: "abc=" }],
   ])("rejects %s", (_label, query) => {
     expect(parse(query).success).toBe(false);
@@ -78,10 +93,30 @@ describe("console catalog — keyset cursor", () => {
     ["another q", { ...BINDING, filters: { ...BINDING.filters, q: "Water" } }],
     ["another status", { ...BINDING, filters: { ...BINDING.filters, status: "any" as const } }],
     ["another category", { ...BINDING, filters: { ...BINDING.filters, categoryId: STORE } }],
+    ["a brand", { ...BINDING, filters: { ...BINDING.filters, brandId: BRAND } }],
     ["no store", { ...BINDING, filters: { ...BINDING.filters, storeId: null } }],
   ])("is rejected under %s", (_label, binding) => {
     const cursor = encodeCatalogCursor(BINDING, KEYSET);
     expect(() => decodeCatalogCursor(binding, cursor)).toThrow(InvalidCatalogCursorError);
+  });
+
+  it("binds a brand cursor to that brand: it is refused without it or under another brand", () => {
+    const withBrand: CatalogCursorBinding = { ...BINDING, filters: { ...BINDING.filters, brandId: BRAND } };
+    const cursor = encodeCatalogCursor(withBrand, KEYSET);
+    expect(decodeCatalogCursor(withBrand, cursor)).toEqual(KEYSET);
+    expect(() => decodeCatalogCursor(BINDING, cursor)).toThrow(InvalidCatalogCursorError);
+    const otherBrand = { ...withBrand, filters: { ...withBrand.filters, brandId: STORE } };
+    expect(() => decodeCatalogCursor(otherBrand, cursor)).toThrow(InvalidCatalogCursorError);
+  });
+
+  it("keeps the pre-RT-1334 filter digest when no brand is filtered, so an in-flight cursor survives the deploy", () => {
+    const f = BINDING.filters;
+    const legacy = createHash("sha256")
+      .update(JSON.stringify(["console_catalog_products", f.q, f.status, f.categoryId, f.storeId]), "utf8")
+      .digest()
+      .subarray(0, 16);
+    const bytes = Buffer.from(encodeCatalogCursor(BINDING, KEYSET), "base64url");
+    expect(bytes.subarray(34, 50)).toEqual(legacy);
   });
 
   function tampered(edit: (bytes: Buffer) => Buffer): string {
