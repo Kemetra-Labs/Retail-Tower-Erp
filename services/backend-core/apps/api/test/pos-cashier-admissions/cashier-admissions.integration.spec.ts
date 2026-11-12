@@ -858,7 +858,7 @@ describe("roster", () => {
     await h().admin.query("UPDATE stores SET is_active = false WHERE id = $1", [STORE_A3]);
     const res = await rosterAs(DEV_A3);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ cashiers: [] });
+    expect(res.body).toEqual({ cashiers: [], suspended_cashiers: [] });
   });
 });
 
@@ -878,6 +878,7 @@ describe("tenant isolation", () => {
     const roster = await rosterAs(DEV_B1);
     expect(roster.body).toEqual({
       cashiers: [{ user_id: CASHIER_B.id, operator_id: CASHIER_B.clerk, display_name: CASHIER_B.name }],
+      suspended_cashiers: [],
     });
   });
 

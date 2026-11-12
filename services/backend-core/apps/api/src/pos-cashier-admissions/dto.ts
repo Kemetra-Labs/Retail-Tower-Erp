@@ -91,7 +91,15 @@ export interface RosterEntry {
   readonly display_name: string;
 }
 
+/** `PosCashierSuspendedEntry` (RT-1138): a cashier suspended at the device's store. */
+export interface SuspendedRosterEntry {
+  readonly user_id: string;
+  readonly operator_id: string;
+}
+
 /** `PosCashierRosterResponse`. */
 export interface RosterBody {
   readonly cashiers: RosterEntry[];
+  /** RT-1138: additive; the cashiers the roster leaves out because they are suspended. */
+  readonly suspended_cashiers: SuspendedRosterEntry[];
 }

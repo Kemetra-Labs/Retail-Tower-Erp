@@ -202,9 +202,9 @@ const KEY = "pos-pulse:4f6f1c1e-8a52-4c1b-9a0e-6d1f2b3c4d5e";
 // 1. Document + operations
 // ===========================================================================
 describe("pos-cashier-admissions — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.1.0-draft", () => {
+  it("is an OpenAPI 3.1 document at version 1.2.0-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.1.0-draft");
+    expect(doc.info?.version).toBe("1.2.0-draft");
   });
 
   it("declares exactly the three 10763 §3 operations at their paths", () => {
@@ -524,10 +524,23 @@ describe("pos-cashier-admissions — AJV fixtures", () => {
     expect(validator("PosCashierAdmissionEnded")({ kind: "ended" })).toBe(true);
     const roster = validator("PosCashierRosterResponse");
     const entry = { user_id: USER_ID, operator_id: "user_2abc", display_name: "Mona A." };
-    expect(roster({ cashiers: [] })).toBe(true);
-    expect(roster({ cashiers: [entry] })).toBe(true);
-    expect(roster({ cashiers: [{ ...entry, role: "cashier" }] })).toBe(false);
-    expect(roster({ cashiers: [{ ...entry, email: "m@example.com" }] })).toBe(false);
+    expect(roster({ cashiers: [], suspended_cashiers: [] })).toBe(true);
+    expect(roster({ cashiers: [entry], suspended_cashiers: [] })).toBe(true);
+    expect(roster({ cashiers: [{ ...entry, role: "cashier" }], suspended_cashiers: [] })).toBe(false);
+    expect(roster({ cashiers: [{ ...entry, email: "m@example.com" }], suspended_cashiers: [] })).toBe(false);
+  });
+
+  it("RT-1138: the roster always carries suspended_cashiers, each with only user_id and operator_id", () => {
+    const roster = validator("PosCashierRosterResponse");
+    const entry = { user_id: USER_ID, operator_id: "user_2abc", display_name: "Mona A." };
+    const suspended = { user_id: USER_ID, operator_id: "user_9xyz" };
+    expect(roster({ cashiers: [entry], suspended_cashiers: [suspended] })).toBe(true);
+    // Required: a response without it does not conform.
+    expect(roster({ cashiers: [entry] })).toBe(false);
+    // Minimum disclosure: no name, and no unknown field.
+    expect(roster({ cashiers: [], suspended_cashiers: [{ ...suspended, display_name: "Mona A." }] })).toBe(false);
+    expect(roster({ cashiers: [], suspended_cashiers: [{ user_id: USER_ID }] })).toBe(false);
+    expect(roster({ cashiers: [], suspended_cashiers: [{ ...suspended, user_id: "not-a-uuid" }] })).toBe(false);
   });
 });
 
