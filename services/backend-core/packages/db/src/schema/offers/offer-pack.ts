@@ -42,7 +42,7 @@ import { bigint, check, foreignKey, index, integer, pgTable, primaryKey, timesta
 import { tenantProducts } from "../catalog/tenant-products";
 import { stores } from "../stores";
 import { tenants } from "../tenants";
-import { offerVersions } from "./offer-versions";
+import { offerVersions, xid8 } from "./offer-versions";
 
 export const offerPackRevisions = pgTable(
   "offer_pack_revisions",
@@ -52,6 +52,10 @@ export const offerPackRevisions = pgTable(
       .references(() => tenants.id, { onDelete: "restrict" }),
     revision: bigint("revision", { mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    /** The issuing transaction, forced by the insert trigger; only it may change what the revision holds. */
+    issueXact: xid8("issue_xact")
+      .default(sql`pg_current_xact_id()`)
+      .notNull(),
   },
   (t) => [
     primaryKey({ name: "offer_pack_revisions_pk", columns: [t.tenantId, t.revision] }),

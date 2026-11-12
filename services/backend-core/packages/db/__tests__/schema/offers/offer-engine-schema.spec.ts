@@ -34,7 +34,7 @@ const OFFER_ENGINE_COLUMNS: Readonly<Record<string, { readonly export: string; r
       "tenant_id", "offer_id", "version", "name_ar", "name_en", "offer_type", "buy_quantity", "get_quantity",
       "percent_off", "reward_selection", "max_applications_per_sale", "price_basis", "all_stores", "time_basis",
       "starts_local", "ends_local", "starts_at", "ends_at", "offline_policy", "eligible_set_count",
-      "published_by_user_id", "published_at",
+      "published_by_user_id", "published_at", "publish_xact",
     ],
   },
   offer_version_stores: { export: "offerVersionStores", columns: ["tenant_id", "offer_id", "version", "store_id"] },
@@ -49,7 +49,7 @@ const OFFER_ENGINE_COLUMNS: Readonly<Record<string, { readonly export: string; r
       "resumed_at",
     ],
   },
-  offer_pack_revisions: { export: "offerPackRevisions", columns: ["tenant_id", "revision", "created_at"] },
+  offer_pack_revisions: { export: "offerPackRevisions", columns: ["tenant_id", "revision", "created_at", "issue_xact"] },
   offer_pack_store_revisions: {
     export: "offerPackStoreRevisions",
     columns: ["tenant_id", "store_id", "applied_revision", "created_at", "updated_at"],

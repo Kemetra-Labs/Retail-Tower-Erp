@@ -56,8 +56,9 @@
 --                                 The children of a version are written in
 --                                 the version's own transaction only (a
 --                                 trigger compares the version's
---                                 `published_at`, forced to now(), with the
---                                 inserting transaction's now()), and at
+--                                 `publish_xact`, the publishing transaction
+--                                 id forced to pg_current_xact_id(), with the
+--                                 inserting transaction's id), and at
 --                                 COMMIT a deferred constraint trigger checks
 --                                 the version is whole: at least one include
 --                                 rule (§5.2 rule 1) and, unless all_stores,
@@ -96,8 +97,9 @@
 --                                 by a guard trigger: a row opens, and an open
 --                                 row closes, only at the tenant's latest
 --                                 revision AND only in the transaction that
---                                 issued that revision (its created_at, forced
---                                 to now(), equals the transaction's now()).
+--                                 issued that revision (its `issue_xact`,
+--                                 forced to pg_current_xact_id(), equals the
+--                                 writing transaction's id).
 --                                 Nothing else ever changes, and there is no
 --                                 DELETE. So a revision's content is fixed
 --                                 when that transaction commits, before any
@@ -336,6 +338,10 @@ CREATE TABLE offer_versions (
   published_by_user_id       UUID         NOT NULL,
   -- Server time of the publish: forced to now() by the insert trigger.
   published_at               TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  -- The publishing transaction (forced by the insert trigger): only it may
+  -- write the version's scope and rules. A transaction id, not a time: two
+  -- transactions sent in one simple-Query message share now().
+  publish_xact               XID8         NOT NULL DEFAULT pg_current_xact_id(),
   CONSTRAINT offer_versions_pk PRIMARY KEY (tenant_id, offer_id, version),
   CONSTRAINT fk_offer_versions_offer_tenant
     FOREIGN KEY (tenant_id, offer_id) REFERENCES offers (tenant_id, id) ON DELETE RESTRICT,
@@ -366,8 +372,10 @@ CREATE TABLE offer_versions (
     (ends_local IS NULL OR ends_local > starts_local) AND (ends_at IS NULL OR ends_at > starts_at))
 );
 
--- Version numbering (1, 2, 3 ... per offer, no gap), server publish time, and
--- no version for an archived offer.
+-- Version numbering (1, 2, 3 ... per offer, no gap), server publish time and
+-- transaction, and no version for an archived offer. The offer row is locked
+-- (FOR NO KEY UPDATE) first, so an archive cannot commit between this check
+-- and the version's commit, and two publishes of one offer serialise.
 CREATE FUNCTION offer_versions_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -378,7 +386,8 @@ DECLARE
 BEGIN
   SELECT o.archived_at INTO v_archived
     FROM public.offers o
-   WHERE o.tenant_id = NEW.tenant_id AND o.id = NEW.offer_id;
+   WHERE o.tenant_id = NEW.tenant_id AND o.id = NEW.offer_id
+     FOR NO KEY UPDATE;
   IF v_archived IS NOT NULL THEN
     RAISE EXCEPTION 'offer % is archived: no new version', NEW.offer_id
       USING ERRCODE = 'check_violation';
@@ -391,6 +400,7 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
   NEW.published_at := now();
+  NEW.publish_xact := pg_current_xact_id();
   RETURN NEW;
 END
 $$;
@@ -461,24 +471,24 @@ CREATE INDEX idx_offer_version_rules_category
 CREATE INDEX idx_offer_version_rules_brand
   ON offer_version_rules (tenant_id, brand_id) WHERE brand_id IS NOT NULL;
 
--- The children of a version are written in the version's own transaction: its
--- published_at is that transaction's now(). A store row needs an explicit scope.
+-- The children of a version are written in the version's own transaction (its
+-- publish_xact). A store row needs an explicit scope.
 CREATE FUNCTION offer_version_children_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_published timestamptz;
+  v_publish_xact xid8;
   v_all_stores boolean;
 BEGIN
-  SELECT v.published_at, v.all_stores INTO v_published, v_all_stores
+  SELECT v.publish_xact, v.all_stores INTO v_publish_xact, v_all_stores
     FROM public.offer_versions v
    WHERE v.tenant_id = NEW.tenant_id AND v.offer_id = NEW.offer_id AND v.version = NEW.version;
   IF NOT FOUND THEN
     RAISE EXCEPTION '%: offer % version % does not exist', TG_TABLE_NAME, NEW.offer_id, NEW.version
       USING ERRCODE = 'foreign_key_violation';
   END IF;
-  IF v_published <> now() THEN
+  IF v_publish_xact <> pg_current_xact_id() THEN
     RAISE EXCEPTION '%: offer % version % is published; its scope and rules never change',
       TG_TABLE_NAME, NEW.offer_id, NEW.version
       USING ERRCODE = 'insufficient_privilege';
@@ -596,13 +606,16 @@ CREATE TABLE offer_pack_revisions (
   tenant_id   UUID         NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   revision    BIGINT       NOT NULL,
   created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  -- The issuing transaction (forced by the insert trigger): only it may change
+  -- what this revision holds.
+  issue_xact  XID8         NOT NULL DEFAULT pg_current_xact_id(),
   CONSTRAINT offer_pack_revisions_pk PRIMARY KEY (tenant_id, revision),
   CONSTRAINT offer_pack_revisions_positive CHECK (revision >= 1)
 );
 
 -- Monotonic and gapless per tenant: the next revision is the latest + 1. Two
--- concurrent writers cannot both take it (the primary key). created_at is
--- forced to the issuing transaction's now().
+-- concurrent writers cannot both take it (the primary key). created_at and
+-- issue_xact are forced to the issuing transaction's time and id.
 CREATE FUNCTION offer_pack_revisions_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -617,9 +630,10 @@ BEGIN
     RAISE EXCEPTION 'tenant %: the next Offer Pack revision is %, not %', NEW.tenant_id, v_next, NEW.revision
       USING ERRCODE = 'check_violation';
   END IF;
-  -- The issuing transaction's time: the eligible-set and store-revision
-  -- guards use it to accept changes only in this transaction.
+  -- The eligible-set and store-revision guards accept changes only in the
+  -- issuing transaction.
   NEW.created_at := now();
+  NEW.issue_xact := pg_current_xact_id();
   RETURN NEW;
 END
 $$;
@@ -657,7 +671,7 @@ CREATE FUNCTION offer_pack_store_revisions_guard() RETURNS trigger
 AS $$
 DECLARE
   v_latest bigint;
-  v_issued timestamptz;
+  v_issue_xact xid8;
 BEGIN
   IF TG_OP = 'UPDATE' AND (NEW.tenant_id <> OLD.tenant_id OR NEW.store_id <> OLD.store_id
      OR NEW.created_at <> OLD.created_at OR NEW.applied_revision <= OLD.applied_revision) THEN
@@ -665,12 +679,12 @@ BEGIN
       OLD.tenant_id, OLD.store_id
       USING ERRCODE = 'check_violation';
   END IF;
-  SELECT r.revision, r.created_at INTO v_latest, v_issued
+  SELECT r.revision, r.issue_xact INTO v_latest, v_issue_xact
     FROM public.offer_pack_revisions r
    WHERE r.tenant_id = NEW.tenant_id
    ORDER BY r.revision DESC
    LIMIT 1;
-  IF v_latest IS NULL OR NEW.applied_revision <> v_latest OR v_issued <> now() THEN
+  IF v_latest IS NULL OR NEW.applied_revision <> v_latest OR v_issue_xact <> pg_current_xact_id() THEN
     RAISE EXCEPTION 'offer_pack_store_revisions %/%: a store moves only to the revision issued in this transaction',
       NEW.tenant_id, NEW.store_id
       USING ERRCODE = 'check_violation';
@@ -745,14 +759,14 @@ CREATE FUNCTION offer_pack_eligible_products_guard() RETURNS trigger
 AS $$
 DECLARE
   v_latest bigint;
-  v_issued timestamptz;
+  v_issue_xact xid8;
 BEGIN
-  SELECT r.revision, r.created_at INTO v_latest, v_issued
+  SELECT r.revision, r.issue_xact INTO v_latest, v_issue_xact
     FROM public.offer_pack_revisions r
    WHERE r.tenant_id = NEW.tenant_id
    ORDER BY r.revision DESC
    LIMIT 1;
-  IF v_latest IS NOT NULL AND v_issued <> now() THEN
+  IF v_latest IS NOT NULL AND v_issue_xact <> pg_current_xact_id() THEN
     RAISE EXCEPTION 'offer_pack_eligible_products: Pack revision % is already issued; changes need a new revision', v_latest
       USING ERRCODE = 'check_violation';
   END IF;

@@ -11,7 +11,8 @@
  *   offer_version_rules   The include / exclude rules (§5.2, OD-1): exactly
  *                         one product, category or brand of the same tenant.
  *
- * The children are written in the version's own transaction only, and at
+ * The children are written in the version's own transaction only (its
+ * `publish_xact`, compared with pg_current_xact_id()), and at
  * COMMIT a deferred constraint trigger checks the version is whole (an include
  * rule; a store unless all_stores). Both children are append-only too, so a
  * published version never changes. The guards, the composite FKs onto the
@@ -25,6 +26,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -42,6 +44,14 @@ import { tenantProductCategories } from "../catalog/tenant-product-categories";
 import { tenantProducts } from "../catalog/tenant-products";
 import { stores } from "../stores";
 import { offers } from "./offers";
+
+/**
+ * PostgreSQL `xid8` (a 64-bit transaction id), read and written as its decimal
+ * text. The Offer Engine guards record the issuing transaction with it.
+ */
+export const xid8 = customType<{ data: string; driverData: string }>({
+  dataType: () => "xid8",
+});
 
 export const OFFER_TYPES = ["buy_x_get_y_percent"] as const;
 export type OfferType = (typeof OFFER_TYPES)[number];
@@ -82,6 +92,10 @@ export const offerVersions = pgTable(
     publishedByUserId: uuid("published_by_user_id").notNull(),
     /** Forced to the server's now() by the insert trigger. */
     publishedAt: timestamp("published_at", { withTimezone: true }).defaultNow().notNull(),
+    /** The publishing transaction, forced by the insert trigger; only it may write the scope and rules. */
+    publishXact: xid8("publish_xact")
+      .default(sql`pg_current_xact_id()`)
+      .notNull(),
   },
   (t) => [
     primaryKey({ name: "offer_versions_pk", columns: [t.tenantId, t.offerId, t.version] }),

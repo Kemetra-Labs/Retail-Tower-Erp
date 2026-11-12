@@ -83,10 +83,12 @@ const LINE_MEASURED = id("0a083");
 const LINE_QTY2_DISCOUNTED = id("0a084");
 const LINE_B = id("0b081");
 const RETURN_A = id("0a091");
+const RETURN_B = id("0b091");
 const ACTOR = id("0a0a1");
 const PAUSE_1 = id("0a0c1");
 const PAUSE_2 = id("0a0c2");
 const PAUSE_3 = id("0a0c3");
+const PAUSE_B = id("0b0c1");
 
 const TABLES = [
   "offers",
@@ -224,8 +226,9 @@ async function publish(
 
 /**
  * Committed seed used by the isolation and round-trip cases: per tenant one
- * offer with version 1, Pack revision 1 with its eligible product, the store
- * revision and a promotion fact; tenant A also a clawback.
+ * offer with version 1 and its store, Pack revision 1 with its eligible
+ * product, the store revision, a pause, a promotion fact and a clawback, so
+ * every table holds rows of both tenants.
  */
 async function seedCommitted(): Promise<void> {
   await committed(async (c) => {
@@ -249,6 +252,8 @@ async function seedCommitted(): Promise<void> {
     await c.query(INSERT_PROMOTION, [LINE_REWARD, SALE_A, TENANT_A, STORE_A1, OFFER_A, 1, 1, "40.00"]);
     await c.query(INSERT_PROMOTION, [LINE_B, SALE_B, TENANT_B, STORE_B1, OFFER_B, 1, 1, "0"]);
     await c.query(INSERT_CLAWBACK, [RETURN_A, TENANT_A, STORE_A1, OFFER_A, 1, "16.00"]);
+    await c.query(INSERT_PAUSE, [PAUSE_B, TENANT_B, OFFER_B, null, ACTOR]);
+    await c.query(INSERT_CLAWBACK, [RETURN_B, TENANT_B, STORE_B1, OFFER_B, 1, "16.00"]);
   });
 }
 
@@ -328,6 +333,13 @@ beforeAll(async () => {
         source_system, external_id, payload_hash, created_by)
      VALUES ($1, $2, $3, $4, 1, '2026-12-03', 'EGP', 44, 'pos', 'ret-a', repeat('f', 64), $5)`,
     [RETURN_A, SALE_A, TENANT_A, STORE_A1, ACTOR],
+  );
+  await a.query(
+    `INSERT INTO sale_returns
+       (id, sale_id, tenant_id, store_id, return_seq, business_date, currency_code, return_total,
+        source_system, external_id, payload_hash, created_by)
+     VALUES ($1, $2, $3, $4, 1, '2026-12-03', 'EGP', 84, 'pos', 'ret-b', repeat('e', 64), $5)`,
+    [RETURN_B, SALE_B, TENANT_B, STORE_B1, ACTOR],
   );
   await a.query(upSql);
   // The app role's table grants are taken after the tables exist.
@@ -642,6 +654,90 @@ describe("0101: offer versions (AC2: immutable once published)", () => {
       await c.query(INSERT_VERSION, [TENANT_A, OFFER_A2, 1, false, ACTOR]);
       expect(await attempt(c, INSERT_SCOPE, [TENANT_A, OFFER_A2, 1, STORE_B1])).toBe("23503");
     });
+  });
+
+  it("serialises a publish with an archive of the same offer (the offer row is locked)", async () => {
+    if (skip()) return;
+    await committed(async (c) => {
+      await c.query(INSERT_OFFER, [OFFER_A, TENANT_A, ACTOR]);
+    });
+    const publisher = await guard().admin.connect();
+    const archiver = await guard().admin.connect();
+    try {
+      await publisher.query("BEGIN");
+      await publish(publisher, TENANT_A, OFFER_A, 1);
+      await archiver.query("BEGIN");
+      await archiver.query("SET LOCAL lock_timeout = '300ms'");
+      // The archive waits for the publishing transaction: it cannot slip in before the version commits.
+      expect(
+        await errorCode(() =>
+          archiver.query(`UPDATE offers SET archived_at = now(), archived_by_user_id = $2 WHERE id = $1`, [OFFER_A, ACTOR]),
+        ),
+      ).toBe("55P03");
+    } finally {
+      await archiver.query("ROLLBACK").catch(() => undefined);
+      await publisher.query("ROLLBACK").catch(() => undefined);
+      archiver.release();
+      publisher.release();
+      await clearOffers();
+    }
+  });
+
+  it("keeps two transactions sent in one simple-Query message apart, although they share now()", async () => {
+    if (skip()) return;
+    const client = await guard().admin.connect();
+    const lit = (v: string): string => `'${v}'`;
+    try {
+      // The premise: both transactions of one message see the same now().
+      const times = (await client.query(`BEGIN; SELECT now()::text AS t; COMMIT; BEGIN; SELECT now()::text AS t; COMMIT;`)) as unknown as {
+        rows: { t: string }[];
+      }[];
+      const seen = times.filter((r) => r.rows.length === 1).map((r) => r.rows[0]!.t);
+      expect(seen).toHaveLength(2);
+      expect(seen[0]).toBe(seen[1]);
+
+      const version = `INSERT INTO offer_versions (tenant_id, offer_id, version, name_ar, offer_type, buy_quantity,
+          get_quantity, percent_off, reward_selection, price_basis, all_stores, time_basis, starts_local,
+          eligible_set_count, published_by_user_id)
+        VALUES (${lit(TENANT_A)}, ${lit(OFFER_A)}, 1, 'n', 'buy_x_get_y_percent', 1, 1, 40, 'cheapest',
+          'resolved_store_price', true, 'store_local', '2026-12-01T00:00', 1, ${lit(ACTOR)})`;
+      const rule = (product: string): string =>
+        `INSERT INTO offer_version_rules (tenant_id, offer_id, version, effect, product_id)
+         VALUES (${lit(TENANT_A)}, ${lit(OFFER_A)}, 1, 'include', ${lit(product)})`;
+      // The second transaction cannot add a rule to the version the first one published.
+      expect(
+        await errorCode(() =>
+          client.query(
+            `BEGIN; INSERT INTO offers (id, tenant_id, created_by_user_id) VALUES (${lit(OFFER_A)}, ${lit(TENANT_A)}, ${lit(ACTOR)});
+             ${version}; ${rule(PROD_A1)}; COMMIT;
+             BEGIN; ${rule(PROD_A2)}; COMMIT;`,
+          ),
+        ),
+      ).toBe("42501");
+      await client.query("ROLLBACK");
+      const rules = await client.query(`SELECT product_id FROM offer_version_rules WHERE offer_id = $1`, [OFFER_A]);
+      expect(rules.rows).toEqual([{ product_id: PROD_A1 }]);
+
+      // Likewise for a Pack revision issued by the first transaction.
+      const eligible = (product: string): string =>
+        `INSERT INTO offer_pack_eligible_products (tenant_id, store_id, product_id, offer_id, offer_version, from_revision)
+         VALUES (${lit(TENANT_A)}, ${lit(STORE_A1)}, ${lit(product)}, ${lit(OFFER_A)}, 1, 1)`;
+      expect(
+        await errorCode(() =>
+          client.query(
+            `BEGIN; INSERT INTO offer_pack_revisions (tenant_id, revision) VALUES (${lit(TENANT_A)}, 1); ${eligible(PROD_A1)}; COMMIT;
+             BEGIN; ${eligible(PROD_A2)}; COMMIT;`,
+          ),
+        ),
+      ).toBe("23514");
+      await client.query("ROLLBACK");
+      const rows = await client.query(`SELECT product_id FROM offer_pack_eligible_products WHERE offer_id = $1`, [OFFER_A]);
+      expect(rows.rows).toEqual([{ product_id: PROD_A1 }]);
+    } finally {
+      await client.query("ROLLBACK").catch(() => undefined);
+      client.release();
+      await clearOffers();
+    }
   });
 
   it("AC2: refuses UPDATE, DELETE and TRUNCATE of a published version, its scope and rules, also for the superuser", async () => {
@@ -982,14 +1078,21 @@ describe("0101: tenant isolation (FORCE RLS, app role)", () => {
     await clearOffers();
   });
 
-  it("shows every table's own-tenant rows only, and nothing under an empty tenant GUC", async () => {
+  it("shows every table's own-tenant rows only, from both tenants' side, and nothing under an empty tenant GUC", async () => {
     if (skip()) return;
-    await asApp(guard(), TENANT_A, async (client) => {
-      for (const table of TABLES) {
-        const r = await client.query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id FROM ${table}`);
-        expect([table, r.rows]).toEqual([table, [{ tenant_id: TENANT_A }]]);
-      }
-    });
+    // Both tenants hold rows in every table, so a policy leak in either direction shows.
+    for (const table of TABLES) {
+      const all = await guard().admin.query<{ n: string }>(`SELECT count(DISTINCT tenant_id)::text AS n FROM ${table}`);
+      expect([table, all.rows[0]!.n]).toEqual([table, "2"]);
+    }
+    for (const tenant of [TENANT_A, TENANT_B]) {
+      await asApp(guard(), tenant, async (client) => {
+        for (const table of TABLES) {
+          const r = await client.query<{ tenant_id: string }>(`SELECT DISTINCT tenant_id FROM ${table}`);
+          expect([table, r.rows]).toEqual([table, [{ tenant_id: tenant }]]);
+        }
+      });
+    }
     await asApp(guard(), "", async (client) => {
       for (const table of TABLES) {
         expect([table, (await client.query(`SELECT 1 FROM ${table}`)).rowCount]).toEqual([table, 0]);
