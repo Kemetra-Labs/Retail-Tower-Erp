@@ -27,9 +27,10 @@
  * Connector whose cursor moved past them never sees them (the RT-418 rule).
  *
  * Read per request (the `isPosReturnsEnabled` convention), so a test or a
- * restart-free toggle sees the current value. Deliberately NOT passed by
- * `docker-compose.prod.yml` (an RT-984 exclusion with this reason), so
- * production stays off until the owner approves turning tracked selling on.
+ * restart-free toggle sees the current value. `docker-compose.prod.yml` passes
+ * it to the api with the default `false` (RT-451), so an environment stays off
+ * until an operator sets it in `backend.env`, and turning tracked selling on for
+ * a tenant stays an owner decision.
  */
 import { isEnvFlagOn } from "../sale-tenders-gate";
 
