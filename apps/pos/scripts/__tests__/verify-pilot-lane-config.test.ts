@@ -28,6 +28,8 @@ const text = (value: unknown): Buffer => Buffer.from(`${JSON.stringify(value)}\n
 interface AsarFile {
   readonly bytes: Buffer;
   readonly unpacked?: boolean;
+  /** Header integrity hash to record instead of the true one (to simulate a bad archive). */
+  readonly integrityHash?: string;
 }
 
 /** A minimal asar: [4][pickleSize][payloadSize][jsonLength][json, padded to 4][file data]. */
@@ -47,7 +49,14 @@ function buildAsar(files: Readonly<Record<string, AsarFile>>): Buffer {
       dir.files[leaf] = { size: file.bytes.length, unpacked: true };
       continue;
     }
-    dir.files[leaf] = { size: file.bytes.length, offset: String(offset) };
+    dir.files[leaf] = {
+      size: file.bytes.length,
+      offset: String(offset),
+      integrity: {
+        algorithm: 'SHA256',
+        hash: file.integrityHash ?? createHash('sha256').update(file.bytes).digest('hex'),
+      },
+    };
     chunks.push(file.bytes);
     offset += file.bytes.length;
   }
@@ -103,6 +112,16 @@ describe('readAsarEntry', () => {
     expect(() => readAsarEntry(file, ['dist'])).toThrow(/not a packed file/);
     expect(() => readAsarEntry(file, ['dist', 'unpacked.json'])).toThrow(/not a packed file/);
     expect(() => readAsarEntry(file, ['dist', 'big.json'])).toThrow(/larger than/);
+  });
+
+  it('refuses an entry whose bytes do not match the integrity hash in the header', () => {
+    const file = write(
+      buildAsar({
+        ...withLane(text(GOOD)),
+        'dist/lane-config.json': { bytes: text(GOOD), integrityHash: '0'.repeat(64) },
+      }),
+    );
+    expect(() => readAsarEntry(file, ['dist', 'lane-config.json'])).toThrow(/integrity hash/);
   });
 
   it('refuses a file that is not an asar and a truncated archive', () => {

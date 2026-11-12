@@ -72,7 +72,7 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
      (US region project, the `P…` id).
 
    After the build the workflow reads `lane-config.json` back out of the packaged `app.asar` and refuses a file
-   that is not lane `pilot` with exactly those two values, and the release manifest records its SHA-256
+   that is not lane `pilot` with both values present and valid (it does not compare them to the variables), and the release manifest records its SHA-256
    (`lane_config.digest`).
 7. **Run a dry run** (Actions → release-pos-pilot → Run workflow, `dry_run` true, on `main`). It signs with an
    ephemeral certificate, reads no secret and publishes nothing. It proves the build, the signature checks, the

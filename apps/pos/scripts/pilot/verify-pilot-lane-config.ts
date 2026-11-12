@@ -59,6 +59,7 @@ interface AsarNode {
   readonly size?: number;
   readonly offset?: string;
   readonly unpacked?: boolean;
+  readonly integrity?: { readonly algorithm?: string; readonly hash?: string };
 }
 
 /**
@@ -97,6 +98,19 @@ function findNode(tree: AsarNode, entry: readonly string[]): AsarNode {
   return node;
 }
 
+/**
+ * electron-builder records a SHA-256 of each packed file in the header (`integrity.hash`). When it is there it
+ * must equal the bytes just read: that proves the offset and size were read the way the archive means them.
+ */
+function assertIntegrity(node: AsarNode, bytes: Buffer, name: string): void {
+  const { integrity } = node;
+  if (integrity?.algorithm !== 'SHA256' || typeof integrity.hash !== 'string') return;
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  if (actual !== integrity.hash.toLowerCase()) {
+    throw new Error(`${name} does not match the integrity hash in the archive header`);
+  }
+}
+
 /** The bytes of one packed file of an asar archive, as stored. */
 export function readAsarEntry(asarFile: string, entry: readonly string[]): Buffer {
   const fd = openSync(asarFile, 'r');
@@ -116,7 +130,9 @@ export function readAsarEntry(asarFile: string, entry: readonly string[]): Buffe
       throw new Error(`${name} is larger than ${String(MAX_ENTRY_BYTES)} bytes`);
     const start = dataStart + Number(offset);
     if (start + size > archiveBytes) throw new Error(`asar archive is truncated (${name})`);
-    return readExact(fd, start, size, name);
+    const bytes = readExact(fd, start, size, name);
+    assertIntegrity(node, bytes, name);
+    return bytes;
   } finally {
     closeSync(fd);
   }
