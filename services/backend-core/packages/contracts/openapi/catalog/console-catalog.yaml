@@ -1806,14 +1806,6 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    CategoryUnavailable:
-      description: >
-        422 `category_unavailable`: `categoryId` names no category of the
-        tenant, or a retired one. Nothing is written.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
     ProductReferenceUnavailable:
       description: >
         422, `error.code` one of: `category_unavailable` (`categoryId` names
@@ -1827,8 +1819,8 @@ components:
     BrandNotFound:
       description: >
         not_found (404), non-disclosing: identical for a role outside the
-        write's list, a brand of another tenant, an absent brand and a
-        retired brand. Nothing is written.
+        write's list and, on the rename, a brand of another tenant, an
+        absent brand and a retired brand. Nothing is written.
       content:
         application/json:
           schema:

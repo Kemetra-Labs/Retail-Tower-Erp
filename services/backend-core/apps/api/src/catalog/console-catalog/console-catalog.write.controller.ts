@@ -51,7 +51,7 @@ import { TenantContextGuard } from "../../context/tenant-context.guard";
 import type { TenantContextRequest } from "../../context/types";
 import { Idempotent } from "../../idempotency/idempotent.decorator";
 import type { ConsoleCatalogBrand, ConsoleCatalogProductDetail } from "./console-catalog.projections";
-import { BrandIdParamSchema, ProductIdParamSchema } from "./console-catalog.query";
+import { ProductIdParamSchema } from "./console-catalog.query";
 import { CatalogProductNotFoundError, CatalogStoreNotInScopeError } from "./console-catalog.service";
 import {
   CreateCatalogBrandBodySchema,
@@ -224,9 +224,8 @@ export class ConsoleCatalogWriteController {
     @Param("brandId") brandId: string,
     @Body(new ZodValidationPipe(RenameCatalogBrandBodySchema)) body: RenameCatalogBrandBody,
   ): Promise<ConsoleCatalogBrand> {
-    const parsed = BrandIdParamSchema.safeParse(brandId);
-    if (!parsed.success) throw new BadRequestException({ code: "validation_error", message: "brandId must be a valid UUID" });
-    return mapErrors(() => this.service.renameBrand(writer(request), { brandId: parsed.data }, body));
+    const id = parseId(brandId, "brandId");
+    return mapErrors(() => this.service.renameBrand(writer(request), { brandId: id }, body));
   }
 }
 

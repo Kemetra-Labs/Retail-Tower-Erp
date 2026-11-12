@@ -53,11 +53,15 @@
 -- Lock impact:
 --   - In the transaction: `tenant_products` takes ACCESS EXCLUSIVE for the
 --     catalog-only ADD COLUMN (nullable, no default, no rewrite) and the
---     NOT VALID FK (no scan); the partial index on the new all-NULL column is
---     built under that lock (one heap scan, empty index). `tenants` takes SHARE
---     ROW EXCLUSIVE for the new table's FK. At pilot volume, well under a
---     second; lock_timeout 2s, so a lock that cannot be taken rolls the
---     migration back to be re-run.
+--     NOT VALID FK (no scan): no scan or rewrite of `tenant_products` happens
+--     under that lock. `tenants` takes SHARE ROW EXCLUSIVE for the new table's
+--     FK. lock_timeout 2s, so a lock that cannot be taken rolls the migration
+--     back to be re-run.
+--   - The brand index on `tenant_products` (the `brand_id` filter and the
+--     ON DELETE SET NULL lookup) is NOT built here: it is
+--     0098_tenant_products_brand_idx.sql, one CREATE INDEX CONCURRENTLY
+--     statement, so its heap scan never holds a lock that blocks the POS
+--     read-down or Console reads and writes.
 --   - After COMMIT: VALIDATE CONSTRAINT under SHARE UPDATE EXCLUSIVE, which
 --     does not block reads or writes (the 0077 pattern). Every existing
 --     brand_id is NULL, so nothing can fail it.
@@ -136,12 +140,6 @@ ALTER TABLE tenant_products
     FOREIGN KEY (tenant_id, brand_id) REFERENCES tenant_product_brands (tenant_id, id)
     ON DELETE SET NULL (brand_id)
     NOT VALID;
-
--- The brand filter, and the ON DELETE SET NULL lookup (an equality on brand_id
--- implies brand_id IS NOT NULL, so the partial index serves it).
-CREATE INDEX idx_tenant_products_tenant_brand
-  ON tenant_products (tenant_id, brand_id)
-  WHERE brand_id IS NOT NULL;
 
 COMMIT;
 

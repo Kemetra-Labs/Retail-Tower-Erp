@@ -61,16 +61,16 @@ SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS gran
 
 SELECT has_column_privilege(:'domain_role', 'tenant_product_brands', 'name', 'UPDATE') AS name_update_granted;
 
--- No wider UPDATE: the other columns must read `f`.
+-- No wider UPDATE: every other column must read `f`.
 SELECT c.col, has_column_privilege(:'domain_role', 'tenant_product_brands', c.col, 'UPDATE') AS granted
-  FROM (VALUES ('tenant_id'), ('id'), ('created_by'), ('retired_at')) AS c(col);
+  FROM (VALUES ('tenant_id'), ('id'), ('created_by'), ('retired_at'), ('created_at'), ('updated_at')) AS c(col);
 
 SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
           FROM (VALUES ('tenant_product_brands', 'SELECT'),
                        ('tenant_product_brands', 'INSERT')) AS t(tbl, priv))
        AND has_column_privilege(:'domain_role', 'tenant_product_brands', 'name', 'UPDATE')
        AND NOT (SELECT bool_or(has_column_privilege(:'domain_role', 'tenant_product_brands', c.col, 'UPDATE'))
-                  FROM (VALUES ('tenant_id'), ('id'), ('created_by'), ('retired_at')) AS c(col))
+                  FROM (VALUES ('tenant_id'), ('id'), ('created_by'), ('retired_at'), ('created_at'), ('updated_at')) AS c(col))
        AS domain_ok \gset
 
 \if :domain_ok

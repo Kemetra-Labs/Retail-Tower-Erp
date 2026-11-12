@@ -5,7 +5,8 @@
   flat, tenant-owned `tenant_product_brands` (FORCE ROW LEVEL SECURITY, SELECT / INSERT /
   UPDATE tenant policies and no DELETE policy, active names unique per tenant) and a
   nullable `tenant_products.brand_id` whose composite same-tenant FK clears only `brand_id`
-  when a brand is deleted (`ON DELETE SET NULL (brand_id)`). `catalog/console-catalog.yaml`
+  when a brand is deleted (`ON DELETE SET NULL (brand_id)`); `0098_tenant_products_brand_idx`
+  builds its index CONCURRENTLY (one statement). `catalog/console-catalog.yaml`
   `1.2.0-draft` (additive; oasdiff INFO only) adds `consoleListCatalogBrands`,
   `consoleCreateCatalogBrand` (`Idempotency-Key`) and `consoleRenameCatalogBrand`
   (`expectedUpdatedAt`), `brandId` / `brandName` on the product summary, `brandId` on the

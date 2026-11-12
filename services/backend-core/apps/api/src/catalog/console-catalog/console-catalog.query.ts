@@ -78,9 +78,6 @@ export type CatalogProductListQuery = z.infer<typeof CatalogProductListQuerySche
 
 export const ProductIdParamSchema = UuidSchema;
 
-/** RT-1334: the `brandId` path parameter (lower case). */
-export const BrandIdParamSchema = UuidSchema;
-
 /** Every list filter (null = not filtered); the cursor is bound to all of them. */
 export interface CatalogProductFilters {
   readonly q: string | null;

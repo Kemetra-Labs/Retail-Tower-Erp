@@ -2,7 +2,8 @@
 --
 -- RT-1334 (RT-286 S1) -- rollback for 0097_tenant_product_brands.sql.
 --
--- Drops `tenant_products.brand_id` (with its FK and index), then
+-- Drops `tenant_products.brand_id` (with its FK; its 0098 index, if 0098 was
+-- not rolled back first, goes with the column), then
 -- `tenant_product_brands` (with its indexes, trigger, policies and grants). A
 -- brand is catalog master data and every product's brand would be lost, so
 -- the rollback REFUSES while any brand exists: back up, decide, and have a
@@ -53,7 +54,6 @@ BEGIN
 END
 $$;
 
-DROP INDEX IF EXISTS idx_tenant_products_tenant_brand;
 ALTER TABLE tenant_products DROP CONSTRAINT IF EXISTS fk_tenant_products_brand_tenant;
 ALTER TABLE tenant_products DROP COLUMN IF EXISTS brand_id;
 DROP TABLE IF EXISTS tenant_product_brands;

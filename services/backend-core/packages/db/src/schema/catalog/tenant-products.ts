@@ -119,6 +119,7 @@ export const tenantProducts = pgTable(
     index("idx_tenant_products_tenant_category")
       .on(t.tenantId, t.categoryId)
       .where(sql`${t.retiredAt} IS NULL`),
+    // 0098: built CONCURRENTLY in its own migration (RT-1334).
     index("idx_tenant_products_tenant_brand")
       .on(t.tenantId, t.brandId)
       .where(sql`${t.brandId} IS NOT NULL`),
