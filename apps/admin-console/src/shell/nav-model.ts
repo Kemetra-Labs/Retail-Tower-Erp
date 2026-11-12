@@ -13,6 +13,7 @@ import { canReadShiftCloses } from "@/shift-closes/shiftCloseLogic";
 import { canReadStockDiscrepancies } from "@/stock-discrepancies/stockDiscrepancyLogic";
 import { showTrackingNav } from "@/tracking/trackingLogic";
 import { canReadUnknownItems } from "@/unknown-items/unknownItemAccess";
+import { canReadVouchers } from "@/vouchers/voucherLogic";
 
 /**
  * The shell's destinations (RT-969, Shell v3). One model feeds the sidebar, the
@@ -167,6 +168,8 @@ const TENANT_NAV: readonly GatedGroup[] = [
       { label: "shell.nav.tenants", to: "/tenants", icon: "tenant", canRead: always },
       // RT-421: the 017 payer accounts, owner / tenant_admin only.
       { label: "payers.nav.label", to: "/payer-accounts", icon: "cash", canRead: canReadPayers },
+      // RT-1109: promotional vouchers, owner / tenant_admin only (decision 2A).
+      { label: "vouchers.nav.label", to: "/vouchers", icon: "cash", canRead: canReadVouchers },
     ],
   },
 ];

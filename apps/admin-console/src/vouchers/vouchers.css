@@ -1,0 +1,58 @@
+/* RT-1109 vouchers page. Tokens only; logical properties only. */
+
+.vouchers__stores {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vouchers__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-block-size: 16rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.vouchers__choice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-block-size: var(--control-h);
+  cursor: pointer;
+}
+
+.vouchers__radio {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-block-size: var(--control-h);
+  cursor: pointer;
+}
+
+/* The codes are machine data: isolated LTR, monospace, never wrapped mid-code. */
+.vouchers__code {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  user-select: all;
+}
+
+.vouchers__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.vouchers__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+}
