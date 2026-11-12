@@ -24,6 +24,16 @@
  *     disagrees with its profile, or a reported Batch has no identity yet. It
  *     switches nothing on: tracked selling stays a separate owner act (Q13).
  *
+ *   attest-batch-posting --tenant <uuid> --actor <uuid> --evidence <ref> [--dry-run]
+ *     RT-452 (G7-11; owner decision 2026-11-12): records the owner's attestation
+ *     that the ERP Connector posts batch-tracked lines with their batch
+ *     reference, in one transaction (`attestBatchPosting`). `--evidence` is a
+ *     reference to the evidence (a Jira comment, a bench run id), 1 to 200
+ *     characters, no PII. Upserts the tenant's settings row if missing. Refuses
+ *     (exit 4, nothing written) when the tenant already holds an attestation.
+ *     It switches nothing on: it only makes the Q13 precondition
+ *     `erp_batch_posting_verified` met. There is no un-attest command.
+ *
  *   equivalence --tenant <uuid>
  *     Read-only dual-read report for the cutover (RT-428; 977, 980): per
  *     store and product, the legacy raw SUM and the pending-aware expected
@@ -43,11 +53,12 @@
  *   DATABASE_URL=postgres://... node dist/cli/inventory-effects.js activate --tenant <t> --actor <u> --dry-run
  *
  * Exit codes: 0 success · 1 SQL/runtime error · 2 DATABASE_URL missing ·
- *             3 invalid arguments · 4 activation or identity anchor refused.
+ *             3 invalid arguments · 4 activation, identity anchor or attestation refused.
  */
 import { Client } from "pg";
 
 import { activateSaleEffects, compareAnchorsToBin } from "../helpers/inventory-effects/activation";
+import { attestBatchPosting, normalizeEvidenceRef } from "../helpers/inventory-effects/batch-posting-attestation";
 import { anchorTrackedIdentities } from "../helpers/inventory-effects/identity-anchor";
 import { buildCutoverEquivalenceReport } from "../helpers/inventory-effects/pending-aware";
 
@@ -58,6 +69,13 @@ export type InventoryEffectsCommand =
       readonly kind: "activate" | "anchor-identities";
       readonly tenantId: string;
       readonly actorId: string;
+      readonly dryRun: boolean;
+    }
+  | {
+      readonly kind: "attest-batch-posting";
+      readonly tenantId: string;
+      readonly actorId: string;
+      readonly evidenceRef: string;
       readonly dryRun: boolean;
     }
   | { readonly kind: "compare" | "equivalence"; readonly tenantId: string };
@@ -73,6 +91,15 @@ function uuidFlag(argv: readonly string[], name: string): string {
   return value.toLowerCase();
 }
 
+function evidenceFlag(argv: readonly string[]): string {
+  const value = flag(argv, "evidence");
+  try {
+    return normalizeEvidenceRef(value ?? "");
+  } catch {
+    throw new Error("--evidence <ref> is required (1 to 200 characters)");
+  }
+}
+
 /** Parse the command line; throws an Error naming the problem. */
 export function parseInventoryEffectsArgs(argv: readonly string[]): InventoryEffectsCommand {
   const [command] = argv;
@@ -84,9 +111,18 @@ export function parseInventoryEffectsArgs(argv: readonly string[]): InventoryEff
       dryRun: argv.includes("--dry-run"),
     };
   }
+  if (command === "attest-batch-posting") {
+    return {
+      kind: command,
+      tenantId: uuidFlag(argv, "tenant"),
+      actorId: uuidFlag(argv, "actor"),
+      evidenceRef: evidenceFlag(argv),
+      dryRun: argv.includes("--dry-run"),
+    };
+  }
   if (command === "compare" || command === "equivalence") return { kind: command, tenantId: uuidFlag(argv, "tenant") };
   throw new Error(
-    "usage: inventory-effects activate --tenant <uuid> --actor <uuid> [--dry-run] | anchor-identities --tenant <uuid> --actor <uuid> [--dry-run] | compare --tenant <uuid> | equivalence --tenant <uuid>",
+    "usage: inventory-effects activate --tenant <uuid> --actor <uuid> [--dry-run] | anchor-identities --tenant <uuid> --actor <uuid> [--dry-run] | attest-batch-posting --tenant <uuid> --actor <uuid> --evidence <ref> [--dry-run] | compare --tenant <uuid> | equivalence --tenant <uuid>",
   );
 }
 
@@ -110,7 +146,11 @@ async function run(client: Client, cmd: InventoryEffectsCommand): Promise<number
     if (!("actorId" in cmd)) return await runReadOnly(client, cmd);
     const input = { tenantId: cmd.tenantId, actorId: cmd.actorId };
     const outcome =
-      cmd.kind === "activate" ? await activateSaleEffects(client, input) : await anchorTrackedIdentities(client, input);
+      cmd.kind === "activate"
+        ? await activateSaleEffects(client, input)
+        : cmd.kind === "anchor-identities"
+          ? await anchorTrackedIdentities(client, input)
+          : await attestBatchPosting(client, { ...input, evidenceRef: cmd.evidenceRef });
     const ok = outcome.kind !== "refused";
     await client.query(ok && !cmd.dryRun ? "COMMIT" : "ROLLBACK");
     console.log(JSON.stringify({ tenantId: cmd.tenantId, dryRun: cmd.dryRun, outcome }, null, 2));

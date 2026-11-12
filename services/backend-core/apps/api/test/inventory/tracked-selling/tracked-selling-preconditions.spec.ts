@@ -248,3 +248,56 @@ describe('erp_tracking_import (RT-1288)', () => {
     expect(await met(TENANT_A)).toBe(true);
   });
 });
+
+/**
+ * Jira RT-452 — `erp_batch_posting_verified` is the owner attestation (migration 0104, recorded by
+ * `inventory-effects attest-batch-posting`): met when the tenant's settings row holds an
+ * `erp_batch_posting_attested_at`. Its contract meaning is unchanged.
+ */
+describe('erp_batch_posting_verified (RT-452)', () => {
+  async function verified(tenantId: string): Promise<boolean> {
+    return !(await unmet(tenantId)).includes('erp_batch_posting_verified');
+  }
+
+  async function setAttestation(tenantId: string, actor: string, at: string | null): Promise<void> {
+    await admin.query(
+      `INSERT INTO tenant_inventory_settings
+         (tenant_id, updated_by, erp_batch_posting_attested_at, erp_batch_posting_attested_by, erp_batch_posting_evidence_ref)
+       VALUES ($1, $2, $3::timestamptz, CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE $2::uuid END,
+               CASE WHEN $3::timestamptz IS NULL THEN NULL ELSE 'RT-452 bench run (owner)' END)
+       ON CONFLICT (tenant_id) DO UPDATE
+         SET erp_batch_posting_attested_at = EXCLUDED.erp_batch_posting_attested_at,
+             erp_batch_posting_attested_by = EXCLUDED.erp_batch_posting_attested_by,
+             erp_batch_posting_evidence_ref = EXCLUDED.erp_batch_posting_evidence_ref`,
+      [tenantId, actor, at],
+    );
+  }
+
+  it('is unmet while the tenant has no attestation (no settings row, then a row with none)', async () => {
+    if (skipped()) return;
+    // A tenant with no settings row at all (a tenant id the fixture never seeded).
+    expect(await verified('00000000-0000-4000-8000-0000000000e2')).toBe(false);
+    await setAttestation(TENANT_A, ACTOR_A, null);
+    expect(await verified(TENANT_A)).toBe(false);
+  });
+
+  it('is met once the tenant holds an attestation, and the other preconditions are unchanged', async () => {
+    if (skipped()) return;
+    const before = (await unmet(TENANT_A)).filter((p) => p !== 'erp_batch_posting_verified');
+    await setAttestation(TENANT_A, ACTOR_A, '2026-11-12T12:00:00Z');
+    expect(await verified(TENANT_A)).toBe(true);
+    expect(await unmet(TENANT_A)).toEqual(before);
+  });
+
+  it("never counts another tenant's attestation", async () => {
+    if (skipped()) return;
+    // Tenant A is attested (above); tenant B has none.
+    expect(await verified(TENANT_A)).toBe(true);
+    expect(await verified(TENANT_B)).toBe(false);
+    await setAttestation(TENANT_B, ACTOR_B, '2026-11-12T12:30:00Z');
+    expect(await verified(TENANT_B)).toBe(true);
+    await setAttestation(TENANT_A, ACTOR_A, null);
+    expect(await verified(TENANT_A)).toBe(false);
+    expect(await verified(TENANT_B)).toBe(true);
+  });
+});
