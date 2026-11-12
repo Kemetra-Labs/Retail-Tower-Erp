@@ -346,3 +346,12 @@ class TestRepresentationOnReplay:
 	def test_an_expected_representation_without_a_persisted_one_is_a_mismatch(self):
 		reason = check_existing(_item(), _represented(None), expected=_expected())
 		assert reason is not None and reason.startswith("representation:")
+
+	def test_a_split_return_repeats_a_line_ref_and_still_matches(self):
+		# RT-1340 F3: a returned discounted line posted as quantity-1 rows carries its ref on each row.
+		split = _invoice(("ITEM-A", "WH-ORIG", _A), ("ITEM-A", "WH-ORIG", _A), ("ITEM-A", "WH-ORIG", _A))
+		assert check_existing(_return(_A), split) is None
+
+	def test_a_split_return_row_of_another_item_is_still_a_mismatch(self):
+		split = _invoice(("ITEM-A", "WH-ORIG", _A), ("ITEM-Z", "WH-ORIG", _A))
+		assert check_existing(_return(_A), split)

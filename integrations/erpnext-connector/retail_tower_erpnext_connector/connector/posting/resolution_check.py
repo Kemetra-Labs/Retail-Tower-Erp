@@ -118,7 +118,7 @@ def _item_mismatch(work_item: PostingWorkItem, invoice: InvoiceSnapshot) -> str 
 	frozen = {line.line_ref: line.erpnext_item_ref.name for line in work_item.sale.lines if line.line_ref}
 	required = _required_lines(work_item)
 	stamped = [line for line in invoice.items if line.line_ref is not None]
-	return _stamped_mismatch(frozen, required, stamped) or _unstamped_mismatch(
+	return _stamped_mismatch(frozen, required, stamped, _is_return(work_item)) or _unstamped_mismatch(
 		invoice, _unstamped_expected(work_item, frozen, required, stamped)
 	)
 
@@ -151,9 +151,16 @@ def _is_return(work_item: PostingWorkItem) -> bool:
 	return reversal is not None and reversal.reversal_kind == "return"
 
 
-def _stamped_mismatch(frozen: dict[str, str], required: list[str], stamped: list[InvoiceLine]) -> str | None:
-	"""Every stamped row is a distinct REQUIRED line carrying its frozen item."""
-	duplicate = _first_duplicate(stamped)
+def _stamped_mismatch(
+	frozen: dict[str, str], required: list[str], stamped: list[InvoiceLine], repeats_allowed: bool = False
+) -> str | None:
+	"""Every stamped row is a REQUIRED line carrying its frozen item; a sale line is on one row only.
+
+	``repeats_allowed`` is for a return: a returned discounted line whose net has no exact per-unit rate
+	is posted as several quantity-1 rows sharing one ``rt_line_ref`` (RT-1340 F3,
+	``return_builder._split_amounts``), so a repeated ref is expected there, never a double post.
+	"""
+	duplicate = None if repeats_allowed else _first_duplicate(stamped)
 	if duplicate is not None:
 		return f"existing document carries line {duplicate} more than once"
 	return next(filter(None, (_stamped_line_mismatch(line, frozen, required) for line in stamped)), None)
