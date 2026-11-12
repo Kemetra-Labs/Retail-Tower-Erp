@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.21.0-draft"
+  version: "1.23.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -549,6 +549,26 @@ info:
     whatever the switch state. `safetyRevision` and `safetySyncedAt` are
     provenance and are accepted and recorded whatever the switch state.
 
+    RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114
+    comment 16670, 2026-11-12, applying RT-1098 decision 4A of comment 16394:
+    a voucher is a tender; 1.22.0-draft is taken by the RT-1335 draft, #514):
+    `SaleTender.method` gains `voucher`, and `SaleTender` gains `redemptionId`
+    (uuid), REQUIRED on a `voucher` tender and accepted on no other method
+    (else 400). It names the `pos-payments/vouchers.yaml` redemption
+    (`posRedeemVoucher` `redemption_id`) that paid the tender. The sale stays at
+    full price and Σ tenders = `posTotal` still holds exactly. A first capture
+    whose voucher tender does not name a redemption of the same tenant and
+    store that is un-reversed, pays no other tender, and was applied for
+    exactly the tender's `amount` in the sale's currency is 422
+    `sale_voucher_tender_invalid` (one body for every cause); nothing is
+    recorded. `redemptionId` is hashed into the payload. DEPLOYMENT GATE
+    (RT-10 comments 10409 and 10413): capture accepts a `voucher` tender only
+    while the default-OFF deployment flag `POS_SALE_VOUCHER_TENDER_ENABLED` is
+    on, which happens only after the Connector that settles voucher tenders
+    (RT-1330, R-4b) is deployed. Until then a `voucher` tender is the same 400
+    as any unknown method, and no `Sale` carries one. A strict response
+    validator must re-pin this version before the flag is turned on.
+
 servers:
   - url: https://api.example.com
 
@@ -604,6 +624,15 @@ paths:
         changes tenders is a different payload (409). An absent list is a
         tender-unknown sale (RT-10 D8): it is captured exactly as before, and
         the server NEVER derives tender from `posTotal`.
+
+        Voucher tender (RT-1114, RT-1098 decision 4A): a `voucher` tender names
+        the redemption that paid it (`redemptionId`). After the coverage rule,
+        each must name a redemption of this tenant and store that is
+        un-reversed, pays no other tender, and was applied for exactly its
+        `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`;
+        nothing is recorded. Accepted only while the deployment flag
+        `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF until RT-1330 is
+        deployed); while it is off a `voucher` tender is a 400.
 
         Line pricing (RT-105): every line must satisfy the `CaptureSaleLine`
         price invariant, else 422 `sale_line_pricing_invalid`; nothing is
@@ -2060,7 +2089,8 @@ components:
             `tenderRef` is unique within the sale; `sequence` is unique within
             the sale; more than one entry with the same `method` is accepted
             only when EVERY entry carries a `tenderRef`, and only once RT-360's
-            same-method flag is on (until then at most one entry per method).
+            same-method flag is on (until then at most one entry per method);
+            RT-1114: `redemptionId` is unique within the sale.
             `tenderRef` / `sequence`: Accepted from RT-360; do not send before
             then.
         responsibilities:
@@ -2997,11 +3027,14 @@ components:
       properties:
         method:
           type: string
-          enum: [cash, card_external]
+          enum: [cash, card_external, voucher]
           description: >
             RT-10 D2 pilot methods. `cash` — the till drawer. `card_external` —
-            a standalone card terminal (not integrated with the POS). Vouchers
-            are excluded from the pilot.
+            a standalone card terminal (not integrated with the POS). RT-1114
+            (RT-1098 decision 4A): `voucher` — a promotional voucher redeemed
+            through `pos-payments/vouchers.yaml`; it pays part of the sale at
+            full price, carries `redemptionId`, and is accepted only while
+            `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF, else 400).
         amount:
           $ref: "#/components/schemas/NonNegativeDecimalAmount"
         reference:
@@ -3030,6 +3063,18 @@ components:
             OPTIONAL (RT-359) — the line's 1-based position among the sale's
             tender lines, in the order they were applied. Unique within the
             sale. Gives a deterministic order to tenders that share a `method`.
+        redemptionId:
+          type: string
+          format: uuid
+          description: >
+            RT-1114 — REQUIRED on a `voucher` tender and accepted on no other
+            method (else 400): the `redemption_id` that `posRedeemVoucher`
+            (`pos-payments/vouchers.yaml`) returned for this voucher. Unique
+            within the sale (else 400); one redemption pays at most one tender,
+            ever. On a first capture it must be un-reversed, of this tenant and
+            store, and applied for exactly `amount` in the sale's currency, else
+            422 `sale_voucher_tender_invalid`. Part of the payload hash. Never
+            a voucher code.
 
     PositiveDecimalAmount:
       type: string
@@ -3997,12 +4042,17 @@ components:
         Customer link: null or blank), with one body for every cause, never naming which;
         `sale_responsibility_offline_refused` (RT-417, owner decision
         2026-10-16) — `responsibilities` sent on the `device` path (credit is
-        accepted only on the `operatorAuthorization` path).
+        accepted only on the `operatorAuthorization` path);
+        `sale_voucher_tender_invalid` (RT-1114) — a `voucher` tender whose
+        `redemptionId` does not name a redemption of this tenant and store that
+        is un-reversed, pays no other tender, and was applied for exactly the
+        tender's `amount` in the sale's currency, with one body for every
+        cause, never naming which.
         `sale_tender_mismatch` is returned only when `responsibilities` is
         absent; with it, the combined rule replaces the tender-only rule.
         Order: `sale_responsibility_offline_refused` first, then the coverage
-        rule (tender or combined), then the line price invariant, then the
-        payers. Deterministic; nothing is recorded.
+        rule (tender or combined), then the voucher tenders, then the line
+        price invariant, then the payers. Deterministic; nothing is recorded.
       content:
         application/json:
           schema:

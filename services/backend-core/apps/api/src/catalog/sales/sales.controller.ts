@@ -117,6 +117,7 @@ import {
   SalePayloadReplayConflictError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
+  SaleVoucherTenderInvalidError,
   TerminalEventProvenanceConflictError,
   type SaleProjection,
   type TerminalEventProjection,
@@ -139,6 +140,13 @@ function toCaptureHttpError(err: unknown): unknown {
     return new UnprocessableEntityException({
       code: "sale_tender_mismatch",
       message: "tenders do not sum to posTotal",
+    });
+  }
+  if (err instanceof SaleVoucherTenderInvalidError) {
+    // RT-1114: one body for every cause (unknown, other store, reversed, used, amount).
+    return new UnprocessableEntityException({
+      code: "sale_voucher_tender_invalid",
+      message: "a voucher tender does not reference a valid redemption",
     });
   }
   if (err instanceof SaleLinePricingInvalidError) {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.11.0-draft"
+  version: "1.12.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -331,6 +331,24 @@ info:
     is safe. Backend-Core MUST NOT emit a non-null `erpnextBatchRef` or
     `trackingMode: batch` to a Connector that has not accepted them: ignoring
     the Batch while posting the line would post it without one.
+
+    RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114
+    comment 16670, 2026-11-12, applying RT-1098 decision 4A of comment 16394:
+    a voucher is a tender, an SI `payments` row with Mode of Payment `Voucher`
+    through the fail-closed D5 map): `SaleTender.method` gains `voucher`, and
+    `SaleTender` gains `redemptionId` (uuid), present on a `voucher` tender
+    and on no other. The sale stays at full price; the voucher is a payment,
+    never a discount, and the tenders still sum to `posTotal`. INVARIANT
+    (RT-10 comment 10413): a voucher-tendered sale is never offered without
+    its tenders (the existing `tenders` visibility rule). ROLLOUT ORDER
+    (Connector first, RT-10 comments 10409 and 10413):
+    (1) RT-1330 (R-4b) makes the Connector map `voucher` through its tender
+    Mode of Payment map, fail-closed (no map row → `permanently_rejected` /
+    `validation`, never an unpaid invoice), and it is deployed;
+    (2) only then does Backend-Core turn on its default-OFF deployment flag
+    `POS_SALE_VOUCHER_TENDER_ENABLED`, which lets capture accept voucher
+    tenders. Until then no sale carries a `voucher` tender and the feed
+    emits none.
 
     RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11, Jira
     RT-1286 comment 16540 and RT-1283 comment 16534; Inventory Gate 8
@@ -923,8 +941,12 @@ components:
       properties:
         method:
           type: string
-          enum: [cash, card_external]
-          description: RT-10 D2 pilot methods. Vouchers are excluded.
+          enum: [cash, card_external, voucher]
+          description: >
+            RT-10 D2 pilot methods, plus RT-1114 `voucher` (RT-1098 decision
+            4A): a promotional voucher that paid `amount` of the sale at full
+            price; it carries `redemptionId`. Emitted only after the Connector
+            supports it (see the 1.12.0-draft ROLLOUT ORDER).
         amount:
           $ref: "#/components/schemas/NonNegativeDecimalAmount"
         reference:
@@ -948,6 +970,16 @@ components:
             OPTIONAL (RT-359) — the tender's 1-based position, unique within
             the sale. The Connector builds one payment row per tender in
             `sequence` order (tenders without it keep the order given).
+        redemptionId:
+          type: string
+          format: uuid
+          description: >
+            RT-1114 — present on a `voucher` tender and on no other method: the
+            Backend-Core voucher redemption that paid it (`pos-payments/
+            vouchers.yaml` `redemption_id`). Backend-Core checked at capture
+            that it is of the sale's tenant and store, un-reversed, applied for
+            exactly `amount`, and pays no other tender. Evidence for the
+            Connector; it is not a voucher code.
     SaleResponsibility:
       type: object
       additionalProperties: false

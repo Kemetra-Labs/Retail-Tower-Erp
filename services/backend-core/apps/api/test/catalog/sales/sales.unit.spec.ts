@@ -317,10 +317,12 @@ describe("SalesService — capture branches (unit)", () => {
     // (saleId, tenant, store, currency from the SALE, ids, methods, amounts, references)
     expect(params.slice(1, 4)).toEqual([CAPTURE.tenantId, CAPTURE.storeId, "USD"]);
     // RT-360: tenderRef / sequence columns, NULL for a ref-less tender.
+    // RT-1114: redemption_id, NULL for every non-voucher tender.
     expect(params.slice(5)).toEqual([
       ["cash", "card_external"],
       ["2.5", "10"],
       [null, "A1B2C3"],
+      [null, null],
       [null, null],
       [null, null],
     ]);
@@ -423,8 +425,9 @@ describe("SalesService — capture branches (unit)", () => {
     });
     expect(res.created).toBe(false);
     const cmp = clientQuery.mock.calls.find((c) => /WITH req AS/.test(String(c[0])))!;
-    // RT-360: the line identity is compared too (NULL for a ref-less tender).
-    expect(cmp[1]).toEqual([VALID_REF, ["cash"], ["12.5"], [null], [null], [null]]);
+    // RT-360: the line identity is compared too (NULL for a ref-less tender);
+    // RT-1114: so is the voucher redemption (NULL for a non-voucher tender).
+    expect(cmp[1]).toEqual([VALID_REF, ["cash"], ["12.5"], [null], [null], [null], [null]]);
     expect(clientQuery.mock.calls.some((c) => /INSERT INTO sale_tenders/.test(String(c[0])))).toBe(false);
   });
 

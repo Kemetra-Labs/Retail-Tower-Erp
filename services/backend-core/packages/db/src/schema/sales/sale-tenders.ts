@@ -11,8 +11,14 @@
  *     `sequence` its apply order (both NULL on legacy rows). A ref-less tender
  *     is one per method (`uq_sale_tenders_sale_method_legacy`); ref-bearing
  *     tenders may share a method and are unique by ref and by sequence;
- *   - D2 methods only;
+ *   - D2 methods, plus RT-1114 (0099) `voucher` (RT-1098 decision 4A: a
+ *     voucher is a tender). Capture accepts it only behind the default-off
+ *     `POS_SALE_VOUCHER_TENDER_ENABLED` deploy flag;
  *   - `reference` is card_external only, in the contract shape;
+ *   - RT-1114: `redemption_id` is set on a `voucher` tender and only there; it
+ *     names a `voucher_redemptions` row of the same tenant AND store, and one
+ *     redemption pays at most one tender (`uq_sale_tenders_tenant_redemption`,
+ *     built CONCURRENTLY by 0102);
  *   - composite FK to `sales (id, tenant_id, store_id)`.
  */
 import { sql } from "drizzle-orm";
@@ -31,6 +37,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { stores } from "../stores";
 import { tenants } from "../tenants";
+import { voucherRedemptions } from "../vouchers/voucher-redemptions";
 import { sales } from "./sales";
 
 export const saleTenders = pgTable(
@@ -50,10 +57,12 @@ export const saleTenders = pgTable(
     reference: text("reference"),
     tenderRef: uuid("tender_ref"),
     sequence: smallint("sequence"),
+    redemptionId: uuid("redemption_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    check("sale_tenders_method_valid", sql`${t.method} IN ('cash', 'card_external')`),
+    check("sale_tenders_method_valid", sql`${t.method} IN ('cash', 'card_external', 'voucher')`),
+    check("sale_tenders_redemption_voucher_only", sql`(${t.method} = 'voucher') = (${t.redemptionId} IS NOT NULL)`),
     check("sale_tenders_amount_non_negative", sql`${t.amount} >= 0`),
     check("sale_tenders_currency_code_format", sql`${t.currencyCode} ~ '^[A-Z]{3}$'`),
     check(
@@ -70,11 +79,19 @@ export const saleTenders = pgTable(
     uniqueIndex("uq_sale_tenders_sale_sequence")
       .on(t.saleId, t.sequence)
       .where(sql`${t.sequence} IS NOT NULL`),
+    uniqueIndex("uq_sale_tenders_tenant_redemption")
+      .on(t.tenantId, t.redemptionId)
+      .where(sql`${t.redemptionId} IS NOT NULL`),
     index("idx_sale_tenders_tenant_store").on(t.tenantId, t.storeId),
     foreignKey({
       name: "fk_sale_tenders_sale_tenant_store",
       columns: [t.saleId, t.tenantId, t.storeId],
       foreignColumns: [sales.id, sales.tenantId, sales.storeId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "fk_sale_tenders_redemption_tenant_store",
+      columns: [t.tenantId, t.storeId, t.redemptionId],
+      foreignColumns: [voucherRedemptions.tenantId, voucherRedemptions.storeId, voucherRedemptions.id],
     }).onDelete("restrict"),
   ],
 );
