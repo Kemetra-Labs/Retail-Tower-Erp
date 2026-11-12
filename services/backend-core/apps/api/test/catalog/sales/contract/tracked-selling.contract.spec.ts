@@ -296,8 +296,8 @@ describe("pos-sales/sales.yaml — RT-450 tracked capture (1.15.0-draft)", () =>
   const withTracking = (value: unknown) => ({ ...line, tracking: value });
 
   it("bumps the version and the note cites the owner authorization and the rollout order", () => {
-    // RT-451 S3 bumped the document to 1.21.0-draft (RT-1206 was 1.20.0); RT-1114 moved it on to
-    // 1.23.0-draft (voucher tender). The RT-450 note still stands.
+    // RT-1335 bumped the document to 1.22.0-draft (RT-451 S3 was 1.21.0) and RT-1114 to
+    // 1.23.0-draft (voucher tender); the RT-450 note still stands.
     expect(doc.info.version).toBe("1.23.0-draft");
     const info = infoOf(doc);
     expect(info).toContain("RT-450 (1.15.0-draft; [GATED] owner authorization Jira RT-450 comment 13212, 2026-10-21");
