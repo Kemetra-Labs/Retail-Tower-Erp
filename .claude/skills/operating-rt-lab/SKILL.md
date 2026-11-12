@@ -126,6 +126,26 @@ applies IAM changes.
   `DESCOPE_MANAGEMENT_KEY` on lab-01 (an owner step). Descope test users need an email or phone
   (`E011002`); fixtures use `@fixtures.invalid`, which needs Backend-Core with #492.
 
+## Reading ERPNext rows and logs on lab-03 (read-only, with the owner's yes)
+
+Found in RT-1351, where the A1c rejection had to be explained from the host:
+- Host: find the instance with `aws ssm list-tags-for-resource --resource-type ManagedInstance`
+  (tag `Host=lab-03`). Run `AWS-RunShellScript` with the `rt-readonly` profile.
+- Send one script, not many commands: base64 the shell script and the Python script (`echo <b64> |
+  base64 -d | bash`) so no quoting survives to SSM. Output is capped near 24 000 characters:
+  `head` and `cut` every section.
+- Query through the backend container, not `bench mariadb` quoting:
+  `docker exec -i <rt-erp backend> bash -c 'cd /home/frappe/frappe-bench/sites && ../env/bin/python -'`
+  with a script that does `frappe.init(site="lab.localhost", sites_path=".")`, `frappe.connect()` and
+  `SET SESSION TRANSACTION READ ONLY` first. In `frappe.db.sql` strings, `%` breaks without
+  parameters (`not all arguments converted`): use `left()`, `locate()` and `mod()` instead of `LIKE '%…'`.
+- Logs are in `/home/frappe/frappe-bench/logs/` and shared by every `rt-erp-*` container; the posting
+  events are in `retail_tower_posting.log`. Only ERROR-level events survive (RT-409), so a posted sale
+  leaves no line there: its proof is the Posting Log row and the Sales Invoice.
+- `Scheduled Job Log` is empty for the posting poller (`create_log` is 0). The scheduler's
+  "Skipped queueing … found in queue" lines in `scheduler.log` are how Frappe prevents two runs of one job.
+- Datadog EU holds no lab-03 logs (the agent covers lab-01), so an empty Datadog search proves nothing.
+
 ## k6 against the lab
 
 - Run the harness in `services/backend-core/loadtests/k6` with `grafana/k6` in Docker under
