@@ -179,6 +179,12 @@ describe("offers — document and operations", () => {
     expect(flat(doc.info?.description)).toContain("A Pack read writes no audit row");
   });
 
+  it("posGetOfferPack declares the deleted-store 404 with the canonical envelope (RT-1370)", () => {
+    expect(op(PACK, "get").responses?.["404"]).toEqual({ $ref: "#/components/responses/DeviceStoreNotFound" });
+    expect(bodyOf(doc.components?.responses?.["DeviceStoreNotFound"])).toEqual({ $ref: "#/components/schemas/Error" });
+    expect(flat(op(PACK, "get").description)).toContain("A deleted store is a 404.");
+  });
+
   it("collides with no operationId in any other contract", () => {
     for (const [id] of CONSOLE_OPERATIONS) expect(otherOperationIds.has(id)).toBe(false);
     expect(otherOperationIds.has("posGetOfferPack")).toBe(false);
