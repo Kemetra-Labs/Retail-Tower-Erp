@@ -17,6 +17,7 @@ export const PAIRING_INVALID_REASONS = [
   'decrypt_failed',
   'device_revoked',
   'inconsistent',
+  'other_server',
 ] as const;
 export type PairingInvalidReason = (typeof PAIRING_INVALID_REASONS)[number];
 
@@ -47,6 +48,13 @@ export type PairingStatus =
    * RT-306: `inconsistent` — the sealed device token belongs to another
    * pairing than the stored row (a crash in the middle of a re-pair), or cannot
    * be read back. The token is never sent; recovery is a normal pair attempt.
+   *
+   * RT-1348: `other_server` — the pairing was made against another Backend-Core
+   * origin than this process is configured for (the terminal was started with a
+   * different API address). Not a revocation: nothing is sent to the other
+   * origin, the pairing row and the sealed token stay as they are, and starting
+   * on the original origin again makes the terminal paired. Recovery on this
+   * origin is a normal pair attempt with a new code.
    */
   | { kind: 'invalid'; reason: PairingInvalidReason }
   | {
