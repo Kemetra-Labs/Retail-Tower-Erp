@@ -334,7 +334,7 @@ describe("requestSignup (real schema, RLS enforced)", () => {
     await q(`INSERT INTO users (id, email, password_hash, deleted_at) VALUES ($1, $2, 'h', now())`, [randomUUID(), deleted]);
     const disabledId = randomUUID();
     await q(`INSERT INTO users (id, email) VALUES ($1, $2)`, [disabledId, disabled]);
-    await q(`INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status) VALUES ('descope', 'iss', $1, $2, $3, 'disabled')`, [
+    await q(`INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status, disabled_at) VALUES ('descope', 'iss', $1, $2, $3, 'disabled', now())`, [
       `sub-${randomUUID()}`,
       disabledId,
       disabled,
@@ -359,7 +359,8 @@ describe("linkStateReader", () => {
     for (const [id, status] of [[active, "active"], [off, "disabled"]] as const) {
       const email = uniqueEmail();
       await q(`INSERT INTO users (id, email) VALUES ($1, $2)`, [id, email]);
-      await q(`INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status) VALUES ('descope', 'iss', $1, $2, $3, $4)`, [`sub-${randomUUID()}`, id, email, status]);
+      await q(`INSERT INTO external_identity_links (provider_key, issuer, subject, user_id, email, status, disabled_at)
+         VALUES ('descope', 'iss', $1, $2, $3, $4, CASE WHEN $4 = 'disabled' THEN now() END)`, [`sub-${randomUUID()}`, id, email, status]);
     }
     expect(await read(none)).toBe("none");
     expect(await read(active)).toBe("active");
