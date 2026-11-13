@@ -115,8 +115,19 @@ describe('decideCutover — Rule 2 seeds (acceptance 2)', () => {
       tendersSince: '2026-10-01T00:00:00.000Z',
       receiptSince: '2026-09-01T00:00:00.000Z',
       source: 'env_seed',
-      aheadOfClock: true,
+      // Neither column uses the Rule 1 value, so there is no clock warning to give.
+      aheadOfClock: false,
     });
+  });
+
+  it('ahead_of_clock is reported when a column that uses the Rule 1 value is ahead of now', () => {
+    const d = decideCutover({
+      now: NOW,
+      maxFinalizedAt: Date.parse('2026-11-13T13:00:00.000Z'),
+      envTenders: '2026-10-01T00:00:00Z',
+    });
+    expect(d.receiptSince).toBe('2026-11-13T13:00:00.001Z');
+    expect(d.aheadOfClock).toBe(true);
   });
 
   it('a tenders-only seed: tenders verbatim, receipt = max(Rule 1 value, tenders)', () => {

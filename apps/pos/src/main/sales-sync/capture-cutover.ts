@@ -13,8 +13,8 @@
  *   NaN, compared in milliseconds. Every sale is scanned (any tenant, branch, terminal), so an
  *   old-build sale, even one finalized while the clock ran ahead, stays before T.
  * Rule 2 — a valid environment value (`POS_PULSE_FEATURE_SALE_TENDERS_SINCE` /
- *   `..._RECEIPT_SINCE`, the existing explicit-zone grammar) seeds its own column verbatim at
- *   the first write, even when the receipt instant is earlier than the tenders one: a terminal
+ *   `..._RECEIPT_SINCE`, the existing explicit-zone grammar) seeds its own column verbatim (as
+ *   the parser's canonical UTC form of the same instant, never moved) at the first write, even when the receipt instant is earlier than the tenders one: a terminal
  *   that already sent under those instants keeps them. Otherwise `tenders_since` is T and
  *   `receipt_since` is `max(T, tenders_since)`. After the first write the stored row wins.
  * Rule 3 — the row arrives with a migration and is append-only (triggers refuse UPDATE and
@@ -22,8 +22,9 @@
  *
  * Logs carry no instant (closed-set events only):
  *   • `sale_sync:capture_cutover_recorded` `{ source }` — this start wrote the row;
- *   • `sale_sync:capture_cutover_ahead_of_clock` — the Rule 1 value is later than the clock
- *     at the write, so sales finalized until the clock catches up go without T/R;
+ *   • `sale_sync:capture_cutover_ahead_of_clock` — a column holds the Rule 1 value and it is
+ *     later than the clock at the write, so sales finalized until the clock catches up go
+ *     without T/R (a seeded column is the operator's own choice and never warns);
  *   • `sale_sync:capture_cutover_env_ignored` — on a later start, a set variable differs from
  *     the stored column (an invalid value included), or the row was seeded from the
  *     environment and neither variable is set any more. A `first_start` row with no variables
@@ -83,7 +84,7 @@ export interface CutoverDecision {
   tendersSince: string;
   receiptSince: string;
   source: CaptureCutoverSource;
-  /** The Rule 1 value is later than `now`. */
+  /** A stored column is the Rule 1 value, and it is later than `now`. */
   aheadOfClock: boolean;
 }
 
@@ -105,11 +106,13 @@ export function decideCutover(input: CutoverDecisionInput): CutoverDecision {
   const tendersSince = seededTenders ?? computed;
   const receiptSince =
     seededReceipt ?? (Date.parse(tendersSince) > ruleOneMs ? tendersSince : computed);
+  const usesRuleOne = [tendersSince, receiptSince].includes(computed);
   return {
     tendersSince,
     receiptSince,
     source: seededTenders !== null || seededReceipt !== null ? 'env_seed' : 'first_start',
-    aheadOfClock: ruleOneMs > nowMs,
+    // Only when a stored column is the Rule 1 value: a seeded column is the operator's own.
+    aheadOfClock: usesRuleOne && ruleOneMs > nowMs,
   };
 }
 
