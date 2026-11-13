@@ -231,3 +231,18 @@ def test_write_marker_keeps_the_mode_of_site_config_on_the_gateway_path(setup):
 	if os.name == "posix":
 		assert path.stat().st_mode & 0o777 == 0o664
 	assert json.loads(path.read_text(encoding="utf-8")) == {"rt_tenant_id": "T"}
+
+
+def test_a_failed_new_site_logs_no_command_output_even_when_it_echoes_the_password(setup, caplog):
+	import logging
+
+	gw, runner, _ = setup
+	pw = "Zk3x" + "yz_abcDEF"
+	runner.reply = lambda a, s: RunResult(
+		2, f"Usage: bench new-site [OPTIONS] SITE (--admin-password {pw})", f"Error: bad option {pw}"
+	)
+	caplog.set_level(logging.DEBUG)
+	with pytest.raises(RuntimeError) as err:
+		gw.new_site("t1-pilot", "rtp_abc", pw)
+	assert pw not in caplog.text and pw not in str(err.value)
+	assert "new-site failed (exit 2)" in caplog.text  # only the command name and the exit code

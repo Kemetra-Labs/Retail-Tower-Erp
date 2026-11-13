@@ -60,15 +60,18 @@ class ProvisionerRunner:
 		"""Every offered request, following the cursor: requests this provisioner skips without an
 		acknowledgement (other kinds) stay offered at the head, so page one alone could hide a
 		tenant request behind them."""
-		items: list = []
+		seen: dict[str, object] = {}
 		cursor = None
 		for _ in range(_MAX_PAGES):
 			page = self._feed.pull(cursor=cursor, limit=_PAGE_SIZE)
 			if not page.items:
 				break
-			items.extend(page.items)
+			for item in page.items:
+				seen.setdefault(item.id, item)
+			if not page.cursor or page.cursor == cursor:
+				break  # no cursor to advance with: asking again would return the first page again
 			cursor = page.cursor
-		return items
+		return list(seen.values())
 
 	def _due(self, request) -> bool:
 		if request.not_before is None:

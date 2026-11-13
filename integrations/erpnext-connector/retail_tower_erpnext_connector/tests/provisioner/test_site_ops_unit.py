@@ -65,3 +65,127 @@ def test_nothing_is_committed_when_the_caller_runs_its_own_transaction(stub):
 def test_an_unknown_operation_is_rejected():
 	with pytest.raises(site_ops.OpError):
 		site_ops.run({"op": "drop_everything"})
+
+
+# --- store warehouses and posting currency, against a minimal frappe stand-in ---------------------
+
+
+class _Warehouses:
+	"""``frappe.get_all`` / ``get_doc`` / ``db.get_value`` for Warehouse rows only."""
+
+	def __init__(self, rows):
+		self.rows = rows
+		self.inserted = []
+
+	def get_all(self, doctype, filters, fields, limit):
+		hits = [
+			r
+			for r in self.rows
+			if r["warehouse_name"] == filters["warehouse_name"] and r["company"] == filters["company"]
+		]
+		return [{k: r[k] for k in fields} for r in hits[:limit]]
+
+	def get_doc(self, data):
+		store = self
+
+		class Doc:
+			name = f"{data['warehouse_name']} - RT"
+
+			def insert(self):
+				store.rows.append({**data, "name": self.name, "is_group": 0, "disabled": 0})
+				store.inserted.append(self.name)
+
+		return Doc()
+
+
+@pytest.fixture
+def warehouses(monkeypatch):
+	rows = [
+		{
+			"name": "All Warehouses - RT",
+			"warehouse_name": "All Warehouses",
+			"company": "Co",
+			"is_group": 1,
+			"disabled": 0,
+		},
+	]
+	store = _Warehouses(rows)
+	frappe = types.ModuleType("frappe")
+	frappe.get_all = store.get_all
+	frappe.get_doc = store.get_doc
+	frappe.db = types.SimpleNamespace(get_value=lambda *a, **k: "All Warehouses - RT")
+	monkeypatch.setitem(sys.modules, "frappe", frappe)
+	return store
+
+
+def _store(store_id, name):
+	return {"storeId": store_id, "displayName": name}
+
+
+def test_a_store_named_like_a_group_warehouse_gets_a_leaf_warehouse(warehouses):
+	name = site_ops._warehouse_for(_store("5f1e2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b", "All Warehouses"), "Co", {})
+	assert name != "All Warehouses - RT"
+	assert name.startswith("All Warehouses (5f1e2a3b)")
+
+
+def test_a_suffixed_name_owned_by_another_store_is_not_shared(warehouses):
+	a = _store("aaaaaaaa-0000-4000-8000-000000000001", "Main")
+	b = _store("bbbbbbbb-0000-4000-8000-000000000002", "Main")
+	c = _store("bbbbbbbb-0000-4000-8000-000000000003", "Main")  # same first eight characters as b
+	taken = {}
+	for store in (a, b, c):
+		taken[site_ops._warehouse_for(store, "Co", taken)] = store["storeId"]
+	assert len(set(taken)) == 3
+
+
+def test_an_unmapped_leaf_warehouse_from_an_earlier_run_is_reused(warehouses):
+	store = _store("aaaaaaaa-0000-4000-8000-000000000001", "Main")
+	first = site_ops._warehouse_for(store, "Co", {})
+	again = site_ops._warehouse_for(store, "Co", {})
+	assert first == again and warehouses.inserted == [first]
+
+
+def test_a_disabled_warehouse_is_skipped(warehouses):
+	warehouses.rows.append(
+		{"name": "Main - RT", "warehouse_name": "Main", "company": "Co", "is_group": 0, "disabled": 1}
+	)
+	name = site_ops._warehouse_for(_store("aaaaaaaa-0000-4000-8000-000000000001", "Main"), "Co", {})
+	assert name != "Main - RT"
+
+
+def test_bootstrap_sets_the_posting_currency_from_the_company_once(monkeypatch):
+	class Settings:
+		def __init__(self):
+			self.posting_currency = None
+			self.warehouse_map = []
+			self.store_customer_map = []
+
+		def append(self, table, row):
+			getattr(self, table).append(types.SimpleNamespace(**row))
+
+		def save(self):
+			pass
+
+	settings = Settings()
+	frappe = types.ModuleType("frappe")
+	frappe.flags = _Flags()
+	frappe.flags["rt_provisioner_no_commit"] = True
+	frappe.get_single = lambda name: settings
+	frappe.db = types.SimpleNamespace(
+		exists=lambda *a, **k: True,
+		get_value=lambda doctype, filters=None, fieldname=None, **k: (
+			"EGP" if doctype == "Company" else "Retail Walk-in"
+		),
+	)
+	monkeypatch.setitem(sys.modules, "frappe", frappe)
+	monkeypatch.setattr(site_ops, "_warehouse_for", lambda store, company, taken: "W - RT")
+	args = {
+		"company": "Co",
+		"walk_in_customer": "Retail Walk-in",
+		"stores": [_store("a" * 8 + "-0000-4000-8000-000000000001", "Main")],
+	}
+	site_ops.bootstrap_stores(args)
+	assert settings.posting_currency == "EGP"
+	settings.posting_currency = "USD"  # an operator's value is never overwritten
+	site_ops.bootstrap_stores(args)
+	assert settings.posting_currency == "USD"

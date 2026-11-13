@@ -10,6 +10,11 @@ run, Connector Settings through the document API, and the site config for marker
 into ERPNext tables, no hook, no override. BENCH-VALIDATION: ``tests/test_provisioner_site_ops_db.py``
 runs the template on a real site in the nightly bench lane.
 
+Validation note: perpetual inventory and the FIFO setting are written with ``db.set_value`` /
+``set_single_value``, which skip Company validation (safe on a brand-new Company, and the operation
+is a no-op once they hold the template value); the Mode of Payment, the Customer and the Warehouses
+go through document inserts, so ERPNext's own validations run for them.
+
 The credential secret arrives in the spec read from stdin, is assigned to the Connector Settings
 password field and is never logged, echoed or written to a file.
 """
@@ -271,17 +276,39 @@ def _walk_in_customer(customer_name: str) -> str:
 	return name
 
 
+def _warehouse_candidates(store: dict) -> list[str]:
+	"""The store's display name, then suffixed forms that get longer, ending with the full store id."""
+	label, store_id = store["displayName"], store["storeId"]
+	return [label, f"{label} ({store_id[:8]})", f"{label} ({store_id[:12]})", f"{label} ({store_id})"]
+
+
 def _warehouse_for(store: dict, company: str, taken: dict[str, str]) -> str:
-	"""Get-or-create the store's warehouse; a name already mapped to another store gets a suffix."""
+	"""Get-or-create a stock-holding warehouse for the store.
+
+	A candidate is reused only if it is an enabled leaf warehouse not mapped to another store (a
+	crashed earlier run may have created it); a group warehouse (ERPNext's own "All Warehouses"), a
+	disabled one, or one owned by another store is skipped and the next, longer candidate is tried."""
 	import frappe
 
-	label = store["displayName"]
-	existing = frappe.db.get_value("Warehouse", {"warehouse_name": label, "company": company}, "name")
-	if existing and taken.get(existing) not in (None, store["storeId"]):
-		label = f"{label} ({store['storeId'][:8]})"
-		existing = frappe.db.get_value("Warehouse", {"warehouse_name": label, "company": company}, "name")
-	if existing:
-		return existing
+	for label in _warehouse_candidates(store):
+		rows = frappe.get_all(
+			"Warehouse",
+			filters={"warehouse_name": label, "company": company},
+			fields=["name", "is_group", "disabled"],
+			limit=1,
+		)
+		if not rows:
+			return _insert_warehouse(label, company)
+		row = rows[0]
+		if row["is_group"] or row["disabled"] or taken.get(row["name"]) not in (None, store["storeId"]):
+			continue
+		return row["name"]
+	raise OpError("conflict", "no free warehouse name for the store")
+
+
+def _insert_warehouse(label: str, company: str) -> str:
+	import frappe
+
 	parent = frappe.db.get_value(
 		"Warehouse", {"company": company, "is_group": 1, "parent_warehouse": ["is", "not set"]}
 	)
@@ -302,6 +329,10 @@ def bootstrap_stores(args: dict) -> dict:
 	mapped = {r.store_id: r.warehouse for r in settings.warehouse_map or []}
 	taken = {warehouse: store for store, warehouse in mapped.items()}
 	customers = {r.store_id for r in settings.store_customer_map or []}
+	if not settings.posting_currency:
+		# Posting stays paused (a CRITICAL compatibility finding) while this is blank; it is the
+		# currency the Company was created in, which the profile compares it with.
+		settings.posting_currency = frappe.db.get_value("Company", company, "default_currency")
 	for store in args["stores"]:
 		if store["storeId"] not in mapped:
 			warehouse = _warehouse_for(store, company, taken)

@@ -23,7 +23,7 @@ from typing import Protocol
 
 from .bench import BenchRunner
 from .config import ProvisionerConfig
-from .errors import ErrorClass, ProvisioningError, scrub
+from .errors import ErrorClass, ProvisioningError
 
 LOG = logging.getLogger("rt.provisioner")
 SITE_COMMAND = "rt-provision-site-step"
@@ -72,14 +72,10 @@ class BenchGateway:
 		res = self._runner.run(argv, stdin=stdin, timeout=timeout, cwd=self._c.bench_path)
 		if res.returncode != 0:
 			command = args[0] if args[0] != "--site" else args[2]
-			# The output can hold tenant business content (a Company or Warehouse name in an error),
-			# so it stays in the host's own log, scrubbed, and never goes into the exception text.
-			LOG.warning(
-				"bench %s failed (exit %s): %s",
-				command,
-				res.returncode,
-				scrub((res.stderr or res.stdout)[-600:], 500),
-			)
+			# Neither logged nor put into the exception: the output can hold tenant business content
+			# (a Company or Warehouse name in an error) and, for new-site, the echo of its argument list.
+			# The operator reads the failure from bench itself (the command and its exit code are here).
+			LOG.warning("bench %s failed (exit %s)", command, res.returncode)
 			raise RuntimeError(f"bench {command} failed (exit {res.returncode})")
 		return res
 

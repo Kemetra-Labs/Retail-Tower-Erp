@@ -248,3 +248,43 @@ def test_tenant_requests_behind_many_skipped_kinds_are_still_reached(tmp_path):
 	env.feed.add()
 	results = _runner(env, tmp_path).run_once()["results"]
 	assert results[env.state.wire["provisioningRequestId"]] == "succeeded"
+
+
+def test_a_page_with_items_but_no_cursor_ends_the_pull_and_no_request_is_worked_twice(tmp_path):
+	from retail_tower_erpnext_connector.provisioner.feed_client import FeedClient, Page
+
+	env = Env()
+	env.feed.add()
+	request = env.pull()[0]
+	calls = []
+
+	class OnePageNoCursor(FeedClient):
+		def pull(self, cursor=None, limit=20):
+			calls.append(cursor)
+			return Page([request], "")
+
+	runner = ProvisionerRunner(
+		env.engine(), OnePageNoCursor(env.feed), FileLock(tmp_path / "p.lock"), clock=env.clock
+	)
+	assert runner.run_once()["results"] == {request.id: "succeeded"}
+	assert calls == [None]
+
+
+def test_a_repeated_cursor_ends_the_pull_and_dedupes(tmp_path):
+	from retail_tower_erpnext_connector.provisioner.feed_client import FeedClient, Page
+
+	env = Env()
+	env.feed.add()
+	request = env.pull()[0]
+	calls = []
+
+	class StuckCursor(FeedClient):
+		def pull(self, cursor=None, limit=20):
+			calls.append(cursor)
+			return Page([request], "same")
+
+	runner = ProvisionerRunner(
+		env.engine(), StuckCursor(env.feed), FileLock(tmp_path / "p.lock"), clock=env.clock
+	)
+	assert runner.run_once()["results"] == {request.id: "succeeded"}
+	assert calls == [None, "same"]

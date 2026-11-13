@@ -139,6 +139,17 @@ def _failure(exc: Exception) -> Exception:
 	return FeedUnavailable(type(exc).__name__)
 
 
+def _lease_expiry(resp) -> datetime:
+	"""``leaseExpiresAt`` of a 200 ack, as an aware datetime, or a protocol error."""
+	try:
+		expires = parse_time(resp.body["leaseExpiresAt"])
+	except (KeyError, TypeError, ValueError, AttributeError) as exc:
+		raise ProtocolError("ack: the response has no valid leaseExpiresAt") from exc
+	if expires.tzinfo is None:
+		raise ProtocolError("ack: leaseExpiresAt has no time zone")
+	return expires
+
+
 def _code(resp) -> str:
 	error = resp.body.get("error") if isinstance(resp.body, dict) else None
 	return error.get("code", "") if isinstance(error, dict) else ""
@@ -164,8 +175,12 @@ class FeedClient:
 			body = self._transport.get(_PULL_PATH, params=params, headers={})
 		except Exception as exc:
 			raise _failure(exc) from exc
+		if not isinstance(body, dict) or not isinstance(body.get("items", []), list):
+			raise ProtocolError("pull: the response is not a page object")
 		items = []
 		for wire in body.get("items", []):
+			if not isinstance(wire, dict):
+				continue
 			try:
 				items.append(ProvisioningRequest.from_wire(wire))
 			except ValueError:
@@ -196,7 +211,7 @@ class FeedClient:
 			raise _failure(exc) from exc
 		_checked(resp)
 		if resp.status == 200:
-			return parse_time(resp.body["leaseExpiresAt"])
+			return _lease_expiry(resp)
 		if resp.status == 409 and _code(resp) == "idempotency_key_conflict":
 			raise AttemptCollision(f"{step}:{attempt}")
 		if resp.status in (404, 409):
@@ -211,14 +226,19 @@ class FeedClient:
 		_checked(resp)
 		if resp.status == 201:
 			b = resp.body
-			return IssuedCredential(
-				b["credentialId"],
-				b["registrationId"],
-				b["issuedAt"],
-				b["expiresAt"],
-				bool(b["rotated"]),
-				b["secret"],
-			)
+			try:
+				return IssuedCredential(
+					b["credentialId"],
+					b["registrationId"],
+					b["issuedAt"],
+					b["expiresAt"],
+					bool(b["rotated"]),
+					b["secret"],
+				)
+			except (KeyError, TypeError, AttributeError) as exc:
+				raise ProtocolError(
+					f"credential: the response is incomplete ({type(exc).__name__})"
+				) from None
 		if resp.status == 404:
 			raise CredentialRefused(request_id)
 		raise ProtocolError(f"credential: HTTP {resp.status}")

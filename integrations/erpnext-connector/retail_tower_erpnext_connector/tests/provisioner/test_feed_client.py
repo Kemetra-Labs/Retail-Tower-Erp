@@ -180,3 +180,50 @@ def test_a_request_with_a_bad_id_is_dropped_from_the_page_not_worked(feed):
 	feed.add(**make_wire(provisioningRequestId="not-a-uuid"))
 	ids = [r.id for r in FeedClient(feed).pull().items]
 	assert ids == [REQUEST_ID]
+
+
+class _Body:
+	"""A transport whose responses are whatever the test says, to exercise malformed success bodies."""
+
+	def __init__(self, get=None, post=None):
+		self._get, self._post = get, post
+
+	def get(self, path, *, params, headers):
+		return self._get
+
+	def post(self, path, *, json, headers):
+		return self._post
+
+
+def test_a_pull_that_is_not_a_page_object_is_a_protocol_error():
+	from retail_tower_erpnext_connector.provisioner.errors import ProtocolError
+
+	for body in ([], "x", {"items": "no"}):
+		with pytest.raises(ProtocolError):
+			FeedClient(_Body(get=body)).pull()
+
+
+def test_a_page_item_that_is_not_an_object_is_dropped_not_fatal():
+	page = FeedClient(_Body(get={"items": ["x", make_wire()], "cursor": "c"})).pull()
+	assert [r.id for r in page.items] == [REQUEST_ID]
+
+
+@pytest.mark.parametrize(
+	"body",
+	[{}, {"leaseExpiresAt": None}, {"leaseExpiresAt": "soon"}, {"leaseExpiresAt": "2026-11-14T10:20:00"}],
+)
+def test_an_ack_without_a_valid_lease_is_a_protocol_error(body):
+	from retail_tower_erpnext_connector.provisioner.errors import ProtocolError
+	from retail_tower_erpnext_connector.provisioner.feed_client import Response
+
+	with pytest.raises(ProtocolError):
+		FeedClient(_Body(post=Response(200, {}, body))).ack(REQUEST_ID, "claimed", "done", 1)
+
+
+def test_an_incomplete_credential_response_is_a_protocol_error_and_names_no_secret():
+	from retail_tower_erpnext_connector.provisioner.errors import ProtocolError
+	from retail_tower_erpnext_connector.provisioner.feed_client import Response
+
+	with pytest.raises(ProtocolError) as err:
+		FeedClient(_Body(post=Response(201, {}, {"secret": SECRET}))).issue_credential(REQUEST_ID)
+	assert SECRET not in str(err.value)
