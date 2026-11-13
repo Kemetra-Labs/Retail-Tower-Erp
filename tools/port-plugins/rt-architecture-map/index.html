@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retail Tower architecture</title>
+<style id="port-theme"></style>
+<style>
+:root {
+  --card: var(--background-dim, #ffffff);
+  --text: var(--text-high, #111827);
+  --muted: var(--text-medium, #5b6472);
+  --border: var(--border-medium, rgba(15, 23, 42, 0.14));
+  --ok: #2fb67c; --warn: #e8962e; --bad: #e5484d; --idle: #8b95a7; --flow: #38bdf8;
+}
+html, body, #plugin-root { height: 100%; min-height: 100%; margin: 0; }
+body { background: transparent; color: var(--text); font-size: 13px; line-height: 1.4; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+::selection { background: rgba(56, 189, 248, 0.28); }
+#plugin-root { display: flex; flex-direction: column; min-height: 0; }
+.shell { flex: 1; min-height: 200px; display: flex; flex-direction: column; padding: 6px 14px 10px; box-sizing: border-box; }
+.bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 8px; color: var(--muted); font-size: 12px; }
+.summary { color: var(--text); font-weight: 600; font-size: 13px; }
+.summary.calm { color: var(--ok); } .summary.alert { color: var(--warn); } .summary.down { color: var(--bad); }
+.legend { display: inline-flex; gap: 14px; flex-wrap: wrap; }
+.key { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.d-ok { background: var(--ok); } .d-warn { background: var(--warn); } .d-bad { background: var(--bad); } .d-idle { background: var(--idle); }
+.sp { flex: 1; }
+button.refresh { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 7px; padding: 3px 10px; font: inherit; cursor: pointer; transition: color .2s, border-color .2s; }
+button.refresh:hover { color: var(--text); border-color: var(--muted); }
+button.refresh:focus-visible { outline: 2px solid var(--flow); outline-offset: 2px; }
+.stage { flex: 1; min-height: 0; min-width: 0; position: relative; }
+svg.map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); padding: 24px; }
+.msg.err { color: var(--bad); white-space: pre-wrap; }
+.lane-band { fill: var(--text); opacity: 0.025; }
+.lane-name { fill: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.lane-rule { stroke: var(--border); stroke-width: 1; }
+.grid-dot { fill: var(--text); opacity: 0.07; }
+.card { fill: var(--card); stroke: var(--border); stroke-width: 1.2; transition: stroke .2s; }
+.card.ok { stroke: rgba(47, 182, 124, 0.55); } .card.warn { stroke: rgba(232, 150, 46, 0.7); } .card.bad { stroke: var(--bad); stroke-width: 2; }
+.card.ext { stroke-dasharray: 6 5; fill: transparent; }
+.t-name { fill: var(--text); font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+.t-sub { fill: var(--muted); font-size: 11.5px; }
+.t-num { fill: var(--text); font-size: 22px; font-weight: 650; }
+.t-num.warn { fill: var(--warn); } .t-num.bad { fill: var(--bad); }
+.t-cap { fill: var(--muted); font-size: 10.5px; }
+.t-down { fill: var(--bad); font-size: 11px; font-weight: 600; }
+.t-route { fill: var(--muted); font-size: 11px; }
+.t-rule { fill: var(--bad); font-size: 11px; font-weight: 600; }
+.divider { stroke: var(--border); stroke-width: 1; }
+.icon { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.route { fill: none; stroke: var(--muted); stroke-opacity: 0.45; stroke-width: 1.6; }
+.route.no { stroke: var(--bad); stroke-opacity: 0.75; stroke-dasharray: 2 6; stroke-linecap: round; stroke-width: 2; }
+.packet { fill: var(--flow); }
+.lvl-pill { stroke: none; fill: var(--idle); }
+.lvl-Gold { fill: #d4a72c; } .lvl-Silver { fill: #a3acb9; } .lvl-Bronze { fill: #b8733e; } .lvl-Basic { fill: #5d7fae; } .lvl-none { fill: var(--idle); }
+.t-lvl { fill: #ffffff; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; }
+.t-lvl.dark { fill: #1f2328; }
+.pulse { fill: none; stroke-width: 2; }
+a.node { cursor: pointer; outline: none; }
+a.node .lift { transition: transform .35s cubic-bezier(.16, 1, .3, 1); }
+a.node:hover .lift, a.node:focus-visible .lift { transform: translateY(-3px); }
+a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
+@media (prefers-reduced-motion: reduce) {
+  a.node .lift { transition: none; }
+  .anim { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="plugin-root"><div class="shell">
+  <div class="bar">
+    <span class="summary" id="summary" aria-live="polite">Loading live status...</span>
+    <span class="legend">
+      <span class="key"><span class="dot d-ok"></span>Healthy</span>
+      <span class="key"><span class="dot d-warn"></span>Open Sentry issues</span>
+      <span class="key"><span class="dot d-bad"></span>Monitor down</span>
+      <span class="key"><span class="dot d-idle"></span>No monitor yet</span>
+    </span>
+    <span class="sp"></span>
+    <span id="updated"></span>
+    <button class="refresh" id="refresh" type="button">Refresh</button>
+  </div>
+  <div class="stage" id="stage"><div class="msg">Waiting for Port...</div></div>
+</div></div>
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var REFRESH_MS = 60000;
+  var state = { token: null, baseUrl: null, timer: null, loading: false, retried: false, lastSig: null, rendered: false };
+  var COLORS = { ok: "#2fb67c", warn: "#e8962e", bad: "#e5484d", idle: "#8b95a7" };
+  var STATUS_TEXT = { ok: "healthy", warn: "open Sentry issues", bad: "monitor down", idle: "no monitor yet" };
+  var W = 310, H = 128;
+
+  var LANES = [
+    { name: "Clients", y: 22, h: 168 },
+    { name: "Platform", y: 208, h: 152 },
+    { name: "Adapter", y: 378, h: 152 },
+    { name: "Ledger", y: 548, h: 112 }
+  ];
+  var NODES = [
+    { id: "pos", x: 170, y: 42, label: "POS", sub: "Windows cashier app" },
+    { id: "admin-console", x: 640, y: 42, label: "Admin-Console", sub: "Operator web console" },
+    { id: "backend-core", x: 405, y: 220, label: "Backend-Core", sub: "API and Worker, owns contracts" },
+    { id: "erpnext-connector", x: 405, y: 390, label: "ERPNext-Connector", sub: "The only ERPNext adapter" }
+  ];
+  var LEDGER = { x: 405, y: 566, w: 310, h: 78, label: "ERPNext / Frappe", sub: "External ledger, no Port signal" };
+  var ROUTES = [
+    { d: "M325,170 C325,198 500,192 500,220", label: "Sales and catalog sync", lx: 340, ly: 203, from: "pos" },
+    { d: "M795,170 C795,198 620,192 620,220", label: "Operator API", lx: 700, ly: 203, from: "admin-console" },
+    { d: "M560,348 L560,390", label: "Posting feed, Connector pulls", lx: 572, ly: 373, from: "backend-core" },
+    { d: "M560,518 L560,566", label: "Frappe documents", lx: 572, ly: 546, from: "erpnext-connector" }
+  ];
+  var FORBIDDEN = [
+    "M215,170 C190,330 250,560 405,604",
+    "M905,170 C930,330 870,560 715,604"
+  ];
+
+  function trustedApi(u) {
+    try { var x = new URL(u); return x.protocol === "https:" && /(^|\.)(getport\.io|port\.io)$/.test(x.hostname); } catch (e) { return false; }
+  }
+  function origin() {
+    try { if (document.referrer) return new URL(document.referrer).origin; } catch (e) {}
+    return "https://app.port.io";
+  }
+  function el(name, attrs, text) {
+    var n = document.createElementNS(NS, name);
+    if (attrs) Object.keys(attrs).forEach(function (k) { if (attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, String(attrs[k])); });
+    if (text != null) n.textContent = String(text);
+    return n;
+  }
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
+  function level(e) {
+    var s = e && e.scorecards && e.scorecards.observability_readiness;
+    return s && s.level ? s.level : null;
+  }
+  function status(e) {
+    var p = (e && e.properties) || {};
+    if (num(p.obs_monitors_not_ok) > 0) return "bad";
+    if (num(p.obs_unresolved_sentry_issues) > 0) return "warn";
+    if (num(p.obs_datadog_monitors) === 0 && p.runtime !== "desktop") return "idle";
+    return "ok";
+  }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function message(text, err) {
+    var stage = document.getElementById("stage");
+    clear(stage);
+    var d = document.createElement("div");
+    d.className = err ? "msg err" : "msg";
+    d.textContent = text;
+    stage.appendChild(d);
+  }
+
+  function icon(kind, x, y) {
+    var g = el("g", { transform: "translate(" + x + "," + y + ")", "class": "icon" });
+    if (kind === "issue") {
+      g.appendChild(el("path", { d: "M6 1 L11.5 10.5 L0.5 10.5 Z" }));
+      g.appendChild(el("path", { d: "M6 4.5 L6 7" }));
+    } else if (kind === "monitor") {
+      g.appendChild(el("path", { d: "M0 6 L3 6 L4.5 2 L7 10 L8.5 6 L12 6" }));
+    } else {
+      g.appendChild(el("circle", { cx: 2.5, cy: 2, r: 1.6 }));
+      g.appendChild(el("circle", { cx: 2.5, cy: 10, r: 1.6 }));
+      g.appendChild(el("circle", { cx: 9.5, cy: 10, r: 1.6 }));
+      g.appendChild(el("path", { d: "M2.5 3.6 L2.5 8.4 M9.5 8.4 L9.5 6 C9.5 4.5 8 3.5 6 3.5" }));
+    }
+    return g;
+  }
+
+  function stat(parent, x, y, kind, value, caption, tone) {
+    parent.appendChild(icon(kind, x, y - 15));
+    parent.appendChild(el("text", { x: x + 18, y: y, "class": "t-num" + (tone ? " " + tone : "") }, value));
+    parent.appendChild(el("text", { x: x, y: y + 17, "class": "t-cap" }, caption));
+  }
+
+  function drawNode(svg, n, e, link) {
+    var p = (e && e.properties) || {};
+    var st = e ? status(e) : "idle";
+    var color = COLORS[st];
+    var a = el("a", { "class": "node", href: link + "/serviceEntity?identifier=" + encodeURIComponent(n.id), target: "_blank", rel: "noopener" });
+    var spoken = n.label + ": " + STATUS_TEXT[st] + (e ? ", " + num(p.obs_unresolved_sentry_issues) + " open Sentry issues, " + num(p.obs_datadog_monitors) + " monitors, " + num(p.obs_monitors_not_ok) + " down. Open in Port" : ", not in the Port catalog");
+    a.setAttribute("aria-label", spoken);
+    a.appendChild(el("title", null, spoken));
+    var g = el("g", { "class": "lift" });
+    g.appendChild(el("rect", { x: n.x, y: n.y, width: W, height: H, rx: 14, "class": "card " + st, filter: "url(#lift-" + st + ")" }));
+
+    var dx = n.x + 24, dy = n.y + 29;
+    if (st === "warn" || st === "bad") {
+      var ring = el("circle", { cx: dx, cy: dy, r: 5, "class": "pulse anim", stroke: color });
+      ring.appendChild(el("animate", { attributeName: "r", values: "5;14", dur: "2.2s", repeatCount: "indefinite" }));
+      ring.appendChild(el("animate", { attributeName: "stroke-opacity", values: "0.7;0", dur: "2.2s", repeatCount: "indefinite" }));
+      g.appendChild(ring);
+    }
+    g.appendChild(el("circle", { cx: dx, cy: dy, r: 5, fill: color }));
+    g.appendChild(el("text", { x: n.x + 40, y: n.y + 35, "class": "t-name" }, n.label));
+    g.appendChild(el("text", { x: n.x + 24, y: n.y + 55, "class": "t-sub" }, n.sub + (p.runtime ? "  ·  " + p.runtime : "")));
+
+    var lv = e ? level(e) : null;
+    g.appendChild(el("rect", { x: n.x + W - 80, y: n.y + 17, width: 64, height: 22, rx: 11, "class": "lvl-pill " + (lv ? "lvl-" + lv : "lvl-none") }));
+    g.appendChild(el("text", { x: n.x + W - 48, y: n.y + 32, "text-anchor": "middle", "class": (lv === "Gold" || lv === "Silver") ? "t-lvl dark" : "t-lvl" }, lv ? lv.toUpperCase() : "N/A"));
+
+    g.appendChild(el("line", { x1: n.x + 16, y1: n.y + 70, x2: n.x + W - 16, y2: n.y + 70, "class": "divider" }));
+    if (e) {
+      var issues = num(p.obs_unresolved_sentry_issues);
+      var mons = num(p.obs_datadog_monitors);
+      var down = num(p.obs_monitors_not_ok);
+      stat(g, n.x + 24, n.y + 101, "issue", issues, "Sentry open", issues > 0 ? "warn" : "");
+      stat(g, n.x + 124, n.y + 101, "monitor", mons, down > 0 ? down + " down" : "Monitors", down > 0 ? "bad" : "");
+      stat(g, n.x + 214, n.y + 101, "pr", num(p.github_open_prs), "Open PRs", "");
+    } else {
+      g.appendChild(el("text", { x: n.x + 24, y: n.y + 102, "class": "t-sub" }, "Not in the Port catalog"));
+    }
+    a.appendChild(g);
+    svg.appendChild(a);
+  }
+
+  function filters(defs) {
+    Object.keys(COLORS).forEach(function (k) {
+      var f = el("filter", { id: "lift-" + k, x: "-20%", y: "-20%", width: "140%", height: "160%" });
+      f.appendChild(el("feDropShadow", { dx: 0, dy: 8, stdDeviation: 10, "flood-color": k === "idle" ? "#0f172a" : COLORS[k], "flood-opacity": k === "idle" ? 0.18 : 0.22 }));
+      defs.appendChild(f);
+    });
+    var pat = el("pattern", { id: "grid", width: 22, height: 22, patternUnits: "userSpaceOnUse" });
+    pat.appendChild(el("circle", { cx: 1, cy: 1, r: 1, "class": "grid-dot" }));
+    defs.appendChild(pat);
+  }
+
+  function packets(svg, d, i) {
+    for (var k = 0; k < 3; k++) {
+      var c = el("circle", { r: 3.6, "class": "packet anim", opacity: 0 });
+      var mo = el("animateMotion", { dur: "2.6s", repeatCount: "indefinite", begin: (k * 0.86 + i * 0.3).toFixed(2) + "s", path: d, calcMode: "spline", keyTimes: "0;1", keySplines: "0.4 0 0.2 1" });
+      c.appendChild(mo);
+      c.appendChild(el("animate", { attributeName: "opacity", values: "0;1;1;0", keyTimes: "0;0.15;0.8;1", dur: "2.6s", repeatCount: "indefinite", begin: (k * 0.86 + i * 0.3).toFixed(2) + "s" }));
+      svg.appendChild(c);
+    }
+  }
+
+  function render(byId) {
+    var link = origin();
+    var svg = el("svg", { viewBox: "0 0 1000 670", "class": "map", role: "group", "aria-label": "Retail Tower architecture with live status from Port" });
+    var defs = el("defs");
+    filters(defs);
+    svg.appendChild(defs);
+    svg.appendChild(el("rect", { x: 0, y: 0, width: 1000, height: 670, fill: "url(#grid)" }));
+
+    LANES.forEach(function (l, i) {
+      if (i % 2 === 0) svg.appendChild(el("rect", { x: 0, y: l.y, width: 1000, height: l.h, rx: 12, "class": "lane-band" }));
+      svg.appendChild(el("text", { x: 14, y: l.y + 24, "class": "lane-name" }, l.name));
+    });
+
+    FORBIDDEN.forEach(function (d) { svg.appendChild(el("path", { d: d, "class": "route no" })); });
+    svg.appendChild(el("text", { x: 14, y: 470, "class": "t-rule" }, "No direct path to ERPNext"));
+    svg.appendChild(el("text", { x: 14, y: 486, "class": "t-route" }, "POS and Admin-Console go"));
+    svg.appendChild(el("text", { x: 14, y: 501, "class": "t-route" }, "through Backend-Core only"));
+
+    ROUTES.forEach(function (r, i) {
+      svg.appendChild(el("path", { d: r.d, "class": "route" }));
+      svg.appendChild(el("text", { x: r.lx, y: r.ly, "class": "t-route" }, r.label));
+      packets(svg, r.d, i);
+    });
+
+    NODES.forEach(function (n) { drawNode(svg, n, byId[n.id], link); });
+
+    svg.appendChild(el("rect", { x: LEDGER.x, y: LEDGER.y, width: LEDGER.w, height: LEDGER.h, rx: 14, "class": "card ext" }));
+    svg.appendChild(el("text", { x: LEDGER.x + 24, y: LEDGER.y + 34, "class": "t-name" }, LEDGER.label));
+    svg.appendChild(el("text", { x: LEDGER.x + 24, y: LEDGER.y + 55, "class": "t-sub" }, LEDGER.sub));
+
+    var stage = document.getElementById("stage");
+    clear(stage);
+    stage.appendChild(svg);
+  }
+
+  function summarize(byId) {
+    var need = 0, down = 0, total = 0, idle = 0, missing = 0;
+    NODES.forEach(function (n) {
+      var e = byId[n.id];
+      if (!e) { missing++; return; }
+      total++;
+      var s = status(e);
+      if (s === "warn" || s === "bad") need++;
+      if (s === "bad") down++;
+      if (s === "idle") idle++;
+    });
+    // No telemetry is not healthy: services without a monitor or absent from the catalog are named, never counted as healthy.
+    var gaps = [];
+    if (idle > 0) gaps.push(idle + " with no monitor");
+    if (missing > 0) gaps.push(missing + " not in the catalog");
+    var tail = gaps.length ? " (" + gaps.join(", ") + ")" : "";
+    var out = document.getElementById("summary");
+    if (down > 0) { out.className = "summary down"; out.textContent = down + " service" + (down > 1 ? "s have" : " has") + " a monitor down" + tail; }
+    else if (need > 0) { out.className = "summary alert"; out.textContent = need + " of " + NODES.length + " services need attention" + tail; }
+    else if (total === 0) { out.className = "summary"; out.textContent = "No services found in Port"; }
+    else if (gaps.length) { out.className = "summary"; out.textContent = "No telemetry for some services: " + gaps.join(", "); }
+    else { out.className = "summary calm"; out.textContent = "All " + total + " services healthy"; }
+  }
+
+  function requestToken() {
+    if (window.parent !== window) window.parent.postMessage({ type: "REQUEST_PORT_TOKEN" }, "*");
+  }
+
+  function load() {
+    if (!state.token || !state.baseUrl || state.loading) return;
+    state.loading = true;
+    fetch(state.baseUrl.replace(/\/+$/, "") + "/v1/blueprints/service/entities/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.token },
+      // Only the displayed services: Port pages results (default 200), so an unfiltered search could miss one.
+      body: JSON.stringify({ query: { combinator: "and", rules: [{ property: "$identifier", operator: "in", value: NODES.map(function (n) { return n.id; }) }] }, limit: NODES.length })
+    }).then(function (res) {
+      return res.text().then(function (body) {
+        if (res.status === 401) {
+          state.token = null;
+          if (!state.retried) {
+            state.retried = true;
+            requestToken();
+            throw new Error("Your Port session expired. Retrying with a new session.");
+          }
+          throw new Error("Your Port session expired and the new session was also rejected. Reload the dashboard.");
+        }
+        if (!res.ok) throw new Error("Port API " + res.status + ": " + body);
+        return JSON.parse(body);
+      });
+    }).then(function (data) {
+      state.retried = false;
+      var byId = {};
+      (data.entities || []).forEach(function (e) { byId[e.identifier] = e; });
+      var sig = JSON.stringify(NODES.map(function (n) { var e = byId[n.id]; return e ? [e.properties, level(e)] : null; }));
+      if (sig !== state.lastSig || !state.rendered) { render(byId); state.lastSig = sig; state.rendered = true; }
+      summarize(byId);
+      document.getElementById("updated").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }).catch(function (err) {
+      showError(err && err.message ? err.message : String(err));
+    }).then(function () { state.loading = false; });
+  }
+
+  // Keeps the last map when there is one and puts the error in the status bar; otherwise shows it in the stage.
+  function showError(text) {
+    if (state.rendered) {
+      var out = document.getElementById("summary");
+      out.className = "summary down";
+      out.textContent = "Showing last data. " + text;
+    } else {
+      message("Could not load services.\n" + text, true);
+      var live = document.getElementById("summary");
+      live.className = "summary down";
+      live.textContent = "Could not load live status. " + text;
+    }
+  }
+
+  window.addEventListener("message", function (ev) {
+    if (!ev || ev.source !== window.parent) return;
+    var d = ev.data;
+    if (!d || typeof d !== "object") return;
+    if (d.type === "PORT_TOKEN" && typeof d.token === "string") { state.token = d.token; load(); }
+    else if (d.type === "PLUGIN_DATA") {
+      if (typeof d.baseUrl === "string") {
+        if (trustedApi(d.baseUrl)) state.baseUrl = d.baseUrl;
+        else showError("Untrusted Port API host. The map only talks to https port.io or getport.io hosts.");
+      }
+      if (d.theme && typeof d.theme.css === "string") document.getElementById("port-theme").textContent = d.theme.css;
+      load();
+    }
+  });
+  document.getElementById("refresh").addEventListener("click", function () { state.retried = false; state.lastSig = null; requestToken(); load(); });
+
+  if (window.parent === window) {
+    message("Open this widget inside Port to see live data.", false);
+  } else {
+    requestToken();
+    state.timer = setInterval(function () { state.retried = false; requestToken(); load(); }, REFRESH_MS);
+  }
+})();
+</script>
+</body>
+</html>
