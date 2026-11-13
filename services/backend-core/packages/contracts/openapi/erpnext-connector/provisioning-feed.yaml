@@ -1,0 +1,1360 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — ERP Provisioning Feed and Provisioner Credential API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1356 (Epic RT-1332; RT-1352 breakdown item PB-A). The contract
+    between Backend-Core and the Connector's tenant provisioner: the feed the
+    provisioner PULLS provisioning requests from, the step acknowledgements, the
+    one-time issue of a tenant's connector credential, and the final outcome,
+    plus the platform-admin routes that issue, rotate and revoke the
+    provisioner's own credential. It is the shape that the provisioning
+    migration (PB-B), the Backend-Core service (PB-C) and the Connector
+    provisioner (PC-A) build against.
+
+
+    **Posture.** `1.0.0-draft`. Every operation carries `x-runtime-status:
+    contract-only` with an `x-runtime-note`: nothing here is served yet. This
+    file claims no runtime behaviour. `[GATED: contract]`. Source: the
+    owner-approved RT-1352 design (Confluence page 76152835, version 4),
+    sections 4.3 to 4.7, 4.11 and 5, and the owner decisions OD-1 to OD-12
+    (RT-1352 comment 16764). The owner waived the PV0 bench spike (RT-1355) for
+    this contract-only slice on 2026-11-13; if PV0 contradicts a rule here, a
+    follow-up contract change adjusts it. This file is additive: no existing
+    operation changes, and the RT-1353 and RT-1350 contracts are untouched.
+
+
+    **Direction (pull model).** The provisioner calls Backend-Core; Backend-Core
+    never calls the ERP host. Status for the Platform Console is read from
+    Backend-Core's own state, written by each acknowledgement; the Console never
+    talks to the provisioner. The Console routes (status, retry, cancel,
+    restart) are NOT here: they belong to RT-1333 item 6 with their own
+    contract.
+
+
+    **Principal.** The feed is authenticated by `connectorProvisionerBearer`, a
+    NEW platform-scope machine credential that is tenant-independent. A new
+    tenant's site has no credential yet, and the existing `connector` scope is
+    tied to one tenant and one registration, so it cannot be used. One
+    provisioner credential exists per ERP host. It is not a tenant credential
+    and it cannot read or acknowledge any tenant's posting feed. Revoking it
+    stops all provisioning (new sites, store provisioning, rotation) and no
+    posting: posting uses the separate per-tenant credentials.
+
+
+    **Request.** `provisioningRequestId` is the idempotency key of the request
+    and is created by Backend-Core. There is at most one active
+    `tenant.provision` request per tenant, and a second unlock returns the same
+    request. The kinds are `tenant.provision`, `store.provision` and
+    `credential.rotate`. `generation` increments only when an operator restarts
+    a request after compensation. `siteName` is derived by Backend-Core from the
+    tenant id (never from the slug or business name); the provisioner verifies
+    it and fails the request as `conflict` if a site with that name belongs to
+    another tenant. The template id and version are frozen into the request.
+
+
+    **Status model (Backend-Core, per request).**
+
+    `requested`, `claimed`, `site_created`, `erp_configured`,
+    `connector_installed`, `credential_bound`, `verifying`, `succeeded`; and on
+    the failure side `failed_retryable`, `failed_permanent`, `compensating`,
+    `compensated`, `cancelled`. `succeeded` means: the site marker is present,
+    one Company exists and `default_company` is set, the template version is
+    applied, the Connector is installed with its exactly-once indexes, the
+    credential is bound, the first heartbeat is healthy in Backend-Core, the
+    compatibility status is OK, and every store that existed at request time
+    has its warehouse and customer mapping acknowledged. The status is kept by
+    Backend-Core and returned nowhere on this surface; the wire carries only
+    `StepName` and `StepOutcome`. The recorded step is a display and audit
+    trail, not the source of truth for what exists on the site: after a crash
+    or a lost acknowledgement the provisioner re-reads the site and continues.
+    Every step has a check (already done?) and an apply, so every
+    acknowledgement is safe to repeat.
+
+
+    **Lease.** The first acknowledgement (`claimed`) takes a time-limited lease;
+    each progress acknowledgement renews it. An expired lease returns the
+    request to `requested` for the next pull, so an expired-lease request is
+    re-offered. Pull returns requests in `requested`, or `claimed` with an
+    expired lease, oldest first. A call that depends on a lease the caller no
+    longer holds is refused with `409 lease_lost` on the step acknowledgement
+    and the outcome. Another provisioner's lease is never disclosed.
+
+
+    **Error classes.** The step outcomes reuse the posting feed vocabulary
+    (`failed_transient`, `permanently_rejected`) plus `conflict`, `capacity`,
+    `compatibility` and `dependency`.
+      - `failed_transient`: database unavailable, lock held, timeout, Backend-Core
+        unreachable. Retry with backoff; after the cap the request becomes
+        `failed_permanent` with an alert.
+      - `permanently_rejected` (with a `reason`): unknown template version,
+        unsupported country or currency, invalid request. Stop; an operator fixes
+        the request and restarts it.
+      - `conflict`: the site name exists with another tenant's marker, or a
+        second Company is found on the site. Stop, never adopt, alert.
+      - `capacity`: disk, memory or site-count ceiling reached. Hold, retry
+        later, alert the operator.
+      - `compatibility`: ERPNext or Frappe outside the supported line, or the
+        compatibility profile reports CRITICAL. Stop.
+      - `dependency`: Backend-Core refused the credential claim (registration
+        disabled, tenant no longer eligible). Stop and compensate.
+    Error detail on an acknowledgement is scrubbed by the provisioner: no
+    secret, token, password or tenant business content is sent or logged.
+
+
+    **Provisioned credential (constraints).** `connectorIssueProvisionedCredential`
+    is the only way a managed tenant credential reaches a site.
+      - It is LEASE-BOUND and MANAGED-ONLY: it succeeds only for a managed
+        connector registration (`managed_by` = provisioner) whose request the
+        calling provisioner currently holds a live lease on. Any other call (no
+        live lease, a registration that is not managed, another provisioner's
+        lease, an unknown request, or a request not in a state that allows
+        issue) is the same non-disclosing `404 not_found`, with no side
+        effects. The provisioner reports that refusal as the `dependency`
+        outcome.
+      - It is AUDITED with the request id and the lease id, in the same
+        transaction as the issue, like the other connector lifecycle actions.
+      - The SECRET IS RETURNED ONCE, in the response body, with
+        `Cache-Control: no-store`. It is never logged, never stored in
+        Backend-Core in a recoverable form, and never kept in an idempotency
+        store. The provisioner writes it in-process into the site's Connector
+        Settings: never on a command line, in the environment, in logs or in a
+        file.
+      - A REPEAT for a credential that has never been presented (the registration
+        is still `never_seen`) is a ROTATION: Backend-Core revokes the earlier
+        credential and issues a new one in one transaction. That is safe because
+        nothing could have used the lost one. This is the lost-response
+        recovery: the provisioner first checks the site (a stored credential id
+        means the step is done) and otherwise repeats the call. A repeat for a
+        credential that HAS been presented is refused as the same `404`.
+      - The expiry of a managed tenant credential is set by Backend-Core, not by
+        the caller. This call takes no body.
+
+
+    **Provisioner credential routes (platform admin, session only).** Three
+    operations let a platform admin issue, rotate and revoke the provisioner
+    credential, one per ERP host (decision OD-12; no Console UI in this slice).
+    The credential is short-lived: Backend-Core sets its expiry, which is at
+    most 30 days from issue or rotation, and every issue and rotate response
+    carries `expiresAt`; the caller sends no expiry. The secret is returned once
+    with `Cache-Control: no-store` and is never logged. Every call is audited
+    with the acting platform admin, the host label, the credential id and the
+    request id, and the secret never appears in an audit row or a log. There is
+    one live credential per host label and no list route, so rotate and revoke
+    are addressed by `hostLabel`; the responses still return `credentialId` for
+    audit correlation. A second issue for a host label that already has a live
+    credential is `409 conflict`: rotate it instead. Rotate and revoke for a
+    host label with no live credential are `404 not_found`. Revoking stops
+    provisioning and never posting.
+
+
+    **Auth and scope.** The three platform routes accept the HUMAN `cookieAuth`
+    session only (`SessionOnlyAdminGuard`): a bearer-only request is `401`; a
+    cookie write without a trusted `Origin` is `403 origin_rejected` (RT-430); a
+    caller who is not a platform admin (`users.is_platform_admin`) is `403
+    forbidden`. The four feed operations accept `connectorProvisionerBearer`
+    only; a tenant `connector` bearer, a cookie session and a device credential
+    are refused with the generic `401`.
+
+
+    Response bodies are explicit projections, never database rows (§IV). They
+    carry no password, no database credential and no site Administrator
+    credential: the Administrator password is generated on the site, never
+    stored and never sent here (decision OD-9).
+
+
+    **Fiscal posture.** The outcome reports `fiscalReadiness: not_assessed`.
+    The template creates an accounting structure only (no tax templates, no
+    regional compliance app, no e-invoice setup), so no screen may claim that
+    a tenant is fiscally ready (Fiscal decisions 1248 to 1270).
+
+
+    **Notes for implementers (wording only).** The status model above has a
+    `verifying` state while `StepName` names the step `verified`: the step
+    acknowledgement `verified` / `done` moves the request from `verifying` to
+    the outcome call. `compatibility` and `dependency` exist as step outcomes
+    only; the terminal `ProvisioningOutcome.outcome` is `succeeded`,
+    `permanently_rejected` or `conflict`, and a `compatibility` or
+    `dependency` step outcome is followed by a terminal
+    `permanently_rejected` outcome whose `reason` names it.
+
+x-runtime-note: >
+  Every operation in this file is contract-only. The runtime ships with the
+  provisioning service (RT-1352 PB-C) after the migration (PB-B); the Connector
+  provisioner consumes it in PC-A. The `/api/connector/v1/erpnext/provisioning`
+  prefix keeps the existing `/api/connector/v1/erpnext/` family.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: erpnext-provisioning
+    description: >
+      ERP provisioning feed (pull), step acknowledgement, one-time credential
+      issue and outcome, authenticated by the provisioner bearer.
+  - name: erpnext-provisioner-credential
+    description: >
+      Platform-admin issue, rotate and revoke of the provisioner credential, one
+      per ERP host.
+
+paths:
+  /api/connector/v1/erpnext/provisioning/requests:
+    get:
+      summary: Pull provisioning requests that need a provisioner.
+      operationId: connectorPullProvisioningRequests
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioning]
+      security:
+        - connectorProvisionerBearer: []
+      description: >
+        Returns requests in `requested`, or `claimed` with an expired lease,
+        oldest first, after the supplied opaque `cursor`. Re-requesting the
+        same cursor yields the same logical set (idempotent replay). Pulling
+        does not take a lease: the lease is taken by the first acknowledgement
+        (`claimed`). A request whose lease is live for another provisioner is
+        not returned. Scope is the provisioner principal only, which is
+        tenant-independent; query scope is never trusted. A cursor that cannot
+        be served is a `400 validation_error`; the provisioner re-pulls from the
+        start (omit `cursor`), which is safe because acknowledgements are
+        idempotent.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: >
+            A page of provisioning requests, oldest first, with the advanced
+            opaque cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvisioningRequestPage"
+              examples:
+                tenantProvision:
+                  summary: One new-tenant request.
+                  value:
+                    items:
+                      - provisioningRequestId: "7b0f3c1e-3f1a-4a52-9c1c-0a8f6d2f6a11"
+                        kind: tenant.provision
+                        tenantId: "0b9a3f0e-6c5d-4e2a-8d52-3a6f1b9c7d10"
+                        generation: 1
+                        siteName: "t0b9a3f0e6c5d4e2a8d52-pilot"
+                        template:
+                          templateId: egypt-retail
+                          templateVersion: 1
+                        locale:
+                          country: EG
+                          currency: EGP
+                          timezone: Africa/Cairo
+                          language: ar
+                        legalName: "Example Trading Co"
+                        connectorRegistrationId: "3d2c7f60-91a4-4c0b-9f3e-6f1c2a8b4e55"
+                        environment: pilot
+                        stores: []
+                    cursor: "opaque-cursor-1"
+                    next_page_token: null
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/FeedUnauthorized"
+        "403":
+          $ref: "#/components/responses/FeedForbidden"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/connector/v1/erpnext/provisioning/requests/{requestId}/steps:
+    post:
+      summary: Acknowledge one provisioning step, taking or renewing the lease.
+      operationId: connectorAckProvisioningStep
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioning]
+      security:
+        - connectorProvisionerBearer: []
+      description: >
+        Reports the outcome of one step of one request. The first call for a
+        request is the `claimed` step with outcome `done`, which takes the
+        lease; every later call renews it and returns the new
+        `leaseExpiresAt`. Backend-Core records the step for the Console and the
+        audit trail (`erp.provisioning.*`) and moves the request's status; the
+        provisioner remains the source of truth for what exists on the site.
+
+        Idempotency: the `Idempotency-Key` header is REQUIRED and has the form
+        `{requestId}:{step}:{attempt}`. A replay of the same key with the same
+        body returns the stored result with `Idempotent-Replayed: true` and
+        changes nothing. The same key with a different `outcome` is `409
+        idempotency_key_conflict`.
+
+        A step outcome other than `done` carries an `errorClass` (equal to the
+        outcome) and, for `permanently_rejected`, a `reason`. Backend-Core
+        applies the handling of each class (see the file description): it
+        schedules a retry with backoff for `failed_transient` (at most three
+        transient retries per step, then `failed_permanent` with an alert),
+        holds for `capacity`, and stops for the others. A caller who does not
+        hold a live lease on the request gets `409 lease_lost`, except for the
+        `claimed` step on a request that is `requested`, which takes the
+        lease. `detail` is scrubbed by the caller and is stored for the audit
+        trail only.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StepAck"
+            examples:
+              claimed:
+                summary: Claim a request (takes the lease).
+                value:
+                  step: claimed
+                  outcome: done
+                  attempt: 1
+              siteCreated:
+                summary: The site exists and carries this tenant's marker.
+                value:
+                  step: site_created
+                  outcome: done
+                  attempt: 1
+              capacityHold:
+                summary: The per-bench site ceiling is reached.
+                value:
+                  step: site_created
+                  outcome: capacity
+                  attempt: 1
+                  errorClass: capacity
+                  detail: "site-count ceiling reached"
+      responses:
+        "200":
+          description: >
+            The step was recorded, or it is an idempotent replay
+            (`Idempotent-Replayed: true`). Returns the lease expiry.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepAckResult"
+              examples:
+                renewed:
+                  value:
+                    requestId: "7b0f3c1e-3f1a-4a52-9c1c-0a8f6d2f6a11"
+                    step: site_created
+                    leaseExpiresAt: "2026-11-14T10:20:00Z"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/FeedUnauthorized"
+        "403":
+          $ref: "#/components/responses/FeedForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/FeedConflict"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/connector/v1/erpnext/provisioning/requests/{requestId}/credential:
+    post:
+      summary: Issue the tenant connector credential once, lease-bound.
+      operationId: connectorIssueProvisionedCredential
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioning]
+      security:
+        - connectorProvisionerBearer: []
+      description: >
+        Issues the connector credential of the managed registration named by the
+        request, for the provisioner to write into the site's Connector
+        Settings. This is the most powerful call of the surface, so it is
+        constrained (see "Provisioned credential" in the file description):
+        LEASE-BOUND to the calling provisioner's live lease on `{requestId}`,
+        MANAGED-ONLY, AUDITED with the request id and lease id in the same
+        transaction, and the SECRET IS RETURNED ONCE with `Cache-Control:
+        no-store`; it is never logged or stored recoverably. A REPEAT call for a
+        credential that has never been presented (the registration is still
+        `never_seen`) is a ROTATION: the earlier credential is revoked and a new
+        one issued in one transaction; a repeat after the credential has been
+        presented is refused. Any call that is not for a managed registration
+        under the caller's live lease is the same non-disclosing `404`, with no
+        side effects. The call takes no request body and no `Idempotency-Key`:
+        its repeat rule is the rotation above, because an idempotent replay
+        would have to store the secret.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "201":
+          description: >
+            The credential was issued (or rotated, on a repeat for a
+            never-presented credential). The secret is in this response only.
+          headers:
+            Cache-Control:
+              description: Always `no-store`; the body holds a secret.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedProvisionedCredential"
+              examples:
+                issued:
+                  value:
+                    credentialId: "9a4e1d2b-7c3f-4b86-8e0a-5d1f3c7a9b22"
+                    registrationId: "3d2c7f60-91a4-4c0b-9f3e-6f1c2a8b4e55"
+                    secret: "example-secret-shown-once-not-a-real-credential"
+                    issuedAt: "2026-11-14T10:00:00Z"
+                    expiresAt: "2027-11-14T10:00:00Z"
+                    rotated: false
+        "401":
+          $ref: "#/components/responses/FeedUnauthorized"
+        "403":
+          $ref: "#/components/responses/FeedForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/connector/v1/erpnext/provisioning/requests/{requestId}/outcome:
+    post:
+      summary: Report the final outcome of a provisioning request.
+      operationId: connectorCompleteProvisioning
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioning]
+      security:
+        - connectorProvisionerBearer: []
+      description: >
+        Reports the terminal outcome. `succeeded` carries `result`: the site,
+        company and template version, the versions found, `fiscalReadiness:
+        not_assessed`, and per store the `warehouseRef` and `customerRef`
+        Backend-Core records (for stores that existed at request time). A
+        `permanently_rejected` or `conflict` outcome carries a `reason`.
+        Backend-Core, not the provisioner, decides what `succeeded` does to
+        the tenant's access state; the outcome never lifts a restriction by
+        itself on this contract.
+
+        Requires the caller's live lease on `{requestId}`; otherwise `409
+        lease_lost`. The `Idempotency-Key` header is REQUIRED (`{requestId}:outcome:{attempt}`
+        form is recommended; the shared 16 to 128 printable ASCII rule applies):
+        the same key and body replay the stored result with
+        `Idempotent-Replayed: true`; a different outcome under the same key is
+        `409 idempotency_key_conflict`. A repeat of the same logical outcome is
+        an idempotent 200.
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvisioningOutcome"
+            examples:
+              succeeded:
+                value:
+                  outcome: succeeded
+                  result:
+                    siteName: "t0b9a3f0e6c5d4e2a8d52-pilot"
+                    companyRef: "Example Trading Co"
+                    templateVersion: 1
+                    erpnextVersion: "16.51.0"
+                    frappeVersion: "16.52.0"
+                    connectorVersion: "1.0.0"
+                    fiscalReadiness: not_assessed
+                    stores:
+                      - storeId: "5f1e2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b"
+                        warehouseRef: "Main Store - RT"
+                        customerRef: "Retail Walk-in"
+              conflict:
+                value:
+                  outcome: conflict
+                  reason: "site name exists with another tenant marker"
+      responses:
+        "200":
+          description: >
+            The outcome was recorded, or it is an idempotent replay
+            (`Idempotent-Replayed: true`).
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordedProvisioningOutcome"
+              examples:
+                recorded:
+                  value:
+                    requestId: "7b0f3c1e-3f1a-4a52-9c1c-0a8f6d2f6a11"
+                    outcome: succeeded
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/FeedUnauthorized"
+        "403":
+          $ref: "#/components/responses/FeedForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/FeedConflict"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/erp-provisioner-credentials:
+    post:
+      summary: Issue the provisioner credential for one ERP host (platform admin).
+      operationId: platformIssueProvisionerCredential
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioner-credential]
+      security:
+        - cookieAuth: []
+      description: >
+        Issues the platform-scope provisioner credential for the ERP host named
+        by `hostLabel`. At most one live credential exists per host label: a
+        second issue for a label that already has one is `409 conflict` (rotate
+        it instead). The secret is returned ONCE with `Cache-Control: no-store`
+        and is never logged or stored recoverably. Its expiry is set by
+        Backend-Core, is at most 30 days from issue, and is returned as
+        `expiresAt`. The owner puts the secret into the host's secret store; it
+        is never placed in an image, an environment, a log or a command line.
+        Audited, in the same transaction, with the acting platform admin, the
+        host label, the credential id and the request id; the secret never
+        appears in audit or logs. A platform admin only
+        (`users.is_platform_admin`), session only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueProvisionerCredentialRequest"
+            examples:
+              lab:
+                value:
+                  hostLabel: lab-03
+      responses:
+        "201":
+          description: The credential was issued. The secret is in this response only.
+          headers:
+            Cache-Control:
+              description: Always `no-store`; the body holds a secret.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedProvisionerCredential"
+              examples:
+                issued:
+                  value:
+                    credentialId: "c1a2b3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+                    hostLabel: lab-03
+                    secret: "example-secret-shown-once-not-a-real-credential"
+                    issuedAt: "2026-11-14T09:00:00Z"
+                    expiresAt: "2026-12-14T09:00:00Z"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/PlatformUnauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformForbidden"
+        "409":
+          $ref: "#/components/responses/PlatformConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/erp-provisioner-credentials/{hostLabel}/rotate:
+    post:
+      summary: Rotate the provisioner credential (platform admin).
+      operationId: platformRotateProvisionerCredential
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioner-credential]
+      security:
+        - cookieAuth: []
+      description: >
+        Atomically revokes the live credential of `{hostLabel}` and issues a new
+        one for the same host, in one transaction: the old secret is revoked
+        when the new one is issued. The new secret is returned ONCE with
+        `Cache-Control: no-store`; its expiry is set by Backend-Core, is at most
+        30 days from rotation, and is returned as `expiresAt`. If the response
+        is lost, the admin rotates again. Rotation replaces the stored secret
+        on the host and restarts the provisioner process. A host label with no
+        live credential (never issued, revoked or expired) is `404 not_found`;
+        issue a new credential instead. Every call is audited with the acting
+        platform admin, the host label, the new and the revoked credential id
+        and the request id; the secret never appears in audit or logs. A
+        platform admin only, session only.
+      parameters:
+        - $ref: "#/components/parameters/HostLabel"
+      responses:
+        "201":
+          description: The new credential was issued. The secret is in this response only.
+          headers:
+            Cache-Control:
+              description: Always `no-store`; the body holds a secret.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedProvisionerCredential"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/PlatformUnauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/erp-provisioner-credentials/{hostLabel}/revoke:
+    post:
+      summary: Revoke the provisioner credential (platform admin).
+      operationId: platformRevokeProvisionerCredential
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
+        when it does.
+      tags: [erpnext-provisioner-credential]
+      security:
+        - cookieAuth: []
+      description: >
+        Revokes the live credential of `{hostLabel}`. Revocation STOPS
+        PROVISIONING (new sites, store provisioning, rotation) and NEVER
+        POSTING: tenant connector credentials are separate, so existing tenants
+        keep selling. Requests under a lease held through this credential become
+        re-offered when the lease expires. A host label with no live credential
+        (never issued, already revoked or expired) is `404 not_found`. The call
+        is audited with the acting platform admin, the host label, the
+        credential id and the request id; no secret is involved. A platform
+        admin only, session only. No request body.
+      parameters:
+        - $ref: "#/components/parameters/HostLabel"
+      responses:
+        "200":
+          description: The credential is revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokedProvisionerCredential"
+              examples:
+                revoked:
+                  value:
+                    credentialId: "c1a2b3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+                    hostLabel: lab-03
+                    revokedAt: "2026-11-20T08:00:00Z"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/PlatformUnauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    connectorProvisionerBearer:
+      type: http
+      scheme: bearer
+      description: >
+        OPAQUE, REVOCABLE machine bearer presented as `Authorization: Bearer
+        <token>`: the platform-scope provisioner credential, tenant-independent,
+        one per ERP host, short-lived, issued and rotated by a platform admin
+        (`platformIssueProvisionerCredential`). It is NOT a tenant `connector`
+        credential, NOT a device credential and NOT a human cookie session, and
+        it cannot read or acknowledge any tenant's posting feed. The feed
+        operations accept no other scheme. Verified at the API edge and
+        fail-closed; the token is not propagated past the verifier.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: >
+        The opaque `cursor` returned by a prior pull page. Opaque: clients MUST
+        NOT decode or construct it. Omit to pull from the start.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: >
+        Maximum requests per page. The server MAY return fewer. Provisioning is
+        one site at a time per host, so pages are small.
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The `provisioningRequestId` of a pulled request.
+    HostLabel:
+      name: hostLabel
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: "^[a-z0-9][a-z0-9-]*$"
+      description: >
+        The ERP host label the credential was issued for. One live credential
+        exists per label.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as
+        the shared `IdempotencyInterceptor` enforces. On a step acknowledgement
+        the form is `{requestId}:{step}:{attempt}`. Keyed on `(method, route,
+        clientId = the provisioner principal, key)`. No new idempotency
+        primitive is introduced.
+
+  headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a 200 idempotent replay. Absent on a first record.
+      schema:
+        type: boolean
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  schemas:
+    RequestKind:
+      type: string
+      enum: [tenant.provision, store.provision, credential.rotate]
+      description: >
+        `tenant.provision`: create the tenant's ERP site, company and template.
+        `store.provision`: provision one store's warehouse and customer mapping.
+        `credential.rotate`: rotate a managed connector credential and deliver
+        the new secret to the site.
+
+    StepName:
+      type: string
+      enum: [claimed, site_created, erp_configured, connector_installed, credential_bound, verified]
+      description: >
+        The step being acknowledged. `claimed` takes the lease. `verified` is
+        the last step: the first heartbeat is healthy in Backend-Core, the
+        compatibility status is OK and every store map is acknowledged.
+
+    StepOutcome:
+      type: string
+      enum: [done, failed_transient, permanently_rejected, conflict, capacity, compatibility, dependency]
+      description: >
+        `done`, or an error class (see the file description for the handling of
+        each class).
+
+    ErrorClass:
+      type: string
+      enum: [failed_transient, permanently_rejected, conflict, capacity, compatibility, dependency]
+
+    FiscalReadiness:
+      type: string
+      enum: [not_assessed]
+      description: >
+        Always `not_assessed`. The template is an accounting structure only, so
+        no screen may claim fiscal readiness.
+
+    Template:
+      type: object
+      additionalProperties: false
+      required: [templateId, templateVersion]
+      description: >
+        The code-owned versioned company template, frozen into the request. A
+        new template version never rewrites an existing site.
+      properties:
+        templateId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The template id, for example `egypt-retail`.
+        templateVersion:
+          type: integer
+          minimum: 1
+
+    Locale:
+      type: object
+      additionalProperties: false
+      required: [country, currency, timezone, language]
+      properties:
+        country:
+          type: string
+          pattern: "^[A-Z]{2}$"
+          description: ISO 3166-1 alpha-2.
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: ISO 4217.
+        timezone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >
+            An IANA timezone. It is set on the site BEFORE the Connector is
+            installed.
+        language:
+          type: string
+          enum: [ar, en]
+
+    ProvisioningStore:
+      type: object
+      additionalProperties: false
+      required: [storeId, displayName]
+      properties:
+        storeId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 180
+
+    ProvisioningRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - provisioningRequestId
+        - kind
+        - tenantId
+        - generation
+        - siteName
+        - template
+        - locale
+        - connectorRegistrationId
+        - environment
+      description: >
+        One provisioning request. `provisioningRequestId` is its idempotency
+        key. The request carries no secret, no credential and no password.
+      properties:
+        provisioningRequestId:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/RequestKind"
+        tenantId:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+          minimum: 1
+          description: Increments only when an operator restarts a request after compensation.
+        siteName:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: >
+            Derived by Backend-Core from the tenant id (never from the slug or
+            business name). The provisioner verifies it; a mismatch or a site
+            with this name that carries another tenant's marker is `conflict`.
+        template:
+          $ref: "#/components/schemas/Template"
+        locale:
+          $ref: "#/components/schemas/Locale"
+        legalName:
+          type: string
+          minLength: 1
+          maxLength: 180
+          description: The business name entered at signup. Absent on `store.provision` and `credential.rotate`.
+        connectorRegistrationId:
+          type: string
+          format: uuid
+          description: >
+            The managed connector registration the credential operation issues
+            for. Backend-Core creates it with the request, with no credential yet.
+        environment:
+          type: string
+          enum: [dev, staging, pilot, prod]
+        stores:
+          type: array
+          maxItems: 500
+          description: >
+            The stores that exist at request time. Each is acknowledged in the
+            outcome `result.stores`. For `store.provision` it holds the one
+            store to provision.
+          items:
+            $ref: "#/components/schemas/ProvisioningStore"
+
+    ProvisioningRequestPage:
+      type: object
+      additionalProperties: false
+      required: [items, cursor, next_page_token]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ProvisioningRequest"
+        cursor:
+          type: string
+          minLength: 1
+          description: The advanced opaque server cursor. Opaque; do not decode.
+        next_page_token:
+          type: [string, "null"]
+          description: Opaque continuation token; null on the last page.
+
+    StepAck:
+      type: object
+      additionalProperties: false
+      required: [step, outcome, attempt]
+      description: >
+        One step outcome. `errorClass` is required when `outcome` is not
+        `done` and must equal it; `reason` is required when `outcome` is
+        `permanently_rejected`. Tenant, actor and lease resolve from the
+        principal and the request, and are rejected if body-supplied.
+      properties:
+        step:
+          $ref: "#/components/schemas/StepName"
+        outcome:
+          $ref: "#/components/schemas/StepOutcome"
+        attempt:
+          type: integer
+          minimum: 1
+          description: The attempt number for this step, starting at 1.
+        errorClass:
+          $ref: "#/components/schemas/ErrorClass"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            A short scrubbed reason. Required on `permanently_rejected`. No
+            secret, token, password or tenant business content.
+        detail:
+          type: string
+          maxLength: 1000
+          description: >
+            Optional scrubbed diagnostic text, stored for the audit trail only
+            and never returned.
+
+    StepAckResult:
+      type: object
+      additionalProperties: false
+      required: [requestId, step, leaseExpiresAt]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        step:
+          $ref: "#/components/schemas/StepName"
+        leaseExpiresAt:
+          type: string
+          format: date-time
+          description: The renewed lease expiry. Progress acknowledgements renew it.
+
+    IssuedProvisionedCredential:
+      type: object
+      additionalProperties: false
+      required: [credentialId, registrationId, secret, issuedAt, expiresAt, rotated]
+      description: >
+        The connector credential of the managed registration. The `secret` is
+        shown ONCE, in this response only (`Cache-Control: no-store`); it is
+        never logged and never stored recoverably.
+      properties:
+        credentialId:
+          type: string
+          format: uuid
+        registrationId:
+          type: string
+          format: uuid
+        secret:
+          type: string
+          minLength: 1
+          description: The one-time secret. Written in-process into the site's Connector Settings.
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: >
+            Set by Backend-Core. A managed credential uses the 365-day maximum
+            until automated rotation ships (RT-1352 decision OD-5).
+        rotated:
+          type: boolean
+          description: >
+            `true` when this call replaced an earlier credential that was never
+            presented (the repeat rule).
+
+    ProvisioningResultStore:
+      type: object
+      additionalProperties: false
+      required: [storeId, warehouseRef, customerRef]
+      properties:
+        storeId:
+          type: string
+          format: uuid
+        warehouseRef:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: >
+            The ERP warehouse reference. Backend-Core records its warehouse map
+            from this value.
+        customerRef:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: The ERP customer reference mapped for the store.
+
+    ProvisioningResult:
+      type: object
+      additionalProperties: false
+      required: [siteName, companyRef, templateVersion, fiscalReadiness, stores]
+      description: >
+        The result of `succeeded`. The version fields are informational only.
+      properties:
+        siteName:
+          type: string
+          minLength: 1
+          maxLength: 128
+        companyRef:
+          type: string
+          minLength: 1
+          maxLength: 140
+        templateVersion:
+          type: integer
+          minimum: 1
+        erpnextVersion:
+          type: string
+          maxLength: 32
+        frappeVersion:
+          type: string
+          maxLength: 32
+        connectorVersion:
+          type: string
+          maxLength: 32
+        fiscalReadiness:
+          $ref: "#/components/schemas/FiscalReadiness"
+        stores:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ProvisioningResultStore"
+
+    ProvisioningOutcome:
+      type: object
+      additionalProperties: false
+      required: [outcome]
+      description: >
+        The terminal outcome. `result` is required on `succeeded` and absent
+        otherwise; `reason` is required on `permanently_rejected` and
+        `conflict`.
+      properties:
+        outcome:
+          type: string
+          enum: [succeeded, permanently_rejected, conflict]
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: A short scrubbed reason.
+        result:
+          $ref: "#/components/schemas/ProvisioningResult"
+
+    RecordedProvisioningOutcome:
+      type: object
+      additionalProperties: false
+      required: [requestId, outcome]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [succeeded, permanently_rejected, conflict]
+
+    IssueProvisionerCredentialRequest:
+      type: object
+      additionalProperties: false
+      required: [hostLabel]
+      properties:
+        hostLabel:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+          description: >
+            A label for the ERP host this credential serves, such as `lab-03`.
+            At most one live credential exists per label.
+
+    IssuedProvisionerCredential:
+      type: object
+      additionalProperties: false
+      required: [credentialId, hostLabel, secret, issuedAt, expiresAt]
+      description: >
+        The provisioner credential. The `secret` is shown ONCE, in this
+        response only (`Cache-Control: no-store`), and is never logged.
+      properties:
+        credentialId:
+          type: string
+          format: uuid
+        hostLabel:
+          type: string
+          minLength: 1
+          maxLength: 64
+        secret:
+          type: string
+          minLength: 1
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: Set by Backend-Core, at most 30 days after `issuedAt`.
+
+    RevokedProvisionerCredential:
+      type: object
+      additionalProperties: false
+      required: [credentialId, hostLabel, revokedAt]
+      properties:
+        credentialId:
+          type: string
+          format: uuid
+        hostLabel:
+          type: string
+          minLength: 1
+          maxLength: 64
+        revokedAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope, as in `posting-feed.yaml` and
+        `tenant-access-entitlement.openapi.yaml`. Refusals are non-disclosing.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - validation_error
+                - unauthorized
+                - origin_rejected
+                - forbidden
+                - not_found
+                - lease_lost
+                - idempotency_key_conflict
+                - conflict
+                - rate_limited
+                - internal_error
+              description: >
+                Stable machine-readable code, closed on this surface.
+                `unauthorized` and `internal_error` are the global exception
+                filter's generic 401 and 500 codes.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+            details:
+              type: array
+              description: Present only with `validation_error`.
+              items:
+                type: object
+
+  responses:
+    ValidationFailure:
+      description: >
+        `validation_error`: a malformed body, query or id, an unknown key
+        (strict boundary), a body-supplied server-owned field, or a missing
+        conditional field (for example `errorClass` on a failed step or `result`
+        on `succeeded`). Deterministic; nothing is recorded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FeedUnauthorized:
+      description: >
+        Generic refusal (401). The body does not distinguish a missing, invalid,
+        expired or revoked provisioner bearer from a tenant `connector` bearer,
+        a cookie session or a device credential. Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FeedForbidden:
+      description: >
+        `forbidden` (403): the provisioner bearer is valid but its environment
+        does not match this deployment. Non-disclosing: the body names no
+        environment. Deterministic, no side effects.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        `not_found`: non-disclosing. Identical for an unknown id, a request or
+        credential outside the caller's scope, a request the caller holds no
+        live lease on (credential issue), a registration that is not managed,
+        and another provisioner's lease. No existence leak.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FeedConflict:
+      description: >
+        `lease_lost` (409): the caller does not hold a live lease on the
+        request (it expired and was re-offered, or another provisioner claimed
+        it). The provisioner stops working the request and re-pulls. Or
+        `idempotency_key_conflict` (409): the same `Idempotency-Key` was reused
+        with a different logical body. Deterministic, no side effects.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        enum: [lease_lost, idempotency_key_conflict]
+    PlatformUnauthorized:
+      description: >
+        No human dashboard session: a bearer-only request (the provisioner
+        bearer, a tenant connector bearer or `dashboard_api`) is refused here
+        (`SessionOnlyAdminGuard`).
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: unauthorized
+    PlatformForbidden:
+      description: >
+        `forbidden`: the caller is not a platform admin; or `origin_rejected`
+        (RT-430): the request is authenticated by the `dp2_session` cookie and
+        its `Origin` header is missing, or is neither the API's own origin nor
+        listed in `ALLOWED_ORIGINS`.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        enum: [forbidden, origin_rejected]
+    PlatformConflict:
+      description: >
+        `conflict` (409): a live provisioner credential already exists for this
+        `hostLabel`. Rotate it instead. Nothing is changed.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: conflict
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this class
+        of operation is spent. Honour `Retry-After`; never auto-retry a
+        mutation. A 429 is not a 401: it never means the session ended.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: rate_limited
+    SystemFailure:
+      description: >
+        `internal_error` (500): an unexpected server error, recorded
+        server-side by `request_id` and never returned.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  error:
+                    properties:
+                      code:
+                        const: internal_error

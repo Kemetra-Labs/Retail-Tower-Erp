@@ -1,0 +1,9 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/erpnext-connector/provisioning-feed.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1356: the platform admin's issue of the provisioner credential, an onboarding-class action.
+platformIssueProvisionerCredential: onboarding
+# RT-1356: the platform admin's revoke, an incident-control action.
+platformRevokeProvisionerCredential: incidentControl
+# RT-1356: the platform admin's rotation, an incident-control action.
+platformRotateProvisionerCredential: incidentControl
