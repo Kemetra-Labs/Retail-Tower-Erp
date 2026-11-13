@@ -1,5 +1,6 @@
 import type { AppConfig } from '../../shared/app-config.js';
 import { getBakedLaneConfig } from '../config/lane-config.js';
+import type { Lane } from '../config/lane-config.js';
 
 /**
  * RT-162 (RT-160 FU-1: S-1 config module + H-1 fail-closed cashier profile).
@@ -76,7 +77,7 @@ export function isDefaultOnFlag(raw: string | undefined): boolean {
 }
 
 /** The lane whose build carries the pilot cashier profile (RT-1376). */
-const PILOT_LANE = 'pilot';
+const PILOT_LANE: Lane = 'pilot';
 
 /** Cashier switches that default to on on a pilot-lane build. */
 const PILOT_DEFAULT_ON_KEYS: ReadonlySet<keyof FeatureFlags> = new Set([
@@ -88,7 +89,7 @@ const PILOT_DEFAULT_ON_KEYS: ReadonlySet<keyof FeatureFlags> = new Set([
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-function parseSwitch(key: keyof FeatureFlags, env: Env, lane: string | undefined): boolean {
+function parseSwitch(key: keyof FeatureFlags, env: Env, lane: Lane | undefined): boolean {
   const raw = env[FEATURE_FLAG_ENV[key]];
   if (key === 'returns') return isDefaultOnFlag(raw);
   if (lane === PILOT_LANE && PILOT_DEFAULT_ON_KEYS.has(key)) return isDefaultOnFlag(raw);
@@ -99,7 +100,7 @@ function parseSwitch(key: keyof FeatureFlags, env: Env, lane: string | undefined
  * Parse every feature flag from an environment for a lane. Pure: callers in main use
  * `resolveFeatureFlags`, which supplies `process.env` and the baked lane.
  */
-export function parseFeatureFlags(env: Env, lane?: string): FeatureFlags {
+export function parseFeatureFlags(env: Env, lane?: Lane): FeatureFlags {
   return {
     cart: parseSwitch('cart', env, lane),
     payments: parseSwitch('payments', env, lane),

@@ -86,14 +86,17 @@ describe('every other lane, or no baked file, resolves exactly as today (criteri
     ),
   ];
 
-  it.each([['lab'], ['production'], [undefined]])('lane %s matches the no-lane result', (lane) => {
-    for (const env of envs) {
-      expect(parseFeatureFlags(env, lane)).toEqual(parseFeatureFlags(env));
-    }
-  });
+  it.each([['lab'], ['production'], [undefined]] as const)(
+    'lane %s matches the no-lane result',
+    (lane) => {
+      for (const env of envs) {
+        expect(parseFeatureFlags(env, lane)).toEqual(parseFeatureFlags(env));
+      }
+    },
+  );
 
   it('the cashier switches stay off with no environment value on lab, production and no lane', () => {
-    for (const lane of ['lab', 'production', undefined]) {
+    for (const lane of ['lab', 'production', undefined] as const) {
       const flags = parseFeatureFlags({}, lane);
       for (const key of CASHIER_KEYS) expect(flags[key], `${String(lane)} ${key}`).toBe(false);
     }
