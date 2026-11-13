@@ -250,6 +250,16 @@ describe('RT-79 — tenders (frozen tender_lines_summary_json → payload.tender
       expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
     });
 
+    it('the same redemption id in a different letter case is still the same redemption (NOT sendable)', () => {
+      const sale = withTenders([
+        voucherLine(1000, RED_1, LINE_1),
+        voucherLine(500, RED_1.toUpperCase(), LINE_2),
+      ]);
+      expect(() => buildCapturePayload(sale, ON)).toThrow(
+        new TenderNotSendableError('voucher redemption id repeated'),
+      );
+    });
+
     it('a voucher with change due, or a zero amount, is NOT sendable (amount must equal the redeemed amount)', () => {
       const withChange = withTenders([{ ...voucherLine(1600, RED_1), change_due_minor: 100 }]);
       expect(() => buildCapturePayload(withChange, ON)).toThrow(TenderNotSendableError);

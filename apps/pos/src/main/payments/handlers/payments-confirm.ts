@@ -57,6 +57,7 @@ import type {
   PaymentsConfirmRequest,
   PaymentsConfirmResponse,
 } from '../../../shared/bridge-api.js';
+import type { FailureReason } from '../../../shared/payments/types.js';
 import type {
   RedeemVoucherInput,
   RedeemVoucherOutcome,
@@ -490,18 +491,20 @@ const REDEEM_REFUSALS_AS_FAILURE = [
   'voucher_already_redeemed',
   'voucher_tenant_mismatch',
   'voucher_branch_mismatch',
-] as const;
+] as const satisfies readonly FailureReason[];
 
 type RedeemRefusalFailure = (typeof REDEEM_REFUSALS_AS_FAILURE)[number];
+
+function isRedeemRefusalFailure(reason: string): reason is RedeemRefusalFailure {
+  return (REDEEM_REFUSALS_AS_FAILURE as readonly string[]).includes(reason);
+}
 
 /** Why an attempt is failed by the voucher paths of `payments.confirm`. */
 type ConfirmFailureReason = 'dependency_unavailable' | 'internal_error' | RedeemRefusalFailure;
 
 function redeemFailureReason(outcome: RedeemVoucherOutcome | null): ConfirmFailureReason {
   if (outcome?.kind !== 'refused') return 'dependency_unavailable';
-  return (REDEEM_REFUSALS_AS_FAILURE as readonly string[]).includes(outcome.reason)
-    ? (outcome.reason as RedeemRefusalFailure)
-    : 'dependency_unavailable';
+  return isRedeemRefusalFailure(outcome.reason) ? outcome.reason : 'dependency_unavailable';
 }
 
 /** A redeem that V-A accepted; null stands for a line with no intent token. */

@@ -483,7 +483,8 @@ function voucherLineOf(line: PersistedTenderLine, applied: number, change: numbe
  * line's frozen identity; a redemption id may appear once per sale.
  */
 function voucherTenders(vouchers: readonly VoucherLine[]): CaptureSaleTender[] {
-  if (new Set(vouchers.map((v) => v.redemptionId)).size !== vouchers.length) {
+  // UUID matches case-insensitively, so compare lower-cased: `3F1C…` and `3f1c…` are one redemption.
+  if (new Set(vouchers.map((v) => v.redemptionId.toLowerCase())).size !== vouchers.length) {
     throw new TenderNotSendableError('voucher redemption id repeated');
   }
   const repeated = vouchers.length > 1;
