@@ -8,8 +8,8 @@
  *   - `kind: return` requires `lines`, forbids `businessDate`, and its refund
  *     tenders are cash only (`RefundTender`);
  *   - `kind: void` forbids `lines`; its refund tenders may mirror a card tender
- *     (`CreditReversalRefundTender`, D8);
- *   - a cash tender never carries a `reference`.
+ *     (`CreditReversalRefundTender`, D8) or, RT-1343 item 2, a voucher tender;
+ *   - only a `card_external` tender carries a `reference` (never cash or voucher).
  * `approval` (RT-530 shape) and a void's `businessDate` stay OPTIONAL in shape:
  * a missing one is the service's contract refusal, not a 400.
  */
@@ -46,13 +46,14 @@ const isCalendarDay = (v: string): boolean => {
 
 export const CreditReversalRefundTenderSchema = z
   .object({
-    method: z.enum(["cash", "card_external"]),
+    // RT-1343 item 2: `voucher` mirrors a voucher sale tender on a void (a return stays cash only).
+    method: z.enum(["cash", "card_external", "voucher"]),
     amount: z.string().regex(AMOUNT_RE, "must be a non-negative exact-decimal string"),
     tenderRef: z.string().regex(UUID_RE_I, "must be a uuid").optional(),
     reference: z.string().regex(/^[A-Z0-9]{1,6}$/).optional(),
   })
   .strict()
-  .refine((t) => t.method !== "cash" || t.reference === undefined, "a cash refund carries no reference");
+  .refine((t) => t.method === "card_external" || t.reference === undefined, "only a card refund carries a reference");
 
 export const CreditSaleReversalRequestSchema = z
   .object({
