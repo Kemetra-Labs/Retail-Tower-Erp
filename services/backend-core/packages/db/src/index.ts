@@ -13,6 +13,11 @@
 export * from "./schema";
 export * from "./helpers/with-tenant";
 export { isTenantRestricted, readTenantAccessState } from "./helpers/tenant-access";
+export {
+  sweepErpProvisioning,
+  type SweepInput as ErpProvisioningSweepInput,
+  type SweepResult,
+} from "./helpers/erp-provisioning-sweep";
 export * from "./middleware/tenant-context";
 export { insertAuditEvent, type AuditEventInsertRow } from "./helpers/audit-insert";
 export * from "./outbox";

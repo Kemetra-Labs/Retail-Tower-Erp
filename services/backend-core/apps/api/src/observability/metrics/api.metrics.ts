@@ -320,6 +320,11 @@ const _connectorLifecycle: Counter = meter.createCounter(
   },
 );
 
+const _erpProvisioningEvents: Counter = meter.createCounter("erp_provisioning_events_total", {
+  description:
+    "ERP provisioning events (RT-1358): every audited provisioning action (request, claim, step, retry, lease expiry, credential issue, outcome, provisioner credential issue/rotate/revoke). Unlabeled: the action, tenant, host and request live in audit_events, never in metric labels.",
+});
+
 const _posDeviceHeartbeat: Counter = meter.createCounter("pos_device_heartbeat_total", {
   description:
     "POS device heartbeats by outcome (RT-327, AD-DEVICE-001 D-1): stored, throttled (inside the 60-second window, nothing written) or refused (a store that failed and was swallowed). The device, tenant, version and channel are on device_health, never labels.",
@@ -656,6 +661,15 @@ export function recordErpnextReconciliationRepair(): void {
  */
 export function recordConnectorLifecycle(): void {
   _connectorLifecycle.add(1);
+}
+
+/**
+ * Increment erp_provisioning_events_total (RT-1358): one per audited provisioning
+ * action. The argument is accepted for call-site clarity and is NOT a label. A
+ * SIGNAL: it never alters the outcome.
+ */
+export function recordProvisioningEvent(_action: string): void {
+  _erpProvisioningEvents.add(1);
 }
 
 /**

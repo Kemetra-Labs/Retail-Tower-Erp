@@ -89,6 +89,8 @@ export const WORKER_QUEUE_NAMES = [
   QUEUE_NAMES.saleRedrive,
   // RT-664: TTL sweep of AI usage reservations.
   QUEUE_NAMES.aiUsageReservationSweep,
+  // RT-1358: ERP provisioning sweep.
+  QUEUE_NAMES.erpProvisioningSweep,
 ] as const satisfies readonly string[];
 export type WorkerQueueName = (typeof WORKER_QUEUE_NAMES)[number];
 

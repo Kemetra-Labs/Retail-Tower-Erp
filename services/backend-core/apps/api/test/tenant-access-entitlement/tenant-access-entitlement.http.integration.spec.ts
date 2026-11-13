@@ -25,6 +25,7 @@ import "reflect-metadata";
 import type request from "supertest";
 
 import { TenantAccessEntitlementModule } from "../../src/tenant-access-entitlement/tenant-access-entitlement.module";
+import { resetProvisioning } from "../erp-provisioning/__support__/provisioning-fixture";
 import { scopedHttpHarness } from "../_helpers/scoped-http-harness";
 import { TENANT_A, TENANT_B } from "../catalog/__support__/isolation-harness";
 import { SES_ADMIN_SPEC, SES_OWNER_ALL } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
@@ -41,6 +42,10 @@ import {
   UNKNOWN_TENANT,
   USER_PLATFORM,
 } from "./__support__/access-fixture";
+
+// RT-1358: an unlock now also creates the managed registration and the provisioning request, which
+// need the deployment environment (fail closed without it).
+process.env["DEPLOYMENT_ENVIRONMENT"] = "dev";
 
 const h = scopedHttpHarness({
   label: "RT-1353 tenant access entitlement",
@@ -85,6 +90,8 @@ afterEach(async () => {
   if (h.skipped()) return;
   await clearAccess(h.env().admin, TENANT_A);
   await clearAccess(h.env().admin, TENANT_B);
+  // RT-1358: an unlock also creates the managed registration and the request; they are test residue here.
+  await resetProvisioning(h.env().admin);
 });
 
 describe("consoleGetTenantAccessEntitlement", () => {

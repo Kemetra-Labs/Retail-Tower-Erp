@@ -159,6 +159,14 @@ import { ReservationSweepProcessor } from "./ai-usage/reservation-sweep.processo
 import { NoOpReservationSweepRepository, PgReservationSweepRepository } from "./ai-usage/reservation-sweep.repository";
 import { ReservationSweepScheduler } from "./ai-usage/reservation-sweep.scheduler";
 import { ReservationSweepWorker } from "./ai-usage/reservation-sweep.worker";
+import { resolveHeartbeatTimeoutMs } from "./erp-provisioning/provisioning-sweep.config";
+import {
+  NoOpProvisioningSweepRunner,
+  PgProvisioningSweepRunner,
+  ProvisioningSweepProcessor,
+} from "./erp-provisioning/provisioning-sweep.processor";
+import { ProvisioningSweepScheduler } from "./erp-provisioning/provisioning-sweep.scheduler";
+import { ProvisioningSweepWorker } from "./erp-provisioning/provisioning-sweep.worker";
 import { resolveReservationSweepLookbackSeconds } from "./ai-usage/reservation-sweep.config";
 import { ReplayPurgeProcessor } from "./cashier-admissions/replay-purge.processor";
 import {
@@ -494,6 +502,19 @@ export function reservationSweepProcessorProviderFactory(wrapper: AuditDbPool): 
   return new ReservationSweepProcessor(repo, { lookbackSeconds: resolveReservationSweepLookbackSeconds() });
 }
 
+/**
+ * Factory for the `ProvisioningSweepProcessor` provider (RT-1358). Reuses the
+ * shared `AuditDbPool` wrapper (no second pool); the no-DB path sweeps nothing.
+ */
+function provisioningSweepProcessorProviderFactory(wrapper: AuditDbPool): ProvisioningSweepProcessor {
+  const runner = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpProvisioningSweepRunner(),
+    (pool) => new PgProvisioningSweepRunner(pool),
+  );
+  return new ProvisioningSweepProcessor(runner, resolveHeartbeatTimeoutMs());
+}
+
 /** DI token for the `AuditDbPool` Nest-managed wrapper. */
 export const PG_POOL = "PG_POOL";
 
@@ -814,6 +835,18 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     ReservationSweepWorker,
     ReservationSweepScheduler,
 
+    // ── ERP provisioning sweep (RT-1358) ──────────────────────────────
+    //
+    // A repeatable job (default every minute): reclaims expired leases and
+    // finishes or fails the requests waiting for their first heartbeat.
+    {
+      provide: ProvisioningSweepProcessor,
+      useFactory: provisioningSweepProcessorProviderFactory,
+      inject: [AuditDbPool],
+    },
+    ProvisioningSweepWorker,
+    ProvisioningSweepScheduler,
+
     // ── Outbox drainer pipeline (T581) ────────────────────────────────
     //
     // The OUTBOX_DRAINER + OutboxDrainerRunner providers live here (not in
@@ -874,6 +907,8 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     ReplayPurgeProcessor,
     ReservationSweepWorker,
     ReservationSweepProcessor,
+    ProvisioningSweepWorker,
+    ProvisioningSweepProcessor,
     OUTBOX_DRAINER,
     OutboxDrainerRunner,
     WorkerDbPoolGaugeRegistrar,

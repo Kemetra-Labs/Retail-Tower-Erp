@@ -209,6 +209,7 @@ describe("T465 — bounded enums: queue, job_name, and error_class are documente
       "cashier-admission-replay-purge",
       "sale-redrive",
       "ai-usage-reservation-sweep",
+      "erp-provisioning-sweep",
     ];
     expect([...WORKER_QUEUE_NAMES].sort()).toEqual([...expected].sort());
   });

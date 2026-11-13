@@ -189,6 +189,7 @@ describe("QUEUE_NAMES (RT-125)", () => {
       cashierAdmissionReplayPurge: "cashier-admission-replay-purge",
       saleRedrive: "sale-redrive",
       aiUsageReservationSweep: "ai-usage-reservation-sweep",
+      erpProvisioningSweep: "erp-provisioning-sweep",
     });
   });
 

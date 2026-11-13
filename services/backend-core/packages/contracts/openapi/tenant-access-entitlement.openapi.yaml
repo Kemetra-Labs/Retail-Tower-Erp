@@ -132,7 +132,12 @@ paths:
         restriction. Outcomes: `requested` (first request); `already_requested`
         (a replay: nothing changes, no audit); `already_unrestricted` (the
         tenant is not restricted, which includes a tenant with no stored
-        state: nothing changes, no audit). No request body.
+        state: nothing changes, no audit). On the first request it also creates,
+        in the same transaction, the tenant's managed ERP connector registration and
+        its ERP provisioning request (RT-1352 PB-C, RT-1358; see
+        `provisioning-feed.yaml`). A deployment that does not declare its
+        environment (`DEPLOYMENT_ENVIRONMENT`) answers `503 service_unavailable`
+        before anything is written. No request body.
       responses:
         "200":
           description: The unlock outcome and the resulting state.
@@ -152,6 +157,8 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/SystemFailure"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /api/v1/platform/tenants/{tenant_id}/access-entitlement/mark-provisioned:
     parameters:
@@ -168,7 +175,10 @@ paths:
         the time with source `manual_platform`, and writes
         `tenant.access.provisioned`, in one transaction. Refused with `409
         unlock_not_requested` unless an unlock was requested first (or the
-        tenant has no restriction to lift). Outcomes: `provisioned`;
+        tenant has no restriction to lift), and with `423
+        provisioning_in_progress` while a provisioner holds a live lease on the tenant's ERP provisioning
+        request (RT-1358). With no live lease, an open request is cancelled in the
+        same transaction. Outcomes: `provisioned`;
         `already_unrestricted` (a replay: nothing changes, no audit). No
         request body.
       responses:
@@ -188,6 +198,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/UnlockNotRequested"
+        "423":
+          $ref: "#/components/responses/ProvisioningInProgress"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -271,6 +283,28 @@ components:
         entitlement:
           $ref: "#/components/schemas/TenantAccessEntitlement"
 
+    ProvisioningStateError:
+      type: object
+      required: [error]
+      description: >
+        The error envelope of the two ERP-provisioning refusals added by RT-1358
+        (`423 provisioning_in_progress`, `503 service_unavailable`). Same shape as
+        `Error`; its own code set, so the shared `Error` code set is unchanged.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - provisioning_in_progress
+                - service_unavailable
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
     Error:
       type: object
       additionalProperties: false
@@ -415,6 +449,24 @@ components:
                     properties:
                       code:
                         const: unlock_not_requested
+    ProvisioningInProgress:
+      description: >
+        `provisioning_in_progress` (423 Locked) — a provisioner holds a live lease
+        on the tenant's ERP provisioning request, so the restriction is not lifted
+        by hand now. Wait for the lease to end or for the request to fail. Nothing
+        is changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProvisioningStateError"
+    ServiceUnavailable:
+      description: >
+        `service_unavailable` — this deployment does not declare its environment,
+        so ERP provisioning cannot be requested. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProvisioningStateError"
     SystemFailure:
       description: >
         `internal_error` — an unexpected server error, recorded server-side by

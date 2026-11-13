@@ -15,14 +15,19 @@
  *
  * Audit rows hold ids and a source label only (§XIV): the actor, the tenant.
  */
-import { ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { HttpException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { runWithTenantContext, type TenantAccessState } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
 import type { Principal } from "../auth/auth.guard";
 import { PG_POOL } from "../auth/auth.module";
+import { requirePlatformAdminSession } from "../auth/require-platform-admin";
 import { MembershipRepository } from "../context/membership.repository";
+import { AUDIT, insertProvisioningAudit } from "../erp-provisioning/provisioning-audit";
+import { cancelOpenRequest, readActiveTenantRequest } from "../erp-provisioning/provisioning-request.repository";
+import { createProvisioningForUnlock, requireDeploymentEnvironment } from "../erp-provisioning/provisioning-trigger";
+import { leaseIsLive } from "../erp-provisioning/provisioning-state";
 
 const UNLOCK_REQUESTED_ACTION = "tenant.access.unlock_requested";
 const PROVISIONED_ACTION = "tenant.access.provisioned";
@@ -68,6 +73,13 @@ class UnlockNotRequestedError extends HttpException {
   }
 }
 
+/** Mark provisioned while a provisioner holds a live lease on the tenant's request (RT-1358). */
+class ProvisioningInProgressError extends HttpException {
+  constructor() {
+    super({ code: "provisioning_in_progress", message: "Provisioning is in progress; wait for it to end or fail." }, 423);
+  }
+}
+
 export interface PlatformActionInput {
   readonly principal: Principal | undefined;
   readonly tenantId: string;
@@ -94,7 +106,9 @@ export class AccessEntitlementService {
 
   /** Record the unlock request (does NOT lift the restriction). */
   async requestUnlock(input: PlatformActionInput): Promise<TenantAccessChangeBody> {
-    const actorUserId = await this.requirePlatformAdmin(input.principal);
+    const actorUserId = await requirePlatformAdminSession(this.memberships, input.principal);
+    // RT-1358: fail closed, before any write, when the deployment has no environment.
+    requireDeploymentEnvironment();
     return await this.inPlatformTx(input.tenantId, async (client) => {
       const row = await lockRow(client, input.tenantId);
       if (row === null || row.state === "unrestricted") {
@@ -111,13 +125,15 @@ export class AccessEntitlementService {
         [input.tenantId, actorUserId],
       );
       await insertAudit(client, input, actorUserId, UNLOCK_REQUESTED_ACTION, {});
+      // RT-1358: the managed registration and the provisioning request, in this transaction.
+      await createProvisioningForUnlock(client, { tenantId: input.tenantId, actorUserId, httpRequestId: input.requestId });
       return { outcome: "requested", entitlement: bodyOf(input.tenantId, updated.rows[0]!) };
     });
   }
 
   /** Record the provisioning result by hand: the only transition to `unrestricted`. */
   async markProvisioned(input: PlatformActionInput): Promise<TenantAccessChangeBody> {
-    const actorUserId = await this.requirePlatformAdmin(input.principal);
+    const actorUserId = await requirePlatformAdminSession(this.memberships, input.principal);
     return await this.inPlatformTx(input.tenantId, async (client) => {
       const row = await lockRow(client, input.tenantId);
       if (row === null) throw new UnlockNotRequestedError();
@@ -125,6 +141,23 @@ export class AccessEntitlementService {
         return { outcome: "already_unrestricted", entitlement: bodyOf(input.tenantId, row) };
       }
       if (row.unlock_requested_at === null) throw new UnlockNotRequestedError();
+      // RT-1358: refused while a provisioner holds a live lease; otherwise an open request
+      // (requested, failed_retryable, or waiting for its heartbeat) is cancelled in this transaction.
+      const open = await readActiveTenantRequest(client, input.tenantId);
+      if (open !== null) {
+        const now = new Date();
+        if (leaseIsLive(open, now)) throw new ProvisioningInProgressError();
+        await cancelOpenRequest(client, open, now);
+        await insertProvisioningAudit(client, {
+          actorUserId,
+          tenantId: input.tenantId,
+          action: AUDIT.cancelled,
+          targetType: "erp_provisioning_request",
+          targetId: open.id,
+          requestId: input.requestId,
+          metadata: { reason: "manual_mark_provisioned" },
+        });
+      }
       const updated = await client.query<AccessRow>(
         `UPDATE tenant_access_entitlements
             SET state = 'unrestricted', provisioned_at = now(), provisioned_by_user_id = $2::uuid,
@@ -136,14 +169,6 @@ export class AccessEntitlementService {
       await insertAudit(client, input, actorUserId, PROVISIONED_ACTION, { source: "manual_platform" });
       return { outcome: "provisioned", entitlement: bodyOf(input.tenantId, updated.rows[0]!) };
     });
-  }
-
-  private async requirePlatformAdmin(principal: Principal | undefined): Promise<string> {
-    if (principal?.kind !== "session") throw new ForbiddenException({ code: "forbidden", message: "Platform admin required" });
-    if (!(await this.memberships.isPlatformAdmin(principal.userId))) {
-      throw new ForbiddenException({ code: "forbidden", message: "Platform admin required" });
-    }
-    return principal.userId;
   }
 
   /** The target tenant's context as a platform admin; an unknown tenant is the 404. */
