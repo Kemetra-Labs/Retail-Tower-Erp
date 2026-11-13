@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core POS Sale History — store-scoped history, detail and reprint
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     RT-537 (RT-534 S1; [GATED] approval Jira RT-537 comment 12057, owner,
     2026-10-16; design comments 12054-12056; owner decisions OD-534-1..8 in
@@ -44,6 +44,12 @@ info:
 
     Errors use the canonical `Error` envelope shared with `sales.yaml`,
     `auth.openapi.yaml` and `outbox.openapi.yaml`.
+
+    1.1.0-draft (RT-1343 item 4, additive to a response enum, `[GATED]`,
+    owner decision in chat 2026-11-12): `SaleTenderView.method` gains
+    `voucher`, matching `SaleTender.method` of `sales.yaml` (RT-1114). The
+    runtime already returned the stored method unfiltered; the contract now
+    says so. No other wire change.
 
 servers:
   - url: https://api.example.com
@@ -793,12 +799,20 @@ components:
       properties:
         method:
           type: string
-          enum: [cash, card_external]
+          enum: [cash, card_external, voucher]
+          description: >
+            `cash` - the till drawer. `card_external` - a standalone card
+            terminal. RT-1343 (RT-1114, RT-1098 decision 4A): `voucher` - a
+            promotional voucher redeemed through `pos-payments/vouchers.yaml`,
+            as recorded by `pos-sales/sales.yaml` `SaleTender`. It pays part of
+            the sale at full price. A history or detail read returns it only
+            for a sale captured while `POS_SALE_VOUCHER_TENDER_ENABLED` was on
+            (default OFF), so no read carries one until that flag is turned on.
         amount:
           $ref: "#/components/schemas/DecimalAmount"
         reference:
           type: [string, "null"]
-          description: The short card-terminal reference for `card_external`; never card data.
+          description: The short card-terminal reference for `card_external`; never card data. Null for `voucher`.
         sequence:
           type: [integer, "null"]
           minimum: 1

@@ -98,8 +98,8 @@ const PINNED_YAML = path.resolve(
 );
 
 describe('contract fixtures', () => {
-  it('validates against the vendored Backend-Core contract of record (1.1.0-draft, RT-219)', () => {
-    expect(cashierAdmissionsContract.info.version).toBe('1.1.0-draft');
+  it('validates against the vendored Backend-Core contract of record (1.2.0-draft, RT-1138)', () => {
+    expect(cashierAdmissionsContract.info.version).toBe('1.2.0-draft');
     expect(Object.keys(cashierAdmissionsContract.paths).sort()).toEqual([
       '/api/pos/v1/cashier-admissions',
       '/api/pos/v1/cashier-admissions/roster',
@@ -331,6 +331,8 @@ describe('listRoster', () => {
         display_name: 'Karim',
       },
     ],
+    // RT-1138 (1.2.0-draft): required by the contract; the POS client does not read it yet.
+    suspended_cashiers: [] as unknown[],
   };
 
   it('GETs /api/pos/v1/cashier-admissions/roster with the device bearer and no query', async () => {

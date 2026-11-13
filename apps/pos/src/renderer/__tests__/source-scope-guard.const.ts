@@ -645,3 +645,26 @@ export function isRt1339ExemptFile(branch: string, file: string): boolean {
     (RT_1339_OFFERS_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1343-voucher-response-enums` implements Jira RT-1343 item 4: `voucher` joins the
+ * `SaleTenderView.method` response enum of `pos-sales/sale-history.yaml` (1.1.0-draft), and, in the same
+ * PR, the POS is repinned to that contract commit (`npm run contracts:repin`), which regenerates
+ * `src/shared/api-types.ts`. The POS voucher tender stays off (RT-103).
+ *
+ * Authority: the owner's decision in chat on 2026-11-12 (RT-1343 item 4, repin in the same PR), following
+ * the RT-1114 repin pattern: exactly ONE file on exactly ONE branch (exact name, no `startsWith`; the
+ * `-preflight` branch is not exempt). Narrowness is asserted by `source-scope-guard-rt1343.test.ts`.
+ */
+export const RT_1343_VOUCHER_ENUMS_REPIN_BRANCH = 'claude/rt-1343-voucher-response-enums' as const;
+export const RT_1343_VOUCHER_ENUMS_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1343 exemption allows on `branch`. */
+export function isRt1343ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1343_VOUCHER_ENUMS_REPIN_BRANCH &&
+    (RT_1343_VOUCHER_ENUMS_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

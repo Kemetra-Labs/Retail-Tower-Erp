@@ -259,6 +259,17 @@ describe("detail: receipt facts (RT-537 D-6) and reprint eligibility (OD-534-3/8
     ]);
   });
 
+  it("RT-1343: a voucher tender row is returned as `voucher`, in its recorded order", () => {
+    const voucher: DetailTenderRow = { method: "voucher", amount: "20.0000", reference: null, sequence: 2 };
+    const d = detail({ tenders: [{ ...CASH, amount: "10.0000", sequence: 1 }, voucher] });
+    expect(d.tenderState).toBe("recorded");
+    expect(d.receiptFacts).toBe("complete");
+    expect(d.tenders).toEqual([
+      { method: "cash", amount: "10.0000", reference: null, sequence: 1 },
+      { method: "voucher", amount: "20.0000", reference: null, sequence: 2 },
+    ]);
+  });
+
   it("a tombstoned snapshot name is partial", () => {
     expect(detail({ sale: { receipt_operator_display_name: null } }).receiptFacts).toBe("partial");
   });

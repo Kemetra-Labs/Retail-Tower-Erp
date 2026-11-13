@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Data-Pulse-2 POS Cashier Admissions API",
-    "version": "1.1.0-draft",
-    "description": "RT-113 BC1 (planning record: Jira RT-113 comment 10763, decisions D2 and D11; `[GATED]` contract approval: RT-113 comment 10823). The device-authenticated `cashier-admissions` resource: the server-side authority for a POS cashier sign-in.\n\n**Why this surface exists.** A cashier signs in on the terminal with a PIN that is verified locally and never leaves the device. Cashiers hold no provider-identity JWT, so the cashier path cannot use the `operator-identity`-gated `GET /api/pos/v1/operators/roster` and `GET /api/pos/v1/operators/active-session`, which are restricted to manager-eligible callers (RT-150). RT-182 verified that the cashier path called both without any credential and received 401. This contract replaces the cashier path's use of those two routes (D2, D11). The operator routes themselves are unchanged and stay manager-only.\n\n**Authentication.** Every operation uses the role-named `device` security scheme: the paired terminal's opaque device token as `Authorization: Bearer <device_token>`. There is no operator credential on this surface. `tenant_id` and `branch_id` (internally `store_id`) come ONLY from the authenticated, non-revoked `devices` row. No request carries a tenant, branch, store or terminal identifier, and the server never takes scope from the client (Constitution §II, §XII).\n\n**What the server records.** A cashier admission is a server record that a cashier was admitted on a given device. The terminal calls `posCreateCashierAdmission` only after it has verified the cashier's PIN locally, so the call itself is the device's attestation that the PIN check passed (D2; 028 CM-4 / AD-2). Before it admits, the server checks that the device is active, the user is not deleted, the user's membership in the device's tenant is active, the role is a POS-eligible cashier role (the same set the roster returns), and the user has access to the device's store.\n\n**Single-active rule.** At most ONE live admission exists per `(tenant, store, user)`. This is the server's single-active-session rule for cashiers. A live admission held by another device yields the minimum-disclosure `active_elsewhere` signal unless the request is an online takeover. Admissions are serialised per `(tenant, store, user)`, so concurrent takeovers resolve to exactly one winner. A live admission expires server-side after a TTL so a dead terminal cannot block a cashier forever. The TTL value is server policy (10763 proposes 12 h; BC2 sets it), and every `admitted` response carries the TTL it applied as `admission_ttl_seconds`. An online-confirmed session keeps its admission live with a heartbeat (see `posCreateCashierAdmission`); every `admitted` response renews the TTL.\n\n**Offline grant.** An `admitted` response carries `offline_grace_seconds`, the bound for the terminal's sealed offline grant (D3/D4; default 86400 = 24 h, 028 OQ-1). The terminal clamps it to its own hard ceiling (72 h) whatever the server says; the server does not need to enforce that ceiling. Grant storage, counting and expiry are POS-local and are not part of this contract.\n\n**Secrets and PII.** No request or response carries a PIN, a PIN hash, a salt, a password, a device token, a provider JWT or any other secret. The only personal data on the wire is `display_name` and the identifiers `user_id` (`users.id`) and `operator_id` (the provider subject, `users.clerk_user_id`, the v1 bridge). No email, phone or membership detail appears. Refusal causes are never returned; they are logged server-side keyed by `request_id` (SR-6/7).\n\n**Audit.** Every admission, takeover, refusal and end is audited server-side. Takeover and end events record the `device_id`, the `user_id` and the prior `admission_id`. Takeover is rate-limited per device. Audit payloads carry no PIN, grant body or secret.\n\n**Runtime status.** Implemented (RT-113 BC2; `[GATED]` approval: RT-113 comment 10832). The contract was approved in BC1 and is unchanged on the wire; BC2 shipped the controller, the device-guard wiring, the persistence and migration 0035, so no operation carries `x-runtime-status: contract-only`.\n\n1.1.0-draft (RT-219; `[GATED]` approval: RT-219 comment 10877): additive. `admitted` gains the required, opaque `admission_generation`, which the server changes on every grant and every renewal of an admission. `posEndCashierAdmission` accepts an optional body that echoes it: an `end` whose echoed value is no longer the admission's current generation is a no-op that still answers `200 { kind: ended }`, so a late `end` sent for an earlier sign-in (or by a slow heartbeat's orphan release) cannot end an admission renewed after it. Without the body or the field, `end` behaves as in 1.0.0-draft. No status code, security or path changed.\n\nCross-cutting conventions live in `specs/001-foundation-auth-tenant-store/contracts/README.md`.\n"
+    "version": "1.2.0-draft",
+    "description": "RT-113 BC1 (planning record: Jira RT-113 comment 10763, decisions D2 and D11; `[GATED]` contract approval: RT-113 comment 10823). The device-authenticated `cashier-admissions` resource: the server-side authority for a POS cashier sign-in.\n\n**Why this surface exists.** A cashier signs in on the terminal with a PIN that is verified locally and never leaves the device. Cashiers hold no provider-identity JWT, so the cashier path cannot use the `operator-identity`-gated `GET /api/pos/v1/operators/roster` and `GET /api/pos/v1/operators/active-session`, which are restricted to manager-eligible callers (RT-150). RT-182 verified that the cashier path called both without any credential and received 401. This contract replaces the cashier path's use of those two routes (D2, D11). The operator routes themselves are unchanged and stay manager-only.\n\n**Authentication.** Every operation uses the role-named `device` security scheme: the paired terminal's opaque device token as `Authorization: Bearer <device_token>`. There is no operator credential on this surface. `tenant_id` and `branch_id` (internally `store_id`) come ONLY from the authenticated, non-revoked `devices` row. No request carries a tenant, branch, store or terminal identifier, and the server never takes scope from the client (Constitution §II, §XII).\n\n**What the server records.** A cashier admission is a server record that a cashier was admitted on a given device. The terminal calls `posCreateCashierAdmission` only after it has verified the cashier's PIN locally, so the call itself is the device's attestation that the PIN check passed (D2; 028 CM-4 / AD-2). Before it admits, the server checks that the device is active, the user is not deleted, the user's membership in the device's tenant is active, the role is a POS-eligible cashier role (the same set the roster returns), and the user has access to the device's store.\n\n**Single-active rule.** At most ONE live admission exists per `(tenant, store, user)`. This is the server's single-active-session rule for cashiers. A live admission held by another device yields the minimum-disclosure `active_elsewhere` signal unless the request is an online takeover. Admissions are serialised per `(tenant, store, user)`, so concurrent takeovers resolve to exactly one winner. A live admission expires server-side after a TTL so a dead terminal cannot block a cashier forever. The TTL value is server policy (10763 proposes 12 h; BC2 sets it), and every `admitted` response carries the TTL it applied as `admission_ttl_seconds`. An online-confirmed session keeps its admission live with a heartbeat (see `posCreateCashierAdmission`); every `admitted` response renews the TTL.\n\n**Offline grant.** An `admitted` response carries `offline_grace_seconds`, the bound for the terminal's sealed offline grant (D3/D4; default 86400 = 24 h, 028 OQ-1). The terminal clamps it to its own hard ceiling (72 h) whatever the server says; the server does not need to enforce that ceiling. Grant storage, counting and expiry are POS-local and are not part of this contract.\n\n**Secrets and PII.** No request or response carries a PIN, a PIN hash, a salt, a password, a device token, a provider JWT or any other secret. The only personal data on the wire is `display_name` and the identifiers `user_id` (`users.id`) and `operator_id` (the provider subject, `users.clerk_user_id`, the v1 bridge). No email, phone or membership detail appears. Refusal causes are never returned; they are logged server-side keyed by `request_id` (SR-6/7).\n\n**Audit.** Every admission, takeover, refusal and end is audited server-side. Takeover and end events record the `device_id`, the `user_id` and the prior `admission_id`. Takeover is rate-limited per device. Audit payloads carry no PIN, grant body or secret.\n\n**Runtime status.** Implemented (RT-113 BC2; `[GATED]` approval: RT-113 comment 10832). The contract was approved in BC1 and is unchanged on the wire; BC2 shipped the controller, the device-guard wiring, the persistence and migration 0035, so no operation carries `x-runtime-status: contract-only`.\n\n1.1.0-draft (RT-219; `[GATED]` approval: RT-219 comment 10877): additive. `admitted` gains the required, opaque `admission_generation`, which the server changes on every grant and every renewal of an admission. `posEndCashierAdmission` accepts an optional body that echoes it: an `end` whose echoed value is no longer the admission's current generation is a no-op that still answers `200 { kind: ended }`, so a late `end` sent for an earlier sign-in (or by a slow heartbeat's orphan release) cannot end an admission renewed after it. Without the body or the field, `end` behaves as in 1.0.0-draft. No status code, security or path changed.\n\n1.2.0-draft (RT-1138; `[GATED: contract]`; the owner said \"Yes, implement\" and confirmed this wire shape in chat on 2026-11-12): additive. `PosCashierRosterResponse` gains the required `suspended_cashiers` list (`PosCashierSuspendedEntry`: `user_id` and `operator_id` only). A cashier suspended at the device's store (`cashier-suspensions.openapi.yaml`) is left out of `cashiers` and listed there, and `posCreateCashierAdmission` refuses it with the same generic `refused`. No status code, security or path changed; a consumer that reads only `cashiers` is unaffected.\n\nCross-cutting conventions live in `specs/001-foundation-auth-tenant-store/contracts/README.md`.\n"
   },
   "servers": [
     {
@@ -39,9 +39,28 @@
             }
           }
         },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PosBuildCommit"
+          },
+          {
+            "$ref": "#/components/parameters/PosAppVersion"
+          },
+          {
+            "$ref": "#/components/parameters/PosContractPin"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Either `admitted` or the minimum-disclosure `active_elsewhere` signal. The body is a tagged union on `kind`. Clients MUST switch on `kind` and MUST NOT assume any other field until the variant is confirmed.\n",
+            "headers": {
+              "X-Device-Token-Rotate-After": {
+                "$ref": "#/components/headers/DeviceTokenRotateAfter"
+              },
+              "X-Device-Token-Rotate-Stage": {
+                "$ref": "#/components/headers/DeviceTokenRotateStage"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -81,6 +100,15 @@
         ],
         "parameters": [
           {
+            "$ref": "#/components/parameters/PosBuildCommit"
+          },
+          {
+            "$ref": "#/components/parameters/PosAppVersion"
+          },
+          {
+            "$ref": "#/components/parameters/PosContractPin"
+          },
+          {
             "name": "admission_id",
             "in": "path",
             "required": true,
@@ -104,6 +132,14 @@
         "responses": {
           "200": {
             "description": "The admission is not live on this device (any of the cases above).\n",
+            "headers": {
+              "X-Device-Token-Rotate-After": {
+                "$ref": "#/components/headers/DeviceTokenRotateAfter"
+              },
+              "X-Device-Token-Rotate-Stage": {
+                "$ref": "#/components/headers/DeviceTokenRotateStage"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -124,7 +160,7 @@
     "/api/pos/v1/cashier-admissions/roster": {
       "get": {
         "summary": "List the cashiers of this device's store.",
-        "description": "Returns the cashiers of the store bound to the authenticated device (D11): users with an active membership in the device's tenant, a POS-eligible cashier role and access to the device's store, who are not deleted. This is the cashier picker's online source. It replaces the cashier path's use of the `operator-identity`-gated `GET /api/pos/v1/operators/roster`, which is unchanged.\n\nThe store comes only from the device. The operation takes no parameters, so there is no `branch_id` to mismatch.\n\nMinimum disclosure: each entry carries only `user_id`, `operator_id` and `display_name`. There is no email, phone, PIN, PIN hash, credential fragment, admission state or provisioning state. Order is not significant.\n",
+        "description": "Returns the cashiers of the store bound to the authenticated device (D11): users with an active membership in the device's tenant, a POS-eligible cashier role and access to the device's store, who are not deleted, and who are not suspended at the store. This is the cashier picker's online source. It replaces the cashier path's use of the `operator-identity`-gated `GET /api/pos/v1/operators/roster`, which is unchanged.\n\nThe store comes only from the device. The operation takes no parameters, so there is no `branch_id` to mismatch.\n\nMinimum disclosure: each entry carries only `user_id`, `operator_id` and `display_name`. There is no email, phone, PIN, PIN hash, credential fragment, admission state or provisioning state. Order is not significant.\n\nRT-1138 (`[GATED: contract]`): a cashier suspended at the store (`cashier-suspensions.openapi.yaml`) is NOT in `cashiers` and cannot be admitted (`posCreateCashierAdmission` refuses it with the same generic `refused`). It is listed in `suspended_cashiers` instead, with only its `user_id` and `operator_id`, so the terminal learns of the suspension on its next sync and can refuse the cashier and end a session it holds locally. A reactivated cashier is back in `cashiers` and gone from `suspended_cashiers`. Only cashiers who would otherwise be on the roster are listed as suspended. The list is empty when nobody is suspended.\n",
         "operationId": "posListCashierAdmissionRoster",
         "tags": ["pos-cashier-admissions"],
         "security": [
@@ -132,9 +168,28 @@
             "device": []
           }
         ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/PosBuildCommit"
+          },
+          {
+            "$ref": "#/components/parameters/PosAppVersion"
+          },
+          {
+            "$ref": "#/components/parameters/PosContractPin"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The cashiers of the device's store. May be empty.",
+            "headers": {
+              "X-Device-Token-Rotate-After": {
+                "$ref": "#/components/headers/DeviceTokenRotateAfter"
+              },
+              "X-Device-Token-Rotate-Stage": {
+                "$ref": "#/components/headers/DeviceTokenRotateStage"
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -151,6 +206,62 @@
     }
   },
   "components": {
+    "parameters": {
+      "PosBuildCommit": {
+        "name": "X-POS-Build-Commit",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "description": "RT-719. The POS git commit the running build was made from: exactly 40 characters of `[0-9a-f]` (the full SHA-1). Optional. A request that sends no valid commit records the device's build as unknown; it is never refused or slowed for it. Recorded only from a request to this operation that authenticates with the device token. See \"Build identity report (RT-719)\" in `pos-terminal-pairing.openapi.yaml`.\n"
+      },
+      "PosAppVersion": {
+        "name": "X-POS-App-Version",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 32,
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+        },
+        "description": "RT-719. The POS semantic version: at most 32 characters of `[0-9A-Za-z.-]`, without build metadata. Optional: send it only when the build has a release version (POS has no signed release yet). Ignored without a valid `X-POS-Build-Commit`. See \"Build identity report (RT-719)\" in `pos-terminal-pairing.openapi.yaml`.\n"
+      },
+      "PosContractPin": {
+        "name": "X-POS-Contract-Pin",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "description": "RT-719. The Backend-Core commit in the build's `contracts/backend-core/PIN` (the `commit` line): exactly 40 characters of `[0-9a-f]`. Optional. Ignored without a valid `X-POS-Build-Commit`. See \"Build identity report (RT-719)\" in `pos-terminal-pairing.openapi.yaml`.\n"
+      }
+    },
+    "headers": {
+      "DeviceTokenRotateAfter": {
+        "description": "RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, \"Credential rotation\".\n",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "DeviceTokenRotateStage": {
+        "description": "RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds; the terminal shows each stage the first time it sees it.\n",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "enum": ["notice", "warning", "urgent"]
+        }
+      }
+    },
     "securitySchemes": {
       "device": {
         "type": "http",
@@ -393,7 +504,7 @@
       },
       "PosCashierRosterResponse": {
         "type": "object",
-        "required": ["cashiers"],
+        "required": ["cashiers", "suspended_cashiers"],
         "additionalProperties": false,
         "properties": {
           "cashiers": {
@@ -401,6 +512,31 @@
             "items": {
               "$ref": "#/components/schemas/PosCashierRosterEntry"
             }
+          },
+          "suspended_cashiers": {
+            "type": "array",
+            "description": "RT-1138: the cashiers of the device's store that are suspended and so left out of `cashiers`. Minimum disclosure: no display name.\n",
+            "items": {
+              "$ref": "#/components/schemas/PosCashierSuspendedEntry"
+            }
+          }
+        }
+      },
+      "PosCashierSuspendedEntry": {
+        "type": "object",
+        "required": ["user_id", "operator_id"],
+        "additionalProperties": false,
+        "description": "A cashier suspended at the device's store (RT-1138).",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The same `users.id` the roster's `user_id` carries."
+          },
+          "operator_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The same provider subject the roster's `operator_id` carries; the key the terminal holds its local cashier record and session under.\n"
           }
         }
       },
