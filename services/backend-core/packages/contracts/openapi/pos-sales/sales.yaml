@@ -3952,6 +3952,9 @@ components:
           description: >
             The collected share of `reversalTotal`, computed by the server
             (see `recordCreditSaleReversal`), and the sum of `refundTenders`.
+            RT-1343: a `voucher` share counts as collected, but its refund
+            tender pays nothing out (the void restores the voucher), so it is
+            never cash given back.
         receivableAdjustment:
           description: >
             The credit share (`reversalTotal − refundableAmount`) owed back to
