@@ -50,6 +50,13 @@ export const connectorRegistration = pgTable(
     disabledBy: uuid("disabled_by").references(() => users.id, {
       onDelete: "restrict",
     }),
+    /**
+     * RT-1357 (0109): NULL for every registration made by a person; the value
+     * `provisioner` marks a registration the ERP provisioner owns (a tenant
+     * owner or admin must not rotate, re-issue or disable it by hand). Existing
+     * rows stay NULL; no backfill.
+     */
+    managedBy: text("managed_by"),
   },
   (t) => [
     check(
@@ -59,6 +66,10 @@ export const connectorRegistration = pgTable(
     check(
       "connector_registration_environment_valid",
       sql`${t.environment} IN ('dev', 'staging', 'pilot', 'prod')`,
+    ),
+    check(
+      "connector_registration_managed_by_valid",
+      sql`${t.managedBy} IS NULL OR ${t.managedBy} = 'provisioner'`,
     ),
     unique("uq_connector_registration_tenant_env_site").on(
       t.tenantId,
