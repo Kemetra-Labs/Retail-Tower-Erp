@@ -587,6 +587,7 @@ export class SalesService {
           storeId,
           saleId: saleRef,
           deviceId: input.posDeviceId,
+          actorUserId,
           requestId: input.requestId ?? null,
         });
 

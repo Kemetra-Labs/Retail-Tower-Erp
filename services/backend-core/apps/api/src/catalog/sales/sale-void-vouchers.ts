@@ -29,6 +29,8 @@ export interface VoidVoucherScope {
   readonly saleId: string;
   /** The till that sent the void. */
   readonly deviceId: string;
+  /** The void's verified actor: the `voucher.reversed` audit row names it. */
+  readonly actorUserId: string;
   readonly requestId: string | null;
 }
 
@@ -48,6 +50,7 @@ export async function reverseVoucherTendersOfVoidedSale(client: PoolClient, scop
       tenantId: scope.tenantId,
       storeId: scope.storeId,
       deviceId: scope.deviceId,
+      actorUserId: scope.actorUserId,
       requestId: scope.requestId,
       redemptionId: tender.redemption_id,
       allowConsumingSaleId: scope.saleId,

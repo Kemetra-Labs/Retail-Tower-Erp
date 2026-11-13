@@ -125,6 +125,17 @@ describe("reverseRedemptionInTx (RT-1343 item 1)", () => {
     expect(JSON.parse(String(audit.params[7]))).toMatchObject({ redemption_id: R1, reversed_by_device_id: DEVICE, sale_id: SALE });
   });
 
+  it("audits the caller's actor when given (a void), else the redeem-time cashier (the claimless reverse)", async () => {
+    const voidActor = "0a134300-0000-4000-8000-000000000006";
+    const withActor = scriptedClient({ redemptions: {} });
+    await reverseRedemptionInTx(withActor.client, input(R1, { actorUserId: voidActor, allowConsumingSaleId: SALE }));
+    expect(withActor.calls.find((c) => c.label === "audit")!.params[1]).toBe(voidActor);
+
+    const claimless = scriptedClient({ redemptions: {} });
+    await reverseRedemptionInTx(claimless.client, input(R1));
+    expect(claimless.calls.find((c) => c.label === "audit")!.params[1]).toBe(CASHIER);
+  });
+
   it("refuses another store before taking any lock", async () => {
     const { client, calls } = scriptedClient({ redemptions: { [R1]: { store_id: "0a134300-0000-4000-8000-0000000000ff" } } });
     const err = await reverseRedemptionInTx(client, input(R1)).catch((e: unknown) => e);
@@ -148,6 +159,7 @@ describe("reverseVoucherTendersOfVoidedSale (RT-1343 item 3)", () => {
       storeId: STORE,
       saleId: SALE,
       deviceId: DEVICE,
+      actorUserId: CASHIER,
       requestId: null,
     });
     expect(reversed).toBe(2);
@@ -166,6 +178,7 @@ describe("reverseVoucherTendersOfVoidedSale (RT-1343 item 3)", () => {
       storeId: STORE,
       saleId: SALE,
       deviceId: DEVICE,
+      actorUserId: CASHIER,
       requestId: null,
     });
     expect(reversed).toBe(1);
@@ -178,6 +191,7 @@ describe("reverseVoucherTendersOfVoidedSale (RT-1343 item 3)", () => {
       storeId: STORE,
       saleId: SALE,
       deviceId: DEVICE,
+      actorUserId: CASHIER,
       requestId: null,
     });
     expect(reversed).toBe(0);

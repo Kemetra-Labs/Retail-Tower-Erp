@@ -24,6 +24,7 @@ import {
   captureBody,
   idempKey,
   approvedVoid,
+  DEVICE_USER_ID,
   HARNESS_DEVICE_ID,
   STORE_A_X,
   TENANT_A,
@@ -135,11 +136,12 @@ describe("RT-1343 item 3 — a full void restores the voucher", () => {
     expect(after.reversed_at).not.toBeNull();
     expect(after.reversed_by_device_id).toBe(HARNESS_DEVICE_ID);
 
-    // One audit row, attributed to the redeem-time cashier, naming the voided sale and the device.
+    // One audit row, attributed to the void's own actor (not the redeem-time cashier),
+    // naming the voided sale and the device.
     const audits = await reversedAudits(R_ONE);
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
-      actor_user_id: ACTOR,
+      actor_user_id: DEVICE_USER_ID,
       store_id: STORE_A_X,
       metadata: {
         voucher_id: voucherIdOf(R_ONE),

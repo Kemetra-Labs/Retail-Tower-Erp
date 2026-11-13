@@ -503,7 +503,7 @@ export class SalesController {
     }
     // RT-1343: the guard publishes the verified device; a void that restores a
     // voucher records it as the reversing device. Fail closed without it.
-    if (request.posDeviceId === undefined) {
+    if (!request.posDeviceId) {
       throw new UnauthorizedException("Unauthorized");
     }
     if (!UUID_RE_I.test(saleRef)) {

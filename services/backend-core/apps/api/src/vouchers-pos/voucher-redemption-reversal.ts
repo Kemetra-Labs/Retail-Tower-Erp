@@ -58,6 +58,12 @@ export interface ReverseRedemptionInput {
   readonly storeId: string;
   /** The device doing the reversing (`reversed_by_device_id`, the audit row). */
   readonly deviceId: string;
+  /**
+   * The verified user doing the reversing, when the caller has one (a void: the
+   * void's actor). Absent on `/vouchers/reverse`, which carries no claim (RT-1110):
+   * the audit row then names the redeem-time cashier.
+   */
+  readonly actorUserId?: string;
   readonly requestId: string | null;
   readonly redemptionId: string;
   /** The one sale whose tender may reference the redemption: the void's own sale. */
@@ -113,8 +119,9 @@ export async function reverseRedemptionInTx(
   await insertVoucherPosAudit(client, {
     tenantId,
     storeId,
-    // The redeem-time cashier: the reverse carries no claim (RT-1110).
-    actorUserId: redemption.operator_user_id,
+    // The caller's verified actor (a void); else the redeem-time cashier, as the
+    // reverse endpoint carries no claim (RT-1110).
+    actorUserId: input.actorUserId ?? redemption.operator_user_id,
     requestId: input.requestId,
     action: VOUCHER_REVERSED_ACTION,
     voucherId: redemption.voucher_id,
