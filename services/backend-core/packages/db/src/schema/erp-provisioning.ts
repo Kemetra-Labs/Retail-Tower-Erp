@@ -17,7 +17,18 @@
  *     (scope `connector_provisioner`); nothing secret is stored here.
  */
 import { sql } from "drizzle-orm";
-import { index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  foreignKey,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { authTokens } from "./auth_tokens";
 import { connectorRegistration } from "./connector_registration";
@@ -107,6 +118,42 @@ export const erpProvisioningRequest = pgTable(
         sql`${t.kind} = 'tenant.provision' AND ${t.status} NOT IN ('succeeded', 'failed_permanent', 'compensated', 'cancelled')`,
       ),
     index("idx_erp_provisioning_request_tenant").on(t.tenantId, t.createdAt),
+    index("idx_erp_provisioning_request_pull")
+      .on(t.createdAt)
+      .where(sql`${t.status} NOT IN ('succeeded', 'failed_permanent', 'compensated', 'cancelled')`),
+    index("idx_erp_provisioning_request_registration")
+      .on(t.connectorRegistrationId)
+      .where(sql`${t.connectorRegistrationId} IS NOT NULL`),
+    // Composite-FK target so a step-log row cannot name another tenant.
+    unique("uq_erp_provisioning_request_id_tenant").on(t.id, t.tenantId),
+    check(
+      "erp_provisioning_request_kind_valid",
+      sql`${t.kind} IN ('tenant.provision', 'store.provision', 'credential.rotate')`,
+    ),
+    check(
+      "erp_provisioning_request_status_valid",
+      sql`${t.status} IN ('requested', 'claimed', 'site_created', 'erp_configured', 'connector_installed', 'credential_bound', 'verifying', 'succeeded', 'failed_retryable', 'failed_permanent', 'compensating', 'compensated', 'cancelled')`,
+    ),
+    check(
+      "erp_provisioning_request_counters_valid",
+      sql`${t.generation} >= 1 AND ${t.attempt} >= 0 AND ${t.attemptFloor} >= 0 AND ${t.templateVersion} >= 1 AND ${t.version} >= 1`,
+    ),
+    check(
+      "erp_provisioning_request_lease_all_or_none",
+      sql`(${t.leaseHolder} IS NULL) = (${t.leaseId} IS NULL) AND (${t.leaseId} IS NULL) = (${t.leaseExpiresAt} IS NULL)`,
+    ),
+    check(
+      "erp_provisioning_request_terminal_at_matches_status",
+      sql`(${t.terminalAt} IS NOT NULL) = (${t.status} IN ('succeeded', 'failed_permanent', 'compensated', 'cancelled'))`,
+    ),
+    check(
+      "erp_provisioning_request_last_error_class_valid",
+      sql`${t.lastErrorClass} IS NULL OR ${t.lastErrorClass} IN ('failed_transient', 'permanently_rejected', 'conflict', 'capacity', 'compatibility', 'dependency')`,
+    ),
+    check(
+      "erp_provisioning_request_text_bounds",
+      sql`length(${t.siteName}) BETWEEN 1 AND 128 AND length(${t.templateId}) BETWEEN 1 AND 64 AND (${t.leaseHolder} IS NULL OR length(${t.leaseHolder}) BETWEEN 1 AND 64) AND (${t.lastReason} IS NULL OR length(${t.lastReason}) BETWEEN 1 AND 200)`,
+    ),
   ],
 );
 
@@ -126,7 +173,29 @@ export const erpProvisioningStepLog = pgTable(
     leaseId: uuid("lease_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("idx_erp_provisioning_step_log_request").on(t.requestId, t.createdAt)],
+  (t) => [
+    index("idx_erp_provisioning_step_log_request").on(t.requestId, t.createdAt),
+    // tenant_id must equal the request's tenant.
+    foreignKey({
+      name: "erp_provisioning_step_log_request_fk",
+      columns: [t.requestId, t.tenantId],
+      foreignColumns: [erpProvisioningRequest.id, erpProvisioningRequest.tenantId],
+    }).onDelete("restrict"),
+    // The idempotency key `{requestId}:{step}:{attempt}`.
+    unique("uq_erp_provisioning_step_log_request_step_attempt").on(t.requestId, t.step, t.attempt),
+    check(
+      "erp_provisioning_step_log_step_valid",
+      sql`${t.step} IN ('claimed', 'site_created', 'erp_configured', 'connector_installed', 'credential_bound', 'verified')`,
+    ),
+    check(
+      "erp_provisioning_step_log_outcome_valid",
+      sql`${t.outcome} IN ('done', 'failed_transient', 'permanently_rejected', 'conflict', 'capacity', 'compatibility', 'dependency')`,
+    ),
+    check(
+      "erp_provisioning_step_log_shape",
+      sql`${t.generation} >= 1 AND ${t.attempt} >= 1 AND ((${t.outcome} = 'done') = (${t.errorClass} IS NULL)) AND (${t.errorClass} IS NULL OR ${t.errorClass} = ${t.outcome}) AND (${t.outcome} <> 'permanently_rejected' OR ${t.reason} IS NOT NULL) AND (${t.reason} IS NULL OR length(${t.reason}) BETWEEN 1 AND 200) AND (${t.detail} IS NULL OR length(${t.detail}) <= 1000)`,
+    ),
+  ],
 );
 
 export const erpProvisionerCredential = pgTable(
@@ -146,7 +215,21 @@ export const erpProvisionerCredential = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "restrict" }),
   },
-  (t) => [uniqueIndex("uq_erp_provisioner_credential_live_host").on(t.hostLabel).where(sql`${t.revokedAt} IS NULL`)],
+  (t) => [
+    uniqueIndex("uq_erp_provisioner_credential_live_host").on(t.hostLabel).where(sql`${t.revokedAt} IS NULL`),
+    check(
+      "erp_provisioner_credential_host_label_valid",
+      sql`${t.hostLabel} ~ '^[a-z0-9][a-z0-9-]*$' AND length(${t.hostLabel}) <= 64`,
+    ),
+    check(
+      "erp_provisioner_credential_environment_valid",
+      sql`${t.environment} IN ('dev', 'staging', 'pilot', 'prod')`,
+    ),
+    check(
+      "erp_provisioner_credential_revocation_pair",
+      sql`(${t.revokedAt} IS NULL) = (${t.revokedBy} IS NULL)`,
+    ),
+  ],
 );
 
 export type ErpProvisioningRequestRow = typeof erpProvisioningRequest.$inferSelect;
