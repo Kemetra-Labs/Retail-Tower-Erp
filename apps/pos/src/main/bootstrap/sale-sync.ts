@@ -16,7 +16,7 @@ import {
   type SendableDeviceTokenReaderDeps,
 } from '../pairing/device-token.js';
 import type { PairingStore } from '../pairing/store.js';
-import { parseReceiptSince, parseTendersSince } from '../sales-sync/capture-payload.js';
+import { readEngineCutoffs } from '../sales-sync/capture-cutover.js';
 import {
   CASHIER_CLAIM_REFUSED_RESET_ENV,
   isCashierClaimRefusedResetRequested,
@@ -141,27 +141,14 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
       mainLogger.warn({ external_id: externalId, reason }, 'sale_sync:sale_ref_unavailable');
     },
   });
-  // RT-79 rollout gate: unset = never send tenders (default). Only sales finalized
-  // at/after this explicit-zone ISO instant carry `tenders`. Ops MUST choose a
-  // FUTURE instant, later than BOTH the Backend-Core tender switch going ON and
-  // the restart that loads it here: then no sale at/after the cutoff can have
-  // been sent without tenders by an earlier process (its retry body stays
-  // identical). A past cutoff re-opens that window. Unparseable = off + warning.
-  const tendersSinceRaw = process.env['POS_PULSE_FEATURE_SALE_TENDERS_SINCE'];
-  const tendersSince = parseTendersSince(tendersSinceRaw);
-  if (tendersSinceRaw !== undefined && tendersSinceRaw.trim() !== '' && tendersSince === null) {
-    mainLogger.warn('sale_sync:tenders_since_unparseable_tenders_off');
-  }
-  // RT-540 rollout gate (same rule as the tenders gate above): unset = never send the
-  // `receipt` snapshot (default). Ops MUST choose a FUTURE instant, later than BOTH the
-  // Backend-Core RT-539 deploy and the restart that loads it here, so no sale at/after
-  // the cutoff can already have been sent without it (a changed body under the same
-  // Idempotency-Key is a 409). Unparseable = off + warning.
-  const receiptSinceRaw = process.env['POS_PULSE_FEATURE_SALE_RECEIPT_SINCE'];
-  const receiptSince = parseReceiptSince(receiptSinceRaw);
-  if (receiptSinceRaw !== undefined && receiptSinceRaw.trim() !== '' && receiptSince === null) {
-    mainLogger.warn('sale_sync:receipt_since_unparseable_receipt_off');
-  }
+  // RT-79 tenders and RT-540 receipt cut-offs (RT-1379, RT-1377 decision O-1 option B): the
+  // one row `bootstrap/capture-cutover.ts` recorded right after the migrations, read back here.
+  // Only sales finalized at/after each instant carry `tenders` / `receipt`. The instant is
+  // later than every sale that existed at the first start of this build and never moves, so a
+  // retry always rebuilds the same body under the same Idempotency-Key (a changed body is a
+  // 409). `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` / `..._RECEIPT_SINCE` only seed that first
+  // write. No row (the boot write failed) = both off, with a warning.
+  const { tendersSince, receiptSince } = readEngineCutoffs(db, mainLogger);
   // RT-221: the drain (and the pending / held counts) is scoped to the
   // CURRENT pairing's terminal_id, read live from the pairing status each
   // tick. After a re-pair, the earlier pairing's queued sales are held —

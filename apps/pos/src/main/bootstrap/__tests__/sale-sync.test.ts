@@ -16,8 +16,7 @@ const m = vi.hoisted(() => ({
   resetCashierClaimRefusedOnStart: vi.fn(),
   isCashierClaimRefusedResetRequested: vi.fn(),
   logSaleSyncPauseTransition: vi.fn(),
-  parseTendersSince: vi.fn(),
-  parseReceiptSince: vi.fn(),
+  readEngineCutoffs: vi.fn(),
   scheduleSaleSync: vi.fn(),
   resolveApiBaseUrl: vi.fn(),
   createDiscountRoleResolver: vi.fn(),
@@ -62,9 +61,8 @@ vi.mock('../../sales-sync/cashier-claim-refused-reset.js', () => ({
   isCashierClaimRefusedResetRequested: m.isCashierClaimRefusedResetRequested,
   resetCashierClaimRefusedOnStart: m.resetCashierClaimRefusedOnStart,
 }));
-vi.mock('../../sales-sync/capture-payload.js', () => ({
-  parseTendersSince: m.parseTendersSince,
-  parseReceiptSince: m.parseReceiptSince,
+vi.mock('../../sales-sync/capture-cutover.js', () => ({
+  readEngineCutoffs: m.readEngineCutoffs,
 }));
 vi.mock('../../sales-sync/schedule-sale-sync.js', () => ({
   SALE_SYNC_DRAIN_TIMEOUT_MS: 4_000,
@@ -141,8 +139,7 @@ function makeHarness(): Harness {
   m.registerSalesSyncHandlers.mockImplementation(() => events.push('statusHandler'));
   m.isCashierClaimRefusedResetRequested.mockReturnValue(false);
   m.resetCashierClaimRefusedOnStart.mockImplementation(() => events.push('reset'));
-  m.parseTendersSince.mockReturnValue(null);
-  m.parseReceiptSince.mockReturnValue(null);
+  m.readEngineCutoffs.mockReturnValue({ tendersSince: null, receiptSince: null });
   m.scheduleSaleSync.mockImplementation(() => {
     events.push('schedule');
     return stopSaleSync;
@@ -263,30 +260,26 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     expect(h.getStatus).toHaveBeenCalledTimes(1);
   });
 
-  it('passes the parsed tender and receipt cut-offs through, and warns when unparseable', () => {
+  it('RT-1379: passes the cut-offs stored in the database, read on the open handle', () => {
     const h = makeHarness();
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDERS_SINCE', 'garbage');
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_RECEIPT_SINCE', ' ');
-    m.parseReceiptSince.mockReturnValueOnce('2027-01-01T00:00:00Z');
+    m.readEngineCutoffs.mockReturnValueOnce({
+      tendersSince: '2026-11-13T12:00:00.000Z',
+      receiptSince: '2026-10-01T00:00:00.000Z',
+    });
     startSaleSyncEngine(h.deps, TERMINAL);
-    expect(m.parseTendersSince).toHaveBeenCalledWith('garbage');
-    expect(engineDeps()['tendersSince']).toBeNull();
-    expect(engineDeps()['receiptSince']).toBe('2027-01-01T00:00:00Z');
-    expect(h.logger.warn).toHaveBeenCalledWith('sale_sync:tenders_since_unparseable_tenders_off');
-    expect(h.logger.warn).not.toHaveBeenCalledWith(
-      'sale_sync:receipt_since_unparseable_receipt_off',
-    );
+    expect(m.readEngineCutoffs).toHaveBeenCalledWith(h.deps.db, h.logger);
+    expect(engineDeps()['tendersSince']).toBe('2026-11-13T12:00:00.000Z');
+    expect(engineDeps()['receiptSince']).toBe('2026-10-01T00:00:00.000Z');
+  });
 
-    const second = makeHarness();
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDERS_SINCE', '');
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_RECEIPT_SINCE', 'nope');
-    startSaleSyncEngine(second.deps, TERMINAL);
-    expect(second.logger.warn).toHaveBeenCalledWith(
-      'sale_sync:receipt_since_unparseable_receipt_off',
-    );
-    expect(second.logger.warn).not.toHaveBeenCalledWith(
-      'sale_sync:tenders_since_unparseable_tenders_off',
-    );
+  it('RT-1379: the environment no longer sets the cut-offs (it only seeds the first write, at boot)', () => {
+    const h = makeHarness();
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDERS_SINCE', '2026-01-01T00:00:00Z');
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_RECEIPT_SINCE', 'garbage');
+    startSaleSyncEngine(h.deps, TERMINAL);
+    expect(engineDeps()['tendersSince']).toBeNull();
+    expect(engineDeps()['receiptSince']).toBeNull();
+    expect(h.logger.warn).not.toHaveBeenCalled();
   });
 
   it('runs the RT-225 support reset for this terminal before the engine exists', () => {

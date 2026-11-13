@@ -217,17 +217,16 @@ export interface SaleSyncEngineDeps {
   now: () => string;
   backoff: BackoffPolicy;
   /**
-   * RT-79 rollout gate (`POS_PULSE_FEATURE_SALE_TENDERS_SINCE`, an ISO instant).
-   * Unset/null = never send tenders. Set = only sales finalized at/after it carry
-   * `tenders`. It must be a FUTURE instant, later than both the Backend-Core tender
-   * switch and the POS restart that loads it (see index.ts).
+   * RT-79 rollout gate (an ISO instant). Unset/null = never send tenders. Set = only
+   * sales finalized at/after it carry `tenders`. RT-1379: it is the `tenders_since` of
+   * the append-only 0062 row, written once at the first start of the build, later than
+   * every sale that existed then (`capture-cutover.ts`), so it never moves.
    */
   tendersSince?: string | null | undefined;
   /**
-   * RT-540 rollout gate (`POS_PULSE_FEATURE_SALE_RECEIPT_SINCE`, an ISO instant).
-   * Unset/null = never send `receipt`. Set = only sales finalized at/after it carry it.
-   * It must be a FUTURE instant, later than both the Backend-Core RT-539 deploy and the
-   * POS restart that loads it (see index.ts).
+   * RT-540 rollout gate (an ISO instant). Unset/null = never send `receipt`. Set = only
+   * sales finalized at/after it carry it. RT-1379: the `receipt_since` of the same 0062
+   * row (`capture-cutover.ts`).
    */
   receiptSince?: string | null | undefined;
   /**

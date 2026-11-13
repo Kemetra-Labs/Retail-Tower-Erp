@@ -85,6 +85,7 @@ import { registerCart, registerPayments } from './bootstrap/payments-cart.js';
 import { registerReturns } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
 import { startFinalizeListener } from './bootstrap/finalize.js';
+import { recordCaptureCutoverAtBoot } from './bootstrap/capture-cutover.js';
 import { startSaleSyncEngine } from './bootstrap/sale-sync.js';
 import { registerSalesBridges } from './bootstrap/sales-bridges.js';
 import { registerShift } from './bootstrap/shift.js';
@@ -402,11 +403,12 @@ singleInstanceReady
       return;
     }
     mainLogger.info({ count: files.length }, 'db:migrations-applied');
+    // RT-1379: the capture instant, recorded once before any worker starts (paired or not).
+    recordCaptureCutoverAtBoot({ db, env: process.env, mainLogger });
 
-    // 009 T049b — dev-only catalogue fixture seed. Fail-closed: no-op in the
-    // shipped app (the env var is never consulted there; RT-165) and unless
-    // POS_PULSE_DEV_SEED_CATALOGUE is truthy. Lets the live T049a surface +
-    // S5 review tasks exercise real rows. Meant to run alongside the
+    // 009 T049b — dev-only catalogue fixture seed. Fail-closed: no-op in the shipped app (the env
+    // var is never consulted there; RT-165) and unless POS_PULSE_DEV_SEED_CATALOGUE is truthy. Lets
+    // the live T049a surface + S5 review tasks exercise real rows. Meant to run alongside the
     // POS_PULSE_DEV_SKIP_* flags (same dev-tenant).
     applyDevSeedCatalogueIfRequested({
       isPackaged: shippedApp,
@@ -415,16 +417,14 @@ singleInstanceReady
       logger: mainLogger,
     });
 
-    // T048 wire-in: construct the SecretStore on the same long-lived
-    // handle to validate factory wiring (production refusal will throw
-    // into .catch below per R8). 002 US1 retains the reference because
-    // the pairing store now consumes it.
+    // T048 wire-in: construct the SecretStore on the same long-lived handle to validate factory
+    // wiring (production refusal will throw into .catch below per R8). 002 US1 retains the
+    // reference because the pairing store now consumes it.
     const secretStore = runStartupStage('secret_store', () =>
       createSecretStore({ handle: db, safeStorage, isPackaged: shippedApp }),
     );
-    // Note (Phase 5 R8): SecretStore still uses console.warn/error
-    // placeholders. Swap to mainLogger is a deferred follow-up — out
-    // of Phase 8 scope.
+    // Note (Phase 5 R8): SecretStore still uses console.warn/error placeholders. Swap to mainLogger
+    // is a deferred follow-up — out of Phase 8 scope.
 
     // RT-113 P1.2 — the sealed offline grant store, wired: the cashier-admission
     // grant seam (below), the pairing purge + new epoch on every pairing change
