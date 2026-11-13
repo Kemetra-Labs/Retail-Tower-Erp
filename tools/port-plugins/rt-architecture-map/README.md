@@ -45,7 +45,7 @@ None. The widget reads the catalog through the Port API with the viewer's own se
 The plugin identifier in Port is `rt-architecture-map`. To update it, upload this file's content with the Port MCP `upsert_plugin` tool (inline `html`, since the remote MCP cannot read local paths) or with the CLI:
 
 ```bash
-npx port-plugins upload --file tools/port-plugins/rt-architecture-map/index.html --identifier rt-architecture-map --title "Retail Tower Architecture Map" --params "{}" --description "Live architecture map coloured from Port data" --upsert
+npx @port-labs/port-plugins-cli upload --file tools/port-plugins/rt-architecture-map/index.html --identifier rt-architecture-map --title "Retail Tower Architecture Map" --params "{}" --description "Live architecture map coloured from Port data" --upsert
 ```
 
 The widget on the Cockpit is `ck_arch` (`pluginId: rt-architecture-map`, no `paramValues`).

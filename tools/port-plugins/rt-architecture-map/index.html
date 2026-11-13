@@ -306,7 +306,8 @@ a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
     fetch(state.baseUrl.replace(/\/+$/, "") + "/v1/blueprints/service/entities/search", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + state.token },
-      body: JSON.stringify({ query: { combinator: "and", rules: [] } })
+      // Only the displayed services: Port pages results (default 200), so an unfiltered search could miss one.
+      body: JSON.stringify({ query: { combinator: "and", rules: [{ property: "$identifier", operator: "in", value: NODES.map(function (n) { return n.id; }) }] }, limit: NODES.length })
     }).then(function (res) {
       return res.text().then(function (body) {
         if (res.status === 401) {
@@ -342,6 +343,9 @@ a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
       out.textContent = "Showing last data. " + text;
     } else {
       message("Could not load services.\n" + text, true);
+      var live = document.getElementById("summary");
+      live.className = "summary down";
+      live.textContent = "Could not load live status. " + text;
     }
   }
 
