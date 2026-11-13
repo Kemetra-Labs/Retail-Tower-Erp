@@ -4,6 +4,30 @@
 
 Before creating, modifying, or reviewing any RT Jira issue, read and apply section 4A of the Retail Tower Project Operating System in Confluence. Do not proceed with issue changes that violate this contract.
 
+## Official First — Reuse Before Build (MANDATORY)
+
+Owner-approved gate, 2026-11. The full decision is [Confluence, Section 7 "Mandatory agent execution gate — Official First"](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/74776578); this section is the short form and does not replace it. It applies to every new or materially expanded capability (business logic, workflow, integration, infrastructure utility, service feature), in every Work Mode that designs or builds something.
+
+Before designing or implementing:
+
+1. **Official first.** Check the official documentation, native capabilities, supported SDKs/APIs and supported extension points of the platform or provider Retail Tower already uses (ERPNext/Frappe, Descope, AWS, Electron, NestJS and so on). Confirm the applicable version. Documentation is not runtime proof.
+2. **Project reuse.** Inspect `origin/main` for an existing implementation, service, adapter or skill. Do not duplicate business logic or create a competing source of truth.
+3. **Decide in this order: REUSE → EXTEND → BUILD.** BUILD (custom code) only when a concrete technical or business requirement makes reuse or a supported extension unsuitable. "Faster to write myself" is not a reason.
+4. **Record a BUILD in the owning Jira issue:** official alternatives reviewed; official docs and versions; existing implementation references; why reuse or extension is insufficient; architecture and maintenance implications; owner approval when required. When a PR is authorized, repeat the short form in the PR description.
+5. **Fail closed.** If the official capability, an implementation overlap or the justification is unclear, STOP before writing duplicate logic and report `NEEDS VERIFICATION` with the smallest next decision. You may not waive this gate yourself.
+6. **Respect the approved architecture.** Retail Tower stays the merchant-facing product. Backend-Core owns retail operational logic. ERPNext remains the accounting and ERP engine, with no duplicated accounting engine. ERPNext-Connector is the only ERP adapter. No unnecessary vendor lock-in. Sections 4 and 5 below still apply unchanged.
+7. **Apply it in proportion.** A routine bug fix, security patch, test-only change or docs-only change that adds no new capability writes `Official-first: Not applicable — no new capability` and goes on. Do not write a research document, open a new Jira issue or add an approval step for routine work, and do not rewrite working code only because a native feature exists; that needs its own bounded Jira issue.
+
+Short form for the Jira plan and the PR description:
+
+```
+Official capability / docs + version: [links, or verified absence]
+Existing Retail Tower implementation: [paths on origin/main, or none]
+Decision: REUSE | EXTEND | BUILD | NEEDS VERIFICATION
+Why: [fit, gap or constraint; for BUILD, the justification and approval]
+Safety: [ownership boundaries, compatibility, offline/security, tests]
+```
+
 ## Repo skills (skill map)
 
 Repo skills in [.claude/skills/](.claude/skills/README.md) add the Retail Tower facts that official and shared skills cannot know. When you use the official skill on the left, also use the RT skill on the right:
