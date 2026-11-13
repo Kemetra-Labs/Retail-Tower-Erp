@@ -457,6 +457,14 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "AiEntitlements",
     path: "services/backend-core/packages/contracts/openapi/ai-entitlements.openapi.yaml",
   },
+  // Tenant access entitlement (RT-1353 contract; RT-1350 slice 5a): the Console banner read
+  // `consoleGetTenantAccessEntitlement`. Only that read is wrapped. The two platform-admin
+  // writes (`platformRequestTenantUnlock`, `platformMarkTenantProvisioned`) are composed for
+  // the Platform Console slice (6b). Consume-only; no YAML authored here.
+  {
+    name: "TenantAccessEntitlement",
+    path: "services/backend-core/packages/contracts/openapi/tenant-access-entitlement.openapi.yaml",
+  },
   // Platform support sessions (RT-777 S1a / RT-779; contract #741, runtime #876):
   // `openSupportSession`, `getCurrentSupportSession`, `renewSupportSession`,
   // `endSupportSession` for the /platform pilot path. Composed only: the /platform

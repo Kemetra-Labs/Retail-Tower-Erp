@@ -19,6 +19,7 @@ import { useSupportSession } from "@/platform/session/useSupportSession";
 import { trackedSellingOn } from "@/tracked-selling/trackedSellingLogic";
 import { useTrackedSellingQuery } from "@/tracked-selling/useTrackedSelling";
 import { useTrackingSummary } from "@/tracking/useTracking";
+import { AccessLimitedBanner } from "./AccessLimitedBanner";
 import { useShellNavigator } from "./Navigator";
 import { ScopeHeader } from "./ScopeHeader";
 import { NavEntries, ShellContent, ShellSidebar, ShellTopBar, SkipLink } from "./ShellFrame";
@@ -103,6 +104,8 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
       <ShellContent dirtyScope>
         {/* RT-621: any 429 shows here, above the surface, without blocking it. */}
         <RateLimitBanner />
+        {/* RT-1350 5a: a self-signup tenant is limited until a platform admin unlocks it. */}
+        {inSession ? null : <AccessLimitedBanner />}
         <SupportSessionBoundary controller={supportSession} tenantShell>
           {children}
         </SupportSessionBoundary>
