@@ -1,6 +1,7 @@
 export * from "./users";
 export * from "./tenants";
 export * from "./tenant-access-entitlements";
+export * from "./erp-provisioning";
 export * from "./cashier-suspensions";
 export * from "./pending-signups";
 export * from "./user-consents";

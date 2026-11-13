@@ -171,6 +171,7 @@ class FakeEmailJobEnqueuer implements EmailJobEnqueuer {
   enqueuePasswordReset = jest.fn<Promise<void>, [unknown]>().mockResolvedValue(undefined);
   enqueueEmailVerification = jest.fn<Promise<void>, [unknown]>().mockResolvedValue(undefined);
   enqueueInvitation = jest.fn<Promise<void>, [unknown]>().mockResolvedValue(undefined);
+  enqueueSignupLink = jest.fn<Promise<void>, [unknown]>().mockResolvedValue(undefined);
 }
 
 class FakeAuditJobEnqueuer implements AuditJobEnqueuer {

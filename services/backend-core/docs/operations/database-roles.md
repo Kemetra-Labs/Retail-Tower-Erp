@@ -805,6 +805,33 @@ A script without the marker, such as the owner-gated
   Its down migration drops the table and so discards every restriction: a
   restricted tenant then reads `unrestricted`.
 
+- **Migration `0109_erp_provisioning` (RT-1357, RT-1352 PB-B).** Run
+  [`sql/erp-provisioning-domain-grants.sql`](sql/erp-provisioning-domain-grants.sql)
+  after `migrate up` and before the API and worker start, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role (the API and the worker
+  share it) `SELECT`, `INSERT` and `UPDATE` on `erp_provisioning_request` and
+  `erp_provisioner_credential`, and `SELECT` and `INSERT` only on the
+  append-only `erp_provisioning_step_log`. Never `DELETE` or `TRUNCATE`. The auth
+  lookup role must hold no privilege on any of the three tables
+  (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). All three tables are FORCE ROW LEVEL
+  SECURITY. **New session setting `app.is_provisioner = 'true'`:** the ERP
+  provisioner's machine bearer (PB-C) sets it, only on the provisioner-bearer
+  path and never together with `app.is_platform_admin`. Only these three
+  tables' policies read it: it reads and updates requests across tenants,
+  appends step-log rows, and cannot create a request, read the credential
+  table or write `tenant_access_entitlements` or any other table. A platform
+  admin creates requests and manages the credential table; a tenant reads only
+  its own requests and step log. 0109 creates empty tables, adds a nullable
+  column and CHECKs (added `NOT VALID` and validated in their own
+  transactions, under `lock_timeout` 2s) and seeds one `users` row, the system
+  actor (`00000000-0000-7000-8000-000000001357`): it has no password hash, no
+  external identity, no membership and is never a platform admin (a CHECK on
+  `users` keeps it so); PB-C must not surface it in any user listing. It needs
+  no maintenance window and no backfill. Its down migration refuses while any
+  request, step-log row, credential, provisioner token or managed registration
+  exists. Rollback of the grants: see the script's header.
+
 - **Migration `0106_cashier_suspensions` (RT-1138).** Run
   [`sql/cashier-suspensions-domain-grants.sql`](sql/cashier-suspensions-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

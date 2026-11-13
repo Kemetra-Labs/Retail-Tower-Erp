@@ -61,6 +61,16 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-1309: read only by the lab-fixtures CLI, passed per invocation (`docker exec -e`); never set in compose, so no deployment carries it",
   POS_RELEASE_PRODUCTION_PUBLISHER:
     "RT-1292: read only to refuse a pilot pin equal to the production pin; the production lane (RT-1260) is not implemented, so there is no value to pass yet",
+  SIGNUP_CURRENT_TERMS_VERSION:
+    "RT-1350 slice 3: unmapped, so the public self-signup answers 503 in production until the owner opens it (launch gate G: terms text, retention and residency decided); map it in the deploy change that opens signup",
+  SIGNUP_DISPOSABLE_DOMAINS_EXTRA:
+    "RT-1350 slice 3: optional extras to the bundled disposable-domain list; unmapped with the other signup settings until signup opens (launch gate G)",
+  TURNSTILE_SECRET_KEY:
+    "RT-1350 slice 3: the human-challenge secret; unmapped, so the verifier fails closed (503) until the owner opens signup and the secret is provisioned (launch gate G)",
+  TURNSTILE_EXPECTED_HOSTNAME:
+    "RT-1350 slice 3: the Console hostname a challenge token must be minted for; unmapped with the secret until signup opens (launch gate G)",
+  TURNSTILE_EXPECTED_ACTION:
+    "RT-1350 slice 3: the widget action (default `signup`); unmapped with the secret until signup opens (launch gate G)",
 };
 
 /** Mapped, but deliberately not from the host variable of the same name. */
