@@ -13,15 +13,17 @@ info:
     provisioner (PC-A) build against.
 
 
-    **Posture.** `1.0.0-draft`. Every operation carries `x-runtime-status:
-    contract-only` with an `x-runtime-note`: nothing here is served yet. This
-    file claims no runtime behaviour. `[GATED: contract]`. Source: the
+    **Posture.** `1.0.0-draft`. The operations in this file are served by
+    Backend-Core since RT-1358 (RT-1352 PB-C): the provisioning service. The
+    first deployment ships with the Connector provisioner (RT-1359) still to
+    consume it. `[GATED: contract]`. Source: the
     owner-approved RT-1352 design (Confluence page 76152835, version 4),
     sections 4.3 to 4.7, 4.11 and 5, and the owner decisions OD-1 to OD-12
     (RT-1352 comment 16764). The owner waived the PV0 bench spike (RT-1355) for
-    this contract-only slice on 2026-11-13; if PV0 contradicts a rule here, a
+    the contract slice on 2026-11-13; if PV0 contradicts a rule here, a
     follow-up contract change adjusts it. This file is additive: no existing
-    operation changes, and the RT-1353 and RT-1350 contracts are untouched.
+    operation changes, and the RT-1353 and RT-1350 contracts keep their
+    shape (RT-1358 adds one error code to the RT-1353 mark-provisioned 409).
 
 
     **Direction (pull model).** The provisioner calls Backend-Core; Backend-Core
@@ -72,8 +74,12 @@ info:
     acknowledgement is safe to repeat.
 
 
-    **Lease.** The first acknowledgement (`claimed`) takes a time-limited lease;
-    each progress acknowledgement renews it. One rule applies at every point
+    **Lease.** The first acknowledgement (`claimed`) takes a time-limited lease of
+    at least 15 minutes (the server sets it; the caller sends no duration);
+    each NON-replayed progress acknowledgement renews it for the same length,
+    and a replay of an acknowledgement (same `Idempotency-Key`) renews
+    nothing. A provisioner checks the remaining lease before a long step (a
+    site create takes up to about 110 seconds). One rule applies at every point
     of the lifecycle: when a lease expires, the request keeps its recorded
     status (`claimed`, `site_created`, `erp_configured`, `connector_installed`,
     `credential_bound` or `verifying`; the status is a display and audit trail,
@@ -189,12 +195,6 @@ info:
     `dependency` step outcome is followed by a terminal
     `permanently_rejected` outcome whose `reason` names it.
 
-x-runtime-note: >
-  Every operation in this file is contract-only. The runtime ships with the
-  provisioning service (RT-1352 PB-C) after the migration (PB-B); the Connector
-  provisioner consumes it in PC-A. The `/api/connector/v1/erpnext/provisioning`
-  prefix keeps the existing `/api/connector/v1/erpnext/` family.
-
 servers:
   - url: https://api.example.com
 
@@ -213,10 +213,6 @@ paths:
     get:
       summary: Pull provisioning requests that need a provisioner.
       operationId: connectorPullProvisioningRequests
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioning]
       security:
         - connectorProvisionerBearer: []
@@ -226,7 +222,10 @@ paths:
         oldest first, after the supplied opaque `cursor`. Re-requesting the
         same cursor yields the same logical set (idempotent replay). Pulling
         does not take a lease: the lease is taken by the first acknowledgement
-        (`claimed`). A request whose lease is live for another provisioner is
+        (`claimed`), for at least 15 minutes. Backend-Core holds back new
+        `tenant.provision` requests while the host label already provisioned 20
+        sites (the per-bench ceiling, decision OD-10); the provisioner's own
+        queue-depth check is reported as the `capacity` outcome. A request whose lease is live for another provisioner is
         not returned. Scope is the provisioner principal only, which is
         tenant-independent; query scope is never trusted. A cursor that cannot
         be served is a `400 validation_error`; the provisioner re-pulls from the
@@ -282,18 +281,14 @@ paths:
       summary: Acknowledge one provisioning step, taking or renewing the lease.
       operationId: connectorAckProvisioningStep
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioning]
       security:
         - connectorProvisionerBearer: []
       description: >
         Reports the outcome of one step of one request. The first call for a
         request is the `claimed` step with outcome `done`, which takes the
-        lease; every later call renews it and returns the new
-        `leaseExpiresAt`. Backend-Core records the step for the Console and the
+        lease of at least 15 minutes; every later call that is not a replay
+        renews it for the same length and returns the new `leaseExpiresAt`. Backend-Core records the step for the Console and the
         audit trail (`erp.provisioning.*`) and moves the request's status; the
         provisioner remains the source of truth for what exists on the site.
 
@@ -315,7 +310,9 @@ paths:
         applies the handling of each class (see the file description): it
         schedules a retry with backoff for `failed_transient` (at most three
         transient retries per step, then `failed_permanent` with an alert),
-        holds for `capacity`, and stops for the others. A caller who does not
+        holds for `capacity` (the request is kept and offered again 15 minutes
+        later, never failed and never counted against the retry cap), and stops
+        for the others. A caller who does not
         hold a live lease on the request gets `409 lease_lost`, except for the
         `claimed` step on a request that is `requested` or whose lease has
         expired, which takes a new lease. `detail` is scrubbed by the caller and is stored for the audit
@@ -385,10 +382,6 @@ paths:
     post:
       summary: Issue the tenant connector credential once, lease-bound.
       operationId: connectorIssueProvisionedCredential
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioning]
       security:
         - connectorProvisionerBearer: []
@@ -450,10 +443,6 @@ paths:
       summary: Report the final outcome of a provisioning request.
       operationId: connectorCompleteProvisioning
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioning]
       security:
         - connectorProvisionerBearer: []
@@ -463,9 +452,16 @@ paths:
         not_assessed`, and per store the `warehouseRef` and `customerRef`
         Backend-Core records (for stores that existed at request time). A
         `permanently_rejected` or `conflict` outcome carries a `reason`.
-        Backend-Core, not the provisioner, decides what `succeeded` does to
-        the tenant's access state; the outcome never lifts a restriction by
-        itself on this contract.
+        Backend-Core, not the provisioner, decides when a request is `succeeded`:
+        the provisioner's `verified` step checks the site only, so Backend-Core
+        accepts the outcome (200) and keeps the request `verifying` until the
+        first heartbeat of the managed registration arrives, then records
+        `succeeded`; with no heartbeat within the timeout (30 minutes by
+        default) the request fails with an alert. Backend-Core also decides
+        what `succeeded` does to the tenant's access state; the outcome never
+        lifts a restriction by itself on this contract (a platform admin does
+        it with the RT-1353 mark-provisioned action until the per-store gate,
+        RT-1361, is on `main`).
 
         Requires the caller's live lease on `{requestId}`; otherwise `409
         lease_lost`. The `Idempotency-Key` header is REQUIRED (`{requestId}:outcome:{attempt}`
@@ -537,10 +533,6 @@ paths:
     post:
       summary: Issue the provisioner credential for one ERP host (platform admin).
       operationId: platformIssueProvisionerCredential
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioner-credential]
       security:
         - cookieAuth: []
@@ -606,10 +598,6 @@ paths:
     post:
       summary: Rotate the provisioner credential (platform admin).
       operationId: platformRotateProvisionerCredential
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioner-credential]
       security:
         - cookieAuth: []
@@ -659,10 +647,6 @@ paths:
     post:
       summary: Revoke the provisioner credential (platform admin).
       operationId: platformRevokeProvisionerCredential
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1352 PB-C (provisioning service); delete both keys
-        when it does.
       tags: [erpnext-provisioner-credential]
       security:
         - cookieAuth: []
@@ -890,7 +874,7 @@ components:
         displayName:
           type: string
           minLength: 1
-          maxLength: 180
+          maxLength: 135
 
     ProvisioningRequest:
       type: object
@@ -928,7 +912,9 @@ components:
           maxLength: 128
           description: >
             Derived by Backend-Core from the tenant id (never from the slug or
-            business name). The provisioner verifies it; a mismatch or a site
+            business name): `t`, then the first 20 hexadecimal characters of the
+            tenant id with the hyphens removed, then `-`, then the deployment
+            environment (for example `t0b9a3f0e6c5d4e2a8d52-pilot`). The provisioner verifies it; a mismatch or a site
             with this name that carries another tenant's marker is `conflict`.
         template:
           $ref: "#/components/schemas/Template"
@@ -937,7 +923,7 @@ components:
         legalName:
           type: string
           minLength: 1
-          maxLength: 180
+          maxLength: 140
           description: The business name entered at signup. Absent on `store.provision` and `credential.rotate`.
         connectorRegistrationId:
           type: string

@@ -92,7 +92,12 @@ const KEY_REGEX = /^[\x21-\x7E]{16,128}$/;
  * (should never happen on routes that use TenantContextGuard).
  */
 function clientId(ctx: ExecutionContext): string {
-  const req = ctx.switchToHttp().getRequest<{ context?: ResolvedContext; principal?: { userId?: string } }>();
+  const req = ctx
+    .switchToHttp()
+    .getRequest<{ context?: ResolvedContext; principal?: { userId?: string }; provisioner?: { hostLabel: string } }>();
+  // RT-1358: the provisioner principal is the ERP host (every provisioner token shares one
+  // system actor, so the actor id alone would collide across hosts).
+  if (req.provisioner) return `provisioner:${req.provisioner.hostLabel}`;
   return req.context?.userId ?? req.principal?.userId ?? "anonymous";
 }
 

@@ -142,6 +142,7 @@ export class ConnectorRegistrationService {
         );
         const existing = found.rows[0];
         if (!existing) return { kind: "not_found" };
+        if (await this.managedRefusal(client, input.instanceId, input.actorUserId)) return { kind: "not_found" };
 
         // Idempotent: only set + audit on the first transition to disabled.
         if (existing.disabled_at === null) {
@@ -208,6 +209,7 @@ export class ConnectorRegistrationService {
         );
         const row = inst.rows[0];
         if (row?.disabled_at !== null) return { kind: "not_found" };
+        if (await this.managedRefusal(client, input.instanceId, input.actorUserId)) return { kind: "not_found" };
 
         let credential: IssuedCredentialBody;
         try {
@@ -254,6 +256,7 @@ export class ConnectorRegistrationService {
         );
         const row = inst.rows[0];
         if (row?.disabled_at !== null) return { kind: "not_found" };
+        if (await this.managedRefusal(client, input.instanceId, input.actorUserId)) return { kind: "not_found" };
 
         // Revoke the current active credential(s) FIRST so the new insert does
         // not collide with the at-most-one-unrevoked partial-unique.
@@ -306,6 +309,12 @@ export class ConnectorRegistrationService {
         );
         const r = found.rows[0];
         if (!r) return { kind: "not_found" };
+        if (
+          r.connector_registration_id !== null &&
+          (await this.managedRefusal(client, r.connector_registration_id, input.actorUserId))
+        ) {
+          return { kind: "not_found" };
+        }
 
         await client.query(
           `UPDATE auth_tokens SET revoked_at = now()
@@ -321,6 +330,27 @@ export class ConnectorRegistrationService {
         return { kind: "ok" };
       },
     );
+  }
+
+  /**
+   * RT-1358 managed-registration guard: a registration managed by the provisioner
+   * (`managed_by = 'provisioner'`) cannot be rotated, re-issued, revoked or
+   * disabled by an owner or tenant admin (the new secret would never reach the
+   * site and posting would stop); only a platform admin can. The refusal is the
+   * same non-disclosing not_found as an absent instance. Runs inside the
+   * caller's transaction, before any write.
+   */
+  private async managedRefusal(client: PoolClient, instanceId: string, actorUserId: string): Promise<boolean> {
+    const reg = await client.query<{ managed_by: string | null }>(
+      `SELECT managed_by FROM connector_registration WHERE id = $1`,
+      [instanceId],
+    );
+    if (reg.rows[0]?.managed_by !== "provisioner") return false;
+    const admin = await client.query<{ is_platform_admin: boolean }>(
+      `SELECT is_platform_admin FROM users WHERE id = $1`,
+      [actorUserId],
+    );
+    return admin.rows[0]?.is_platform_admin !== true;
   }
 
   /**

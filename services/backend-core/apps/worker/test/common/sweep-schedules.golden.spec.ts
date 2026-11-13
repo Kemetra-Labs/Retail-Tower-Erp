@@ -16,6 +16,7 @@ import { Queue } from "bullmq";
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 import { ReservationSweepScheduler } from "../../src/ai-usage/reservation-sweep.scheduler";
+import { ProvisioningSweepScheduler } from "../../src/erp-provisioning/provisioning-sweep.scheduler";
 import { AuditRetentionScheduler } from "../../src/audit/audit-retention.scheduler";
 import { ReplayPurgeScheduler } from "../../src/cashier-admissions/replay-purge.scheduler";
 import { StockRunSweepScheduler } from "../../src/erpnext-reconciliation/stock-run-sweep.scheduler";
@@ -139,6 +140,18 @@ const CASES: Array<{
     queueOpts: RETRY_QUEUE_OPTS,
     repeat: { every: 5 * 60 * 1000 },
     template: { name: "ai-usage-reservation-sweep", data: {}, opts: DEFAULT_JOB_OPTIONS },
+  },
+  {
+    name: "ERP provisioning sweep",
+    errorMessage:
+      "ProvisioningSweepScheduler: REDIS_URL is required in production " +
+        "(cannot schedule the ERP provisioning sweep without Redis).",
+    make: () => new ProvisioningSweepScheduler(),
+    queue: "erp-provisioning-sweep",
+    job: "erp-provisioning-sweep",
+    queueOpts: RETRY_QUEUE_OPTS,
+    repeat: { every: 60 * 1000 },
+    template: { name: "erp-provisioning-sweep", data: {}, opts: DEFAULT_JOB_OPTIONS },
   },
 ];
 

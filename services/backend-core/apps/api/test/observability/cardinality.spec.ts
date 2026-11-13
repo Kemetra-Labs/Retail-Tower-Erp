@@ -222,6 +222,8 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     "inventory_sale_effect_skipped_total",
     // Connector boundary lifecycle — 018-POLISH (spec §FR-022a). Unlabeled.
     "connector_lifecycle_total",
+    // ERP provisioning — RT-1358. Unlabeled.
+    "erp_provisioning_events_total",
     // Connector health — 020-POLISH (spec FR-018). Unlabeled.
     "connector_heartbeat_total",
     // ERPNext product-master reconciliation/repair — 021-POLISH (spec §VII). Unlabeled.
