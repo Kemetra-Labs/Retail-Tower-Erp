@@ -203,27 +203,11 @@ export class EmailProcessor {
 }
 
 function parseAuthJobData(jobName: string, data: unknown): EmailJobData {
-  const result = emailJobSchema.safeParse(data);
-  if (!result.success) {
-    const firstIssue = result.error.issues[0];
-    const issue = firstIssue
-      ? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
-      : "validation failed";
-    throw new MalformedEmailJobError(jobName, issue);
-  }
-  return result.data;
+  return parseWith(emailJobSchema, jobName, data);
 }
 
 function parseInvitationJobData(jobName: string, data: unknown): InvitationJobData {
-  const result = invitationJobSchema.safeParse(data);
-  if (!result.success) {
-    const firstIssue = result.error.issues[0];
-    const issue = firstIssue
-      ? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}`
-      : "validation failed";
-    throw new MalformedEmailJobError(jobName, issue);
-  }
-  return result.data;
+  return parseWith(invitationJobSchema, jobName, data);
 }
 
 function parseSignupLinkJobData(jobName: string, data: unknown): SignupLinkJobData {

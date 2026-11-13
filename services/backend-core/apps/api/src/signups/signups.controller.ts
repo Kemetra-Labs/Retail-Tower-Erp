@@ -16,18 +16,18 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from "@nestjs/common";
 import type { Response } from "express";
 
-import { setSessionCookie } from "../auth/auth.controller";
-import type { AuthedRequest } from "../auth/auth.guard";
-import { assertTrustedOrigin } from "../auth/origin-check";
-import { clientIpIdentifier } from "../auth/public-auth-keys";
+import { Public } from "../auth/route-auth";
+import { RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
 import {
   enforcePublicLimit,
   PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS,
   publicAuthUnavailable,
   readPublicAuthLimiterTimeoutMs,
 } from "../auth/public-auth-limiter";
-import { RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
-import { Public } from "../auth/route-auth";
+import { clientIpIdentifier } from "../auth/public-auth-keys";
+import { assertTrustedOrigin } from "../auth/origin-check";
+import type { AuthedRequest } from "../auth/auth.guard";
+import { setSessionCookie } from "../auth/auth.controller";
 import {
   SignupCompleteSchema,
   SignupRequestSchema,

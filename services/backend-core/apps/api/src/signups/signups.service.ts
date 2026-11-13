@@ -373,20 +373,18 @@ export class SignupsService implements OnModuleDestroy {
 
   /** Like `settleWork`, but gives up after `timeoutMs`; returns how many items were left. */
   async drainWork(timeoutMs: number): Promise<number> {
-    let timer: NodeJS.Timeout | undefined;
-    const timedOut = new Promise<true>((resolve) => {
-      timer = setTimeout(() => resolve(true), timeoutMs);
-      timer.unref();
+    const stop = new AbortController();
+    const expired = new Promise<void>((resolve) => {
+      const handle = setTimeout(resolve, timeoutMs);
+      handle.unref();
+      stop.signal.addEventListener("abort", () => clearTimeout(handle));
     });
-    try {
-      const outcome = await Promise.race([this.settleWork().then(() => false as const), timedOut]);
-      if (outcome !== true) return 0;
-      const dropped = this.pendingWork.size;
-      log().warn({ dropped, timeoutMs }, "signup request work still pending at shutdown; not waiting longer");
-      return dropped;
-    } finally {
-      clearTimeout(timer);
-    }
+    const finished = await Promise.race([this.settleWork().then(() => true), expired.then(() => false)]);
+    stop.abort();
+    if (finished) return 0;
+    const dropped = this.pendingWork.size;
+    log().warn({ dropped, timeoutMs }, "signup request work still pending at shutdown; not waiting longer");
+    return dropped;
   }
 
   /** Delay app close for in-flight request work, for at most 5 s (well under Docker's 10 s stop grace). */
