@@ -135,16 +135,17 @@ def classify_pr(repo, pr, main_tip):
     empty = {"services": [], "scope": "unknown", "shared": [], "diff_base": None, "basis": None}
     if not evidence["ok"]:
         return {**empty, "outcome": evidence["kind"], "head_sha": evidence["head"],
-                "reasons": evidence["reasons"]}
+                "base_sha": None, "reasons": evidence["reasons"]}
     result = port_attribution.classify_git(repo, evidence["base"], evidence["head"], _int(pr["number"]))
     if result["attribution_status"] == "classified":
         return {"outcome": "classified", "services": list(result["affected_services"]),
                 "scope": result["attribution_scope"], "shared": list(result["shared_classes"]),
                 "diff_base": result["diff_base_sha"], "head_sha": evidence["head"],
-                "basis": evidence["basis"], "reasons": []}
+                "base_sha": evidence["base"], "basis": evidence["basis"], "reasons": []}
     reasons = list(result["reason_codes"])
     kind = "infra" if INFRA_REASONS & set(reasons) else "insufficient"
-    return {**empty, "outcome": kind, "head_sha": evidence["head"], "reasons": reasons}
+    return {**empty, "outcome": kind, "head_sha": evidence["head"], "base_sha": evidence["base"],
+            "reasons": reasons}
 
 
 def _pending():
@@ -282,6 +283,7 @@ def plan_pr(pr, outcome, ref, entity, port_services):
 
 def plan_all(repo, prs, entities, main_tip, port_services):
     ref = policy_ref(repo, main_tip)
+    refs = {main_tip: ref}
     numbers = [_int(pr.get("number")) if isinstance(pr, dict) else None for pr in prs]
     duplicated = {n for n in numbers if n is not None and numbers.count(n) > 1}
     items = []
@@ -297,8 +299,17 @@ def plan_all(repo, prs, entities, main_tip, port_services):
             entity, problem = find_entity(entities, number)
             if problem:
                 items.append(_item(shell, None, "skip", problem))
+                continue
+            outcome = classify_pr(repo, shell, main_tip)
+            # The recorded policy is the one of the commit whose graph the classifier actually read:
+            # the main tip, or the first parent for a merge-commit merge.
+            base = outcome.get("base_sha") or main_tip
+            if base not in refs:
+                refs[base] = policy_ref(repo, base)
+            if refs[base] is None:
+                items.append(_item(shell, entity, "skip", "POLICY_REF_UNAVAILABLE"))
             else:
-                items.append(plan_pr(shell, classify_pr(repo, shell, main_tip), ref, entity, port_services))
+                items.append(plan_pr(shell, outcome, refs[base], entity, port_services))
     summary = {action: sum(1 for i in items if i["action"] == action) for action in ("patch", "noop", "skip")}
     return {"schema": PLAN_SCHEMA, "repository": REPOSITORY, "main_tip": main_tip,
             "policy_ref": ref, "items": items, "summary": summary}

@@ -23,8 +23,13 @@ REPO = ps.REPOSITORY
 COMPARE = f"https://github.com/{REPO}/compare/"
 
 
+REPO_LOCATION_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                      "GIT_COMMON_DIR", "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+
+
 def git(repo, *args):
-    env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+    env = {k: v for k, v in os.environ.items() if k not in REPO_LOCATION_VARS}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t.invalid",
                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t.invalid")
     return subprocess.run(["git", "-C", repo, *args], capture_output=True, check=True,
@@ -90,6 +95,13 @@ def build_repo(repo):
 
 class Scenario(unittest.TestCase):
     def setUp(self):
+        # Planner calls go through gitio._git, which inherits this process environment (for example
+        # GIT_DIR from a Git hook): scrub it for the whole scenario so only the temp repo is used.
+        patcher = patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in REPO_LOCATION_VARS:
+            os.environ.pop(name, None)
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.repo = self.tmp.name
@@ -439,6 +451,18 @@ class PlanAllAndCliTests(Scenario):
                             for i in copies))
         self.assertEqual([call.args[1]["number"] for call in spy.call_args_list], [560])
         self.assertEqual(plan["summary"], {"patch": 1, "noop": 0, "skip": 3})
+
+    def test_merge_first_parent_records_the_policy_ref_of_the_graph_it_was_read_from(self):
+        git(self.repo, "merge", "--no-ff", "-q", "-m", "merge", "feature")
+        merge = self.tip_now()
+        write(self.repo, "tools/project-graph/pgraph/classifier.py", "VERSION = 2\n")
+        git(self.repo, "commit", "-aq", "-m", "classifier fix after the merge")
+        tip = self.tip_now()
+        merged = pr(number=559, state="closed", merged=True, head_sha=self.sha["f2"], merge_commit_sha=merge)
+        plan = ps.plan_all(self.repo, [merged], [entity(559)], tip, frozenset(ps.SERVICES))
+        recorded = plan["items"][0]["desired"]["properties"]["classification_policy_ref"]
+        self.assertEqual(recorded, ps.policy_ref(self.repo, self.sha["c1"]))   # graph read at the first parent
+        self.assertNotEqual(recorded, ps.policy_ref(self.repo, tip))
 
     def test_unavailable_policy_ref_skips_everything(self):
         prs, entities = self.inputs()

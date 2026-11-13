@@ -23,7 +23,7 @@ python -m pgraph.port_sync plan --repo ../.. --main-sha "$TRUSTED_MAIN_FULL_SHA"
 
 Only the existing Port fields: `affected_services` and `attribution_scope`, `attribution_status`, `classification_policy_ref`, `classification_evidence_url`. One `PATCH` per entity with `create_missing_related_entities=false`; the legacy `service` relation is never in a body (`validate_request` rejects anything else).
 
-- `classification_policy_ref`: last commit on the trusted tip touching `graph.yaml` or `pgraph/`, checked to equal the tip's blob and tree.
+- `classification_policy_ref`: last commit touching `graph.yaml` or `pgraph/` as seen from the commit whose graph the classifier read (the trusted tip, or the first parent for a merge-commit merge), checked to equal that commit's blob and tree.
 - `classification_evidence_url`: `https://github.com/Kemetra-Labs/Retail-Tower-Erp/compare/<diff_base>...<head>`, which shows exactly the classified diff and records the classified head.
 - Deterministic `insufficient_evidence`: status + `affected_services = []` (clears an older list).
 - No verdict and the stored head is still the current head: write nothing. Head moved: `attribution_status=pending`, `attribution_scope=unknown`, list cleared.
