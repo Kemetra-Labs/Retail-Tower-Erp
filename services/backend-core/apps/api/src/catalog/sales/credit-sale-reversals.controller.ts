@@ -98,6 +98,11 @@ export class CreditSaleReversalsController {
     if (ctx.storeId === null) {
       throw new UnauthorizedException("store_context_required");
     }
+    // RT-1343 item 2: the guard publishes the verified device; a void that
+    // restores a voucher records it as the reversing device. Fail closed without it.
+    if (!request.posDeviceId) {
+      throw new UnauthorizedException("Unauthorized");
+    }
     if (!UUID_RE_I.test(saleRef)) {
       throw new NotFoundException("not_found");
     }
@@ -106,6 +111,8 @@ export class CreditSaleReversalsController {
         tenantId: ctx.tenantId,
         storeId: ctx.storeId,
         actorUserId: ctx.userId,
+        posDeviceId: request.posDeviceId,
+        requestId: request.requestId ?? null,
         saleRef,
         body,
       });

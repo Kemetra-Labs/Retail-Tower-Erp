@@ -2049,11 +2049,12 @@ describe("pos-sales/sales.yaml — RT-577 owner rulings (D6, D8, N1)", () => {
       expect(reversalText()).not.toContain("whatever the collected tender method");
     });
 
-    it("defines the strict mirror tender shape: cash or card_external, reference only on a card", () => {
+    it("defines the strict mirror tender shape: cash, card_external or (RT-1343) voucher, reference only on a card", () => {
       const t = schemaOf("CreditReversalRefundTender");
       expect(t?.additionalProperties).toBe(false);
       expect(t?.required?.slice().sort()).toEqual(["amount", "method"]);
-      expect((t?.properties?.["method"] as { enum?: string[] } | undefined)?.enum).toEqual(["cash", "card_external"]);
+      expect((t?.properties?.["method"] as { enum?: string[] } | undefined)?.enum).toEqual(["cash", "card_external", "voucher"]);
+      // RT-1343: the RT-577 cash rule is unchanged; the DTO refuses a voucher with a reference (400).
       expect(t?.["if"]).toEqual({ properties: { method: { const: "cash" } }, required: ["method"] });
       expect(t?.["then"]).toEqual({ not: { required: ["reference"] } });
     });
@@ -2574,8 +2575,9 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
       | { type?: string; format?: string; enum?: string[]; description?: string }
       | undefined;
 
-  it("bumps to 1.23.0-draft with a note citing the authorization, decision 4A and the deployment gate", () => {
-    expect(salesDoc.info?.version).toBe("1.23.0-draft");
+  it("keeps the 1.23.0-draft note citing the authorization, decision 4A and the deployment gate", () => {
+    // RT-1343 item 2 bumped the document to 1.24.0-draft; the RT-1114 note still stands.
+    expect(salesDoc.info?.version).toBe("1.24.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info).toContain("RT-1098 decision 4A");
@@ -2616,5 +2618,53 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
     });
     expect(Object.keys(parsed).sort()).toEqual(voucherProps);
     for (const key of voucherProps) expect(Object.keys(schema("SaleTender")?.properties ?? {})).toContain(key);
+  });
+});
+
+// ===========================================================================
+// RT-1343 item 2 — a credit void mirrors a voucher tender (1.24.0-draft;
+// [GATED: contract, migration] owner decisions in chat 2026-11-12)
+// ===========================================================================
+describe("pos-sales/sales.yaml — RT-1343 credit-void voucher mirror", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const tender = (t: Record<string, unknown>) =>
+    CreditReversalRefundTenderSchema.safeParse({ amount: "2.5", ...t }).success;
+
+  it("bumps to 1.24.0-draft with a note citing the owner decisions and migration 0107", () => {
+    expect(salesDoc.info?.version).toBe("1.24.0-draft");
+    const info = flat(salesDoc.info?.description);
+    expect(info).toContain("RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in chat 2026-11-12");
+    expect(info).toContain("`CreditReversalRefundTender.method` gains `voucher`");
+    expect(info).toContain("migration 0107");
+  });
+
+  it("states the voucher restore on both void routes", () => {
+    expect(flat((findOp("recordVoid") as { description?: string } | undefined)?.description)).toContain(
+      "Voucher restore (RT-1343 item 3, owner decision 2026-11-12)",
+    );
+    expect(flat((findOp("recordCreditSaleReversal") as { description?: string } | undefined)?.description)).toContain(
+      "a `voucher` sale tender is mirrored by a `voucher` entry, and a created void RESTORES each such voucher",
+    );
+  });
+
+  it("the DTO accepts a voucher refund tender without a reference, and a reference only on a card", () => {
+    expect(tender({ method: "voucher" })).toBe(true);
+    expect(tender({ method: "voucher", tenderRef: "3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b" })).toBe(true);
+    expect(tender({ method: "voucher", reference: "AB12" })).toBe(false);
+    expect(tender({ method: "cash", reference: "AB12" })).toBe(false);
+    expect(tender({ method: "card_external", reference: "AB12" })).toBe(true);
+    expect(tender({ method: "gift_card" })).toBe(false);
+  });
+
+  it("a credit return still refunds in cash only (a voucher refund tender is a 400)", () => {
+    const body = {
+      sourceSystem: "pos-1",
+      externalId: "rt1343-ret",
+      kind: "return",
+      lines: [{ lineRef: "3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b", quantity: "1" }],
+      refundTenders: [{ method: "voucher", amount: "1" }],
+      reason: "returned",
+    };
+    expect(CreditSaleReversalRequestSchema.safeParse(body).success).toBe(false);
   });
 });

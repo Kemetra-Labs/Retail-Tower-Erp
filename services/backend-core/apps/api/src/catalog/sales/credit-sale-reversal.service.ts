@@ -55,6 +55,9 @@ export interface CreditSaleReversalInput {
   readonly tenantId: string;
   readonly storeId: string;
   readonly actorUserId: string;
+  /** RT-1343 item 2: the verified till (the guard's `posDeviceId`); a void that restores a voucher records it. */
+  readonly posDeviceId: string;
+  readonly requestId?: string | null;
   readonly saleRef: string;
   readonly body: CreditSaleReversalRequestDto;
 }
@@ -174,6 +177,8 @@ async function recordNew(
     saleRef,
     actorUserId,
     actorRole,
+    deviceId: input.posDeviceId,
+    requestId: input.requestId ?? null,
     timezone: sale.timezone,
     currencyCode: sale.currencyCode,
     payerId,

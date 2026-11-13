@@ -147,7 +147,8 @@ export const saleCreditReversalTenders = pgTable(
     reference: text("reference"),
   },
   (t) => [
-    check("sale_credit_reversal_tenders_method_valid", sql`${t.method} IN ('cash', 'card_external')`),
+    // RT-1343 item 2 (0107): a void mirrors a voucher sale tender too.
+    check("sale_credit_reversal_tenders_method_valid", sql`${t.method} IN ('cash', 'card_external', 'voucher')`),
     check("sale_credit_reversal_tenders_amount_non_negative", sql`${t.amount} >= 0`),
     foreignKey({
       name: "fk_sale_credit_reversal_tenders_reversal_tenant_store",
