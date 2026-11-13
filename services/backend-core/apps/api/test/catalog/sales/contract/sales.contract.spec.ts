@@ -2054,7 +2054,8 @@ describe("pos-sales/sales.yaml — RT-577 owner rulings (D6, D8, N1)", () => {
       expect(t?.additionalProperties).toBe(false);
       expect(t?.required?.slice().sort()).toEqual(["amount", "method"]);
       expect((t?.properties?.["method"] as { enum?: string[] } | undefined)?.enum).toEqual(["cash", "card_external", "voucher"]);
-      expect(t?.["if"]).toEqual({ properties: { method: { enum: ["cash", "voucher"] } }, required: ["method"] });
+      // RT-1343: the RT-577 cash rule is unchanged; the DTO refuses a voucher with a reference (400).
+      expect(t?.["if"]).toEqual({ properties: { method: { const: "cash" } }, required: ["method"] });
       expect(t?.["then"]).toEqual({ not: { required: ["reference"] } });
     });
 

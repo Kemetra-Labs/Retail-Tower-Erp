@@ -3080,7 +3080,7 @@ components:
       if:
         properties:
           method:
-            enum: [cash, voucher]
+            const: cash
         required: [method]
       then:
         not:
@@ -3102,7 +3102,8 @@ components:
             tender: nothing is paid out; the void restores the voucher (its
             redemption is reversed and the voucher is `active` again, see
             `recordCreditSaleReversal`). Only `card_external` carries a
-            `reference`.
+            `reference`: a `voucher` entry with one is a 400 (the schema keeps
+            its RT-577 `if`/`then`, which names `cash` only).
         amount:
           $ref: "#/components/schemas/NonNegativeDecimalAmount"
         tenderRef:
