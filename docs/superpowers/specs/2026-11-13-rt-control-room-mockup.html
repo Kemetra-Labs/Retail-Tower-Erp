@@ -372,7 +372,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   var selected = null; // { type: "alarm"|"station", id }
 
   var T = {
-    en: { scope: "Test lab, not real stores", chipAlarms: "5 active alarms", replay: "Replaying the last 24 hours", light: "Light", dark: "Dark", pause: "Pause motion", resume: "Resume motion", demo: "Example: a Datadog alarm", demoOn: "Hide the example",
+    en: { scope: "Test lab, not real stores", chipAlarms: "5 active alarms", replay: "Replaying recent changes (partial)", light: "Light", dark: "Dark", pause: "Pause motion", resume: "Resume motion", demo: "Example: a Datadog alarm", demoOn: "Hide the example",
       asof: "As of last sync, ", gapNote: "Sales and stores online are not on this board yet: Port has no sales data to read.",
       mapTitle: "Control room", mapSub: "Every station, every cable and what it carries. Alarms sit where the fault is. Select a station or an alarm.",
       alarms: "Alarms", events: "Events", back: "Back", lights: ["Cashier app", "Backend", "Accounts"],
@@ -382,11 +382,11 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
       hostsTitle: "Health checks (Datadog)", hostsSub: "18 checks in Port, grouped by what they watch.", up: "Up",
       foot: "Mockup v13. Real Port snapshot of 2026-11-13, replayed. In Port the board reads the catalog every 60 seconds and animates only what changed.",
       pTasks: "Tasks done this week", pTasksN: "Jira, last 4 weeks", pShip: "Changes shipped this week", pShipN: "Merged into main, last 4 weeks", pDeploy: "Last update on the test servers", pDeployV: "1 h ago", pDeployN: "Deploy to the lab, from GitHub",
-      tlTitle: "Telemetry, last 14 days", tl: [["Changes merged per day", "GitHub, all repos"], ["CI runs per day", "GitHub Actions"], ["CI failures per day", "Normal band 0 to 2"], ["Tasks done per day", "Jira, RT"]], yday: "yesterday", avg: "14-day avg", spikeNote: "One-day spike: likely a bulk import or cleanup. Check before quoting.", lastUp: "Lab updated 1 h ago", mergedSpark: "Merged per day, 14 d",
+      tlTitle: "Telemetry, last 13 full days", tl: [["Changes merged per day", "GitHub, all repos"], ["CI runs per day", "GitHub Actions"], ["CI failures per day", "Normal band 0 to 2"], ["Tasks done per day", "Jira, RT"]], yday: "yesterday", avg: "13-day avg", spikeNote: "One-day spike: likely a bulk import or cleanup. Check before quoting.", lastUp: "Lab updated 1 h ago", mergedSpark: "Merged per day, 13 d",
       pGaps: "Not on the board yet", pGapsL: ["Sales today", "Stores online", "Uptime over 30 days"], pGapsN: "Needs a sales metric and an uptime target (SLO) in Datadog.", wk: ["4 wk ago", "this week"],
       dWhere: "Where", dKind: "Kind", dSince: "In Port since", dFrom: "Reported by", dPath: "Path of the request", gapLine: "How often and when last: not in Port yet", open: "Open in Sentry",
       ports: "Links to the control room", cablesH: "Cables", lg: { live: "Cable, no faults", fault: "Cable with a fault", infra: "Runs on (server)", rule: "Not allowed (by design)", icons: "Alarm icons", flow: "Moving dots: the link is up. On the cables up to the control room, speed follows each station's activity in the last 7 days. It is not sales traffic." } },
-    ar: { scope: "بيئة تجربة، مش محلات حقيقية", chipAlarms: "5 إنذارات شغالة", replay: "إعادة عرض آخر 24 ساعة", light: "فاتح", dark: "غامق", pause: "وقّف الحركة", resume: "شغّل الحركة", demo: "مثال: إنذار من Datadog", demoOn: "اخفي المثال",
+    ar: { scope: "بيئة تجربة، مش محلات حقيقية", chipAlarms: "5 إنذارات شغالة", replay: "إعادة عرض آخر التغييرات (جزئي)", light: "فاتح", dark: "غامق", pause: "وقّف الحركة", resume: "شغّل الحركة", demo: "مثال: إنذار من Datadog", demoOn: "اخفي المثال",
       asof: "حسب آخر مزامنة، ", gapNote: "المبيعات والمحلات الشغالة لسه مش على اللوحة: Port معندوش بيانات مبيعات.",
       mapTitle: "غرفة التحكم", mapSub: "كل محطة وكل كابل وشايل إيه. الإنذار بيظهر مكان العطل. اختار محطة أو إنذار.",
       alarms: "الإنذارات", events: "الأحداث", back: "رجوع", lights: ["تطبيق الكاشير", "الـ Backend", "الحسابات"],
@@ -396,7 +396,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
       hostsTitle: "فحوصات الصحة (Datadog)", hostsSub: "18 فحص في Port، متقسمين حسب اللي بيراقبوه.", up: "شغال",
       foot: "نموذج v13. لقطة حقيقية من Port يوم 2026-11-13 بتتعاد. جوه Port اللوحة بتقرا الكتالوج كل 60 ثانية وبتحرك اللي اتغير بس.",
       pTasks: "مهام خلصت الأسبوع ده", pTasksN: "Jira، آخر 4 أسابيع", pShip: "تعديلات اتدمجت الأسبوع ده", pShipN: "اتدمجت في main، آخر 4 أسابيع", pDeploy: "آخر تحديث على سيرفرات التجربة", pDeployV: "من ساعة", pDeployN: "تنزيل على المعمل، من GitHub",
-      tlTitle: "القياسات، آخر 14 يوم", tl: [["تعديلات اتدمجت في اليوم", "GitHub، كل المستودعات"], ["تشغيلات CI في اليوم", "GitHub Actions"], ["فشل CI في اليوم", "الطبيعي من 0 لـ 2"], ["مهام خلصت في اليوم", "Jira، RT"]], yday: "امبارح", avg: "متوسط 14 يوم", spikeNote: "قفزة في يوم واحد: غالباً استيراد أو تنظيف جماعي. اتأكد قبل ما تستشهد بيها.", lastUp: "المعمل اتحدث من ساعة", mergedSpark: "اتدمج في اليوم، 14 يوم",
+      tlTitle: "القياسات، آخر 13 يوم كامل", tl: [["تعديلات اتدمجت في اليوم", "GitHub، كل المستودعات"], ["تشغيلات CI في اليوم", "GitHub Actions"], ["فشل CI في اليوم", "الطبيعي من 0 لـ 2"], ["مهام خلصت في اليوم", "Jira، RT"]], yday: "امبارح", avg: "متوسط 13 يوم", spikeNote: "قفزة في يوم واحد: غالباً استيراد أو تنظيف جماعي. اتأكد قبل ما تستشهد بيها.", lastUp: "المعمل اتحدث من ساعة", mergedSpark: "اتدمج في اليوم، 13 يوم",
       pGaps: "لسه مش على اللوحة", pGapsL: ["مبيعات النهارده", "المحلات الشغالة", "نسبة التشغيل في 30 يوم"], pGapsN: "محتاجين مقياس مبيعات وهدف تشغيل (SLO) في Datadog.", wk: ["من 4 أسابيع", "الأسبوع ده"],
       dWhere: "فين", dKind: "النوع", dSince: "في Port من", dFrom: "بلّغ عنه", dPath: "مسار الطلب", gapLine: "عدد المرات وآخر مرة: لسه مش في Port", open: "افتح في Sentry",
       ports: "الروابط بغرفة التحكم", cablesH: "الكابلات", lg: { live: "كابل سليم", fault: "كابل فيه عطل", infra: "شغال على (سيرفر)", rule: "ممنوع (مقصود)", icons: "أيقونات الإنذار", flow: "النقط اللي بتتحرك: الرابط شغال. على الأسلاك الطالعة لغرفة التحكم السرعة حسب نشاط كل محطة في آخر 7 أيام. دي مش حركة مبيعات." } }
@@ -485,6 +485,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   ];
   var PATH = ["pos", "core", "conn", "erp"];
   var SPARK = { pos: [0,0,0,0,0,2,0,0,0,0,1,0,3,1], admin: [0,0,0,1,0,0,0,0,1,0,0,0,5,0], core: [0,0,0,2,0,1,0,0,0,0,0,3,14,1], conn: [0,0,0,0,0,0,0,0,0,0,0,0,2,0] };
+  Object.keys(SPARK).forEach(function (k) { SPARK[k] = SPARK[k].slice(0, -1); }); // completed days only
   // Datadog: the 18 monitors in Port. 8 host checks watch every server; the rest watch one thing each.
   var HOST_CHECKS = ["CPU", "Memory", "Disk usage", "Disk latency", "System load", "Network in", "Network out", "Host reporting"];
   var HOSTS = [
@@ -581,7 +582,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     HOSTS.forEach(function (ho) {
       var s = S[ho.runs], n = HOST_CHECKS.length + ho.own.length;
       svg.appendChild(el("path", { d: "M" + (ho.x + 110) + " 740 C " + (ho.x + 110) + " 680, " + cx(s) + " " + (s.y + s.h + 60) + ", " + cx(s) + " " + (s.y + s.h), "class": "cable infra" }));
-      var g = el("g", { "class": "host", tabindex: "0", role: "button", "aria-pressed": String(!!selected && selected.type === "host" && selected.id === ho.id) });
+      var g = el("g", { "class": "host", "data-focus": "host:" + ho.id, tabindex: "0", role: "button", "aria-pressed": String(!!selected && selected.type === "host" && selected.id === ho.id) });
       g.appendChild(el("rect", { x: ho.x, y: 740, width: 220, height: 56, rx: 12 }));
       g.appendChild(icon("hostok", ho.x + 10, 750, 16)).querySelector("path").setAttribute("style", "stroke: var(--color-ok)");
       g.appendChild(el("text", { x: ho.x + 34, y: 760, "class": "hname" }, ho.name + "  " + t("up")));
@@ -596,7 +597,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     // Stations with their link lamps.
     Object.keys(S).forEach(function (id) {
       var s = S[id], errs = activeAlarms().filter(function (a) { return a.station === id; }).length;
-      var g = el("g", { "class": "station" + (errs ? " err" : "") + (s.ledger ? " ledger dimmable" : ""), tabindex: "0", role: "button", "aria-pressed": "false" });
+      var g = el("g", { "class": "station" + (errs ? " err" : "") + (s.ledger ? " ledger dimmable" : ""), tabindex: "0", role: "button", "aria-pressed": "false", "data-focus": "station:" + id });
       g.setAttribute("aria-label", s.name + ". " + pick(s.role) + ". " + errs + (lang === "ar" ? " إنذارات" : " alarms"));
       g.appendChild(el("rect", { x: s.x, y: s.y, width: s.w, height: s.h, rx: 16, "class": "face" }));
       g.appendChild(el("text", { x: s.x + 14, y: s.y + 26, "class": "sname" }, s.name));
@@ -619,7 +620,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
         var sp = SPARK[id]; if (sp) { var sx0 = s.x + 14, sw = s.w - 28, sy0 = s.y + s.h - 8, mx = Math.max.apply(null, sp) || 1;
           g.appendChild(el("text", { x: sx0, y: s.y + s.h - 22, "class": "sk" }, t("mergedSpark")));
           g.appendChild(el("line", { x1: sx0, y1: sy0, x2: sx0 + sw, y2: sy0, stroke: "var(--color-rule)" }));
-          sp.forEach(function (v, k) { if (!v) return; var bx = sx0 + k * sw / sp.length; g.appendChild(el("rect", { x: bx + 1, y: sy0 - 12 * v / mx, width: sw / sp.length - 3, height: 12 * v / mx, rx: 1, fill: "var(--color-cool)", opacity: k === sp.length - 2 ? .95 : .55 })); }); }
+          sp.forEach(function (v, k) { if (!v) return; var bx = sx0 + k * sw / sp.length; g.appendChild(el("rect", { x: bx + 1, y: sy0 - 12 * v / mx, width: sw / sp.length - 3, height: 12 * v / mx, rx: 1, fill: "var(--color-cool)", opacity: k === sp.length - 1 ? .95 : .55 })); }); }
         if (s.checks === 0) g.appendChild(icon("unknown", s.x + s.w - 30, s.y + 12, 18, "ic")).querySelector("path").setAttribute("style", "stroke: var(--color-muted)");
       } else {
         g.appendChild(el("text", { x: s.x + 14, y: s.y + 64, "class": "sk" }, lang === "ar" ? "خارجي" : "External"));
@@ -643,7 +644,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     applySelection();
   }
   function addPin(a, x, y) {
-    var g = el("g", { "class": "pin", tabindex: "0", role: "button" });
+    var g = el("g", { "class": "pin", "data-focus": "pin:" + a.id, tabindex: "0", role: "button" });
     g.setAttribute("aria-label", pick(KINDS[a.kind]) + ", " + KINDS[a.kind].code);
     g.appendChild(el("rect", { x: x, y: y, width: 20, height: 20, rx: 4, "class": "box", filter: "url(#glow)" }));
     g.appendChild(icon(a.kind, x + 3, y + 3, 14));
@@ -676,7 +677,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     while (alarmsEl.firstChild) alarmsEl.removeChild(alarmsEl.firstChild);
     document.getElementById("tabAlarms").textContent = t("alarms") + " (" + activeAlarms().length + ")";
     activeAlarms().slice().reverse().forEach(function (a) {
-      var li = h("li"), b = h("button", "alarm" + (a.example ? " example" : "")); b.type = "button"; b.setAttribute("aria-pressed", String(selected && selected.type === "alarm" && selected.id === a.id));
+      var li = h("li"), b = h("button", "alarm" + (a.example ? " example" : "")); b.type = "button"; b.setAttribute("data-focus", "alarm:" + a.id); b.setAttribute("aria-pressed", String(selected && selected.type === "alarm" && selected.id === a.id));
       var ib = h("span", "ib"); ib.appendChild(iconHtml(a.kind)); b.appendChild(ib);
       var body = h("span"); body.appendChild(h("div", "tt", pick(KINDS[a.kind])));
       body.appendChild(h("div", "loc", whereText(a)));
@@ -685,7 +686,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
       li.appendChild(b); alarmsEl.appendChild(li);
     });
     WATCH.forEach(function (w) {
-      var li = h("li"), b = h("button", "alarm unknown"); b.type = "button";
+      var li = h("li"), b = h("button", "alarm unknown"); b.type = "button"; b.setAttribute("data-focus", "watch:" + w.id);
       var ib = h("span", "ib"); ib.appendChild(iconHtml("unknown", "var(--color-muted)")); b.appendChild(ib);
       var body = h("span"); body.appendChild(h("div", "tt", pick(w.text))); body.appendChild(h("div", "loc", lang === "ar" ? "مش عطل: الصحة مش معروفة" : "Not a fault: health is unknown"));
       b.appendChild(body); b.addEventListener("click", function () { select({ type: "station", id: w.station }, true); });
@@ -711,11 +712,12 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
 
   // ================= selection and detail =================
   var alarmsView = document.getElementById("alarmsView"), eventsView = document.getElementById("eventsView"), detailView = document.getElementById("detailView"), tabsEl = document.querySelector(".tabs");
-  var lastFocus = null;
+  var lastTrigger = null;
+  function triggerOf(node) { var n = node && node.closest ? node.closest("[data-focus]") : null; return n ? n.getAttribute("data-focus") : null; }
   function applySelection() {
     var selStation = null, selCable = null, selAlarm = null;
     if (selected && selected.type === "station") selStation = selected.id;
-    if (selected && selected.type === "alarm") { selAlarm = activeAlarms().filter(function (a) { return a.id === selected.id; })[0]; selCable = selAlarm.at.charAt(0) === "c" ? selAlarm.at : null; selStation = selAlarm.station; }
+    if (selected && selected.type === "alarm") { selAlarm = activeAlarms().filter(function (a) { return a.id === selected.id; })[0]; if (!selAlarm) { selected = null; } else { selCable = CABLES.some(function (c) { return c.id === selAlarm.at; }) ? selAlarm.at : null; selStation = selAlarm.station; } }
     Object.keys(stationEls).forEach(function (k) {
       var related = !selected || k === selStation || (selCable && (CABLES.filter(function (c) { return c.id === selCable; })[0].b === k));
       stationEls[k].classList.toggle("dim", !related); stationEls[k].setAttribute("aria-pressed", String(k === selStation));
@@ -751,18 +753,18 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
         detailView.appendChild(dl(pairs));
         var my = activeAlarms().filter(function (a) { return a.station === selected.id; });
         detailView.appendChild(h("h3", null, t("alarms") + ": " + my.length));
-        my.forEach(function (a) { var b = h("button", "alarm"); b.type = "button"; var ib = h("span", "ib"); ib.appendChild(iconHtml(a.kind)); b.appendChild(ib); var bd = h("span"); bd.appendChild(h("div", "tt", pick(KINDS[a.kind]))); bd.appendChild(h("div", "loc measured", KINDS[a.kind].code)); b.appendChild(bd); b.addEventListener("click", function () { select({ type: "alarm", id: a.id }, true); }); detailView.appendChild(b); });
+        my.forEach(function (a) { var b = h("button", "alarm"); b.type = "button"; b.setAttribute("data-focus", "alarm:" + a.id); var ib = h("span", "ib"); ib.appendChild(iconHtml(a.kind)); b.appendChild(ib); var bd = h("span"); bd.appendChild(h("div", "tt", pick(KINDS[a.kind]))); bd.appendChild(h("div", "loc measured", KINDS[a.kind].code)); b.appendChild(bd); b.addEventListener("click", function () { select({ type: "alarm", id: a.id }, true); }); detailView.appendChild(b); });
         detailView.appendChild(dl([[lang === "ar" ? "فحوصات الصحة" : "Health checks", s.checks == null ? (lang === "ar" ? "مش محتاج" : "Not needed") : s.checks === 0 ? (lang === "ar" ? "مفيش، فالصحة مش معروفة" : "None, so health is unknown") : s.checks + " OK"], ["CI 7d", s.ci], [lang === "ar" ? "مهام مفتوحة" : "Open tasks", String(s.tasks)], [lang === "ar" ? "طلبات تعديل" : "Pull requests", String(s.prs)]]));
       }
     }
     hd.tabIndex = -1; return hd;
   }
   function select(sel, byKey) {
-    if (sel) lastFocus = document.activeElement;
-    selected = sel; applySelection(); drawAlarms();
+    if (sel) lastTrigger = triggerOf(document.activeElement) || lastTrigger;
+    selected = sel; applySelection(); sel = selected; drawAlarms();
     detailView.hidden = !sel; alarmsView.hidden = !!sel || activeTab !== "alarms"; eventsView.hidden = !!sel || activeTab !== "events"; tabsEl.hidden = !!sel;
     if (sel) { var hd = renderDetail(); if (byKey) hd.focus(); }
-    else if (byKey && lastFocus && document.contains(lastFocus)) lastFocus.focus();
+    else if (byKey) { var back = lastTrigger ? document.querySelector("[data-focus=\"" + lastTrigger + "\"]") : null; (back || document.getElementById("tabAlarms")).focus(); }
   }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && selected) select(null, true); });
   var activeTab = "alarms";
@@ -772,7 +774,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
 
   // ================= motion: one gesture per kind =================
   function dotAlong(path, color, dur, opts) {
-    if (paused) return; opts = opts || {};
+    opts = opts || {}; if (paused) { if (opts.cleanup) opts.cleanup(); return; }
     var c = el("circle", { r: opts.r || 5, fill: color }); gFx.appendChild(c);
     var len = path.getTotalLength(), start = performance.now(), gated = false;
     (function step(now) {
@@ -781,17 +783,18 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
       if (opts.stall) tt = Math.min(opts.stall, 1 - Math.pow(1 - k, 3));
       var p = path.getPointAtLength(tt * len); c.setAttribute("cx", p.x); c.setAttribute("cy", p.y);
       if (opts.fade) c.setAttribute("opacity", String(1 - k));
-      if (k < 1 && !paused) requestAnimationFrame(step); else { c.remove(); if (opts.done) opts.done(); }
+      if (paused) { c.remove(); if (opts.cleanup) opts.cleanup(); return; }
+      if (k < 1) requestAnimationFrame(step); else { c.remove(); if (opts.done) opts.done(); }
     })(start);
   }
   function upToBus(stationId, color, srcIdx) {
     var s = S[stationId]; var p = el("path", { d: "M" + cx(s) + " " + s.y + " V150 H" + (SOURCES[srcIdx || 0].x + 135) + " V114", fill: "none" }); gFx.appendChild(p);
-    dotAlong(p, color, 1300, { r: 4, done: function () { p.remove(); } });
+    dotAlong(p, color, 1300, { r: 4, done: function () { p.remove(); }, cleanup: function () { p.remove(); } });
   }
   function downFromBus(srcId, stationId, color) {
     var so = SOURCES.filter(function (x) { return x.id === srcId; })[0], s = S[stationId];
     var p = el("path", { d: "M" + (so.x + 135) + " 114 V150 H" + cx(s) + " V" + s.y, fill: "none" }); gFx.appendChild(p);
-    dotAlong(p, color, 1400, { r: 4, done: function () { p.remove(); } });
+    dotAlong(p, color, 1400, { r: 4, done: function () { p.remove(); }, cleanup: function () { p.remove(); } });
   }
   function playGesture(a) {
     if (paused) return;
@@ -801,7 +804,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     else if (a.kind === "down") dotAlong(c4, "var(--color-bad)", 1300, { done: function () { ledgerEl.classList.add("down"); setTimeout(function () { ledgerEl.classList.remove("down"); }, 1600); upToBus("conn", "var(--color-bad)"); } });
     else if (a.kind === "reset") { c4.style.strokeDasharray = "30 40 400"; setTimeout(function () { c4.style.strokeDasharray = ""; }, 1000); upToBus("conn", "var(--color-bad)"); }
     else if (a.kind === "latency") { var sc = S.core, r2 = el("rect", { x: sc.x, y: sc.y, width: sc.w, height: sc.h, rx: 10, fill: "none", stroke: "var(--color-bad)", "stroke-width": 3, "class": "scan" }); gFx.appendChild(r2); setTimeout(function () { r2.remove(); upToBus("core", "var(--color-bad)", 1); }, 900); }
-    else if (a.kind === "bug") { var s = S.admin, r = el("rect", { x: s.x + 2, y: s.y, width: s.w - 4, height: 2, "class": "scan" }); gFx.appendChild(r); var st = performance.now(); (function step(now) { var k = Math.min(1, (now - st) / 700); r.setAttribute("y", s.y + k * (s.h - 2)); if (k < 1 && !paused) requestAnimationFrame(step); else { r.remove(); upToBus("admin", "var(--color-bad)"); } })(st); }
+    else if (a.kind === "bug") { var s = S.admin, r = el("rect", { x: s.x + 2, y: s.y, width: s.w - 4, height: 2, "class": "scan" }); gFx.appendChild(r); var st = performance.now(); (function step(now) { var k = Math.min(1, (now - st) / 700); r.setAttribute("y", s.y + k * (s.h - 2)); if (paused) { r.remove(); return; } if (k < 1) requestAnimationFrame(step); else { r.remove(); upToBus("admin", "var(--color-bad)"); } })(st); }
   }
   function playEvent(e) {
     if (paused) return;
@@ -832,24 +835,25 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     [2, 2, 0, 1, 2, 0, 1, 1, 2, 0, 1, 3, 2, 0],
     [11, 1, 0, 2, 0, 4, 13, 98, 6, 1, 15, 23, 13, 0]
   ];
+  TL = TL.map(function (a) { return a.slice(0, a.length - 1); }); // drop today, which is partial
   function trace(data, opts) {
-    var W = 240, H = 58, n = data.length, sorted = data.slice(0, n - 1).sort(function (a, b) { return a - b; });
+    var W = 240, H = 58, n = data.length, sorted = data.slice().sort(function (a, b) { return a - b; });
     var med = sorted[Math.floor(sorted.length / 2)] || 0, cap = opts.fails ? Math.max(4, Math.max.apply(null, data)) : Math.max(med * 3, sorted[Math.floor(sorted.length * .8)] || 1, 1);
     var y = function (v) { return H - Math.min(v, cap) / cap * (H - 6) - 2; }, x = function (i) { return i * W / (n - 1); };
     var sv = el("svg", { viewBox: "0 0 " + W + " " + (H + 12), "class": "trace", preserveAspectRatio: "none", role: "img", "aria-label": data.join(", ") });
     var lo = opts.fails ? 0 : sorted[Math.floor(sorted.length * .25)], hi = opts.fails ? 2 : sorted[Math.floor(sorted.length * .75)];
     sv.appendChild(el("rect", { x: 0, y: y(hi), width: W, height: Math.max(2, y(lo) - y(hi)), "class": "band" }));
     sv.appendChild(el("line", { x1: 0, y1: H, x2: W, y2: H, "class": "axis" }));
-    var pts = data.slice(0, n - 1).map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); });
-    sv.appendChild(el("polygon", { points: "0," + H + " " + pts.join(" ") + " " + x(n - 2).toFixed(1) + "," + H, "class": "area" }));
+    var pts = data.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); });
+    sv.appendChild(el("polygon", { points: "0," + H + " " + pts.join(" ") + " " + x(n - 1).toFixed(1) + "," + H, "class": "area" }));
     sv.appendChild(el("polyline", { points: pts.join(" "), "class": "line" + (opts.fails ? " badline" : "") }));
-    var peak = -1; data.slice(0, n - 1).forEach(function (v, i) { if (!opts.fails && v > cap && (peak < 0 || v > data[peak])) peak = i; });
-    data.slice(0, n - 1).forEach(function (v, i) {
+    var peak = -1; data.forEach(function (v, i) { if (!opts.fails && v > cap && (peak < 0 || v > data[peak])) peak = i; });
+    data.forEach(function (v, i) {
       if (opts.fails && v > 2) sv.appendChild(el("circle", { cx: x(i), cy: y(v), r: 3, "class": "badpt" }));
       if (!opts.fails && v > cap) { var m = el("circle", { cx: x(i), cy: 3, r: 3, "class": "spike" }); m.appendChild(el("title", null, v + ": " + t("spikeNote"))); sv.appendChild(m); }
     });
-    if (peak >= 0) sv.appendChild(el("text", { x: Math.min(x(peak), W - 4), y: H + 11, "text-anchor": "end" }, (lang === "ar" ? "قفزة " : "spike ") + data[peak]));
-    sv.appendChild(el("circle", { cx: x(n - 2), cy: y(data[n - 2]), r: 3.4, "class": "now" }));
+    if (peak >= 0) sv.setAttribute("data-peak", String(data[peak])); // shown in the HTML caption: SVG text would be stretched by preserveAspectRatio="none"
+    sv.appendChild(el("circle", { cx: x(n - 1), cy: y(data[n - 1]), r: 3.4, "class": "now" }));
     return sv;
   }
   function drawPulse() {
@@ -857,10 +861,10 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     p.setAttribute("aria-label", t("tlTitle"));
     TL.forEach(function (data, i) {
       var d = h("div"), hd = h("div", "trace-h"); hd.appendChild(h("span", "k", t("tl")[i][0]));
-      var v = h("span", "trace-v"); v.dir = "ltr"; v.textContent = String(data[data.length - 2]); var sm = h("small", null, t("yday")); v.appendChild(sm); hd.appendChild(v); d.appendChild(hd);
-      d.appendChild(trace(data, { fails: i === 2 }));
-      var avg = data.slice(0, data.length - 1).reduce(function (a, b) { return a + b; }, 0) / (data.length - 1);
-      d.appendChild(h("div", "note", t("tl")[i][1] + ". " + t("avg") + " " + avg.toFixed(1))); p.appendChild(d);
+      var v = h("span", "trace-v"); v.dir = "ltr"; v.textContent = String(data[data.length - 1]); var sm = h("small", null, t("yday")); v.appendChild(sm); hd.appendChild(v); d.appendChild(hd);
+      var tr = trace(data, { fails: i === 2 }); d.appendChild(tr);
+      var avg = data.reduce(function (a, b) { return a + b; }, 0) / data.length;
+      d.appendChild(h("div", "note", t("tl")[i][1] + ". " + t("avg") + " " + avg.toFixed(1) + (tr.getAttribute("data-peak") ? ". " + (lang === "ar" ? "قفزة " : "Spike ") + tr.getAttribute("data-peak") : ""))); p.appendChild(d);
     });
     return;
     [[t("pTasks"), [10, 24, 31, 156], t("pTasksN")], [t("pShip"), [14, 39, 113, 172], t("pShipN")]].forEach(function (x) {
@@ -901,8 +905,8 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     if (selected) renderDetail();
   }
   document.getElementById("demoDD").addEventListener("click", function () {
-    demo = !demo; this.setAttribute("aria-pressed", String(demo)); applyLang();
-    if (demo) { playGesture(DEMO_ALARM); select({ type: "alarm", id: "d1" }); } else if (selected && selected.id === "d1") select(null);
+    demo = !demo; this.setAttribute("aria-pressed", String(demo)); if (!demo && selected && selected.id === "d1") { select(null); } applyLang();
+    if (demo) { playGesture(DEMO_ALARM); select({ type: "alarm", id: "d1" }); }
   });
   document.getElementById("lang").addEventListener("click", function () { lang = lang === "en" ? "ar" : "en"; applyLang(); });
   document.getElementById("theme").addEventListener("click", function () { var r = document.documentElement, dark = r.getAttribute("data-theme") === "dark"; r.setAttribute("data-theme", dark ? "light" : "dark"); this.textContent = dark ? t("dark") : t("light"); });
