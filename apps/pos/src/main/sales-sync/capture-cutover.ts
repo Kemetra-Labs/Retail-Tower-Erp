@@ -116,13 +116,10 @@ export function decideCutover(input: CutoverDecisionInput): CutoverDecision {
   };
 }
 
-interface PrepareGet<Row> {
-  get(...params: unknown[]): Row | undefined;
-}
-interface PrepareAll<Row> {
-  all(...params: unknown[]): Row[];
-}
-interface PrepareRun {
+/** The narrow better-sqlite3 statement surface this module uses (sql.js in tests). */
+interface Statement<Row> {
+  get(): Row | undefined;
+  all(): Row[];
   run(...params: unknown[]): { changes: number };
 }
 
@@ -148,7 +145,7 @@ function isSource(value: unknown): value is CaptureCutoverSource {
 
 /** The stored row; null when there is none or it is not well-formed (then both cut-offs are off). */
 export function readCaptureCutover(db: Pick<DatabaseHandle, 'prepare'>): CaptureCutover | null {
-  const row = (db.prepare(SELECT_ROW) as PrepareGet<StoredRow>).get();
+  const row = (db.prepare(SELECT_ROW) as Statement<StoredRow>).get();
   if (row === undefined) return null;
   const { tenders_since, receipt_since, recorded_at, source } = row;
   if (typeof tenders_since !== 'string' || parseTendersSince(tenders_since) === null) return null;
@@ -205,7 +202,7 @@ function readOrWrite(deps: RecordCaptureCutoverDeps): WriteOutcome {
   return db.transaction((): WriteOutcome => {
     const existing = readCaptureCutover(db);
     if (existing !== null) return { stored: existing, written: null };
-    const finalized = (db.prepare(SELECT_FINALIZED_AT) as PrepareAll<{ finalized_at: unknown }>)
+    const finalized = (db.prepare(SELECT_FINALIZED_AT) as Statement<{ finalized_at: unknown }>)
       .all()
       .flatMap((r) => (typeof r.finalized_at === 'string' ? [r.finalized_at] : []));
     const at = now();
@@ -215,7 +212,7 @@ function readOrWrite(deps: RecordCaptureCutoverDeps): WriteOutcome {
       envTenders: env[TENDERS_SINCE_ENV],
       envReceipt: env[RECEIPT_SINCE_ENV],
     });
-    const { changes } = (db.prepare(INSERT_ONCE) as PrepareRun).run(
+    const { changes } = (db.prepare(INSERT_ONCE) as Statement<never>).run(
       decision.tendersSince,
       decision.receiptSince,
       at.toISOString(),
