@@ -821,6 +821,24 @@ A script without the marker, such as the owner-gated
   down migration drops the table, which would make every suspended cashier
   admissible again, so it refuses while any cashier is still suspended.
 
+- **Migration `0107_pending_signups` (RT-1350 slice 2).** Run
+  [`sql/pending-signups-domain-grants.sql`](sql/pending-signups-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `pending_signups` (a requested, not yet completed self-signup) and
+  `SELECT` and `INSERT` on `user_consents` (the append-only consent record). Both
+  tables are pre-tenant: RLS is forced with no tenant policy and one
+  platform-admin policy per command, so only the signup service, inside a
+  platform-admin context, can reach them. Never grant `DELETE` (the purge job of
+  a later slice adds it for `pending_signups`) or `TRUNCATE`. Without the grants
+  the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`): it has
+  BYPASSRLS and the rows hold email addresses. 0107 creates two new, empty tables
+  (no backfill) and needs no maintenance window; its foreign keys run under
+  `lock_timeout` 2s. Its down migration drops both tables and so discards every
+  pending signup and consent record.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
