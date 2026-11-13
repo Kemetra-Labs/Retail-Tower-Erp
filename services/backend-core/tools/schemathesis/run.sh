@@ -126,6 +126,10 @@ if [[ -n "$SHARD_UNITS" ]]; then
 fi
 extra=(--baseline "/cfg/$baseline")
 if [[ -n "${BASELINE_UPDATE:-}" ]]; then extra+=(--baseline-update); fi
+# RT-1387 (RT-1382): operator mode only. #563 added `voucher` to a refund-tender enum, and the
+# Hypothesis filter_too_much health check then stopped recordCreditSaleReversal early (191 cases
+# lost) and made the job report "could not run". Gate and report keep every health check.
+if [[ "$MODE" == "operator" ]]; then extra+=(--suppress-health-check=filter_too_much); fi
 
 # Docker bind-mounts a missing source as an empty directory, so a wrong root
 # would select zero operations and pass. Check the mounted inputs on the host.
