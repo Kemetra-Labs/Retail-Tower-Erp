@@ -18,7 +18,7 @@ describe('bootstrap/payments-cart.ts wires the card-tender flag (RT-700)', () =>
 
   it('reads POS_PULSE_FEATURE_CARD_TENDER per call through the shared parser', () => {
     expect(source).toMatch(
-      /const isCardTenderEnabled = \(\): boolean => parseFeatureFlags\(process\.env\)\.cardTender;/,
+      /const isCardTenderEnabled = \(\): boolean => resolveFeatureFlags\(\)\.cardTender;/,
     );
   });
 
