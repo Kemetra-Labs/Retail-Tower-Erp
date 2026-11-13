@@ -14,6 +14,7 @@ import type {
 } from "../../src/auth/external-credential.port";
 import type { RateLimitDecision, RateLimiter } from "../../src/auth/rate-limit";
 import type { HumanProofInput, HumanProofResult, HumanProofVerifier } from "../../src/signups/human-proof.port";
+import { OwnTokenSignupLinkProvider } from "../../src/signups/own-token-signup-link.provider";
 import { SignupsService, type LinkState, type SignupsServiceDeps } from "../../src/signups/signups.service";
 import type {
   NewPendingSignup,
@@ -236,7 +237,7 @@ export function makeService(
     store,
     humanProof,
     limiter: limiter as unknown as RateLimiter,
-    emailJobs: emails,
+    links: new OwnTokenSignupLinkProvider(emails),
     audit,
     external: external as unknown as ExternalCredentialPort | null,
     sessions,

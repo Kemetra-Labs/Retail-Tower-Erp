@@ -21,6 +21,8 @@ import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT } from "../../src/auth/external-credential.port";
 import { RateLimiter, type RedisLike } from "../../src/auth/rate-limit";
 import { HUMAN_PROOF_VERIFIER } from "../../src/signups/human-proof.port";
+import { OwnTokenSignupLinkProvider } from "../../src/signups/own-token-signup-link.provider";
+import { SIGNUP_LINK_PROVIDER } from "../../src/signups/signup-link.port";
 import { SignupsController } from "../../src/signups/signups.controller";
 import { SignupsModule } from "../../src/signups/signups.module";
 import { SignupsRepository } from "../../src/signups/signups.repository";
@@ -67,7 +69,11 @@ describe("SignupsService is wired from the real module graph (RT-1350 slice 3)",
     expect(deps.pool).toBe(pool);
     expect(deps.store).toBeInstanceOf(SignupsRepository);
     expect(deps.limiter).toBe(moduleRef.get(RateLimiter, { strict: false }));
-    expect(deps.emailJobs).toBe(emailJobs);
+    expect(deps.links).toBeInstanceOf(OwnTokenSignupLinkProvider);
+    expect(moduleRef.get(SIGNUP_LINK_PROVIDER)).toBe(deps.links);
+    // The adapter delivers through the injected email enqueuer.
+    await deps.links.prepare({ email: "a@b.test", locale: null }).deliver();
+    expect(emailJobs.enqueueSignupLink).toHaveBeenCalledTimes(1);
     expect(deps.audit).toBe(audit);
     expect(deps.external).toBe(moduleRef.get(EXTERNAL_CREDENTIAL_PORT, { strict: false }));
     expect(deps.external?.identity.providerKey).toBe("descope");

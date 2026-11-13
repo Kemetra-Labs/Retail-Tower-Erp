@@ -39,7 +39,8 @@ export interface NewPendingSignup {
   readonly termsVersion: string;
   readonly termsAcceptedAt: Date;
   readonly ipHash: string;
-  readonly tokenHash: string;
+  /** SHA-256 (hex) of the token for adapter A; NULL when the provider keeps the credential. */
+  readonly tokenHash: string | null;
   readonly expiresAt: Date;
 }
 

@@ -20,6 +20,8 @@ import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "../auth/e
 import { readPublicAuthLimiterTimeoutMs } from "../auth/public-auth-limiter";
 import { RateLimiter } from "../auth/rate-limit";
 import { HUMAN_PROOF_VERIFIER, type HumanProofVerifier } from "./human-proof.port";
+import { OwnTokenSignupLinkProvider } from "./own-token-signup-link.provider";
+import { SIGNUP_LINK_PROVIDER, type SignupLinkProvider } from "./signup-link.port";
 import { linkStateReader } from "./signup-link-state";
 import { SignupsController } from "./signups.controller";
 import { SignupsRepository } from "./signups.repository";
@@ -33,6 +35,12 @@ import { humanProofVerifierFromEnv } from "./turnstile.verifier";
   providers: [
     { provide: SIGNUPS_STORE, useClass: SignupsRepository },
     { provide: HUMAN_PROOF_VERIFIER, useFactory: (): HumanProofVerifier => humanProofVerifierFromEnv() },
+    // Fallback A (RT-1350 c16859): Backend-Core's own opaque token, e-mailed by the worker.
+    {
+      provide: SIGNUP_LINK_PROVIDER,
+      useFactory: (emailJobs: EmailJobEnqueuer): SignupLinkProvider => new OwnTokenSignupLinkProvider(emailJobs),
+      inject: [EMAIL_JOB_ENQUEUER],
+    },
     {
       provide: SignupsService,
       useFactory: (
@@ -41,7 +49,7 @@ import { humanProofVerifierFromEnv } from "./turnstile.verifier";
         store: SignupsStore,
         humanProof: HumanProofVerifier,
         limiter: RateLimiter,
-        emailJobs: EmailJobEnqueuer,
+        links: SignupLinkProvider,
         audit: AuditJobEnqueuer,
         external: ExternalCredentialPort,
         auth: AuthService,
@@ -51,7 +59,7 @@ import { humanProofVerifierFromEnv } from "./turnstile.verifier";
           store,
           humanProof,
           limiter,
-          emailJobs,
+          links,
           audit,
           external,
           sessions: auth,
@@ -64,7 +72,7 @@ import { humanProofVerifierFromEnv } from "./turnstile.verifier";
         SIGNUPS_STORE,
         HUMAN_PROOF_VERIFIER,
         RateLimiter,
-        EMAIL_JOB_ENQUEUER,
+        SIGNUP_LINK_PROVIDER,
         AUDIT_JOB_ENQUEUER,
         EXTERNAL_CREDENTIAL_PORT,
         AuthService,

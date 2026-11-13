@@ -21,17 +21,13 @@
  * Retention note: the idempotent state of a completed signup (tenant_id, completed_at)
  * lasts only until the purge job of a later slice removes the row (expiry plus 7 days).
  */
-import { createHash } from "node:crypto";
-
 import type { OnModuleDestroy } from "@nestjs/common";
 
-import { generateRawToken } from "@data-pulse-2/auth";
 import { runWithTenantContext, type TenantContext } from "@data-pulse-2/db";
 import { createLogger, newId, type Logger } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
 import type { AuditJobEnqueuer } from "../audit/audit-job.enqueuer";
-import type { EmailJobEnqueuer } from "../auth/email-job.enqueuer";
 import type { ExternalCredentialPort } from "../auth/external-credential.port";
 import { accountIdentifier, clientIpIdentifier } from "../auth/public-auth-keys";
 import { checkWithin } from "../auth/public-auth-limiter";
@@ -39,6 +35,7 @@ import { RATE_LIMIT_BUCKETS, type RateLimiter } from "../auth/rate-limit";
 import type { SessionStarter } from "../memberships/invitations.service";
 import { isDisposableEmail } from "./disposable-domains";
 import type { HumanProofVerifier } from "./human-proof.port";
+import type { PreparedSignupLink, SignupLinkProvider } from "./signup-link.port";
 import { provisionProviderUser } from "./signup-provisioning";
 import { deriveSlug } from "./signup-slug";
 import {
@@ -58,7 +55,8 @@ export interface SignupsServiceDeps {
   readonly store: SignupsStore;
   readonly humanProof: HumanProofVerifier;
   readonly limiter: RateLimiter;
-  readonly emailJobs: Pick<EmailJobEnqueuer, "enqueueSignupLink">;
+  /** Issues and verifies the owner's email-proof link (fallback A: Backend-Core's own token). */
+  readonly links: SignupLinkProvider;
   readonly audit: AuditJobEnqueuer;
   /** The identity provider; null when none is wired (a new owner then cannot be provisioned: 503). */
   readonly external: ExternalCredentialPort | null;
@@ -102,10 +100,6 @@ let logger: Logger | null = null;
 function log(): Logger {
   logger ??= createLogger({ service: "api.signups", level: process.env["LOG_LEVEL"] ?? "info" });
   return logger;
-}
-
-function sha256Hex(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function sqlState(err: unknown): string | null {
@@ -152,11 +146,7 @@ export class SignupsService implements OnModuleDestroy {
       const issued = await this.recordPending(body, ctx);
       if (issued === null) return;
 
-      await this.deps.emailJobs.enqueueSignupLink({
-        email: body.email,
-        rawToken: issued.rawToken,
-        locale: body.locale ?? null,
-      });
+      await issued.link.deliver();
       this.fireAudit({
         actor_user_id: null,
         actor_label: null,
@@ -197,10 +187,10 @@ export class SignupsService implements OnModuleDestroy {
   private async recordPending(
     body: SignupRequestInput,
     ctx: RequestContext,
-  ): Promise<{ rawToken: string; pendingId: string } | null> {
+  ): Promise<{ link: PreparedSignupLink; pendingId: string } | null> {
     const { store } = this.deps;
     const now = this.now();
-    const rawToken = generateRawToken();
+    const link = this.deps.links.prepare({ email: body.email, locale: body.locale ?? null });
     const pendingId = newId();
     const eligible = await this.tx(this.deps.pool, PLATFORM_CTX, async (client) => {
       const user = await store.findUserByEmail(client, body.email);
@@ -217,42 +207,21 @@ export class SignupsService implements OnModuleDestroy {
         termsVersion: body.termsVersion,
         termsAcceptedAt: now,
         ipHash: clientIpIdentifier(ctx.ip),
-        tokenHash: sha256Hex(rawToken),
+        tokenHash: link.tokenHash,
         expiresAt: new Date(now.getTime() + SIGNUP_LINK_TTL_MS),
       });
       return true;
     });
-    return eligible ? { rawToken, pendingId } : null;
+    return eligible ? { link, pendingId } : null;
   }
 
   // ===== completeSignup =============================================
 
   async completeSignup(body: SignupCompleteInput, ctx: RequestContext): Promise<CompleteResult> {
-    const { store } = this.deps;
-    const found = await this.tx(this.deps.pool, PLATFORM_CTX, async (client) => {
-      const pending = await store.findPendingByTokenHash(client, sha256Hex(body.token));
-      if (!this.isLivePending(pending)) return null;
-      return { pending, user: await store.findUserByEmail(client, pending.emailNormalized) };
-    });
-    if (found === null) return { kind: "invalid" };
+    const found = await this.findCompletable(body.token);
+    if (found.kind !== "found") return found;
     const { pending, user } = found;
-
-    if (user?.isPlatformAdmin === true) {
-      // A platform account is never signed in by an email token (coordinator decision).
-      this.fireAudit({
-        actor_user_id: user.id,
-        actor_label: null,
-        tenant_id: null,
-        store_id: null,
-        action: "signup.completion_refused",
-        target_type: "user",
-        target_id: user.id,
-        request_id: ctx.requestId,
-        metadata: { reason: "platform_admin" },
-      });
-      return { kind: "invalid" };
-    }
-    if (user !== null && (await this.isBlocked(user))) return { kind: "invalid" };
+    if (user !== null && (await this.refusesExistingUser(user, ctx))) return { kind: "invalid" };
 
     let providerSubject: string | null = null;
     if (user === null) {
@@ -286,6 +255,49 @@ export class SignupsService implements OnModuleDestroy {
       log().error({ error: err instanceof Error ? err.name : typeof err }, "signup committed but the session could not be started");
       return { kind: "unavailable" };
     }
+  }
+
+  /** The live pending row of a presented token (and its existing user, if any), or why there is none. */
+  private async findCompletable(
+    token: string,
+  ): Promise<
+    | { kind: "found"; pending: PendingSignupRecord; user: SignupUserRecord | null }
+    | { kind: "invalid" }
+    | { kind: "unavailable" }
+  > {
+    const verified = await this.deps.links.verify(token);
+    if (verified.kind === "unavailable") return { kind: "unavailable" };
+    // Only a hash-keyed adapter (A) is supported today; an email-keyed provider adapter would add its own lookup.
+    if (verified.kind === "refused" || verified.tokenHash === null) return { kind: "invalid" };
+    const tokenHash = verified.tokenHash;
+    const found = await this.tx(this.deps.pool, PLATFORM_CTX, async (client) => {
+      const pending = await this.deps.store.findPendingByTokenHash(client, tokenHash);
+      if (!this.isLivePending(pending)) return null;
+      return { pending, user: await this.deps.store.findUserByEmail(client, pending.emailNormalized) };
+    });
+    return found === null ? { kind: "invalid" } : { kind: "found", ...found };
+  }
+
+  /**
+   * True when an existing account must not complete a signup: a platform admin (a platform
+   * account is never signed in by an email token; the refusal is audited) or a blocked user.
+   */
+  private async refusesExistingUser(user: SignupUserRecord, ctx: RequestContext): Promise<boolean> {
+    if (user.isPlatformAdmin) {
+      this.fireAudit({
+        actor_user_id: user.id,
+        actor_label: null,
+        tenant_id: null,
+        store_id: null,
+        action: "signup.completion_refused",
+        target_type: "user",
+        target_id: user.id,
+        request_id: ctx.requestId,
+        metadata: { reason: "platform_admin" },
+      });
+      return true;
+    }
+    return await this.isBlocked(user);
   }
 
   /** Soft-deleted, or its identity link was disabled: the account cannot sign in, so no link and no session. */

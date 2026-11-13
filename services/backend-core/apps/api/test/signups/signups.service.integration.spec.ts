@@ -24,6 +24,7 @@ import type { Pool } from "pg";
 
 import { AccessEntitlementService } from "../../src/tenant-access-entitlement/access-entitlement.service";
 import { linkStateReader } from "../../src/signups/signup-link-state";
+import { OwnTokenSignupLinkProvider } from "../../src/signups/own-token-signup-link.provider";
 import { SignupsRepository } from "../../src/signups/signups.repository";
 import { SignupsService } from "../../src/signups/signups.service";
 import type { SignupsStore } from "../../src/signups/signups.store";
@@ -78,7 +79,7 @@ function rig(store: SignupsStore = new SignupsRepository()): Rig {
     store,
     humanProof: new FakeHumanProof(),
     limiter: new FakeLimiter() as unknown as RateLimiter,
-    emailJobs: emails,
+    links: new OwnTokenSignupLinkProvider(emails),
     audit,
     external: external as unknown as ExternalCredentialPort,
     sessions,
