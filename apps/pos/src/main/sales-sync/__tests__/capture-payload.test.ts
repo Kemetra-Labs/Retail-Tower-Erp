@@ -189,17 +189,93 @@ describe('RT-79 — tenders (frozen tender_lines_summary_json → payload.tender
     expect(tenders.length).toBeLessThanOrEqual(16);
   });
 
-  it('a voucher tender is NOT sendable (typed error, never a fabricated method)', () => {
-    const sale = withTenders([{ tender_type: 'internal_voucher', amount_applied_minor: 1500 }]);
-    expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
-  });
+  describe('RT-1331 — voucher tenders (frozen redemption id -> `voucher` + redemptionId)', () => {
+    const RED_1 = '3f1c6a52-9d0e-4b7a-8a41-0c2d5e7f9a10';
+    const RED_2 = '7b9e1d34-2c58-4f06-9a73-5d8e0b1c4f22';
+    const LINE_1 = 'a1111111-1111-4111-8111-111111111111';
+    const LINE_2 = 'b2222222-2222-4222-8222-222222222222';
+    const voucherLine = (amount: number, redemption: string | undefined, id?: string) => ({
+      tender_type: 'internal_voucher',
+      amount_applied_minor: amount,
+      ...(redemption === undefined ? {} : { voucher_authority_redemption_id: redemption }),
+      ...(id === undefined ? {} : { tender_line_id: id, sequence: 1 }),
+    });
 
-  it('a voucher mixed with cash is NOT sendable either', () => {
-    const sale = withTenders([
-      { tender_type: 'cash', amount_applied_minor: 1000 },
-      { tender_type: 'internal_voucher', amount_applied_minor: 500 },
-    ]);
-    expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
+    it('a voucher line WITHOUT a redemption id is NOT sendable (typed error, never fabricated)', () => {
+      const sale = withTenders([voucherLine(1500, undefined)]);
+      expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
+      expect(() => buildCapturePayload(sale, ON)).toThrow(/redemption/);
+    });
+
+    it('a voucher line with a malformed redemption id is NOT sendable', () => {
+      for (const bad of ['', 'not-a-uuid', '  ']) {
+        const sale = withTenders([voucherLine(1500, bad)]);
+        expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
+      }
+    });
+
+    it('one voucher covering the sale -> one voucher tender carrying its redemptionId', () => {
+      const sale = withTenders([voucherLine(1500, RED_1)]);
+      expect(buildCapturePayload(sale, ON).tenders).toEqual([
+        { method: 'voucher', amountMinor: 1500, redemptionId: RED_1 },
+      ]);
+    });
+
+    it('a voucher mixed with cash -> a cash entry plus a voucher entry, summing to the total', () => {
+      const sale = withTenders([
+        { tender_type: 'cash', amount_applied_minor: 1000 },
+        voucherLine(500, RED_1),
+      ]);
+      expect(buildCapturePayload(sale, ON).tenders).toEqual([
+        { method: 'cash', amountMinor: 1000 },
+        { method: 'voucher', amountMinor: 500, redemptionId: RED_1 },
+      ]);
+    });
+
+    it('two voucher lines stay two entries (never merged), each with its tenderRef', () => {
+      const sale = withTenders([voucherLine(1000, RED_1, LINE_1), voucherLine(500, RED_2, LINE_2)]);
+      expect(buildCapturePayload(sale, ON).tenders).toEqual([
+        { method: 'voucher', amountMinor: 1000, redemptionId: RED_1, tenderRef: LINE_1 },
+        { method: 'voucher', amountMinor: 500, redemptionId: RED_2, tenderRef: LINE_2 },
+      ]);
+    });
+
+    it('a repeated voucher method without line identities is NOT sendable (RT-360 rule)', () => {
+      const sale = withTenders([voucherLine(1000, RED_1), voucherLine(500, RED_2)]);
+      expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
+    });
+
+    it('the same redemption id twice is NOT sendable (one redemption pays one tender)', () => {
+      const sale = withTenders([voucherLine(1000, RED_1, LINE_1), voucherLine(500, RED_1, LINE_2)]);
+      expect(() => buildCapturePayload(sale, ON)).toThrow(TenderNotSendableError);
+    });
+
+    it('the same redemption id in a different letter case is still the same redemption (NOT sendable)', () => {
+      const sale = withTenders([
+        voucherLine(1000, RED_1, LINE_1),
+        voucherLine(500, RED_1.toUpperCase(), LINE_2),
+      ]);
+      expect(() => buildCapturePayload(sale, ON)).toThrow(
+        new TenderNotSendableError('voucher redemption id repeated'),
+      );
+    });
+
+    it('a voucher with change due, or a zero amount, is NOT sendable (amount must equal the redeemed amount)', () => {
+      const withChange = withTenders([{ ...voucherLine(1600, RED_1), change_due_minor: 100 }]);
+      expect(() => buildCapturePayload(withChange, ON)).toThrow(TenderNotSendableError);
+      const zero = withTenders([
+        { tender_type: 'cash', amount_applied_minor: 1500 },
+        voucherLine(0, RED_1),
+      ]);
+      expect(() => buildCapturePayload(zero, ON)).toThrow(TenderNotSendableError);
+    });
+
+    it('vouchers that do not add up to the total are NOT sendable, with the amounts in the reason', () => {
+      const sale = withTenders([voucherLine(1400, RED_1)]); // total 1500
+      expect(() => buildCapturePayload(sale, ON)).toThrow(
+        new TenderNotSendableError('tenders sum 1400 != sale total 1500'),
+      );
+    });
   });
 
   it('an unknown tender type, a negative net, or a non-integer amount is NOT sendable', () => {

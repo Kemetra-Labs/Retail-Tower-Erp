@@ -4,9 +4,9 @@
  *
  *   - 2xx: the body is the success shape (checked by the client's own guard), else
  *     `authority_unreachable` (a malformed or unparsable success body);
- *   - a 4xx that is not 401 / 425: the closed-set refusal (`error.code`), or
+ *   - a 4xx that is not 401 / 425 / 429: the closed-set refusal (`error.code`), or
  *     `validation_failure` when the body has no code;
- *   - 401 / 425 / 5xx / anything else: `authority_unreachable`.
+ *   - 401 / 425 / 429 / 5xx / anything else: `authority_unreachable`.
  *
  * Redaction (FR-017): only the validated `error.code` is propagated; the raw body is
  * never stringified into a log argument.
@@ -27,9 +27,13 @@ export type VoucherClientOutcome<T> =
 
 const UNREACHABLE = { kind: 'authority_unreachable' } as const;
 
-/** A 4xx the closed refusal set can describe: not 401 (auth) and not 425 (in flight). */
+/**
+ * A 4xx the closed refusal set can describe: not 401 (auth), not 425 (in flight) and, RT-1331,
+ * not 429 (`RATE_LIMITED`: the authority is throttling this terminal, which says nothing about
+ * the voucher, so it is the retryable `authority_unreachable`, never a "not found").
+ */
 function isRefusalStatus(status: number): boolean {
-  return status >= 400 && status < 500 && status !== 401 && status !== 425;
+  return status >= 400 && status < 500 && status !== 401 && status !== 425 && status !== 429;
 }
 
 async function readSuccessBody<T>(

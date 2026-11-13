@@ -57,6 +57,7 @@ import type {
   PaymentsConfirmRequest,
   PaymentsConfirmResponse,
 } from '../../../shared/bridge-api.js';
+import type { FailureReason } from '../../../shared/payments/types.js';
 import type {
   RedeemVoucherInput,
   RedeemVoucherOutcome,
@@ -467,13 +468,45 @@ type RedeemSweepOutcome =
  *      no redemption for them, so there is nothing to reverse. The
  *      attempt itself transitions to `failed` immediately after — at
  *      which point the lines' state is informational only.
- *   3. **Fail the attempt** with `dependency_unavailable` and emit
- *      `payment.failed`.
+ *   3. **Fail the attempt** (the whole attempt, not only the voucher line) and emit
+ *      `payment.failed`: with the V-A refusal itself when it is a closed attempt reason
+ *      (RT-1331, `REDEEM_REFUSALS_AS_FAILURE`), else `dependency_unavailable`.
  *
  * Returns the bridge refusal envelope when the sweep fails; otherwise every
  * persisted redemption, so the caller can compensate them if the settle
  * transaction then fails (RT-496).
  */
+/**
+ * RT-1331: the V-A refusals a redeem can return that are already closed attempt failure
+ * reasons (`FAILURE_REASONS` / the `payment_attempts.failure_reason` CHECK / `RefusalReason`).
+ * Those reach the attempt result as themselves; every other refusal (`validation_failure`,
+ * `intent_token_*`, ...) and every `authority_unreachable` stays `dependency_unavailable`.
+ * No new reason, migration or renderer copy: the renderer reads the attempt back and shows
+ * its one generic refusal (F-A4B-003).
+ */
+const REDEEM_REFUSALS_AS_FAILURE = [
+  'voucher_not_found',
+  'voucher_expired',
+  'voucher_cancelled',
+  'voucher_already_redeemed',
+  'voucher_tenant_mismatch',
+  'voucher_branch_mismatch',
+] as const satisfies readonly FailureReason[];
+
+type RedeemRefusalFailure = (typeof REDEEM_REFUSALS_AS_FAILURE)[number];
+
+function isRedeemRefusalFailure(reason: string): reason is RedeemRefusalFailure {
+  return (REDEEM_REFUSALS_AS_FAILURE as readonly string[]).includes(reason);
+}
+
+/** Why an attempt is failed by the voucher paths of `payments.confirm`. */
+type ConfirmFailureReason = 'dependency_unavailable' | 'internal_error' | RedeemRefusalFailure;
+
+function redeemFailureReason(outcome: RedeemVoucherOutcome | null): ConfirmFailureReason {
+  if (outcome?.kind !== 'refused') return 'dependency_unavailable';
+  return isRedeemRefusalFailure(outcome.reason) ? outcome.reason : 'dependency_unavailable';
+}
+
 /** A redeem that V-A accepted; null stands for a line with no intent token. */
 function isRedeemed(
   outcome: RedeemVoucherOutcome | null,
@@ -501,7 +534,11 @@ async function redeemVoucherLines(input: RedeemVoucherLinesInput): Promise<Redee
       // Mid-sweep failure. The never-redeemed lines (current + any
       // unreached successors) stay `applied`; only the already-redeemed
       // ones need compensating-reverse against V-A.
-      const response = await failAttemptWithCompensation({ ...input, persistedRedemptions });
+      const response = await failAttemptWithCompensation({
+        ...input,
+        persistedRedemptions,
+        failure_reason: redeemFailureReason(outcome),
+      });
       return { kind: 'failed', response };
     }
     // Success — stamp the V-A redemption_id on the line. The state stays
@@ -550,7 +587,7 @@ async function redeemVoucherLines(input: RedeemVoucherLinesInput): Promise<Redee
 async function failAttemptWithCompensation(
   input: CompensationInput & {
     persistedRedemptions: readonly PersistedRedemption[];
-    failure_reason?: 'dependency_unavailable' | 'internal_error';
+    failure_reason?: ConfirmFailureReason;
   },
 ): Promise<PaymentsConfirmResponse> {
   const now = input.clock().toISOString();
@@ -578,7 +615,7 @@ async function failAttemptWithCompensation(
 function failAttempt(
   input: CompensationInput,
   now: string,
-  failure_reason: 'dependency_unavailable' | 'internal_error',
+  failure_reason: ConfirmFailureReason,
 ): void {
   const failOutcome = input.paymentAttemptFsm.fail({
     payment_attempt_id: input.attemptRow.payment_attempt_id,

@@ -103,11 +103,15 @@ export interface ContractCaptureSaleReceipt {
 
 /** The binding `SaleTender` (`additionalProperties: false`). */
 export interface ContractSaleTender {
-  /** RT-10 D2 pilot methods. Vouchers are excluded from the pilot. */
-  method: 'cash' | 'card_external';
+  /** RT-10 D2 pilot methods; RT-1114: `voucher` (behind `POS_SALE_VOUCHER_TENDER_ENABLED`, default off). */
+  method: 'cash' | 'card_external' | 'voucher';
   amount: NonNegativeDecimalAmount;
+  /** Format: uuid. RT-1114: REQUIRED on a `voucher` tender, accepted on no other method; unique within the sale. */
+  redemptionId?: string;
   /** OPTIONAL, `card_external` only (else 400). POS omits it (RT-79 D-A). */
   reference?: string;
+  /** Format: uuid. OPTIONAL (RT-359): the tender line's stable identity; required on every entry of a repeated method. */
+  tenderRef?: string;
 }
 
 /** The binding `CaptureSaleLine` wire shape (`additionalProperties: false`). */
