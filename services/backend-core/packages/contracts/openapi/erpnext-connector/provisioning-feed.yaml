@@ -73,10 +73,16 @@ info:
 
 
     **Lease.** The first acknowledgement (`claimed`) takes a time-limited lease;
-    each progress acknowledgement renews it. An expired lease returns the
-    request to `requested` for the next pull, so an expired-lease request is
-    re-offered. Pull returns requests in `requested`, or `claimed` with an
-    expired lease, oldest first. A call that depends on a lease the caller no
+    each progress acknowledgement renews it. One rule applies at every point
+    of the lifecycle: when a lease expires, the request keeps its recorded
+    status (`claimed`, `site_created`, `erp_configured`, `connector_installed`,
+    `credential_bound` or `verifying`; the status is a display and audit trail,
+    never the source of truth) and becomes re-offerable. Pull returns every
+    non-terminal request that is `requested`, or that is in a later status with
+    an expired lease, oldest first. The next provisioner to claim it takes a
+    new lease, re-reads the site and continues from what exists there. A
+    terminal request (`succeeded`, `failed_permanent`, `compensated`,
+    `cancelled`) is never offered. A call that depends on a lease the caller no
     longer holds is refused with `409 lease_lost` on the step acknowledgement
     and the outcome. Another provisioner's lease is never disclosed.
 
@@ -144,8 +150,10 @@ info:
     are addressed by `hostLabel`; the responses still return `credentialId` for
     audit correlation. A second issue for a host label that already has a live
     credential is `409 conflict`: rotate it instead. Rotate and revoke for a
-    host label with no live credential are `404 not_found`. Revoking stops
-    provisioning and never posting.
+    host label with no live credential are `404 not_found`, except that a
+    repeat revoke of an already revoked or expired credential is a `200` with
+    `alreadyRevoked: true` (404 only for a label that never had one). Revoking
+    stops provisioning and never posting.
 
 
     **Auth and scope.** The three platform routes accept the HUMAN `cookieAuth`
@@ -210,7 +218,8 @@ paths:
       security:
         - connectorProvisionerBearer: []
       description: >
-        Returns requests in `requested`, or `claimed` with an expired lease,
+        Returns the non-terminal requests that are `requested`, or in a later
+        status with an expired lease (the lease rule in the file description),
         oldest first, after the supplied opaque `cursor`. Re-requesting the
         same cursor yields the same logical set (idempotent replay). Pulling
         does not take a lease: the lease is taken by the first acknowledgement
@@ -255,7 +264,6 @@ paths:
                         environment: pilot
                         stores: []
                     cursor: "opaque-cursor-1"
-                    next_page_token: null
         "400":
           $ref: "#/components/responses/ValidationFailure"
         "401":
@@ -289,7 +297,12 @@ paths:
         `{requestId}:{step}:{attempt}`. A replay of the same key with the same
         body returns the stored result with `Idempotent-Replayed: true` and
         changes nothing. The same key with a different `outcome` is `409
-        idempotency_key_conflict`.
+        idempotency_key_conflict`. `attempt` is monotonic per request and step
+        across claims, leases and operator restarts: a re-claim after a lost
+        lease (the `claimed` step included) and every step re-run on a new
+        generation sends an `attempt` greater than any it sent before for that
+        request and step, so a genuine retry never collides with a stored
+        result. Only a lost-response retry of the same attempt reuses a key.
 
         A step outcome other than `done` carries an `errorClass` (equal to the
         outcome) and, for `permanently_rejected`, a `reason`. Backend-Core
@@ -298,8 +311,8 @@ paths:
         transient retries per step, then `failed_permanent` with an alert),
         holds for `capacity`, and stops for the others. A caller who does not
         hold a live lease on the request gets `409 lease_lost`, except for the
-        `claimed` step on a request that is `requested`, which takes the
-        lease. `detail` is scrubbed by the caller and is stored for the audit
+        `claimed` step on a request that is `requested` or whose lease has
+        expired, which takes a new lease. `detail` is scrubbed by the caller and is stored for the audit
         trail only.
       parameters:
         - $ref: "#/components/parameters/RequestId"
@@ -652,9 +665,12 @@ paths:
         PROVISIONING (new sites, store provisioning, rotation) and NEVER
         POSTING: tenant connector credentials are separate, so existing tenants
         keep selling. Requests under a lease held through this credential become
-        re-offered when the lease expires. A host label with no live credential
-        (never issued, already revoked or expired) is `404 not_found`. The call
-        is audited with the acting platform admin, the host label, the
+        re-offered when the lease expires. Retry-safe: if the host label's most
+        recent credential is already revoked or expired (for example a retry
+        after a lost response), the call returns `200` with the same body and
+        `alreadyRevoked: true`, and the repeat is audited as a no-op. `404
+        not_found` only when the host label never had a credential. The first
+        revoke is audited with the acting platform admin, the host label, the
         credential id and the request id; no secret is involved. A platform
         admin only, session only. No request body.
       parameters:
@@ -672,6 +688,7 @@ paths:
                     credentialId: "c1a2b3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
                     hostLabel: lab-03
                     revokedAt: "2026-11-20T08:00:00Z"
+                    alreadyRevoked: false
         "400":
           $ref: "#/components/responses/ValidationFailure"
         "401":
@@ -937,7 +954,7 @@ components:
     ProvisioningRequestPage:
       type: object
       additionalProperties: false
-      required: [items, cursor, next_page_token]
+      required: [items, cursor]
       properties:
         items:
           type: array
@@ -947,15 +964,33 @@ components:
         cursor:
           type: string
           minLength: 1
-          description: The advanced opaque server cursor. Opaque; do not decode.
-        next_page_token:
-          type: [string, "null"]
-          description: Opaque continuation token; null on the last page.
+          description: >
+            The advanced opaque server cursor. Pass it as `cursor` to continue;
+            it is the only paging input. An empty `items` array means the
+            provisioner is caught up. Opaque; do not decode.
 
     StepAck:
       type: object
       additionalProperties: false
       required: [step, outcome, attempt]
+      allOf:
+        - if:
+            properties:
+              outcome:
+                const: done
+          then:
+            not:
+              anyOf:
+                - required: [errorClass]
+                - required: [reason]
+          else:
+            required: [errorClass]
+        - if:
+            properties:
+              outcome:
+                const: permanently_rejected
+          then:
+            required: [reason]
       description: >
         One step outcome. `errorClass` is required when `outcome` is not
         `done` and must equal it; `reason` is required when `outcome` is
@@ -969,7 +1004,10 @@ components:
         attempt:
           type: integer
           minimum: 1
-          description: The attempt number for this step, starting at 1.
+          description: >
+            The attempt number for this step, starting at 1 and increasing on
+            every re-claim, retry or restart of the request and step (it never
+            repeats for a different attempt; see the operation description).
         errorClass:
           $ref: "#/components/schemas/ErrorClass"
         reason:
@@ -1095,6 +1133,19 @@ components:
       type: object
       additionalProperties: false
       required: [outcome]
+      allOf:
+        - if:
+            properties:
+              outcome:
+                const: succeeded
+          then:
+            required: [result]
+            not:
+              required: [reason]
+          else:
+            required: [reason]
+            not:
+              required: [result]
       description: >
         The terminal outcome. `result` is required on `succeeded` and absent
         otherwise; `reason` is required on `permanently_rejected` and
@@ -1166,8 +1217,13 @@ components:
     RevokedProvisionerCredential:
       type: object
       additionalProperties: false
-      required: [credentialId, hostLabel, revokedAt]
+      required: [credentialId, hostLabel, revokedAt, alreadyRevoked]
       properties:
+        alreadyRevoked:
+          type: boolean
+          description: >
+            `false` on the call that revoked the credential; `true` on a
+            repeat for a credential that was already revoked or expired.
         credentialId:
           type: string
           format: uuid
@@ -1201,7 +1257,6 @@ components:
                 - lease_lost
                 - idempotency_key_conflict
                 - conflict
-                - rate_limited
                 - internal_error
               description: >
                 Stable machine-readable code, closed on this surface.
@@ -1218,6 +1273,29 @@ components:
               description: Present only with `validation_error`.
               items:
                 type: object
+
+    RateLimitedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >
+        The console 429 envelope (RT-620). Same shape as `Error`, whose closed
+        code set does not include the console rate limit's `rate_limited`.
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum: [rate_limited]
+            message:
+              type: string
+              description: Non-disclosing summary (no budget, class or window).
+            request_id:
+              type: string
+              format: uuid
 
   responses:
     ValidationFailure:
@@ -1334,16 +1412,16 @@ components:
           schema:
             type: string
             enum: [no-store]
+        X-Request-Id:
+          description: The request id, equal to `error.request_id` in the body.
+          required: true
+          schema:
+            type: string
+            format: uuid
       content:
         application/json:
           schema:
-            allOf:
-              - $ref: "#/components/schemas/Error"
-              - properties:
-                  error:
-                    properties:
-                      code:
-                        const: rate_limited
+            $ref: "#/components/schemas/RateLimitedError"
     SystemFailure:
       description: >
         `internal_error` (500): an unexpected server error, recorded
