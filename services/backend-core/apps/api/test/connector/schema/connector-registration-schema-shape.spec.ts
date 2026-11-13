@@ -60,6 +60,12 @@ describe("connector schema shape — connector_registration (Entity 1)", () => {
     expect(cols.get("disabled_by")?.notNull).toBe(false);
   });
 
+  it("managed_by is nullable and has no default (RT-1357: existing rows stay NULL)", () => {
+    expect(cols.has("managed_by")).toBe(true);
+    expect(cols.get("managed_by")?.notNull).toBe(false);
+    expect(cols.get("managed_by")?.hasDefault).toBe(false);
+  });
+
   it("created_at defaults (now())", () => {
     expect(cols.get("created_at")?.hasDefault).toBe(true);
   });
