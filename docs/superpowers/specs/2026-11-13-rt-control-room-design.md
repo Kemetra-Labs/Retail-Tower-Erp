@@ -22,7 +22,7 @@ Goals:
 - Every service is a station; every link between them is a cable labelled with what it carries and its state.
 - Every alarm sits where the fault is (on the cable or inside the station), with one icon and one motion per kind, and is listed in an alarm panel with its message, origin and path.
 - Show whether each source (Sentry, Datadog, GitHub, Jira) reaches Port, and whether each service sends to Sentry and Datadog.
-- Show the delivery pulse (merges, CI runs and failures, tasks done) as 14-day telemetry traces.
+- Show the delivery pulse (merges, CI runs and failures, tasks done) as telemetry traces over the last 13 completed days.
 - Arabic and English, full RTL for the page.
 
 Non-goals (this version):
@@ -64,7 +64,7 @@ Regions, top to bottom (see the mockup):
 
 1. **Header.** Wordmark, "As of last sync HH:MM" (24-hour clock), scope chip "Test lab, not real stores", active alarm count, "Lab updated N ago", language toggle, light/dark, pause motion.
 2. **Verdict.** One plain sentence generated from the data, plus three lights: Cashier app, Backend, Accounts. A line under it names what is not on the board yet.
-3. **Telemetry, last 14 days.** Four traces: changes merged per day, CI runs per day, CI failures per day (normal band 0 to 2, points above it in red), tasks done per day. Each has yesterday's value, a 14-day average, a shaded normal band (interquartile range, or 0 to 2 for failures), and a pulsing last point. One-day spikes are marked and explained as likely imports or cleanups, never hidden.
+3. **Telemetry, last 13 full days.** Today is partial and is neither drawn nor averaged. Four traces: changes merged per day, CI runs per day, CI failures per day (normal band 0 to 2, points above it in red), tasks done per day. Each has yesterday's value, a 13-day average, a shaded normal band (interquartile range, or 0 to 2 for failures), and a pulsing last point. One-day spikes are marked and explained as likely imports or cleanups, never hidden.
 4. **Control room (the signature).**
    - **Control-room bar**: the four sources Port reads (Error tracker / Sentry, Health checks / Datadog, Code history / GitHub, Task tracker / Jira), each with its sync state and last change, and a signal bus every station rises to.
    - **Stations**: POS, Admin Console, Backend-Core, ERPNext-Connector, and ERPNext as an external ledger. Each has its plain role ("Where sales happen", "The brain", "The bridge to the accounts", "The books"), four link lamps (ERR, HLT with n/m, GIT, JIR), readings (alarms, health checks, CI pass 7d, open tasks, PRs, merged this week, deploys, CI fails 7d), and a merged-per-day mini bar chart.
@@ -100,7 +100,7 @@ Alarm kinds (icon and motion are fixed):
 
 Every alarm also sends a dot up the station's riser to its source on the bus. Unknown Sentry kinds fall back to "Code error".
 
-Motion rules: motion only on a real change between two polls, or on replaying the last 24 hours (labelled "Replaying"); nothing flashes faster than twice a second; Pause stops everything; reduced motion shows a still board. Riser dot speed follows each station's 7-day activity (CI runs plus merges).
+Motion rules: motion only on a real change between two polls, or on replaying recent changes (labelled "Replaying recent changes (partial)"; see the replay rule below); nothing flashes faster than twice a second; Pause stops everything; reduced motion shows a still board. Riser dot speed follows each station's 7-day activity (CI runs plus merges).
 
 Two modes (owner decision, 2026-11-13): a switch in the header, **Ops | Story**.
 
@@ -142,10 +142,10 @@ Port-side gaps, each a separate follow-up, not part of this build:
 
 ## 7b. Rules settled after the builder check (Claude's calls)
 
-- **Data layer.** First load fetches the 14-day window with filtered searches (date rules on `mergedAt`, `createdAt`, `resolutionDate`, paged), and the last 72 runs sorted by `createdAt`. Results are cached in memory; each 60-second poll fetches only entities with `$updatedAt` after the last poll and merges them. A heavier first load is acceptable. A day is a Cairo calendar day (`Africa/Cairo`); the trace's last full day is "yesterday", today is shown as partial.
+- **Data layer.** First load fetches the 14-day window (13 completed days plus today) with filtered searches (date rules on `mergedAt`, `createdAt`, `resolutionDate`, paged), and the last 72 runs sorted by `createdAt`. Results are cached in memory; each 60-second poll fetches only entities with `$updatedAt` after the last poll and merges them; every fifth poll is a full poll in which the alarm blueprints (`sentryIssue` with status `unresolved`, `datadogMonitor`) REPLACE the cached collections, so resolved or deleted alarms disappear. A heavier first load is acceptable. A day is a Cairo calendar day (`Africa/Cairo`); the trace's last full day is "yesterday", today is shown as partial.
 - **Verdict lights.** A light is red when its scope has an open alarm, amber when its health is unknown or a source is stale, and neutral (never green) when it has no alarm and is watched. Cashier app = POS (no Datadog by design, so it reads "No errors reported", never "healthy"); Backend = Backend-Core; Accounts = ERPNext-Connector plus the Invoices cable. The sentence is assembled from the three lights plus the scope ("in the test lab").
-- **Alarm placement and kind.** Only `sentryIssue` with status `unresolved` counts. Kind comes from the title: `403` or `Forbidden` is Refused; `502`, `503` or `Bad Gateway` is Not answering; `Timeout` or `timed out` is Took too long; `reset` or `aborted` is Connection cut; anything else is Code error. An issue of the Connector whose title targets an ERPNext route (`/erpnext/`) is pinned on the Invoices cable; every other issue sits inside its station. The request path is the static allowed path up to that hop. Datadog monitors in `Alert`, `Warn` or `No Data` become alarms on the station they belong to, or on the host.
-- **Replay and Events.** On load, entities created or updated in the last 24 hours are animated once, in time order, under the "Replaying" chip; after that only diffs between polls animate. The Events tab lists those entities newest first (merges, CI results, Jira status changes, new Sentry issues, monitor state changes).
+- **Alarm placement and kind.** Only `sentryIssue` with status `unresolved` counts. Kind comes from the title: `403` or `Forbidden` is Refused; `502`, `503` or `Bad Gateway` is Not answering; `Timeout` or `timed out` is Took too long; `reset` or `aborted` is Connection cut; anything else is Code error. An issue of the Connector whose title targets an ERPNext route (`/erpnext/`) is pinned on the Invoices cable; every other issue sits inside its station. The request path is the static allowed path up to that hop. Datadog monitors in `Alert`, `Warn` or `No Data` become alarms on the station they belong to. A monitor with no workload is placed on a host only when its title names one (`lab-03 Redis instance down`) or a `host:` tag does (none exists today; checked against Port on 2026-11-13); otherwise it is **unlocated** by design. The 8 host-pack monitors are multi-host (`{{host.name}}`) and Port does not say which host alerts, so they are counted, shown in the verdict and listed under "Not placed on the map", never pinned and never guessed.
+- **Replay and Events.** Replay is a reconstruction, not a history: Port keeps no change log, so only entities that still exist and changed in the last 24 hours are animated once, in time order, under the chip "Replaying recent changes (partial)"; resolved Sentry issues and past monitor states cannot be replayed. After that only diffs between polls animate. `useBoard` exposes `replaying` and `onReplayDone()`, and the diagram calls it when the last replayed event finishes, is cancelled, or is skipped by reduced motion. The Events tab lists those entities newest first (merges, CI results, Jira status changes, new Sentry issues, monitor state changes).
 - **Servers and tiers.** A small static architecture map in the plugin holds each service's tier and each host's station (lab-01 and lab-02 to Backend-Core, lab-03 to ERPNext). A Port `tier` property is a later, optional improvement.
 - **Freshness.** A source is fine when its newest change or completed sync is under 6 hours old, stale (amber) beyond that, unknown when the call fails or is forbidden. Whether normal viewers can read `/v1/integration` is checked early in the build; if not, freshness falls back to the newest `$updatedAt` only. "Sending" needs evidence (an event or a heartbeat monitor OK); "linked" means a project or workload relation exists with no evidence yet.
 - **Fonts.** Inter (400, 500, 600) and IBM Plex Sans Arabic (400, 500), subset to Latin and Arabic ranges, inlined. The built file's size is reported in the evidence; target under 1.5 MB.
@@ -163,3 +163,18 @@ Port-side gaps, each a separate follow-up, not part of this build:
 
 - Build and upload to Port as a new plugin `rt-control-room`, then add it to the Retail Tower Cockpit beside or in place of `ck_arch` (owner's choice at rollout).
 - Evidence on the RT issue: built file size, upload result, a screenshot in Port in both languages, and one real alarm traced from Sentry to the board.
+
+## 10. Design review proposals (RT-1386, owner decision needed)
+
+Findings from a critique of mockup v13 on 2026-11-13. The v13 premium-clean direction is unchanged. These are proposals; none is applied to the mockup except the correctness fixes listed in RT-1386.
+
+1. **Group the pins on the Invoices cable.** Four 20 px pins sit side by side on the Connector to ERPNext cable. Proposal: one badge showing the count (4), expanding on hover, focus or selection into the four kind icons. Every alarm keeps its row, path, source and time in the alarm panel. Risk: the kinds are hidden until expanded.
+2. **Progressive disclosure on stations.** Each station card carries 8 readings, a lamp row and a sparkline. Proposal: Ops keeps alarms, health checks, CI pass rate and open tasks on the card; PRs, merged, deploys, CI failures and the sparkline move to the selection panel. Cards get about 40 percent shorter and the diagram text can grow.
+3. **Narrow Port tiles.** At 640 px wide the diagram scales to about 0.46 and its text renders near 6 px. Proposal: below roughly 900 px the table view replaces the diagram (the table view already exists), with the alarm panel unchanged.
+4. **Story mode is specified but not mocked.** The owner chose Ops and Story modes with a manual tour; mockup v13 shows only Ops. Proposal: add a Story frame (large verdict, three lights, pins, Tour button) to the mockup before RT-1381 starts, so the owner approves what will be built.
+5. **State frames are not mocked.** Loading, empty, error and stale states exist only as plan tests. Proposal: add one frame each to the mockup, or a short state table to this design.
+6. **Unlocated alarms.** A monitor without a host tag is listed under "Not placed on the map". The alarm panel group is specified but not drawn.
+7. **Measured contrast.** Muted text on translucent panels (12 to 12.5 px) should be measured in the build against WCAG 2.2 AA in both themes; the mockup does not claim a ratio.
+
+Not recommended: more glow, nested cards, or motion without an event behind it.
+
