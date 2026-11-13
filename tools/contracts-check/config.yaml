@@ -71,6 +71,13 @@ connector:
     patterns: {}
     local: {}
 
+  # RT-1359: the tenant provisioner's client for the ERP provisioning feed (provisioning-feed.yaml).
+  - module: integrations/erpnext-connector/retail_tower_erpnext_connector/provisioner/feed_client.py
+    contract: erpnext-connector/provisioning-feed.yaml
+    enums: {}
+    patterns: {}
+    local: {}
+
 # Copies of one file that must stay byte-identical.
 identical:
   - name: OBS-1 golden vectors

@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import pathlib
 import re
 import tempfile
@@ -275,8 +276,9 @@ class PinnedBlobProbes(unittest.TestCase):
 CONNECTOR_APP = REPO_ROOT / "integrations/erpnext-connector/retail_tower_erpnext_connector"
 CONNECTOR = CONNECTOR_APP / "connector"
 # Every Connector module that calls Backend-Core over HTTP (RT-704 inventory), relative to CONNECTOR.
+# `../provisioner/feed_client.py` (RT-1359) is the tenant provisioner's client for provisioning-feed.yaml.
 CONNECTOR_TRANSPORTS = ("posting/transport.py", "bin_view/transport.py", "health/heartbeat.py",
-                        "stock_import/transport.py")
+                        "stock_import/transport.py", "../provisioner/feed_client.py")
 # The one module allowed to import an HTTP library: `RequestsTransport`, the HttpTransport the
 # transports above call through `self._transport` (shared since RT-1218). It takes the path as an
 # argument and has no path of its own.
@@ -323,7 +325,7 @@ def connector_http_modules():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         nodes = list(ast.walk(tree))
-        key = path.relative_to(CONNECTOR).as_posix() if CONNECTOR in path.parents else rel.as_posix()
+        key = pathlib.Path(os.path.relpath(path, CONNECTOR)).as_posix()
         has_api_literal = any(isinstance(n, ast.Constant) and isinstance(n.value, str)
                               and "/api/" in n.value for n in nodes)
         if has_api_literal or any(_is_transport_call(n) for n in nodes):
