@@ -273,19 +273,26 @@ a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
   }
 
   function summarize(byId) {
-    var need = 0, down = 0, total = 0;
+    var need = 0, down = 0, total = 0, idle = 0, missing = 0;
     NODES.forEach(function (n) {
       var e = byId[n.id];
-      if (!e) return;
+      if (!e) { missing++; return; }
       total++;
       var s = status(e);
       if (s === "warn" || s === "bad") need++;
       if (s === "bad") down++;
+      if (s === "idle") idle++;
     });
+    // No telemetry is not healthy: services without a monitor or absent from the catalog are named, never counted as healthy.
+    var gaps = [];
+    if (idle > 0) gaps.push(idle + " with no monitor");
+    if (missing > 0) gaps.push(missing + " not in the catalog");
+    var tail = gaps.length ? " (" + gaps.join(", ") + ")" : "";
     var out = document.getElementById("summary");
-    if (down > 0) { out.className = "summary down"; out.textContent = down + " service" + (down > 1 ? "s have" : " has") + " a monitor down"; }
-    else if (need > 0) { out.className = "summary alert"; out.textContent = need + " of " + total + " services need attention"; }
+    if (down > 0) { out.className = "summary down"; out.textContent = down + " service" + (down > 1 ? "s have" : " has") + " a monitor down" + tail; }
+    else if (need > 0) { out.className = "summary alert"; out.textContent = need + " of " + NODES.length + " services need attention" + tail; }
     else if (total === 0) { out.className = "summary"; out.textContent = "No services found in Port"; }
+    else if (gaps.length) { out.className = "summary"; out.textContent = "No telemetry for some services: " + gaps.join(", "); }
     else { out.className = "summary calm"; out.textContent = "All " + total + " services healthy"; }
   }
 
@@ -304,8 +311,12 @@ a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
       return res.text().then(function (body) {
         if (res.status === 401) {
           state.token = null;
-          if (!state.retried) { state.retried = true; requestToken(); }
-          throw new Error("Your Port session expired. Retrying with a new session.");
+          if (!state.retried) {
+            state.retried = true;
+            requestToken();
+            throw new Error("Your Port session expired. Retrying with a new session.");
+          }
+          throw new Error("Your Port session expired and the new session was also rejected. Reload the dashboard.");
         }
         if (!res.ok) throw new Error("Port API " + res.status + ": " + body);
         return JSON.parse(body);
@@ -319,15 +330,19 @@ a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
       summarize(byId);
       document.getElementById("updated").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     }).catch(function (err) {
-      var text = err && err.message ? err.message : String(err);
-      if (state.rendered) {
-        var out = document.getElementById("summary");
-        out.className = "summary down";
-        out.textContent = "Showing last data. " + text;
-      } else {
-        message("Could not load services.\n" + text, true);
-      }
+      showError(err && err.message ? err.message : String(err));
     }).then(function () { state.loading = false; });
+  }
+
+  // Keeps the last map when there is one and puts the error in the status bar; otherwise shows it in the stage.
+  function showError(text) {
+    if (state.rendered) {
+      var out = document.getElementById("summary");
+      out.className = "summary down";
+      out.textContent = "Showing last data. " + text;
+    } else {
+      message("Could not load services.\n" + text, true);
+    }
   }
 
   window.addEventListener("message", function (ev) {
@@ -336,7 +351,10 @@ a.node:focus-visible .card { stroke: var(--flow); stroke-width: 2.5; }
     if (!d || typeof d !== "object") return;
     if (d.type === "PORT_TOKEN" && typeof d.token === "string") { state.token = d.token; load(); }
     else if (d.type === "PLUGIN_DATA") {
-      if (typeof d.baseUrl === "string" && trustedApi(d.baseUrl)) state.baseUrl = d.baseUrl;
+      if (typeof d.baseUrl === "string") {
+        if (trustedApi(d.baseUrl)) state.baseUrl = d.baseUrl;
+        else showError("Untrusted Port API host. The map only talks to https port.io or getport.io hosts.");
+      }
       if (d.theme && typeof d.theme.css === "string") document.getElementById("port-theme").textContent = d.theme.css;
       load();
     }
