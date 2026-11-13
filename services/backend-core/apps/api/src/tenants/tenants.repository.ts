@@ -40,17 +40,6 @@ import type { Pool, PoolClient } from "pg";
  * the OpenAPI contract; the controller projects to the appropriate
  * subset per endpoint.
  */
-/**
- * A tenant's access state as the platform list shows it (RT-1350 slice 6a):
- * the `tenant_access_entitlements` row, or `unrestricted` with both timestamps
- * null when the tenant has no row (the RT-1353 rule: no row = unrestricted).
- */
-export interface TenantAccessView {
-  readonly state: "restricted" | "unrestricted";
-  readonly unlockRequestedAt: Date | null;
-  readonly provisionedAt: Date | null;
-}
-
 export type TenantAccessFilter = "restricted" | "unrestricted";
 
 export interface TenantRecord {
@@ -62,7 +51,12 @@ export interface TenantRecord {
   readonly updatedAt: Date;
   readonly deletedAt: Date | null;
   /** Set only by `listAllWithAccess` (the platform-admin list). */
-  readonly access?: TenantAccessView;
+  readonly access?: {
+    /** The `tenant_access_entitlements` state, or `unrestricted` when the tenant has no row (RT-1353). */
+    readonly state: "restricted" | "unrestricted";
+    readonly unlockRequestedAt: Date | null;
+    readonly provisionedAt: Date | null;
+  };
 }
 
 function toRecord(row: TenantRow): TenantRecord {
