@@ -279,7 +279,7 @@ function readLine(value: unknown): SaleHistoryLine {
 function readTender(value: unknown): SaleHistoryTender {
   const tender = obj(value);
   return {
-    method: oneOf(tender['method'], ['cash', 'card_external'] as const),
+    method: oneOf(tender['method'], ['cash', 'card_external', 'voucher'] as const),
     amount_minor: minor(tender['amount']),
     reference: shownOrNull(tender['reference']),
     sequence: positiveIntOrNull(tender['sequence']),

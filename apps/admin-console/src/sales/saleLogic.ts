@@ -110,6 +110,7 @@ export function returnChipClass({ returnState }: { returnState: string }): strin
 const TENDER_KEYS: Record<string, MessageKey> = {
   cash: "sales.tender.cash",
   card_external: "sales.tender.card_external",
+  voucher: "sales.tender.voucher",
 };
 
 export function tenderMethodKey({ method }: { method: string }): MessageKey {

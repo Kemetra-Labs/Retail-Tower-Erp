@@ -1,3 +1,5 @@
+import { ar } from "@/i18n/messages/ar";
+import { en } from "@/i18n/messages/en";
 import {
   MAX_SPAN_DAYS,
   PAGE_SIZE,
@@ -186,7 +188,14 @@ describe("labels and gates", () => {
     expect(erpStateKey({ erpPostingState: "unknown" })).toBe("sales.erp.unknown");
     expect(erpStateKey({ erpPostingState: "weird" })).toBe("sales.erp.unknown");
     expect(tenderMethodKey({ method: "card_external" })).toBe("sales.tender.card_external");
-    expect(tenderMethodKey({ method: "voucher" })).toBe("sales.tender.unknownMethod");
+    expect(tenderMethodKey({ method: "voucher" })).toBe("sales.tender.voucher");
+    expect(tenderMethodKey({ method: "gift_card" })).toBe("sales.tender.unknownMethod");
+  });
+
+  test("a voucher tender reads Voucher / قسيمة, never Other method (RT-1375)", () => {
+    const key = tenderMethodKey({ method: "voucher" });
+    expect(en[key]).toBe("Voucher");
+    expect(ar[key]).toBe("قسيمة");
   });
 
   test("the shift-close exception link names the store and the one business day", () => {

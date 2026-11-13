@@ -8,6 +8,7 @@ import type {
   SaleHistoryReadResponse,
   SaleHistoryReprintResponse,
   SaleHistoryRefusalReason,
+  SaleHistoryTender,
 } from '../../../../../shared/sale-history/types';
 import { Notice } from '../../../foundation/Notice';
 import { HISTORY_COPY as C, erpCopy, refusalCopy } from './history-copy';
@@ -64,6 +65,11 @@ function Lines({ detail }: Readonly<{ detail: SaleHistoryDetail }>): JSX.Element
   );
 }
 
+function tenderLabel(method: SaleHistoryTender['method']): string {
+  if (method === 'cash') return C.cash;
+  return method === 'voucher' ? C.voucher : C.card;
+}
+
 function Tenders({ detail }: Readonly<{ detail: SaleHistoryDetail }>): JSX.Element {
   return (
     <section aria-label={C.tenders}>
@@ -74,7 +80,7 @@ function Tenders({ detail }: Readonly<{ detail: SaleHistoryDetail }>): JSX.Eleme
         <ul className="v5-history-lines">
           {detail.tenders.map((tender, index) => (
             <li key={`${tender.method}-${String(index)}`}>
-              {tender.method === 'cash' ? C.cash : C.card}
+              {tenderLabel(tender.method)}
               <span dir="ltr">{egp(tender.amount_minor)}</span>
             </li>
           ))}

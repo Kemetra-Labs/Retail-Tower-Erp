@@ -102,6 +102,7 @@ export const sales = {
   "sales.erp.unknown": "حالة الترحيل إلى ERPNext غير معروفة",
   "sales.tender.cash": "نقدًا",
   "sales.tender.card_external": "بطاقة (جهاز دفع خارجي)",
+  "sales.tender.voucher": "قسيمة",
   "sales.tender.unknownMethod": "طريقة أخرى",
 
   // --- Detail ------------------------------------------------------------------

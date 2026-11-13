@@ -60,6 +60,7 @@ export const HISTORY_COPY = Object.freeze({
   tenderUnknown: 'طريقة الدفع غير مسجلة لهذا البيع.',
   cash: 'نقدي',
   card: 'بطاقة',
+  voucher: 'قسيمة',
   change: 'الباقي',
   headerNotRecorded: 'بيانات رأس الإيصال غير مسجلة لهذا البيع.',
   returns: 'المرتجعات',

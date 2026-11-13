@@ -266,6 +266,24 @@ describe('RT-542 HistoryDetail — edge states', () => {
     );
   });
 
+  it('labels a voucher tender in Arabic, not as a card (RT-1375)', async () => {
+    const bridge = historyBridge({
+      read: vi.fn(() =>
+        Promise.resolve({
+          kind: 'ok' as const,
+          detail: detail({
+            tenders: [{ method: 'voucher', amount_minor: 500, reference: null, sequence: 1 }],
+          }),
+        }),
+      ),
+    });
+    render(<HistoryDetail saleRef={REF} bridge={bridge} onClose={() => undefined} />);
+    const panel = await screen.findByTestId('history-detail');
+    const tenders = await within(panel).findByRole('region', { name: 'الدفع' });
+    expect(within(tenders).getByText('قسيمة')).toBeTruthy();
+    expect(within(tenders).queryByText('بطاقة')).toBeNull();
+  });
+
   it('shows card tenders, an unrecorded change, returns and a pending ERP state', async () => {
     const bridge = historyBridge({
       read: vi.fn(() =>
