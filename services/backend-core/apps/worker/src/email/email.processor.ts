@@ -53,6 +53,7 @@ import {
   renderEmailVerificationEmail,
   renderInvitationEmail,
   renderPasswordResetEmail,
+  renderSignupLinkEmail,
 } from "./templates";
 import {
   recordWorkerJobDuration,
@@ -74,6 +75,7 @@ export const EMAIL_JOB_NAMES = {
   passwordReset: "auth.password-reset",
   emailVerification: "auth.email-verify",
   invitation: "memberships.invitation",
+  signupLink: "auth.signup-link",
 } as const;
 
 /**
@@ -99,6 +101,18 @@ const invitationJobSchema = z.object({
 });
 
 export type InvitationJobData = z.infer<typeof invitationJobSchema>;
+
+/**
+ * Payload schema for self-signup link jobs (RT-1350 slice 3). The recipient has no
+ * account yet, so there is no userId or tenantId; `locale` is the signup form's language.
+ */
+const signupLinkJobSchema = z.object({
+  email: z.string().email().min(1),
+  rawToken: z.string().min(1),
+  locale: z.enum(["ar", "en"]).nullable(),
+});
+
+type SignupLinkJobData = z.infer<typeof signupLinkJobSchema>;
 
 export class MalformedEmailJobError extends Error {
   constructor(jobName: string, issue: string) {
@@ -163,6 +177,11 @@ export class EmailProcessor {
             await this.adapter.send(renderInvitationEmail(parsed, this.consoleBaseUrl ?? null));
             return;
           }
+          case EMAIL_JOB_NAMES.signupLink: {
+            const parsed = parseSignupLinkJobData(jobName, data);
+            await this.adapter.send(renderSignupLinkEmail(parsed, this.consoleBaseUrl ?? null));
+            return;
+          }
           default:
             throw new UnknownEmailJobError(jobName);
         }
@@ -205,4 +224,19 @@ function parseInvitationJobData(jobName: string, data: unknown): InvitationJobDa
     throw new MalformedEmailJobError(jobName, issue);
   }
   return result.data;
+}
+
+function parseSignupLinkJobData(jobName: string, data: unknown): SignupLinkJobData {
+  return parseWith(signupLinkJobSchema, jobName, data);
+}
+
+/** Validate a payload against `schema`; a failure is a `MalformedEmailJobError` naming only the first issue. */
+function parseWith<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, jobName: string, data: unknown): T {
+  const result = schema.safeParse(data);
+  if (result.success) return result.data;
+  const firstIssue = result.error.issues[0];
+  throw new MalformedEmailJobError(
+    jobName,
+    firstIssue ? `${firstIssue.path.join(".") || "<root>"}: ${firstIssue.message}` : "validation failed",
+  );
 }

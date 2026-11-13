@@ -45,10 +45,24 @@ export interface InvitationEmailJob {
  * the request path on actual SMTP / API delivery — that work happens
  * in the worker (T114/T115).
  */
+/**
+ * RT-1350 slice 3: the self-signup link (fallback A, Backend-Core's own opaque token).
+ * Sent to an address that has no account yet, so there is no user id.
+ */
+export interface SignupLinkEmailJob {
+  /** Normalised (trimmed + lowercased) address the link goes to. */
+  readonly email: string;
+  /** Raw single-use token for the link: never persisted (only its hash is). */
+  readonly rawToken: string;
+  /** Language of the message, from the signup form; null when the form sent none. */
+  readonly locale: "ar" | "en" | null;
+}
+
 export interface EmailJobEnqueuer {
   enqueuePasswordReset(job: PasswordResetEmailJob): Promise<void>;
   enqueueEmailVerification(job: EmailVerificationEmailJob): Promise<void>;
   enqueueInvitation(job: InvitationEmailJob): Promise<void>;
+  enqueueSignupLink(job: SignupLinkEmailJob): Promise<void>;
 }
 
 /**
@@ -72,6 +86,10 @@ export class NoOpEmailJobEnqueuer implements EmailJobEnqueuer {
     // intentionally empty — no email is sent, no job is queued
   }
   enqueueInvitation(_job: InvitationEmailJob): Promise<void> {
+    return Promise.resolve();
+    // intentionally empty — no email is sent, no job is queued
+  }
+  enqueueSignupLink(_job: SignupLinkEmailJob): Promise<void> {
     return Promise.resolve();
     // intentionally empty — no email is sent, no job is queued
   }

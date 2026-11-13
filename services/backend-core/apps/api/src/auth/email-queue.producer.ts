@@ -37,6 +37,7 @@ import {
   type EmailVerificationEmailJob,
   type InvitationEmailJob,
   type PasswordResetEmailJob,
+  type SignupLinkEmailJob,
 } from "./email-job.enqueuer";
 
 /**
@@ -47,6 +48,7 @@ export const EMAIL_JOB_NAMES = {
   passwordReset: "auth.password-reset",
   emailVerification: "auth.email-verify",
   invitation: "memberships.invitation",
+  signupLink: "auth.signup-link",
 } as const;
 
 /**
@@ -57,6 +59,7 @@ const JOB_ID_SCOPES = {
   passwordReset: "pwreset",
   emailVerification: "verify",
   invitation: "invite",
+  signupLink: "signup",
 } as const;
 
 /**
@@ -198,6 +201,16 @@ export class EmailQueueProducer
     const queue = this.ensureQueue();
     await queue.add(
       EMAIL_JOB_NAMES.invitation,
+      { ...job, traceContext: injectTraceContext() },
+      { jobId },
+    );
+  }
+
+  async enqueueSignupLink(job: SignupLinkEmailJob): Promise<void> {
+    const jobId = deriveJobId(JOB_ID_SCOPES.signupLink, job.rawToken);
+    const queue = this.ensureQueue();
+    await queue.add(
+      EMAIL_JOB_NAMES.signupLink,
       { ...job, traceContext: injectTraceContext() },
       { jobId },
     );

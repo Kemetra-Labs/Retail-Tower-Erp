@@ -94,6 +94,13 @@ export const RATE_LIMIT_BUCKETS = {
   // RT-937: invitation acceptance per IP. The route is public (the single-use token
   // is the credential) and can create a user, so it is bounded like sign-in.
   invitationAcceptPerIp: { limit: 20, windowMs: 15 * 60 * 1000 },
+  // RT-1350 slice 3 (design D5): self-signup. `requestSignup` per client IP (429 over
+  // the limit), per address (silent 202, nothing sent over the limit), and
+  // `completeSignup` per client IP (the link token is the credential and the route
+  // can create a user and a tenant).
+  signupCreatePerIp: { limit: 10, windowMs: 60 * 60 * 1000 },
+  signupCreatePerEmail: { limit: 3, windowMs: 24 * 60 * 60 * 1000 },
+  signupCompletePerIp: { limit: 10, windowMs: 15 * 60 * 1000 },
   // RT-937: change-password attempts per signed-in user. Counts FAILED attempts
   // only (the hit is released on success), so a stolen session cannot be used
   // to guess the current password faster than the provider's own lockout.

@@ -109,6 +109,7 @@ describe("failedJobTags", () => {
       "audit-retention-sweep",
       "auth.email-verify",
       "auth.password-reset",
+      "auth.signup-link",
       "cashier-admission-replay-purge",
       "erpnext-stock-reconciliation-sweep",
       "memberships.invitation",
