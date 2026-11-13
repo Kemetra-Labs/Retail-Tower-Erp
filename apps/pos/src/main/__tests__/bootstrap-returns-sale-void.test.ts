@@ -28,7 +28,7 @@ describe('main/index.ts hands the returns wiring to bootstrap/returns.ts', () =>
   it('registers the handlers unconditionally and gates only the resolver on the flag', () => {
     expect(returnsSource.match(/registerReturnsHandlers\(/g)?.length ?? 0).toBe(1);
     expect(returnsSource).toMatch(
-      /registerReturnsHandlers\(guardedIpcMain, \{ service: returnsDomain\.service \}\);\s*if \(parseFeatureFlags\(process\.env\)\.returns\) \{/,
+      /registerReturnsHandlers\(guardedIpcMain, \{ service: returnsDomain\.service \}\);\s*if \(resolveFeatureFlags\(\)\.returns\) \{/,
     );
     expect(returnsSource.match(/scheduleReturnsResolver\(/g)?.length ?? 0).toBe(1);
   });
@@ -61,7 +61,7 @@ describe('main/index.ts hands the sale void wiring to bootstrap/sale-void.ts', (
     expect(saleVoidSource.match(/registerSaleVoidHandlers\(/g)?.length ?? 0).toBe(1);
     expect(saleVoidSource.match(/scheduleSaleVoidSync\(/g)?.length ?? 0).toBe(1);
     expect(saleVoidSource).toMatch(
-      /\}\);\s*if \(parseFeatureFlags\(process\.env\)\.saleVoid\) \{[\s\S]*scheduleSaleVoidSync\(/,
+      /\}\);\s*if \(resolveFeatureFlags\(\)\.saleVoid\) \{[\s\S]*scheduleSaleVoidSync\(/,
     );
   });
 });

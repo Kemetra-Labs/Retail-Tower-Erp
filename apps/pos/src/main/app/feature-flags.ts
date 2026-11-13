@@ -1,4 +1,5 @@
 import type { AppConfig } from '../../shared/app-config.js';
+import { getBakedLaneConfig } from '../config/lane-config.js';
 
 /**
  * RT-162 (RT-160 FU-1: S-1 config module + H-1 fail-closed cashier profile).
@@ -22,6 +23,15 @@ import type { AppConfig } from '../../shared/app-config.js';
  * outbox entry or Backend-Core capture. Main refuses to start the cashier
  * rather than take money it cannot record. The decision is pure here; the
  * composition root logs it, shows a native dialog and exits.
+ *
+ * RT-1376 — one resolution point. Precedence: the environment, then the baked lane
+ * default, then the switch's own default. A pilot-lane build (`lane-config.json`,
+ * RT-1346) turns the four cashier switches (`cart`, `productSearch`, `payments`,
+ * `saleFinalization`) on by default with the RT-1180 semantics: unset or blank is on,
+ * truthy is on, an explicit `0 | false | no | off` is the support kill switch. Every
+ * other switch keeps its own default, and any other lane (or no baked file) is exactly
+ * as before. Every caller goes through `resolveFeatureFlags`; none parses
+ * `process.env` itself (a test pins that).
  *
  * Deliberately NOT here: `SENTRY_DSN`, `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` and
  * `POS_PULSE_FEATURE_SALE_RECEIPT_SINCE` (ISO instants with their own parsers in `sales-sync`), and the dev-only
@@ -65,19 +75,51 @@ export function isDefaultOnFlag(raw: string | undefined): boolean {
   return false;
 }
 
-/** Parse every feature flag from an environment (normally `process.env`). */
-export function parseFeatureFlags(env: Readonly<Record<string, string | undefined>>): FeatureFlags {
+/** The lane whose build carries the pilot cashier profile (RT-1376). */
+const PILOT_LANE = 'pilot';
+
+/** Cashier switches that default to on on a pilot-lane build. */
+const PILOT_DEFAULT_ON_KEYS: ReadonlySet<keyof FeatureFlags> = new Set([
+  'cart',
+  'productSearch',
+  'payments',
+  'saleFinalization',
+]);
+
+type Env = Readonly<Record<string, string | undefined>>;
+
+function parseSwitch(key: keyof FeatureFlags, env: Env, lane: string | undefined): boolean {
+  const raw = env[FEATURE_FLAG_ENV[key]];
+  if (key === 'returns') return isDefaultOnFlag(raw);
+  if (lane === PILOT_LANE && PILOT_DEFAULT_ON_KEYS.has(key)) return isDefaultOnFlag(raw);
+  return isTruthyFlag(raw);
+}
+
+/**
+ * Parse every feature flag from an environment for a lane. Pure: callers in main use
+ * `resolveFeatureFlags`, which supplies `process.env` and the baked lane.
+ */
+export function parseFeatureFlags(env: Env, lane?: string): FeatureFlags {
   return {
-    cart: isTruthyFlag(env[FEATURE_FLAG_ENV.cart]),
-    payments: isTruthyFlag(env[FEATURE_FLAG_ENV.payments]),
-    saleFinalization: isTruthyFlag(env[FEATURE_FLAG_ENV.saleFinalization]),
-    productSearch: isTruthyFlag(env[FEATURE_FLAG_ENV.productSearch]),
-    voucherTender: isTruthyFlag(env[FEATURE_FLAG_ENV.voucherTender]),
-    returns: isDefaultOnFlag(env[FEATURE_FLAG_ENV.returns]),
-    shiftCashup: isTruthyFlag(env[FEATURE_FLAG_ENV.shiftCashup]),
-    saleVoid: isTruthyFlag(env[FEATURE_FLAG_ENV.saleVoid]),
-    cardTender: isTruthyFlag(env[FEATURE_FLAG_ENV.cardTender]),
+    cart: parseSwitch('cart', env, lane),
+    payments: parseSwitch('payments', env, lane),
+    saleFinalization: parseSwitch('saleFinalization', env, lane),
+    productSearch: parseSwitch('productSearch', env, lane),
+    voucherTender: parseSwitch('voucherTender', env, lane),
+    returns: parseSwitch('returns', env, lane),
+    shiftCashup: parseSwitch('shiftCashup', env, lane),
+    saleVoid: parseSwitch('saleVoid', env, lane),
+    cardTender: parseSwitch('cardTender', env, lane),
   };
+}
+
+/**
+ * THE resolution point (RT-1376): `process.env`, then the baked lane default, then the
+ * switch's own default. Read per call, so a kill switch and the baked holder behave as
+ * the live environment read did before.
+ */
+export function resolveFeatureFlags(): FeatureFlags {
+  return parseFeatureFlags(process.env, getBakedLaneConfig()?.lane);
 }
 
 export type CashierProfileRefusalReason = 'payments_without_sale_finalization';

@@ -21,7 +21,8 @@ back so it cannot keep taking payments.
 There are **two** runtime configuration channels (RT-1346, decision RT-1345 D1/D2):
 
 1. **The process environment `POS Pulse.exe` inherits when it starts.** This is
-   the channel for everything in §3 and the only one for the feature flags.
+   the channel for everything in §3. For the feature flags it is the override
+   and kill-switch channel (below).
 2. **The lane configuration baked into the build** (`dist/lane-config.json`,
    inside the signed, integrity-protected `app.asar`). It carries only the public
    values below, so a terminal installed from the downloaded installer works
@@ -41,8 +42,25 @@ and the build refuses a value that looks like one. It sits inside the asar, neve
 in `resources\`, because `resources\` is writable by the cashier on a per-user
 install and a file there could redirect the API address. A build with **no
 inputs writes no file**, and the terminal behaves exactly as described for the
-environment alone. Nothing else is baked: the feature flags, `SENTRY_DSN`,
+environment alone. Nothing else is baked: `SENTRY_DSN`,
 `OPERATOR_IDENTITY_PROVIDER` and every other variable stay environment-only.
+
+**A pilot build carries its cashier profile (RT-1376).** The feature switches are not
+baked as fields; the build derives the pilot profile from the baked `lane`. When the
+baked `lane` is `pilot`, the four cashier switches `POS_PULSE_FEATURE_CART`,
+`_PRODUCT_SEARCH`, `_PAYMENTS` and `_SALE_FINALIZATION` default to **on**, so a clean
+install can sell with no Windows variable. Precedence for every switch, resolved in
+one place (`resolveFeatureFlags`, `src/main/app/feature-flags.ts`):
+
+1. **The environment**, when the variable is set to a non-blank value (it overrides
+   the baked default, in either direction).
+2. **The lane default:** on for the four cashier switches on a `pilot` lane, nothing
+   for any other switch or lane.
+3. **The switch's own default:** off unless set for every switch except `returns`,
+   which is on unless set to a falsy value (RT-1180).
+
+Any other lane (`lab`, `production`) or no baked file behaves exactly as §3 describes
+(unset means off).
 
 **Build-time inputs (stamp step, `apps/pos/scripts/stamp-lane-config.ts`).** Run as
 part of `npm run build:main`, from dedicated variables that deliberately differ from
@@ -79,7 +97,7 @@ it does not, and is still provisioned through the environment (§2 to §5).
 | :-- | :-- |
 | Main-process settings | Main is compiled with `tsc`, not Vite. It reads `process.env` directly (`src/main/index.ts`; flags in `src/main/app/feature-flags.ts`). The only values baked in at build time are the five lane fields above, read once at start-up (`src/main/config/lane-config.ts`). |
 | `.env` file | **Not read by any build.** No `dotenv` or `--env-file` exists. `.env` is gitignored and not in `electron-builder.yml` `files`. A `.env` placed next to the exe does nothing. |
-| Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env` (the feature flags only). No runtime `import.meta.env.VITE_*` value is inlined into the bundle, and the baked address, project id and update values never cross the bridge. |
+| Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env` plus the baked lane (the resolved feature flags only, §1). No runtime `import.meta.env.VITE_*` value is inlined into the bundle, and the baked address, project id and update values never cross the bridge. |
 | Installer / auto-update | The `package:dir` pilot artifact has no installer and no pinned publisher (`electron-builder.yml` targets `dir`), so `UpdateService` refuses it with `publisher_not_pinned` even when the variables below are set; only the lab installer build (`electron-builder.lab.yml`) can self-update today. The service reads its origin and channel from the process environment, then from the baked `updateOrigin` and `updateChannel` (§3.2, §4, `ELECTRON_UPDATE_FEED_URL`, `POS_PULSE_UPDATE_CHANNEL`); the pilot lane still ships no `app-update.yml` and so no updater. A per-launch override did **not** survive the installer relaunch in the RT-772 drill, so Machine scope is the chosen source; that it survives the relaunch is **expected, not yet proven** (RT-322 S-D lab drill). |
 | In-app settings screen / DB | None for these settings. |
 | Device credential | **Not** an environment value. Pairing stores the device token in the local DB, encrypted with Electron `safeStorage` (DPAPI). Never put it, or any credential, in the environment. |
@@ -124,10 +142,24 @@ Rejected alternatives:
 ### 3.1 The pilot cashier profile (pinned)
 
 Use the canonical values `1` and `0`. The parser accepts `1|true|yes|on`
-(case-insensitive, trimmed) as on, and **anything else, or unset, as off**
-(fail-closed). Canonical values keep the readiness check unambiguous.
+(case-insensitive, trimmed) as on.
 
-| Variable | Pilot value | Effect |
+**On a pilot-lane build (a baked `lane` of `pilot`, §1), the four cashier variables
+below are overrides and kill switches, not required settings (RT-1376).** Unset or
+blank means **on**, `1` keeps it on, and an explicit `0|false|no|off` turns that
+switch **off**: this is the support kill switch for one terminal. Any other value
+fails closed (off). `VOUCHER_TENDER`, `CARD_TENDER`, `SHIFT_CASHUP` and `SALE_VOID`
+stay off unless set, and `RETURNS` keeps its own default (on unless set to a falsy
+value). The environment always wins over the baked default, so a stale variable set
+by hand on an earlier build still applies: remove it, or set it to `1`, when the
+terminal should follow the build.
+
+**On every other build** (a `lab` or `production` lane, no baked file, or a build
+made before RT-1376), the parser treats **anything other than the truthy values, or
+unset, as off** (fail-closed) and the variables below are required settings.
+Canonical values keep the readiness check unambiguous.
+
+| Variable | Pilot value (required unless the build is a pilot lane, then optional; `0` is the kill switch) | Effect |
 | :-- | :-- | :-- |
 | `POS_PULSE_FEATURE_CART` | `1` | Live Sale cart |
 | `POS_PULSE_FEATURE_PAYMENTS` | `1` | PaymentSurface at checkout (needs cart) |
@@ -141,6 +173,12 @@ profile.** The POS refuses to start in that state. Main logs
 `app:cashier_profile_refused` and shows «إعداد نقطة البيع غير صالح» («Invalid POS
 setup»). The readiness check (§6) rejects the profile **before** anyone tries to
 start the POS.
+
+**Kill switches on a pilot-lane build.** Setting `POS_PULSE_FEATURE_CART`,
+`_PRODUCT_SEARCH`, `_PAYMENTS` or `_SALE_FINALIZATION` to `0` turns that switch off on
+this terminal only. Turning off `SALE_FINALIZATION` alone is refused by D-1, because
+`PAYMENTS` is then on by default: the POS does not start. To stop taking payments, set
+both `PAYMENTS` and `SALE_FINALIZATION` to `0` (§7 rollback).
 
 ### 3.2 Other runtime settings on a pilot terminal
 
@@ -371,7 +409,9 @@ environment a POS launched from the same session would receive.
 > It does not know about a baked `lane-config.json`: pilot releases built after
 > RT-1347 carry one, and the readiness check for a baked build belongs to the
 > verification RT-1349. Until then, a terminal that relies on a baked file is not
-> checked by this block.
+> checked by this block. That includes the feature switches: on a pilot-lane build
+> they default on with no variable (§1, §3.1), but this block still expects each
+> variable set in Machine scope and reports an unset one as FAIL.
 
 ```powershell
 # RT-163 pilot readiness - environment check. Prints no secret values.

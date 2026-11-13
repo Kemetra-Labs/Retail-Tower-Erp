@@ -96,7 +96,7 @@ import {
 import {
   assessCashierProfile,
   describeCashierProfileRefusal,
-  parseFeatureFlags,
+  resolveFeatureFlags,
 } from './app/feature-flags.js';
 import { assessLaunchSwitches } from './app/launch-switch-guard.js';
 import { isShippedApp } from './app/shipped-app.js';
@@ -359,7 +359,7 @@ singleInstanceReady
     // loop, and the packaged build showed the async pino write of this log line
     // stalling behind it. We exit explicitly once the dialog closes: without a
     // window, `window-all-closed` never fires and the process would linger.
-    const startupFeatureFlags = parseFeatureFlags(process.env);
+    const startupFeatureFlags = resolveFeatureFlags();
     const cashierProfile = assessCashierProfile(startupFeatureFlags);
     if (!cashierProfile.ok) {
       mainLogger.error(
@@ -625,7 +625,7 @@ singleInstanceReady
       // RT-162: parsing lives in `app/feature-flags.ts` (one truthy parser,
       // unchanged semantics). Re-parsed per call, as before; the PAYMENTS-
       // without-SALE_FINALIZATION profile never reaches here (refused at startup).
-      cfg.features = parseFeatureFlags(process.env);
+      cfg.features = resolveFeatureFlags();
       return cfg;
     };
     registerAppConfigHandler(guardedIpcMain, getAppConfig);
@@ -1246,7 +1246,7 @@ singleInstanceReady
         // row and sent by the shift sync engine (see `onDrainNow` below).
         shiftCashup: composeShiftCashupService({
           db,
-          isEnabled: () => parseFeatureFlags(process.env).shiftCashup,
+          isEnabled: () => resolveFeatureFlags().shiftCashup,
           getSession: () =>
             resolveSessionScope(
               operatorSessionManager.getCurrent(),

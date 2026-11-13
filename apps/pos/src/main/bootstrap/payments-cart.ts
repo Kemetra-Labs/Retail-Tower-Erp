@@ -68,7 +68,7 @@ import {
   type ReverseVoucherInput,
   type ReverseVoucherOutcome,
 } from '../payments/voucher-authority-client/reverse.js';
-import { parseFeatureFlags } from '../app/feature-flags.js';
+import { resolveFeatureFlags } from '../app/feature-flags.js';
 import {
   createManagerRecovery,
   createRecoveryPaymentPort,
@@ -385,7 +385,7 @@ export function registerPayments(deps: PaymentsDeps, core: PaymentsCore): void {
   const paymentsSubscribe = createPaymentsSubscribeHandler(paymentsReadDeps);
   const paymentsRead = createPaymentsReadHandler(paymentsReadDeps);
   // RT-700 (P-26-1) — card refused in main while the flag is off; read per call.
-  const isCardTenderEnabled = (): boolean => parseFeatureFlags(process.env).cardTender;
+  const isCardTenderEnabled = (): boolean => resolveFeatureFlags().cardTender;
   const tenderApply = createTenderApplyHandler({
     ...paymentsWriteDeps,
     tenderLineFsm,
