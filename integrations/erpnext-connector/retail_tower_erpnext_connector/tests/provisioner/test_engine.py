@@ -586,3 +586,45 @@ def test_a_second_company_found_at_verify_is_a_conflict():
 
 	e.gw.site_op = two_companies
 	assert e.run() == ["conflict"]
+
+
+def test_the_cash_tender_is_mapped_even_when_the_tenant_has_no_store_yet():
+	e = Env()
+	e.feed.add(stores=[])
+	assert e.run() == ["succeeded"]
+	assert e.gw.sites[SITE]["tenders"] == ["cash"]
+	assert e.state.terminal_body["result"]["stores"] == []
+
+
+def test_a_site_without_the_cash_tender_is_not_reported_verified():
+	e = Env()
+	e.feed.add()
+	e.run()
+	e.state.terminal = None
+	e.state.lease_expires = None
+	e.gw.sites[SITE]["tenders"] = []
+	e.gw.sites[SITE]["stores"] = {}  # an earlier run that never reached the maps
+	assert e.run() == ["succeeded"]  # the maps step re-applies it
+	assert e.gw.sites[SITE]["tenders"] == ["cash"]
+
+
+def test_a_blank_posting_currency_is_set_even_when_every_store_is_already_mapped():
+	e = Env()
+	e.feed.add()
+	e.run()
+	e.state.terminal = None
+	e.state.lease_expires = None
+	e.gw.sites[SITE]["posting_currency"] = None  # maps and tender present, currency blank
+	e.gw.calls.clear()
+	assert e.run() == ["succeeded"]
+	assert e.gw.sites[SITE]["posting_currency"] == "EGP"
+	assert [c[2] for c in e.gw.calls if c[0] == "site_op" and c[2] == "bootstrap_stores"] == [
+		"bootstrap_stores"
+	]
+
+
+def test_a_blank_posting_currency_is_set_for_a_tenant_with_no_store():
+	e = Env()
+	e.feed.add(stores=[])
+	assert e.run() == ["succeeded"]
+	assert e.gw.sites[SITE]["posting_currency"] == "EGP"

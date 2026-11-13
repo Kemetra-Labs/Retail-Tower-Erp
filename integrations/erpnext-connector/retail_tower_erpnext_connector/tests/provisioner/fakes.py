@@ -361,6 +361,9 @@ class FakeGateway:
 		elif op == "enable_scheduler":
 			s["scheduler"] = True
 		elif op == "bootstrap_stores":
+			assert args.get("cash_mode_of_payment") == "Cash"
+			s["tenders"] = ["cash"]
+			s["posting_currency"] = s.get("posting_currency") or "EGP"
 			for st in args["stores"]:
 				s["stores"][st["storeId"]] = {
 					"warehouse": f"{st['displayName']} - RT",
@@ -389,6 +392,8 @@ class FakeGateway:
 			"indexes_ok": s["indexes_ok"],
 			"versions": dict(self.versions),
 			"stores": dict(s["stores"]),
+			"tender_methods": list(s.get("tenders", [])),
+			"posting_currency": s.get("posting_currency"),
 		}
 
 	def count_sites(self) -> int:

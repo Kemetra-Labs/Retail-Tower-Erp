@@ -104,12 +104,16 @@ class TestProvisionerSiteOps(unittest.TestCase):
 
 	def test_stores_get_warehouses_and_maps_and_a_rerun_changes_nothing(self):
 		self.ops.apply_template({**TEMPLATE_ARGS, **self._args()})
-		args = self._args(stores=TENANT_STORES, walk_in_customer="Retail Walk-in")
+		args = self._args(
+			stores=TENANT_STORES, walk_in_customer="Retail Walk-in", cash_mode_of_payment="Cash"
+		)
 		self.ops.bootstrap_stores(args)
 		warehouses = frappe.db.count("Warehouse")
 		self.ops.bootstrap_stores(args)
 		self.assertEqual(frappe.db.count("Warehouse"), warehouses)
 
+		self.assertIn("cash", self.ops.inspect()["tender_methods"])
+		self.assertTrue(frappe.get_single(SETTINGS).posting_currency)
 		stores = self.ops.inspect()["stores"]
 		self.assertEqual(set(stores), {s["storeId"] for s in TENANT_STORES})
 		for entry in stores.values():

@@ -110,6 +110,8 @@ def inspect() -> dict:
 			"Posting Log", schema.POSTING_LOG_INDEX, schema.POSTING_LOG_COLUMNS
 		) and schema.index_present("Sales Invoice", schema.SALES_INVOICE_INDEX, schema.SALES_INVOICE_COLUMNS)
 		out["stores"] = _store_maps()
+		out["posting_currency"] = frappe.db.get_single_value(_SETTINGS, "posting_currency") or None
+		out["tender_methods"] = [r.tender_method for r in frappe.get_single(_SETTINGS).tender_mode_map or []]
 	return out
 
 
@@ -320,7 +322,9 @@ def _insert_warehouse(label: str, company: str) -> str:
 
 
 def bootstrap_stores(args: dict) -> dict:
-	"""One warehouse per store and the Connector Settings maps (warehouse and store customer)."""
+	"""One warehouse per store, the Connector Settings maps (warehouse, store customer), the cash
+	tender, and the posting currency. Idempotent; it also runs with no stores (a tenant unlocked before
+	its first store exists)."""
 	import frappe
 
 	company = _one_company(args)
@@ -333,6 +337,10 @@ def bootstrap_stores(args: dict) -> dict:
 		# Posting stays paused (a CRITICAL compatibility finding) while this is blank; it is the
 		# currency the Company was created in, which the profile compares it with.
 		settings.posting_currency = frappe.db.get_value("Company", company, "default_currency")
+	cash_mode = args.get("cash_mode_of_payment")
+	if cash_mode and not any(r.tender_method == "cash" for r in settings.tender_mode_map or []):
+		# OD-4: Cash is the only launch tender. Get-or-create: an operator's row is never replaced.
+		settings.append("tender_mode_map", {"tender_method": "cash", "mode_of_payment": cash_mode})
 	for store in args["stores"]:
 		if store["storeId"] not in mapped:
 			warehouse = _warehouse_for(store, company, taken)

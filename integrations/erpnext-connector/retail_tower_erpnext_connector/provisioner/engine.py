@@ -319,10 +319,19 @@ class ProvisioningEngine:
 		if not state["scheduler_enabled"]:
 			self._gw.site_op(site, "enable_scheduler")
 		known = state["stores"]
-		if any(s.store_id not in known for s in request.stores):
+		# Independent of the stores: a tenant unlocked before its first store exists still needs the
+		# cash tender and the posting currency (posting stays paused without the currency).
+		needs_site_maps = "cash" not in state.get("tender_methods", []) or not state.get("posting_currency")
+		if needs_site_maps or any(s.store_id not in known for s in request.stores):
 			stores = [{"storeId": s.store_id, "displayName": s.display_name} for s in request.stores]
 			self._gw.site_op(
-				site, "bootstrap_stores", {"stores": stores, "walk_in_customer": spec.walk_in_customer}
+				site,
+				"bootstrap_stores",
+				{
+					"stores": stores,
+					"walk_in_customer": spec.walk_in_customer,
+					"cash_mode_of_payment": spec.cash_mode_of_payment,
+				},
 			)
 
 	# --- step 4: the credential ------------------------------------------------------------------
@@ -353,24 +362,28 @@ class ProvisioningEngine:
 	def _verified(self, request, spec: TemplateSpec) -> None:
 		state = self._gw.site_op(request.site_name, "inspect")
 		self._check_versions(state["versions"])
-		problems = []
 		if len(state["companies"]) > 1:
 			raise ProvisioningError(ErrorClass.conflict, "second company on the site")
-		if len(state["companies"]) != 1 or not state["default_company"]:
-			problems.append("company")
-		if state["template"] != {"id": spec.template_id, "version": spec.version}:
-			problems.append("template")
-		for key in ("indexes_ok", "scheduler_enabled", "credential_id"):
-			if not state[key]:
-				problems.append(key)
-		if state.get("registration_id") != request.registration_id:
-			problems.append("registration")
-		if any(s.store_id not in state["stores"] for s in request.stores):
-			problems.append("store maps")
+		problems = self._verification_problems(state, request, spec)
 		if problems:
 			raise ProvisioningError(
 				ErrorClass.failed_transient, "verification incomplete", ", ".join(problems)
 			)
+
+	@staticmethod
+	def _verification_problems(state: dict, request, spec: TemplateSpec) -> list[str]:
+		checks = {
+			"company": len(state["companies"]) == 1 and bool(state["default_company"]),
+			"template": state["template"] == {"id": spec.template_id, "version": spec.version},
+			"indexes_ok": bool(state["indexes_ok"]),
+			"scheduler_enabled": bool(state["scheduler_enabled"]),
+			"credential_id": bool(state["credential_id"]),
+			"registration": state.get("registration_id") == request.registration_id,
+			"cash tender": "cash" in state.get("tender_methods", []),
+			"posting currency": bool(state.get("posting_currency")),
+			"store maps": all(s.store_id in state["stores"] for s in request.stores),
+		}
+		return [name for name, ok in checks.items() if not ok]
 
 	def _result(self, request, spec: TemplateSpec) -> dict:
 		state = self._gw.site_op(request.site_name, "inspect")

@@ -245,4 +245,5 @@ def test_a_failed_new_site_logs_no_command_output_even_when_it_echoes_the_passwo
 	with pytest.raises(RuntimeError) as err:
 		gw.new_site("t1-pilot", "rtp_abc", pw)
 	assert pw not in caplog.text and pw not in str(err.value)
-	assert "new-site failed (exit 2)" in caplog.text  # only the command name and the exit code
+	assert "bench new-site failed" in caplog.text  # only the fixed command name is logged
+	assert "exit 2" in str(err.value)

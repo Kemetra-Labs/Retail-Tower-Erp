@@ -67,34 +67,37 @@ class BenchGateway:
 		self._sites = Path(config.bench_path) / "sites"
 
 	# --- bench commands --------------------------------------------------------------------------
-	def _bench(self, args: list[str], timeout: int, stdin: bytes | None = None):
+	def _bench(self, label: str, args: list[str], timeout: int, stdin: bytes | None = None):
+		"""Run one bench command. ``label`` is a fixed name chosen by the caller, so nothing that
+		reaches the log is derived from the argument list (new-site's carries the throwaway password).
+		Neither the output nor the arguments are logged or put into the exception: the output can hold
+		tenant business content (a Company or Warehouse name in an error) and the echo of the arguments."""
 		argv = [self._c.bench_executable, *args]
 		res = self._runner.run(argv, stdin=stdin, timeout=timeout, cwd=self._c.bench_path)
 		if res.returncode != 0:
-			command = args[0] if args[0] != "--site" else args[2]
-			# Neither logged nor put into the exception: the output can hold tenant business content
-			# (a Company or Warehouse name in an error) and, for new-site, the echo of its argument list.
-			# The operator reads the failure from bench itself (the command and its exit code are here).
-			LOG.warning("bench %s failed (exit %s)", command, res.returncode)
-			raise RuntimeError(f"bench {command} failed (exit {res.returncode})")
+			LOG.warning("bench %s failed", label)
+			raise RuntimeError(f"bench {label} failed (exit {res.returncode})")
 		return res
 
 	def new_site(self, site: str, db_name: str, admin_password: str) -> None:
 		# The Administrator password is a one-use throwaway (owner decision 2026-11-13): `new-site`
 		# accepts it only here, so the first site-side step replaces it with a value never stored.
 		self._bench(
+			"new-site",
 			["new-site", "--db-name", db_name, "--admin-password", admin_password, site],
 			self._c.new_site_timeout_seconds,
 		)
 
 	def drop_site(self, site: str) -> None:
-		self._bench(["drop-site", site, "--no-backup", "--force"], self._c.new_site_timeout_seconds)
+		self._bench(
+			"drop-site", ["drop-site", site, "--no-backup", "--force"], self._c.new_site_timeout_seconds
+		)
 
 	def install_app(self, site: str, app: str) -> None:
-		self._bench(["--site", site, "install-app", app], self._c.install_timeout_seconds)
+		self._bench("install-app", ["--site", site, "install-app", app], self._c.install_timeout_seconds)
 
-	def _command_json(self, args: list[str], timeout: int, stdin: bytes | None = None) -> dict:
-		res = self._bench(args, timeout, stdin)
+	def _command_json(self, label: str, args: list[str], timeout: int, stdin: bytes | None = None) -> dict:
+		res = self._bench(label, args, timeout, stdin)
 		for line in reversed(res.stdout.splitlines()):
 			if line.startswith(RESULT_PREFIX):
 				return self._checked(json.loads(line[len(RESULT_PREFIX) :]))
@@ -112,7 +115,9 @@ class BenchGateway:
 		if secret is not None:
 			spec["secret"] = secret  # the only channel: this pipe, into the site process
 		timeout = self._c.short_timeout_seconds if op == "inspect" else self._c.site_step_timeout_seconds
-		return self._command_json(["--site", site, SITE_COMMAND], timeout, json.dumps(spec).encode("utf-8"))
+		return self._command_json(
+			SITE_COMMAND, ["--site", site, SITE_COMMAND], timeout, json.dumps(spec).encode("utf-8")
+		)
 
 	def installed_apps(self, site: str) -> list[str]:
 		try:
@@ -121,7 +126,7 @@ class BenchGateway:
 			raise SiteUnreadable(str(exc)) from exc
 
 	def queue_depth(self) -> int:
-		return int(self._command_json([QUEUE_COMMAND], self._c.short_timeout_seconds)["depth"])
+		return int(self._command_json(QUEUE_COMMAND, [QUEUE_COMMAND], self._c.short_timeout_seconds)["depth"])
 
 	# --- the site marker and the site list (plain files; no frappe, no database) -----------------
 	def _config_path(self, site: str) -> Path:

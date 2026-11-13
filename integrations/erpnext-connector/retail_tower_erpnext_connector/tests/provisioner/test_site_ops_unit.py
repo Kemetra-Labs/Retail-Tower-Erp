@@ -189,3 +189,51 @@ def test_bootstrap_sets_the_posting_currency_from_the_company_once(monkeypatch):
 	settings.posting_currency = "USD"  # an operator's value is never overwritten
 	site_ops.bootstrap_stores(args)
 	assert settings.posting_currency == "USD"
+
+
+def _bootstrap_settings(monkeypatch, tender_rows):
+	class Settings:
+		def __init__(self):
+			self.posting_currency = "EGP"
+			self.warehouse_map = []
+			self.store_customer_map = []
+			self.tender_mode_map = list(tender_rows)
+
+		def append(self, table, row):
+			getattr(self, table).append(types.SimpleNamespace(**row))
+
+		def save(self):
+			pass
+
+	settings = Settings()
+	frappe = types.ModuleType("frappe")
+	frappe.flags = _Flags()
+	frappe.flags["rt_provisioner_no_commit"] = True
+	frappe.get_single = lambda name: settings
+	frappe.db = types.SimpleNamespace(exists=lambda *a, **k: True, get_value=lambda *a, **k: "EGP")
+	monkeypatch.setitem(sys.modules, "frappe", frappe)
+	return settings
+
+
+def test_bootstrap_maps_cash_to_the_template_mode_of_payment_with_no_stores(monkeypatch):
+	settings = _bootstrap_settings(monkeypatch, [])
+	args = {
+		"company": "Co",
+		"walk_in_customer": "Retail Walk-in",
+		"stores": [],
+		"cash_mode_of_payment": "Cash",
+	}
+	site_ops.bootstrap_stores(args)
+	site_ops.bootstrap_stores(args)  # get-or-create: no second row
+	assert [(r.tender_method, r.mode_of_payment) for r in settings.tender_mode_map] == [("cash", "Cash")]
+
+
+def test_bootstrap_never_replaces_an_operators_cash_mapping(monkeypatch):
+	row = types.SimpleNamespace(tender_method="cash", mode_of_payment="Cash on Hand")
+	settings = _bootstrap_settings(monkeypatch, [row])
+	site_ops.bootstrap_stores(
+		{"company": "Co", "walk_in_customer": "x", "stores": [], "cash_mode_of_payment": "Cash"}
+	)
+	assert [(r.tender_method, r.mode_of_payment) for r in settings.tender_mode_map] == [
+		("cash", "Cash on Hand")
+	]
