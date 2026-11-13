@@ -82,7 +82,10 @@ info:
     an expired lease, oldest first. The next provisioner to claim it takes a
     new lease, re-reads the site and continues from what exists there. A
     terminal request (`succeeded`, `failed_permanent`, `compensated`,
-    `cancelled`) is never offered. A call that depends on a lease the caller no
+    `cancelled`) is never offered. A request under a retry backoff
+    (`failed_retryable`, or a `capacity` hold) is offered only once its
+    next-retry time has passed: the pulled item carries that time as `notBefore`
+    while it is in the future, and pull does not return it until then. A call that depends on a lease the caller no
     longer holds is refused with `409 lease_lost` on the step acknowledgement
     and the outcome. Another provisioner's lease is never disclosed.
 
@@ -262,6 +265,7 @@ paths:
                         legalName: "Example Trading Co"
                         connectorRegistrationId: "3d2c7f60-91a4-4c0b-9f3e-6f1c2a8b4e55"
                         environment: pilot
+                        attemptFloor: 0
                         stores: []
                     cursor: "opaque-cursor-1"
         "400":
@@ -302,7 +306,9 @@ paths:
         lease (the `claimed` step included) and every step re-run on a new
         generation sends an `attempt` greater than any it sent before for that
         request and step, so a genuine retry never collides with a stored
-        result. Only a lost-response retry of the same attempt reuses a key.
+        result. Only a lost-response retry of the same attempt reuses a key. A
+        fresh provisioner learns the floor from `attemptFloor` on the pulled
+        request: the next `attempt` must be greater than it.
 
         A step outcome other than `done` carries an `errorClass` (equal to the
         outcome) and, for `permanently_rejected`, a `reason`. Backend-Core
@@ -899,6 +905,7 @@ components:
         - locale
         - connectorRegistrationId
         - environment
+        - attemptFloor
       description: >
         One provisioning request. `provisioningRequestId` is its idempotency
         key. The request carries no secret, no credential and no password.
@@ -941,6 +948,23 @@ components:
         environment:
           type: string
           enum: [dev, staging, pilot, prod]
+        attemptFloor:
+          type: integer
+          minimum: 0
+          description: >
+            The highest `attempt` Backend-Core has recorded for this request
+            across all steps (0 if none). The next step acknowledgement must
+            send an `attempt` greater than this, so a fresh provisioner (after a
+            crash or on another host) never reuses a stored key. An
+            acknowledgement whose `attempt` is at or below the floor with a
+            different body is `409 idempotency_key_conflict`.
+        notBefore:
+          type: string
+          format: date-time
+          description: >
+            Present only while the request is under a retry backoff: the time
+            before which pull does not offer it again. Informational on a
+            returned item (an offered request is past it).
         stores:
           type: array
           maxItems: 500
