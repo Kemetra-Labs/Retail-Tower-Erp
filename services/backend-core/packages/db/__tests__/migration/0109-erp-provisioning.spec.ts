@@ -130,7 +130,7 @@ async function insertProvisionerToken(over: Record<string, unknown> = {}): Promi
   };
   const r = await guard().admin.query<{ id: string }>(
     `INSERT INTO auth_tokens (id, token_hash, tenant_id, user_id, scope, expires_at, connector_registration_id)
-     VALUES (gen_random_uuid(), gen_random_bytes(32), $1, $2, $3, now() + interval '30 days', $4) RETURNING id`,
+     VALUES (gen_random_uuid(), sha256(gen_random_uuid()::text::bytea), $1, $2, $3, now() + interval '30 days', $4) RETURNING id`,
     [row.tenant_id, row.user_id, row.scope, (row as { connector_registration_id?: string }).connector_registration_id ?? null],
   );
   return r.rows[0]!.id;
@@ -219,14 +219,14 @@ describe("0109: auth_tokens scope and platform-scope invariants", () => {
     for (const scope of ["dashboard_api", "pos", "connector", "password_reset", "email_verify"]) {
       await a.query(
         `INSERT INTO auth_tokens (id, token_hash, user_id, scope, expires_at)
-         VALUES (gen_random_uuid(), gen_random_bytes(32), $1, $2, now() + interval '1 day')`,
+         VALUES (gen_random_uuid(), sha256(gen_random_uuid()::text::bytea), $1, $2, now() + interval '1 day')`,
         [ADMIN_USER, scope],
       );
     }
     await expectCode(
       a.query(
         `INSERT INTO auth_tokens (id, token_hash, user_id, scope, expires_at)
-         VALUES (gen_random_uuid(), gen_random_bytes(32), $1, 'made_up', now() + interval '1 day')`,
+         VALUES (gen_random_uuid(), sha256(gen_random_uuid()::text::bytea), $1, 'made_up', now() + interval '1 day')`,
         [ADMIN_USER],
       ),
       "23514",
@@ -519,8 +519,12 @@ describe("0109: RLS as the NOBYPASSRLS app role", () => {
     await expectCode(asCtx({ provisioner: true }, (c) => c.query(ins, [TENANT_A])), "42501");
     const del = await asCtx({ provisioner: true }, (c) => c.query(`DELETE FROM ${REQ} WHERE id = $1`, [ra]));
     expect(del.rowCount).toBe(0);
-    // the log is append-only (trigger) even for a role that may read it
-    await expectCode(asCtx({ provisioner: true }, (c) => c.query(`UPDATE ${LOG} SET detail = 'x' WHERE request_id = $1`, [ra])), "23514");
+    // No UPDATE or DELETE policy on the log: RLS matches no row (the append-only trigger, which
+    // stops any role that does reach a row, is proven in the append-only test above).
+    const logUpd = await asCtx({ provisioner: true }, (c) => c.query(`UPDATE ${LOG} SET detail = 'x' WHERE request_id = $1`, [ra]));
+    expect(logUpd.rowCount).toBe(0);
+    const logDel = await asCtx({ provisioner: true }, (c) => c.query(`DELETE FROM ${LOG} WHERE request_id = $1`, [ra]));
+    expect(logDel.rowCount).toBe(0);
     const t = await insertProvisionerToken();
     await guard().admin.query(`INSERT INTO ${CRED} (host_label, environment, token_id, issued_by) VALUES ('lab-03', 'pilot', $1, $2)`, [t, SYSTEM_ACTOR]);
     const creds = await asCtx({ provisioner: true }, (c) => c.query(`SELECT id FROM ${CRED}`));
