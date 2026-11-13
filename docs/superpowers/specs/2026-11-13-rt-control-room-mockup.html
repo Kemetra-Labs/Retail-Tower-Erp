@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="en" dir="ltr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retail Tower Control Room</title>
+<meta name="description" content="A control-room board of the Retail Tower services: every station, every cable, what it carries, and where each fault comes from, read from Port.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Hallmark · v2.0.0 · shape: app screen · theme: custom (by request: premium clean, owner calibration pick 2) · signature: a power-grid control room for software: stations, labelled cables, alarms pinned where the fault is · genre: atmospheric */
+/* critique: v6 told the truth but hid where faults come from; v7 draws every link as a cable with what it carries and its state, pins each alarm at its origin with one icon per kind, and lists alarms like a control room. */
+/* waive 69 (motion beyond --dur-short): the owner asked for a living board; motion fires only on a real change or a labelled replay, faulted cables pulse at under 1 Hz, and Pause stops all of it. */
+:root {
+  --color-paper: oklch(16% 0.01 250); --color-paper-2: oklch(20.5% 0.011 250); --color-paper-3: oklch(13% 0.009 250);
+  --color-ink: oklch(95% 0.005 250); --color-ink-2: oklch(84% 0.008 250); --color-muted: oklch(73% 0.01 250);
+  --color-rule: oklch(31% 0.012 250); --color-rule-2: oklch(43% 0.014 250);
+  --color-cool: oklch(77% 0.12 245); --color-cool-soft: oklch(29% 0.05 245); --color-cool-ink: oklch(18% 0.03 245);
+  --color-ok: oklch(84% 0.015 250); --color-ok-soft: oklch(26% 0.012 250);
+  --color-bad: oklch(69% 0.19 25); --color-bad-soft: oklch(26% 0.06 25);
+  --color-stale: oklch(82% 0.15 80); --color-stale-soft: oklch(29% 0.05 80);
+  --color-ledger: oklch(86% 0.03 85); --color-focus: oklch(77% 0.12 245);
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif; --font-body: var(--font-display);
+  --font-outlier: "Inter", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif; --font-arabic: "IBM Plex Sans Arabic", "Segoe UI", sans-serif;
+  --radius-card: 10px; --radius-pill: 6px; --rule-hair: 1px; --tracking-display: -0.03em;
+  --text-xs: 12px; --text-sm: 13px; --text-base: 15px; --text-md: 17px; --text-lg: 22px; --text-xl: 30px; --text-display: 40px;
+  --space-2xs: 4px; --space-xs: 6px; --space-sm: 8px; --space-md: 12px; --space-lg: 16px; --space-xl: 24px;
+  --dur-micro: 120ms; --dur-short: 220ms; --ease-out: cubic-bezier(.2, .8, .2, 1);
+}
+:root[data-theme="light"] {
+  --color-paper: oklch(98% 0.006 85); --color-paper-2: oklch(99.5% 0.004 85); --color-paper-3: oklch(95% 0.008 85);
+  --color-ink: oklch(19% 0.01 60); --color-ink-2: oklch(32% 0.01 60); --color-muted: oklch(45% 0.012 60);
+  --color-rule: oklch(88% 0.008 85); --color-rule-2: oklch(76% 0.01 85);
+  --color-cool: oklch(50% 0.14 250); --color-cool-soft: oklch(93% 0.04 245); --color-cool-ink: oklch(99% 0.004 85);
+  --color-ok: oklch(38% 0.015 250); --color-ok-soft: oklch(93% 0.006 250);
+  --color-bad: oklch(52% 0.18 25); --color-bad-soft: oklch(94% 0.04 25);
+  --color-stale: oklch(54% 0.14 70); --color-stale-soft: oklch(93% 0.05 80);
+  --color-ledger: oklch(40% 0.04 70); --color-focus: oklch(50% 0.14 250);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; overflow-x: clip; }
+html { scrollbar-color: var(--color-rule-2) var(--color-paper); }
+body { background: var(--color-paper); color: var(--color-ink); font: 400 var(--text-base)/1.5 var(--font-body); }
+:root[lang="ar"] body, :root[lang="ar"] button { font-family: var(--font-arabic); }
+::selection { background: color-mix(in oklab, var(--color-cool) 30%, transparent); }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.wrap { max-width: 1560px; margin: 0 auto; padding: var(--space-lg); }
+button { font: 500 var(--text-sm) var(--font-body); color: var(--color-ink); background: var(--color-paper-2); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-pill); padding: var(--space-xs) var(--space-md); min-height: 34px; cursor: pointer; transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out); }
+button:hover { background: var(--color-paper-3); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--color-cool); border-color: var(--color-cool); color: var(--color-cool-ink); }
+.seg { display: inline-flex; border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-pill); overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; color: var(--color-muted); }
+.seg button[aria-pressed="true"], .tabs button[aria-selected="true"] { color: var(--color-ink); box-shadow: inset 0 -2px 0 var(--color-cool); }
+.measured { font-family: var(--font-outlier); font-variant-numeric: tabular-nums slashed-zero; }
+h2 { margin: 0 0 var(--space-xs); font: 500 var(--text-md)/1.25 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }
+h3 { margin: var(--space-md) 0 var(--space-xs); font: 500 var(--text-sm)/1.3 var(--font-display); color: var(--color-ink-2); }
+.sub { margin: 0 0 var(--space-md); color: var(--color-muted); font-size: var(--text-sm); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.bar { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; padding-bottom: var(--space-md); }
+.wordmark { font: 500 var(--text-lg)/1 var(--font-display); letter-spacing: var(--tracking-display); }
+.chip { display: inline-flex; align-items: center; gap: var(--space-2xs); font-size: var(--text-xs); font-weight: 500; color: var(--color-ink-2); border: var(--rule-hair) solid var(--color-rule); border-radius: 4px; padding: 1px var(--space-sm); white-space: nowrap; }
+.chip.bad { background: var(--color-bad-soft); color: var(--color-ink); border-color: var(--color-bad-soft); }
+.chip.ok { background: var(--color-ok-soft); color: var(--color-ink); border-color: var(--color-ok-soft); }
+.chip.stale { background: var(--color-stale-soft); color: var(--color-ink); border-color: var(--color-stale-soft); }
+.chip.idle { border-style: dashed; }
+.asof { color: var(--color-cool); font-size: var(--text-sm); }
+.grow { flex: 1; }
+
+/* Verdict and pulse */
+.verdict, .pulse { display: grid; gap: var(--rule-hair); background: var(--color-rule); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; margin-bottom: var(--space-md); }
+.verdict { grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr)); }
+.pulse { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.verdict > div { background: var(--color-paper-3); padding: var(--space-md) var(--space-lg); min-width: 0; }
+.pulse > div { background: var(--color-paper-2); padding: var(--space-md) var(--space-lg); min-width: 0; display: flex; flex-direction: column; }
+.pulse .note { margin-top: auto; padding-top: var(--space-2xs); }
+.verdict .line { font-size: var(--text-md); overflow-wrap: break-word; }
+.verdict .gapnote, .pulse .note { font-size: var(--text-xs); color: var(--color-muted); }
+.light .k, .pulse .k { font-size: var(--text-xs); color: var(--color-muted); }
+.light .v { display: flex; align-items: center; gap: var(--space-sm); font-weight: 500; margin-top: var(--space-2xs); font-size: 19px; letter-spacing: -0.01em; }
+.light .v svg { flex: none; }
+.pulse .big { font: 400 var(--text-xl)/1.1 var(--font-outlier); font-variant-numeric: tabular-nums slashed-zero; margin-top: 2px; }
+.pulse .gaps { color: var(--color-ink-2); font-size: var(--text-sm); margin: var(--space-2xs) 0 0; padding-inline-start: var(--space-lg); }
+.trace-h { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-sm); }
+.trace-v { font: 400 var(--text-xl)/1.1 var(--font-outlier); font-variant-numeric: tabular-nums slashed-zero; letter-spacing: -0.03em; }
+.trace-v small { font: 400 var(--text-xs) var(--font-body); color: var(--color-muted); margin-inline-start: var(--space-2xs); letter-spacing: 0; }
+svg.trace { width: 100%; height: 70px; display: block; direction: ltr; margin-top: var(--space-xs); overflow: visible; }
+.trace .band { fill: var(--color-ok-soft); }
+.trace .area { fill: color-mix(in oklab, var(--color-cool) 14%, transparent); }
+.trace .line { fill: none; stroke: var(--color-cool); stroke-width: 1.6; stroke-linejoin: round; stroke-dasharray: 600; stroke-dashoffset: 600; animation: draw 1.6s var(--ease-out) forwards; }
+.trace .line.badline { stroke: var(--color-bad); }
+.trace .now { fill: var(--color-cool); animation: beacon 2.4s ease-in-out infinite; }
+.trace .spike { fill: var(--color-stale); }
+.trace .badpt { fill: var(--color-bad); }
+.trace .axis { stroke: var(--color-rule); stroke-width: 1; }
+.trace text { fill: var(--color-muted); font: 400 10px var(--font-body); }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes beacon { 50% { opacity: .35; } }
+.weeks { display: flex; align-items: flex-end; gap: var(--space-2xs); height: 34px; margin-top: var(--space-xs); direction: ltr; }
+.weeks i { flex: 1; height: 100%; display: block; background: var(--color-cool); opacity: .45; border-radius: 2px 2px 0 0; transform-origin: bottom; transform: scaleY(0); transition: transform 900ms var(--ease-out); }
+.weeks i:last-child { opacity: .9; }
+.tiny { display: flex; justify-content: space-between; font-size: 11px; color: var(--color-muted); direction: ltr; }
+
+/* Panels */
+.panels { display: grid; gap: var(--rule-hair); background: var(--color-rule); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; }
+.panels > section { background: var(--color-paper-2); padding: var(--space-lg); min-width: 0; position: relative; }
+.main { grid-template-columns: minmax(0, 1fr) 370px; }
+.lower { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: var(--space-md); }
+
+/* The grid diagram (reads left to right in both languages) */
+svg.grid { width: 100%; height: auto; display: block; direction: ltr; }
+.zone { fill: var(--color-muted); font: 500 13px var(--font-body); }
+.cc rect.frame { fill: var(--color-paper-3); stroke: var(--color-rule); }
+.bus { stroke: var(--color-cool); stroke-width: 2; stroke-opacity: .45; }
+.tap rect { fill: var(--color-paper-2); stroke: var(--color-rule-2); }
+.tap .t1 { fill: var(--color-ink); font: 500 13px var(--font-body); }
+.tap .t2 { fill: var(--color-muted); font: 400 12.5px var(--font-body); }
+.tap .t3 { font: 400 12.5px var(--font-outlier); }
+.riser { stroke: var(--color-rule-2); stroke-width: 1; stroke-dasharray: 2 4; fill: none; }
+.cable { fill: none; stroke-linecap: round; }
+.cable.live { stroke: var(--color-cool); stroke-width: 6; stroke-opacity: .22; }
+.cable.fault { stroke: var(--color-bad); stroke-width: 4; stroke-dasharray: 10 6; animation: faultpulse 1.6s ease-in-out infinite; }
+@keyframes faultpulse { 50% { stroke-opacity: .35; } }
+.current { fill: none; stroke-linecap: round; stroke-width: 4; stroke-dasharray: 1 16; animation: flow var(--dur, 2.4s) linear infinite; }
+.current.live { stroke: var(--color-cool); }
+.current.riser { stroke: var(--color-cool); stroke-width: 3; stroke-dasharray: 1 12; opacity: .8; }
+.current.stall { stroke: var(--color-cool); animation: stall 3.2s linear infinite; }
+@keyframes flow { to { stroke-dashoffset: -34; } }
+@keyframes stall { 0% { stroke-dashoffset: 0; } 55% { stroke-dashoffset: -40; } 100% { stroke-dashoffset: -40; } }
+.cable.infra { stroke: var(--color-rule-2); stroke-width: 2; stroke-dasharray: 6 5; }
+.cable.rule { stroke: var(--color-rule-2); stroke-width: 1; stroke-dasharray: 2 6; }
+.clabel { fill: var(--color-ink-2); font: 500 13px var(--font-body); }
+.cstate { font: 400 12.5px var(--font-body); }
+.clabel-bg { fill: var(--color-paper-2); stroke: var(--color-rule-2); stroke-width: 1; }
+.station { cursor: pointer; }
+.station .face { fill: var(--color-paper-3); stroke: var(--color-rule-2); stroke-width: 1; transition: stroke var(--dur-short) var(--ease-out); }
+.station.err .face { stroke: var(--color-bad); stroke-width: 1.5; }
+.station.ledger .face { fill: transparent; stroke: var(--color-ledger); stroke-opacity: .7; }
+.station:hover .face, .station:focus-visible .face, .station[aria-pressed="true"] .face { stroke: var(--color-cool); stroke-width: 2; }
+.station:focus { outline: none; }
+.dim { opacity: .3; transition: opacity var(--dur-short) var(--ease-out); }
+.sname { fill: var(--color-ink); font: 500 17px var(--font-display); letter-spacing: -0.01em; }
+.srole { fill: var(--color-ink-2); font: 400 12px var(--font-body); }
+.sk { fill: var(--color-muted); font: 400 12.5px var(--font-body); }
+.sv { fill: var(--color-ink); font: 500 15px var(--font-outlier); }
+.sv.bad { fill: var(--color-bad); } .sv.unk { fill: var(--color-muted); }
+.lamp rect { stroke-width: 1; }
+.lamp text { font: 500 11px var(--font-body); }
+.host rect { fill: var(--color-paper-3); stroke: var(--color-rule); }
+.hname { fill: var(--color-ink); font: 500 13px var(--font-body); }
+.hsub { fill: var(--color-muted); font: 400 12.5px var(--font-body); }
+.pin { cursor: pointer; }
+.pin rect.box { fill: var(--color-bad-soft); stroke: var(--color-bad); }
+.pin:hover rect.box, .pin.on rect.box { fill: var(--color-bad); }
+.pin:hover .ic, .pin.on .ic { stroke: var(--color-paper-3); }
+.ic { fill: none; stroke: var(--color-bad); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.gate { stroke: var(--color-bad); stroke-width: 3; opacity: 0; transition: opacity 400ms var(--ease-out); }
+.gate.on { opacity: .9; }
+.dimmable { transition: opacity 400ms var(--ease-out); }
+.dimmable.down { opacity: .25; }
+.scan { fill: var(--color-bad); opacity: .55; }
+:root[lang="ar"] svg.grid text:not(.sv):not(.t3) { font-family: var(--font-arabic); }
+
+/* Legend */
+.legend-row + .legend-row { margin-top: var(--space-xs); }
+.legend-cap { margin: var(--space-xs) 0 0; font-size: var(--text-xs); color: var(--color-muted); }
+.legend-row { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg); margin-top: var(--space-md); font-size: var(--text-xs); color: var(--color-ink-2); align-items: center; }
+.legend-row .it { display: inline-flex; align-items: center; gap: var(--space-xs); }
+.legend-row .swatch { width: 26px; height: 0; border-top: 4px solid var(--c); }
+.legend-row .swatch.dash { border-top-style: dashed; }
+.legend-row .sep { width: 1px; height: 16px; background: var(--color-rule-2); }
+
+/* Side: alarms, events, detail */
+.tabs { display: flex; gap: var(--space-2xs); margin-bottom: var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
+.tabs button { background: transparent; border: 0; border-radius: 0; color: var(--color-muted); }
+.alarms { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-xs); max-height: 600px; overflow: auto; }
+.alarm { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border: var(--rule-hair) solid var(--color-rule); border-radius: 12px; background: var(--color-paper-3); cursor: pointer; text-align: start; width: 100%; color: inherit; font: inherit; }
+.alarm:hover, .alarm[aria-pressed="true"] { border-color: var(--color-bad); }
+.alarm .ib { width: 30px; height: 30px; border-radius: 6px; background: var(--color-bad-soft); display: grid; place-items: center; }
+.alarm .tt { font-weight: 500; font-size: var(--text-sm); }
+.alarm .loc { font-size: var(--text-xs); color: var(--color-ink-2); }
+.alarm .meta { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-sm); font-size: 11px; color: var(--color-muted); margin-top: 2px; }
+.alarm.unknown { border-style: dashed; }
+.alarm.unknown .ib { background: var(--color-paper-2); }
+.trail { list-style: none; margin: 0; padding-inline-start: var(--space-lg); border-inline-start: var(--rule-hair) solid var(--color-rule-2); display: grid; gap: var(--space-md); max-height: 600px; overflow: auto; }
+.trail li { position: relative; }
+.trail li.new { animation: enter 520ms var(--ease-out); }
+@keyframes enter { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.trail li::before { content: ""; position: absolute; inset-inline-start: calc(-1 * var(--space-lg) - 5px); top: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-paper-2); border: 2px solid var(--kind); }
+.trail .meta { display: flex; gap: var(--space-sm); font-size: var(--text-xs); color: var(--color-muted); }
+.trail .when { color: var(--color-cool); }
+.trail .what { font-size: var(--text-sm); }
+.trail .why { font-size: var(--text-xs); color: var(--color-muted); }
+.detail .msg { font: 400 var(--text-xs)/1.4 var(--font-outlier); color: var(--color-ink-2); overflow-wrap: anywhere; background: var(--color-paper-3); border: var(--rule-hair) solid var(--color-rule); border-radius: 6px; padding: var(--space-sm); }
+.detail .kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2xs) var(--space-md); font-size: var(--text-sm); margin-top: var(--space-sm); }
+.detail .kv dt { color: var(--color-muted); }
+.detail .kv dd { margin: 0; }
+.detail .gapline { color: var(--color-stale); font-size: var(--text-xs); }
+.detail a { color: var(--color-cool); text-decoration-color: var(--color-rule-2); }
+.trace { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2xs); font-size: var(--text-xs); margin-top: var(--space-sm); direction: ltr; }
+.trace span { padding: 1px var(--space-xs); border: var(--rule-hair) solid var(--color-rule-2); border-radius: 4px; }
+.trace span.at { border-color: var(--color-bad); color: var(--color-bad); }
+[hidden] { display: none !important; }
+
+/* Lower */
+.river { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-xs); }
+.col { border-top: 2px solid var(--c); padding-top: var(--space-xs); min-height: 96px; position: relative; }
+.col .n { font: 500 var(--text-xl)/1 var(--font-outlier); font-variant-numeric: tabular-nums slashed-zero; }
+.col .l { color: var(--color-muted); font-size: var(--text-xs); }
+.strip-wrap { overflow: hidden; border-radius: 4px; direction: ltr; }
+.strip { display: flex; gap: 1px; }
+.cell { flex: 1 1 0; min-width: 2px; height: 34px; border-radius: 2px; background: var(--c); }
+.cell.f { background: repeating-linear-gradient(45deg, var(--c) 0 3px, var(--color-paper-2) 3px 5px); }
+.reading { font: 400 var(--text-display)/1 var(--font-outlier); letter-spacing: -0.04em; font-variant-numeric: tabular-nums slashed-zero; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-md); margin-top: var(--space-sm); font-size: var(--text-xs); color: var(--color-muted); }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-inline-end: var(--space-xs); background: var(--c); vertical-align: -1px; }
+.legend span.f::before { background: repeating-linear-gradient(45deg, var(--c) 0 3px, var(--color-paper-2) 3px 5px); }
+.svc-tbl { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.svc-tbl th, .svc-tbl td { text-align: start; padding: var(--space-2xs) var(--space-xs); border-bottom: var(--rule-hair) solid var(--color-rule); }
+.svc-tbl th, .svc-tbl td:first-child { white-space: nowrap; }
+.svc-tbl th:not(:first-child) { text-align: end; }
+.svc-tbl th { color: var(--color-muted); font-weight: 500; font-size: var(--text-xs); }
+.svc-tbl td.n { font-family: var(--font-outlier); text-align: end; }
+.hosts { display: grid; gap: var(--space-sm); }
+.hrow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); font-size: var(--text-sm); }
+.host { cursor: pointer; }
+.host:hover rect, .host:focus-visible rect, .host[aria-pressed="true"] rect { stroke: var(--color-cool); }
+.host:focus { outline: none; }
+.example-tag { fill: var(--color-stale); font: 500 11px var(--font-body); }
+.alarm.example { border-style: dashed; }
+.mon-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); font-size: var(--text-sm); }
+.mon-list li { display: flex; justify-content: space-between; gap: var(--space-sm); border-bottom: var(--rule-hair) solid var(--color-rule); padding: var(--space-2xs) 0; }
+.foot { color: var(--color-muted); font-size: var(--text-xs); margin-top: var(--space-md); }
+
+@media (max-width: 1200px) { .main { grid-template-columns: minmax(0, 1fr); } .lower, .pulse { grid-template-columns: repeat(2, minmax(0, 1fr)); } .verdict { grid-template-columns: repeat(3, minmax(0, 1fr)); } .verdict > div:first-child { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .lower, .pulse, .verdict { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.paused *, .paused *::before, .paused *::after { animation-play-state: paused !important; transition: none !important; }
+
+/* ===== Premium clean finish (owner pick, calibration 2) ===== */
+:root {
+  --color-paper: oklch(16.5% 0.006 270); --color-paper-2: oklch(20.5% 0.007 270); --color-paper-3: oklch(18.5% 0.007 270);
+  --color-ink: oklch(97% 0.003 270); --color-ink-2: oklch(86% 0.006 270); --color-muted: oklch(68% 0.012 270);
+  --color-rule: oklch(100% 0 0 / 0.08); --color-rule-2: oklch(100% 0 0 / 0.16); --color-hi: oklch(100% 0 0 / 0.12);
+  --color-cool: oklch(70% 0.14 275); --color-cool-soft: oklch(70% 0.14 275 / 0.14); --color-cool-ink: oklch(18% 0.03 275);
+  --color-ok: oklch(85% 0.01 270); --color-ok-soft: oklch(100% 0 0 / 0.06);
+  --color-bad: oklch(70% 0.17 28); --color-bad-soft: oklch(70% 0.17 28 / 0.13);
+  --color-stale: oklch(82% 0.13 80); --color-stale-soft: oklch(82% 0.13 80 / 0.13);
+  --color-focus: oklch(70% 0.14 275);
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif; --font-body: var(--font-display);
+  --font-outlier: "Inter", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 16px; --radius-pill: 10px; --shadow-card: 0 12px 32px oklch(0% 0 0 / 0.35);
+  --color-sheen: oklch(100% 0 0 / 0.03); --color-frame: oklch(100% 0 0 / 0.02); --color-bad-glow: oklch(70% 0.17 28 / 0.35); --color-bad-tile: oklch(70% 0.17 28 / 0.18); --color-band: oklch(100% 0 0 / 0.04);
+}
+:root[data-theme="light"] {
+  --color-paper: oklch(97.5% 0.003 270); --color-paper-2: oklch(99.5% 0.002 270); --color-paper-3: oklch(98.5% 0.002 270);
+  --color-ink: oklch(20% 0.01 270); --color-ink-2: oklch(34% 0.01 270); --color-muted: oklch(50% 0.012 270);
+  --color-rule: oklch(0% 0 0 / 0.08); --color-rule-2: oklch(0% 0 0 / 0.16); --color-hi: oklch(100% 0 0 / 0.9);
+  --color-cool: oklch(52% 0.17 275); --color-cool-soft: oklch(52% 0.17 275 / 0.1); --color-cool-ink: oklch(99% 0.002 270);
+  --color-ok: oklch(38% 0.01 270); --color-ok-soft: oklch(0% 0 0 / 0.05);
+  --color-bad: oklch(55% 0.19 28); --color-bad-soft: oklch(55% 0.19 28 / 0.1);
+  --shadow-card: 0 10px 28px oklch(0% 0 0 / 0.08);
+}
+body { letter-spacing: -0.005em; }
+.measured { font-family: var(--font-outlier); font-variant-numeric: tabular-nums; }
+button { border-radius: var(--radius-pill); border-color: var(--color-rule); background: transparent; }
+button:hover { background: var(--color-rule); }
+.chip { border-radius: 999px; border-color: transparent; background: var(--color-ok-soft); padding: 2px var(--space-sm); }
+.chip.bad { background: var(--color-bad-soft); color: var(--color-bad); }
+.chip.stale { background: var(--color-stale-soft); color: var(--color-stale); }
+.chip.ok { background: var(--color-ok-soft); color: var(--color-ink-2); }
+.chip.idle { border: 1px dashed var(--color-rule-2); background: transparent; }
+.wordmark { font-weight: 600; letter-spacing: -0.03em; }
+/* floating cards instead of hairline seams */
+.verdict, .pulse, .panels { background: transparent; border: 0; gap: var(--space-md); overflow: visible; }
+.verdict > div, .pulse > div, .panels > section {
+  background: linear-gradient(180deg, var(--color-sheen), transparent), var(--color-paper-2);
+  border: 0; border-radius: var(--radius-card);
+  box-shadow: inset 0 1px 0 var(--color-hi), inset 0 0 0 1px var(--color-rule), var(--shadow-card);
+}
+.verdict .line { font-size: 18px; font-weight: 500; letter-spacing: -0.015em; }
+.light .v { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.trace-v { font-weight: 600; letter-spacing: -0.03em; }
+.reading { font-weight: 600; letter-spacing: -0.04em; }
+.col .n { font-weight: 600; letter-spacing: -0.03em; }
+h2 { font-weight: 600; letter-spacing: -0.02em; }
+.trace .line { stroke-width: 2; }
+.trace .area { fill: color-mix(in oklab, var(--color-cool) 16%, transparent); }
+.trace .band { fill: var(--color-band); }
+/* diagram */
+svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
+.tap rect { fill: var(--color-paper-3); stroke: var(--color-rule); }
+.station .face { fill: var(--color-paper-3); stroke: var(--color-rule-2); }
+.station.err .face { stroke: var(--color-bad); stroke-width: 1.5; filter: drop-shadow(0 0 8px var(--color-bad-glow)); }
+.station.ledger .face { stroke: var(--color-rule-2); stroke-dasharray: 4 4; }
+.sname { font: 600 17px var(--font-display); letter-spacing: -0.02em; }
+.sv { font: 600 17px var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.sk, .srole { fill: var(--color-muted); }
+.lamp text { font: 500 11px var(--font-display); }
+.host rect { fill: var(--color-paper-3); stroke: var(--color-rule); }
+.clabel-bg { fill: var(--color-paper-2); stroke: var(--color-rule-2); }
+.pin rect.box { fill: var(--color-paper-2); stroke: var(--color-bad); }
+.bus { stroke: var(--color-cool); stroke-opacity: .35; }
+.current.live, .current.stall { stroke: var(--color-cool); }
+/* alarm list: a halo instead of a side stripe */
+.alarm { border: 1px solid var(--color-bad-soft); border-radius: 12px; background: var(--color-bad-soft); }
+.alarm:hover, .alarm[aria-pressed="true"] { border-color: var(--color-bad); }
+.alarm .ib { background: var(--color-bad-tile); border-radius: 10px; }
+.alarm.unknown { border: 1px dashed var(--color-rule-2); background: transparent; }
+.tabs button[aria-selected="true"], .seg button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--color-cool); }
+.svc-tbl th, .svc-tbl td { border-bottom-color: var(--color-rule); }
+</style>
+</head>
+<body>
+<noscript><p style="padding:16px">This board needs JavaScript: it reads live data from Port.</p></noscript>
+<div class="wrap" id="app">
+  <header class="bar">
+    <div class="wordmark">Retail Tower</div>
+    <span class="asof measured" id="asof"></span>
+    <span class="chip" data-i18n="scope"></span>
+    <span class="chip bad" data-i18n="chipAlarms"></span>
+    <span class="chip" data-i18n="lastUp"></span>
+    <span class="chip stale" id="replayChip" data-i18n="replay"></span>
+    <div class="grow"></div>
+    <button id="demoDD" type="button" aria-pressed="false" data-i18n="demo"></button>
+    <button id="lang" type="button" lang="ar">عربي</button>
+    <button id="theme" type="button" data-i18n="light"></button>
+    <button id="pause" type="button" data-i18n="pause"></button>
+  </header>
+
+  <div class="verdict" id="verdict"><div><div class="line" id="vline"></div><div class="gapnote" data-i18n="gapNote"></div></div></div>
+  <div class="pulse" id="pulse"></div>
+
+  <div class="panels main">
+    <section>
+      <h2 data-i18n="mapTitle"></h2>
+      <p class="sub" data-i18n="mapSub"></p>
+      <svg class="grid" id="grid" viewBox="0 0 1240 820" role="img"></svg>
+      <div class="legend-row" id="legendRow"></div>
+      <div class="legend-row" id="legendRow2"></div>
+      <p class="legend-cap" id="legendCap"></p>
+    </section>
+    <section>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tabAlarms" aria-selected="true"></button>
+        <button type="button" role="tab" id="tabEvents" aria-selected="false" data-i18n="events"></button>
+      </div>
+      <div id="alarmsView"><ul class="alarms" id="alarms"></ul></div>
+      <div id="eventsView" hidden><ol class="trail" id="trail"></ol></div>
+      <div class="detail" id="detailView" hidden></div>
+    </section>
+  </div>
+
+  <div class="panels lower">
+    <section><h2 data-i18n="perSvc"></h2><p class="sub" data-i18n="perSvcSub"></p><table class="svc-tbl" id="svcTbl"></table></section>
+    <section><h2 data-i18n="jiraTitle"></h2><p class="sub" data-i18n="jiraSub"></p><div class="river" id="river"></div></section>
+    <section><h2 data-i18n="ciTitle"></h2><p class="sub" data-i18n="ciSub"></p><div class="reading" dir="ltr">83.8%</div><div class="sub" style="margin:2px 0 8px" data-i18n="ciOf"></div><div class="strip-wrap" role="img" id="stripWrap"><div class="strip" id="strip"></div></div><div class="legend" id="ciLegend"></div></section>
+    <section><h2 data-i18n="hostsTitle"></h2><p class="sub" data-i18n="hostsSub"></p><div class="hosts" id="hosts"></div></section>
+  </div>
+  <p class="foot" data-i18n="foot"></p>
+</div>
+<div class="sr" role="status" id="announcer"></div>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var app = document.getElementById("app");
+  var paused = window.matchMedia("(prefers-reduced-motion: reduce)").matches, lang = "en";
+  var selected = null; // { type: "alarm"|"station", id }
+
+  var T = {
+    en: { scope: "Test lab, not real stores", chipAlarms: "5 active alarms", replay: "Replaying the last 24 hours", light: "Light", dark: "Dark", pause: "Pause motion", resume: "Resume motion", demo: "Example: a Datadog alarm", demoOn: "Hide the example",
+      asof: "As of last sync, ", gapNote: "Sales and stores online are not on this board yet: Port has no sales data to read.",
+      mapTitle: "Control room", mapSub: "Every station, every cable and what it carries. Alarms sit where the fault is. Select a station or an alarm.",
+      alarms: "Alarms", events: "Events", back: "Back", lights: ["Cashier app", "Backend", "Accounts"],
+      perSvc: "Per station", perSvcSub: "From Port: tasks, changes and checks linked to each service.", th: ["Station", "Open tasks", "PRs", "CI runs", "Failed, all"],
+      jiraTitle: "Work in Jira", jiraSub: "551 RT tasks by status.", jira: ["To do", "In progress", "In review", "Done"],
+      ciTitle: "Automatic checks (CI)", ciSub: "The last 72 runs, oldest on the left.", ciOf: "of the last 1000 runs passed", passed: "Passed", failed: "Failed", cancelled: "Cancelled", skipped: "Skipped",
+      hostsTitle: "Health checks (Datadog)", hostsSub: "18 checks in Port, grouped by what they watch.", up: "Up",
+      foot: "Mockup v13. Real Port snapshot of 2026-11-13, replayed. In Port the board reads the catalog every 60 seconds and animates only what changed.",
+      pTasks: "Tasks done this week", pTasksN: "Jira, last 4 weeks", pShip: "Changes shipped this week", pShipN: "Merged into main, last 4 weeks", pDeploy: "Last update on the test servers", pDeployV: "1 h ago", pDeployN: "Deploy to the lab, from GitHub",
+      tlTitle: "Telemetry, last 14 days", tl: [["Changes merged per day", "GitHub, all repos"], ["CI runs per day", "GitHub Actions"], ["CI failures per day", "Normal band 0 to 2"], ["Tasks done per day", "Jira, RT"]], yday: "yesterday", avg: "14-day avg", spikeNote: "One-day spike: likely a bulk import or cleanup. Check before quoting.", lastUp: "Lab updated 1 h ago", mergedSpark: "Merged per day, 14 d",
+      pGaps: "Not on the board yet", pGapsL: ["Sales today", "Stores online", "Uptime over 30 days"], pGapsN: "Needs a sales metric and an uptime target (SLO) in Datadog.", wk: ["4 wk ago", "this week"],
+      dWhere: "Where", dKind: "Kind", dSince: "In Port since", dFrom: "Reported by", dPath: "Path of the request", gapLine: "How often and when last: not in Port yet", open: "Open in Sentry",
+      ports: "Links to the control room", cablesH: "Cables", lg: { live: "Cable, no faults", fault: "Cable with a fault", infra: "Runs on (server)", rule: "Not allowed (by design)", icons: "Alarm icons", flow: "Moving dots: the link is up. On the cables up to the control room, speed follows each station's activity in the last 7 days. It is not sales traffic." } },
+    ar: { scope: "بيئة تجربة، مش محلات حقيقية", chipAlarms: "5 إنذارات شغالة", replay: "إعادة عرض آخر 24 ساعة", light: "فاتح", dark: "غامق", pause: "وقّف الحركة", resume: "شغّل الحركة", demo: "مثال: إنذار من Datadog", demoOn: "اخفي المثال",
+      asof: "حسب آخر مزامنة، ", gapNote: "المبيعات والمحلات الشغالة لسه مش على اللوحة: Port معندوش بيانات مبيعات.",
+      mapTitle: "غرفة التحكم", mapSub: "كل محطة وكل كابل وشايل إيه. الإنذار بيظهر مكان العطل. اختار محطة أو إنذار.",
+      alarms: "الإنذارات", events: "الأحداث", back: "رجوع", lights: ["تطبيق الكاشير", "الـ Backend", "الحسابات"],
+      perSvc: "لكل محطة", perSvcSub: "من Port: المهام والتعديلات والفحوصات المربوطة بكل خدمة.", th: ["المحطة", "مهام مفتوحة", "طلبات تعديل", "تشغيلات CI", "فشل، الكل"],
+      jiraTitle: "الشغل في Jira", jiraSub: "551 مهمة حسب الحالة.", jira: ["لسه", "شغالين", "مراجعة", "خلصت"],
+      ciTitle: "الفحص التلقائي (CI)", ciSub: "آخر 72 تشغيلة، الأقدم على الشمال.", ciOf: "من آخر 1000 تشغيلة نجحت", passed: "نجح", failed: "فشل", cancelled: "اتلغى", skipped: "اتخطّى",
+      hostsTitle: "فحوصات الصحة (Datadog)", hostsSub: "18 فحص في Port، متقسمين حسب اللي بيراقبوه.", up: "شغال",
+      foot: "نموذج v13. لقطة حقيقية من Port يوم 2026-11-13 بتتعاد. جوه Port اللوحة بتقرا الكتالوج كل 60 ثانية وبتحرك اللي اتغير بس.",
+      pTasks: "مهام خلصت الأسبوع ده", pTasksN: "Jira، آخر 4 أسابيع", pShip: "تعديلات اتدمجت الأسبوع ده", pShipN: "اتدمجت في main، آخر 4 أسابيع", pDeploy: "آخر تحديث على سيرفرات التجربة", pDeployV: "من ساعة", pDeployN: "تنزيل على المعمل، من GitHub",
+      tlTitle: "القياسات، آخر 14 يوم", tl: [["تعديلات اتدمجت في اليوم", "GitHub، كل المستودعات"], ["تشغيلات CI في اليوم", "GitHub Actions"], ["فشل CI في اليوم", "الطبيعي من 0 لـ 2"], ["مهام خلصت في اليوم", "Jira، RT"]], yday: "امبارح", avg: "متوسط 14 يوم", spikeNote: "قفزة في يوم واحد: غالباً استيراد أو تنظيف جماعي. اتأكد قبل ما تستشهد بيها.", lastUp: "المعمل اتحدث من ساعة", mergedSpark: "اتدمج في اليوم، 14 يوم",
+      pGaps: "لسه مش على اللوحة", pGapsL: ["مبيعات النهارده", "المحلات الشغالة", "نسبة التشغيل في 30 يوم"], pGapsN: "محتاجين مقياس مبيعات وهدف تشغيل (SLO) في Datadog.", wk: ["من 4 أسابيع", "الأسبوع ده"],
+      dWhere: "فين", dKind: "النوع", dSince: "في Port من", dFrom: "بلّغ عنه", dPath: "مسار الطلب", gapLine: "عدد المرات وآخر مرة: لسه مش في Port", open: "افتح في Sentry",
+      ports: "الروابط بغرفة التحكم", cablesH: "الكابلات", lg: { live: "كابل سليم", fault: "كابل فيه عطل", infra: "شغال على (سيرفر)", rule: "ممنوع (مقصود)", icons: "أيقونات الإنذار", flow: "النقط اللي بتتحرك: الرابط شغال. على الأسلاك الطالعة لغرفة التحكم السرعة حسب نشاط كل محطة في آخر 7 أيام. دي مش حركة مبيعات." } }
+  };
+  function t(k) { return T[lang][k]; }
+  function pick(o) { return typeof o === "string" ? o : o[lang]; }
+
+  // ================= Icon set: one shape per alarm kind =================
+  var ICONS = {
+    refused: "M5 8V6a4 4 0 0 1 8 0v2M4 8h10v7H4zM9 11v2",                       // lock
+    down:    "M6 2v4M12 2v4M4 6h10v2a5 5 0 0 1-10 0zM9 13v3M2 2l14 14",           // unplugged
+    timeout: "M5 2h8M5 16h8M6 2c0 4 6 4 6 7s-6 3-6 7M12 2c0 4-6 4-6 7s6 3 6 7",  // hourglass
+    reset:   "M1 9h5M12 9h5M6 5v8M12 5v8M9 3l-1 3M9 15l1-3",                      // cut cable
+    bug:     "M6 5L2 9l4 4M12 5l4 4-4 4M10 3L8 15",                               // broken code
+    unknown: "M7 7a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.5M9 13v.5",                     // question
+    ok:      "M4 9l3 3 7-7",                                                       // check
+    silent:  "M3 12a8 8 0 0 1 12 0M6 14a4 4 0 0 1 6 0M2 2l14 14",                 // no signal
+    latency: "M3 13a6 6 0 1 1 12 0M9 13l3-4M9 13h.01",                          // gauge: slow responses
+    nodata:  "M1 9h3l2-4 3 8 2-4h2M14 4l3 3M17 4l-3 3",                         // heartbeat stopped
+    hostok:  "M1 9h3l2-4 3 8 2-4h6"                                              // heartbeat
+  };
+  function icon(kind, x, y, size, cls) {
+    var g = el("g", { transform: "translate(" + x + " " + y + ") scale(" + (size / 18) + ")" });
+    g.appendChild(el("path", { d: ICONS[kind], "class": cls || "ic" })); return g;
+  }
+  function iconHtml(kind, color) {
+    var s = el("svg", { viewBox: "0 0 18 18", width: 18, height: 18, "aria-hidden": "true" });
+    s.appendChild(el("path", { d: ICONS[kind], fill: "none", stroke: color || "var(--color-bad)", "stroke-width": 1.6, "stroke-linecap": "round", "stroke-linejoin": "round" })); return s;
+  }
+
+  // ================= Snapshot of Port (2026-11-13) =================
+  var KINDS = {
+    refused: { en: "ERPNext refused the request", ar: "ERPNext رفض الطلب", code: "403" },
+    down:    { en: "ERPNext is not answering", ar: "ERPNext مش بيرد", code: "502" },
+    timeout: { en: "The request took too long", ar: "الطلب اتأخر وانتهت المهلة", code: "timeout" },
+    reset:   { en: "The connection was cut", ar: "الاتصال اتقطع", code: "reset" },
+    bug:     { en: "A screen failed to draw", ar: "شاشة فشلت تترسم", code: "React" },
+    unknown: { en: "Health not watched", ar: "الصحة مش متراقبة", code: "no check" },
+    latency: { en: "Responses are slow", ar: "الردود بطيئة", code: "p95" },
+    nodata:  { en: "Stopped reporting", ar: "بطّل يبلّغ", code: "no data" }
+  };
+  // Stations. ports: link state to each control-room source (sentry, datadog, github, jira).
+  var S = {
+    pos:   { name: "POS", role: { en: "Where sales happen", ar: "هنا البيع بيحصل" }, x: 30, y: 230, w: 260, h: 214, checks: null, ci: "92%", tasks: 43, prs: 8, merged: 5, deploys: 0, cifail: 4, act: 58,
+             ports: { sentry: "linked", datadog: "na", github: "ok", jira: "ok" } },
+    admin: { name: "Admin Console", role: { en: "Where managers run stores", ar: "هنا المديرين بيديروا المحلات" }, x: 30, y: 476, w: 260, h: 214, checks: 0, ci: "95%", tasks: 21, prs: 7, merged: 6, deploys: 2, cifail: 3, act: 62,
+             ports: { sentry: "sending", datadog: "none", github: "ok", jira: "ok" } },
+    core:  { name: "Backend-Core", role: { en: "The brain", ar: "العقل" }, x: 400, y: 345, w: 270, h: 222, checks: 7, ci: "98%", tasks: 10, prs: 21, merged: 18, deploys: 2, cifail: 1, act: 73,
+             ports: { sentry: "linked", datadog: "sending", github: "ok", jira: "ok" } },
+    conn:  { name: "ERPNext-Connector", role: { en: "The bridge to the accounts", ar: "الجسر للحسابات" }, x: 760, y: 349, w: 250, h: 214, checks: 0, ci: "97%", tasks: 8, prs: 62, merged: 2, deploys: 2, cifail: 2, act: 64,
+             ports: { sentry: "sending", datadog: "none", github: "ok", jira: "ok" } },
+    erp:   { name: "ERPNext", role: { en: "The books", ar: "الدفاتر" }, x: 1118, y: 416, w: 107, h: 80, ledger: true }
+  };
+  var SOURCES = [
+    { id: "sentry",  name: { en: "Error tracker", ar: "متتبع الأخطاء" }, tool: "Sentry",  fresh: { en: "Synced today", ar: "اتزامن النهارده" }, change: { en: "Last change 18 h ago", ar: "آخر تغيير من 18 ساعة" }, x: 36 },
+    { id: "datadog", name: { en: "Health checks", ar: "فحوصات الصحة" }, tool: "Datadog", fresh: { en: "Synced today", ar: "اتزامن النهارده" }, change: { en: "Last change 20 h ago", ar: "آخر تغيير من 20 ساعة" }, x: 332 },
+    { id: "github",  name: { en: "Code history", ar: "تاريخ الكود" }, tool: "GitHub", fresh: { en: "Live", ar: "شغال" }, change: { en: "Last change 5 min ago", ar: "آخر تغيير من 5 دقايق" }, x: 628 },
+    { id: "jira",    name: { en: "Task tracker", ar: "متتبع المهام" }, tool: "Jira", fresh: { en: "Synced today", ar: "اتزامن النهارده" }, change: { en: "Last change 7 h ago", ar: "آخر تغيير من 7 ساعات" }, x: 924 }
+  ];
+  var PORT_STATE = {
+    sending: { c: "var(--color-ok)", fill: "var(--color-ok-soft)", en: "sending", ar: "بيبعت" },
+    ok:      { c: "var(--color-ok)", fill: "var(--color-ok-soft)", en: "live", ar: "شغال" },
+    linked:  { c: "var(--color-cool)", fill: "var(--color-paper-2)", dash: true, en: "linked, no signal yet", ar: "مربوط، مفيش إشارة لسه" },
+    none:    { c: "var(--color-muted)", fill: "transparent", dash: true, en: "not linked", ar: "مش مربوط" },
+    na:      { c: "var(--color-rule-2)", t: "var(--color-muted)", fill: "transparent", en: "not needed", ar: "مش محتاج" },
+    alert:   { c: "var(--color-bad)", fill: "var(--color-bad-soft)", en: "alarm", ar: "إنذار" }
+  };
+  var PORT_LETTER = { sentry: "ERR", datadog: "HLT", github: "GIT", jira: "JIR" };
+  var CABLES = [
+    { id: "c1", a: "pos", b: "core", carries: { en: "Sales, sync", ar: "مبيعات" }, state: "live" },
+    { id: "c2", a: "admin", b: "core", carries: { en: "Catalog, ops", ar: "كتالوج" }, state: "live" },
+    { id: "c3", a: "core", b: "conn", carries: { en: "Postings", ar: "قيود" }, state: "live" },
+    { id: "c4", a: "conn", b: "erp", carries: { en: "Invoices", ar: "فواتير" }, state: "fault" }
+  ];
+  // Alarms, pinned where they happen.
+  var ALARMS = [
+    { id: "a1", kind: "refused", at: "c4", station: "conn", msg: "HTTPError: 403 Client Error: Forbidden for url: https://lab.kemetralabs.com/api/connector/v1/erpnext/postings", since: "12 Nov 20:29", src: "Sentry" },
+    { id: "a2", kind: "timeout", at: "c4", station: "conn", msg: "ConnectTimeout: HTTPConnectionPool(host='172.26.2.233', port=3000): Max retries exceeded with url: /api/connector/v1/erpnext/postings", since: "12 Nov 20:29", src: "Sentry" },
+    { id: "a3", kind: "down", at: "c4", station: "conn", msg: "HTTPError: 502 Server Error: Bad Gateway for url: https://lab.kemetralabs.com/api/connector/v1/erpnext/bin-view-requests", since: "12 Nov 20:29", src: "Sentry" },
+    { id: "a4", kind: "reset", at: "c4", station: "conn", msg: "ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))", since: "12 Nov 20:29", src: "Sentry" },
+    { id: "a5", kind: "bug", at: "admin", station: "admin", msg: "Error: Objects are not valid as a React child (found: <redacted>). If you meant to render a collection of children, use an array instead.", since: "12 Nov 20:29", src: "Sentry" }
+  ];
+  var WATCH = [ // not faults: places where health is not watched
+    { id: "w1", kind: "unknown", station: "admin", text: { en: "Admin Console: no health check", ar: "لوحة الإدارة: مفيش فحص صحة" } },
+    { id: "w2", kind: "unknown", station: "conn", text: { en: "ERPNext-Connector: no health check", ar: "الجسر: مفيش فحص صحة" } }
+  ];
+  var PATH = ["pos", "core", "conn", "erp"];
+  var SPARK = { pos: [0,0,0,0,0,2,0,0,0,0,1,0,3,1], admin: [0,0,0,1,0,0,0,0,1,0,0,0,5,0], core: [0,0,0,2,0,1,0,0,0,0,0,3,14,1], conn: [0,0,0,0,0,0,0,0,0,0,0,0,2,0] };
+  // Datadog: the 18 monitors in Port. 8 host checks watch every server; the rest watch one thing each.
+  var HOST_CHECKS = ["CPU", "Memory", "Disk usage", "Disk latency", "System load", "Network in", "Network out", "Host reporting"];
+  var HOSTS = [
+    { id: "lab01", name: "lab-01", sub: { en: "API and worker", ar: "واجهة البرمجة والمعالج" }, x: 300, runs: "core", own: [] },
+    { id: "lab02", name: "lab-02", sub: { en: "Postgres database", ar: "قاعدة البيانات" }, x: 550, runs: "core", own: ["Postgres connections"] },
+    { id: "lab03", name: "lab-03", sub: { en: "ERPNext, MariaDB, Redis", ar: "نظام الحسابات" }, x: 1005, runs: "erp", own: ["MariaDB connections", "Redis up"] }
+  ];
+  var CORE_CHECKS = ["5xx error rate", "p95 latency", "Sends metrics", "DB pool waiters", "Health ready", "Failed sign-ins", "Worker heartbeat"];
+  var demo = false;
+  S.core.ddAlarm = true;
+  var DEMO_ALARM = { id: "d1", kind: "latency", at: "core", station: "core", src: "Datadog", example: true,
+    msg: "[EXAMPLE] backend-api p95 latency high (lab): p95 = 1.8 s, threshold 1 s, for 5 min", since: { en: "example, not real", ar: "مثال، مش حقيقي" } };
+  function activeAlarms() { return demo ? ALARMS.concat([DEMO_ALARM]) : ALARMS; }
+  function portState(st, src) { return demo && st.ddAlarm && src === "datadog" ? "alert" : st.ports[src]; }
+  var EVENTS = [
+    { k: "alarm", alarm: "a1", what: { en: "ERPNext refused a posting", ar: "ERPNext رفض قيد" } },
+    { k: "merge", at: "core", src: "github", key: "#556", what: { en: "Shipped to main: the live map in Port", ar: "اتدمج: الخريطة الحية في Port" } },
+    { k: "alarm", alarm: "a2", what: { en: "A posting took too long", ar: "قيد اتأخر وانتهت المهلة" } },
+    { k: "done", at: "conn", src: "jira", key: "RT-1373", what: { en: "Done: returns with promotions no longer refused", ar: "خلصت: المرتجعات مع العروض مبقتش بتترفض" } },
+    { k: "alarm", alarm: "a3", what: { en: "ERPNext stopped answering", ar: "ERPNext بطّل يرد" } },
+    { k: "ci", at: "core", src: "github", what: { en: "All automatic checks passed", ar: "كل الفحوصات التلقائية نجحت" } },
+    { k: "alarm", alarm: "a4", what: { en: "The connection to ERPNext was cut", ar: "الاتصال بـ ERPNext اتقطع" } },
+    { k: "deploy", at: "core", src: "github", what: { en: "New version installed on the test servers", ar: "اتنزّلت نسخة جديدة على سيرفرات التجربة" } },
+    { k: "alarm", alarm: "a5", what: { en: "A screen in the Admin Console failed", ar: "شاشة في لوحة الإدارة فشلت" } },
+    { k: "review", at: "core", src: "jira", key: "RT-1370", what: { en: "Ready for review: a clear answer for deleted stores", ar: "مستنية مراجعة: رد واضح للمحلات اللي اتمسحت" } }
+  ];
+  var KIND_CSS = { alarm: "var(--color-bad)", merge: "var(--color-cool)", done: "var(--color-ok)", ci: "var(--color-ok)", deploy: "var(--color-cool)", review: "var(--color-cool)" };
+
+  // ================= helpers =================
+  function el(tag, attrs, text) { var n = document.createElementNS(NS, tag); if (attrs) Object.keys(attrs).forEach(function (k) { if (attrs[k] != null) n.setAttribute(k, attrs[k]); }); if (text != null) n.textContent = text; return n; }
+  function h(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function cx(s) { return s.x + s.w / 2; } function cy(s) { return s.y + s.h / 2; }
+  function fmt(d) { return d.toLocaleTimeString(lang === "ar" ? "ar-EG-u-nu-latn" : "en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }); }
+  var announcer = document.getElementById("announcer"), lastAnn = 0;
+  function announce(m) { if (Date.now() - lastAnn < 15000) return; lastAnn = Date.now(); announcer.textContent = m; }
+  function alarmsAt(where) { return activeAlarms().filter(function (a) { return a.at === where; }); }
+
+  // ================= the grid =================
+  var svg = document.getElementById("grid"), cablePaths = {}, stationEls = {}, pinEls = {}, gFx, gateEl, ledgerEl;
+  function drawGrid() {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.setAttribute("aria-label", lang === "ar" ? "غرفة تحكم: المحطات والكابلات والإنذارات. القائمة الكاملة في لوحة الإنذارات." : "Control room: stations, cables and alarms. The full list is in the alarms panel.");
+    cablePaths = {}; stationEls = {}; pinEls = {};
+
+    // Control room bus: the four sources Port reads.
+    var cc = el("g", { "class": "cc" });
+    cc.appendChild(el("rect", { x: 20, y: 18, width: 1200, height: 116, rx: 16, "class": "frame" }));
+    cc.appendChild(el("text", { x: 34, y: 40, "class": "zone" }, lang === "ar" ? "غرفة التحكم: Port بيقرا من" : "Control room: Port reads from"));
+    SOURCES.forEach(function (so) {
+      var g = el("g", { "class": "tap" });
+      g.appendChild(el("rect", { x: so.x, y: 48, width: 280, height: 74, rx: 12 }));
+      g.appendChild(icon(so.id === "github" && false ? "ok" : "ok", so.x + 12, 60, 14, "ic")).querySelector("path").setAttribute("style", "stroke: var(--color-ok)");
+      g.appendChild(el("text", { x: so.x + 34, y: 72, "class": "t1" }, pick(so.name) + " (" + so.tool + ")"));
+      g.appendChild(el("text", { x: so.x + 34, y: 92, "class": "t3", fill: "var(--color-ok)" }, pick(so.fresh)));
+      g.appendChild(el("text", { x: so.x + 34, y: 110, "class": "t2" }, pick(so.change)));
+      cc.appendChild(g);
+    });
+    var defs = el("defs"), fl = el("filter", { id: "glow", x: "-50%", y: "-50%", width: "200%", height: "200%" });
+    fl.appendChild(el("feGaussianBlur", { stdDeviation: "1.6", result: "b" })); var fm = el("feMerge"); fm.appendChild(el("feMergeNode", { "in": "b" })); fm.appendChild(el("feMergeNode", { "in": "SourceGraphic" })); fl.appendChild(fm); defs.appendChild(fl); svg.appendChild(defs);
+    svg.appendChild(cc);
+    svg.appendChild(el("line", { x1: 40, y1: 150, x2: 1200, y2: 150, "class": "bus" }));
+    svg.appendChild(el("text", { x: 1200, y: 144, "class": "zone", "text-anchor": "end" }, lang === "ar" ? "خط الإشارات" : "Signal bus"));
+
+    // Zones.
+    [[lang === "ar" ? "الواجهات" : "Front", 30], [lang === "ar" ? "العقل" : "Core", 400], [lang === "ar" ? "التكامل" : "Integration", 770], [lang === "ar" ? "الدفاتر" : "Books", 1110]].forEach(function (z) { svg.appendChild(el("text", { x: z[1], y: 212, "class": "zone" }, z[0])); });
+
+    // Risers from each station to the signal bus.
+    Object.keys(S).forEach(function (id) { var s = S[id]; if (s.ledger) return; var d = id === "admin" ? "M" + s.x + " " + cy(s) + " H16 V150" : "M" + cx(s) + " " + s.y + " V150"; svg.appendChild(el("path", { d: d, "class": "riser" }));
+      var cur = el("path", { d: d, "class": "current riser", filter: "url(#glow)" }); cur.style.setProperty("--dur", (180 / s.act).toFixed(2) + "s"); svg.appendChild(cur); });
+
+    // Not allowed: no direct path to ERPNext.
+    svg.appendChild(el("path", { d: "M290 300 C 560 250, 980 250, 1140 385", "class": "cable rule" }));
+    svg.appendChild(el("path", { d: "M290 600 C 560 690, 980 690, 1140 485", "class": "cable rule" }));
+    svg.appendChild(el("text", { x: 880, y: 708, "class": "cstate", fill: "var(--color-muted)", "text-anchor": "middle" }, lang === "ar" ? "مفيش كابل مباشر لـ ERPNext: حماية مقصودة" : "No direct cable to ERPNext: a deliberate protection"));
+
+    // Product cables.
+    CABLES.forEach(function (c) {
+      var a = S[c.a], b = S[c.b], x1 = a.x + a.w, y1 = cy(a), x2 = b.x, y2 = cy(b);
+      var d = "M" + x1 + " " + y1 + " C " + (x1 + 50) + " " + y1 + ", " + (x2 - 50) + " " + y2 + ", " + x2 + " " + y2;
+      var p = el("path", { d: d, "class": "cable " + c.state, id: "cable-" + c.id }); svg.appendChild(p); cablePaths[c.id] = p;
+      var cur = el("path", { d: d, "class": "current " + (c.state === "fault" ? "stall" : "live"), filter: "url(#glow)" }); if (demo && (c.a === "core" || c.b === "core") && c.state !== "fault") cur.style.setProperty("--dur", "8s"); svg.appendChild(cur);
+      var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      var n = alarmsAt(c.id).length;
+      var lx = c.id === "c4" ? 1065 : mx, ly = c.id === "c4" ? my + 40 : (c.id === "c3" ? my - 34 : my - 3);
+      var label = pick(c.carries), state = n ? n + (lang === "ar" ? " أعطال" : " faults") : (lang === "ar" ? "مفيش أعطال" : "no faults");
+      var w = Math.max(label.length, state.length) * 7.4 + 16;
+      svg.appendChild(el("rect", { x: lx - w / 2, y: ly - 14, width: w, height: 34, rx: 4, "class": "clabel-bg" }));
+      svg.appendChild(el("text", { x: lx, y: ly, "class": "clabel", "text-anchor": "middle" }, label));
+      svg.appendChild(el("text", { x: lx, y: ly + 15, "class": "cstate", "text-anchor": "middle", fill: n ? "var(--color-bad)" : "var(--color-muted)" }, state));
+    });
+    gateEl = el("line", { x1: 1100, y1: 441, x2: 1100, y2: 471, "class": "gate" }); svg.appendChild(gateEl);
+
+    // Servers the stations run on.
+    HOSTS.forEach(function (ho) {
+      var s = S[ho.runs], n = HOST_CHECKS.length + ho.own.length;
+      svg.appendChild(el("path", { d: "M" + (ho.x + 110) + " 740 C " + (ho.x + 110) + " 680, " + cx(s) + " " + (s.y + s.h + 60) + ", " + cx(s) + " " + (s.y + s.h), "class": "cable infra" }));
+      var g = el("g", { "class": "host", tabindex: "0", role: "button", "aria-pressed": String(!!selected && selected.type === "host" && selected.id === ho.id) });
+      g.appendChild(el("rect", { x: ho.x, y: 740, width: 220, height: 56, rx: 12 }));
+      g.appendChild(icon("hostok", ho.x + 10, 750, 16)).querySelector("path").setAttribute("style", "stroke: var(--color-ok)");
+      g.appendChild(el("text", { x: ho.x + 34, y: 760, "class": "hname" }, ho.name + "  " + t("up")));
+      g.appendChild(el("text", { x: ho.x + 34, y: 776, "class": "hsub" }, pick(ho.sub)));
+      g.appendChild(el("text", { x: ho.x + 34, y: 790, "class": "hsub", fill: "var(--color-ok)" }, (lang === "ar" ? n + " مراقبات Datadog تمام" : n + " Datadog checks OK")));
+      g.addEventListener("click", function () { select({ type: "host", id: ho.id }); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select({ type: "host", id: ho.id }, true); } });
+      svg.appendChild(g);
+    });
+    svg.appendChild(el("text", { x: 30, y: 772, "class": "zone" }, lang === "ar" ? "السيرفرات" : "Servers"));
+
+    // Stations with their link lamps.
+    Object.keys(S).forEach(function (id) {
+      var s = S[id], errs = activeAlarms().filter(function (a) { return a.station === id; }).length;
+      var g = el("g", { "class": "station" + (errs ? " err" : "") + (s.ledger ? " ledger dimmable" : ""), tabindex: "0", role: "button", "aria-pressed": "false" });
+      g.setAttribute("aria-label", s.name + ". " + pick(s.role) + ". " + errs + (lang === "ar" ? " إنذارات" : " alarms"));
+      g.appendChild(el("rect", { x: s.x, y: s.y, width: s.w, height: s.h, rx: 16, "class": "face" }));
+      g.appendChild(el("text", { x: s.x + 14, y: s.y + 26, "class": "sname" }, s.name));
+      g.appendChild(el("text", { x: s.x + 14, y: s.y + 44, "class": "srole" }, pick(s.role)));
+      if (!s.ledger) {
+        // Lamps: one per control-room source.
+        ["sentry", "datadog", "github", "jira"].forEach(function (src, i) {
+          var st = PORT_STATE[portState(s, src)], pw = (s.w - 28) / 4, lx = s.x + 14 + i * pw, ly = s.y + 56;
+          var lg = el("g", { "class": "lamp" });
+          lg.appendChild(el("rect", { x: lx, y: ly, width: pw - 6, height: 20, rx: 8, fill: st.fill, stroke: st.c, "stroke-dasharray": st.dash ? "3 3" : null }));
+          lg.appendChild(el("text", { x: lx + (pw - 6) / 2, y: ly + 14, "text-anchor": "middle", fill: st.t || st.c }, PORT_LETTER[src] + (src === "datadog" && s.checks > 0 ? " " + (s.checks - (demo && s.ddAlarm ? 1 : 0)) + "/" + s.checks : "")));
+          var tt = el("title", null, (pick(SOURCES.filter(function (x) { return x.id === src; })[0].name)) + ": " + pick(st)); lg.appendChild(tt);
+          g.appendChild(lg);
+        });
+        var cols = [[lang === "ar" ? "إنذارات" : "Alarms", String(errs), errs ? "bad" : ""], [lang === "ar" ? "فحوصات" : "Checks", s.checks == null ? "n/a" : s.checks === 0 ? "none" : (demo && s.ddAlarm ? (s.checks - 1) + " OK" : s.checks + " OK"), s.checks === 0 ? "unk" : (demo && s.ddAlarm ? "bad" : "")], ["CI 7d", s.ci, ""], [lang === "ar" ? "مهام" : "Tasks", String(s.tasks), ""]];
+        cols.forEach(function (c, i) { var x = s.x + 14 + i * ((s.w - 28) / 4); g.appendChild(el("text", { x: x, y: s.y + 102, "class": "sk" }, c[0])); g.appendChild(el("text", { x: x, y: s.y + 120, "class": "sv " + c[2] }, c[1])); });
+        g.appendChild(el("line", { x1: s.x + 14, y1: s.y + 134, x2: s.x + s.w - 14, y2: s.y + 134, stroke: "var(--color-rule)" }));
+        var cols2 = [[lang === "ar" ? "طلبات تعديل" : "PRs", String(s.prs), ""], [lang === "ar" ? "اتدمج" : "Merged", String(s.merged), ""], [lang === "ar" ? "تنزيلات" : "Deploys", String(s.deploys), ""], [lang === "ar" ? "فشل CI" : "CI fails", String(s.cifail), s.cifail ? "bad" : ""]];
+        cols2.forEach(function (c, i) { var x = s.x + 14 + i * ((s.w - 28) / 4); g.appendChild(el("text", { x: x, y: s.y + 156, "class": "sk" }, c[0])); g.appendChild(el("text", { x: x, y: s.y + 176, "class": "sv " + c[2] }, c[1])); });
+        var sp = SPARK[id]; if (sp) { var sx0 = s.x + 14, sw = s.w - 28, sy0 = s.y + s.h - 8, mx = Math.max.apply(null, sp) || 1;
+          g.appendChild(el("text", { x: sx0, y: s.y + s.h - 22, "class": "sk" }, t("mergedSpark")));
+          g.appendChild(el("line", { x1: sx0, y1: sy0, x2: sx0 + sw, y2: sy0, stroke: "var(--color-rule)" }));
+          sp.forEach(function (v, k) { if (!v) return; var bx = sx0 + k * sw / sp.length; g.appendChild(el("rect", { x: bx + 1, y: sy0 - 12 * v / mx, width: sw / sp.length - 3, height: 12 * v / mx, rx: 1, fill: "var(--color-cool)", opacity: k === sp.length - 2 ? .95 : .55 })); }); }
+        if (s.checks === 0) g.appendChild(icon("unknown", s.x + s.w - 30, s.y + 12, 18, "ic")).querySelector("path").setAttribute("style", "stroke: var(--color-muted)");
+      } else {
+        g.appendChild(el("text", { x: s.x + 14, y: s.y + 64, "class": "sk" }, lang === "ar" ? "خارجي" : "External"));
+        ledgerEl = g;
+      }
+      g.addEventListener("click", function () { select({ type: "station", id: id }); });
+      g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select({ type: "station", id: id }, true); } });
+      svg.appendChild(g); stationEls[id] = g;
+    });
+
+    // Alarm pins at their origin.
+    var c4 = activeAlarms().filter(function (a) { return a.at === "c4"; });
+    c4.forEach(function (a, i) { addPin(a, 1064 - 46 + i * 24 - 2, 408); });
+    var perSt = {}; activeAlarms().filter(function (a) { return S[a.at]; }).forEach(function (a) { var st = S[a.at], j = perSt[a.at] = (perSt[a.at] || 0) + 1; addPin(a, st.x + st.w - 62 - (j - 1) * 24, st.y - 14); });
+
+    gFx = el("g"); svg.appendChild(gFx);
+    if (lang === "ar") Array.prototype.forEach.call(svg.querySelectorAll("text"), function (n) {
+      if (!/[؀-ۿ]/.test(n.textContent)) return;
+      var an = n.getAttribute("text-anchor") || "start"; n.setAttribute("direction", "rtl"); n.setAttribute("text-anchor", an === "start" ? "end" : an === "end" ? "start" : an);
+    });
+    applySelection();
+  }
+  function addPin(a, x, y) {
+    var g = el("g", { "class": "pin", tabindex: "0", role: "button" });
+    g.setAttribute("aria-label", pick(KINDS[a.kind]) + ", " + KINDS[a.kind].code);
+    g.appendChild(el("rect", { x: x, y: y, width: 20, height: 20, rx: 4, "class": "box", filter: "url(#glow)" }));
+    g.appendChild(icon(a.kind, x + 3, y + 3, 14));
+    g.appendChild(el("title", null, pick(KINDS[a.kind]) + " (" + KINDS[a.kind].code + ")"));
+    g.addEventListener("click", function (e) { e.stopPropagation(); select({ type: "alarm", id: a.id }); });
+    g.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select({ type: "alarm", id: a.id }, true); } });
+    svg.appendChild(g); pinEls[a.id] = g;
+  }
+
+  // ================= legend =================
+  function drawLegend() {
+    var lr = document.getElementById("legendRow"); while (lr.firstChild) lr.removeChild(lr.firstChild);
+    var L = t("lg");
+    [["live", "var(--color-cool)", false], ["fault", "var(--color-bad)", true], ["infra", "var(--color-rule-2)", true], ["rule", "var(--color-muted)", true]].forEach(function (x) {
+      var it = h("span", "it"); var sw = h("span", "swatch" + (x[2] ? " dash" : "")); sw.style.setProperty("--c", x[1]); it.appendChild(sw); it.appendChild(document.createTextNode(L[x[0]])); lr.appendChild(it);
+    });
+    document.getElementById("legendCap").textContent = L.flow;
+    lr = document.getElementById("legendRow2"); while (lr.firstChild) lr.removeChild(lr.firstChild);
+    ["ERR", "HLT", "GIT", "JIR"].forEach(function (k, i) { lr.appendChild(h("span", null, k + " = " + pick(SOURCES[i].name))); });
+    lr.appendChild(h("span", "sep"));
+    lr.appendChild(h("span", null, L.icons + ":"));
+    ["refused", "timeout", "down", "reset", "bug", "latency", "nodata", "unknown"].forEach(function (k) {
+      var it = h("span", "it"); it.appendChild(iconHtml(k, k === "unknown" ? "var(--color-muted)" : null)); it.appendChild(document.createTextNode(KINDS[k].code)); lr.appendChild(it);
+    });
+  }
+
+  // ================= alarms panel =================
+  var alarmsEl = document.getElementById("alarms");
+  function drawAlarms() {
+    while (alarmsEl.firstChild) alarmsEl.removeChild(alarmsEl.firstChild);
+    document.getElementById("tabAlarms").textContent = t("alarms") + " (" + activeAlarms().length + ")";
+    activeAlarms().slice().reverse().forEach(function (a) {
+      var li = h("li"), b = h("button", "alarm" + (a.example ? " example" : "")); b.type = "button"; b.setAttribute("aria-pressed", String(selected && selected.type === "alarm" && selected.id === a.id));
+      var ib = h("span", "ib"); ib.appendChild(iconHtml(a.kind)); b.appendChild(ib);
+      var body = h("span"); body.appendChild(h("div", "tt", pick(KINDS[a.kind])));
+      body.appendChild(h("div", "loc", whereText(a)));
+      var meta = h("div", "meta"); meta.appendChild(h("span", "measured", KINDS[a.kind].code)); meta.appendChild(h("span", null, a.src)); var sn = h("span", null, t("dSince") + " "); var bd = document.createElement("bdi"); bd.dir = "ltr"; bd.textContent = pick(a.since); sn.appendChild(bd); meta.appendChild(sn); body.appendChild(meta);
+      b.appendChild(body); b.addEventListener("click", function () { select({ type: "alarm", id: a.id }, true); });
+      li.appendChild(b); alarmsEl.appendChild(li);
+    });
+    WATCH.forEach(function (w) {
+      var li = h("li"), b = h("button", "alarm unknown"); b.type = "button";
+      var ib = h("span", "ib"); ib.appendChild(iconHtml("unknown", "var(--color-muted)")); b.appendChild(ib);
+      var body = h("span"); body.appendChild(h("div", "tt", pick(w.text))); body.appendChild(h("div", "loc", lang === "ar" ? "مش عطل: الصحة مش معروفة" : "Not a fault: health is unknown"));
+      b.appendChild(body); b.addEventListener("click", function () { select({ type: "station", id: w.station }, true); });
+      li.appendChild(b); alarmsEl.appendChild(li);
+    });
+  }
+
+  function whereText(a) {
+    if (a.at === "c4") return lang === "ar" ? "على كابل الجسر ← ERPNext (فواتير)" : "On the cable Connector → ERPNext (invoices)";
+    return (lang === "ar" ? "جوه " : "Inside ") + S[a.at].name;
+  }
+  function renderHost(id) {
+    var ho = HOSTS.filter(function (x) { return x.id === id; })[0];
+    var hd = h("h2", null, ho.name); detailView.appendChild(hd); detailView.appendChild(h("p", "sub", pick(ho.sub) + (lang === "ar" ? ". شغال، حسب Datadog." : ". Up, as Datadog last reported.")));
+    detailView.appendChild(h("h3", null, lang === "ar" ? "مراقبات Datadog" : "Datadog checks"));
+    var ul = h("ul", "mon-list");
+    ho.own.concat(HOST_CHECKS).forEach(function (m) { var li = h("li"); li.appendChild(h("span", null, m)); li.appendChild(h("span", "chip ok", "OK")); ul.appendChild(li); });
+    if (ho.id === "lab01") CORE_CHECKS.forEach(function (m) { var li = h("li"); li.appendChild(h("span", null, "Backend-Core: " + m)); var bad = demo && m === "p95 latency"; li.appendChild(h("span", "chip " + (bad ? "bad" : "ok"), bad ? (lang === "ar" ? "إنذار (مثال)" : "Alert (example)") : "OK")); ul.appendChild(li); });
+    detailView.appendChild(ul);
+    detailView.appendChild(h("p", "sub", lang === "ar" ? "مراقبات السيرفر الـ 8 بتراقب كل السيرفرات مع بعض." : "The 8 host checks watch every server at once."));
+    return hd;
+  }
+
+  // ================= selection and detail =================
+  var alarmsView = document.getElementById("alarmsView"), eventsView = document.getElementById("eventsView"), detailView = document.getElementById("detailView"), tabsEl = document.querySelector(".tabs");
+  var lastFocus = null;
+  function applySelection() {
+    var selStation = null, selCable = null, selAlarm = null;
+    if (selected && selected.type === "station") selStation = selected.id;
+    if (selected && selected.type === "alarm") { selAlarm = activeAlarms().filter(function (a) { return a.id === selected.id; })[0]; selCable = selAlarm.at.charAt(0) === "c" ? selAlarm.at : null; selStation = selAlarm.station; }
+    Object.keys(stationEls).forEach(function (k) {
+      var related = !selected || k === selStation || (selCable && (CABLES.filter(function (c) { return c.id === selCable; })[0].b === k));
+      stationEls[k].classList.toggle("dim", !related); stationEls[k].setAttribute("aria-pressed", String(k === selStation));
+    });
+    Object.keys(cablePaths).forEach(function (k) { cablePaths[k].classList.toggle("dim", !!selected && k !== selCable && !(selStation && CABLES.filter(function (c) { return c.id === k && (c.a === selStation || c.b === selStation); }).length)); });
+    Object.keys(pinEls).forEach(function (k) { pinEls[k].classList.toggle("on", selAlarm && selAlarm.id === k); });
+  }
+  function dl(pairs) { var d = h("dl", "kv"); pairs.forEach(function (p) { d.appendChild(h("dt", null, p[0])); var dd = h("dd"); if (typeof p[1] === "string") dd.textContent = p[1]; else dd.appendChild(p[1]); d.appendChild(dd); }); return d; }
+  function renderDetail() {
+    while (detailView.firstChild) detailView.removeChild(detailView.firstChild);
+    var back = h("button", null, t("back")); back.type = "button"; back.addEventListener("click", function () { select(null, true); }); detailView.appendChild(back);
+    var hd;
+    if (selected.type === "host") { hd = renderHost(selected.id); }
+    else if (selected.type === "alarm") {
+      var a = activeAlarms().filter(function (x) { return x.id === selected.id; })[0];
+      hd = h("h2", null, pick(KINDS[a.kind])); detailView.appendChild(hd);
+      var where = whereText(a);
+      detailView.appendChild(dl([[t("dWhere"), where], [t("dKind"), KINDS[a.kind].code], [t("dFrom"), a.src], [t("dSince"), pick(a.since)]]));
+      detailView.appendChild(h("h3", null, t("dPath")));
+      var tr = h("div", "trace");
+      (a.at === "c4" ? PATH : a.at === "core" ? ["pos", "core"] : [a.at]).forEach(function (sid, i, arr) { var sp = h("span", (a.at === "c4" ? sid === "erp" : sid === a.at) ? "at" : null, S[sid].name); tr.appendChild(sp); if (i < arr.length - 1) tr.appendChild(h("i", null, "→")); });
+      detailView.appendChild(tr);
+      var m = h("div", "msg", a.msg); m.dir = "ltr"; detailView.appendChild(h("h3", null, a.src)); detailView.appendChild(m);
+      if (a.src === "Sentry") detailView.appendChild(h("p", "gapline", t("gapLine")));
+      var link = h("a", null, a.src === "Sentry" ? t("open") : (lang === "ar" ? "افتح في Datadog" : "Open in Datadog")); link.href = "#"; link.addEventListener("click", function (e) { e.preventDefault(); }); detailView.appendChild(link);
+      playGesture(a);
+    } else {
+      var s = S[selected.id]; hd = h("h2", null, s.name); detailView.appendChild(hd); detailView.appendChild(h("p", "sub", pick(s.role)));
+      if (s.ledger) { detailView.appendChild(h("p", null, lang === "ar" ? "دفتر الحسابات، خارجي. الجسر بس اللي يوصله." : "The ledger, outside Retail Tower. Only the bridge may reach it.")); }
+      else {
+        detailView.appendChild(h("h3", null, t("ports")));
+        var pairs = ["sentry", "datadog", "github", "jira"].map(function (src, i) { var ps = portState(s, src), st = PORT_STATE[ps]; var c = h("span", "chip " + (ps === "sending" || ps === "ok" ? "ok" : ps === "alert" ? "bad" : "idle"), pick(st)); return [pick(SOURCES[i].name), c]; });
+        detailView.appendChild(dl(pairs));
+        var my = activeAlarms().filter(function (a) { return a.station === selected.id; });
+        detailView.appendChild(h("h3", null, t("alarms") + ": " + my.length));
+        my.forEach(function (a) { var b = h("button", "alarm"); b.type = "button"; var ib = h("span", "ib"); ib.appendChild(iconHtml(a.kind)); b.appendChild(ib); var bd = h("span"); bd.appendChild(h("div", "tt", pick(KINDS[a.kind]))); bd.appendChild(h("div", "loc measured", KINDS[a.kind].code)); b.appendChild(bd); b.addEventListener("click", function () { select({ type: "alarm", id: a.id }, true); }); detailView.appendChild(b); });
+        detailView.appendChild(dl([[lang === "ar" ? "فحوصات الصحة" : "Health checks", s.checks == null ? (lang === "ar" ? "مش محتاج" : "Not needed") : s.checks === 0 ? (lang === "ar" ? "مفيش، فالصحة مش معروفة" : "None, so health is unknown") : s.checks + " OK"], ["CI 7d", s.ci], [lang === "ar" ? "مهام مفتوحة" : "Open tasks", String(s.tasks)], [lang === "ar" ? "طلبات تعديل" : "Pull requests", String(s.prs)]]));
+      }
+    }
+    hd.tabIndex = -1; return hd;
+  }
+  function select(sel, byKey) {
+    if (sel) lastFocus = document.activeElement;
+    selected = sel; applySelection(); drawAlarms();
+    detailView.hidden = !sel; alarmsView.hidden = !!sel || activeTab !== "alarms"; eventsView.hidden = !!sel || activeTab !== "events"; tabsEl.hidden = !!sel;
+    if (sel) { var hd = renderDetail(); if (byKey) hd.focus(); }
+    else if (byKey && lastFocus && document.contains(lastFocus)) lastFocus.focus();
+  }
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && selected) select(null, true); });
+  var activeTab = "alarms";
+  function setTab(tb) { activeTab = tb; document.getElementById("tabAlarms").setAttribute("aria-selected", String(tb === "alarms")); document.getElementById("tabEvents").setAttribute("aria-selected", String(tb === "events")); alarmsView.hidden = tb !== "alarms"; eventsView.hidden = tb !== "events"; }
+  document.getElementById("tabAlarms").addEventListener("click", function () { setTab("alarms"); });
+  document.getElementById("tabEvents").addEventListener("click", function () { setTab("events"); });
+
+  // ================= motion: one gesture per kind =================
+  function dotAlong(path, color, dur, opts) {
+    if (paused) return; opts = opts || {};
+    var c = el("circle", { r: opts.r || 5, fill: color }); gFx.appendChild(c);
+    var len = path.getTotalLength(), start = performance.now(), gated = false;
+    (function step(now) {
+      var k = Math.min(1, (now - start) / dur), tt = k;
+      if (opts.bounceAt != null) { tt = k < .5 ? k * 2 * opts.bounceAt : opts.bounceAt * (1 - (k - .5) * 2); if (k >= .5 && !gated) { gated = true; gateEl.classList.add("on"); setTimeout(function () { gateEl.classList.remove("on"); }, 900); } }
+      if (opts.stall) tt = Math.min(opts.stall, 1 - Math.pow(1 - k, 3));
+      var p = path.getPointAtLength(tt * len); c.setAttribute("cx", p.x); c.setAttribute("cy", p.y);
+      if (opts.fade) c.setAttribute("opacity", String(1 - k));
+      if (k < 1 && !paused) requestAnimationFrame(step); else { c.remove(); if (opts.done) opts.done(); }
+    })(start);
+  }
+  function upToBus(stationId, color, srcIdx) {
+    var s = S[stationId]; var p = el("path", { d: "M" + cx(s) + " " + s.y + " V150 H" + (SOURCES[srcIdx || 0].x + 135) + " V114", fill: "none" }); gFx.appendChild(p);
+    dotAlong(p, color, 1300, { r: 4, done: function () { p.remove(); } });
+  }
+  function downFromBus(srcId, stationId, color) {
+    var so = SOURCES.filter(function (x) { return x.id === srcId; })[0], s = S[stationId];
+    var p = el("path", { d: "M" + (so.x + 135) + " 114 V150 H" + cx(s) + " V" + s.y, fill: "none" }); gFx.appendChild(p);
+    dotAlong(p, color, 1400, { r: 4, done: function () { p.remove(); } });
+  }
+  function playGesture(a) {
+    if (paused) return;
+    var c4 = cablePaths.c4;
+    if (a.kind === "refused") dotAlong(c4, "var(--color-bad)", 1800, { bounceAt: .85, done: function () { upToBus("conn", "var(--color-bad)"); } });
+    else if (a.kind === "timeout") dotAlong(c4, "var(--color-bad)", 2400, { stall: .55, fade: true, done: function () { upToBus("conn", "var(--color-bad)"); } });
+    else if (a.kind === "down") dotAlong(c4, "var(--color-bad)", 1300, { done: function () { ledgerEl.classList.add("down"); setTimeout(function () { ledgerEl.classList.remove("down"); }, 1600); upToBus("conn", "var(--color-bad)"); } });
+    else if (a.kind === "reset") { c4.style.strokeDasharray = "30 40 400"; setTimeout(function () { c4.style.strokeDasharray = ""; }, 1000); upToBus("conn", "var(--color-bad)"); }
+    else if (a.kind === "latency") { var sc = S.core, r2 = el("rect", { x: sc.x, y: sc.y, width: sc.w, height: sc.h, rx: 10, fill: "none", stroke: "var(--color-bad)", "stroke-width": 3, "class": "scan" }); gFx.appendChild(r2); setTimeout(function () { r2.remove(); upToBus("core", "var(--color-bad)", 1); }, 900); }
+    else if (a.kind === "bug") { var s = S.admin, r = el("rect", { x: s.x + 2, y: s.y, width: s.w - 4, height: 2, "class": "scan" }); gFx.appendChild(r); var st = performance.now(); (function step(now) { var k = Math.min(1, (now - st) / 700); r.setAttribute("y", s.y + k * (s.h - 2)); if (k < 1 && !paused) requestAnimationFrame(step); else { r.remove(); upToBus("admin", "var(--color-bad)"); } })(st); }
+  }
+  function playEvent(e) {
+    if (paused) return;
+    if (e.k === "alarm") { var a = activeAlarms().filter(function (x) { return x.id === e.alarm; })[0]; playGesture(a); announce(pick(e.what)); }
+    else downFromBus(e.src, e.at, KIND_CSS[e.k]);
+  }
+
+  // ================= events feed =================
+  var trail = document.getElementById("trail"), ei = 0, shown = [];
+  function renderTrail() {
+    while (trail.firstChild) trail.removeChild(trail.firstChild);
+    shown.forEach(function (it) { var e = it.e, li = h("li", it.fresh ? "new" : null); it.fresh = false; li.style.setProperty("--kind", KIND_CSS[e.k]);
+      var meta = h("div", "meta"); meta.appendChild(h("span", "when measured", fmt(it.at))); if (e.key) meta.appendChild(h("span", "measured", e.key)); li.appendChild(meta); li.appendChild(h("div", "what", pick(e.what))); trail.appendChild(li); });
+  }
+  function push(silent) { var e = EVENTS[ei++ % EVENTS.length]; shown.unshift({ e: e, at: new Date(), fresh: !silent }); if (shown.length > 8) shown.pop(); renderTrail(); if (!silent) playEvent(e); }
+
+  // ================= verdict, pulse, lower =================
+  function drawVerdict() {
+    var v = document.getElementById("verdict"); while (v.children.length > 1) v.removeChild(v.lastChild);
+    document.getElementById("vline").textContent = lang === "ar" ? "الـ Backend سليم وتطبيق الكاشير مفيهوش أخطاء. كابل الفواتير من الجسر لـ ERPNext عليه 4 أعطال في بيئة التجربة." : "The backend is healthy and the cashier app reports no errors. The invoice cable from the bridge to ERPNext has 4 faults in the test lab.";
+    [["ok", "var(--color-ok)", { en: "No errors reported", ar: "مفيش أخطاء" }], (demo ? ["latency", "var(--color-bad)", { en: "Slow responses (example)", ar: "ردود بطيئة (مثال)" }] : ["ok", "var(--color-ok)", { en: "Healthy, 7 checks OK", ar: "سليم، 7 فحوصات تمام" }]), ["reset", "var(--color-bad)", { en: "4 faults on the invoice cable", ar: "4 أعطال على كابل الفواتير" }]].forEach(function (l, i) {
+      var d = h("div", "light"); d.appendChild(h("div", "k", t("lights")[i])); var vv = h("div", "v"); vv.appendChild(iconHtml(l[0], l[1])); vv.appendChild(document.createTextNode(pick(l[2]))); d.appendChild(vv); v.appendChild(d);
+    });
+  }
+  var TL = [
+    [14, 4, 21, 11, 1, 41, 26, 23, 34, 15, 17, 26, 42, 10],
+    [11, 13, 3, 11, 12, 26, 26, 20, 61, 48, 54, 132, 480, 0],
+    [2, 2, 0, 1, 2, 0, 1, 1, 2, 0, 1, 3, 2, 0],
+    [11, 1, 0, 2, 0, 4, 13, 98, 6, 1, 15, 23, 13, 0]
+  ];
+  function trace(data, opts) {
+    var W = 240, H = 58, n = data.length, sorted = data.slice(0, n - 1).sort(function (a, b) { return a - b; });
+    var med = sorted[Math.floor(sorted.length / 2)] || 0, cap = opts.fails ? Math.max(4, Math.max.apply(null, data)) : Math.max(med * 3, sorted[Math.floor(sorted.length * .8)] || 1, 1);
+    var y = function (v) { return H - Math.min(v, cap) / cap * (H - 6) - 2; }, x = function (i) { return i * W / (n - 1); };
+    var sv = el("svg", { viewBox: "0 0 " + W + " " + (H + 12), "class": "trace", preserveAspectRatio: "none", role: "img", "aria-label": data.join(", ") });
+    var lo = opts.fails ? 0 : sorted[Math.floor(sorted.length * .25)], hi = opts.fails ? 2 : sorted[Math.floor(sorted.length * .75)];
+    sv.appendChild(el("rect", { x: 0, y: y(hi), width: W, height: Math.max(2, y(lo) - y(hi)), "class": "band" }));
+    sv.appendChild(el("line", { x1: 0, y1: H, x2: W, y2: H, "class": "axis" }));
+    var pts = data.slice(0, n - 1).map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); });
+    sv.appendChild(el("polygon", { points: "0," + H + " " + pts.join(" ") + " " + x(n - 2).toFixed(1) + "," + H, "class": "area" }));
+    sv.appendChild(el("polyline", { points: pts.join(" "), "class": "line" + (opts.fails ? " badline" : "") }));
+    var peak = -1; data.slice(0, n - 1).forEach(function (v, i) { if (!opts.fails && v > cap && (peak < 0 || v > data[peak])) peak = i; });
+    data.slice(0, n - 1).forEach(function (v, i) {
+      if (opts.fails && v > 2) sv.appendChild(el("circle", { cx: x(i), cy: y(v), r: 3, "class": "badpt" }));
+      if (!opts.fails && v > cap) { var m = el("circle", { cx: x(i), cy: 3, r: 3, "class": "spike" }); m.appendChild(el("title", null, v + ": " + t("spikeNote"))); sv.appendChild(m); }
+    });
+    if (peak >= 0) sv.appendChild(el("text", { x: Math.min(x(peak), W - 4), y: H + 11, "text-anchor": "end" }, (lang === "ar" ? "قفزة " : "spike ") + data[peak]));
+    sv.appendChild(el("circle", { cx: x(n - 2), cy: y(data[n - 2]), r: 3.4, "class": "now" }));
+    return sv;
+  }
+  function drawPulse() {
+    var p = document.getElementById("pulse"); while (p.firstChild) p.removeChild(p.firstChild);
+    p.setAttribute("aria-label", t("tlTitle"));
+    TL.forEach(function (data, i) {
+      var d = h("div"), hd = h("div", "trace-h"); hd.appendChild(h("span", "k", t("tl")[i][0]));
+      var v = h("span", "trace-v"); v.dir = "ltr"; v.textContent = String(data[data.length - 2]); var sm = h("small", null, t("yday")); v.appendChild(sm); hd.appendChild(v); d.appendChild(hd);
+      d.appendChild(trace(data, { fails: i === 2 }));
+      var avg = data.slice(0, data.length - 1).reduce(function (a, b) { return a + b; }, 0) / (data.length - 1);
+      d.appendChild(h("div", "note", t("tl")[i][1] + ". " + t("avg") + " " + avg.toFixed(1))); p.appendChild(d);
+    });
+    return;
+    [[t("pTasks"), [10, 24, 31, 156], t("pTasksN")], [t("pShip"), [14, 39, 113, 172], t("pShipN")]].forEach(function (x) {
+      var d = h("div"); d.appendChild(h("div", "k", x[0])); var b = h("div", "big", String(x[1][3])); b.dir = "ltr"; d.appendChild(b);
+      var w = h("div", "weeks"); w.setAttribute("role", "img"); w.setAttribute("aria-label", x[1].join(", ")); var max = Math.max.apply(null, x[1]);
+      x[1].forEach(function (v) { var i = h("i"); i.title = String(v); w.appendChild(i); setTimeout(function () { i.style.transform = "scaleY(" + Math.max(.06, v / max) + ")"; }, 200); });
+      d.appendChild(w); var tn = h("div", "tiny"); tn.appendChild(h("span", null, t("wk")[0])); tn.appendChild(h("span", null, t("wk")[1])); d.appendChild(tn); d.appendChild(h("div", "note", x[2])); p.appendChild(d);
+    });
+    var dd = h("div"); dd.appendChild(h("div", "k", t("pDeploy"))); dd.appendChild(h("div", "big", t("pDeployV"))); dd.appendChild(h("div", "note", t("pDeployN"))); p.appendChild(dd);
+    var g = h("div"); g.appendChild(h("div", "k", t("pGaps"))); var ul = h("ul", "gaps"); t("pGapsL").forEach(function (x) { ul.appendChild(h("li", null, x)); }); g.appendChild(ul); g.appendChild(h("div", "note", t("pGapsN"))); p.appendChild(g);
+  }
+  function drawLower() {
+    var tb = document.getElementById("svcTbl"); while (tb.firstChild) tb.removeChild(tb.firstChild);
+    var tr = h("tr"); t("th").forEach(function (x) { tr.appendChild(h("th", null, x)); }); tb.appendChild(tr);
+    [["POS", 43, 8, 36, 1], ["Admin Console", 21, 7, 36, 0], ["Backend-Core", 10, 21, 36, 0], ["Connector", 8, 62, 68, 1]].forEach(function (r) { var row = h("tr"); r.forEach(function (x, i) { row.appendChild(h("td", i ? "n" : null, String(x))); }); tb.appendChild(row); });
+    var river = document.getElementById("river"); while (river.firstChild) river.removeChild(river.firstChild);
+    [[210, "var(--color-muted)"], [43, "var(--color-cool)"], [30, "var(--color-ink-2)"], [254, "var(--color-ok)"]].forEach(function (j, i) { var c = h("div", "col"); c.style.setProperty("--c", j[1]); c.appendChild(h("div", "n", String(j[0]))); c.appendChild(h("div", "l", t("jira")[i])); river.appendChild(c); });
+    var lg = document.getElementById("ciLegend"); while (lg.firstChild) lg.removeChild(lg.firstChild);
+    [["passed", 838, "var(--color-ok)", ""], ["failed", 23, "var(--color-bad)", "f"], ["cancelled", 110, "var(--color-rule-2)", ""], ["skipped", 29, "var(--color-cool-soft)", ""]].forEach(function (x) { var s = h("span", x[3] || null, t(x[0]) + " " + x[1]); s.style.setProperty("--c", x[2]); lg.appendChild(s); });
+    document.getElementById("stripWrap").setAttribute("aria-label", lang === "ar" ? "آخر 72 تشغيلة: معظمها نجح، 2 فشلوا." : "Last 72 runs: most passed, 2 failed.");
+    var hs = document.getElementById("hosts"); while (hs.firstChild) hs.removeChild(hs.firstChild);
+    [[{ en: "Backend-Core", ar: "Backend-Core" }, demo ? "6/7" : "7/7", demo ? "bad" : "ok"], [{ en: "Servers (each of 3)", ar: "السيرفرات (كل واحد من 3)" }, "8/8", "ok"], [{ en: "Databases and cache", ar: "قواعد البيانات والكاش" }, "3/3", "ok"], [{ en: "Admin Console", ar: "لوحة الإدارة" }, lang === "ar" ? "مفيش" : "none", "idle"], [{ en: "ERPNext-Connector", ar: "الجسر" }, lang === "ar" ? "مفيش" : "none", "idle"], [{ en: "POS", ar: "POS" }, lang === "ar" ? "مش محتاج" : "not needed", ""]].forEach(function (x) { var r = h("div", "hrow"); r.appendChild(h("span", null, pick(x[0]))); r.appendChild(h("span", "chip " + x[2] + " measured", x[1])); hs.appendChild(r); });
+  }
+  var strip = document.getElementById("strip");
+  "csssssscfssssssfkskskkkcsccskkscscsscssssscsskssssssssssssskkkkkkskkkkss".split("").forEach(function (ch) { var c = h("div", "cell" + (ch === "f" ? " f" : "")); c.style.setProperty("--c", { s: "var(--color-ok)", f: "var(--color-bad)", c: "var(--color-rule-2)", k: "var(--color-cool-soft)" }[ch]); strip.appendChild(c); });
+
+  // ================= language, theme, pause =================
+  function applyLang() {
+    var root = document.documentElement; root.lang = lang; root.dir = lang === "ar" ? "rtl" : "ltr";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (n) { n.textContent = t(n.getAttribute("data-i18n")); });
+    var lb = document.getElementById("lang"); lb.textContent = lang === "en" ? "عربي" : "English"; lb.lang = lang === "en" ? "ar" : "en";
+    document.getElementById("theme").textContent = root.getAttribute("data-theme") === "dark" ? t("light") : t("dark");
+    document.getElementById("pause").textContent = paused ? t("resume") : t("pause");
+    document.getElementById("demoDD").textContent = demo ? t("demoOn") : t("demo");
+    document.querySelector("[data-i18n=chipAlarms]").textContent = lang === "ar" ? activeAlarms().length + " إنذارات شغالة" + (demo ? " (منهم مثال)" : "") : activeAlarms().length + " active alarms" + (demo ? " (one is an example)" : "");
+    document.getElementById("asof").textContent = t("asof") + fmt(new Date());
+    drawGrid(); drawLegend(); drawAlarms(); drawVerdict(); drawPulse(); drawLower(); renderTrail();
+    if (selected) renderDetail();
+  }
+  document.getElementById("demoDD").addEventListener("click", function () {
+    demo = !demo; this.setAttribute("aria-pressed", String(demo)); applyLang();
+    if (demo) { playGesture(DEMO_ALARM); select({ type: "alarm", id: "d1" }); } else if (selected && selected.id === "d1") select(null);
+  });
+  document.getElementById("lang").addEventListener("click", function () { lang = lang === "en" ? "ar" : "en"; applyLang(); });
+  document.getElementById("theme").addEventListener("click", function () { var r = document.documentElement, dark = r.getAttribute("data-theme") === "dark"; r.setAttribute("data-theme", dark ? "light" : "dark"); this.textContent = dark ? t("dark") : t("light"); });
+  function setPaused(v) { paused = v; app.classList.toggle("paused", v); document.getElementById("pause").textContent = v ? t("resume") : t("pause"); document.getElementById("replayChip").style.visibility = v ? "hidden" : "visible"; }
+  document.getElementById("pause").addEventListener("click", function () { setPaused(!paused); });
+  var visible = true;
+  document.addEventListener("visibilitychange", function () { visible = !document.hidden; });
+
+  applyLang(); setPaused(paused);
+  for (var k = 0; k < 4; k++) push(true);
+  setInterval(function () { if (!paused && visible) push(false); }, 6000);
+  setTimeout(function () { push(false); }, 1200);
+})();
+</script>
+</body>
+</html>
