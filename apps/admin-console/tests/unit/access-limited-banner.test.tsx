@@ -2,7 +2,7 @@ import { setLocale } from "@/i18n/locale";
 import { createQueryClient } from "@/lib/query";
 import { AccessLimitedBanner } from "@/shell/AccessLimitedBanner";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
@@ -43,6 +43,24 @@ function renderBanner() {
   );
 }
 
+/**
+ * Wait until the read was made AND its query settled and re-rendered, so a "shows
+ * nothing" assertion runs after the banner could have appeared (a bare
+ * `waitFor(read called)` returns as soon as queryFn starts, before any state update).
+ */
+async function settled(): Promise<void> {
+  await waitFor(() => expect(read).toHaveBeenCalled());
+  await act(async () => {
+    await Promise.allSettled(read.mock.results.map((r) => r.value));
+    await new Promise((done) => setTimeout(done, 0));
+  });
+}
+
+function expectNoBanner(container: HTMLElement): void {
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(container.textContent).toBe("");
+}
+
 beforeEach(() => {
   role = "owner";
   activeTenant = TENANT_ID;
@@ -68,29 +86,29 @@ describe("AccessLimitedBanner", () => {
   test("unrestricted tenant shows nothing", async () => {
     read.mockResolvedValue(state({ state: "unrestricted" }));
     const { container } = renderBanner();
-    await waitFor(() => expect(read).toHaveBeenCalled());
-    expect(container.textContent).toBe("");
+    await settled();
+    expectNoBanner(container);
   });
 
   test.each([404, 429, 500, 0])("a %i answer shows nothing", async (status) => {
     read.mockResolvedValue({ status, data: undefined });
     const { container } = renderBanner();
-    await waitFor(() => expect(read).toHaveBeenCalled());
-    expect(container.textContent).toBe("");
+    await settled();
+    expectNoBanner(container);
   });
 
   test("a thrown read shows nothing", async () => {
     read.mockRejectedValue(new Error("offline"));
     const { container } = renderBanner();
-    await waitFor(() => expect(read).toHaveBeenCalled());
-    expect(container.textContent).toBe("");
+    await settled();
+    expectNoBanner(container);
   });
 
   test("a body that is not the contract shape shows nothing", async () => {
     read.mockResolvedValue({ status: 200, data: { state: "weird" } });
     const { container } = renderBanner();
-    await waitFor(() => expect(read).toHaveBeenCalled());
-    expect(container.textContent).toBe("");
+    await settled();
+    expectNoBanner(container);
   });
 
   test.each(["store_staff", "cashier", undefined])("role %s never asks", (r) => {
