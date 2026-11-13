@@ -49,6 +49,14 @@ not execute still fails it. Promote it to a gate by making the step required
 once it has been green for a while. Run it locally with
 `bash tools/schemathesis/run.sh operator` after `stack-up.sh`.
 
+Operator mode passes `--suppress-health-check=filter_too_much` (RT-1387): the refund-tender
+schema's `if`/`then` rules made Hypothesis filter too many generated bodies for
+`recordCreditSaleReversal` once RT-1343 added `voucher`, which stopped that operation early and
+made the job report "could not run" (RT-1382). Gate and report keep every health check. The
+suppression applies to every operator operation, so a sudden drop in a file's "generated" count in
+the operator log is the signal to re-check generation.
+`tools/schemathesis/__tests__/operator-health-check.test.sh` checks the flag per mode.
+
 A NUL byte in a stored text field is a 400 `validation_error`: the POS sale DTOs
 refuse it, and the global filter maps Postgres 22021 to 400 as a backstop.
 
