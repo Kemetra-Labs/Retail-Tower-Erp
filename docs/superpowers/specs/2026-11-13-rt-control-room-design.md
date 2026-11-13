@@ -109,7 +109,7 @@ Two modes (owner decision, 2026-11-13): a switch in the header, **Ops | Story**.
 
 Language: every string in both languages; `lang` and `dir` on the root; the diagram stays left to right in both; digits are Latin; Arabic text inside the diagram is pure Arabic or isolated.
 
-Accessibility: stations, alarm pins and hosts are focusable buttons; Enter opens the detail and moves focus to its heading; Escape returns focus; one quiet `role="status"` announces only alarm changes, at most every 15 seconds; a table view exists for the map.
+Accessibility: stations, alarm pins and hosts are focusable buttons; Enter opens the detail and moves focus to its heading; Escape or Back returns focus to the element that opened the detail if it is visible, else to the pin with the same alarm id, else to the active tab button, never to the page body; one quiet `role="status"` announces only alarm changes, at most every 15 seconds; a table view exists for the map.
 
 ## 6. Data contract (Port, read-only)
 
@@ -142,10 +142,10 @@ Port-side gaps, each a separate follow-up, not part of this build:
 
 ## 7b. Rules settled after the builder check (Claude's calls)
 
-- **Data layer.** First load fetches the 14-day window (13 completed days plus today) with filtered searches (date rules on `mergedAt`, `createdAt`, `resolutionDate`, paged), and the last 72 runs sorted by `createdAt`. Results are cached in memory; each 60-second poll fetches only entities with `$updatedAt` after the last poll and merges them; every fifth poll is a full poll in which the alarm blueprints (`sentryIssue` with status `unresolved`, `datadogMonitor`) REPLACE the cached collections, so resolved or deleted alarms disappear. A heavier first load is acceptable. A day is a Cairo calendar day (`Africa/Cairo`); the trace's last full day is "yesterday", today is shown as partial.
+- **Data layer.** First load fetches the 14-day window (13 completed days plus today) with filtered searches (date rules on `mergedAt`, `createdAt`, `resolutionDate`, paged), and the last 72 runs sorted by `createdAt`. Results are cached in memory; each 60-second poll fetches only entities with `$updatedAt` after the last poll and merges them; every fifth poll is a full poll in which the alarm blueprints (`sentryIssue` with status `unresolved`, `datadogMonitor`) REPLACE the cached collections, so resolved or deleted alarms disappear. A delta merges and never removes. A collection whose fetch failed or came back incomplete is "unchanged", never "empty": only a present result (including an empty one) is authoritative, so a failed read can never clear an alarm. A heavier first load is acceptable. A day is a Cairo calendar day (`Africa/Cairo`); the trace's last full day is "yesterday", today is shown as partial.
 - **Verdict lights.** A light is red when its scope has an open alarm, amber when its health is unknown or a source is stale, and neutral (never green) when it has no alarm and is watched. Cashier app = POS (no Datadog by design, so it reads "No errors reported", never "healthy"); Backend = Backend-Core; Accounts = ERPNext-Connector plus the Invoices cable. The sentence is assembled from the three lights plus the scope ("in the test lab").
-- **Alarm placement and kind.** Only `sentryIssue` with status `unresolved` counts. Kind comes from the title: `403` or `Forbidden` is Refused; `502`, `503` or `Bad Gateway` is Not answering; `Timeout` or `timed out` is Took too long; `reset` or `aborted` is Connection cut; anything else is Code error. An issue of the Connector whose title targets an ERPNext route (`/erpnext/`) is pinned on the Invoices cable; every other issue sits inside its station. The request path is the static allowed path up to that hop. Datadog monitors in `Alert`, `Warn` or `No Data` become alarms on the station they belong to. A monitor with no workload is placed on a host only when its title names one (`lab-03 Redis instance down`) or a `host:` tag does (none exists today; checked against Port on 2026-11-13); otherwise it is **unlocated** by design. The 8 host-pack monitors are multi-host (`{{host.name}}`) and Port does not say which host alerts, so they are counted, shown in the verdict and listed under "Not placed on the map", never pinned and never guessed.
-- **Replay and Events.** Replay is a reconstruction, not a history: Port keeps no change log, so only entities that still exist and changed in the last 24 hours are animated once, in time order, under the chip "Replaying recent changes (partial)"; resolved Sentry issues and past monitor states cannot be replayed. After that only diffs between polls animate. `useBoard` exposes `replaying` and `onReplayDone()`, and the diagram calls it when the last replayed event finishes, is cancelled, or is skipped by reduced motion. The Events tab lists those entities newest first (merges, CI results, Jira status changes, new Sentry issues, monitor state changes).
+- **Alarm placement and kind.** Only `sentryIssue` with status `unresolved` counts. Kind comes from the title: `403` or `Forbidden` is Refused; `502`, `503` or `Bad Gateway` is Not answering; `Timeout` or `timed out` is Took too long; `reset` or `aborted` is Connection cut; anything else is Code error. An issue of the Connector whose title targets an ERPNext route (`/erpnext/`) is pinned on the Invoices cable; every other issue sits inside its station. The request path is the static allowed path up to that hop. Datadog monitors in `Alert`, `Warn` or `No Data` become alarms on the station they belong to. A monitor with no workload is placed on a host only when its title names one (`lab-03 Redis instance down`) or a `host:` tag does. Host identifiers are the Datadog host names `lab-01`, `lab-02` and `lab-03`, used unchanged everywhere; a host name outside that map is never coerced to a known host (none exists today; checked against Port on 2026-11-13); otherwise it is **unlocated** by design. The 8 host-pack monitors are multi-host (`{{host.name}}`) and Port does not say which host alerts, so they are counted, shown in the verdict and listed under "Not placed on the map", never pinned and never guessed.
+- **Replay and Events.** Replay is a reconstruction, not a history: Port keeps no change log, so only entities that still exist and changed in the last 24 hours are animated once, in time order, under the chip "Replaying recent changes (partial)"; resolved Sentry issues and past monitor states cannot be replayed. After that only diffs between polls animate. `useBoard` exposes `replaying` and `onReplayDone()`, and the diagram calls it when the last replayed event finishes, is cancelled, or is skipped by reduced motion. The Events tab lists those entities newest first (merges, CI results, Jira status changes, new Sentry issues, monitor state changes). A monitor event that cannot be placed keeps its original title, carries an "Unlocated" label, is listed here and in the alarm panel under "Not placed on the map", and is never animated or given a station.
 - **Servers and tiers.** A small static architecture map in the plugin holds each service's tier and each host's station (lab-01 and lab-02 to Backend-Core, lab-03 to ERPNext). A Port `tier` property is a later, optional improvement.
 - **Freshness.** A source is fine when its newest change or completed sync is under 6 hours old, stale (amber) beyond that, unknown when the call fails or is forbidden. Whether normal viewers can read `/v1/integration` is checked early in the build; if not, freshness falls back to the newest `$updatedAt` only. "Sending" needs evidence (an event or a heartbeat monitor OK); "linked" means a project or workload relation exists with no evidence yet.
 - **Fonts.** Inter (400, 500, 600) and IBM Plex Sans Arabic (400, 500), subset to Latin and Arabic ranges, inlined. The built file's size is reported in the evidence; target under 1.5 MB.
@@ -164,17 +164,67 @@ Port-side gaps, each a separate follow-up, not part of this build:
 - Build and upload to Port as a new plugin `rt-control-room`, then add it to the Retail Tower Cockpit beside or in place of `ck_arch` (owner's choice at rollout).
 - Evidence on the RT issue: built file size, upload result, a screenshot in Port in both languages, and one real alarm traced from Sentry to the board.
 
-## 10. Design review proposals (RT-1386, owner decision needed)
+## 10. Design review (RT-1386 closeout): classification, previews and measurements
 
-Findings from a critique of mockup v13 on 2026-11-13. The v13 premium-clean direction is unchanged. These are proposals; none is applied to the mockup except the correctness fixes listed in RT-1386.
+Reviewed on 2026-11-13 against mockup v13 (premium clean, unchanged). Previews live in the mockup behind `?proposals=1`; without that parameter the approved Ops view is visually identical (checked by screenshot, and by hashing the diagram, alarm list, verdict, telemetry and lower panels against the pre-review file: equal once host ids were normalized). Since that hash the markup changed in three ARIA attributes only (see the last paragraph) and the light-theme chip text colors. Nothing below is built until the owner approves it.
 
-1. **Group the pins on the Invoices cable.** Four 20 px pins sit side by side on the Connector to ERPNext cable. Proposal: one badge showing the count (4), expanding on hover, focus or selection into the four kind icons. Every alarm keeps its row, path, source and time in the alarm panel. Risk: the kinds are hidden until expanded.
-2. **Progressive disclosure on stations.** Each station card carries 8 readings, a lamp row and a sparkline. Proposal: Ops keeps alarms, health checks, CI pass rate and open tasks on the card; PRs, merged, deploys, CI failures and the sparkline move to the selection panel. Cards get about 40 percent shorter and the diagram text can grow.
-3. **Narrow Port tiles.** At 640 px wide the diagram scales to about 0.46 and its text renders near 6 px. Proposal: below roughly 900 px the table view replaces the diagram (the table view already exists), with the alarm panel unchanged.
-4. **Story mode is specified but not mocked.** The owner chose Ops and Story modes with a manual tour; mockup v13 shows only Ops. Proposal: add a Story frame (large verdict, three lights, pins, Tour button) to the mockup before RT-1381 starts, so the owner approves what will be built.
-5. **State frames are not mocked.** Loading, empty, error and stale states exist only as plan tests. Proposal: add one frame each to the mockup, or a short state table to this design.
-6. **Unlocated alarms.** A monitor without a host tag is listed under "Not placed on the map". The alarm panel group is specified but not drawn.
-7. **Measured contrast.** Muted text on translucent panels (12 to 12.5 px) should be measured in the build against WCAG 2.2 AA in both themes; the mockup does not claim a ratio.
+| # | Proposal | Class | In the mockup | Needs |
+|---|---|---|---|---|
+| 1 | Group the 4 pins on the Invoices cable into one count badge | Recommended visual enhancement | Specimen ("Pin grouping") | Owner decision: hides kinds until expanded |
+| 2 | Progressive disclosure on station cards | Recommended visual enhancement | Not previewed | Owner decision: changes the approved card |
+| 3 | Table view below about 900 px | Recommended visual enhancement | Live table ("Table view for narrow tiles") | Owner decision on the breakpoint |
+| 4 | Story mode, manual tour | Owner decision required | Five-step tour | Owner approval of frames and copy |
+| 5 | Loading, empty, stale, error states | Essential correction (a gap in "unknown is never healthy") | Four frames | Owner approval of the look; the rules are not optional |
+| 6 | Unlocated alarms shown explicitly | Essential correction | Built. The example button "Example: an alarm Port cannot place" appears only with the previews, so the approved view is unchanged | None for the behavior |
+| 7 | WCAG 2.2 AA contrast | Essential correction for two light-theme chip colors (applied, chip text only); owner decision for hairlines | Measured; chip text fixed | Owner decision on hairlines |
+
+**Why 3 is not just polish.** The diagram is drawn on a 1240 px canvas. At 640 px it scales to about 0.46 and its 12 px labels render near 6 px (measured). At 900 px the scale is about 0.67 and 12 px labels render near 8 px (calculated from the layout). Below the breakpoint the table is the primary view; the alarm panel and verdict are unchanged. The table carries the same facts as the diagram: station, state, alarms, health checks, the four link states.
+
+**Responsive layout proposed.**
+
+| Tile width | Layout |
+|---|---|
+| 1200 px and up | Diagram and alarm panel side by side (as v13) |
+| 900 to 1199 px | Diagram full width, alarm panel under it (as v13) |
+| Below about 900 px | Table replaces the diagram; verdict lights in a row; telemetry two columns |
+| 640 px and below | One column everywhere (as v13); the Story tour card sits above the table |
+
+**Story mode storyboard (manual, nothing moves by itself).** The preview runs the tour over the Ops board (the calmer Story presentation in section 5, with a larger verdict and hidden readings, is still not mocked): one frame per step, Back, Next and Exit buttons, Escape exits, focus moves to Next on start. Stations and cables outside the frame dim to 30 percent. Text uses only facts already on the board; no frame invents a number. In the build every count (for example the 4 faults in step 5) is read from the board data; the mockup's 4 is the 2026-11-13 snapshot.
+
+| Step | Highlight | Plain sentence (English; the Arabic is in the mockup) |
+|---|---|---|
+| 1 | Everything | Four Retail Tower products and one accounting system. Every link is drawn, and every fault is pinned where it happens. |
+| 2 | POS, Admin Console, Sales and Catalog cables | Cashiers sell on the POS. Managers run stores in the Admin Console. Both talk only to Backend-Core. |
+| 3 | Backend-Core and its three cables | Sales and catalog changes pass through Backend-Core. Nothing skips it on the way to the ledger. |
+| 4 | Connector, ERPNext, Postings and Invoices | ERPNext is the accounting ledger, outside Retail Tower. Only the Connector may reach it. |
+| 5 | Invoices cable | Where something is wrong, the board shows where it comes from: 4 faults on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy. |
+
+**State rules (essential).** Red means a confirmed fault only. Amber means unknown, stale or missing monitoring. Neutral means watched and normal. No state ever reads green or healthy by default. Open conflict for the owner: RT-1386 and this rule say amber for unknown, but mockup v13 draws "no health check" and the Backend "Not sure" light in muted grey. The table preview follows the rule (amber). Decide whether v13 moves to amber or the rule moves to grey; the build follows the decision.
+
+| State | What the board does |
+|---|---|
+| Loading | Placeholders only, no numbers, no colour; `aria-busy` on the panel |
+| Empty | "No alarms", and stations with no health check still read unknown, so "no alarms" never means "all healthy" |
+| Stale | Amber chip with the last sync time; the last good snapshot stays visible with its time on every panel |
+| Error | Amber chip: the board cannot read Port; the last good snapshot stays; a failed read never clears an alarm; the board says alarms may be missing |
+
+**Measured contrast (WCAG 2.2 AA; ratios computed from the rendered tokens, 2026-11-13).**
+
+| Pair | Dark | Light | Need |
+|---|---|---|---|
+| Body text on card | 16.4 | 17.8 | 4.5 |
+| Secondary text on card | 11.7 | 11.6 | 4.5 |
+| Muted text (12 to 13 px notes, SVG labels) on card | 6.2 | 5.9 | 4.5 |
+| Link blue on card | 6.6 | 5.7 | 4.5 |
+| Fault red text on card | 6.3 | 5.3 | 4.5 |
+| Red text on the red-soft chip | 5.3 | **4.50 (borderline; axe-core 4.10 flags it)** | 4.5 |
+| Amber text on the amber-soft chip | 7.8 | **4.22 (fails)** | 4.5 |
+| Focus ring, fault stroke vs card (graphics) | 6.6, 6.3 | 5.9, 5.3 | 3 |
+| Station outline (`--color-rule-2`) vs card | 1.63 | 1.45 | 3 |
+| Quiet live cable vs card | 1.44 | 1.36 | 3 |
+
+Applied in the mockup and required in the build: in the light theme chip text uses `oklch(50% 0.14 70)` for amber (5.01) and `oklch(52% 0.19 28)` for red (5.11); the `--color-bad` and `--color-stale` tokens, and so every stroke and fill, are unchanged, and the dark theme needs no change. axe-core 4.10 then reports no violation in the approved view (both themes, EN and AR); it reports 190 to 290 text nodes as "incomplete" because of translucent backgrounds, so the ratios above are the contrast evidence. Owner decision: station outlines and the quiet live cable are below 3:1. They are decorative by the WCAG reading (every station and cable also has a text label and a state), and they are quiet by design in the ISA-101 direction (colour only for faults); raising them would make the approved look heavier.
+
+**Corrections made in the mockup in this pass.** Keyboard focus returns only to a visible opener, never to the body or a stale one; three axe-core findings in the approved markup are fixed (`aria-pressed="null"` on alarm buttons, `role="img"` on a diagram that contains buttons, an unnamed role on the telemetry group); host ids use one form (`lab-01`); an alarm Port cannot place is counted, shown under "Not placed on the map" and in the Events tab with an "Unlocated" label, and is never pinned or animated; with an example showing, the verdict sentence and the Backend light no longer say "healthy" while an example fault or an unplaced alarm exists. This is the one visible change to the verdict wording, and only while an example is on.
 
 Not recommended: more glow, nested cards, or motion without an event behind it.
-
