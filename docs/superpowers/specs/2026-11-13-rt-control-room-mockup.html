@@ -230,6 +230,7 @@ svg.grid { width: 100%; height: auto; display: block; direction: ltr; }
 .host:focus { outline: none; }
 .example-tag { fill: var(--color-stale); font: 500 11px var(--font-body); }
 .alarm.example { border-style: dashed; }
+.alarms .grp h3 { margin: var(--space-sm) 0 0; }
 .mon-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); font-size: var(--text-sm); }
 .mon-list li { display: flex; justify-content: space-between; gap: var(--space-sm); border-bottom: var(--rule-hair) solid var(--color-rule); padding: var(--space-2xs) 0; }
 .foot { color: var(--color-muted); font-size: var(--text-xs); margin-top: var(--space-md); }
@@ -249,6 +250,7 @@ svg.grid { width: 100%; height: auto; display: block; direction: ltr; }
   --color-bad: oklch(70% 0.17 28); --color-bad-soft: oklch(70% 0.17 28 / 0.13);
   --color-stale: oklch(82% 0.13 80); --color-stale-soft: oklch(82% 0.13 80 / 0.13);
   --color-focus: oklch(70% 0.14 275);
+  --color-bad-ink: var(--color-bad); --color-stale-ink: var(--color-stale); /* chip text: same as the strokes in dark */
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif; --font-body: var(--font-display);
   --font-outlier: "Inter", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
   --radius-card: 16px; --radius-pill: 10px; --shadow-card: 0 12px 32px oklch(0% 0 0 / 0.35);
@@ -261,6 +263,7 @@ svg.grid { width: 100%; height: auto; display: block; direction: ltr; }
   --color-cool: oklch(52% 0.17 275); --color-cool-soft: oklch(52% 0.17 275 / 0.1); --color-cool-ink: oklch(99% 0.002 270);
   --color-ok: oklch(38% 0.01 270); --color-ok-soft: oklch(0% 0 0 / 0.05);
   --color-bad: oklch(55% 0.19 28); --color-bad-soft: oklch(55% 0.19 28 / 0.1);
+  --color-bad-ink: oklch(52% 0.19 28); --color-stale-ink: oklch(50% 0.14 70); /* chip text only: 5.11:1 and 5.01:1 on the soft chips (the strokes keep the tokens above) */
   --shadow-card: 0 10px 28px oklch(0% 0 0 / 0.08);
 }
 body { letter-spacing: -0.005em; }
@@ -268,8 +271,8 @@ body { letter-spacing: -0.005em; }
 button { border-radius: var(--radius-pill); border-color: var(--color-rule); background: transparent; }
 button:hover { background: var(--color-rule); }
 .chip { border-radius: 999px; border-color: transparent; background: var(--color-ok-soft); padding: 2px var(--space-sm); }
-.chip.bad { background: var(--color-bad-soft); color: var(--color-bad); }
-.chip.stale { background: var(--color-stale-soft); color: var(--color-stale); }
+.chip.bad { background: var(--color-bad-soft); color: var(--color-bad-ink); }
+.chip.stale { background: var(--color-stale-soft); color: var(--color-stale-ink); }
 .chip.ok { background: var(--color-ok-soft); color: var(--color-ink-2); }
 .chip.idle { border: 1px dashed var(--color-rule-2); background: transparent; }
 .wordmark { font-weight: 600; letter-spacing: -0.03em; }
@@ -311,6 +314,27 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
 .alarm.unknown { border: 1px dashed var(--color-rule-2); background: transparent; }
 .tabs button[aria-selected="true"], .seg button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--color-cool); }
 .svc-tbl th, .svc-tbl td { border-bottom-color: var(--color-rule); }
+/* ===== PROPOSAL PREVIEWS: not approved, shown only with ?proposals=1. The approved Ops view is untouched without it. ===== */
+.proposals { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); padding: var(--space-sm) var(--space-md); border: 1px dashed var(--color-stale); border-radius: var(--radius-card); }
+.proposals strong { color: var(--color-stale); font-size: var(--text-xs); font-weight: 600; }
+.proposals button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--color-stale); }
+.pcard { border: 1px dashed var(--color-stale); border-radius: 12px; padding: var(--space-md); margin: 0 0 var(--space-md); }
+.pcard .k { color: var(--color-stale); font-size: var(--text-xs); font-weight: 600; }
+.pcard h3 { margin: var(--space-2xs) 0; color: var(--color-ink); font-size: var(--text-md); }
+.pcard p { margin: 0 0 var(--space-sm); color: var(--color-ink-2); font-size: var(--text-sm); }
+.pcard .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.pcard button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--space-sm); }
+.pgrid > div { border: 1px solid var(--color-rule-2); border-radius: 12px; padding: var(--space-md); min-height: 96px; }
+.pgrid .t { font-weight: 600; font-size: var(--text-sm); margin-bottom: var(--space-2xs); }
+.pgrid .d { font-size: var(--text-xs); color: var(--color-ink-2); }
+.pgrid .amber .t { color: var(--color-stale); }
+.pgrid .skel i { display: block; height: 10px; border-radius: 4px; background: var(--color-rule-2); margin: var(--space-sm) 0; }
+.pgrid .skel i:nth-child(2) { width: 70%; } .pgrid .skel i:nth-child(3) { width: 45%; }
+.ptable { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.ptable th, .ptable td { text-align: start; padding: var(--space-xs) var(--space-sm); border-bottom: 1px solid var(--color-rule); vertical-align: top; }
+.ptable th { color: var(--color-muted); font-size: var(--text-xs); font-weight: 500; }
+.ptable .bad { color: var(--color-bad); font-weight: 600; } .ptable .unk { color: var(--color-stale); }
 </style>
 </head>
 <body>
@@ -325,10 +349,21 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     <span class="chip stale" id="replayChip" data-i18n="replay"></span>
     <div class="grow"></div>
     <button id="demoDD" type="button" aria-pressed="false" data-i18n="demo"></button>
+    <button id="demoU" type="button" aria-pressed="false" data-i18n="demoU" hidden></button>
     <button id="lang" type="button" lang="ar">عربي</button>
     <button id="theme" type="button" data-i18n="light"></button>
     <button id="pause" type="button" data-i18n="pause"></button>
   </header>
+
+  <aside class="proposals" id="proposals" hidden aria-label="Proposal previews">
+    <strong id="pLabel"></strong>
+    <button type="button" id="pStory" aria-pressed="false"></button>
+    <button type="button" id="pTable" aria-pressed="false"></button>
+    <button type="button" id="pStates" aria-pressed="false"></button>
+    <button type="button" id="pPins" aria-pressed="false"></button>
+  </aside>
+  <div class="pcard" id="statesCard" hidden></div>
+  <div class="pcard" id="pinsCard" hidden></div>
 
   <div class="verdict" id="verdict"><div><div class="line" id="vline"></div><div class="gapnote" data-i18n="gapNote"></div></div></div>
   <div class="pulse" id="pulse"></div>
@@ -337,7 +372,13 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     <section>
       <h2 data-i18n="mapTitle"></h2>
       <p class="sub" data-i18n="mapSub"></p>
-      <svg class="grid" id="grid" viewBox="0 0 1240 820" role="img"></svg>
+      <div class="pcard" id="storyCard" role="region" hidden>
+        <div class="k" id="stBadge"></div>
+        <div aria-live="polite"><h3 id="stTitle"></h3><p id="stText"></p></div>
+        <div class="row"><button type="button" id="stPrev"></button><span class="measured" id="stStep"></span><button type="button" class="primary" id="stNext"></button><button type="button" id="stExit"></button></div>
+      </div>
+      <svg class="grid" id="grid" viewBox="0 0 1240 820" role="group" aria-label="Control room"></svg>
+      <div id="tableView" hidden></div>
       <div class="legend-row" id="legendRow"></div>
       <div class="legend-row" id="legendRow2"></div>
       <p class="legend-cap" id="legendCap"></p>
@@ -372,7 +413,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   var selected = null; // { type: "alarm"|"station", id }
 
   var T = {
-    en: { scope: "Test lab, not real stores", chipAlarms: "5 active alarms", replay: "Replaying recent changes (partial)", light: "Light", dark: "Dark", pause: "Pause motion", resume: "Resume motion", demo: "Example: a Datadog alarm", demoOn: "Hide the example",
+    en: { scope: "Test lab, not real stores", chipAlarms: "5 active alarms", replay: "Replaying recent changes (partial)", light: "Light", dark: "Dark", pause: "Pause motion", resume: "Resume motion", demo: "Example: a Datadog alarm", demoOn: "Hide the example", demoU: "Example: an alarm Port cannot place", demoUOn: "Hide the unplaced example",
       asof: "As of last sync, ", gapNote: "Sales and stores online are not on this board yet: Port has no sales data to read.",
       mapTitle: "Control room", mapSub: "Every station, every cable and what it carries. Alarms sit where the fault is. Select a station or an alarm.",
       alarms: "Alarms", events: "Events", back: "Back", lights: ["Cashier app", "Backend", "Accounts"],
@@ -386,7 +427,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
       pGaps: "Not on the board yet", pGapsL: ["Sales today", "Stores online", "Uptime over 30 days"], pGapsN: "Needs a sales metric and an uptime target (SLO) in Datadog.", wk: ["4 wk ago", "this week"],
       dWhere: "Where", dKind: "Kind", dSince: "In Port since", dFrom: "Reported by", dPath: "Path of the request", gapLine: "How often and when last: not in Port yet", open: "Open in Sentry",
       ports: "Links to the control room", cablesH: "Cables", lg: { live: "Cable, no faults", fault: "Cable with a fault", infra: "Runs on (server)", rule: "Not allowed (by design)", icons: "Alarm icons", flow: "Moving dots: the link is up. On the cables up to the control room, speed follows each station's activity in the last 7 days. It is not sales traffic." } },
-    ar: { scope: "بيئة تجربة، مش محلات حقيقية", chipAlarms: "5 إنذارات شغالة", replay: "إعادة عرض آخر التغييرات (جزئي)", light: "فاتح", dark: "غامق", pause: "وقّف الحركة", resume: "شغّل الحركة", demo: "مثال: إنذار من Datadog", demoOn: "اخفي المثال",
+    ar: { scope: "بيئة تجربة، مش محلات حقيقية", chipAlarms: "5 إنذارات شغالة", replay: "إعادة عرض آخر التغييرات (جزئي)", light: "فاتح", dark: "غامق", pause: "وقّف الحركة", resume: "شغّل الحركة", demo: "مثال: إنذار من Datadog", demoOn: "اخفي المثال", demoU: "مثال: إنذار Port مش قادر يحدد مكانه", demoUOn: "اخفي المثال غير المتحدد",
       asof: "حسب آخر مزامنة، ", gapNote: "المبيعات والمحلات الشغالة لسه مش على اللوحة: Port معندوش بيانات مبيعات.",
       mapTitle: "غرفة التحكم", mapSub: "كل محطة وكل كابل وشايل إيه. الإنذار بيظهر مكان العطل. اختار محطة أو إنذار.",
       alarms: "الإنذارات", events: "الأحداث", back: "رجوع", lights: ["تطبيق الكاشير", "الـ Backend", "الحسابات"],
@@ -416,6 +457,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     silent:  "M3 12a8 8 0 0 1 12 0M6 14a4 4 0 0 1 6 0M2 2l14 14",                 // no signal
     latency: "M3 13a6 6 0 1 1 12 0M9 13l3-4M9 13h.01",                          // gauge: slow responses
     nodata:  "M1 9h3l2-4 3 8 2-4h2M14 4l3 3M17 4l-3 3",                         // heartbeat stopped
+    monitor: "M9 2a4 4 0 0 0-4 4v3l-1.5 3h11L13 9V6a4 4 0 0 0-4-4zM7.5 15a1.5 1.5 0 0 0 3 0", // bell: a Datadog check is in alert
     hostok:  "M1 9h3l2-4 3 8 2-4h6"                                              // heartbeat
   };
   function icon(kind, x, y, size, cls) {
@@ -436,7 +478,8 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     bug:     { en: "A screen failed to draw", ar: "شاشة فشلت تترسم", code: "React" },
     unknown: { en: "Health not watched", ar: "الصحة مش متراقبة", code: "no check" },
     latency: { en: "Responses are slow", ar: "الردود بطيئة", code: "p95" },
-    nodata:  { en: "Stopped reporting", ar: "بطّل يبلّغ", code: "no data" }
+    nodata:  { en: "Stopped reporting", ar: "بطّل يبلّغ", code: "no data" },
+    monitor: { en: "A Datadog check is in alert", ar: "فحص في Datadog في حالة إنذار", code: "ALR" }
   };
   // Stations. ports: link state to each control-room source (sentry, datadog, github, jira).
   var S = {
@@ -489,16 +532,21 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   // Datadog: the 18 monitors in Port. 8 host checks watch every server; the rest watch one thing each.
   var HOST_CHECKS = ["CPU", "Memory", "Disk usage", "Disk latency", "System load", "Network in", "Network out", "Host reporting"];
   var HOSTS = [
-    { id: "lab01", name: "lab-01", sub: { en: "API and worker", ar: "واجهة البرمجة والمعالج" }, x: 300, runs: "core", own: [] },
-    { id: "lab02", name: "lab-02", sub: { en: "Postgres database", ar: "قاعدة البيانات" }, x: 550, runs: "core", own: ["Postgres connections"] },
-    { id: "lab03", name: "lab-03", sub: { en: "ERPNext, MariaDB, Redis", ar: "نظام الحسابات" }, x: 1005, runs: "erp", own: ["MariaDB connections", "Redis up"] }
+    { id: "lab-01", name: "lab-01", sub: { en: "API and worker", ar: "واجهة البرمجة والمعالج" }, x: 300, runs: "core", own: [] },
+    { id: "lab-02", name: "lab-02", sub: { en: "Postgres database", ar: "قاعدة البيانات" }, x: 550, runs: "core", own: ["Postgres connections"] },
+    { id: "lab-03", name: "lab-03", sub: { en: "ERPNext, MariaDB, Redis", ar: "نظام الحسابات" }, x: 1005, runs: "erp", own: ["MariaDB connections", "Redis up"] }
   ];
   var CORE_CHECKS = ["5xx error rate", "p95 latency", "Sends metrics", "DB pool waiters", "Health ready", "Failed sign-ins", "Worker heartbeat"];
   var demo = false;
   S.core.ddAlarm = true;
   var DEMO_ALARM = { id: "d1", kind: "latency", at: "core", station: "core", src: "Datadog", example: true,
     msg: "[EXAMPLE] backend-api p95 latency high (lab): p95 = 1.8 s, threshold 1 s, for 5 min", since: { en: "example, not real", ar: "مثال، مش حقيقي" } };
-  function activeAlarms() { return demo ? ALARMS.concat([DEMO_ALARM]) : ALARMS; }
+  // An example of an alarm Port cannot place: the 8 host checks watch every server at once, so no server is named.
+  var demoU = false;
+  var UNPLACED_DEMO = { id: "d2", kind: "monitor", at: "unlocated", station: null, src: "Datadog", example: true,
+    msg: "[EXAMPLE] CPU usage is high for host {{host.name}} (one monitor covers all servers; Port does not say which one)", since: { en: "example, not real", ar: "مثال، مش حقيقي" } };
+  function activeAlarms() { return ALARMS.concat(demo ? [DEMO_ALARM] : [], demoU ? [UNPLACED_DEMO] : []); }
+  function isPlaced(a) { return a.at !== "unlocated"; }
   function portState(st, src) { return demo && st.ddAlarm && src === "datadog" ? "alert" : st.ports[src]; }
   var EVENTS = [
     { k: "alarm", alarm: "a1", what: { en: "ERPNext refused a posting", ar: "ERPNext رفض قيد" } },
@@ -512,6 +560,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     { k: "alarm", alarm: "a5", what: { en: "A screen in the Admin Console failed", ar: "شاشة في لوحة الإدارة فشلت" } },
     { k: "review", at: "core", src: "jira", key: "RT-1370", what: { en: "Ready for review: a clear answer for deleted stores", ar: "مستنية مراجعة: رد واضح للمحلات اللي اتمسحت" } }
   ];
+  var UNPLACED_EVENT = { k: "alarm", alarm: "d2", unlocated: true, what: { en: "A Datadog check is in alert (example)", ar: "فحص في Datadog في حالة إنذار (مثال)" }, why: { en: "Port does not say which server. Shown here only: not drawn on the map.", ar: "Port مش بيقول أنهي سيرفر. بتظهر هنا بس: مش مرسومة على الخريطة." } };
   var KIND_CSS = { alarm: "var(--color-bad)", merge: "var(--color-cool)", done: "var(--color-ok)", ci: "var(--color-ok)", deploy: "var(--color-cool)", review: "var(--color-cool)" };
 
   // ================= helpers =================
@@ -676,14 +725,18 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   function drawAlarms() {
     while (alarmsEl.firstChild) alarmsEl.removeChild(alarmsEl.firstChild);
     document.getElementById("tabAlarms").textContent = t("alarms") + " (" + activeAlarms().length + ")";
-    activeAlarms().slice().reverse().forEach(function (a) {
-      var li = h("li"), b = h("button", "alarm" + (a.example ? " example" : "")); b.type = "button"; b.setAttribute("data-focus", "alarm:" + a.id); b.setAttribute("aria-pressed", String(selected && selected.type === "alarm" && selected.id === a.id));
+    var list = activeAlarms().slice().reverse();
+    [list.filter(isPlaced), list.filter(function (a) { return !isPlaced(a); })].forEach(function (grp, gi) {
+    if (gi === 1 && grp.length) { var gh = h("li", "grp"); gh.appendChild(h("h3", null, lang === "ar" ? "مش متحدد على الخريطة" : "Not placed on the map")); alarmsEl.appendChild(gh); }
+    grp.forEach(function (a) {
+      var li = h("li"), b = h("button", "alarm" + (a.example ? " example" : "")); b.type = "button"; b.setAttribute("data-focus", "alarm:" + a.id); b.setAttribute("aria-pressed", String(!!selected && selected.type === "alarm" && selected.id === a.id));
       var ib = h("span", "ib"); ib.appendChild(iconHtml(a.kind)); b.appendChild(ib);
       var body = h("span"); body.appendChild(h("div", "tt", pick(KINDS[a.kind])));
       body.appendChild(h("div", "loc", whereText(a)));
       var meta = h("div", "meta"); meta.appendChild(h("span", "measured", KINDS[a.kind].code)); meta.appendChild(h("span", null, a.src)); var sn = h("span", null, t("dSince") + " "); var bd = document.createElement("bdi"); bd.dir = "ltr"; bd.textContent = pick(a.since); sn.appendChild(bd); meta.appendChild(sn); body.appendChild(meta);
       b.appendChild(body); b.addEventListener("click", function () { select({ type: "alarm", id: a.id }, true); });
       li.appendChild(b); alarmsEl.appendChild(li);
+    });
     });
     WATCH.forEach(function (w) {
       var li = h("li"), b = h("button", "alarm unknown"); b.type = "button"; b.setAttribute("data-focus", "watch:" + w.id);
@@ -695,6 +748,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   }
 
   function whereText(a) {
+    if (!isPlaced(a)) return lang === "ar" ? "مش متحدد على الخريطة: Port مش بيقول أنهي سيرفر" : "Not placed on the map: Port does not say which server";
     if (a.at === "c4") return lang === "ar" ? "على كابل الجسر ← ERPNext (فواتير)" : "On the cable Connector → ERPNext (invoices)";
     return (lang === "ar" ? "جوه " : "Inside ") + S[a.at].name;
   }
@@ -704,7 +758,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     detailView.appendChild(h("h3", null, lang === "ar" ? "مراقبات Datadog" : "Datadog checks"));
     var ul = h("ul", "mon-list");
     ho.own.concat(HOST_CHECKS).forEach(function (m) { var li = h("li"); li.appendChild(h("span", null, m)); li.appendChild(h("span", "chip ok", "OK")); ul.appendChild(li); });
-    if (ho.id === "lab01") CORE_CHECKS.forEach(function (m) { var li = h("li"); li.appendChild(h("span", null, "Backend-Core: " + m)); var bad = demo && m === "p95 latency"; li.appendChild(h("span", "chip " + (bad ? "bad" : "ok"), bad ? (lang === "ar" ? "إنذار (مثال)" : "Alert (example)") : "OK")); ul.appendChild(li); });
+    if (ho.id === "lab-01") CORE_CHECKS.forEach(function (m) { var li = h("li"); li.appendChild(h("span", null, "Backend-Core: " + m)); var bad = demo && m === "p95 latency"; li.appendChild(h("span", "chip " + (bad ? "bad" : "ok"), bad ? (lang === "ar" ? "إنذار (مثال)" : "Alert (example)") : "OK")); ul.appendChild(li); });
     detailView.appendChild(ul);
     detailView.appendChild(h("p", "sub", lang === "ar" ? "مراقبات السيرفر الـ 8 بتراقب كل السيرفرات مع بعض." : "The 8 host checks watch every server at once."));
     return hd;
@@ -715,15 +769,16 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   var lastTrigger = null;
   function triggerOf(node) { var n = node && node.closest ? node.closest("[data-focus]") : null; return n ? n.getAttribute("data-focus") : null; }
   function applySelection() {
-    var selStation = null, selCable = null, selAlarm = null;
+    var selStation = null, selCable = null, selAlarm = null, unplaced = false;
     if (selected && selected.type === "station") selStation = selected.id;
-    if (selected && selected.type === "alarm") { selAlarm = activeAlarms().filter(function (a) { return a.id === selected.id; })[0]; if (!selAlarm) { selected = null; } else { selCable = CABLES.some(function (c) { return c.id === selAlarm.at; }) ? selAlarm.at : null; selStation = selAlarm.station; } }
+    if (selected && selected.type === "alarm") { selAlarm = activeAlarms().filter(function (a) { return a.id === selected.id; })[0]; if (!selAlarm) { selected = null; } else { selCable = CABLES.some(function (c) { return c.id === selAlarm.at; }) ? selAlarm.at : null; selStation = selAlarm.station; unplaced = !isPlaced(selAlarm); } }
     Object.keys(stationEls).forEach(function (k) {
-      var related = !selected || k === selStation || (selCable && (CABLES.filter(function (c) { return c.id === selCable; })[0].b === k));
+      var related = !selected || unplaced || k === selStation || (selCable && (CABLES.filter(function (c) { return c.id === selCable; })[0].b === k));
       stationEls[k].classList.toggle("dim", !related); stationEls[k].setAttribute("aria-pressed", String(k === selStation));
     });
-    Object.keys(cablePaths).forEach(function (k) { cablePaths[k].classList.toggle("dim", !!selected && k !== selCable && !(selStation && CABLES.filter(function (c) { return c.id === k && (c.a === selStation || c.b === selStation); }).length)); });
+    Object.keys(cablePaths).forEach(function (k) { cablePaths[k].classList.toggle("dim", !!selected && !unplaced && k !== selCable && !(selStation && CABLES.filter(function (c) { return c.id === k && (c.a === selStation || c.b === selStation); }).length)); });
     Object.keys(pinEls).forEach(function (k) { pinEls[k].classList.toggle("on", selAlarm && selAlarm.id === k); });
+    if (PROPOSALS && storyAt >= 0 && !selected) spot(FRAMES[storyAt]);
   }
   function dl(pairs) { var d = h("dl", "kv"); pairs.forEach(function (p) { d.appendChild(h("dt", null, p[0])); var dd = h("dd"); if (typeof p[1] === "string") dd.textContent = p[1]; else dd.appendChild(p[1]); d.appendChild(dd); }); return d; }
   function renderDetail() {
@@ -738,8 +793,8 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
       detailView.appendChild(dl([[t("dWhere"), where], [t("dKind"), KINDS[a.kind].code], [t("dFrom"), a.src], [t("dSince"), pick(a.since)]]));
       detailView.appendChild(h("h3", null, t("dPath")));
       var tr = h("div", "trace");
-      (a.at === "c4" ? PATH : a.at === "core" ? ["pos", "core"] : [a.at]).forEach(function (sid, i, arr) { var sp = h("span", (a.at === "c4" ? sid === "erp" : sid === a.at) ? "at" : null, S[sid].name); tr.appendChild(sp); if (i < arr.length - 1) tr.appendChild(h("i", null, "→")); });
-      detailView.appendChild(tr);
+      (!isPlaced(a) ? [] : a.at === "c4" ? PATH : a.at === "core" ? ["pos", "core"] : [a.at]).forEach(function (sid, i, arr) { var sp = h("span", (a.at === "c4" ? sid === "erp" : sid === a.at) ? "at" : null, S[sid].name); tr.appendChild(sp); if (i < arr.length - 1) tr.appendChild(h("i", null, "→")); });
+      if (isPlaced(a)) detailView.appendChild(tr); else detailView.appendChild(h("p", "sub", lang === "ar" ? "مفيش مسار مرسوم: المكان مش معروف." : "No path is drawn: the location is not known."));
       var m = h("div", "msg", a.msg); m.dir = "ltr"; detailView.appendChild(h("h3", null, a.src)); detailView.appendChild(m);
       if (a.src === "Sentry") detailView.appendChild(h("p", "gapline", t("gapLine")));
       var link = h("a", null, a.src === "Sentry" ? t("open") : (lang === "ar" ? "افتح في Datadog" : "Open in Datadog")); link.href = "#"; link.addEventListener("click", function (e) { e.preventDefault(); }); detailView.appendChild(link);
@@ -759,14 +814,23 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     }
     hd.tabIndex = -1; return hd;
   }
+  function visibleNode(n) { return !!n && n.getClientRects().length > 0; }
+  function restoreFocus() {
+    var keys = lastTrigger ? [lastTrigger] : [];
+    if (lastTrigger && lastTrigger.indexOf("alarm:") === 0) keys.push("pin:" + lastTrigger.slice(6)); // the list button may sit in a hidden tab: the pin is always on the map
+    var target = null;
+    keys.some(function (k) { return Array.prototype.some.call(document.querySelectorAll('[data-focus="' + k + '"]'), function (n) { if (visibleNode(n)) { target = n; return true; } return false; }); });
+    lastTrigger = null;
+    (target || document.getElementById(activeTab === "events" ? "tabEvents" : "tabAlarms")).focus();
+  }
   function select(sel, byKey) {
-    if (sel) lastTrigger = triggerOf(document.activeElement) || lastTrigger;
+    if (sel) { var ae = document.activeElement; if (!detailView.contains(ae)) lastTrigger = triggerOf(ae); } // opened from inside a detail keeps the first opener; a click on nothing focusable clears it
     selected = sel; applySelection(); sel = selected; drawAlarms();
     detailView.hidden = !sel; alarmsView.hidden = !!sel || activeTab !== "alarms"; eventsView.hidden = !!sel || activeTab !== "events"; tabsEl.hidden = !!sel;
     if (sel) { var hd = renderDetail(); if (byKey) hd.focus(); }
-    else if (byKey) { var back = lastTrigger ? document.querySelector("[data-focus=\"" + lastTrigger + "\"]") : null; (back || document.getElementById("tabAlarms")).focus(); }
+    else if (byKey) restoreFocus();
   }
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && selected) select(null, true); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && selected) select(null, true); else if (e.key === "Escape" && PROPOSALS && storyAt >= 0) exitStory(); });
   var activeTab = "alarms";
   function setTab(tb) { activeTab = tb; document.getElementById("tabAlarms").setAttribute("aria-selected", String(tb === "alarms")); document.getElementById("tabEvents").setAttribute("aria-selected", String(tb === "events")); alarmsView.hidden = tb !== "alarms"; eventsView.hidden = tb !== "events"; }
   document.getElementById("tabAlarms").addEventListener("click", function () { setTab("alarms"); });
@@ -797,7 +861,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     dotAlong(p, color, 1400, { r: 4, done: function () { p.remove(); }, cleanup: function () { p.remove(); } });
   }
   function playGesture(a) {
-    if (paused) return;
+    if (paused || !a || !isPlaced(a)) return;
     var c4 = cablePaths.c4;
     if (a.kind === "refused") dotAlong(c4, "var(--color-bad)", 1800, { bounceAt: .85, done: function () { upToBus("conn", "var(--color-bad)"); } });
     else if (a.kind === "timeout") dotAlong(c4, "var(--color-bad)", 2400, { stall: .55, fade: true, done: function () { upToBus("conn", "var(--color-bad)"); } });
@@ -817,15 +881,15 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   function renderTrail() {
     while (trail.firstChild) trail.removeChild(trail.firstChild);
     shown.forEach(function (it) { var e = it.e, li = h("li", it.fresh ? "new" : null); it.fresh = false; li.style.setProperty("--kind", KIND_CSS[e.k]);
-      var meta = h("div", "meta"); meta.appendChild(h("span", "when measured", fmt(it.at))); if (e.key) meta.appendChild(h("span", "measured", e.key)); li.appendChild(meta); li.appendChild(h("div", "what", pick(e.what))); trail.appendChild(li); });
+      var meta = h("div", "meta"); meta.appendChild(h("span", "when measured", fmt(it.at))); if (e.key) meta.appendChild(h("span", "measured", e.key)); if (e.unlocated) meta.appendChild(h("span", "chip stale", lang === "ar" ? "مش متحدد المكان" : "Unlocated")); li.appendChild(meta); li.appendChild(h("div", "what", pick(e.what))); if (e.why) li.appendChild(h("div", "why", pick(e.why))); trail.appendChild(li); });
   }
   function push(silent) { var e = EVENTS[ei++ % EVENTS.length]; shown.unshift({ e: e, at: new Date(), fresh: !silent }); if (shown.length > 8) shown.pop(); renderTrail(); if (!silent) playEvent(e); }
 
   // ================= verdict, pulse, lower =================
   function drawVerdict() {
     var v = document.getElementById("verdict"); while (v.children.length > 1) v.removeChild(v.lastChild);
-    document.getElementById("vline").textContent = lang === "ar" ? "الـ Backend سليم وتطبيق الكاشير مفيهوش أخطاء. كابل الفواتير من الجسر لـ ERPNext عليه 4 أعطال في بيئة التجربة." : "The backend is healthy and the cashier app reports no errors. The invoice cable from the bridge to ERPNext has 4 faults in the test lab.";
-    [["ok", "var(--color-ok)", { en: "No errors reported", ar: "مفيش أخطاء" }], (demo ? ["latency", "var(--color-bad)", { en: "Slow responses (example)", ar: "ردود بطيئة (مثال)" }] : ["ok", "var(--color-ok)", { en: "Healthy, 7 checks OK", ar: "سليم، 7 فحوصات تمام" }]), ["reset", "var(--color-bad)", { en: "4 faults on the invoice cable", ar: "4 أعطال على كابل الفواتير" }]].forEach(function (l, i) {
+    document.getElementById("vline").textContent = (lang === "ar" ? "الـ Backend " + (demo ? "بطيء (مثال)" : demoU ? "مش متأكدين إنه سليم" : "سليم") + " وتطبيق الكاشير مفيهوش أخطاء. كابل الفواتير من الجسر لـ ERPNext عليه 4 أعطال في بيئة التجربة." : "The backend is " + (demo ? "slow (example)" : demoU ? "not confirmed healthy" : "healthy") + " and the cashier app reports no errors. The invoice cable from the bridge to ERPNext has 4 faults in the test lab.") + (demoU ? (lang === "ar" ? " إنذار واحد مش قادرين نحدد مكانه على الخريطة." : " 1 alarm could not be placed on the map.") : "");
+    [["ok", "var(--color-ok)", { en: "No errors reported", ar: "مفيش أخطاء" }], (demo ? ["latency", "var(--color-bad)", { en: "Slow responses (example)", ar: "ردود بطيئة (مثال)" }] : demoU ? ["unknown", "var(--color-muted)", { en: "Not sure: 1 alarm not placed", ar: "مش متأكد: إنذار مش متحدد" }] : ["ok", "var(--color-ok)", { en: "Healthy, 7 checks OK", ar: "سليم، 7 فحوصات تمام" }]), ["reset", "var(--color-bad)", { en: "4 faults on the invoice cable", ar: "4 أعطال على كابل الفواتير" }]].forEach(function (l, i) {
       var d = h("div", "light"); d.appendChild(h("div", "k", t("lights")[i])); var vv = h("div", "v"); vv.appendChild(iconHtml(l[0], l[1])); vv.appendChild(document.createTextNode(pick(l[2]))); d.appendChild(vv); v.appendChild(d);
     });
   }
@@ -858,7 +922,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   }
   function drawPulse() {
     var p = document.getElementById("pulse"); while (p.firstChild) p.removeChild(p.firstChild);
-    p.setAttribute("aria-label", t("tlTitle"));
+    p.setAttribute("role", "group"); p.setAttribute("aria-label", t("tlTitle"));
     TL.forEach(function (data, i) {
       var d = h("div"), hd = h("div", "trace-h"); hd.appendChild(h("span", "k", t("tl")[i][0]));
       var v = h("span", "trace-v"); v.dir = "ltr"; v.textContent = String(data[data.length - 1]); var sm = h("small", null, t("yday")); v.appendChild(sm); hd.appendChild(v); d.appendChild(hd);
@@ -899,14 +963,22 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     document.getElementById("theme").textContent = root.getAttribute("data-theme") === "dark" ? t("light") : t("dark");
     document.getElementById("pause").textContent = paused ? t("resume") : t("pause");
     document.getElementById("demoDD").textContent = demo ? t("demoOn") : t("demo");
-    document.querySelector("[data-i18n=chipAlarms]").textContent = lang === "ar" ? activeAlarms().length + " إنذارات شغالة" + (demo ? " (منهم مثال)" : "") : activeAlarms().length + " active alarms" + (demo ? " (one is an example)" : "");
+    var exN = (demo ? 1 : 0) + (demoU ? 1 : 0); document.getElementById("demoU").textContent = demoU ? t("demoUOn") : t("demoU");
+    document.querySelector("[data-i18n=chipAlarms]").textContent = lang === "ar" ? activeAlarms().length + " إنذارات شغالة" + (exN ? (exN === 1 ? " (منهم مثال)" : " (منهم مثالين)") : "") : activeAlarms().length + " active alarms" + (exN ? (exN === 1 ? " (one is an example)" : " (2 are examples)") : "");
     document.getElementById("asof").textContent = t("asof") + fmt(new Date());
     drawGrid(); drawLegend(); drawAlarms(); drawVerdict(); drawPulse(); drawLower(); renderTrail();
     if (selected) renderDetail();
+    if (PROPOSALS) drawProposals();
   }
   document.getElementById("demoDD").addEventListener("click", function () {
-    demo = !demo; this.setAttribute("aria-pressed", String(demo)); if (!demo && selected && selected.id === "d1") { select(null); } applyLang();
+    demo = !demo; this.setAttribute("aria-pressed", String(demo)); if (!demo && selected && selected.type === "alarm" && selected.id === "d1") { select(null); } applyLang();
     if (demo) { playGesture(DEMO_ALARM); select({ type: "alarm", id: "d1" }); }
+  });
+  document.getElementById("demoU").addEventListener("click", function () {
+    demoU = !demoU; this.setAttribute("aria-pressed", String(demoU));
+    if (demoU) shown.unshift({ e: UNPLACED_EVENT, at: new Date(), fresh: true }); else shown = shown.filter(function (x) { return x.e !== UNPLACED_EVENT; });
+    if (!demoU && selected && selected.type === "alarm" && selected.id === "d2") select(null);
+    applyLang(); if (demoU) announce(pick(UNPLACED_EVENT.what) + ". " + pick(UNPLACED_EVENT.why));
   });
   document.getElementById("lang").addEventListener("click", function () { lang = lang === "en" ? "ar" : "en"; applyLang(); });
   document.getElementById("theme").addEventListener("click", function () { var r = document.documentElement, dark = r.getAttribute("data-theme") === "dark"; r.setAttribute("data-theme", dark ? "light" : "dark"); this.textContent = dark ? t("dark") : t("light"); });
@@ -914,6 +986,106 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   document.getElementById("pause").addEventListener("click", function () { setPaused(!paused); });
   var visible = true;
   document.addEventListener("visibilitychange", function () { visible = !document.hidden; });
+
+  // ================= PROPOSAL PREVIEWS: not approved, shown only with ?proposals=1 =================
+  var PROPOSALS = /[?&]proposals=1/.test(location.search), storyAt = -1, tableOn = false, statesOn = false, pinsOn = false;
+  var PT = {
+    label: { en: "Proposal previews, not approved", ar: "معاينات مقترحة، مش معتمدة" },
+    story: { en: "Story tour", ar: "جولة القصة" }, table: { en: "Table view for narrow tiles", ar: "عرض الجدول للمربعات الضيقة" }, states: { en: "Loading, empty, stale, error", ar: "تحميل، فاضي، قديم، خطأ" }, pins: { en: "Pin grouping", ar: "تجميع الدبابيس" },
+    badge: { en: "PROPOSAL: Story mode, a manual tour. Nothing moves by itself.", ar: "مقترح: وضع القصة، جولة يدوية. مفيش حاجة بتتحرك لوحدها." },
+    prev: { en: "Back", ar: "رجوع" }, next: { en: "Next", ar: "التالي" }, exit: { en: "Exit tour", ar: "اخرج من الجولة" }, step: { en: "Step", ar: "خطوة" }, of: { en: "of", ar: "من" },
+    th: { en: ["Station", "State", "Alarms", "Health checks", "Links"], ar: ["المحطة", "الحالة", "الإنذارات", "فحوصات الصحة", "الروابط"] },
+    tableNote: { en: "PROPOSAL: below about 900 px the diagram text is too small to read, so the tile shows this table instead. Same data as the diagram.", ar: "مقترح: تحت حوالي 900 بكسل كلام الرسمة بيبقى صغير أوي، فالمربع بيعرض الجدول ده بدالها. نفس البيانات." }
+  };
+  var FRAMES = [
+    { st: null, cb: null, title: { en: "One test lab, from till to ledger", ar: "معمل تجربة واحد، من الكاشير للدفتر" }, text: { en: "Four Retail Tower products and one accounting system. Every link is drawn, and every fault is pinned where it happens.", ar: "أربع منتجات من Retail Tower ونظام حسابات واحد. كل رابط مرسوم، وكل عطل متثبّت مكانه." } },
+    { st: ["pos", "admin"], cb: ["c1", "c2"], title: { en: "The till and the console", ar: "الكاشير ولوحة الإدارة" }, text: { en: "Cashiers sell on the POS. Managers run stores in the Admin Console. Both talk only to Backend-Core.", ar: "الكاشير بيبيع على الـ POS. المديرين بيديروا المحلات من لوحة الإدارة. الاتنين بيكلموا Backend-Core بس." } },
+    { st: ["core"], cb: ["c1", "c2", "c3"], title: { en: "Backend-Core is the hub", ar: "Backend-Core هو المحور" }, text: { en: "Sales and catalog changes pass through Backend-Core. Nothing skips it on the way to the ledger.", ar: "المبيعات وتعديلات الكتالوج بتعدي على Backend-Core. مفيش حاجة بتتخطاه في الطريق للدفتر." } },
+    { st: ["conn", "erp"], cb: ["c3", "c4"], title: { en: "The bridge to the ledger", ar: "الجسر للدفتر" }, text: { en: "ERPNext is the accounting ledger, outside Retail Tower. Only the Connector may reach it.", ar: "ERPNext هو دفتر الحسابات، برّه Retail Tower. الجسر بس اللي يوصله." } },
+    { st: ["conn", "erp"], cb: ["c4"], title: { en: "Honest about faults", ar: "صريحين في الأعطال" }, text: { en: "Where something is wrong, the board shows where it comes from: 4 faults on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy.", ar: "لما في عطل، اللوحة بتوريك جاي منين: 4 أعطال على كابل الفواتير، من Sentry. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم." } }
+  ];
+  function spot(fr) {
+    Object.keys(stationEls).forEach(function (k) { stationEls[k].classList.toggle("dim", !!fr.st && fr.st.indexOf(k) < 0); });
+    Object.keys(cablePaths).forEach(function (k) { cablePaths[k].classList.toggle("dim", !!fr.cb && fr.cb.indexOf(k) < 0); });
+  }
+  function startStory() { select(null); storyAt = 0; spot(FRAMES[0]); drawProposals(); document.getElementById("stNext").focus(); }
+  function exitStory() { storyAt = -1; applySelection(); drawProposals(); document.getElementById("pStory").focus(); }
+  function goStory(d) { var n = storyAt + d; if (n < 0 || n >= FRAMES.length) return; storyAt = n; spot(FRAMES[n]); drawProposals(); }
+  function drawStory() {
+    var card = document.getElementById("storyCard"); card.hidden = storyAt < 0; if (storyAt < 0) return;
+    var f = FRAMES[storyAt]; card.setAttribute("aria-label", pick(PT.story));
+    document.getElementById("stBadge").textContent = pick(PT.badge); document.getElementById("stTitle").textContent = pick(f.title); document.getElementById("stText").textContent = pick(f.text);
+    document.getElementById("stStep").textContent = pick(PT.step) + " " + (storyAt + 1) + " " + pick(PT.of) + " " + FRAMES.length;
+    var pv = document.getElementById("stPrev"), nx = document.getElementById("stNext");
+    pv.textContent = pick(PT.prev); nx.textContent = pick(PT.next); document.getElementById("stExit").textContent = pick(PT.exit);
+    pv.setAttribute("aria-disabled", String(storyAt === 0)); nx.setAttribute("aria-disabled", String(storyAt === FRAMES.length - 1));
+  }
+  function stationState(id) {
+    var s = S[id], n = activeAlarms().filter(function (a) { return a.station === id; }).length;
+    if (n) return { cls: "bad", text: lang === "ar" ? "عطل" : "Fault" };
+    if (s.ledger) return { cls: "unk", text: lang === "ar" ? "دفتر خارجي، مش متراقب من هنا" : "External ledger, not monitored here" };
+    if (s.checks === 0) return { cls: "unk", text: lang === "ar" ? "مجهول: مفيش فحص صحة" : "Unknown: no health check" };
+    if (s.checks == null) return { cls: "", text: lang === "ar" ? "مفيش أخطاء مبلّغ عنها" : "No errors reported" };
+    return { cls: "", text: lang === "ar" ? "مفيش أعطال" : "No faults" };
+  }
+  function drawTable() {
+    var box = document.getElementById("tableView"), grid = document.getElementById("grid"); box.hidden = !tableOn; grid.hidden = tableOn; if (!tableOn) return;
+    while (box.firstChild) box.removeChild(box.firstChild);
+    box.appendChild(h("p", "legend-cap", pick(PT.tableNote)));
+    var tb = h("table", "ptable"), hr = h("tr"); PT.th[lang].forEach(function (x) { hr.appendChild(h("th", null, x)); }); tb.appendChild(hr);
+    ["pos", "admin", "core", "conn", "erp"].forEach(function (id) {
+      var s = S[id], st = stationState(id), tr = h("tr"), n = activeAlarms().filter(function (a) { return a.station === id; }).length;
+      tr.appendChild(h("td", null, s.name)); tr.appendChild(h("td", st.cls, st.text)); tr.appendChild(h("td", "measured", s.ledger ? "-" : String(n)));
+      tr.appendChild(h("td", "measured", s.ledger || s.checks == null ? "-" : s.checks === 0 ? (lang === "ar" ? "مفيش" : "none") : (portState(s, "datadog") === "alert" ? (s.checks - 1) : s.checks) + "/" + s.checks));
+      tr.appendChild(h("td", null, s.ledger ? "-" : ["sentry", "datadog", "github", "jira"].map(function (k) { return PORT_LETTER[k] + " " + pick(PORT_STATE[portState(s, k)]); }).join(", ")));
+      tb.appendChild(tr);
+    });
+    box.appendChild(tb);
+  }
+  function drawStates() {
+    var c = document.getElementById("statesCard"); c.hidden = !statesOn; if (!statesOn) return;
+    while (c.firstChild) c.removeChild(c.firstChild);
+    c.appendChild(h("div", "k", lang === "ar" ? "مقترح: أربع حالات. الأحمر للعطل المؤكد بس، والكهرماني لأي حاجة مجهولة أو قديمة أو ناقصة، وعمرها ما بتظهر سليمة." : "PROPOSAL: four states. Red is for a confirmed fault only. Amber is for anything unknown, stale or missing, and none of them ever reads as healthy."));
+    var g = h("div", "pgrid"), items = [
+      ["skel", { en: "Loading", ar: "بيحمّل" }, { en: "Reading Port. Placeholders only, no numbers, no green.", ar: "بيقرا من Port. أشكال فاضية بس، من غير أرقام ولا أخضر." }],
+      ["", { en: "Empty", ar: "فاضي" }, { en: "No alarms. Stations with no health check still read unknown, so \"no alarms\" is never \"all healthy\".", ar: "مفيش إنذارات. المحطات اللي مفيهاش فحص صحة لسه مجهولة، فـ\"مفيش إنذارات\" مش معناها \"كله سليم\"." }],
+      ["amber", { en: "Stale", ar: "قديم" }, { en: "Last sync 18 min ago. Showing the last good snapshot, with its time on every panel.", ar: "آخر مزامنة من 18 دقيقة. بنعرض آخر لقطة سليمة، ووقتها على كل لوحة." }],
+      ["amber", { en: "Error", ar: "خطأ" }, { en: "Cannot read Port. The last good snapshot stays, alarms are never cleared by a failed read, and the board says alarms may be missing.", ar: "مش قادر يقرا من Port. آخر لقطة سليمة فاضلة، والإنذارات مبتتمسحش بسبب قراءة فاشلة، واللوحة بتقول إن إنذارات ممكن تكون ناقصة." }]
+    ];
+    items.forEach(function (it) { var d = h("div", it[0]); if (it[0] === "skel") { d.appendChild(h("div", "t", pick(it[1]))); d.appendChild(h("i")); d.appendChild(h("i")); d.appendChild(h("i")); d.setAttribute("aria-busy", "true"); } else { d.appendChild(h("div", "t", pick(it[1]))); d.appendChild(h("div", "d", pick(it[2]))); } if (it[0] === "skel") d.appendChild(h("div", "d", pick(it[2]))); g.appendChild(d); });
+    c.appendChild(g);
+  }
+  function drawPins() {
+    var c = document.getElementById("pinsCard"); c.hidden = !pinsOn; if (!pinsOn) return;
+    while (c.firstChild) c.removeChild(c.firstChild);
+    c.appendChild(h("div", "k", lang === "ar" ? "مقترح: الـ 4 دبابيس على كابل الفواتير تتجمع في شارة واحدة بعدد، وكل إنذار يفضل ليه هويته وتفاصيله." : "PROPOSAL: the 4 pins on the invoice cable become one count badge. Each alarm keeps its own identity and detail."));
+    var sv = el("svg", { viewBox: "0 0 520 80", width: "100%", "class": "grid", role: "img", "aria-label": lang === "ar" ? "الحالي: 4 دبابيس. المقترح: شارة واحدة فيها 4." : "Now: 4 pins. Proposed: one badge reading 4." });
+    sv.style.maxWidth = "520px";
+    sv.appendChild(el("text", { x: 8, y: 14, "class": "sk" }, lang === "ar" ? "الحالي" : "Now"));
+    ["refused", "timeout", "down", "reset"].forEach(function (k, i) { var x = 8 + i * 26; sv.appendChild(el("rect", { x: x, y: 26, width: 20, height: 20, rx: 4, fill: "var(--color-paper-2)", stroke: "var(--color-bad)" })); sv.appendChild(icon(k, x + 3, 29, 14)); });
+    sv.appendChild(el("text", { x: 280, y: 14, "class": "sk" }, lang === "ar" ? "المقترح" : "Proposed"));
+    sv.appendChild(el("rect", { x: 280, y: 26, width: 44, height: 20, rx: 4, fill: "var(--color-paper-2)", stroke: "var(--color-bad)" }));
+    sv.appendChild(el("text", { x: 302, y: 42, "text-anchor": "middle", "class": "sv bad" }, "4"));
+    sv.appendChild(el("text", { x: 332, y: 41, "class": "sk" }, lang === "ar" ? "اضغط: القائمة بـ 403 و timeout و 502 و reset" : "Open: the list, 403, timeout, 502, reset"));
+    c.appendChild(sv);
+  }
+  function drawProposals() {
+    if (!PROPOSALS) return;
+    document.getElementById("proposals").hidden = false;
+    document.getElementById("pLabel").textContent = pick(PT.label);
+    [["pStory", "story", storyAt >= 0], ["pTable", "table", tableOn], ["pStates", "states", statesOn], ["pPins", "pins", pinsOn]].forEach(function (x) { var b = document.getElementById(x[0]); b.textContent = pick(PT[x[1]]); b.setAttribute("aria-pressed", String(x[2])); });
+    drawStory(); drawTable(); drawStates(); drawPins();
+  }
+  if (PROPOSALS) {
+    document.getElementById("demoU").hidden = false; // the unplaced-alarm example is a review aid: shown with the previews, hidden in the approved view
+    document.getElementById("pStory").addEventListener("click", function () { if (storyAt < 0) startStory(); else exitStory(); });
+    document.getElementById("pTable").addEventListener("click", function () { tableOn = !tableOn; drawProposals(); });
+    document.getElementById("pStates").addEventListener("click", function () { statesOn = !statesOn; drawProposals(); });
+    document.getElementById("pPins").addEventListener("click", function () { pinsOn = !pinsOn; drawProposals(); });
+    document.getElementById("stPrev").addEventListener("click", function () { goStory(-1); });
+    document.getElementById("stNext").addEventListener("click", function () { goStory(1); });
+    document.getElementById("stExit").addEventListener("click", exitStory);
+  }
 
   applyLang(); setPaused(paused);
   for (var k = 0; k < 4; k++) push(true);
