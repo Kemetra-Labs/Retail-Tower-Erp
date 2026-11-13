@@ -6,6 +6,7 @@ merge-commit-merged and rebase-merged pull requests."""
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -36,6 +37,13 @@ def write(repo, rel, text):
     path.write_text(text, encoding="utf-8")
 
 
+def copy_into(repo, rel, source):
+    """Copy a real file into the temp repo without reading it into a string."""
+    path = pathlib.Path(repo, *rel.split("/"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, path)
+
+
 def pr(**overrides):
     base = {"number": 559, "state": "open", "merged": False, "base_ref": "main",
             "head_sha": HEAD40, "head_repo": REPO, "merge_commit_sha": None}
@@ -58,7 +66,7 @@ def entity(number=559, **overrides):
 def build_repo(repo):
     """main: c0 -> c1(docs).  feature (from c0): f1 backend-core, f2 pos."""
     git(repo, "init", "-q", "-b", "main")
-    write(repo, "tools/project-graph/graph.yaml", support.trusted_text())
+    copy_into(repo, "tools/project-graph/graph.yaml", support.GRAPH_PATH)
     write(repo, "tools/project-graph/pgraph/classifier.py", "VERSION = 1\n")
     write(repo, "apps/pos/src/a.ts", "export const a = 1;\n")
     write(repo, "services/backend-core/src/b.ts", "export const b = 1;\n")
