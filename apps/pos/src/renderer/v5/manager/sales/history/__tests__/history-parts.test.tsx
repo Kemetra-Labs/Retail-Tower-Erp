@@ -282,6 +282,10 @@ describe('RT-542 HistoryDetail — edge states', () => {
     const tenders = await within(panel).findByRole('region', { name: 'الدفع' });
     expect(within(tenders).getByText('قسيمة')).toBeTruthy();
     expect(within(tenders).queryByText('بطاقة')).toBeNull();
+    // No duplicate is offered for a voucher-paid sale (the main process would refuse it); the record stays.
+    expect(within(panel).queryByRole('button', { name: C.reprintDuplicate })).toBeNull();
+    expect(within(panel).getByRole('button', { name: C.reprintRecord })).toBeTruthy();
+    expect(within(panel).getByText(C.duplicateVoucher)).toBeTruthy();
   });
 
   it('shows card tenders, an unrecorded change, returns and a pending ERP state', async () => {

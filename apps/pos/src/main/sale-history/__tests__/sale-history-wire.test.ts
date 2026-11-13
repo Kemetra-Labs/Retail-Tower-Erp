@@ -180,8 +180,13 @@ describe('RT-542 readHistoryDetail', () => {
     ]);
   });
 
-  it('refuses a history list whose detail carries an unknown tender method (RT-1375)', () => {
+  it('refuses a sale-history detail whose tender method is unknown (RT-1375)', () => {
     const tenders = [{ method: 'gift_card', amount: '1.00', reference: null, sequence: 1 }];
+    expect(readHistoryDetail(wireDetail({ tenders }))).toBeNull();
+  });
+
+  it('refuses a voucher tender that carries a reference: off contract, fails closed (RT-1375)', () => {
+    const tenders = [{ method: 'voucher', amount: '1.00', reference: 'AB12', sequence: 1 }];
     expect(readHistoryDetail(wireDetail({ tenders }))).toBeNull();
   });
 

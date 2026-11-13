@@ -72,6 +72,7 @@ export const HISTORY_COPY = Object.freeze({
   recordNote: 'سجل البيع ليس نسخة من الإيصال.',
   duplicateIncomplete: 'لا تتوفر نسخة طبق الأصل: بيانات الإيصال الأصلي غير مكتملة.',
   duplicateVoided: 'البيع ملغي: يُطبع له سجل بيع عليه علامة «ملغي» فقط.',
+  duplicateVoucher: 'لا تتوفر نسخة طبق الأصل لبيع مدفوع بقسيمة: يُطبع له سجل بيع فقط.',
   printing: 'جارٍ الإرسال للطابعة…',
   sent: (copy: number): string => `أُرسلت النسخة رقم ${String(copy)} للطابعة.`,
 });

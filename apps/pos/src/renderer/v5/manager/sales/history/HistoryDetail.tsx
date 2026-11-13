@@ -189,10 +189,15 @@ function ReprintControls({
 }>): JSX.Element {
   const busy = print.phase === 'printing';
   const duplicate = detail.reprint.duplicate;
-  const note = DUPLICATE_NOTE[duplicate];
+  // RT-1375: a voucher-paid sale has no duplicate (the main process refuses it:
+  // the history read carries no redemption id), so the button is never offered.
+  const voucherPaid = detail.tenders.some((t) => t.method === 'voucher');
+  const offerDuplicate = duplicate === 'allowed' && !voucherPaid;
+  const note =
+    voucherPaid && duplicate === 'allowed' ? C.duplicateVoucher : DUPLICATE_NOTE[duplicate];
   return (
     <div className="v5-sales-buttons">
-      {duplicate === 'allowed' && (
+      {offerDuplicate && (
         <PrintButton
           label={C.reprintDuplicate}
           primary
