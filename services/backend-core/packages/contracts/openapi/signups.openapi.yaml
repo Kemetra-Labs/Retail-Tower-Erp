@@ -8,8 +8,9 @@ info:
     lands in the Console with a native session.
 
 
-    **Posture.** `1.0.0-draft`, `x-runtime-status: contract-only` until the
-    signup service ships (RT-1350 slice 3). `[GATED: contract]`, owner-approved
+    **Posture.** `1.0.0-draft`. Both operations are served by the signup
+    service (RT-1350 slice 3; slice 1 shipped them contract-only).
+    `[GATED: contract]`, owner-approved
     as RT-1350 slice 1 (RT-1350 comment 16755, whose operation list comment
     16758 corrects to the two operations of the approved design). Source: the
     owner-approved RT-1333 design
@@ -77,10 +78,6 @@ paths:
         `Retry-After`; it is never reported as a failed proof. No token,
         password or email address is written to logs.
       operationId: requestSignup
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1350 slice 3 (signup service and controller);
-        delete both keys when it does.
       security: []
       requestBody:
         required: true
@@ -186,10 +183,6 @@ paths:
         provider returns while verifying stays in memory only and is never
         stored, logged or returned. No token or password is written to logs.
       operationId: completeSignup
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        Runtime ships with RT-1350 slice 3 (signup service and controller);
-        delete both keys when it does.
       security: []
       requestBody:
         required: true
@@ -249,8 +242,9 @@ paths:
             The identity provider or the rate limiter is unavailable. An outage
             is never reported as an invalid token. `Retry-After` gives the whole
             seconds to wait before retrying. If the provider fails after it
-            accepted the link, the link is spent and the owner requests a new
-            one.
+            accepted the link, the link may be spent and the owner requests a
+            new one (Backend-Core's own link stays valid until it expires or is
+            replaced).
           headers:
             Retry-After:
               $ref: "#/components/headers/PublicAuthRetryAfter"

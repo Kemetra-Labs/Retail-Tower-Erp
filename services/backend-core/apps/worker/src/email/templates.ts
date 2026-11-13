@@ -135,6 +135,80 @@ export function renderInvitationEmail(
   };
 }
 
+export interface RenderableSignupLinkJob {
+  readonly email: string;
+  readonly rawToken: string;
+  readonly locale: "ar" | "en" | null;
+}
+
+/**
+ * The Console completion link of a self-signup (RT-1350 slice 3). The route is the
+ * Console's `/signup/complete?token=` (the page itself ships with a later slice).
+ */
+function signupCompleteUrl(consoleBaseUrl: string, rawToken: string): string {
+  return `${consoleBaseUrl}/signup/complete?token=${encodeURIComponent(rawToken)}`;
+}
+
+/**
+ * Self-signup link email, Arabic and English, the form's language first (Arabic when
+ * the form sent none). DRAFT WORDING: pending the owner's approval, an open item for
+ * launch gate G (RT-1350). "24 hours" mirrors `SIGNUP_LINK_TTL_MS` in
+ * `apps/api/src/signups/signup.config.ts`; change both together.
+ *
+ * Nothing about the owner or the business appears in the message: only the recipient.
+ * `consoleBaseUrl` is required in production; only a non-production worker with no
+ * Console URL falls back to the bare token.
+ */
+export function renderSignupLinkEmail(
+  job: RenderableSignupLinkJob,
+  consoleBaseUrl: string | null = null,
+): EmailMessage {
+  const { email, rawToken, locale } = job;
+  const link = consoleBaseUrl === null ? null : signupCompleteUrl(consoleBaseUrl, rawToken);
+  const action = link ?? rawToken;
+  const actionHtml =
+    link === null
+      ? `<code>${escapeHtml(rawToken)}</code>`
+      : `<a href="${escapeHtml(link)}">${escapeHtml(link)}</a>`;
+
+  const ar = {
+    dir: "rtl",
+    lang: "ar",
+    welcome: "مرحبًا بك في Retail Tower OS.",
+    lead: link === null ? "استخدم هذا الرمز لإكمال إنشاء حسابك:" : "افتح هذا الرابط لإكمال إنشاء حسابك:",
+    expiry: "يمكن استخدام الرابط مرة واحدة فقط، وتنتهي صلاحيته بعد 24 ساعة من إرساله.",
+    ignore: "إذا لم تطلب إنشاء حساب، يمكنك تجاهل هذه الرسالة.",
+  } as const;
+  const en = {
+    dir: "ltr",
+    lang: "en",
+    welcome: "Welcome to Retail Tower OS.",
+    lead: link === null ? "Use this token to finish creating your account:" : "Open this link to finish creating your account:",
+    expiry: "The link can be used once and expires 24 hours after it was sent.",
+    ignore: "If you did not ask to create an account, you can ignore this email.",
+  } as const;
+  const blocks = locale === "en" ? [en, ar] : [ar, en];
+
+  const textBody = blocks
+    .map((b) => `${b.welcome}\n\n${b.lead}\n${action}\n\n${b.expiry}\n${b.ignore}`)
+    .join("\n\n----\n\n");
+  const htmlBody = blocks
+    .map(
+      (b) =>
+        `<div dir="${b.dir}" lang="${b.lang}"><p>${b.welcome}</p><p>${b.lead}<br>${actionHtml}</p>` +
+        `<p>${b.expiry}</p><p>${b.ignore}</p></div>`,
+    )
+    .join("<hr>");
+
+  return {
+    to: email,
+    subject: "Finish creating your Retail Tower OS account | أكمل إنشاء حسابك على Retail Tower OS",
+    textBody,
+    htmlBody,
+    tags: { template_id: "auth.signup-link" },
+  };
+}
+
 export function renderEmailVerificationEmail(
   job: RenderableEmailJob,
 ): EmailMessage {
