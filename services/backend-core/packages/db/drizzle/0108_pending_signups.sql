@@ -1,4 +1,4 @@
--- 0107_pending_signups.sql
+-- 0108_pending_signups.sql
 --
 -- RT-1350 slice 2 (Epic RT-1332; design RT-1333 v6 section 4, decisions D1, D3,
 -- D5, D6) — `[GATED: migration]`. Applying it to a lab or live database is NOT
@@ -7,7 +7,7 @@
 -- Source-of-truth artifacts:
 --   - packages/contracts/openapi/signups.openapi.yaml (slice 1, contract-only)
 --   - packages/db/src/schema/pending-signups.ts, user-consents.ts
---   - packages/db/__tests__/migration/0107-pending-signups.spec.ts
+--   - packages/db/__tests__/migration/0108-pending-signups.spec.ts
 --
 -- Creates TWO tables and nothing else (no controller, service or worker):
 --
@@ -55,7 +55,7 @@
 --   `ip_hash` is a hash, never the address. NO secret, NO free text.
 -- ---------------------------------------------------------------------------
 --
--- Reversal: 0107_pending_signups.down.sql drops both tables, and so DISCARDS
+-- Reversal: 0108_pending_signups.down.sql drops both tables, and so DISCARDS
 -- every pending signup and every consent record. Roll back the signup service
 -- first.
 --

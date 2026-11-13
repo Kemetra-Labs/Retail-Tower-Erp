@@ -1,8 +1,8 @@
 /**
- * RT-1350 slice 2: `0107_pending_signups` migration test (authority: the
+ * RT-1350 slice 2: `0108_pending_signups` migration test (authority: the
  * owner's "Yes, start wave 2", 2026-11-13; design RT-1333 v6 section 4).
  *
- * Validates `packages/db/drizzle/0107_pending_signups.sql` (+ `.down.sql`) on a
+ * Validates `packages/db/drizzle/0108_pending_signups.sql` (+ `.down.sql`) on a
  * real PostgreSQL (Testcontainers), applied on top of every earlier migration
  * with tenants and users already present (the UPGRADE path):
  *   - both tables start empty (no backfill);
@@ -31,9 +31,9 @@ import { applyMigrationsBefore, asApp, asMigrationOwner, errorCode } from "../_h
 import { ensureAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP_NAME = "0107_pending_signups.sql";
+const UP_NAME = "0108_pending_signups.sql";
 const UP_PATH = resolve(DRIZZLE_DIR, UP_NAME);
-const DOWN_PATH = resolve(DRIZZLE_DIR, "0107_pending_signups.down.sql");
+const DOWN_PATH = resolve(DRIZZLE_DIR, "0108_pending_signups.down.sql");
 
 const id = (n: string): string => `10700000-0000-7000-8000-0000000${n}`;
 const TENANT_A = id("0a001");
@@ -140,7 +140,7 @@ beforeAll(async () => {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
       // eslint-disable-next-line no-console
-      console.warn(`\n[0107-pending-signups.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
+      console.warn(`\n[0108-pending-signups.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
       return;
     }
     throw new Error(`Container start failed: ${dockerSkipReason}`);
@@ -148,7 +148,7 @@ beforeAll(async () => {
   upSql = readFileSync(UP_PATH, "utf8");
   downSql = readFileSync(DOWN_PATH, "utf8");
   await env.admin.query(upSql);
-  // Re-grant AFTER 0107: ensureAppRole's GRANT ON ALL TABLES only covers tables that exist at grant time.
+  // Re-grant AFTER 0108: ensureAppRole's GRANT ON ALL TABLES only covers tables that exist at grant time.
   await ensureAppRole(env);
 }, 180_000);
 
@@ -162,7 +162,7 @@ afterEach(async () => {
   await env.admin.query(`DELETE FROM ${P}`);
 });
 
-describe("0107: files exist and the upgrade creates no rows", () => {
+describe("0108: files exist and the upgrade creates no rows", () => {
   it("up + down migration files are present", () => {
     expect(existsSync(UP_PATH)).toBe(true);
     expect(existsSync(DOWN_PATH)).toBe(true);
@@ -179,7 +179,7 @@ describe("0107: files exist and the upgrade creates no rows", () => {
   });
 });
 
-describe("0107: RLS posture", () => {
+describe("0108: RLS posture", () => {
   it.each([P, C])("%s has RLS enabled + forced", async (table) => {
     if (skip()) return;
     const t = await guard().admin.query(`SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1`, [table]);
@@ -210,7 +210,7 @@ describe("0107: RLS posture", () => {
   });
 });
 
-describe("0107: pending_signups constraints", () => {
+describe("0108: pending_signups constraints", () => {
   it("accepts a valid row, with the defaults", async () => {
     if (skip()) return;
     const rowId = await insertPending();
@@ -277,7 +277,7 @@ describe("0107: pending_signups constraints", () => {
   });
 });
 
-describe("0107: pending_signups indexes", () => {
+describe("0108: pending_signups indexes", () => {
   it("allows one PENDING signup per normalized email (23505), but not across other statuses", async () => {
     if (skip()) return;
     await insertPending("same@fixture.invalid");
@@ -315,7 +315,7 @@ describe("0107: pending_signups indexes", () => {
   });
 });
 
-describe("0107: the forward-only guard trigger", () => {
+describe("0108: the forward-only guard trigger", () => {
   it("pending -> completed is allowed once, with the tenant and the time", async () => {
     if (skip()) return;
     const a = guard().admin;
@@ -371,7 +371,7 @@ describe("0107: the forward-only guard trigger", () => {
   });
 });
 
-describe("0107: user_consents", () => {
+describe("0108: user_consents", () => {
   it("accepts a valid row; the source is a closed set; the user is required and must exist", async () => {
     if (skip()) return;
     await insertConsent();
@@ -400,7 +400,7 @@ describe("0107: user_consents", () => {
   });
 });
 
-describe("0107: RLS as the app role", () => {
+describe("0108: RLS as the app role", () => {
   it("a tenant session reads 0 rows of both tables, even its own tenant's signup", async () => {
     if (skip()) return;
     const signup = await insertPending();
@@ -522,16 +522,16 @@ describe("0107: RLS as the app role", () => {
   });
 });
 
-describe("0107: down and up again", () => {
+describe("0108: down and up again", () => {
   it("reads nothing as a NOSUPERUSER owner under FORCE RLS with the GUC pre-set to ''", async () => {
     if (skip()) return;
     const e = guard();
     await insertPending();
-    await asMigrationOwner(e, { role: "mig_owner_0107", tables: [P, C], functions: ["pending_signups_guard()"] }, async () => {
+    await asMigrationOwner(e, { role: "mig_owner_0108", tables: [P, C], functions: ["pending_signups_guard()"] }, async () => {
       const client = await e.admin.connect();
       try {
         await client.query("BEGIN");
-        await client.query("SET LOCAL ROLE mig_owner_0107");
+        await client.query("SET LOCAL ROLE mig_owner_0108");
         await client.query("SELECT set_config('app.current_tenant', '', true)");
         const r = await client.query(`SELECT (SELECT count(*) FROM ${P})::int AS p, (SELECT count(*) FROM ${C})::int AS c`);
         expect(r.rows[0]).toEqual({ p: 0, c: 0 });

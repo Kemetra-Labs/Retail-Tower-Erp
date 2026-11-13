@@ -1,5 +1,5 @@
 /**
- * 0107_pending_signups (RT-1350 slice 2): [the `pending_signups` and
+ * 0108_pending_signups (RT-1350 slice 2): [the `pending_signups` and
  * `user_consents` tables, their policies (pending_signups SELECT, INSERT,
  * UPDATE; user_consents SELECT, INSERT; no DELETE) and the forward-only guard
  * trigger on pending_signups].
@@ -9,7 +9,7 @@ import { countPolicies, countTables, type MigrationEntry } from "../migration-pr
 const TABLES = ["pending_signups", "user_consents"];
 
 export const MIGRATION: MigrationEntry = {
-  id: "0107_pending_signups",
+  id: "0108_pending_signups",
   probe: {
     measure: async (db) => [
       await countTables(db, TABLES),

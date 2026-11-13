@@ -821,7 +821,7 @@ A script without the marker, such as the owner-gated
   down migration drops the table, which would make every suspended cashier
   admissible again, so it refuses while any cashier is still suspended.
 
-- **Migration `0107_pending_signups` (RT-1350 slice 2).** Run
+- **Migration `0108_pending_signups` (RT-1350 slice 2).** Run
   [`sql/pending-signups-domain-grants.sql`](sql/pending-signups-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
@@ -834,7 +834,7 @@ A script without the marker, such as the owner-gated
   a later slice adds it for `pending_signups`) or `TRUNCATE`. Without the grants
   the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
   hold no privilege on either table (`AUTH_LOOKUP_FORBIDDEN_GRANTS`): it has
-  BYPASSRLS and the rows hold email addresses. 0107 creates two new, empty tables
+  BYPASSRLS and the rows hold email addresses. 0108 creates two new, empty tables
   (no backfill) and needs no maintenance window; its foreign keys run under
   `lock_timeout` 2s. Its down migration drops both tables and so discards every
   pending signup and consent record.

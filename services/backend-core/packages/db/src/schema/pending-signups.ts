@@ -1,7 +1,7 @@
 /**
  * `pending_signups` — a customer self-signup that was requested and not yet
  * completed (Jira RT-1350 slice 2, Epic RT-1332; design RT-1333 v6 section 4;
- * `0107_pending_signups.sql`, [GATED: migration]).
+ * `0108_pending_signups.sql`, [GATED: migration]).
  *
  * PRE-TENANT: no `tenant_id` until `completeSignup` creates the tenant. RLS is
  * forced with NO tenant policy (a tenant session sees nothing) and a single

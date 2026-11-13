@@ -1,6 +1,6 @@
 /**
  * `user_consents` — the durable consent record, keyed to the USER (Jira
- * RT-1350 slice 2; design RT-1333 v6 D6 "on the user"; `0107_pending_signups.sql`,
+ * RT-1350 slice 2; design RT-1333 v6 D6 "on the user"; `0108_pending_signups.sql`,
  * [GATED: migration]).
  *
  * Written by the signup service when a signup completes. Append-only: RLS has

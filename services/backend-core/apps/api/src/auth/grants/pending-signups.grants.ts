@@ -1,5 +1,5 @@
 /**
- * RT-1350 slice 2 (0107): pre-tenant self-signup state. `pending_signups` is
+ * RT-1350 slice 2 (0108): pre-tenant self-signup state. `pending_signups` is
  * read, inserted and updated by the signup service (slice 3) and holds no
  * tenant data; `user_consents` is append-only (SELECT, INSERT). Both are
  * readable and writable only inside a platform-admin context: the RLS

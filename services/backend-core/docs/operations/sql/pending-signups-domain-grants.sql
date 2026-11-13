@@ -1,7 +1,7 @@
 -- Domain-role grants for the pre-tenant self-signup tables (RT-1350 slice 2,
--- migration 0107). See docs/operations/database-roles.md.
+-- migration 0108). See docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0107 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0108 and BEFORE the
 -- API image that needs it is rolled, as the migration owner (or any role
 -- allowed to grant on these tables). This file holds NO credential. Give psql
 -- the connection through libpq environment variables
