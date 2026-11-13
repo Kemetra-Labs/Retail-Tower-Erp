@@ -7,10 +7,10 @@
  *   - `OwnTokenSignupLinkProvider` (fallback A, RT-1350 c16859 and the spike S0 result):
  *     Backend-Core's own 32-byte token, stored only as its SHA-256 in
  *     `pending_signups.token_hash`, e-mailed by the worker.
- *   - A Descope-sent link (D1-B) is NOT built: spike S0 did not prove it, and enabling
- *     Descope sign-up-or-in would let anyone call Descope directly with the public project
- *     id, bypassing our human challenge and rate buckets. If it ever returns it is a new
- *     adapter (and `pending_signups.token_hash` stays NULL for it).
+ *   - A provider-sent link (D1-B) is NOT built: spike S0 did not prove it, and enabling the
+ *     identity provider's sign-up-or-in would let anyone call the provider directly with its
+ *     public project id, bypassing our human challenge and rate buckets. If it ever returns it
+ *     is a new adapter (and `pending_signups.token_hash` stays NULL for it).
  *
  * RULES FOR ANY PROVIDER-SENT ADAPTER (spike S0 findings; fallback A does not use them,
  * they are recorded here so a later adapter cannot repeat the mistakes):

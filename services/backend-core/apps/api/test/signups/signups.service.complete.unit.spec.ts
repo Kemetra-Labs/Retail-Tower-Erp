@@ -237,6 +237,16 @@ describe("completeSignup: an EXISTING Backend-Core user", () => {
     expect(h.sessions.started).toEqual([]);
   });
 
+  it("an account disabled between the first check and the row lock is refused by the re-check under the lock (no tenant, no session)", async () => {
+    let reads = 0;
+    h = makeService({ linkState: () => Promise.resolve(++reads === 1 ? "active" : "disabled") });
+    h.store.pendingByTokenHash.set(hashOf(TOKEN), pending());
+    h.store.user = { id: "u-flip", isPlatformAdmin: false, blocked: false };
+    expect(await h.service.completeSignup(BODY, CTX)).toEqual({ kind: "invalid" });
+    expect(writes()).toEqual([]);
+    expect(h.sessions.started).toEqual([]);
+  });
+
   it("a soft-deleted user is the generic invalid, with no tenant and no session", async () => {
     h.store.user = { id: "u-gone", isPlatformAdmin: false, blocked: true };
     expect(await h.service.completeSignup(BODY, CTX)).toEqual({ kind: "invalid" });

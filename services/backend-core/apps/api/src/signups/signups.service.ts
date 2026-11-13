@@ -331,7 +331,7 @@ export class SignupsService implements OnModuleDestroy {
     if (existingUser) {
       // Re-read under the lock: the account must still be the same, active, non-platform user.
       const again = await store.findUserByEmail(client, pending.emailNormalized);
-      if (again === null || again.id !== ownerUserId || again.blocked || again.isPlatformAdmin) return false;
+      if (again === null || again.id !== ownerUserId || again.isPlatformAdmin || (await this.isBlocked(again))) return false;
     } else if (external !== null && providerSubject !== null) {
       await store.insertUser(client, { id: ownerUserId, email: pending.emailNormalized, displayName: pending.name });
       await store.insertIdentityLink(client, {
