@@ -556,8 +556,8 @@ describe("0107: down and up again", () => {
     await ensureAppRole(guard());
     const back = await a.query(`SELECT relname, relforcerowsecurity FROM pg_class WHERE relname IN ($1, $2) ORDER BY relname`, [P, C]);
     expect(back.rows).toEqual([
-      { relname: C, relforcerowsecurity: true },
       { relname: P, relforcerowsecurity: true },
+      { relname: C, relforcerowsecurity: true },
     ]);
   });
 });
