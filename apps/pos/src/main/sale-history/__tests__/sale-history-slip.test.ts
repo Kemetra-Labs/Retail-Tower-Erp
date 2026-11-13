@@ -137,6 +137,16 @@ describe('RT-542 duplicateFromDetail — tenders as the receipt printed them', (
     expect(duplicateFromDetail({ ...card, change_minor: 0 }, 2, AT)).not.toBeNull();
   });
 
+  it('builds no duplicate when a voucher tender is present (RT-1375: no redemption id to rebuild)', () => {
+    const withVoucher = detail({
+      tenders: [
+        { method: 'voucher', amount_minor: 500, reference: null, sequence: 1 },
+        { method: 'cash', amount_minor: 1000, reference: null, sequence: 2 },
+      ],
+    });
+    expect(duplicateFromDetail(withVoucher, 2, AT)).toBeNull();
+  });
+
   it('builds no duplicate when a receipt fact is missing', () => {
     expect(duplicateFromDetail(detail({ receipt_facts: 'partial' }), 2, AT)).toBeNull();
     expect(duplicateFromDetail(detail({ receipt_header: null }), 2, AT)).toBeNull();

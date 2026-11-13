@@ -96,6 +96,7 @@ export const sales: MessagesOf<typeof ar> = {
   "sales.erp.unknown": "ERPNext posting state unknown",
   "sales.tender.cash": "Cash",
   "sales.tender.card_external": "Card (external terminal)",
+  "sales.tender.voucher": "Voucher",
   "sales.tender.unknownMethod": "Other method",
 
   // --- Detail ------------------------------------------------------------------

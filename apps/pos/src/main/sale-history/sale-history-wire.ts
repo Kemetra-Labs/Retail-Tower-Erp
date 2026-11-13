@@ -278,10 +278,15 @@ function readLine(value: unknown): SaleHistoryLine {
 
 function readTender(value: unknown): SaleHistoryTender {
   const tender = obj(value);
+  const method = oneOf(tender['method'], ['cash', 'card_external', 'voucher'] as const);
+  const reference = shownOrNull(tender['reference']);
+  // RT-1375: the contract says the reference is null for a voucher; one carrying a
+  // card-terminal reference is off contract, so the read fails closed.
+  if (method === 'voucher' && reference !== null) fail();
   return {
-    method: oneOf(tender['method'], ['cash', 'card_external'] as const),
+    method,
     amount_minor: minor(tender['amount']),
-    reference: shownOrNull(tender['reference']),
+    reference,
     sequence: positiveIntOrNull(tender['sequence']),
   };
 }

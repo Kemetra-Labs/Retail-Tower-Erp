@@ -179,7 +179,7 @@ export interface SaleHistoryLine {
 }
 
 export interface SaleHistoryTender {
-  method: 'cash' | 'card_external';
+  method: 'cash' | 'card_external' | 'voucher';
   /** Net of change, as captured. */
   amount_minor: number;
   reference: string | null;
