@@ -2,6 +2,8 @@ export * from "./users";
 export * from "./tenants";
 export * from "./tenant-access-entitlements";
 export * from "./cashier-suspensions";
+export * from "./pending-signups";
+export * from "./user-consents";
 export * from "./stores";
 export * from "./roles";
 export * from "./permissions";
