@@ -24,6 +24,7 @@ import { TerminalEventProvenanceConflictError } from "./sale-errors";
 import { loadSaleReturn, type PricedLine, type ReturnLineProjection } from "./sale-returns.service";
 import { mapOneVoidViolation } from "./sale-reversal";
 import { mapApprovalReuseViolation } from "./sale-terminal-provenance";
+import { reverseVoucherTendersOfVoidedSale } from "./sale-void-vouchers";
 
 /** The contract `CreditReversalRefundTender` wire shape. */
 export interface CreditReversalRefundTenderProjection {
@@ -71,6 +72,9 @@ export interface CreditReversalWrite {
   readonly saleRef: string;
   readonly actorUserId: string;
   readonly actorRole: string;
+  /** RT-1343 item 2: the till that sent the reversal (`reversed_by_device_id` of a voucher a void restores). */
+  readonly deviceId: string;
+  readonly requestId: string | null;
   readonly timezone: string;
   readonly currencyCode: string;
   readonly payerId: string;
@@ -222,6 +226,18 @@ async function insertVoid(client: PoolClient, w: CreditReversalWrite): Promise<s
   }
   const id = r.rows[0]?.id;
   if (id === undefined) throw new TerminalEventProvenanceConflictError();
+  // RT-1343 item 2 (owner decision 2026-11-12, as recordVoid): a full void of a
+  // voucher-paid credit sale RESTORES each voucher, in this transaction and
+  // after the sale lock the service took (lock order sale → voucher →
+  // redemption). A replay never gets here; a failure rolls the void back.
+  await reverseVoucherTendersOfVoidedSale(client, {
+    tenantId: w.tenantId,
+    storeId: w.storeId,
+    saleId: w.saleRef,
+    deviceId: w.deviceId,
+    actorUserId: w.actorUserId,
+    requestId: w.requestId,
+  });
   return id;
 }
 

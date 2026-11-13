@@ -821,6 +821,15 @@ A script without the marker, such as the owner-gated
   down migration drops the table, which would make every suspended cashier
   admissible again, so it refuses while any cashier is still suspended.
 
+- **Migration `0107_credit_reversal_voucher_refund` (RT-1343 item 2).** No
+  deploy step and no grant change: it only widens the
+  `sale_credit_reversal_tenders_method_valid` CHECK to accept `voucher`, so a
+  credit void can mirror a voucher sale tender. The new CHECK is a superset of
+  the old one, so existing rows validate, and it needs no maintenance window.
+  Its down migration restores the narrower CHECK and therefore FAILS while any
+  `voucher` refund tender exists (constraint validation is not subject to RLS);
+  roll back the RT-1343 item 2 API first.
+
 - **Migration `0108_pending_signups` (RT-1350 slice 2).** Run
   [`sql/pending-signups-domain-grants.sql`](sql/pending-signups-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

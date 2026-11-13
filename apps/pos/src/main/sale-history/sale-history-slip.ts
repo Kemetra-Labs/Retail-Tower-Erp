@@ -35,6 +35,7 @@ import type {
   SaleHistoryDetail,
   SaleHistoryNameSource,
   SaleHistoryReprintMark,
+  SaleHistoryTender,
 } from '../../shared/sale-history/types.js';
 
 const NOT_RECORDED = 'not recorded — غير مسجل';
@@ -117,6 +118,8 @@ function receiptTenders(
   detail: SaleHistoryDetail,
   changeMinor: number,
 ): TenderLineSummary[] | null {
+  // A voucher's redemption id is not in the history read, so it cannot be rebuilt (RT-1375).
+  if (detail.tenders.some((t) => t.method === 'voucher')) return null;
   const ordered = [...detail.tenders].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
   const lastCash = ordered.map((t) => t.method).lastIndexOf('cash');
   if (lastCash === -1 && changeMinor > 0) return null;
@@ -292,6 +295,12 @@ function recordItems(slip: SlipBuilder, detail: SaleHistoryDetail): void {
   slip.text(`Total: ${egp(detail.summary.total_minor)}`, 'ltr', true);
 }
 
+const TENDER_SLIP_LABELS: Record<SaleHistoryTender['method'], string> = {
+  cash: 'Cash — نقدي',
+  card_external: 'Card — بطاقة',
+  voucher: 'Voucher — قسيمة',
+};
+
 function recordTenders(slip: SlipBuilder, detail: SaleHistoryDetail): void {
   slip.rule('=');
   slip.text('طريقة الدفع', 'rtl');
@@ -301,7 +310,7 @@ function recordTenders(slip: SlipBuilder, detail: SaleHistoryDetail): void {
     return;
   }
   for (const tender of detail.tenders) {
-    const label = tender.method === 'cash' ? 'Cash — نقدي' : 'Card — بطاقة';
+    const label = TENDER_SLIP_LABELS[tender.method];
     slip.text(`${label}   ${egp(tender.amount_minor)}`, 'ltr');
   }
   const change = detail.change_minor;

@@ -85,6 +85,7 @@ import { registerCart, registerPayments } from './bootstrap/payments-cart.js';
 import { registerReturns } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
 import { startFinalizeListener } from './bootstrap/finalize.js';
+import { recordCaptureCutoverAtBoot } from './bootstrap/capture-cutover.js';
 import { startSaleSyncEngine } from './bootstrap/sale-sync.js';
 import { registerSalesBridges } from './bootstrap/sales-bridges.js';
 import { registerShift } from './bootstrap/shift.js';
@@ -96,7 +97,7 @@ import {
 import {
   assessCashierProfile,
   describeCashierProfileRefusal,
-  parseFeatureFlags,
+  resolveFeatureFlags,
 } from './app/feature-flags.js';
 import { assessLaunchSwitches } from './app/launch-switch-guard.js';
 import { isShippedApp } from './app/shipped-app.js';
@@ -359,7 +360,7 @@ singleInstanceReady
     // loop, and the packaged build showed the async pino write of this log line
     // stalling behind it. We exit explicitly once the dialog closes: without a
     // window, `window-all-closed` never fires and the process would linger.
-    const startupFeatureFlags = parseFeatureFlags(process.env);
+    const startupFeatureFlags = resolveFeatureFlags();
     const cashierProfile = assessCashierProfile(startupFeatureFlags);
     if (!cashierProfile.ok) {
       mainLogger.error(
@@ -402,11 +403,12 @@ singleInstanceReady
       return;
     }
     mainLogger.info({ count: files.length }, 'db:migrations-applied');
+    // RT-1379: the capture instant, recorded once before any worker starts (paired or not).
+    recordCaptureCutoverAtBoot({ db, env: process.env, mainLogger });
 
-    // 009 T049b — dev-only catalogue fixture seed. Fail-closed: no-op in the
-    // shipped app (the env var is never consulted there; RT-165) and unless
-    // POS_PULSE_DEV_SEED_CATALOGUE is truthy. Lets the live T049a surface +
-    // S5 review tasks exercise real rows. Meant to run alongside the
+    // 009 T049b — dev-only catalogue fixture seed. Fail-closed: no-op in the shipped app (the env
+    // var is never consulted there; RT-165) and unless POS_PULSE_DEV_SEED_CATALOGUE is truthy. Lets
+    // the live T049a surface + S5 review tasks exercise real rows. Meant to run alongside the
     // POS_PULSE_DEV_SKIP_* flags (same dev-tenant).
     applyDevSeedCatalogueIfRequested({
       isPackaged: shippedApp,
@@ -415,16 +417,14 @@ singleInstanceReady
       logger: mainLogger,
     });
 
-    // T048 wire-in: construct the SecretStore on the same long-lived
-    // handle to validate factory wiring (production refusal will throw
-    // into .catch below per R8). 002 US1 retains the reference because
-    // the pairing store now consumes it.
+    // T048 wire-in: construct the SecretStore on the same long-lived handle to validate factory
+    // wiring (production refusal will throw into .catch below per R8). 002 US1 retains the
+    // reference because the pairing store now consumes it.
     const secretStore = runStartupStage('secret_store', () =>
       createSecretStore({ handle: db, safeStorage, isPackaged: shippedApp }),
     );
-    // Note (Phase 5 R8): SecretStore still uses console.warn/error
-    // placeholders. Swap to mainLogger is a deferred follow-up — out
-    // of Phase 8 scope.
+    // Note (Phase 5 R8): SecretStore still uses console.warn/error placeholders. Swap to mainLogger
+    // is a deferred follow-up — out of Phase 8 scope.
 
     // RT-113 P1.2 — the sealed offline grant store, wired: the cashier-admission
     // grant seam (below), the pairing purge + new epoch on every pairing change
@@ -621,11 +621,11 @@ singleInstanceReady
     const getAppConfig = (): AppConfig => {
       const cfg: AppConfig = {};
       // 005 cart / 006 payments / 008 saleFinalization / 009 productSearch /
-      // RT-103 voucherTender / RT-15 returns / RT-700 cardTender — every flag defaults false (fail-closed).
-      // RT-162: parsing lives in `app/feature-flags.ts` (one truthy parser,
-      // unchanged semantics). Re-parsed per call, as before; the PAYMENTS-
+      // RT-103 voucherTender / RT-15 returns / RT-700 cardTender — fail-closed, except RT-1376 pilot lane.
+      // RT-162/RT-1376: parsing lives in `app/feature-flags.ts` (env, then baked
+      // lane default). Re-resolved per call, as before; the PAYMENTS-
       // without-SALE_FINALIZATION profile never reaches here (refused at startup).
-      cfg.features = parseFeatureFlags(process.env);
+      cfg.features = resolveFeatureFlags();
       return cfg;
     };
     registerAppConfigHandler(guardedIpcMain, getAppConfig);
@@ -1246,7 +1246,7 @@ singleInstanceReady
         // row and sent by the shift sync engine (see `onDrainNow` below).
         shiftCashup: composeShiftCashupService({
           db,
-          isEnabled: () => parseFeatureFlags(process.env).shiftCashup,
+          isEnabled: () => resolveFeatureFlags().shiftCashup,
           getSession: () =>
             resolveSessionScope(
               operatorSessionManager.getCurrent(),

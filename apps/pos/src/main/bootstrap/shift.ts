@@ -2,7 +2,7 @@ import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
 import type { PairedWorkers } from '../app/paired-workers.js';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
-import { parseFeatureFlags } from '../app/feature-flags.js';
+import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { registerShiftCashupIpc } from '../ipc/shift-cashup.js';
 import type { JwtHolder } from '../operator/jwt-holder.js';
@@ -95,7 +95,7 @@ export function registerShift(deps: ShiftDeps): void {
   // terminal resolver (RT-221) and the RT-215 detector on every answer, one
   // tick every 5 s, stopped with the other workers before the DB closes.
   registerShiftSync({
-    enabled: parseFeatureFlags(process.env).shiftCashup,
+    enabled: resolveFeatureFlags().shiftCashup,
     pairedWorkers: pairedWorkersLatch,
     workers: workerRegistry,
     start: (terminal) =>
@@ -130,10 +130,10 @@ export function registerShift(deps: ShiftDeps): void {
   // manager signed in online enrols theirs. Re-checks after an await read
   // the RT-215 pairing epoch (F2, 10944).
   registerShiftCashupIpc({
-    enabled: parseFeatureFlags(process.env).shiftCashup,
+    enabled: resolveFeatureFlags().shiftCashup,
     ipcMain: guardedIpcMain,
     db,
-    isEnabled: () => parseFeatureFlags(process.env).shiftCashup,
+    isEnabled: () => resolveFeatureFlags().shiftCashup,
     getSession: () =>
       resolveSessionScope(operatorSessionManager.getCurrent(), pairingStore.getCurrentTerminalId()),
     isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',

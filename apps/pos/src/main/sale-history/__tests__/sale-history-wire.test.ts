@@ -165,6 +165,31 @@ describe('RT-542 readHistoryDetail', () => {
     expect(parsed?.detail.reprint.marks).toEqual(['voided', 'returned']);
   });
 
+  it('reads a voucher tender (RT-1375): no card reference, other tenders unchanged', () => {
+    const parsed = readHistoryDetail(
+      wireDetail({
+        tenders: [
+          { method: 'voucher', amount: '10.00', reference: null, sequence: 1 },
+          { method: 'cash', amount: '15.50', reference: null, sequence: 2 },
+        ],
+      }),
+    );
+    expect(parsed?.detail.tenders).toEqual([
+      { method: 'voucher', amount_minor: 1000, reference: null, sequence: 1 },
+      { method: 'cash', amount_minor: 1550, reference: null, sequence: 2 },
+    ]);
+  });
+
+  it('refuses a sale-history detail whose tender method is unknown (RT-1375)', () => {
+    const tenders = [{ method: 'gift_card', amount: '1.00', reference: null, sequence: 1 }];
+    expect(readHistoryDetail(wireDetail({ tenders }))).toBeNull();
+  });
+
+  it('refuses a voucher tender that carries a reference: off contract, fails closed (RT-1375)', () => {
+    const tenders = [{ method: 'voucher', amount: '1.00', reference: 'AB12', sequence: 1 }];
+    expect(readHistoryDetail(wireDetail({ tenders }))).toBeNull();
+  });
+
   it.each([
     ['a missing reprint block', { reprint: undefined }],
     [

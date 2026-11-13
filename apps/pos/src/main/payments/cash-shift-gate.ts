@@ -1,4 +1,4 @@
-import { parseFeatureFlags } from '../app/feature-flags.js';
+import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
 
@@ -32,7 +32,7 @@ export type CashShiftGate = (scope: CashShiftScope) => 'ok' | 'shift_required';
  */
 export function bindCashShiftGate(
   db: DatabaseHandle,
-  isShiftCashupEnabled: () => boolean = () => parseFeatureFlags(process.env).shiftCashup,
+  isShiftCashupEnabled: () => boolean = () => resolveFeatureFlags().shiftCashup,
 ): CashShiftGate {
   const repo = createShiftCashupRepo(db);
   return (scope) => {

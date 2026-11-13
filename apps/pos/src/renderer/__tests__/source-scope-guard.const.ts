@@ -668,3 +668,28 @@ export function isRt1343ExemptFile(branch: string, file: string): boolean {
     (RT_1343_VOUCHER_ENUMS_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-1343-credit-void-voucher` implements Jira RT-1343 item 2: `voucher` joins
+ * `CreditReversalRefundTender.method` in `pos-sales/sales.yaml` (1.24.0-draft), a breaking response-enum
+ * addition that `contracts/check` refuses until the POS PIN names it, so the POS is repinned to that
+ * contract commit in the same PR (`npm run contracts:repin`), which regenerates `src/shared/api-types.ts`.
+ * No POS code sends or reads a credit reversal; the POS voucher tender stays off (RT-103).
+ *
+ * Authority: the owner's decisions in chat on 2026-11-12 (RT-1343: accepted breaks for this enum approved)
+ * and 2026-11-13 (do the remaining RT-1343 work), following the RT-1114 / RT-1343 item 4 repin pattern:
+ * exactly ONE file on exactly ONE branch (exact name; the `-preflight` branch is not exempt). Narrowness is
+ * asserted by `source-scope-guard-rt1343-credit-void.test.ts`.
+ */
+export const RT_1343_CREDIT_VOID_REPIN_BRANCH = 'rt-1343-credit-void-voucher' as const;
+export const RT_1343_CREDIT_VOID_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1343 item 2 exemption allows on `branch`. */
+export function isRt1343CreditVoidExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1343_CREDIT_VOID_REPIN_BRANCH &&
+    (RT_1343_CREDIT_VOID_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

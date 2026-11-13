@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.23.0-draft"
+  version: "1.24.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -607,6 +607,19 @@ info:
     as any unknown method, and no `Sale` carries one. A strict response
     validator must re-pin this version before the flag is turned on.
 
+
+    RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in
+    chat 2026-11-12, recorded on RT-1343: a full void of a voucher-paid sale
+    RESTORES the voucher, and the accepted breaks for `voucher` in the
+    credit-reversal refund tender are approved; after RT-1114's
+    1.23.0-draft): `CreditReversalRefundTender.method` gains `voucher`, so a
+    credit `void` can mirror a `voucher` sale tender (item 2; migration 0107).
+    Only `card_external` carries a `reference`. A created void, ordinary
+    (`recordVoid`, item 3) or credit (`recordCreditSaleReversal`), restores
+    each voucher its sale paid with. A `return` stays cash only. Additive in
+    requests; in responses `voucher` is a new value of an existing enum, which
+    no reversal carries until `POS_SALE_VOUCHER_TENDER_ENABLED` is turned on.
+
 servers:
   - url: https://api.example.com
 
@@ -948,6 +961,14 @@ paths:
         valid manager approval; it is voided only through
         `recordCreditSaleReversal`. The refusal is decided after the sale resolves (404) and a provenance replay (200), and before reversal exclusivity (409) and every RT-530 check.
         Nothing is recorded.
+
+        Voucher restore (RT-1343 item 3, owner decision 2026-11-12): a created
+        void of a sale paid with `voucher` tenders RESTORES each voucher in the
+        void's own transaction: the redemption the tender names is reversed by
+        the requesting device and the voucher is `active` again, with one
+        `voucher.reversed` audit row naming the sale and the void's operator.
+        A replayed void restores nothing again. A redemption that cannot be
+        reversed fails the whole void (500), and nothing is recorded.
 
         Manager approval (RT-530): a void is recorded only with a bound
         manager approval (`approval`) and the void's `businessDate`. Checks run
@@ -1757,6 +1778,14 @@ paths:
         the same `tenderRef`, so the card share goes back to the card
         (`card_external`; its optional `reference` is the card terminal's
         refund reference) and the cash share goes back as cash.
+        RT-1343 item 2 (owner decision 2026-11-12): a `voucher` sale tender is
+        mirrored by a `voucher` entry, and a created void RESTORES each such
+        voucher in the void's own transaction: the redemption the tender names
+        is reversed (by the requesting device, as `posReverseVoucher` does)
+        and the voucher is `active` again, with one `voucher.reversed` audit
+        row naming the sale and the void's operator. A replay restores nothing
+        again. A redemption that cannot be reversed fails the whole void
+        (500), and nothing is recorded.
         For a void there is no card-to-cash path; a return refunds its collected share in cash, including any share collected by card (owner ruling D8).
         A `return` refunds in cash only (RT-14 D3), as `RefundTender`,
         capped at the collected and refundable amount: its `refundTenders`
@@ -3059,15 +3088,22 @@ components:
       description: >
         RT-577 D8 (owner ruling 2026-10-17). One refund payout of a credit
         reversal, in the sale's currency. A `void` mirrors each collected sale
-        tender with one of these (RT-10 D6: card to card, cash to cash); a
-        `return` is restricted to the cash-only `RefundTender` shape.
+        tender with one of these (RT-10 D6: card to card, cash to cash, and,
+        RT-1343 item 2, voucher to voucher); a `return` is restricted to the
+        cash-only `RefundTender` shape.
       properties:
         method:
           type: string
-          enum: [cash, card_external]
+          enum: [cash, card_external, voucher]
           description: >
             The method of the sale tender this refund reverses. `card_external`
             is refunded on the standalone card terminal, never in cash.
+            `voucher` (RT-1343 item 2, `void` only) mirrors a `voucher` sale
+            tender: nothing is paid out; the void restores the voucher (its
+            redemption is reversed and the voucher is `active` again, see
+            `recordCreditSaleReversal`). Only `card_external` carries a
+            `reference`: a `voucher` entry with one is a 400 (the schema keeps
+            its RT-577 `if`/`then`, which names `cash` only).
         amount:
           $ref: "#/components/schemas/NonNegativeDecimalAmount"
         tenderRef:
@@ -3157,7 +3193,8 @@ components:
             $ref: "#/components/schemas/CreditReversalRefundTender"
           description: >
             The refund paid out for this reversal (D8): for a `void`, one entry
-            mirroring each collected sale tender (card to card, cash to cash);
+            mirroring each collected sale tender (card to card, cash to cash,
+            voucher to voucher: RT-1343 item 2);
             for a `return`, cash only (`RefundTender`). The amounts sum to the
             server-computed `refundableAmount` (the collected share, see
             `recordCreditSaleReversal`) exactly, else 422
@@ -3915,6 +3952,9 @@ components:
           description: >
             The collected share of `reversalTotal`, computed by the server
             (see `recordCreditSaleReversal`), and the sum of `refundTenders`.
+            RT-1343: a `voucher` share counts as collected, but its refund
+            tender pays nothing out (the void restores the voucher), so it is
+            never cash given back.
         receivableAdjustment:
           description: >
             The credit share (`reversalTotal − refundableAmount`) owed back to

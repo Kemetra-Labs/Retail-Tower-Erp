@@ -21,7 +21,8 @@ back so it cannot keep taking payments.
 There are **two** runtime configuration channels (RT-1346, decision RT-1345 D1/D2):
 
 1. **The process environment `POS Pulse.exe` inherits when it starts.** This is
-   the channel for everything in §3 and the only one for the feature flags.
+   the channel for everything in §3. For the feature flags it is the override
+   and kill-switch channel (below).
 2. **The lane configuration baked into the build** (`dist/lane-config.json`,
    inside the signed, integrity-protected `app.asar`). It carries only the public
    values below, so a terminal installed from the downloaded installer works
@@ -41,8 +42,28 @@ and the build refuses a value that looks like one. It sits inside the asar, neve
 in `resources\`, because `resources\` is writable by the cashier on a per-user
 install and a file there could redirect the API address. A build with **no
 inputs writes no file**, and the terminal behaves exactly as described for the
-environment alone. Nothing else is baked: the feature flags, `SENTRY_DSN`,
+environment alone. Nothing else is baked: `SENTRY_DSN`,
 `OPERATOR_IDENTITY_PROVIDER` and every other variable stay environment-only.
+
+**A pilot build carries its cashier profile (RT-1376).** The feature switches are not
+baked as fields; the build derives the pilot profile from the baked `lane`. When the
+baked `lane` is `pilot`, the four cashier switches `POS_PULSE_FEATURE_CART`,
+`_PRODUCT_SEARCH`, `_PAYMENTS` and `_SALE_FINALIZATION` default to **on**, so a clean
+install can sell with no Windows variable. Precedence for every switch, resolved in
+one place (`resolveFeatureFlags`, `src/main/app/feature-flags.ts`):
+
+1. **The environment**, when the variable is set to a non-blank value (it overrides
+   the baked default, in either direction).
+2. **The lane default:** on for the four cashier switches on a `pilot` lane, nothing
+   for any other switch or lane.
+3. **The switch's own default:** off unless set for every switch except `returns`,
+   which is on unless set to a falsy value (RT-1180).
+
+Any other lane (`lab`, `production`) or no baked file behaves exactly as §3 describes
+(unset means off). The baked default covers the four cashier switches only. Sending
+tender lines and the receipt snapshot to Backend-Core needs no variable on a build with
+POS migration `0062`: the build records the capture instant once in its local database
+(RT-1379); `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` and `_RECEIPT_SINCE` only seed it (§3.2).
 
 **Build-time inputs (stamp step, `apps/pos/scripts/stamp-lane-config.ts`).** Run as
 part of `npm run build:main`, from dedicated variables that deliberately differ from
@@ -79,7 +100,7 @@ it does not, and is still provisioned through the environment (§2 to §5).
 | :-- | :-- |
 | Main-process settings | Main is compiled with `tsc`, not Vite. It reads `process.env` directly (`src/main/index.ts`; flags in `src/main/app/feature-flags.ts`). The only values baked in at build time are the five lane fields above, read once at start-up (`src/main/config/lane-config.ts`). |
 | `.env` file | **Not read by any build.** No `dotenv` or `--env-file` exists. `.env` is gitignored and not in `electron-builder.yml` `files`. A `.env` placed next to the exe does nothing. |
-| Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env` (the feature flags only). No runtime `import.meta.env.VITE_*` value is inlined into the bundle, and the baked address, project id and update values never cross the bridge. |
+| Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env` plus the baked lane (the resolved feature flags only, §1). No runtime `import.meta.env.VITE_*` value is inlined into the bundle, and the baked address, project id and update values never cross the bridge. |
 | Installer / auto-update | The `package:dir` pilot artifact has no installer and no pinned publisher (`electron-builder.yml` targets `dir`), so `UpdateService` refuses it with `publisher_not_pinned` even when the variables below are set; only the lab installer build (`electron-builder.lab.yml`) can self-update today. The service reads its origin and channel from the process environment, then from the baked `updateOrigin` and `updateChannel` (§3.2, §4, `ELECTRON_UPDATE_FEED_URL`, `POS_PULSE_UPDATE_CHANNEL`); the pilot lane still ships no `app-update.yml` and so no updater. A per-launch override did **not** survive the installer relaunch in the RT-772 drill, so Machine scope is the chosen source; that it survives the relaunch is **expected, not yet proven** (RT-322 S-D lab drill). |
 | In-app settings screen / DB | None for these settings. |
 | Device credential | **Not** an environment value. Pairing stores the device token in the local DB, encrypted with Electron `safeStorage` (DPAPI). Never put it, or any credential, in the environment. |
@@ -124,10 +145,24 @@ Rejected alternatives:
 ### 3.1 The pilot cashier profile (pinned)
 
 Use the canonical values `1` and `0`. The parser accepts `1|true|yes|on`
-(case-insensitive, trimmed) as on, and **anything else, or unset, as off**
-(fail-closed). Canonical values keep the readiness check unambiguous.
+(case-insensitive, trimmed) as on.
 
-| Variable | Pilot value | Effect |
+**On a pilot-lane build (a baked `lane` of `pilot`, §1), the four cashier variables
+below are overrides and kill switches, not required settings (RT-1376).** Unset or
+blank means **on**, `1` keeps it on, and an explicit `0|false|no|off` turns that
+switch **off**: this is the support kill switch for one terminal. Any other value
+fails closed (off). `VOUCHER_TENDER`, `CARD_TENDER`, `SHIFT_CASHUP` and `SALE_VOID`
+stay off unless set, and `RETURNS` keeps its own default (on unless set to a falsy
+value). The environment always wins over the baked default, so a stale variable set
+by hand on an earlier build still applies: remove it, or set it to `1`, when the
+terminal should follow the build.
+
+**On every other build** (a `lab` or `production` lane, no baked file, or a build
+made before RT-1376), the parser treats **anything other than the truthy values, or
+unset, as off** (fail-closed) and the variables below are required settings.
+Canonical values keep the readiness check unambiguous.
+
+| Variable | Pilot value (required unless the build is a pilot lane, then optional; `0` is the kill switch) | Effect |
 | :-- | :-- | :-- |
 | `POS_PULSE_FEATURE_CART` | `1` | Live Sale cart |
 | `POS_PULSE_FEATURE_PAYMENTS` | `1` | PaymentSurface at checkout (needs cart) |
@@ -142,6 +177,12 @@ profile.** The POS refuses to start in that state. Main logs
 setup»). The readiness check (§6) rejects the profile **before** anyone tries to
 start the POS.
 
+**Kill switches on a pilot-lane build.** Setting `POS_PULSE_FEATURE_CART`,
+`_PRODUCT_SEARCH`, `_PAYMENTS` or `_SALE_FINALIZATION` to `0` turns that switch off on
+this terminal only. Turning off `SALE_FINALIZATION` alone is refused by D-1, because
+`PAYMENTS` is then on by default: the POS does not start. To stop taking payments, set
+both `PAYMENTS` and `SALE_FINALIZATION` to `0` (§7 rollback).
+
 ### 3.2 Other runtime settings on a pilot terminal
 
 | Variable | Pilot rule | Sensitivity |
@@ -151,12 +192,18 @@ start the POS.
 | `SENTRY_DSN` | Optional. Unset means crash reporting is inert. | Treat as sensitive: never printed, pasted or screenshotted. |
 | `POS_PULSE_FEATURE_SALE_VOID` | **Off (unset) until the Backend-Core void approval (RT-530, `sales.yaml` 1.8.0-draft, migration `0046_sale_void_approval`) is deployed.** Then `1` turns on «إلغاء بيع» (`/app/void`): a finalized sale is voided only the same business day, with another manager's RT-114 PIN (never the requester, never the sale's selling operator). The void is queued and sent under the requester's own operator envelope once the sale has synced and the requester is signed in online; Backend-Core may still refuse it, and a refusal stays visible until acknowledged. The terminal's clock and timezone must match the store's timezone (Backend-Core compares the sale's business day in the store timezone). | Not a secret. |
 | `POS_PULSE_FEATURE_SHIFT_CASHUP` | **Off (unset) on every pilot terminal until the owner accepts the RT-17 evidence.** Then `1` turns on the shift cash-up: open a shift with a float, record pay-ins and pay-outs, close with a blind count. It needs Backend-Core `481eb26` or later with migration `0036_shift_cash_up` and both domain-grant scripts applied first (the Backend-Core deploy runbook, `deploy/README.md`). See §7 for the rule when a terminal is revoked, re-paired or moved. | Not a secret. |
-| `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` | Set **only** as the RT-79 tender rollout instructs: a future ISO instant with an explicit zone. Unparseable means tenders are off, with a warning. | Not a secret. |
-| `POS_PULSE_FEATURE_SALE_RECEIPT_SINCE` | Set **only** as the RT-540 receipt-snapshot rollout instructs: a future ISO instant with an explicit zone, later than both the Backend-Core RT-539 deploy and the restart that loads it. Sales finalized at or after it send the optional `receipt` (sale number, terminal label, operator name, branch header, change given). A sale with a missing or oversized fact, or an operator name containing `@`, still syncs, without it. Once set, never move, unset or clear it while sales are queued (a retry would then send a different body under the same key, a 409): drain the outbox first. Do not set it earlier than `POS_PULSE_FEATURE_SALE_TENDERS_SINCE`, so the change given always pairs with a cash tender. Unparseable means off, with a warning. | Not a secret. |
+| `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` | **Normally unset: seed-only (RT-1379).** A build with POS migration `0062_sale_capture_cutover` records the tender and receipt capture instant **once**, in the local database, at its first start (paired or not): the later of the clock and the newest local sale + 1 ms. The log shows `sale_sync:capture_cutover_recorded` with `first_start`, and every sale finalized at or after that instant carries `tenders` (RT-79). If the clock was behind the newest local sale, the log also shows `sale_sync:capture_cutover_ahead_of_clock`: sales finalized before the clock catches up are sent without tenders and receipt, for good. If the log shows `sale_sync:capture_cutover_unrecorded` or `sale_sync:capture_cutover_missing_off`, that start sends no tenders and no receipt; the next start records the instant, so restart the POS and check for `capture_cutover_recorded`. This variable only **seeds** that first write: a valid explicit-zone ISO instant is stored as the same instant, never moved (`env_seed`). After the first write the stored value wins: a different value, or removing a seeded one, changes nothing and logs `sale_sync:capture_cutover_env_ignored`. Unparseable is ignored, with a warning. **On a terminal that already uses it, leave it set and unchanged until the new build has started once:** removed first, the build records a later instant, and a queued sale already sent with tenders would retry without them (a 409, dead-lettered). | Not a secret. |
+| `POS_PULSE_FEATURE_SALE_RECEIPT_SINCE` | **Normally unset: seed-only (RT-1379),** exactly like `POS_PULSE_FEATURE_SALE_TENDERS_SINCE`. The stored receipt instant defaults to the tender instant, or later; a valid value seeds it as the same instant, even when earlier than the tender instant. Sales finalized at or after it send the optional `receipt` (sale number, terminal label, operator name, branch header, change given). A sale with a missing or oversized fact, or an operator name containing `@`, still syncs, without it. The same rule applies: on a terminal that already uses it, leave it unchanged until the new build has started once. Unparseable is ignored, with a warning. | Not a secret. |
 | `ELECTRON_UPDATE_FEED_URL` | The update origin: an **`https://`** URL, supplied by the deployment owner. Unset or empty means updates are disabled (`update:disabled reason=no_origin`), which is the normal state for a terminal that does not self-update. A non-https or malformed value is refused (`origin_not_https`), never contacted. The origin confers no trust: authenticity is the publisher signature pinned in the build. Machine scope only (§4). | Not a secret, but environment endpoints are **not** published in the repo, Jira or screenshots. |
 | `POS_PULSE_UPDATE_CHANNEL` | Exactly `lab`, `canary` or `stable`, set **once at provisioning** by the admin. Never cashier-editable (no UI, no renderer setter). Any other value, including a different case or stray whitespace, is refused (when an origin is set; with no origin the service reports `no_origin`); unset or empty means `stable`, so always set it explicitly on a terminal that has an origin. Machine scope only (§4). | Not a secret. |
 | `POS_PULSE_RECEIPT_WEBSITE` | Optional receipt footer text. | Not a secret. |
 | `POS_PULSE_SUPPORT_RESET_CASHIER_CLAIM_REFUSED` | **Support only, normally unset.** `1` re-queues, once per start, this terminal's sales dead-lettered as `cashier_claim_refused` (RT-225). See §7. Any other value does nothing. | Not a secret. |
+
+**Backend precondition for the recorded capture instant (RT-1377 decision, Rule 4 and O-2).** A terminal on a build with migration `0062` sends `tenders` and the `receipt` snapshot without any variable, so the backend must be ready first:
+
+- **Before promoting such a build to a lane,** the lane's Backend-Core must have `POS_SALE_TENDERS_ENABLED` on and must include RT-539 (receipt capture). When the lane's POS profile turns voucher on, it also needs `POS_SALE_VOUCHER_TENDER_ENABLED` and `POS_SALE_TENDERS_SAME_METHOD_ENABLED`.
+- **One-way:** on a backend that serves such terminals, never turn `POS_SALE_TENDERS_ENABLED` off again. A backend that cannot take `tenders` or `receipt` answers 400, and the POS dead-letters every new sale.
+- **Fresh state:** deleting the POS data folder (`%APPDATA%\pos-pulse`), or starting under another Windows user, behaves like a fresh install: a new instant is recorded and every sale from then on carries tenders and the receipt. Uninstalling and reinstalling keeps the data folder, and so the recorded instant.
 
 ### 3.3 Must be **unset** on a pilot terminal
 
@@ -205,7 +252,7 @@ scope, then User scope; a User value **overrides** a Machine value with the same
 name. Any process that starts the exe can override both for that one launch.
 
 ```text
-launching process (wrapper / shell)  >  User (HKCU)  >  Machine (HKLM)  >  unset (= off)
+launching process (wrapper / shell)  >  User (HKCU)  >  Machine (HKLM)  >  unset (= off; on for the four cashier switches on a pilot-lane build, §3.1)
 ```
 
 Pilot rules that follow:
@@ -371,7 +418,9 @@ environment a POS launched from the same session would receive.
 > It does not know about a baked `lane-config.json`: pilot releases built after
 > RT-1347 carry one, and the readiness check for a baked build belongs to the
 > verification RT-1349. Until then, a terminal that relies on a baked file is not
-> checked by this block.
+> checked by this block. That includes the feature switches: on a pilot-lane build
+> they default on with no variable (§1, §3.1), but this block still expects each
+> variable set in Machine scope and reports an unset one as FAIL.
 
 ```powershell
 # RT-163 pilot readiness - environment check. Prints no secret values.
@@ -553,6 +602,8 @@ Never do these:
   `drawer_events`, `sale_sync_outbox`). They are durable financial records; fix
   forward (T525 (b)).
 - Hand-edit a User-scope variable to "quickly" re-enable a terminal.
+- On a pilot-lane build, roll back by **deleting** the four cashier variables. Unset is on
+  there (§3.1), so the terminal keeps selling. Set them to `0`.
 
 **Device lifecycle: revoke, replace, move, retire (RT-287, RT-374).** Backend-Core enforces
 the rules below; the Admin-Console Devices destination (RT-371, RT-372) shows what each

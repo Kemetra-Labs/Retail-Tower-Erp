@@ -26,7 +26,9 @@ export interface AppConfig {
    *
    * SECURITY: feature flag values are non-sensitive boolean toggles.
    * Sourced from `POS_PULSE_FEATURE_CART` in main; the env var name is
-   * the contract for ops scripts. Disabled-by-default is the fail-safe.
+   * the contract for ops scripts. Disabled-by-default is the fail-safe, except
+   * on a pilot-lane build (RT-1376): there `cart`, `payments`, `saleFinalization`
+   * and `productSearch` default on, and an explicit falsy value turns one off.
    */
   features?: {
     cart?: boolean;
