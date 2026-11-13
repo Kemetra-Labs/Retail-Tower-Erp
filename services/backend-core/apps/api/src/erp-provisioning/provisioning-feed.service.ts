@@ -55,6 +55,12 @@ const START_CURSOR = { createdAt: new Date(0), id: NIL_UUID };
 /** Statuses in which the provisioner may ask for the tenant credential. */
 const ISSUE_STATUSES = ["site_created", "erp_configured", "connector_installed", "credential_bound"] as const;
 
+interface TenantDetail {
+  readonly legalName: string;
+  language: string | null;
+  readonly stores: Array<{ storeId: string; displayName: string }>;
+}
+
 export interface IssuedCredential {
   readonly credentialId: string;
   readonly registrationId: string;
@@ -126,51 +132,62 @@ export class ProvisioningFeedService {
     const now = this.clock();
     const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
     const environment = resolveDeploymentEnvironment();
-    const rows = await runAsProvisioner(this.pool, async (client) => {
+    const page = await runAsProvisioner(this.pool, async (client) => {
       const sites = await countSitesForHost(client, host);
-      const page = await pullOfferable(client, { now, after, limit: query.limit, withholdNewTenants: sites >= SITE_CEILING_PER_HOST });
-      const out: Array<{ row: RequestRow; legalName: string | null; stores: Array<{ storeId: string; displayName: string }> }> = [];
-      for (const row of page.rows) {
-        await pointAtTenant(client, row.tenantId);
-        const tenant = await client.query<{ name: string }>(`SELECT name FROM tenants WHERE id = $1::uuid`, [row.tenantId]);
-        const stores = await client.query<{ id: string; name: string }>(
-          `SELECT id, name FROM stores WHERE tenant_id = $1::uuid AND deleted_at IS NULL AND is_active ORDER BY created_at, id LIMIT 500`,
-          [row.tenantId],
-        );
-        out.push({ row, legalName: tenant.rows[0]?.name ?? null, stores: stores.rows.map((s) => ({ storeId: s.id, displayName: s.name.slice(0, MAX_STORE_DISPLAY_NAME) })) });
-      }
-      return out;
+      return await pullOfferable(client, { now, after, limit: query.limit, withholdNewTenants: sites >= SITE_CEILING_PER_HOST });
     });
-    const languages = await this.languagesOf(rows.map((r) => r.row.tenantId));
-    const items = rows.map(({ row, legalName, stores }): ProvisioningRequestItem => ({
-      provisioningRequestId: row.id,
-      kind: row.kind,
-      tenantId: row.tenantId,
-      generation: row.generation,
-      siteName: row.siteName,
-      template: { templateId: row.templateId, templateVersion: row.templateVersion },
-      locale: { ...LOCALE_V1, language: languages.get(row.tenantId) ?? DEFAULT_LANGUAGE },
-      ...(row.kind === "tenant.provision" && legalName !== null ? { legalName: legalName.slice(0, MAX_LEGAL_NAME) } : {}),
-      connectorRegistrationId: row.connectorRegistrationId ?? NIL_UUID,
-      environment: environment ?? "dev",
-      attemptFloor: row.attemptFloor,
-      stores,
-    }));
+    const rows = page.rows.map((row) => ({ row }));
+    const details = await this.tenantDetails(rows.map((r) => r.row.tenantId));
+    const items = rows.map(({ row }): ProvisioningRequestItem => {
+      const detail = details.get(row.tenantId);
+      return {
+        provisioningRequestId: row.id,
+        kind: row.kind,
+        tenantId: row.tenantId,
+        generation: row.generation,
+        siteName: row.siteName,
+        template: { templateId: row.templateId, templateVersion: row.templateVersion },
+        locale: { ...LOCALE_V1, language: detail?.language ?? DEFAULT_LANGUAGE },
+        ...(row.kind === "tenant.provision" && detail?.legalName ? { legalName: detail.legalName.slice(0, MAX_LEGAL_NAME) } : {}),
+        connectorRegistrationId: row.connectorRegistrationId ?? NIL_UUID,
+        environment: environment ?? "dev",
+        attemptFloor: row.attemptFloor,
+        stores: detail?.stores ?? [],
+      };
+    });
     const last = rows[rows.length - 1]?.row;
     const cursor = last ? encodeCursor(last.createdAt, last.id) : encodeCursor((after ?? START_CURSOR).createdAt, (after ?? START_CURSOR).id);
     return { items, cursor };
   }
 
-  /** The completed signup's locale per tenant: a read-only platform-admin transaction (never the provisioner context). */
-  private async languagesOf(tenantIds: readonly string[]): Promise<Map<string, string>> {
-    const out = new Map<string, string>();
+  /**
+   * The business name, the stores that exist now and the completed signup's locale of each tenant, in ONE
+   * read-only platform-admin transaction with three batched queries (never the provisioner context, and no
+   * round trip per request).
+   */
+  private async tenantDetails(tenantIds: readonly string[]): Promise<Map<string, TenantDetail>> {
+    const out = new Map<string, TenantDetail>();
     if (tenantIds.length === 0) return out;
+    const ids = [...new Set(tenantIds)];
     await runWithTenantContext(this.pool, { tenantId: null, isPlatformAdmin: true }, async (client) => {
-      const r = await client.query<{ tenant_id: string; locale: string | null }>(
-        `SELECT tenant_id, locale FROM pending_signups WHERE tenant_id = ANY($1::uuid[]) AND status = 'completed' AND locale IS NOT NULL`,
-        [[...tenantIds]],
+      const names = await client.query<{ id: string; name: string }>(`SELECT id, name FROM tenants WHERE id = ANY($1::uuid[])`, [ids]);
+      for (const t of names.rows) out.set(t.id, { legalName: t.name, language: null, stores: [] });
+      const stores = await client.query<{ tenant_id: string; id: string; name: string }>(
+        `SELECT tenant_id, id, name FROM stores WHERE tenant_id = ANY($1::uuid[]) AND deleted_at IS NULL AND is_active ORDER BY created_at, id`,
+        [ids],
       );
-      for (const row of r.rows) if (row.locale === "ar" || row.locale === "en") out.set(row.tenant_id, row.locale);
+      for (const st of stores.rows) {
+        const d = out.get(st.tenant_id);
+        if (d && d.stores.length < 500) d.stores.push({ storeId: st.id, displayName: st.name.slice(0, MAX_STORE_DISPLAY_NAME) });
+      }
+      const locales = await client.query<{ tenant_id: string; locale: string | null }>(
+        `SELECT tenant_id, locale FROM pending_signups WHERE tenant_id = ANY($1::uuid[]) AND status = 'completed' AND locale IS NOT NULL`,
+        [ids],
+      );
+      for (const l of locales.rows) {
+        const d = out.get(l.tenant_id);
+        if (d && (l.locale === "ar" || l.locale === "en")) d.language = l.locale;
+      }
     });
     return out;
   }

@@ -37,7 +37,7 @@ export class PgProvisioningSweepRunner implements ProvisioningSweepRunner {
 /** The no-DB path (non-production without Redis): nothing to sweep. */
 export class NoOpProvisioningSweepRunner implements ProvisioningSweepRunner {
   run(): Promise<SweepResult> {
-    return Promise.resolve({ leasesReclaimed: 0, succeeded: 0, timedOut: 0 });
+    return Promise.resolve({ leasesReclaimed: 0, succeeded: 0, timedOut: 0, hostUnknown: 0 });
   }
 }
 
@@ -69,12 +69,13 @@ export class ProvisioningSweepProcessor {
     const startedAt = Date.now();
     const result = await this.runner.run(this.clock(), this.heartbeatTimeoutMs);
     this.log({
-      level: result.timedOut > 0 ? "warn" : "info",
+      level: result.timedOut > 0 || result.hostUnknown > 0 ? "warn" : "info",
       component: "erp-provisioning.sweep",
       message: "sweep_complete",
       leasesReclaimed: result.leasesReclaimed,
       succeeded: result.succeeded,
       timedOut: result.timedOut,
+      hostUnknown: result.hostUnknown,
       durationMs: Date.now() - startedAt,
     });
     return result;

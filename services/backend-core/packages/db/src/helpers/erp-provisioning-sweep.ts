@@ -12,6 +12,13 @@
  *      `erp.provisioning.succeeded`). Not seen within `heartbeatTimeoutMs`:
  *      `failed_permanent` with an alert audit (`erp.provisioning.failed`).
  *
+ * KNOWN COMPROMISE (RT-1358 review): a finished (`succeeded`) request keeps a SYNTHETIC ended lease
+ * (holder = the ERP host label, a fresh lease id, expiry = completion time) so the per-host site count
+ * (OD-10, 20 sites) can read the host; the all-or-none lease CHECK does not allow a holder alone. A terminal
+ * row is never offered or reclaimed, so it is inert, but "lease" then has two meanings. The host comes from
+ * the `step_recorded` audit row written with the outcome. RT-1361's migration should add a real
+ * `provisioned_host_label` column and drop the synthetic lease.
+ *
  * This and the api repository (`provisioning-request.repository.ts`) are the only
  * writers of the table; a fence test pins it. The sweep never touches the tenant
  * access state: the flip from `restricted` to `unrestricted` stays the platform
@@ -30,6 +37,8 @@ export interface SweepResult {
   readonly leasesReclaimed: number;
   readonly succeeded: number;
   readonly timedOut: number;
+  /** Requests finished without a host in the audit trail (the host count under-counts them). */
+  readonly hostUnknown: number;
 }
 
 export interface SweepInput {
@@ -86,6 +95,7 @@ export async function sweepErpProvisioning(pool: Pool, input: SweepInput): Promi
   });
   let succeeded = 0;
   let timedOut = 0;
+  let hostUnknown = 0;
   for (const id of waiting) {
     // sequential: one request per transaction keeps a failure local.
     const verdict = await runWithTenantContext(pool, { tenantId: null, isPlatformAdmin: true }, async (client) => {
@@ -121,7 +131,7 @@ export async function sweepErpProvisioning(pool: Pool, input: SweepInput): Promi
           [id, input.now, host],
         );
         await audit(client, r.tenant_id, "erp.provisioning.succeeded", id, { heartbeat: true, ...(host !== null ? { host } : {}) });
-        return "succeeded" as const;
+        return host === null ? ("succeeded_hostless" as const) : ("succeeded" as const);
       }
       const reportedAt = r.reported_at;
       if (reportedAt.getTime() + input.heartbeatTimeoutMs <= input.now.getTime()) {
@@ -137,8 +147,9 @@ export async function sweepErpProvisioning(pool: Pool, input: SweepInput): Promi
       }
       return "skip" as const;
     });
-    if (verdict === "succeeded") succeeded += 1;
+    if (verdict === "succeeded" || verdict === "succeeded_hostless") succeeded += 1;
+    if (verdict === "succeeded_hostless") hostUnknown += 1;
     if (verdict === "timed_out") timedOut += 1;
   }
-  return { leasesReclaimed, succeeded, timedOut };
+  return { leasesReclaimed, succeeded, timedOut, hostUnknown };
 }

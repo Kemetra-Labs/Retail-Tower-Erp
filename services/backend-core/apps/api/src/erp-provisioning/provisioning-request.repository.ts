@@ -5,6 +5,12 @@
  * here goes through `writeRequest`, which checks `transitionAllowed` and the
  * optimistic `version`. A fence test pins that no other source file contains
  * `UPDATE erp_provisioning_request`.
+ *
+ * KNOWN COMPROMISE (RT-1358 review): `writeRequest`'s `end` mode, used when a request finishes, keeps the
+ * lease holder with an expiry of "now", so a terminal `succeeded` row carries a SYNTHETIC ended lease (the
+ * ERP host label) that `countSitesForHost` reads for the per-host site ceiling (OD-10). The all-or-none lease
+ * CHECK does not allow a holder alone, so "lease" has two meanings on a terminal row; terminal rows are never
+ * offered or reclaimed. RT-1361's migration should add a real `provisioned_host_label` column and drop it.
  */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";

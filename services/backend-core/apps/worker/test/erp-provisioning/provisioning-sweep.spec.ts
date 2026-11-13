@@ -22,21 +22,21 @@ describe("ProvisioningSweepProcessor", () => {
     const runner: ProvisioningSweepRunner = {
       run: (now, ms) => {
         calls.push([now, ms]);
-        return Promise.resolve({ leasesReclaimed: 2, succeeded: 1, timedOut: 0 });
+        return Promise.resolve({ leasesReclaimed: 2, succeeded: 1, timedOut: 0, hostUnknown: 0 });
       },
     };
     const lines: Array<Record<string, unknown>> = [];
     const p = new ProvisioningSweepProcessor(runner, 1_800_000, (l) => lines.push(l), () => NOW);
-    await expect(p.process(PROVISIONING_SWEEP_JOB_NAME, {})).resolves.toEqual({ leasesReclaimed: 2, succeeded: 1, timedOut: 0 });
+    await expect(p.process(PROVISIONING_SWEEP_JOB_NAME, {})).resolves.toEqual({ leasesReclaimed: 2, succeeded: 1, timedOut: 0, hostUnknown: 0 });
     expect(calls).toEqual([[NOW, 1_800_000]]);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ component: "erp-provisioning.sweep", leasesReclaimed: 2, succeeded: 1, timedOut: 0, level: "info" });
-    expect(Object.keys(lines[0]!).sort()).toEqual(["component", "durationMs", "leasesReclaimed", "level", "message", "succeeded", "timedOut"]);
+    expect(Object.keys(lines[0]!).sort()).toEqual(["component", "durationMs", "hostUnknown", "leasesReclaimed", "level", "message", "succeeded", "timedOut"]);
   });
 
   it("warns when a request timed out, refuses an unknown job and a malformed payload", async () => {
     const lines: Array<Record<string, unknown>> = [];
-    const p = new ProvisioningSweepProcessor({ run: () => Promise.resolve({ leasesReclaimed: 0, succeeded: 0, timedOut: 1 }) }, 60_000, (l) => lines.push(l));
+    const p = new ProvisioningSweepProcessor({ run: () => Promise.resolve({ leasesReclaimed: 0, succeeded: 0, timedOut: 1, hostUnknown: 0 }) }, 60_000, (l) => lines.push(l));
     await p.process(PROVISIONING_SWEEP_JOB_NAME, undefined);
     expect(lines[0]!["level"]).toBe("warn");
     await expect(p.process("other", {})).rejects.toBeInstanceOf(UnknownProvisioningSweepJobError);
@@ -44,7 +44,7 @@ describe("ProvisioningSweepProcessor", () => {
   });
 
   it("the no-DB runner sweeps nothing", async () => {
-    await expect(new NoOpProvisioningSweepRunner().run()).resolves.toEqual({ leasesReclaimed: 0, succeeded: 0, timedOut: 0 });
+    await expect(new NoOpProvisioningSweepRunner().run()).resolves.toEqual({ leasesReclaimed: 0, succeeded: 0, timedOut: 0, hostUnknown: 0 });
   });
 });
 

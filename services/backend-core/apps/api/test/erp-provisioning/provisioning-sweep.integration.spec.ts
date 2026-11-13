@@ -67,7 +67,7 @@ describe("sweepErpProvisioning", () => {
     const stale = await seedRequest({ status: "erp_configured", lease: "expired" });
     const live = await seedRequest({ status: "site_created", lease: "live", tenant: TENANT_B });
     const first = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
-    expect(first).toEqual({ leasesReclaimed: 1, succeeded: 0, timedOut: 0 });
+    expect(first).toEqual({ leasesReclaimed: 1, succeeded: 0, timedOut: 0, hostUnknown: 0 });
     expect(await row(stale.id)).toMatchObject({ status: "erp_configured", lease_id: null, lease_holder: null, lease_expires_at: null });
     expect((await row(live.id))["lease_id"]).not.toBeNull();
     const again = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
@@ -91,7 +91,7 @@ describe("sweepErpProvisioning", () => {
     if (skipped) return;
     const crashed = await seedRequest({ status: "verifying", lease: "expired" });
     const res = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
-    expect(res).toEqual({ leasesReclaimed: 0, succeeded: 0, timedOut: 0 });
+    expect(res).toEqual({ leasesReclaimed: 0, succeeded: 0, timedOut: 0, hostUnknown: 0 });
     expect(await row(crashed.id)).toMatchObject({ status: "verifying", lease_holder: "lab-03" });
     expect((await row(crashed.id))["lease_id"]).not.toBeNull();
   });
@@ -100,7 +100,7 @@ describe("sweepErpProvisioning", () => {
     if (skipped) return;
     const r = await seedReported();
     const res = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
-    expect(res).toEqual({ leasesReclaimed: 0, succeeded: 0, timedOut: 0 });
+    expect(res).toEqual({ leasesReclaimed: 0, succeeded: 0, timedOut: 0, hostUnknown: 0 });
     expect(await row(r.id)).toMatchObject({ status: "verifying", lease_id: null, lease_holder: null });
   });
 
@@ -116,6 +116,15 @@ describe("sweepErpProvisioning", () => {
     expect(after["terminal_at"]).not.toBeNull();
     const ent = await env!.admin.query(`SELECT state FROM tenant_access_entitlements WHERE tenant_id = $1`, [TENANT_A]);
     expect(ent.rows[0].state).toBe("restricted");
+  });
+
+  it("a reported request whose audit row has no host still finishes, and is counted as hostUnknown", async () => {
+    if (skipped) return;
+    const r = await seedRequest({ status: "verifying", lease: "none" });
+    await seedHeartbeat(env!.admin, TENANT_A, r.registrationId);
+    const res = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
+    expect(res).toMatchObject({ succeeded: 1, hostUnknown: 1 });
+    expect(await row(r.id)).toMatchObject({ status: "succeeded", lease_holder: null, lease_id: null });
   });
 
   it("(c) fails a reported request with an alert after the heartbeat timeout, and not before", async () => {
