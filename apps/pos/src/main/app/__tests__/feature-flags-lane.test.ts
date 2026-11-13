@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setBakedLaneConfig } from '../../config/lane-config.js';
+import { loadLaneConfig, setBakedLaneConfig } from '../../config/lane-config.js';
 import {
   FEATURE_FLAG_ENV,
   assessCashierProfile,
@@ -144,6 +144,38 @@ describe('resolveFeatureFlags reads process.env and the baked lane (RT-1376 scop
   });
 });
 
+describe('the baked file reaches the resolver through the real loader (RT-1376)', () => {
+  beforeEach(() => {
+    for (const name of Object.values(FEATURE_FLAG_ENV)) vi.stubEnv(name, undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    setBakedLaneConfig(null);
+  });
+
+  it('a baked pilot file turns the four cashier switches on', () => {
+    setBakedLaneConfig(loadLaneConfig('lane-config.json', undefined, () => '{"lane":"pilot"}'));
+    const flags = resolveFeatureFlags();
+    for (const key of CASHIER_KEYS) expect(flags[key], key).toBe(true);
+  });
+
+  it.each([['{"lane":"pilot","unknown":"x"}'], ['not json'], ['{"lane":"retail"}']])(
+    'a refused baked file (%s) leaves every switch as today (off)',
+    (text) => {
+      setBakedLaneConfig(loadLaneConfig('lane-config.json', undefined, () => text));
+      expect(resolveFeatureFlags()).toEqual(parseFeatureFlags({}));
+    },
+  );
+
+  it('an absent baked file leaves every switch as today (off)', () => {
+    const absent = (): string => {
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    };
+    setBakedLaneConfig(loadLaneConfig('lane-config.json', undefined, absent));
+    expect(resolveFeatureFlags()).toEqual(parseFeatureFlags({}));
+  });
+});
+
 describe('the RT-162 D-1 refusal fires on the resolved profile (criterion 4)', () => {
   beforeEach(() => {
     for (const name of Object.values(FEATURE_FLAG_ENV)) vi.stubEnv(name, undefined);
@@ -181,11 +213,18 @@ describe('no caller bypasses the resolution point (criterion 3)', () => {
     return readdirSync(dir).flatMap((name) => {
       const full = join(dir, name);
       if (statSync(full).isDirectory()) return name === '__tests__' ? [] : sourceFiles(full);
-      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [full] : [];
+      return /\.(?:tsx?|mjs)$/.test(name) && !/\.test\.tsx?$/.test(name) ? [full] : [];
     });
   }
 
   const files = sourceFiles(MAIN_ROOT).filter((file) => file !== POINT);
+  // The preload bridge and the build scripts must not read the switches either.
+  const POS_ROOT = resolve(MAIN_ROOT, '../..');
+  const allFiles = [
+    ...files,
+    ...sourceFiles(resolve(POS_ROOT, 'src/preload')),
+    ...sourceFiles(resolve(POS_ROOT, 'scripts')),
+  ];
 
   it('scans the main process (guards against an empty glob)', () => {
     expect(files.length).toBeGreaterThan(50);
@@ -213,10 +252,17 @@ describe('no caller bypasses the resolution point (criterion 3)', () => {
     expect(offenders.map((file) => relative(MAIN_ROOT, file))).toEqual([]);
   });
 
+  it('only app/feature-flags.ts imports FEATURE_FLAG_ENV (no indirect env read)', () => {
+    const offenders = allFiles.filter((file) =>
+      /FEATURE_FLAG_ENV/.test(readFileSync(file, 'utf-8')),
+    );
+    expect(offenders.map((file) => relative(POS_ROOT, file))).toEqual([]);
+  });
+
   it('nothing outside app/feature-flags.ts reads a feature switch from the environment', () => {
     const names = Object.values(FEATURE_FLAG_ENV).join('|');
     const direct = new RegExp(`(?:process\\.env|env)\\s*(?:\\.|\\[\\s*['"])(?:${names})\\b`);
-    const offenders = files.filter((file) => direct.test(readFileSync(file, 'utf-8')));
-    expect(offenders.map((file) => relative(MAIN_ROOT, file))).toEqual([]);
+    const offenders = allFiles.filter((file) => direct.test(readFileSync(file, 'utf-8')));
+    expect(offenders.map((file) => relative(POS_ROOT, file))).toEqual([]);
   });
 });

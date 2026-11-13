@@ -60,7 +60,9 @@ one place (`resolveFeatureFlags`, `src/main/app/feature-flags.ts`):
    which is on unless set to a falsy value (RT-1180).
 
 Any other lane (`lab`, `production`) or no baked file behaves exactly as §3 describes
-(unset means off).
+(unset means off). The baked default covers the four cashier switches only: sending
+tender lines and the receipt snapshot to Backend-Core still needs
+`POS_PULSE_FEATURE_SALE_TENDERS_SINCE` and `_RECEIPT_SINCE` (§3.2, RT-1377).
 
 **Build-time inputs (stamp step, `apps/pos/scripts/stamp-lane-config.ts`).** Run as
 part of `npm run build:main`, from dedicated variables that deliberately differ from
@@ -243,7 +245,7 @@ scope, then User scope; a User value **overrides** a Machine value with the same
 name. Any process that starts the exe can override both for that one launch.
 
 ```text
-launching process (wrapper / shell)  >  User (HKCU)  >  Machine (HKLM)  >  unset (= off)
+launching process (wrapper / shell)  >  User (HKCU)  >  Machine (HKLM)  >  unset (= off; on for the four cashier switches on a pilot-lane build, §3.1)
 ```
 
 Pilot rules that follow:
@@ -593,6 +595,8 @@ Never do these:
   `drawer_events`, `sale_sync_outbox`). They are durable financial records; fix
   forward (T525 (b)).
 - Hand-edit a User-scope variable to "quickly" re-enable a terminal.
+- On a pilot-lane build, roll back by **deleting** the four cashier variables. Unset is on
+  there (§3.1), so the terminal keeps selling. Set them to `0`.
 
 **Device lifecycle: revoke, replace, move, retire (RT-287, RT-374).** Backend-Core enforces
 the rules below; the Admin-Console Devices destination (RT-371, RT-372) shows what each
