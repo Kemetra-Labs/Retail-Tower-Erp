@@ -57,12 +57,14 @@
  *   • RT-1240 (RT-1206: a replay whose raw body hash differs is a 409): the body
  *     must be byte-identical on every re-send. Its send-time inputs are the
  *     append-only Sale row (0021), the append-only 0058 role rows, and the two
- *     rollout cutoffs read at boot (`tendersSince`, `receiptSince`); there is no
- *     clock, random or other lookup here. Line order is `lines_json` order and
+ *     rollout cutoffs (`tendersSince`, `receiptSince`), read at boot from the
+ *     append-only 0062 row (RT-1379); there is no clock, random or other lookup here. Line order is `lines_json` order and
  *     tender order is first-seen order of the frozen summary for cash and card,
- *     then one entry per voucher line (RT-1331) in summary order. The cutoffs are
- *     stable only while ops keep the FUTURE-cutoff rule (`bootstrap/sale-sync.ts`):
- *     no per-sale record of them exists. Pinned in `capture-body-stability.test.ts`.
+ *     then one entry per voucher line (RT-1331) in summary order. No per-sale record
+ *     of the cutoffs exists: they are stable because the 0062 row is written once,
+ *     later than every sale that existed then, and never moves (RT-1377 Rules 1 to 3,
+ *     `capture-cutover.ts`). Pinned in `capture-body-stability.test.ts` and
+ *     `capture-cutover-install-over.test.ts`.
  */
 
 import type { SaleRow } from '../sales/repositories/sales.repository.js';
@@ -404,9 +406,9 @@ function isCalendarValid(m: RegExpExecArray): boolean {
 }
 
 /**
- * Parse `POS_PULSE_FEATURE_SALE_TENDERS_SINCE`. Unset, blank, not an explicit-zone ISO
- * instant, or unparseable -> null (tenders OFF — fail-safe). A valid instant -> its
- * canonical UTC ISO string.
+ * Parse a tenders cutoff instant (`POS_PULSE_FEATURE_SALE_TENDERS_SINCE`, which since RT-1379
+ * only seeds the 0062 row, or the stored value). Unset, blank, not an explicit-zone ISO
+ * instant, or unparseable -> null. A valid instant -> its canonical UTC ISO string.
  */
 export function parseTendersSince(raw: string | undefined): string | null {
   const ms = instantMs(raw?.trim() ?? '');
