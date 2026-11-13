@@ -60,9 +60,10 @@ one place (`resolveFeatureFlags`, `src/main/app/feature-flags.ts`):
    which is on unless set to a falsy value (RT-1180).
 
 Any other lane (`lab`, `production`) or no baked file behaves exactly as §3 describes
-(unset means off). The baked default covers the four cashier switches only: sending
-tender lines and the receipt snapshot to Backend-Core still needs
-`POS_PULSE_FEATURE_SALE_TENDERS_SINCE` and `_RECEIPT_SINCE` (§3.2, RT-1377).
+(unset means off). The baked default covers the four cashier switches only. Sending
+tender lines and the receipt snapshot to Backend-Core needs no variable on a build with
+POS migration `0062`: the build records the capture instant once in its local database
+(RT-1379); `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` and `_RECEIPT_SINCE` only seed it (§3.2).
 
 **Build-time inputs (stamp step, `apps/pos/scripts/stamp-lane-config.ts`).** Run as
 part of `npm run build:main`, from dedicated variables that deliberately differ from
