@@ -62,6 +62,7 @@ import {
 } from "./sale-tender-writes";
 import { insertSaleHeader, insertSaleLines } from "./sale-capture-writes";
 import { sha256CanonicalHex } from "./payload-hash";
+import { reverseVoucherTendersOfVoidedSale } from "./sale-void-vouchers";
 import { findLinePricingViolation } from "./sale-line-pricing";
 import { planSalePromotions, writeSalePromotions, type PromotionPlan } from "./sale-promotions";
 import {
@@ -240,6 +241,9 @@ export interface RecordVoidInput {
   readonly tenantId: string;
   readonly storeId: string;
   readonly actorUserId: string;
+  /** RT-1343: the till that sent the void (the guard's verified device): `reversed_by_device_id` of a voucher it restores. */
+  readonly posDeviceId: string;
+  readonly requestId?: string | null;
   readonly saleRef: string;
   readonly body: RecordVoidRequestDto;
 }
@@ -573,6 +577,19 @@ export class SalesService {
         }
 
         const row = inserted.rows[0]!;
+
+        // RT-1343 (owner decision 2026-11-12): a full void of a voucher-paid sale
+        // RESTORES each voucher. Created path only (both replay branches returned
+        // above), after the `sales` row lock, in this transaction: a failure here
+        // rolls the void back, so a void never lands with its voucher still spent.
+        await reverseVoucherTendersOfVoidedSale(client, {
+          tenantId,
+          storeId,
+          saleId: saleRef,
+          deviceId: input.posDeviceId,
+          actorUserId,
+          requestId: input.requestId ?? null,
+        });
 
         // RT-427 (DC-2 / DC-6): the void's compensating Inventory Effects, in
         // this transaction with its intent below. A no-op while the tenant's

@@ -268,6 +268,27 @@ async function voucherStatus(voucherId: string): Promise<string> {
   return r.rows[0]!.status;
 }
 
+/**
+ * A sale whose single `voucher` tender pays with `redemptionId`: what a capture
+ * leaves behind (RT-1114). Written as the superuser, on `db` (a pool, or a client
+ * inside a transaction).
+ */
+async function seedSaleVoucherTender(db: { query: PgTestEnv["admin"]["query"] }, redemptionId: string): Promise<void> {
+  const saleId = randomUUID();
+  await db.query(
+    `INSERT INTO sales
+       (id, tenant_id, store_id, currency_code, pos_total, occurred_at, business_date,
+        source_system, external_id, payload_hash, created_by, tender_count)
+     VALUES ($1, $2, $3, 'USD', 10, now(), CURRENT_DATE, 'rt1343', $4, repeat('0', 64), $5, 1)`,
+    [saleId, TENANT, STORE, `rt1343-${saleId}`, CASHIER],
+  );
+  await db.query(
+    `INSERT INTO sale_tenders (id, sale_id, tenant_id, store_id, method, amount, currency_code, redemption_id)
+     VALUES (gen_random_uuid(), $1, $2, $3, 'voucher', 10, 'USD', $4)`,
+    [saleId, TENANT, STORE, redemptionId],
+  );
+}
+
 async function admission(device: string, user: string, tenant = TENANT, store = STORE): Promise<void> {
   await E().admin.query(
     `INSERT INTO cashier_admissions
@@ -781,6 +802,69 @@ describe("posReverseVoucher", () => {
     expectError(await reverse(TOKEN_B, { redemption_id: redemptionId }), 404, "redemption_not_found");
     expectError(await reverse(TOKEN, { redemption_id: randomUUID() }), 404, "redemption_not_found");
     expect(await voucherStatus(v.id)).toBe("redeemed");
+  });
+
+  it("refuses a redemption a sale tender pays with (409 redemption_consumed_by_sale), and still reverses an uncaptured one (RT-1343 item 1)", async () => {
+    if (skip()) return;
+    const captured = await seedVoucher();
+    const capturedId = await redeemOk(await validateOk(captured.typed));
+    await seedSaleVoucherTender(E().admin, capturedId);
+    const refused = await reverse(TOKEN, { redemption_id: capturedId });
+    expectError(refused, 409, "redemption_consumed_by_sale");
+    // Same-store, any-device: the other till gets the same refusal. Nothing changed.
+    expectError(await reverse(TOKEN_2, { redemption_id: capturedId }), 409, "redemption_consumed_by_sale");
+    expect(await voucherStatus(captured.id)).toBe("redeemed");
+    const row = await E().admin.query(`SELECT reversed_at FROM voucher_redemptions WHERE id = $1`, [capturedId]);
+    expect(row.rows[0].reversed_at).toBeNull();
+    expect((await auditRows("voucher.reversed")).filter((a) => a.metadata["redemption_id"] === capturedId)).toHaveLength(0);
+
+    // A redemption no sale references (a payment attempt that did not complete) reverses as before.
+    const free = await seedVoucher();
+    const freeId = await redeemOk(await validateOk(free.typed));
+    const ok = await reverse(TOKEN, { redemption_id: freeId });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ redemption_id: freeId, already_reversed: false });
+    expect(await voucherStatus(free.id)).toBe("active");
+  });
+
+  it("after the sale's void reversed the redemption, a reverse is 200 already_reversed, never 409 (RT-1343)", async () => {
+    if (skip()) return;
+    const v = await seedVoucher();
+    const redemptionId = await redeemOk(await validateOk(v.typed));
+    await seedSaleVoucherTender(E().admin, redemptionId);
+    // What the sale's void does in its own transaction (void-voucher-tender.spec.ts proves it end to end).
+    await E().admin.query(`UPDATE voucher_redemptions SET reversed_at = now(), reversed_by_device_id = $2 WHERE id = $1`, [redemptionId, DEVICE]);
+    await E().admin.query(`UPDATE vouchers SET status = 'active' WHERE id = $1`, [v.id]);
+    const res = await reverse(TOKEN_2, { redemption_id: redemptionId });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ kind: "reversed", redemption_id: redemptionId, already_reversed: true });
+    expect(await voucherStatus(v.id)).toBe("active");
+  });
+
+  it("a reverse waits behind a capture that holds the redemption lock and is refused once the capture commits (RT-1343)", async () => {
+    if (skip()) return;
+    const v = await seedVoucher();
+    const redemptionId = await redeemOk(await validateOk(v.typed));
+    const capture = await E().admin.connect();
+    try {
+      // What a capture does: lock the redemption `FOR NO KEY UPDATE`, then write its sale and tender.
+      await capture.query("BEGIN");
+      await capture.query(`SELECT id FROM voucher_redemptions WHERE id = $1 FOR NO KEY UPDATE`, [redemptionId]);
+      await seedSaleVoucherTender(capture, redemptionId);
+      const pending = reverse(TOKEN, { redemption_id: redemptionId }).then((res) => ({ res, at: Date.now() }));
+      await new Promise((r) => setTimeout(r, 1_500));
+      const committedAt = Date.now();
+      await capture.query("COMMIT");
+      const { res, at } = await pending;
+      // It did not answer before the capture ended: the lock serialized them.
+      expect(at).toBeGreaterThanOrEqual(committedAt);
+      expectError(res, 409, "redemption_consumed_by_sale");
+    } finally {
+      capture.release();
+    }
+    expect(await voucherStatus(v.id)).toBe("redeemed");
+    const row = await E().admin.query(`SELECT reversed_at FROM voucher_redemptions WHERE id = $1`, [redemptionId]);
+    expect(row.rows[0].reversed_at).toBeNull();
   });
 
   it("reverses a voucher that expired since it was redeemed; it is active again and still answers voucher_expired (decision 2)", async () => {

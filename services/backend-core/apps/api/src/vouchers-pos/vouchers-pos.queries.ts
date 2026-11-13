@@ -115,6 +115,30 @@ export const REDEMPTION_SQL = `
     FROM voucher_redemptions
    WHERE tenant_id = $1 AND id = $2`;
 
+/**
+ * `$1` tenant, `$2` redemption: take the redemption row lock and read it as it is
+ * after any wait (RT-1343). `FOR NO KEY UPDATE` conflicts with the same lock
+ * capture takes (`assertVoucherTendersRedeemed`), which the FK's `KEY SHARE` does
+ * not; the domain role's column-level UPDATE allows it.
+ */
+export const LOCK_REDEMPTION_SQL = `
+  SELECT id, store_id, voucher_id, payment_attempt_id, operator_user_id,
+         applied_amount_minor::text AS applied_amount_minor, reversed_at
+    FROM voucher_redemptions
+   WHERE tenant_id = $1 AND id = $2
+     FOR NO KEY UPDATE`;
+
+/**
+ * `$1` tenant, `$2` redemption, `$3` the sale allowed to hold it (NULL: none):
+ * whether a sale tender of ANOTHER sale pays with this redemption (RT-1343).
+ * Index `uq_sale_tenders_tenant_redemption` (0102) covers it.
+ */
+export const REDEMPTION_CONSUMED_BY_SALE_SQL = `
+  SELECT EXISTS (
+    SELECT 1 FROM sale_tenders t
+     WHERE t.tenant_id = $1 AND t.redemption_id = $2 AND t.sale_id IS DISTINCT FROM $3::uuid
+  ) AS consumed`;
+
 /** `$1` tenant, `$2` redemption, `$3` reversing device: reverse once. */
 export const REVERSE_REDEMPTION_SQL = `
   UPDATE voucher_redemptions

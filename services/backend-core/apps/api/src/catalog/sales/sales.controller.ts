@@ -501,6 +501,11 @@ export class SalesController {
     if (ctx.storeId === null) {
       throw new UnauthorizedException("store_context_required");
     }
+    // RT-1343: the guard publishes the verified device; a void that restores a
+    // voucher records it as the reversing device. Fail closed without it.
+    if (!request.posDeviceId) {
+      throw new UnauthorizedException("Unauthorized");
+    }
     if (!UUID_RE_I.test(saleRef)) {
       // A malformed ref is a non-disclosing safe-404, never a 500 (SI-004).
       throw new NotFoundException("not_found");
@@ -510,6 +515,8 @@ export class SalesController {
         tenantId: ctx.tenantId,
         storeId: ctx.storeId,
         actorUserId: ctx.userId,
+        posDeviceId: request.posDeviceId,
+        requestId: request.requestId ?? null,
         saleRef,
         body,
       });
