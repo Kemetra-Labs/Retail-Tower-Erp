@@ -79,6 +79,11 @@ export const shell: MessagesOf<typeof ar> = {
     "This link is for a different store. You are working in {store}, and your scope was not changed.",
   "shell.mismatch.switch": "Switch to this store",
   "shell.mismatch.stay": "Stay in {store}",
+  "shell.access.limited.title": "Your account is limited",
+  "shell.access.limited.message":
+    "This workspace is limited until it is activated. You can set up your catalog, stores and team now; connecting a POS and posting sales to ERP start after activation.",
+  "shell.access.limited.requested":
+    "Activation has been requested and is in progress. You can keep setting up your catalog, stores and team; connecting a POS and posting sales to ERP start once it finishes.",
 
   "shell.leave.title": "Leave without saving?",
   "shell.leave.desc": "This page has changes that are not saved. If you leave, they are lost.",

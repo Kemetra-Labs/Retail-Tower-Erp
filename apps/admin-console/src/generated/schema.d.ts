@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 0694611a7f39d918aa13d8604916f182c486f046
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 1fe3c257248cf7fcf7c56820938926d0ee575cf1
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -32,6 +32,7 @@
 // - services/backend-core/packages/contracts/openapi/inventory/inventory.yaml
 // - services/backend-core/packages/contracts/openapi/catalog/console-catalog.yaml
 // - services/backend-core/packages/contracts/openapi/ai-entitlements.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/tenant-access-entitlement.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/platform-support-sessions.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/tenant-branding.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/console-people.openapi.yaml
@@ -15797,6 +15798,331 @@ export namespace AiEntitlementsSchema {
     }
 }
 
+export namespace TenantAccessEntitlementSchema {
+    export interface paths {
+        "/api/v1/tenants/{tenant_id}/access-entitlement": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's access state (the Console banner).
+             * @description Returns the state, whether an unlock was requested and when, and when the tenant was provisioned. A tenant with no stored state reads `unrestricted`. Roles `owner`, `tenant_admin`, `store_manager`.
+             */
+            get: operations["consoleGetTenantAccessEntitlement"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/tenants/{tenant_id}/access-entitlement/unlock-request": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Request the unlock of a restricted tenant (platform admin).
+             * @description Records the unlock request (who and when) and writes `tenant.access.unlock_requested`, in one transaction. Does NOT lift the restriction. Outcomes: `requested` (first request); `already_requested` (a replay: nothing changes, no audit); `already_unrestricted` (the tenant is not restricted, which includes a tenant with no stored state: nothing changes, no audit). No request body.
+             */
+            post: operations["platformRequestTenantUnlock"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/platform/tenants/{tenant_id}/access-entitlement/mark-provisioned": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Record that provisioning succeeded; lifts the restriction (platform admin).
+             * @description The manual stand-in for the provisioning-success signal until RT-1352 exists. Moves the tenant to `unrestricted`, records the provisioner and the time with source `manual_platform`, and writes `tenant.access.provisioned`, in one transaction. Refused with `409 unlock_not_requested` unless an unlock was requested first (or the tenant has no restriction to lift). Outcomes: `provisioned`; `already_unrestricted` (a replay: nothing changes, no audit). No request body.
+             */
+            post: operations["platformMarkTenantProvisioned"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /**
+             * @description `restricted`: no POS pairing and no ERP posting. `unrestricted`: no restriction (the default for a tenant with no stored state).
+             * @enum {string}
+             */
+            AccessState: "restricted" | "unrestricted";
+            /** @description The access state, whether an unlock was requested, and when provisioning was recorded. `provisioned_at` is set exactly when the state is `unrestricted` after a restriction; a tenant that never had a restriction has `unlock_requested_at` and `provisioned_at` both null. */
+            TenantAccessEntitlement: {
+                /** Format: uuid */
+                tenant_id: string;
+                state: components["schemas"]["AccessState"];
+                /** @description When a platform admin requested the unlock; `null` if never. */
+                unlock_requested_at: string | null;
+                /** @description When provisioning was recorded; `null` while restricted or never restricted. */
+                provisioned_at: string | null;
+            };
+            TenantAccessChange: {
+                /** @enum {string} */
+                outcome: "requested" | "already_requested" | "provisioned" | "already_unrestricted";
+                entitlement: components["schemas"]["TenantAccessEntitlement"];
+            };
+            /** @description Canonical error envelope. Refusals are non-disclosing across tenants (§II/§XII). */
+            Error: {
+                error: {
+                    /**
+                     * @description Stable machine-readable code, closed on this surface. `unauthorized` and `internal_error` are the global exception filter's generic 401 and 500 codes.
+                     * @enum {string}
+                     */
+                    code: "validation_error" | "unauthorized" | "origin_rejected" | "forbidden" | "not_found" | "unlock_not_requested" | "internal_error";
+                    message: string;
+                    /** Format: uuid */
+                    request_id: string;
+                    /** @description Present only with `validation_error`: the validation issues the global exception filter serialises (one object per issue). */
+                    details?: Record<string, never>[];
+                };
+            };
+            /** @description The console 429 envelope (RT-620). Same shape as `Error`, whose closed code set does not include the console rate limit's `rate_limited`. */
+            RateLimitedError: {
+                error: {
+                    /** @enum {string} */
+                    code: "rate_limited";
+                    /** @description Non-disclosing summary (no budget, class or window). */
+                    message: string;
+                    /** Format: uuid */
+                    request_id: string;
+                };
+            };
+        };
+        responses: {
+            /** @description `validation_error` — a malformed `tenant_id`. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "validation_error";
+                        };
+                    };
+                };
+            };
+            /** @description No human dashboard session: a bearer-only request (`dashboard_api` included) is refused here (`SessionOnlyAdminGuard`). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "unauthorized";
+                        };
+                    };
+                };
+            };
+            /** @description `forbidden` — the caller is not a platform admin; or `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+            Forbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @enum {unknown} */
+                            code?: "forbidden" | "origin_rejected";
+                        };
+                    };
+                };
+            };
+            /** @description `not_found` — on the Console read: another tenant, a role outside `owner` / `tenant_admin` / `store_manager`, or an unknown tenant, identical in all cases (§II/§XII). On the platform routes: an unknown tenant. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "not_found";
+                        };
+                    };
+                };
+            };
+            /** @description `unlock_not_requested` — mark provisioned needs a prior unlock request, and a tenant with no stored restriction has nothing to provision. Nothing is changed. */
+            UnlockNotRequested: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "unlock_not_requested";
+                        };
+                    };
+                };
+            };
+            /** @description `internal_error` — an unexpected server error, recorded server-side by `request_id` and never returned. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"] & {
+                        error?: {
+                            /** @constant */
+                            code?: "internal_error";
+                        };
+                    };
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RateLimitedError"];
+                };
+            };
+        };
+        parameters: {
+            /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+            TenantId: string;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleGetTenantAccessEntitlement: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's access state. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantAccessEntitlement"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformRequestTenantUnlock: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The unlock outcome and the resulting state. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantAccessChange"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformMarkTenantProvisioned: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The tenant addressed. The Console read checks it against the session's tenant and role (a mismatch is `404`); the platform routes accept any existing tenant for a platform admin. */
+                    tenant_id: components["parameters"]["TenantId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The outcome and the resulting state. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenantAccessChange"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["UnlockNotRequested"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
 export namespace PlatformSupportSessionsSchema {
     export interface paths {
         "/api/v1/platform/support-sessions": {
@@ -20381,6 +20707,15 @@ export namespace OffersSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 404 `not_found` (RT-1370): the device's store is deleted, or is not a store of the device's tenant. Non-disclosing and never a 500. The till drops its held and stored Pack and applies no offer. The body is the canonical envelope. */
+            DeviceStoreNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description 500 `internal_error`: an unexpected server error, recorded server-side under `request_id` and never returned. */
             SystemFailure: {
                 headers: {
@@ -20934,12 +21269,13 @@ export namespace OffersSchema {
                 };
                 400: components["responses"]["DeviceValidationFailure"];
                 401: components["responses"]["DeviceUnauthorized"];
+                404: components["responses"]["DeviceStoreNotFound"];
                 500: components["responses"]["SystemFailure"];
             };
         };
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations;
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations;
