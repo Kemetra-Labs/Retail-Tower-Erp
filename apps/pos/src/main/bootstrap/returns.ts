@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
-import { parseFeatureFlags } from '../app/feature-flags.js';
+import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { registerReturnsHandlers } from '../ipc/returns.js';
 import type { JwtHolder } from '../operator/jwt-holder.js';
@@ -82,7 +82,7 @@ export function registerReturns(deps: ReturnsDeps): void {
     // RT-197 A5: read only into the authorization snapshot (and at a
     // recheck); every send carries the snapshot's envelope explicitly.
     getOperatorEnvelope: createSaleSyncTokenReader(operatorSessionManager, operatorEnvelopeHolder),
-    isEnabled: () => parseFeatureFlags(process.env).returns,
+    isEnabled: () => resolveFeatureFlags().returns,
     getSession: () =>
       resolveSessionScope(operatorSessionManager.getCurrent(), pairingStore.getCurrentTerminalId()),
     isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
@@ -96,7 +96,7 @@ export function registerReturns(deps: ReturnsDeps): void {
     printer: printPipeline,
   });
   registerReturnsHandlers(guardedIpcMain, { service: returnsDomain.service });
-  if (parseFeatureFlags(process.env).returns) {
+  if (resolveFeatureFlags().returns) {
     // Scheduled regardless of pairing: each tick resolves the paired terminal
     // and an eligible (unlocked manager/admin) operator live, so in-process
     // pairing needs no restart; until then every tick is a no-op.

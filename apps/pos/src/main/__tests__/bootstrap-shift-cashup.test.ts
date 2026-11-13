@@ -61,7 +61,7 @@ describe('bootstrap/shift.ts wires the RT-17 shift sync engine', () => {
     expect(count(/registerShiftSync\(/g)).toBe(1);
     expect(count(/startShiftSync\(/g)).toBe(1);
     expect(shiftSource).toMatch(
-      /registerShiftSync\(\{\s*enabled: parseFeatureFlags\(process\.env\)\.shiftCashup,\s*pairedWorkers: pairedWorkersLatch,\s*workers: workerRegistry,/,
+      /registerShiftSync\(\{\s*enabled: resolveFeatureFlags\(\)\.shiftCashup,\s*pairedWorkers: pairedWorkersLatch,\s*workers: workerRegistry,/,
     );
   });
 
@@ -84,7 +84,7 @@ describe('bootstrap/shift.ts wires the RT-17 shift sync engine', () => {
     expect(count(/registerShiftCashupIpc\(/g)).toBe(1);
     expect(shiftSource).not.toMatch(/registerShiftCashupHandlers\(/);
     expect(shiftSource).toMatch(
-      /registerShiftCashupIpc\(\{\s*enabled: parseFeatureFlags\(process\.env\)\.shiftCashup,\s*ipcMain: guardedIpcMain,\s*db,\s*isEnabled: \(\) => parseFeatureFlags\(process\.env\)\.shiftCashup,/,
+      /registerShiftCashupIpc\(\{\s*enabled: resolveFeatureFlags\(\)\.shiftCashup,\s*ipcMain: guardedIpcMain,\s*db,\s*isEnabled: \(\) => resolveFeatureFlags\(\)\.shiftCashup,/,
     );
   });
 

@@ -31,7 +31,21 @@ describe('main/index.ts enforces the cashier profile (RT-162)', () => {
       /import\s+\{[^}]*\bassessCashierProfile\b[^}]*\}\s+from\s+'\.\/app\/feature-flags\.js'/,
     );
     expect(source).toMatch(
-      /import\s+\{[^}]*\bparseFeatureFlags\b[^}]*\}\s+from\s+'\.\/app\/feature-flags\.js'/,
+      /import\s+\{[^}]*\bresolveFeatureFlags\b[^}]*\}\s+from\s+'\.\/app\/feature-flags\.js'/,
+    );
+  });
+
+  it('RT-1376: the baked lane is loaded before the startup profile is resolved and assessed', () => {
+    // The resolved profile reads the baked-lane holder. If the holder were still empty here,
+    // a pilot build with SALE_FINALIZATION off would pass D-1, then resolve payments on later.
+    expect(indexOfOrFail(/initBakedLaneConfig\(\{/)).toBeLessThan(
+      indexOfOrFail(/const startupFeatureFlags = resolveFeatureFlags\(\);/),
+    );
+  });
+
+  it('RT-1376: the startup assessment runs on the resolved profile (env, then baked lane)', () => {
+    expect(source).toMatch(
+      /const startupFeatureFlags = resolveFeatureFlags\(\);\s*const cashierProfile = assessCashierProfile\(startupFeatureFlags\);/,
     );
   });
 
@@ -65,7 +79,7 @@ describe('main/index.ts enforces the cashier profile (RT-162)', () => {
   });
 
   it('getAppConfig serves flags from the config module, not an inline parser', () => {
-    expect(source).toMatch(/cfg\.features\s*=\s*parseFeatureFlags\(process\.env\)/);
+    expect(source).toMatch(/cfg\.features\s*=\s*resolveFeatureFlags\(\)/);
     expect(source).not.toMatch(/\['1',\s*'true',\s*'yes',\s*'on'\]/);
     expect(source).not.toContain("process.env['POS_PULSE_FEATURE_PAYMENTS']");
     expect(source).not.toContain("process.env['POS_PULSE_FEATURE_SALE_FINALIZATION']");

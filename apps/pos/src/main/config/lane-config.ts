@@ -30,7 +30,7 @@ import type { UpdateChannel } from '../update/update-types.js';
  */
 
 const LANES = ['lab', 'pilot', 'production'] as const;
-type Lane = (typeof LANES)[number];
+export type Lane = (typeof LANES)[number];
 
 /** The file name inside `dist/` (and so inside the asar). */
 export const LANE_CONFIG_FILE = 'lane-config.json';

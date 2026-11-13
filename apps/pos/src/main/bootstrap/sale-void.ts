@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
-import { parseFeatureFlags } from '../app/feature-flags.js';
+import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { registerSaleVoidHandlers } from '../ipc/sale-void.js';
 import type { JwtHolder } from '../operator/jwt-holder.js';
@@ -89,7 +89,7 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     getSession: () => operatorSessionManager.getCurrent(),
     getTerminalId: () => pairingStore.getCurrentTerminalId(),
     isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
-    isEnabled: () => parseFeatureFlags(process.env).saleVoid,
+    isEnabled: () => resolveFeatureFlags().saleVoid,
     approvals: managerApprovals,
     auditSink: auditEmitter,
     // RT-741: `saleVoid.lookup` runs the shared RT-546 gate; its refusals are
@@ -103,7 +103,7 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     service: saleVoidDomain.service,
     logger: mainLogger,
   });
-  if (parseFeatureFlags(process.env).saleVoid) {
+  if (resolveFeatureFlags().saleVoid) {
     // Each pass resolves its sender live (the signed-in operator and their
     // envelope), so a requester who signs in later is picked up without a restart.
     const SALE_VOID_SEND_INTERVAL_MS = 5_000;
