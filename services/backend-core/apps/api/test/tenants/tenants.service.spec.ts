@@ -82,6 +82,7 @@ class FakeTenantsRepository {
 
   listForUserCalls: Array<{ userId: string }> = [];
   listAllCalls: number = 0;
+  listAllWithAccessCalls: Array<{ accessState?: string }> = [];
   findByIdAdminCalls: Array<{ tenantId: string }> = [];
   findByIdCalls: Array<{ tenantId: string }> = [];
   updateCalls: Array<{
@@ -98,6 +99,10 @@ class FakeTenantsRepository {
   }
   async listAll(_pool: Pool): Promise<TenantRecord[]> {
     this.listAllCalls += 1;
+    return this.listAllResult;
+  }
+  async listAllWithAccess(_pool: Pool, opts: { accessState?: string } = {}): Promise<TenantRecord[]> {
+    this.listAllWithAccessCalls.push(opts);
     return this.listAllResult;
   }
   async findByIdAdmin(
@@ -214,12 +219,12 @@ beforeEach(() => {
 // --- list -------------------------------------------------------------
 
 describe("TenantsService.list", () => {
-  it("returns listAll for platform admin", async () => {
+  it("returns the access-state list for platform admin (RT-1350 6a)", async () => {
     memberships.isPlatformAdminResult = true;
     repo.listAllResult = [tenant({ id: TENANT_ID }), tenant({ id: OTHER_TENANT_ID })];
     const out = await service.list(SESSION_PRINCIPAL);
     expect(out).toHaveLength(2);
-    expect(repo.listAllCalls).toBe(1);
+    expect(repo.listAllWithAccessCalls).toEqual([{}]);
     expect(repo.listForUserCalls).toHaveLength(0);
   });
 

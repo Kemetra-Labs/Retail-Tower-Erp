@@ -23,6 +23,7 @@
 import "reflect-metadata";
 import {
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
@@ -160,6 +161,7 @@ function makeFakeTenantsRepo(): jest.Mocked<TenantsRepository> {
   return {
     listForUser: jest.fn(),
     listAll: jest.fn(),
+    listAllWithAccess: jest.fn(),
     findByIdAdmin: jest.fn(),
     findById: jest.fn(),
     create: jest.fn(),
@@ -270,19 +272,52 @@ describe("TenantsService.list", () => {
     expect(tx).toHaveBeenCalledTimes(1);
   });
 
-  it("LI2: session principal + memberships.isPlatformAdmin=true → listAll(pool)", async () => {
+  it("LI2: session principal + memberships.isPlatformAdmin=true → listAllWithAccess(client, {}) under the platform context (RT-1350 6a)", async () => {
     const { service, tenantsRepo, membershipsRepo, tx } = buildService();
     membershipsRepo.isPlatformAdmin.mockResolvedValue(true);
     const rows = [makeTenantRecord({ id: TENANT_ID })];
-    tenantsRepo.listAll.mockResolvedValue(rows);
+    tenantsRepo.listAllWithAccess.mockResolvedValue(rows);
 
     const result = await service.list(sessionPrincipal);
 
     expect(result).toBe(rows);
     expect(membershipsRepo.isPlatformAdmin).toHaveBeenCalledWith(USER_ID);
-    expect(tenantsRepo.listAll).toHaveBeenCalledWith(fakeClient);
+    expect(tenantsRepo.listAllWithAccess).toHaveBeenCalledWith(fakeClient, {});
+    expect(tenantsRepo.listAll).not.toHaveBeenCalled();
     expect(tenantsRepo.listForUser).not.toHaveBeenCalled();
     expect(tx).toHaveBeenCalledWith(fakePool, { tenantId: null, isPlatformAdmin: true }, expect.any(Function));
+  });
+
+  it.each(["restricted", "unrestricted"] as const)(
+    "LI2b: platform admin + access_state=%s → the filter reaches the repository (SQL filter, not in memory)",
+    async (accessState) => {
+      const { service, tenantsRepo, membershipsRepo } = buildService();
+      membershipsRepo.isPlatformAdmin.mockResolvedValue(true);
+      tenantsRepo.listAllWithAccess.mockResolvedValue([]);
+
+      await service.list(sessionPrincipal, { accessState });
+
+      expect(tenantsRepo.listAllWithAccess).toHaveBeenCalledWith(fakeClient, { accessState });
+    },
+  );
+
+  it("LI3b: a non-platform caller sending access_state → 403, no repository call (not silently ignored)", async () => {
+    const { service, tenantsRepo, membershipsRepo, tx } = buildService();
+    membershipsRepo.isPlatformAdmin.mockResolvedValue(false);
+
+    await expect(service.list(sessionPrincipal, { accessState: "restricted" })).rejects.toThrow(ForbiddenException);
+
+    expect(tenantsRepo.listAllWithAccess).not.toHaveBeenCalled();
+    expect(tenantsRepo.listForUser).not.toHaveBeenCalled();
+    expect(tx).not.toHaveBeenCalled();
+  });
+
+  it("LI3c: a token principal sending access_state → 403 too (tokens are never platform admins)", async () => {
+    const { service, tenantsRepo } = buildService();
+
+    await expect(service.list(tokenPrincipalTenant, { accessState: "unrestricted" })).rejects.toThrow(ForbiddenException);
+
+    expect(tenantsRepo.listAllWithAccess).not.toHaveBeenCalled();
   });
 
   it("LI3: session principal + memberships.isPlatformAdmin=false → listForUser(pool, userId)", async () => {

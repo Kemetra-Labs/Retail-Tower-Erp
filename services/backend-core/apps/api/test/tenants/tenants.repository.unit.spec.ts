@@ -599,3 +599,81 @@ describe("TenantsRepository.softDelete", () => {
     expect(result).toBe(false);
   });
 });
+
+// ===========================================================================
+// RT-1350 slice 6a. listAllWithAccess (raw SQL: LEFT JOIN, filter in SQL)
+// ===========================================================================
+
+describe("TenantsRepository.listAllWithAccess", () => {
+  function fakeQueryClient(rows: unknown[]) {
+    const query = jest.fn().mockResolvedValue({ rows });
+    return { query, client: { query } as unknown as PoolClient };
+  }
+
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: TENANT_ID,
+    slug: "acme",
+    name: "Acme Corp",
+    status: "active",
+    created_at: new Date("2024-01-01T00:00:00Z"),
+    updated_at: new Date("2024-01-02T00:00:00Z"),
+    deleted_at: null,
+    access_state: null,
+    unlock_requested_at: null,
+    provisioned_at: null,
+    ...over,
+  });
+
+  it("W1: a tenant with no entitlement row reads unrestricted with both timestamps null (RT-1353 rule)", async () => {
+    const { client } = fakeQueryClient([row()]);
+    const out = await new TenantsRepository().listAllWithAccess(client);
+    expect(out).toEqual([
+      {
+        id: TENANT_ID,
+        slug: "acme",
+        name: "Acme Corp",
+        status: "active",
+        createdAt: new Date("2024-01-01T00:00:00Z"),
+        updatedAt: new Date("2024-01-02T00:00:00Z"),
+        deletedAt: null,
+        access: { state: "unrestricted", unlockRequestedAt: null, provisionedAt: null },
+      },
+    ]);
+  });
+
+  it("W2: a restricted row carries its unlock request time; provisioned stays null", async () => {
+    const unlock = new Date("2026-11-13T10:00:00Z");
+    const { client } = fakeQueryClient([row({ id: TENANT_ID_2, access_state: "restricted", unlock_requested_at: unlock })]);
+    const [out] = await new TenantsRepository().listAllWithAccess(client);
+    expect(out!.access).toEqual({ state: "restricted", unlockRequestedAt: unlock, provisionedAt: null });
+  });
+
+  it("W3: an unrestricted row carries provisioned_at", async () => {
+    const at = new Date("2026-11-14T10:00:00Z");
+    const { client } = fakeQueryClient([row({ access_state: "unrestricted", unlock_requested_at: at, provisioned_at: at })]);
+    const [out] = await new TenantsRepository().listAllWithAccess(client);
+    expect(out!.access).toEqual({ state: "unrestricted", unlockRequestedAt: at, provisionedAt: at });
+  });
+
+  it("W4: one LEFT JOIN query over non-deleted tenants, no filter by default", async () => {
+    const { client, query } = fakeQueryClient([]);
+    expect(await new TenantsRepository().listAllWithAccess(client)).toEqual([]);
+    expect(query).toHaveBeenCalledTimes(1);
+    const sql = String(query.mock.calls[0]![0]);
+    expect(sql).toMatch(/LEFT JOIN tenant_access_entitlements e ON e\.tenant_id = t\.id/);
+    expect(sql).toMatch(/t\.deleted_at IS NULL/);
+    expect(sql).not.toMatch(/e\.state\s*=/);
+  });
+
+  it("W5: accessState=restricted filters in SQL on the stored state", async () => {
+    const { client, query } = fakeQueryClient([]);
+    await new TenantsRepository().listAllWithAccess(client, { accessState: "restricted" });
+    expect(String(query.mock.calls[0]![0])).toMatch(/AND e\.state = 'restricted'/);
+  });
+
+  it("W6: accessState=unrestricted also keeps tenants with no row", async () => {
+    const { client, query } = fakeQueryClient([]);
+    await new TenantsRepository().listAllWithAccess(client, { accessState: "unrestricted" });
+    expect(String(query.mock.calls[0]![0])).toMatch(/AND \(e\.state IS NULL OR e\.state = 'unrestricted'\)/);
+  });
+});

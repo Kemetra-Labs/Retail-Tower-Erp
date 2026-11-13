@@ -44,3 +44,12 @@ export const TenantUpdateSchema = z
     { message: "At least one of `name` or `status` must be provided." },
   );
 export type TenantUpdateInput = z.infer<typeof TenantUpdateSchema>;
+
+/**
+ * `GET /tenants?access_state=` (RT-1350 slice 6a): the optional platform-admin
+ * filter on the tenant's access state. Any other value is a 400.
+ */
+export const TenantListQuerySchema = z
+  .object({ access_state: z.enum(["restricted", "unrestricted"]).optional() })
+  .strip();
+export type TenantListQuery = z.infer<typeof TenantListQuerySchema>;

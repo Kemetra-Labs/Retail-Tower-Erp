@@ -59,6 +59,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -74,8 +75,10 @@ import { PathTenantSupportSessionGuard } from "../platform-support-sessions/path
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import {
   TenantCreateSchema,
+  TenantListQuerySchema,
   TenantUpdateSchema,
   type TenantCreateInput,
+  type TenantListQuery,
   type TenantUpdateInput,
 } from "./dto";
 import { TenantsService } from "./tenants.service";
@@ -109,6 +112,10 @@ interface TenantSummaryBody {
   slug: string;
   name: string;
   status: string;
+  /** RT-1350 slice 6a: only on the platform-admin list (`TenantSummary` 1.3.0). */
+  access_state?: "restricted" | "unrestricted";
+  unlock_requested_at?: string | null;
+  provisioned_at?: string | null;
 }
 
 /**
@@ -138,7 +145,15 @@ function toMembershipDetailBody(d: MembershipDetail): MembershipDetailBody {
 }
 
 function toSummaryBody(record: TenantRecord): TenantSummaryBody {
-  return { id: record.id, slug: record.slug, name: record.name, status: record.status };
+  const base = { id: record.id, slug: record.slug, name: record.name, status: record.status };
+  const access = record.access;
+  if (!access) return base;
+  return {
+    ...base,
+    access_state: access.state,
+    unlock_requested_at: access.unlockRequestedAt ? access.unlockRequestedAt.toISOString() : null,
+    provisioned_at: access.provisionedAt ? access.provisionedAt.toISOString() : null,
+  };
 }
 
 function toFullBody(record: TenantRecord): TenantBody {
@@ -159,10 +174,16 @@ export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
   @Get()
-  async list(@Req() request: AuthedRequest): Promise<TenantSummaryBody[]> {
+  async list(
+    @Req() request: AuthedRequest,
+    @Query(new ZodValidationPipe(TenantListQuerySchema)) query: TenantListQuery,
+  ): Promise<TenantSummaryBody[]> {
     const principal = request.principal;
     if (!principal) throw new UnauthorizedException("Unauthorized");
-    const records = await this.tenantsService.list(principal);
+    const records = await this.tenantsService.list(
+      principal,
+      query.access_state ? { accessState: query.access_state } : {},
+    );
     return records.map(toSummaryBody);
   }
 

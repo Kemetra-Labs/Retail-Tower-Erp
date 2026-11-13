@@ -292,7 +292,16 @@ describe("GET /api/v1/tenants", () => {
           .set(SAME_ORIGIN)
           .expect(200);
         const row = res.body.find((r: { id: string }) => r.id === GLOBEX_ID);
-        expect(row).toEqual({ id: GLOBEX_ID, slug: "globex", name: expect.any(String), status });
+        // RT-1350 6a: the platform list also carries the access state (no row = unrestricted).
+        expect(row).toEqual({
+          id: GLOBEX_ID,
+          slug: "globex",
+          name: expect.any(String),
+          status,
+          access_state: "unrestricted",
+          unlock_requested_at: null,
+          provisioned_at: null,
+        });
         for (const r of res.body) expect(["active", "suspended", "pending"]).toContain(r.status);
       } finally {
         await pool!.query("UPDATE tenants SET status = 'active' WHERE id = $1", [GLOBEX_ID]);

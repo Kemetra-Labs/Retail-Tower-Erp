@@ -97,7 +97,7 @@ function makeMembershipDetail(overrides: Partial<MembershipDetail> = {}): Member
 // ---------------------------------------------------------------------------
 
 class FakeTenantsService {
-  public lastListArgs: { principal: Principal } | null = null;
+  public lastListArgs: { principal: Principal; opts: { accessState?: string } } | null = null;
   public lastCreateArgs: { principal: Principal; body: unknown } | null = null;
   public lastListMembersArgs: { principal: Principal; tenantId: string } | null = null;
   public lastReadArgs: { principal: Principal; tenantId: string } | null = null;
@@ -110,8 +110,8 @@ class FakeTenantsService {
   public readResult: TenantRecord = makeTenantRecord();
   public updateResult: TenantRecord = makeTenantRecord();
 
-  async list(principal: Principal): Promise<TenantRecord[]> {
-    this.lastListArgs = { principal };
+  async list(principal: Principal, opts: { accessState?: string } = {}): Promise<TenantRecord[]> {
+    this.lastListArgs = { principal, opts };
     return this.listResult;
   }
 
@@ -260,6 +260,47 @@ describe("GET /api/v1/tenants", () => {
       expect(res.body.map((r: { status: string }) => r.status)).toEqual([status, status]);
     },
   );
+
+  it("RT-1350 6a: a row with an access view carries access_state, unlock_requested_at and provisioned_at", async () => {
+    svc.listResult = [
+      makeTenantRecord({
+        access: { state: "restricted", unlockRequestedAt: new Date("2026-11-13T10:00:00Z"), provisionedAt: null },
+      }),
+      makeTenantRecord({
+        id: "bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb",
+        access: { state: "unrestricted", unlockRequestedAt: null, provisionedAt: null },
+      }),
+    ];
+    const res = await http().get("/api/v1/tenants");
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toEqual({
+      id: TENANT_ID,
+      slug: "acme-corp",
+      name: "Acme Corp",
+      status: "active",
+      access_state: "restricted",
+      unlock_requested_at: "2026-11-13T10:00:00.000Z",
+      provisioned_at: null,
+    });
+    expect(res.body[1]).toMatchObject({ access_state: "unrestricted", unlock_requested_at: null, provisioned_at: null });
+  });
+
+  it.each(["restricted", "unrestricted"])("RT-1350 6a: ?access_state=%s is forwarded to service.list", async (value) => {
+    await http().get("/api/v1/tenants").query({ access_state: value });
+    expect(svc.lastListArgs!.opts).toEqual({ accessState: value });
+  });
+
+  it("RT-1350 6a: no access_state sends no filter", async () => {
+    await http().get("/api/v1/tenants");
+    expect(svc.lastListArgs!.opts).toEqual({});
+  });
+
+  it.each(["", "bogus", "RESTRICTED", "active"])("RT-1350 6a: ?access_state=%j is a 400 validation_error and the service is not called", async (value) => {
+    const res = await http().get("/api/v1/tenants").query({ access_state: value });
+    expect(res.status).toBe(400);
+    expectErrorEnvelope(res.body, "validation_error");
+    expect(svc.lastListArgs).toBeNull();
+  });
 
   it("forwards principal to service.list", async () => {
     await http().get("/api/v1/tenants");

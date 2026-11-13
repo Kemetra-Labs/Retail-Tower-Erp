@@ -40,6 +40,19 @@ import type { Pool, PoolClient } from "pg";
  * the OpenAPI contract; the controller projects to the appropriate
  * subset per endpoint.
  */
+/**
+ * A tenant's access state as the platform list shows it (RT-1350 slice 6a):
+ * the `tenant_access_entitlements` row, or `unrestricted` with both timestamps
+ * null when the tenant has no row (the RT-1353 rule: no row = unrestricted).
+ */
+export interface TenantAccessView {
+  readonly state: "restricted" | "unrestricted";
+  readonly unlockRequestedAt: Date | null;
+  readonly provisionedAt: Date | null;
+}
+
+export type TenantAccessFilter = "restricted" | "unrestricted";
+
 export interface TenantRecord {
   readonly id: string;
   readonly slug: string;
@@ -48,6 +61,8 @@ export interface TenantRecord {
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly deletedAt: Date | null;
+  /** Set only by `listAllWithAccess` (the platform-admin list). */
+  readonly access?: TenantAccessView;
 }
 
 function toRecord(row: TenantRow): TenantRecord {
@@ -137,6 +152,58 @@ export class TenantsRepository {
       ? await db.select().from(tenants).where(where)
       : await db.select().from(tenants);
     return rows.map(toRecord);
+  }
+
+  /**
+   * The platform-admin list with each tenant's access state (RT-1350 slice 6a):
+   * non-deleted tenants LEFT JOINed to `tenant_access_entitlements`, so a tenant
+   * with no row reads `unrestricted` (RT-1353). `accessState` filters in SQL.
+   *
+   * Needs the platform-wide SELECT policy of migration 0110
+   * (`tenant_access_entitlements_platform_select`): the caller runs under the
+   * platform-admin context (`app.is_platform_admin = 'true'`, no tenant pin).
+   * Without that policy every tenant would read `unrestricted`.
+   */
+  async listAllWithAccess(
+    connection: Pool | PoolClient,
+    opts: { accessState?: TenantAccessFilter } = {},
+  ): Promise<TenantRecord[]> {
+    let filter = "";
+    if (opts.accessState === "restricted") filter = "AND e.state = 'restricted'";
+    if (opts.accessState === "unrestricted") filter = "AND (e.state IS NULL OR e.state = 'unrestricted')";
+    const result = await connection.query<{
+      id: string;
+      slug: string;
+      name: string;
+      status: string;
+      created_at: Date;
+      updated_at: Date;
+      deleted_at: Date | null;
+      access_state: string | null;
+      unlock_requested_at: Date | null;
+      provisioned_at: Date | null;
+    }>(
+      `SELECT t.id, t.slug, t.name, t.status, t.created_at, t.updated_at, t.deleted_at,
+              e.state AS access_state, e.unlock_requested_at, e.provisioned_at
+         FROM tenants t
+         LEFT JOIN tenant_access_entitlements e ON e.tenant_id = t.id
+        WHERE t.deleted_at IS NULL ${filter}
+        ORDER BY t.created_at, t.id`,
+    );
+    return result.rows.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      name: r.name,
+      status: r.status as TenantStatus,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      deletedAt: r.deleted_at,
+      access: {
+        state: r.access_state === "restricted" ? "restricted" : "unrestricted",
+        unlockRequestedAt: r.unlock_requested_at,
+        provisionedAt: r.provisioned_at,
+      },
+    }));
   }
 
   /**

@@ -50,6 +50,7 @@
  */
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -70,6 +71,7 @@ import {
 } from "../context/membership.repository";
 import {
   TenantsRepository,
+  type TenantAccessFilter,
   type TenantRecord,
 } from "./tenants.repository";
 
@@ -114,14 +116,25 @@ export class TenantsService {
    * including null-tenant tokens: a token with a user lists that user's
    * memberships; a user-less token returns an empty list.
    */
-  async list(principal: Principal): Promise<TenantRecord[]> {
+  async list(
+    principal: Principal,
+    opts: { accessState?: TenantAccessFilter } = {},
+  ): Promise<TenantRecord[]> {
     const userId = await this.resolveActingUserId(principal);
     if (await this.isPlatformAdmin(principal, userId)) {
+      // RT-1350 slice 6a: every platform row carries its access state; the
+      // optional filter runs in SQL (needs the 0110 platform-wide SELECT policy).
       return this.tx(
         this.pool,
         { tenantId: null, isPlatformAdmin: true },
-        (client) => this.tenants.listAll(client),
+        (client) => this.tenants.listAllWithAccess(client, opts),
       );
+    }
+    // The access state is platform-scope information: a member reads their own
+    // tenant's through the access-entitlement route, so the filter is refused
+    // here instead of being silently ignored.
+    if (opts.accessState !== undefined) {
+      throw new ForbiddenException("The access_state filter is for platform admins.");
     }
     if (!userId) return [];
     // This cross-tenant read is constrained by the authenticated user ID.
