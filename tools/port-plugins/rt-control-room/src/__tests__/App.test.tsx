@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortBridge } from "../bridge/usePortBridge";
 
@@ -98,5 +98,43 @@ describe("App hook order", () => {
     expect(screen.getByRole("status").textContent).toBeTruthy();
     expect(errors.mock.calls.flat().join(" ")).not.toMatch(/hook/i);
     errors.mockRestore();
+  });
+});
+
+describe("App with the board", () => {
+  // The hook-order test above leaves its tree mounted.
+  beforeEach(() => {
+    cleanup();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the header, the verdict and the telemetry once Port answers, then follows the language and pause", async () => {
+    const { createFakePort } = await import("../state/__tests__/testkit");
+    createFakePort().install();
+    setBridge({ status: "ready", trusted: true, token: "tok-secret", baseUrl: "https://api.getport.io" });
+    const { container } = render(<App />);
+
+    // While loading: busy placeholders, no figures, one status region.
+    expect(container.querySelector("[aria-busy='true']")).toBeTruthy();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+
+    expect(await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 })).toBeTruthy();
+    expect(screen.getByText("Test lab, not real stores")).toBeTruthy();
+    expect(container.querySelectorAll("svg.trace")).toHaveLength(4);
+    expect(container.textContent).not.toContain("tok-secret");
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause motion" }));
+    expect(container.querySelector(".pulse")?.className).toContain("paused");
+    expect(screen.getByRole("button", { name: "Resume motion" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "عربي" }));
+    expect(document.documentElement.dir).toBe("rtl");
+    expect(screen.getByText("بيئة تجربة، مش محلات حقيقية")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    expect(document.documentElement.dir).toBe("ltr");
   });
 });

@@ -6,7 +6,7 @@ import { requestPortToken } from "../bridge/requestToken";
 import { buildBoard } from "../model/board";
 import type { Board, Collection } from "../model/types";
 import type { BoardEvent } from "./diff";
-import { createPollerState, runPoll, type PollerState } from "./poller";
+import { createPollerState, runPoll, type PollerState, type PollResult } from "./poller";
 import { nextPoll } from "./schedule";
 import { useVisible } from "./useVisible";
 
@@ -24,6 +24,13 @@ export type UseBoard = {
   error: string | null;
   /** Collections whose latest read failed (their previous content is still shown). */
   failed: Collection[];
+  /**
+   * The start (ms) of the last poll that read every collection, or null when there has been none.
+   * A stale board keeps the time of its last good sync, never the time of the failed poll.
+   */
+  asOf: number | null;
+  /** When the newest lab deployment changed (ISO), or null when Port lists none. */
+  labUpdatedAt: string | null;
   /** True from the first board until the diagram calls `onReplayDone()`; false when there is nothing to replay. */
   replaying: boolean;
   onReplayDone(): void;
@@ -36,6 +43,28 @@ export type UseBoardOptions = {
 
 const QUERY_KEY = ["rt-control-room", "board"] as const;
 const MIN_DELAY_MS = 1_000;
+
+/**
+ * When the newest lab deployment happened. The entity's `updatedAt` moves on
+ * every resync, so it is not used: the deployment's own `createdAt` property,
+ * or else the entity's `createdAt`, is. Deployments of another environment are skipped.
+ */
+function newestDeployment(data: PollResult | undefined): string | null {
+  let best: string | null = null;
+  let bestMs = -Infinity;
+  for (const d of data?.snapshot?.deployments ?? []) {
+    const env = d.properties.environment;
+    if (typeof env === "string" && env.toLowerCase() !== "lab") continue;
+    const own = d.properties.createdAt;
+    const at = typeof own === "string" ? own : d.createdAt;
+    const ms = Date.parse(at);
+    if (!Number.isNaN(ms) && ms > bestMs) {
+      best = at;
+      bestMs = ms;
+    }
+  }
+  return best;
+}
 
 function errorText(status: number | null): string {
   return status === null ? "Port could not be read" : `Port could not be read (HTTP ${status})`;
@@ -104,6 +133,12 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
   else if (data.failed.length > 0 || query.isError) status = "stale";
   else status = "ready";
 
+  // A poll that failed in part still advances `data.now`, but its board is not "as of" that moment.
+  const goodSyncRef = useRef<number | null>(null);
+  if (data?.hasData && data.failed.length === 0) goodSyncRef.current = data.now;
+
+  const labUpdatedAt = useMemo(() => newestDeployment(data), [data]);
+
   const onReplayDone = useCallback(() => setReplayDone(true), []);
   const replayQueue = data?.replayQueue ?? [];
 
@@ -114,6 +149,8 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
     status,
     error: status === "stale" || status === "error" ? errorText(data?.errorStatus ?? null) : null,
     failed: data?.failed ?? [],
+    asOf: board ? goodSyncRef.current : null,
+    labUpdatedAt,
     replaying: board !== null && replayQueue.length > 0 && !replayDone,
     onReplayDone,
   };

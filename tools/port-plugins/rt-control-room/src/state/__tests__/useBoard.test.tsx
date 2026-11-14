@@ -4,7 +4,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortBridge } from "../../bridge/usePortBridge";
 import type { SentryIssue, StationId } from "../../model/types";
-import { BASE_URL, NOW, createFakePort, observers, type FakePort } from "./testkit";
+import { BASE_URL, NOW, createFakePort, fixture, observers, type FakePort } from "./testkit";
 
 const bridge = vi.hoisted(() => ({ value: undefined as unknown as PortBridge }));
 vi.mock("../../bridge/usePortBridge", () => ({ usePortBridge: () => bridge.value }));
@@ -217,6 +217,44 @@ describe("useBoard failures", () => {
     await tick(60_000);
     expect(result.current.status).toBe("ready");
     expect(result.current.error).toBeNull();
+  });
+
+  it("keeps the time of the last good sync while stale, then moves on when a poll is good again", async () => {
+    const { result } = mount();
+    await settle();
+    expect(result.current.asOf).toBe(NOW.getTime());
+
+    port.failAll(500);
+    await tick(60_000);
+    expect(result.current.status).toBe("stale");
+    expect(result.current.asOf).toBe(NOW.getTime());
+
+    port.healAll();
+    await tick(60_000);
+    expect(result.current.status).toBe("ready");
+    expect(result.current.asOf).toBe(NOW.getTime() + 120_000);
+  });
+
+  it("has no sync time when no poll ever read everything", async () => {
+    port.fail("sentryIssue", 500);
+    const { result } = mount();
+    await settle();
+    expect(result.current.board).not.toBeNull();
+    expect(result.current.status).toBe("stale");
+    expect(result.current.asOf).toBeNull();
+  });
+
+  it("dates the lab update by the newest lab deployment's createdAt, not its resync time", async () => {
+    const snap = fixture();
+    const newest = snap.deployments.map((d) => d.createdAt).sort().reverse()[0];
+    port.set("deployment", [
+      ...snap.deployments,
+      { ...snap.deployments[0], identifier: "elsewhere", properties: { environment: "prod" }, createdAt: "2026-11-13T12:29:00Z" },
+    ]);
+    const { result } = mount();
+    await settle();
+    expect(result.current.labUpdatedAt).toBe(newest);
+    expect(result.current.labUpdatedAt).not.toBe("2026-11-13T11:00:00Z");
   });
 
   it("asks the host for a token exactly once on a 401 and keeps the last good board", async () => {
