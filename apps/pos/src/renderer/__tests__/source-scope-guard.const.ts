@@ -698,7 +698,8 @@ export function isRt1343CreditVoidExemptFile(branch: string, file: string): bool
  * `claude/rt-1372-pos-od10-guidance` implements Jira RT-1372: Backend-Core records reward-line returns since
  * RT-1367 PR 2 (#589), so the POS restores the OD-10 "add the reward units" guidance and is repinned to that
  * contract commit on `main` (`npm run contracts:repin`, acceptance criterion 1), which regenerates
- * `src/shared/api-types.ts` (description text only).
+ * `src/shared/api-types.ts` (description text only: the RT-1367 return text and one RT-1343 voucher sentence
+ * that reached `main` after the previous PIN).
  *
  * Authority: Jira RT-1372 acceptance criterion 1 ("the pinned `sales.yaml` (after a repin, if needed)") and
  * the owner's instruction in chat on 2026-11-14 ("Start RT-1372"), following the RT-1114 / RT-1343 repin
