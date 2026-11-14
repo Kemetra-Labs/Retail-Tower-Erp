@@ -10,11 +10,13 @@ import {
 import { StockImportReportSchema } from "../../../src/catalog/erpnext-stock-import/dto/stock-import.dto";
 import {
   cancelKey,
+  effectKey,
   effectKeyBase,
   erpOwnedEventType,
   isNegativeQuantity,
   isZeroQuantity,
   journalQuantity,
+  originalKeyOf,
 } from "../../../src/catalog/erpnext-stock-import/stock-import.rules";
 
 describe("erpOwnedEventType (DC-4 families)", () => {
@@ -39,13 +41,44 @@ describe("erpOwnedEventType (DC-4 families)", () => {
   });
 });
 
-describe("effect keys (DC-4 with D1, DC-6)", () => {
+describe("effect keys (DC-4 with D1, DC-6; 1.1.0-draft)", () => {
   const base = { voucherType: "Stock Entry", voucherNo: "STE-1", voucherDetailNo: "d1", erpnextWarehouseRef: "Stores - RT" };
 
-  it("includes the warehouse, and the Batch when there is one", () => {
+  it("includes the warehouse, and the Batch when there is one, in the base tuple", () => {
     expect(effectKeyBase({ ...base, batch: null })).toBe("Stock%20Entry:STE-1:d1:Stores%20-%20RT");
     expect(effectKeyBase({ ...base, batch: "LOT-1" })).toBe("Stock%20Entry:STE-1:d1:Stores%20-%20RT:LOT-1");
     expect(cancelKey("k")).toBe("k:cancel");
+  });
+
+  it("appends ledgerEntryRef and entryIndex to the base tuple", () => {
+    expect(effectKey({ ...base, batch: "LOT-1", ledgerEntryRef: "SLE-1", entryIndex: 0 })).toBe(
+      "Stock%20Entry:STE-1:d1:Stores%20-%20RT:LOT-1:SLE-1:0",
+    );
+    expect(effectKey({ ...base, batch: null, ledgerEntryRef: "SLE-1", entryIndex: 12 })).toBe(
+      "Stock%20Entry:STE-1:d1:Stores%20-%20RT:SLE-1:12",
+    );
+  });
+
+  it("gives the out row and the in row of one voucher row, warehouse and Batch two keys", () => {
+    const k = (ledgerEntryRef: string) => effectKey({ ...base, batch: "LOT-1", ledgerEntryRef, entryIndex: 0 });
+    expect(k("SLE-OUT")).not.toBe(k("SLE-IN"));
+  });
+
+  it("tells the Batch entries of one ledger row apart by entryIndex", () => {
+    const k = (entryIndex: number) => effectKey({ ...base, batch: "LOT-1", ledgerEntryRef: "SLE-1", entryIndex });
+    expect(k(0)).not.toBe(k(1));
+  });
+
+  it("cannot be forged by a ':' inside the ledgerEntryRef", () => {
+    const a = effectKey({ ...base, batch: null, ledgerEntryRef: "A:1", entryIndex: 2 });
+    const b = effectKey({ ...base, batch: null, ledgerEntryRef: "A", entryIndex: 12 });
+    expect(a).not.toBe(b);
+  });
+
+  it("recognises a cancellation's key, and never mistakes an own key for one", () => {
+    const own = effectKey({ ...base, batch: null, ledgerEntryRef: "cancel", entryIndex: 0 });
+    expect(originalKeyOf(own)).toBeNull();
+    expect(originalKeyOf(cancelKey(own))).toBe(own);
   });
 
   it("never lets two rows at different warehouses share a key", () => {

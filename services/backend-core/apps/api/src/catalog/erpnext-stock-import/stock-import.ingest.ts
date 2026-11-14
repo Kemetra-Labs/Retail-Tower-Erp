@@ -12,8 +12,13 @@
  *
  * Per row, in report order:
  *   0. A row already recorded at the same (warehouse, ledgerEntryRef,
- *      entryIndex) is a re-read (cursor overlap): skipped, never classified
- *      twice.
+ *      entryIndex) is a re-read (cursor overlap): skipped, before any key or
+ *      pairing, never classified twice.
+ *      Then the row's key (DC-4, `stock-import.yaml` 1.1.0-draft): its own key
+ *      is the base tuple plus `ledgerEntryRef` and `entryIndex`; a cancelled row
+ *      that is the reverse of an earlier recorded original (CANCELLATION
+ *      PAIRING, DC-6) takes that original's key plus `cancel`. Every outcome
+ *      below records that key.
  *   1. Retail provenance → `retail_provenance` (899; Retail Tower already knows it).
  *   2. `creation` at or before the anchor's `snapshot_read_at` → `covered`: the
  *      anchor's Bin already contains it (DC-8; otherwise it would count twice).
@@ -32,10 +37,10 @@
  *      Batch, a Batch name that is not a valid lot code or whose code another
  *      identity holds, or a serial product is a finding `tracking_mismatch`.
  *      An untracked product imports at the product grain.
- *   9. Key (DC-4, DC-6): the base key; a cancelled row whose base key is
- *      already recorded from another ledger position is the reverse row and
- *      takes the `cancel` key; any other repeat of a key is a finding
- *      `duplicate_effect_key` (never swallowed by the unique index).
+ *   9. Compensation (DC-6): a paired reverse row compensates its original only
+ *      when the original moved stock in Retail Tower's books; otherwise it is a
+ *      finding `duplicate_effect_key` (never swallowed by the unique index, which
+ *      also guards a repeated key).
  *  10. Import: the effect at the store's primary location (the bucket inbound
  *      position, M-8), `sellable`, or the identity's hold status when it has an
  *      active hold (recall over quality, G7-4); integration `external` with
@@ -65,13 +70,14 @@ import { newId } from "@data-pulse-2/shared";
 import type { StockImportRowInput } from "./dto/stock-import.dto";
 import {
   cancelKey,
-  effectKeyBase,
+  effectKey,
   ERP_IMPORT_SOURCE_SYSTEM,
   erpOwnedEventType,
   type ErpInventoryEventType,
   isNegativeQuantity,
   isZeroQuantity,
   journalQuantity,
+  originalKeyOf,
 } from "./stock-import.rules";
 
 /** The effect journal's `external_id` bound (0096 `effect_key` CHECK). */
@@ -228,14 +234,17 @@ async function alreadyRecorded(client: PoolClient, ctx: IngestContext, row: Stoc
   return (r.rowCount ?? 0) > 0;
 }
 
-function baseKey(ctx: IngestContext, row: StockImportRowInput): string | null {
+/** The row's own DC-4 key (base tuple, `ledgerEntryRef`, `entryIndex`), or null without a `voucherDetailNo`. */
+function ownKey(ctx: IngestContext, row: StockImportRowInput): string | null {
   if (row.voucherDetailNo === null) return null;
-  return effectKeyBase({
+  return effectKey({
     voucherType: row.voucherType,
     voucherNo: row.voucherNo,
     voucherDetailNo: row.voucherDetailNo,
     erpnextWarehouseRef: ctx.erpnextWarehouseRef,
     batch: row.erpnextBatchRef?.name ?? null,
+    ledgerEntryRef: row.ledgerEntryRef,
+    entryIndex: row.entryIndex,
   });
 }
 
@@ -246,21 +255,23 @@ async function decide(
   row: StockImportRowInput,
   covered: boolean,
 ): Promise<Decision> {
-  const base = baseKey(ctx, row);
-  const none = { effectKey: base, productId: null, identityId: null };
+  const own = ownKey(ctx, row);
+  // Percent-encoded non-ASCII names can exceed the journal's key bound: such a
+  // row records no key and cannot pair (a finding below, never a 500 that
+  // stalls the warehouse's feed).
+  const tooLong = own !== null && cancelKey(own).length > MAX_EFFECT_KEY_LENGTH;
+  const paired = own === null || tooLong ? null : await pairKey(client, ctx, row, own);
+  const key = paired === null ? null : paired.key;
+  const none = { effectKey: key, productId: null, identityId: null };
   if (row.hasRetailProvenance) return { outcome: "retail_provenance", ...none };
   if (covered) return { outcome: "covered", ...none };
-  if (base === null) return finding("unkeyable_row");
-  // Percent-encoded non-ASCII names can exceed the journal's key bound: a
-  // finding, never a 500 that stalls the warehouse's feed.
-  if (cancelKey(base).length > MAX_EFFECT_KEY_LENGTH) {
-    return finding("unkeyable_row", {}, { reason: "key_too_long", length: base.length });
-  }
+  if (own === null) return finding("unkeyable_row");
+  if (tooLong) return finding("unkeyable_row", {}, { reason: "key_too_long", length: own.length });
   const eventType = erpOwnedEventType(row);
-  if (eventType === null) return finding("unattributed_erp_movement", { effectKey: base }, { purpose: row.purpose });
+  if (eventType === null) return finding("unattributed_erp_movement", { effectKey: key }, { purpose: row.purpose });
   const product = await resolveProduct(client, row.erpnextItemRef.name);
-  if (product === null) return finding("unknown_item", { effectKey: base }, { erpnextItemRef: row.erpnextItemRef.name });
-  const withProduct = { effectKey: base, productId: product.id };
+  if (product === null) return finding("unknown_item", { effectKey: key }, { erpnextItemRef: row.erpnextItemRef.name });
+  const withProduct = { effectKey: key, productId: product.id };
   if (isZeroQuantity(row.actualQty)) return { outcome: "zero_quantity", ...withProduct, identityId: null };
   const quantity = journalQuantity(row.actualQty);
   if (quantity === null) return finding("quantity_precision", withProduct, { actualQty: row.actualQty });
@@ -271,22 +282,23 @@ async function decide(
   const tracking = await resolveTracking(client, ctx, product, row);
   if (tracking.kind === "mismatch") return finding("tracking_mismatch", withProduct, { reason: tracking.reason });
   if (tracking.kind === "awaiting") return { outcome: "awaiting_identity", ...withProduct, identityId: null, eventType };
-  const key = await keyFor(client, base, row.isCancelled, ctx.anchorReadAt, null);
   const born = tracking.born ? { identityId: tracking.identityId!, batchName: row.erpnextBatchRef!.name } : undefined;
-  if (key.kind === "duplicate") {
+  const original = paired?.original ?? null;
+  const refusal = original === null ? null : compensationRefusal(original);
+  if (refusal !== null) {
     return {
-      ...finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId }, { reason: key.reason }),
+      ...finding("duplicate_effect_key", { ...withProduct, identityId: tracking.identityId }, { reason: refusal }),
       ...(born === undefined ? {} : { born }),
     };
   }
   return {
     outcome: "imported",
-    effectKey: key.key,
+    effectKey: key,
     productId: product.id,
     identityId: tracking.identityId,
     eventType,
     quantity,
-    compensates: key.compensates,
+    compensates: original?.effectId ?? null,
     ...(born === undefined ? {} : { born }),
   };
 }
@@ -392,57 +404,132 @@ async function birthFromRow(
   }
 }
 
-type KeyChoice =
-  | { readonly kind: "key"; readonly key: string; readonly compensates: string | null }
-  | { readonly kind: "duplicate"; readonly reason: string };
+/** A recorded row as the compensation rule sees it: its EFFECTIVE outcome (RT-453 resolution included). */
+interface RecordedOriginal {
+  readonly outcome: string;
+  readonly effectId: string | null;
+  /** Whether the row's `creation` is at or before the store's CURRENT anchor snapshot. */
+  readonly inAnchor: boolean;
+}
+
+interface Pairing {
+  /** The key the row is recorded and imported under. */
+  readonly key: string;
+  /** The original a reverse row pairs with; null for any row that keys itself. */
+  readonly original: RecordedOriginal | null;
+}
+
+interface CandidateRow {
+  ledger_entry_ref: string;
+  entry_index: number;
+  effect_key: string | null;
+  outcome: string;
+  effect_id: string | null;
+  in_anchor: boolean;
+}
 
 /**
- * The key this row imports under (DC-4, DC-6). A row whose base key is already
- * recorded from another ledger position is either the reverse row of a
- * cancellation, imported once under the `cancel` key and compensating the
- * original's effect, or a real duplicate. The reverse row compensates only an
- * original that moved stock in Retail Tower's books: an imported one (its
- * effect) or one the current anchor's Bin holds (covered then, or by a later
- * anchor generation). An original that was a
+ * The key this row is recorded under (DC-4, DC-6; CANCELLATION PAIRING of
+ * `stock-import.yaml` 1.1.0-draft). Only a cancelled row can pair, and only a
+ * row not yet recorded at its position gets here (step 0). It is the reverse of
+ * the EARLIEST recorded original that (a) keyed with its own key, whatever its
+ * outcome, (b) has the same base tuple, (c) has a `creation` strictly before
+ * this row's, (d) has the exact-decimal negated `actualQty`, and (e) no reverse
+ * has compensated yet (no recorded row holds its `cancel` key). It then takes
+ * that original's key plus `cancel`. Any other row keys itself.
+ *
+ * "Earliest recorded" is (`recorded_at`, `id`): the rows of one page share a
+ * transaction time, and their UUIDv7 ids follow the ingest order.
+ */
+async function pairKey(client: PoolClient, ctx: IngestContext, row: StockImportRowInput, own: string): Promise<Pairing> {
+  if (!row.isCancelled || row.voucherDetailNo === null) return { key: own, original: null };
+  const detail = row.voucherDetailNo;
+  const batch = row.erpnextBatchRef?.name ?? null;
+  const r = await client.query<CandidateRow>(
+    `SELECT row.ledger_entry_ref, row.entry_index, row.effect_key,
+            COALESCE(res.outcome, row.outcome) AS outcome,
+            COALESCE(res.effect_id, row.effect_id) AS effect_id,
+            (row.creation <= $8::timestamptz) AS in_anchor
+       FROM erp_stock_import_rows row
+       LEFT JOIN erp_stock_import_row_resolutions res ON res.row_id = row.id
+      WHERE row.tenant_id = $1
+        AND row.voucher_type = $2 AND row.voucher_no = $3 AND row.voucher_detail_no = $4
+        AND row.erpnext_warehouse_ref = $5
+        AND row.erpnext_batch_ref IS NOT DISTINCT FROM $6::text
+        AND row.creation < $7::timestamptz
+        AND row.actual_qty = -($9::numeric)
+      ORDER BY row.recorded_at, row.id`,
+    [
+      ctx.tenantId,
+      row.voucherType,
+      row.voucherNo,
+      detail,
+      ctx.erpnextWarehouseRef,
+      batch,
+      row.creation,
+      ctx.anchorReadAt,
+      row.actualQty,
+    ],
+  );
+  // (a): a row that keyed itself; a paired reverse row holds its original's `cancel` key instead.
+  const originals = r.rows
+    .map((c) => ({
+      c,
+      key: effectKey({
+        voucherType: row.voucherType,
+        voucherNo: row.voucherNo,
+        voucherDetailNo: detail,
+        erpnextWarehouseRef: ctx.erpnextWarehouseRef,
+        batch,
+        ledgerEntryRef: c.ledger_entry_ref,
+        entryIndex: c.entry_index,
+      }),
+    }))
+    .filter((o) => o.c.effect_key === o.key);
+  if (originals.length === 0) return { key: own, original: null };
+  // (e): the originals a reverse row already compensated, at any outcome.
+  const taken = await client.query<{ effect_key: string }>(
+    `SELECT effect_key FROM erp_stock_import_rows WHERE tenant_id = $1 AND effect_key = ANY($2::text[])`,
+    [ctx.tenantId, originals.map((o) => cancelKey(o.key))],
+  );
+  const used = new Set(taken.rows.map((x) => x.effect_key));
+  const pick = originals.find((o) => !used.has(cancelKey(o.key)));
+  if (pick === undefined) return { key: own, original: null };
+  return {
+    key: cancelKey(pick.key),
+    original: { outcome: pick.c.outcome, effectId: pick.c.effect_id, inAnchor: pick.c.in_anchor },
+  };
+}
+
+/**
+ * Why a reverse row may not compensate its original, or null when it may. The
+ * reverse row compensates only an original that moved stock in Retail Tower's
+ * books: an imported one (its effect) or one the current anchor's Bin holds
+ * (covered then, or by a later anchor generation). An original that was a
  * finding, awaited its identity or moved nothing gave no stock to take back,
  * so its reverse row is a finding too, never a stock-out of a receipt that was
  * never imported.
  */
-async function keyFor(
-  client: PoolClient,
-  base: string,
-  isCancelled: boolean,
-  anchorReadAt: string,
-  before: { readonly rowId: string } | null,
-): Promise<KeyChoice> {
-  // Each recorded row at its EFFECTIVE key and outcome: an `awaiting_identity`
-  // row resolved later (RT-453) counts as its resolution. With `before`, only
-  // the rows recorded before that row (a re-driven row sees what an ingest in
-  // its own recording order would have seen).
-  const r = await client.query<{ effect_key: string; outcome: string; effect_id: string | null; in_anchor: boolean }>(
-    `SELECT COALESCE(res.effect_key, row.effect_key) AS effect_key,
-            COALESCE(res.outcome, row.outcome) AS outcome,
+function compensationRefusal(original: RecordedOriginal): string | null {
+  if (original.outcome === "imported" || original.outcome === "covered" || original.inAnchor) return null;
+  return `original_${original.outcome}`;
+}
+
+/** The recorded original behind a `cancel` key, as the compensation rule sees it now. */
+async function recordedOriginal(client: PoolClient, ctx: IngestContext, originalKey: string): Promise<RecordedOriginal | null> {
+  const r = await client.query<{ outcome: string; effect_id: string | null; in_anchor: boolean }>(
+    `SELECT COALESCE(res.outcome, row.outcome) AS outcome,
             COALESCE(res.effect_id, row.effect_id) AS effect_id,
-            (row.creation <= $2::timestamptz) AS in_anchor
+            (row.creation <= $3::timestamptz) AS in_anchor
        FROM erp_stock_import_rows row
        LEFT JOIN erp_stock_import_row_resolutions res ON res.row_id = row.id
-      WHERE COALESCE(res.effect_key, row.effect_key) = ANY($1::text[])
-        AND ($3::uuid IS NULL
-             OR (row.recorded_at, row.id) < (SELECT b.recorded_at, b.id FROM erp_stock_import_rows b WHERE b.id = $3::uuid))
-      ORDER BY row.recorded_at, row.id`,
-    [[base, cancelKey(base)], anchorReadAt, before?.rowId ?? null],
+      WHERE row.tenant_id = $1 AND row.effect_key = $2
+      ORDER BY row.recorded_at, row.id
+      LIMIT 1`,
+    [ctx.tenantId, originalKey, ctx.anchorReadAt],
   );
-  const original = r.rows.find((x) => x.effect_key === base);
-  if (original === undefined) return { kind: "key", key: base, compensates: null };
-  if (!isCancelled) return { kind: "duplicate", reason: "key_exists" };
-  if (r.rows.some((x) => x.effect_key === cancelKey(base))) return { kind: "duplicate", reason: "cancel_exists" };
-  // In the books: imported, covered when it was read, or covered by the store's
-  // CURRENT anchor (a later activation's snapshot holds it even if it was a
-  // finding when first read).
-  if (original.outcome !== "imported" && original.outcome !== "covered" && !original.in_anchor) {
-    return { kind: "duplicate", reason: `original_${original.outcome}` };
-  }
-  return { kind: "key", key: cancelKey(base), compensates: original.effect_id };
+  const x = r.rows[0];
+  return x === undefined ? null : { outcome: x.outcome, effectId: x.effect_id, inAnchor: x.in_anchor };
 }
 
 // ---------------------------------------------------------------------------
@@ -487,8 +574,9 @@ interface RedriveSummary {
  * Resolve, in recording order, every unresolved `awaiting_identity` row of the
  * page's store and warehouse whose Batch now maps to an identity of the row's
  * product: `covered` when the store's current anchor snapshot holds it (DC-8),
- * else imported at that identity under the DC-4 / DC-6 key rules, else a
- * finding (a duplicate key, or a reverse row whose original moved nothing).
+ * else imported at that identity under the key it was recorded with (DC-4 /
+ * DC-6), else a finding (a repeated key, or a reverse row whose original moved
+ * nothing).
  */
 async function resolveAwaitingRows(client: PoolClient, ctx: IngestContext): Promise<RedriveSummary> {
   const r = await client.query<AwaitingRow>(
@@ -558,8 +646,16 @@ async function resolveOne(
   if (unit !== null && unit !== row.stock_uom) {
     return findingOf("uom_mismatch", { stockUom: row.stock_uom, establishedUnit: unit });
   }
-  const key = await keyFor(client, row.effect_key, row.is_cancelled, ctx.anchorReadAt, { rowId: row.id });
-  if (key.kind === "duplicate") return findingOf("duplicate_effect_key", { reason: key.reason });
+  // The key was fixed when the row was recorded (its own key, or its original's `cancel` key); what
+  // is left is whether the original it pairs with moved stock in Retail Tower's books by now.
+  const originalKey = originalKeyOf(row.effect_key);
+  let compensates: string | null = null;
+  if (originalKey !== null) {
+    const original = await recordedOriginal(client, ctx, originalKey);
+    const refusal = original === null ? "original_missing" : compensationRefusal(original);
+    if (refusal !== null) return findingOf("duplicate_effect_key", { reason: refusal });
+    compensates = original!.effectId;
+  }
   const effectId = await writeEffect(
     client,
     ctx,
@@ -567,16 +663,16 @@ async function resolveOne(
     row.id,
     {
       outcome: "imported",
-      effectKey: key.key,
+      effectKey: row.effect_key,
       productId: row.tenant_product_ref,
       identityId: row.identity_id,
       eventType: row.event_type,
       quantity,
-      compensates: key.compensates,
+      compensates,
     },
   );
   if (effectId === null) return findingOf("duplicate_effect_key", { reason: "key_exists" });
-  await record("imported", key.key, effectId);
+  await record("imported", row.effect_key, effectId);
   return { outcome: "imported", effectId };
 }
 

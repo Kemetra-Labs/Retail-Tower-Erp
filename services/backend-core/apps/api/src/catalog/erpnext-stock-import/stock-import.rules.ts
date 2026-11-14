@@ -1,6 +1,6 @@
 /**
  * Pure DC-4 rules of the ERP-origin stock import (RT-1288; planning record
- * "Inventory Gate 8" §3 row (b); `stock-import.yaml` 1.0.0-draft). No I/O.
+ * "Inventory Gate 8" §3 row (b); `stock-import.yaml` 1.1.0-draft). No I/O.
  *
  * Which ERP vouchers Retail Tower imports (DC-4, 898-904):
  *   - only a voucher WITHOUT Retail provenance (899: Retail's own vouchers are
@@ -14,12 +14,16 @@
  *   - anything else without provenance is an unattributed ERP movement (901),
  *     a visible finding, never a silent merge.
  *
- * The effect key (DC-4 with captain decision D1): source `erpnext`, external id
- * built from the voucher type, voucher no, voucher detail no, the request's
- * warehouse and, when present, the Batch; a cancellation's compensating effect
- * adds `cancel` (DC-6). Each component is percent-encoded and the components
- * are joined with `:`, so a `:` inside an ERPNext name can never make two
- * different rows share a key.
+ * The effect key (DC-4 with captain decision D1, `stock-import.yaml`
+ * 1.1.0-draft): source `erpnext`, external id built from the BASE TUPLE (voucher
+ * type, voucher no, voucher detail no, the request's warehouse and, when
+ * present, the Batch) and then the row's `ledgerEntryRef` and `entryIndex`, so
+ * every reported ledger row has a key of its own (a tracked Stock
+ * Reconciliation's out row and in row share a base tuple). A cancellation's
+ * compensating effect takes its original's key plus `cancel` (DC-6, the
+ * CANCELLATION PAIRING of the contract). Each component is percent-encoded and
+ * the components are joined with `:`, so a `:` inside an ERPNext name can never
+ * make two different rows share a key.
  */
 import type { ERP_INVENTORY_EVENT_TYPES } from "@data-pulse-2/db";
 
@@ -59,16 +63,37 @@ export interface KeyFacts {
   readonly batch: string | null;
 }
 
-/** The DC-4 base key of a row (without the DC-6 `cancel` component). */
+/** The DC-4 base tuple of a row, encoded (without `ledgerEntryRef`, `entryIndex` or `cancel`). */
 export function effectKeyBase(k: KeyFacts): string {
   const parts = [k.voucherType, k.voucherNo, k.voucherDetailNo, k.erpnextWarehouseRef];
   if (k.batch !== null) parts.push(k.batch);
   return parts.map(encodeURIComponent).join(":");
 }
 
-/** The DC-6 key of a cancellation's compensating effect. */
-export function cancelKey(base: string): string {
-  return `${base}:cancel`;
+export interface RowKeyFacts extends KeyFacts {
+  readonly ledgerEntryRef: string;
+  readonly entryIndex: number;
+}
+
+/** The DC-4 key of a row under its own identity: the base tuple, `ledgerEntryRef`, `entryIndex`. */
+export function effectKey(k: RowKeyFacts): string {
+  return [effectKeyBase(k), encodeURIComponent(k.ledgerEntryRef), encodeURIComponent(String(k.entryIndex))].join(":");
+}
+
+const CANCEL_SUFFIX = ":cancel";
+
+/**
+ * The DC-6 key of a cancellation's compensating effect: its original's key plus
+ * `cancel`. An own key never ends in `:cancel` (its last component is the
+ * percent-encoded `entryIndex`, digits only), so the suffix is unambiguous.
+ */
+export function cancelKey(original: string): string {
+  return `${original}${CANCEL_SUFFIX}`;
+}
+
+/** The original's key when `key` is a cancellation's compensating key, else null. */
+export function originalKeyOf(key: string): string | null {
+  return key.endsWith(CANCEL_SUFFIX) ? key.slice(0, -CANCEL_SUFFIX.length) : null;
 }
 
 /** The effect journal's precision (`stock_movements.quantity` numeric(19,4)). */

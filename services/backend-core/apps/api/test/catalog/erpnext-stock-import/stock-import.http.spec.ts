@@ -1,6 +1,6 @@
 /**
  * RT-1288 — ERP-origin stock import ingestion, end to end over HTTP
- * (`erpnext-connector/stock-import.yaml` 1.0.1-draft; migration 0096).
+ * (`erpnext-connector/stock-import.yaml` 1.1.0-draft; migration 0096).
  *
  * Drives the real controller behind the real `ConnectorAuthGuard` and
  * `ConnectorEnvironmentGuard` against Postgres (Testcontainers), with two
@@ -379,6 +379,20 @@ async function effectsByKeyPrefix(prefix: string): Promise<number> {
   return r.rows[0].n as number;
 }
 
+/** The effects of one voucher (any outcome's row), oldest first. */
+async function effectsOfVoucher(voucherType: string, voucherNo: string) {
+  const prefix = `${encodeURIComponent(voucherType)}:${encodeURIComponent(voucherNo)}:`;
+  const r = await env!.admin.query(
+    `SELECT id, external_id, quantity::text AS quantity, compensates_effect_id
+       FROM stock_movements
+      WHERE source_system = 'erpnext' AND starts_with(external_id, $1)
+      ORDER BY received_at, id`,
+    [prefix],
+  );
+  return r.rows as { id: string; external_id: string; quantity: string; compensates_effect_id: string | null }[];
+}
+const sum = (qs: { quantity: string }[]): number => qs.reduce((t, e) => t + Number(e.quantity), 0);
+
 // ---------------------------------------------------------------------------
 // Feed
 // ---------------------------------------------------------------------------
@@ -444,7 +458,8 @@ describe("stockImportReportRows — DC-4 import", () => {
     await importA([r]);
     const rec = (await rowRecord(r["ledgerEntryRef"] as string))!;
     expect(rec.outcome).toBe("imported");
-    expect(rec.effect_key).toBe(`Purchase%20Receipt:MAT-PRE-0001:pri-1:${WH_A}`);
+    // 1.1.0-draft: the base tuple, then `ledgerEntryRef` and `entryIndex`.
+    expect(rec.effect_key).toBe(`Purchase%20Receipt:MAT-PRE-0001:pri-1:${WH_A}:${encodeURIComponent(r["ledgerEntryRef"] as string)}:0`);
     const e = await effect(rec.effect_id!);
     expect(e).toEqual(
       expect.objectContaining({
@@ -562,19 +577,25 @@ describe("stockImportReportRows — DC-4 import", () => {
     await importA([original, reverse]);
     const o = (await rowRecord(original["ledgerEntryRef"] as string))!;
     const v = (await rowRecord(reverse["ledgerEntryRef"] as string))!;
-    expect(o.effect_key).toBe(`Purchase%20Receipt:MAT-PRE-CXL:cxl-1:${WH_A}`);
-    expect(v.effect_key).toBe(`Purchase%20Receipt:MAT-PRE-CXL:cxl-1:${WH_A}:cancel`);
+    // The reverse row has its own `ledgerEntryRef`; it takes its original's key plus `cancel` (DC-6).
+    expect(o.effect_key).toBe(
+      `Purchase%20Receipt:MAT-PRE-CXL:cxl-1:${WH_A}:${encodeURIComponent(original["ledgerEntryRef"] as string)}:0`,
+    );
+    expect(v.effect_key).toBe(`${o.effect_key}:cancel`);
     expect((await effect(o.effect_id!)).quantity).toBe("4.0000");
     expect((await effect(v.effect_id!)).quantity).toBe("-4.0000");
   });
 
-  it("reports a second row under an existing key as duplicate_effect_key, never swallowed", async () => {
+  it("keeps two ledger rows of one voucher row, warehouse and Batch apart (1.1.0-draft key), never a duplicate", async () => {
     if (skip) return;
     const first = row({ voucherNo: "MAT-PRE-DUP", detail: "dup-1" });
     const second = row({ voucherNo: "MAT-PRE-DUP", detail: "dup-1", ref: `SLE-${newId()}` });
     await importA([first, second]);
-    expect((await rowRecord(first["ledgerEntryRef"] as string))!.outcome).toBe("imported");
-    expect(await findingsOf(second["ledgerEntryRef"] as string)).toEqual(["duplicate_effect_key"]);
+    const a = (await rowRecord(first["ledgerEntryRef"] as string))!;
+    const b = (await rowRecord(second["ledgerEntryRef"] as string))!;
+    expect([a.outcome, b.outcome]).toEqual(["imported", "imported"]);
+    expect(a.effect_key).not.toBe(b.effect_key);
+    expect(await findingsOf(second["ledgerEntryRef"] as string)).toEqual([]);
   });
 
   it("raises unknown_item, uom_mismatch, unkeyable_row and quantity_precision findings", async () => {
@@ -746,6 +767,34 @@ describe("stockImportReportRows — identity birth (RT-453, G7-3)", () => {
     expect(v!.effect_key).toBe(`${o!.effect_key}:cancel`);
     const compensates = await env!.admin.query(`SELECT compensates_effect_id FROM stock_movements WHERE id = $1`, [v!.effect_id]);
     expect(compensates.rows[0].compensates_effect_id).toBe(o!.effect_id);
+  });
+
+  it("resolves a parked tracked pair on its recorded keys once the identity is born (RT-453 on the new keys)", async () => {
+    if (skip) return;
+    const voucherNo = "RECO-TRK-PARKED";
+    const exp = (o: RowOpts) =>
+      row({
+        voucherType: "Stock Reconciliation",
+        purpose: "Stock Reconciliation",
+        correctionRef: "BG-1397",
+        item: ITEM_EXP,
+        batch: "EXP-1397",
+        detail: "park-1",
+        voucherNo,
+        ...o,
+      });
+    const out = exp({ qty: "-4" });
+    const inn = exp({ qty: "3" });
+    const revOut = exp({ qty: "4", cancelled: true });
+    await importA([out, inn, revOut]);
+    for (const r of [out, inn, revOut]) expect((await rowRecord(r["ledgerEntryRef"] as string))!.outcome).toBe("awaiting_identity");
+    await bornByMasterRead("EXP-1397", "2027-05-31");
+    await importA([]);
+    const res = await Promise.all([out, inn, revOut].map(async (r) => (await resolutionOf(r["ledgerEntryRef"] as string))[0]!));
+    expect(res.map((x) => x.outcome)).toEqual(["imported", "imported", "imported"]);
+    expect(res[2]!.effect_key).toBe(`${res[0]!.effect_key}:cancel`);
+    expect(res[0]!.effect_key).not.toBe(res[1]!.effect_key);
+    expect(sum(await effectsOfVoucher("Stock Reconciliation", voucherNo))).toBe(3);
   });
 
   it("records the event type on every classified row (0103)", async () => {
@@ -1053,6 +1102,176 @@ describe("review fixes", () => {
     await importA([reverse]);
     const v = (await rowRecord(reverse["ledgerEntryRef"] as string))!;
     expect(v.outcome).toBe("imported");
-    expect(v.effect_key).toBe(`Purchase%20Receipt:MAT-PRE-GEN3:g3:${WH_A}:cancel`);
+    // Paired with the earlier read (a finding then): its own key plus `cancel`.
+    const o = (await rowRecord(original["ledgerEntryRef"] as string))!;
+    expect(v.effect_key).toBe(`${o.effect_key}:cancel`);
+    expect(v.effect_key).toBe(
+      `Purchase%20Receipt:MAT-PRE-GEN3:g3:${WH_A}:${encodeURIComponent(original["ledgerEntryRef"] as string)}:0:cancel`,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-1397: the 1.1.0-draft key and CANCELLATION PAIRING
+// ---------------------------------------------------------------------------
+
+describe("stock-import 1.1.0-draft: per-ledger-row key and cancellation pairing (RT-1397)", () => {
+  /** A tracked Stock Reconciliation row (a governed correction), one voucher row, warehouse and Batch. */
+  const tracked = (o: RowOpts) =>
+    row({
+      voucherType: "Stock Reconciliation",
+      purpose: "Stock Reconciliation",
+      correctionRef: "BG-1397",
+      item: ITEM_BATCH,
+      batch: "LOT-1",
+      detail: "trk-1",
+      ...o,
+    });
+
+  it("imports the out row and the in row of a tracked Stock Reconciliation under two keys (-4, +3: net -1)", async () => {
+    if (skip) return;
+    const out = tracked({ voucherNo: "RECO-TRK-PAIR", qty: "-4" });
+    const inn = tracked({ voucherNo: "RECO-TRK-PAIR", qty: "3" });
+    await importA([out, inn]);
+    const a = (await rowRecord(out["ledgerEntryRef"] as string))!;
+    const b = (await rowRecord(inn["ledgerEntryRef"] as string))!;
+    expect([a.outcome, b.outcome]).toEqual(["imported", "imported"]);
+    expect(a.effect_key).not.toBe(b.effect_key);
+    expect(await findingsOf(out["ledgerEntryRef"] as string)).toEqual([]);
+    expect(await findingsOf(inn["ledgerEntryRef"] as string)).toEqual([]);
+    const effects = await effectsOfVoucher("Stock Reconciliation", "RECO-TRK-PAIR");
+    expect(effects).toHaveLength(2);
+    expect(sum(effects)).toBe(-1);
+  });
+
+  it("pairs a pair cancelled before its first read: each reverse row takes its own original's `cancel` key", async () => {
+    if (skip) return;
+    const voucherNo = "RECO-TRK-CXL";
+    const c = [nextCreation(), nextCreation(), nextCreation(), nextCreation()] as const;
+    const out = tracked({ voucherNo, qty: "-4", cancelled: true, creation: c[0] });
+    const inn = tracked({ voucherNo, qty: "3", cancelled: true, creation: c[1] });
+    const revOut = tracked({ voucherNo, qty: "4", cancelled: true, creation: c[2] });
+    const revIn = tracked({ voucherNo, qty: "-3", cancelled: true, creation: c[3] });
+    await importA([out, inn, revOut, revIn]);
+    const [o, i, ro, ri] = await Promise.all(
+      [out, inn, revOut, revIn].map(async (r) => (await rowRecord(r["ledgerEntryRef"] as string))!),
+    );
+    expect([o!.outcome, i!.outcome, ro!.outcome, ri!.outcome]).toEqual(["imported", "imported", "imported", "imported"]);
+    expect(ro!.effect_key).toBe(`${o!.effect_key}:cancel`);
+    expect(ri!.effect_key).toBe(`${i!.effect_key}:cancel`);
+    const links = await env!.admin.query(`SELECT id, compensates_effect_id FROM stock_movements WHERE id = ANY($1::uuid[])`, [
+      [ro!.effect_id, ri!.effect_id],
+    ]);
+    const compensates = new Map(links.rows.map((x: { id: string; compensates_effect_id: string }) => [x.id, x.compensates_effect_id]));
+    expect(compensates.get(ro!.effect_id!)).toBe(o!.effect_id);
+    expect(compensates.get(ri!.effect_id!)).toBe(i!.effect_id);
+    expect(sum(await effectsOfVoucher("Stock Reconciliation", voucherNo))).toBe(0);
+  });
+
+  it("pairs reverse rows with originals read live in an earlier page", async () => {
+    if (skip) return;
+    const voucherNo = "RECO-TRK-LIVE";
+    const out = tracked({ voucherNo, qty: "-4" });
+    const inn = tracked({ voucherNo, qty: "3" });
+    await importA([out, inn]);
+    const revOut = tracked({ voucherNo, qty: "4", cancelled: true });
+    const revIn = tracked({ voucherNo, qty: "-3", cancelled: true });
+    await importA([revOut, revIn]);
+    const o = (await rowRecord(out["ledgerEntryRef"] as string))!;
+    const i = (await rowRecord(inn["ledgerEntryRef"] as string))!;
+    expect((await rowRecord(revOut["ledgerEntryRef"] as string))!.effect_key).toBe(`${o.effect_key}:cancel`);
+    expect((await rowRecord(revIn["ledgerEntryRef"] as string))!.effect_key).toBe(`${i.effect_key}:cancel`);
+    expect(sum(await effectsOfVoucher("Stock Reconciliation", voucherNo))).toBe(0);
+  });
+
+  it("loses and doubles no quantity in the equal-and-opposite ambiguity (-4, +4 first read already cancelled)", async () => {
+    if (skip) return;
+    const voucherNo = "RECO-TRK-AMBIG";
+    const out = tracked({ voucherNo, qty: "-4", cancelled: true });
+    const inn = tracked({ voucherNo, qty: "4", cancelled: true });
+    const revOut = tracked({ voucherNo, qty: "4", cancelled: true });
+    const revIn = tracked({ voucherNo, qty: "-4", cancelled: true });
+    await importA([out, inn, revOut, revIn]);
+    const recs = await Promise.all(
+      [out, inn, revOut, revIn].map(async (r) => (await rowRecord(r["ledgerEntryRef"] as string))!),
+    );
+    expect(recs.map((x) => x.outcome)).toEqual(["imported", "imported", "imported", "imported"]);
+    // The in row pairs as the reverse of the out row (the contract's known ambiguity); every row still keys once.
+    expect(recs[1]!.effect_key).toBe(`${recs[0]!.effect_key}:cancel`);
+    expect(new Set(recs.map((x) => x.effect_key)).size).toBe(4);
+    const effects = await effectsOfVoucher("Stock Reconciliation", voucherNo);
+    expect(effects).toHaveLength(4);
+    // Each of the four reported movements is booked exactly once: -4 +4 +4 -4.
+    expect(effects.map((e) => Number(e.quantity)).sort((x, y) => x - y)).toEqual([-4, -4, 4, 4]);
+    expect(sum(effects)).toBe(0);
+  });
+
+  it("nets a cancelled untracked Opening Stock (+5, then the reverse -5) to zero", async () => {
+    if (skip) return;
+    const voucherNo = "RECO-OPEN-CXL";
+    const open = row({ voucherType: "Stock Reconciliation", purpose: "Opening Stock", voucherNo, detail: "open-1", qty: "5", cancelled: true });
+    const reverse = row({ voucherType: "Stock Reconciliation", purpose: "Opening Stock", voucherNo, detail: "open-1", qty: "-5", cancelled: true });
+    await importA([open, reverse]);
+    const o = (await rowRecord(open["ledgerEntryRef"] as string))!;
+    const v = (await rowRecord(reverse["ledgerEntryRef"] as string))!;
+    expect(v.effect_key).toBe(`${o.effect_key}:cancel`);
+    const effects = await effectsOfVoucher("Stock Reconciliation", voucherNo);
+    expect(effects).toHaveLength(2);
+    expect(sum(effects)).toBe(0);
+    expect(effects.find((e) => e.id === v.effect_id)!.compensates_effect_id).toBe(o.effect_id);
+  });
+
+  it("never pairs a reverse row with an original of the same creation (strictly earlier only)", async () => {
+    if (skip) return;
+    const voucherNo = "MAT-PRE-SAMETS";
+    const at = nextCreation();
+    const first = row({ voucherNo, detail: "ts-1", qty: "2", cancelled: true, creation: at });
+    const second = row({ voucherNo, detail: "ts-1", qty: "-2", cancelled: true, creation: at });
+    await importA([first, second]);
+    const a = (await rowRecord(first["ledgerEntryRef"] as string))!;
+    const b = (await rowRecord(second["ledgerEntryRef"] as string))!;
+    expect(b.effect_key).not.toBe(`${a.effect_key}:cancel`);
+    expect(b.effect_key?.endsWith(":cancel")).toBe(false);
+  });
+
+  it("compensates an original once: a second equal-and-opposite reverse row keys itself", async () => {
+    if (skip) return;
+    const voucherNo = "MAT-PRE-ONCEREV";
+    const original = row({ voucherNo, detail: "or-1", qty: "2" });
+    const reverse1 = row({ voucherNo, detail: "or-1", qty: "-2", cancelled: true });
+    const reverse2 = row({ voucherNo, detail: "or-1", qty: "-2", cancelled: true });
+    await importA([original, reverse1, reverse2]);
+    const o = (await rowRecord(original["ledgerEntryRef"] as string))!;
+    const r1 = (await rowRecord(reverse1["ledgerEntryRef"] as string))!;
+    const r2 = (await rowRecord(reverse2["ledgerEntryRef"] as string))!;
+    expect(r1.effect_key).toBe(`${o.effect_key}:cancel`);
+    expect(r2.effect_key?.endsWith(":cancel")).toBe(false);
+    expect(new Set([o.effect_key, r1.effect_key, r2.effect_key]).size).toBe(3);
+  });
+
+  it("skips the overlap re-read of a pair before any key or pairing (no second effect, no second compensation)", async () => {
+    if (skip) return;
+    const voucherNo = "RECO-TRK-OVERLAP";
+    const out = tracked({ voucherNo, qty: "-4" });
+    const inn = tracked({ voucherNo, qty: "3" });
+    const revOut = tracked({ voucherNo, qty: "4", cancelled: true });
+    await importA([out, inn, revOut]);
+    const before = await effectsOfVoucher("Stock Reconciliation", voucherNo);
+    expect(before).toHaveLength(3);
+    // A later run re-reads all three rows (overlap), then a new reverse row arrives.
+    await importA([out, inn, revOut]);
+    expect(await effectsOfVoucher("Stock Reconciliation", voucherNo)).toHaveLength(3);
+    const rows = await env!.admin.query(
+      `SELECT count(*)::int AS n FROM erp_stock_import_rows WHERE ledger_entry_ref = ANY($1::text[])`,
+      [[out, inn, revOut].map((r) => r["ledgerEntryRef"])],
+    );
+    expect(rows.rows[0].n).toBe(3);
+    const revIn = tracked({ voucherNo, qty: "-3", cancelled: true });
+    await importA([revIn]);
+    const o = (await rowRecord(out["ledgerEntryRef"] as string))!;
+    const i = (await rowRecord(inn["ledgerEntryRef"] as string))!;
+    expect((await rowRecord(revOut["ledgerEntryRef"] as string))!.effect_key).toBe(`${o.effect_key}:cancel`);
+    expect((await rowRecord(revIn["ledgerEntryRef"] as string))!.effect_key).toBe(`${i.effect_key}:cancel`);
+    expect(sum(await effectsOfVoucher("Stock Reconciliation", voucherNo))).toBe(0);
   });
 });
