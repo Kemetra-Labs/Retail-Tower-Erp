@@ -59,6 +59,7 @@ from .representation_check import (
 from .resolution_check import InvoiceLine, InvoiceSnapshot, check_existing, check_replayed_representation
 from .return_builder import (
 	MissingRefundTenders,
+	PromotionAmountNotPostable,
 	ReturnResolvers,
 	ReturnTaxNotPosted,
 	build_return_invoice,
@@ -561,6 +562,7 @@ _REVERSAL_BUILD_VALIDATION_ERRORS = (
 	SaleTaxNotPosted,  # RT-1312 F5: ... and so inherits its tax guard
 	MissingRefundTenders,
 	ReturnTaxNotPosted,
+	PromotionAmountNotPostable,  # OD-11 (RT-1340): a clawback or give-back above its bound or off the minor unit
 )
 
 
