@@ -94,7 +94,9 @@ info:
     are several). Its compensating effect takes that original's key plus
     `cancel`; whether it is imported or becomes a finding stays RT-1288's
     rule (a compensation of an original that moved nothing in Retail Tower's
-    books is a finding). Any other row keys itself. Known ambiguity, NOT
+    books is a finding). The reverse row of an untracked Stock Reconciliation
+    reports the exact negation of its original's `actualQty` (see `actualQty`,
+    RT-1401), so it pairs. Any other row keys itself. Known ambiguity, NOT
     VERIFIED on the bench: when the out row and the in row of one tracked
     reconciliation row and Batch have equal and opposite quantities and are
     first read already cancelled with different `creation` values, the in
@@ -880,8 +882,9 @@ components:
               * Any other ledger row whose `actual_qty` is not 0: its
                 `actual_qty`. This covers every non-reconciliation voucher, a
                 serial-only bundle's ledger row (bench, RT-1394 comment 17037:
-                a serial count writes −3 out, then +2 in) and every reverse row
-                of a cancellation.
+                a serial count writes −3 out, then +2 in) and the reverse row of
+                a cancellation of any voucher other than an untracked Stock
+                Reconciliation (the reverse-row rule below is the exception).
               * A ledger row of a Stock Reconciliation that has no Serial and
                 Batch Bundle and no `batch_no` (an untracked Item), whose
                 `actual_qty` is 0, whatever its purpose and whether or not it is
@@ -896,6 +899,23 @@ components:
                 gives +10, Opening Stock 10 → 12 gives +2, Stock Reconciliation
                 12 → 7 gives −5, and a cancelled Opening Stock of 5 gives +5 on
                 its original row and −5 on its reverse row.
+              * A ledger row of a Stock Reconciliation that has no Serial and
+                Batch Bundle and no `batch_no`, whose `isCancelled` is true and
+                whose `actual_qty` is not 0 (the reverse row ERPNext writes when
+                such a reconciliation is cancelled; RT-1401): the negation of
+                that same difference, `-(qty - current_qty)`, of the Stock
+                Reconciliation Item that `voucherDetailNo` names. ERPNext stores
+                on that row the balance before the reconciliation (its
+                `current_qty`, negated by the ledger write, or `qty` when the
+                position was empty), not the movement, so passing it through
+                would never pair with its original. Bench (Frappe v16.52.0 /
+                ERPNext v16.51.0, RT-1401): a Stock Reconciliation 10 → 12,
+                cancelled, stores +10 on the reverse row and reports −2; 10 → 7
+                stores +10 and reports +3; an Opening Stock 10 → 12 on a
+                non-empty position stores +10 and reports −2; an Opening Stock
+                of 5 on an empty position stores −5 and reports −5. The
+                original rows (stored 0) report +2, −3, +2 and +5, so each
+                reverse is the exact negation of its original.
               * A ledger row of any other voucher type whose `actual_qty` is 0:
                 0.
             A 0 therefore means the row moved nothing. NOT VERIFIED on the bench:
