@@ -902,20 +902,25 @@ components:
               * A ledger row of a Stock Reconciliation that has no Serial and
                 Batch Bundle and no `batch_no`, whose `isCancelled` is true and
                 whose `actual_qty` is not 0 (the reverse row ERPNext writes when
-                such a reconciliation is cancelled; RT-1401): the negation of
-                that same difference, `-(qty - current_qty)`, of the Stock
-                Reconciliation Item that `voucherDetailNo` names. ERPNext stores
-                on that row the balance before the reconciliation (its
-                `current_qty`, negated by the ledger write, or `qty` when the
-                position was empty), not the movement, so passing it through
-                would never pair with its original. Bench (Frappe v16.52.0 /
+                such a reconciliation is cancelled; RT-1401, recorded on Jira
+                RT-1401 comment 17083): the negation of that same difference,
+                `-(qty - current_qty)`, of the Stock Reconciliation Item that
+                `voucherDetailNo` names. When the position held stock, ERPNext
+                stores on that row `+current_qty`, the balance before the
+                reconciliation, not the movement (`get_sle_for_items` in
+                `stock_reconciliation.py` at 16.51.0 builds `-current_qty` and
+                the ledger write negates it), so passing it through would not
+                pair with its original. When the position was empty it stores
+                `-qty`, which is already the movement. Bench (Frappe v16.52.0 /
                 ERPNext v16.51.0, RT-1401): a Stock Reconciliation 10 → 12,
                 cancelled, stores +10 on the reverse row and reports −2; 10 → 7
                 stores +10 and reports +3; an Opening Stock 10 → 12 on a
                 non-empty position stores +10 and reports −2; an Opening Stock
                 of 5 on an empty position stores −5 and reports −5. The
                 original rows (stored 0) report +2, −3, +2 and +5, so each
-                reverse is the exact negation of its original.
+                reverse is the exact negation of its original. NOT VERIFIED on
+                the bench: a cancelled valuation-only reconciliation (`qty`
+                equal to `current_qty`), where the rule gives 0 on both rows.
               * A ledger row of any other voucher type whose `actual_qty` is 0:
                 0.
             A 0 therefore means the row moved nothing. NOT VERIFIED on the bench:
