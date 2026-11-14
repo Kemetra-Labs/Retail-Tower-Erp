@@ -2,7 +2,7 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 1fe3c257248cf7fcf7c56820938926d0ee575cf1
+commit: d7d8ecdd2da9e3a68dc5643dedb57af9ce4f56bc
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
@@ -38,7 +38,7 @@ file: sale-sync-ops/sale-sync-ops.yaml a8174ea9015fb00f5f31032f87400c4694ac15a2
 file: settlement/settlement.yaml 5a6e568f0e087652c4d5d5d2d75c386d6e6f37bc
 file: shift-closes.openapi.yaml 4fe610244c7146936f635e8266d6f245149201d7
 file: stores.openapi.yaml d83c0d4ff4bce14047218c9049bf959b464b63c6
-file: tenant-access-entitlement.openapi.yaml b9260fb3853eb98bb57c1f94f6aab184b980c5c2
+file: tenant-access-entitlement.openapi.yaml 99debdd1faa166550e4e5d14aba1cc15302f9843
 file: tenant-branding.openapi.yaml 70e354bc2188882a433c67d557fac54cb8ccae1b
 file: tenants.openapi.yaml a615ab3f94dffacf8dbd989ddcc2c6dcf6697ed4
 file: vouchers-admin.openapi.yaml af249edfb6e8391dc9d7fbfca1612f2b7ab4eaf0

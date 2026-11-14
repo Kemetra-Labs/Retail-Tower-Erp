@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 1fe3c257248cf7fcf7c56820938926d0ee575cf1
+// Source: Kemetra-Labs/Retail-Tower-Erp @ d7d8ecdd2da9e3a68dc5643dedb57af9ce4f56bc
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -15837,7 +15837,7 @@ export namespace TenantAccessEntitlementSchema {
             put?: never;
             /**
              * Request the unlock of a restricted tenant (platform admin).
-             * @description Records the unlock request (who and when) and writes `tenant.access.unlock_requested`, in one transaction. Does NOT lift the restriction. Outcomes: `requested` (first request); `already_requested` (a replay: nothing changes, no audit); `already_unrestricted` (the tenant is not restricted, which includes a tenant with no stored state: nothing changes, no audit). No request body.
+             * @description Records the unlock request (who and when) and writes `tenant.access.unlock_requested`, in one transaction. Does NOT lift the restriction. Outcomes: `requested` (first request); `already_requested` (a replay: nothing changes, no audit); `already_unrestricted` (the tenant is not restricted, which includes a tenant with no stored state: nothing changes, no audit). On the first request it also creates, in the same transaction, the tenant's managed ERP connector registration and its ERP provisioning request (RT-1352 PB-C, RT-1358; see `provisioning-feed.yaml`). A deployment that does not declare its environment (`DEPLOYMENT_ENVIRONMENT`) answers `503 service_unavailable` before anything is written. No request body.
              */
             post: operations["platformRequestTenantUnlock"];
             delete?: never;
@@ -15860,7 +15860,7 @@ export namespace TenantAccessEntitlementSchema {
             put?: never;
             /**
              * Record that provisioning succeeded; lifts the restriction (platform admin).
-             * @description The manual stand-in for the provisioning-success signal until RT-1352 exists. Moves the tenant to `unrestricted`, records the provisioner and the time with source `manual_platform`, and writes `tenant.access.provisioned`, in one transaction. Refused with `409 unlock_not_requested` unless an unlock was requested first (or the tenant has no restriction to lift). Outcomes: `provisioned`; `already_unrestricted` (a replay: nothing changes, no audit). No request body.
+             * @description The manual stand-in for the provisioning-success signal until RT-1352 exists. Moves the tenant to `unrestricted`, records the provisioner and the time with source `manual_platform`, and writes `tenant.access.provisioned`, in one transaction. Refused with `409 unlock_not_requested` unless an unlock was requested first (or the tenant has no restriction to lift), and with `423 provisioning_in_progress` while a provisioner holds a live lease on the tenant's ERP provisioning request (RT-1358). With no live lease, an open request is cancelled in the same transaction. Outcomes: `provisioned`; `already_unrestricted` (a replay: nothing changes, no audit). No request body.
              */
             post: operations["platformMarkTenantProvisioned"];
             delete?: never;
@@ -15892,6 +15892,16 @@ export namespace TenantAccessEntitlementSchema {
                 /** @enum {string} */
                 outcome: "requested" | "already_requested" | "provisioned" | "already_unrestricted";
                 entitlement: components["schemas"]["TenantAccessEntitlement"];
+            };
+            /** @description The error envelope of the two ERP-provisioning refusals added by RT-1358 (`423 provisioning_in_progress`, `503 service_unavailable`). Same shape as `Error`; its own code set, so the shared `Error` code set is unchanged. */
+            ProvisioningStateError: {
+                error: {
+                    /** @enum {string} */
+                    code: "provisioning_in_progress" | "service_unavailable";
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                };
             };
             /** @description Canonical error envelope. Refusals are non-disclosing across tenants (§II/§XII). */
             Error: {
@@ -15991,6 +16001,24 @@ export namespace TenantAccessEntitlementSchema {
                     };
                 };
             };
+            /** @description `provisioning_in_progress` (423 Locked) — a provisioner holds a live lease on the tenant's ERP provisioning request, so the restriction is not lifted by hand now. Wait for the lease to end or for the request to fail. Nothing is changed. */
+            ProvisioningInProgress: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisioningStateError"];
+                };
+            };
+            /** @description `service_unavailable` — this deployment does not declare its environment, so ERP provisioning cannot be requested. Nothing is written. */
+            ServiceUnavailable: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisioningStateError"];
+                };
+            };
             /** @description `internal_error` — an unexpected server error, recorded server-side by `request_id` and never returned. */
             SystemFailure: {
                 headers: {
@@ -16088,6 +16116,7 @@ export namespace TenantAccessEntitlementSchema {
                 404: components["responses"]["NotFound"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
+                503: components["responses"]["ServiceUnavailable"];
             };
         };
         platformMarkTenantProvisioned: {
@@ -16116,6 +16145,7 @@ export namespace TenantAccessEntitlementSchema {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["UnlockNotRequested"];
+                423: components["responses"]["ProvisioningInProgress"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };
