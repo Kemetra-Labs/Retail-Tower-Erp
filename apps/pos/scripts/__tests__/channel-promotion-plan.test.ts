@@ -216,6 +216,17 @@ describe('planPromotion — refusals (one reason code each)', () => {
     );
   });
 
+  it('refuses a release whose manifest does not attest the channel file', () => {
+    const facts = withManifest(release('production', '1.1.0'), (m) => {
+      m['artifacts'] = (m['artifacts'] as Record<string, unknown>[]).filter(
+        (a) => a['name'] !== 'pos-channel',
+      );
+    });
+    expect(refusal(planPromotion(promote('production', 'lab'), facts, prodState))).toBe(
+      'manifest_mismatch',
+    );
+  });
+
   it('refuses a channel file whose size does not match the installer', () => {
     const base = release('production', '1.1.0');
     const facts = { ...base, installer: { ...base.installer, size: base.installer.size + 1 } };
@@ -394,6 +405,20 @@ describe('planPromotion — halt', () => {
     ).toBe('halt_reason_missing');
   });
 
+  it('refuses a halt whose reason is missing altogether', () => {
+    const noReason: Record<string, unknown> = { ...halt('canary', 'x') };
+    delete noReason['reason'];
+    expect(
+      refusal(
+        planPromotion(
+          noReason as unknown as PromotionRequest,
+          release('production', '1.1.0'),
+          goodState,
+        ),
+      ),
+    ).toBe('halt_reason_missing');
+  });
+
   it('refuses a halt that does not lower the channel', () => {
     expect(
       refusal(planPromotion(halt('canary', 'x'), release('production', '1.2.0'), goodState)),
@@ -534,6 +559,12 @@ describe('channel-promotion-plan CLI (read-only)', () => {
     expect(runCli(args, (line) => out.push(line))).toBe(1);
     expect((JSON.parse(out.join('\n')) as { reason: string }).reason).toBe('artifact_name_reused');
     expect(runCli(['--request'], () => undefined)).toBe(2);
+    const badMode = path.join(rel, 'bad-mode.json');
+    const spec = JSON.parse(readFileSync(path.join(rel, 'request.json'), 'utf8')) as object;
+    writeFileSync(badMode, JSON.stringify({ ...spec, mode: 'demote' }));
+    expect(
+      runCli(['--request', badMode, '--release-dir', rel, '--lane-dir', lane], () => undefined),
+    ).toBe(2);
   });
 });
 

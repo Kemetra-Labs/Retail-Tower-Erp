@@ -9,7 +9,7 @@ import type { LaneState, ReleaseFacts } from '../../../feed/channel-promotion-pl
  */
 
 export const LAB_PIN = 'Kemetra POS LAB TEST - NOT FOR PRODUCTION';
-export const PILOT_PIN = 'Kemetra POS Pilot Test Signer';
+const PILOT_PIN = 'Kemetra POS Pilot Test Signer';
 export const PROD_PIN = 'Kemetra Labs Example Production Signer';
 export const EVIDENCE = 'https://rahmaqanater.atlassian.net/browse/RT-324';
 
@@ -31,7 +31,7 @@ const SIGNING: Record<FixtureLane, string | undefined> = {
 };
 const PIN: Record<FixtureLane, string> = { lab: LAB_PIN, pilot: PILOT_PIN, production: PROD_PIN };
 
-export function installerName(lane: FixtureLane, version: string): string {
+function installerName(lane: FixtureLane, version: string): string {
   return lane === 'lab' ? `POS-Pulse-LAB-Setup-${version}.exe` : `POS-Pulse-Setup-${version}.exe`;
 }
 

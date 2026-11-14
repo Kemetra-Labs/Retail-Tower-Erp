@@ -20,12 +20,12 @@ import { dump, load } from 'js-yaml';
  *   - a promotion never lowers a channel; only a halt does, with a reason, latest stage first.
  */
 
-export const LANES = ['lab', 'pilot', 'production'] as const;
-export type Lane = (typeof LANES)[number];
+const LANES = ['lab', 'pilot', 'production'] as const;
+type Lane = (typeof LANES)[number];
 
 /** Channels in stage order: a release reaches `lab`, then `canary`, then `stable`. */
 export const CHANNELS = ['lab', 'canary', 'stable'] as const;
-export type Channel = (typeof CHANNELS)[number];
+type Channel = (typeof CHANNELS)[number];
 
 interface LaneRule {
   /** `product` in release-manifest.json (.github/release/manifest.py). */
@@ -41,7 +41,7 @@ interface LaneRule {
  * the pilot product carries `signing: pilot` (RT-1294); `production` is reserved for RT-321.
  * Whether the pilot lane gets a feed at all is RT-1345 D5/D6: it is supported here as data only.
  */
-export const LANE_RULES: Readonly<Record<Lane, LaneRule>> = {
+const LANE_RULES: Readonly<Record<Lane, LaneRule>> = {
   lab: { product: 'pos', signing: undefined, channels: ['lab'], labPublisherAllowed: true },
   pilot: { product: 'pos-pilot', signing: 'pilot', channels: CHANNELS, labPublisherAllowed: false },
   production: {
@@ -52,7 +52,7 @@ export const LANE_RULES: Readonly<Record<Lane, LaneRule>> = {
   },
 };
 
-export type RefusalReason =
+type RefusalReason =
   | 'unknown_lane'
   | 'unknown_channel'
   | 'missing_evidence'
@@ -78,7 +78,7 @@ export interface ArtifactFacts {
   readonly sha256: string;
 }
 
-export interface InstallerFacts extends ArtifactFacts {
+interface InstallerFacts extends ArtifactFacts {
   /** Base64 SHA-512, as electron-builder writes it into the channel file. */
   readonly sha512: string;
   readonly size: number;
@@ -121,7 +121,7 @@ export type PromotionRequest =
       readonly reason: string;
     };
 
-export type Write =
+type Write =
   | { readonly kind: 'artifact'; readonly file: string; readonly sha256: string }
   | {
       readonly kind: 'channel';
@@ -131,7 +131,7 @@ export type Write =
       readonly content: string;
     };
 
-export interface Plan {
+interface Plan {
   readonly mode: 'promote' | 'halt';
   readonly lane: Lane;
   readonly version: string;
@@ -223,7 +223,8 @@ function planHalt(
   const lane = resolveLane(request.lane);
   const rule = LANE_RULES[lane];
   const channel = resolveChannel(rule, request.channel);
-  if (request.reason.trim() === '') fail('halt_reason_missing', 'a halt needs a reason');
+  if (!isString(request.reason) || request.reason.trim() === '')
+    fail('halt_reason_missing', 'a halt needs a reason');
   const parsed = verifyRelease(lane, request.pin, release);
   presentArtifacts(release).forEach((artifact) => {
     if (state.files[artifact.name] !== artifact.sha256) {
@@ -401,11 +402,10 @@ function checkArtifacts(value: unknown, release: ReleaseFacts): void {
   const find = (name: string) => artifacts.find((a) => a?.['name'] === name) ?? null;
   matchArtifact(find('pos-installer'), release.installer, 'pos-installer');
   matchOptionalArtifact(find('pos-blockmap'), release.blockmap, 'pos-blockmap');
-  const channel = find('pos-channel');
-  if (channel !== null) {
-    const facts = { name: release.channelFileName, sha256: sha256(release.channelFileText) };
-    matchArtifact(channel, facts, 'pos-channel');
-  }
+  // Required, as release-pos.yml emits it and deploy-pos-lab.yml requires it: an unattested
+  // channel file would have its content copied into every channel write.
+  const channelFacts = { name: release.channelFileName, sha256: sha256(release.channelFileText) };
+  matchArtifact(find('pos-channel'), channelFacts, 'pos-channel');
 }
 
 /** Present in both or in neither; when present, the same file and digest. */

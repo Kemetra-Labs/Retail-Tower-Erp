@@ -66,6 +66,9 @@ function requireString(value: unknown, name: string): string {
 function parseRequestFile(text: string): RequestFile {
   const raw = JSON.parse(text) as Record<string, unknown>;
   const { publisher, installer, blockmap, channelFile, ...request } = raw;
+  if (request['mode'] !== 'promote' && request['mode'] !== 'halt') {
+    throw new Error('request.json needs mode "promote" or "halt"');
+  }
   return {
     request: request as unknown as PromotionRequest,
     publisher: requireString(publisher, 'publisher'),
@@ -76,7 +79,7 @@ function parseRequestFile(text: string): RequestFile {
 }
 
 /** Reads one release from `dir`: the manifest, the channel file and the artifact digests. */
-export function readRelease(dir: string, spec: RequestFile): ReleaseFacts {
+function readRelease(dir: string, spec: RequestFile): ReleaseFacts {
   const installerBytes = readFileSync(path.join(dir, spec.installer));
   const blockmap: ArtifactFacts | undefined =
     spec.blockmap === undefined
@@ -98,7 +101,7 @@ export function readRelease(dir: string, spec: RequestFile): ReleaseFacts {
 }
 
 /** Reads the lane state from a local copy of one lane directory. */
-export function readLaneState(dir: string): LaneState {
+function readLaneState(dir: string): LaneState {
   return { channels: readChannels(dir), files: readArtifactDigests(dir) };
 }
 
