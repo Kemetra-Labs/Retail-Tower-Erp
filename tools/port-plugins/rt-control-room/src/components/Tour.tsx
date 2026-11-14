@@ -19,7 +19,8 @@ const FRAMES: readonly (TourSpot & { n: 1 | 2 | 3 | 4 | 5 })[] = [
   { n: 2, stations: ["pos", "admin"], cables: ["c1", "c2"] },
   { n: 3, stations: ["core"], cables: ["c1", "c2", "c3"] },
   { n: 4, stations: ["conn", "erp"], cables: ["c3", "c4"] },
-  { n: 5, stations: ["conn", "erp"], cables: ["c4"] },
+  // Faults are placed by route owner: the bridge's postings (c3, failing at Backend-Core) and invoices (c4).
+  { n: 5, stations: ["core", "conn", "erp"], cables: ["c3", "c4"] },
 ];
 
 function faultsPhrase(n: number, t: T): string {
@@ -27,16 +28,20 @@ function faultsPhrase(n: number, t: T): string {
   return t(key, { n });
 }
 
+const BRIDGE_CABLES: readonly CableId[] = ["c3", "c4"];
+
 /**
- * The last step speaks only of what the board holds: the faults on the invoice
- * cable (`c4`), "no faults reported" when there are none, and "not read" when
- * the error read failed (a count is then unknown, never zero). It never says healthy.
+ * The last step speaks only of what the board holds: the faults on the
+ * bridge's two cables (postings `c3`, invoices `c4`), "no faults reported" when
+ * there are none, and "not read" when the error read failed (a count is then
+ * unknown, never zero). It never says healthy.
  */
 function lastStepText(board: Board, t: T): string {
-  const cable = board.cables.find((c) => c.id === "c4");
-  if (!board.alarmRead.sentry || !cable) return t("tour5NotRead");
-  if (cable.faults === 0) return t("tour5None");
-  return t("tour5Faults", { faults: faultsPhrase(cable.faults, t) });
+  const cables = board.cables.filter((c) => BRIDGE_CABLES.includes(c.id));
+  if (!board.alarmRead.sentry || cables.length === 0) return t("tour5NotRead");
+  const faults = cables.reduce((n, c) => n + c.faults, 0);
+  if (faults === 0) return t("tour5None");
+  return t("tour5Faults", { faults: faultsPhrase(faults, t) });
 }
 
 /** The five steps in the current language (`t`), with the last one filled from the board. */

@@ -75,7 +75,7 @@ afterEach(() => {
 });
 
 describe("the drawn board", () => {
-  it("draws 5 stations, 4 cables, 3 hosts and 5 alarm pins (3 on c4, 1 inside the connector, 1 on admin)", () => {
+  it("draws 5 stations, 4 cables, 3 hosts and 5 alarm pins (3 on c3, 1 inside the connector, 1 on admin)", () => {
     const { container } = mount();
     expect(q(container, '[data-focus^="station:"]')).toHaveLength(5);
     expect(q(container, "path.cable[data-cable]")).toHaveLength(4);
@@ -83,18 +83,18 @@ describe("the drawn board", () => {
     const pins = q(container, ".pin");
     expect(pins).toHaveLength(5);
     const at = (k: string) => pins.filter((p) => p.getAttribute("data-at") === k).length;
-    expect([at("c4"), at("conn"), at("admin")]).toEqual([3, 1, 1]);
+    expect([at("c3"), at("c4"), at("conn"), at("admin")]).toEqual([3, 0, 1, 1]);
   });
 
-  it("draws c4 as a fault and the other cables as live, with their fault counts", () => {
+  it("draws c3 (Postings) as a fault and the other cables as live, with their fault counts", () => {
     const { container } = mount();
     const cls = (id: string) => container.querySelector(`path.cable[data-cable="${id}"]`)?.getAttribute("class") ?? "";
-    expect(cls("c4")).toContain("fault");
-    for (const id of ["c1", "c2", "c3"]) {
+    expect(cls("c3")).toContain("fault");
+    for (const id of ["c1", "c2", "c4"]) {
       expect(cls(id)).toContain("live");
       expect(cls(id)).not.toContain("fault");
     }
-    expect(text(container, '[data-cable-tag="c4"]')).toContain("3 faults");
+    expect(text(container, '[data-cable-tag="c3"]')).toContain("3 faults");
     expect(text(container, '[data-cable-tag="c1"]')).toContain("no faults");
   });
 
@@ -181,10 +181,10 @@ describe("unknown and unread are never green or zero", () => {
       const alarms = s.querySelector("text.sv");
       expect(alarms?.textContent, s.getAttribute("data-focus") ?? "").toBe("not read");
     }
-    // The fixture's retained issues keep their pins and c4 keeps 3 faults.
+    // The fixture's retained issues keep their pins and c3 keeps 3 faults.
     expect(q(container, ".pin")).toHaveLength(5);
-    expect(text(container, '[data-cable-tag="c4"]')).toContain("3 faults");
-    for (const id of ["c1", "c2", "c3"]) {
+    expect(text(container, '[data-cable-tag="c3"]')).toContain("3 faults");
+    for (const id of ["c1", "c2", "c4"]) {
       const tag = text(container, `[data-cable-tag="${id}"]`);
       expect(tag, id).toContain("not read");
       expect(tag, id).not.toContain("no faults");
@@ -260,8 +260,11 @@ describe("pins and selection", () => {
   it("dims what is unrelated to a selected alarm and marks its pin", () => {
     const { container } = mount({ selection: { type: "alarm", id: "sentry-10001" } });
     const cls = (id: string) => container.querySelector(`path.cable[data-cable="${id}"]`)?.getAttribute("class") ?? "";
-    expect(cls("c4")).not.toContain("dim");
+    expect(cls("c3")).not.toContain("dim");
     expect(cls("c1")).toContain("dim");
+    // The failing hop (Backend-Core) stays lit with the reporting Connector.
+    expect(container.querySelector('[data-focus="station:core"]')?.getAttribute("class")).not.toContain("dim");
+    expect(container.querySelector('[data-focus="station:erp"]')?.getAttribute("class")).toContain("dim");
     expect(container.querySelector('[data-focus="pin:sentry-10001"]')?.getAttribute("class")).toContain("on");
     expect(container.querySelector('[data-focus="station:pos"]')?.getAttribute("class")).toContain("dim");
     expect(container.querySelector('[data-focus="station:conn"]')?.getAttribute("class")).not.toContain("dim");

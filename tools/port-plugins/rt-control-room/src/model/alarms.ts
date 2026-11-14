@@ -48,13 +48,34 @@ export function classifySentryKind(title: string): AlarmKind {
   return "bug";
 }
 
+// Route owners (verified in this repo): `/api/connector/v1/...` and `/api/v1/...`
+// are Backend-Core routes (Backend-Core listens on port 3000; the Connector
+// PULLS its postings from it). `/api/resource/...` and `/api/method/...` are
+// ERPNext/Frappe routes. Only paths and the port are read: no host name is
+// guessed to belong to one side or the other.
+const CORE_PORT = /(?:port=|:)3000\b/i;
+const CONNECTOR_ROUTE = /\/api\/connector\/v1\//i;
+const CORE_ROUTE = /\/api\/v1\//i;
+const FRAPPE_ROUTE = /\/api\/(?:resource|method)\//i;
+
 /**
- * Where a Sentry issue sits: a Connector issue whose title targets an ERPNext
- * route is pinned on the Invoices cable (c4); every other issue stays inside
- * its station. A route is never invented to make a count.
+ * Where a Sentry issue sits: on the cable that leads to the route's OWNER, or
+ * inside the reporting station when the title names no known route.
+ *  - Connector -> Backend-Core route or port 3000: the Postings cable (c3).
+ *  - Connector -> ERPNext/Frappe route: the Invoices cable (c4).
+ *  - POS -> Backend-Core route or port 3000: the Sales cable (c1).
+ *  - Admin Console -> Backend-Core route or port 3000: the Catalog cable (c2).
+ * A route is never invented to make a count.
  */
 export function placeSentryAlarm(station: StationId, title: string): StationId | CableId {
-  if (station === "conn" && /\/erpnext\//i.test(title)) return "c4";
+  const toCore = CONNECTOR_ROUTE.test(title) || CORE_ROUTE.test(title) || CORE_PORT.test(title);
+  if (station === "conn") {
+    if (CONNECTOR_ROUTE.test(title) || CORE_PORT.test(title)) return "c3";
+    if (FRAPPE_ROUTE.test(title)) return "c4";
+    return station;
+  }
+  if (station === "pos" && toCore) return "c1";
+  if (station === "admin" && toCore) return "c2";
   return station;
 }
 

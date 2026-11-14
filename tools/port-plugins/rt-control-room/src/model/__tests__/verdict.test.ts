@@ -85,6 +85,19 @@ describe("buildVerdict lights", () => {
     expect(v.lights.cashier.tone).toBe("neutral");
   });
 
+  it("Connector alarms on the Postings cable c3 fail at Backend-Core: the backend light is a fault, accounts is not", () => {
+    const c3 = () => alarm("c3", "conn", { kind: "refused" });
+    const v = buildVerdict(input({ alarms: [c3(), c3(), c3()], checks: { core: { ok: 7, total: 7 }, conn: { ok: 2, total: 2 } } }));
+    expect(v.lights.backend.tone).toBe("fault");
+    expect(v.lights.backend.text.en).toBe("3 alarms open");
+    expect(v.lights.accounts.tone).toBe("neutral");
+  });
+
+  it("POS and Admin alarms on c1 and c2 fail at Backend-Core too", () => {
+    const v = buildVerdict(input({ alarms: [alarm("c2", "admin", { kind: "down" })] }));
+    expect(v.lights.backend.tone).toBe("fault");
+  });
+
   it("faults only on the cable say so without a remainder", () => {
     const v = buildVerdict(input({ alarms: [c4()] }));
     expect(v.lights.accounts.text.en).toBe("1 fault on the invoice cable");

@@ -302,10 +302,10 @@ describe("Verdict", () => {
     expect(screen.getByText(board.verdict.sentence.en)).toBeTruthy();
     const lights = container.querySelectorAll(".light");
     expect(lights).toHaveLength(3);
-    expect(Array.from(lights).map((l) => l.getAttribute("data-tone"))).toEqual(["neutral", "neutral", "fault"]);
+    expect(Array.from(lights).map((l) => l.getAttribute("data-tone"))).toEqual(["neutral", "fault", "fault"]);
     expect(within(lights[0] as HTMLElement).getByText("Cashier app")).toBeTruthy();
-    expect(within(lights[1] as HTMLElement).getByText("7 of 7 checks OK")).toBeTruthy();
-    expect(within(lights[2] as HTMLElement).getByText("3 faults on the invoice cable, 1 inside the bridge")).toBeTruthy();
+    expect(within(lights[1] as HTMLElement).getByText("3 alarms open")).toBeTruthy();
+    expect(within(lights[2] as HTMLElement).getByText("1 alarm open")).toBeTruthy();
   });
 
   it("renders the Arabic sentence and light names after the switch", () => {

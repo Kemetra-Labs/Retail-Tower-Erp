@@ -147,10 +147,14 @@ describe("alarms tab", () => {
     expect(screen.getByRole("tab", { name: "Alarms (6)" })).toBeTruthy();
   });
 
-  it("says where each alarm is: on the invoice cable for the three route faults, inside the Connector for the reset", () => {
+  it("says where each alarm is: on the postings cable Connector to Backend-Core for the three route faults, inside the Connector for the reset", () => {
     const board = boardOf();
     wrap(<AlarmPanel board={board} events={[]} selection={null} onSelect={noop} />);
-    expect(screen.getAllByText("On the cable Connector to ERPNext (invoices)")).toHaveLength(3);
+    expect(screen.getAllByText("On the cable Connector to Backend-Core (postings)")).toHaveLength(3);
+    expect(screen.queryByText(/ERPNext refused|ERPNext is not answering/)).toBeNull();
+    expect(screen.getByText("Backend-Core refused the request")).toBeTruthy();
+    expect(screen.getByText("Backend-Core is not answering")).toBeTruthy();
+    expect(screen.getByText("The request to Backend-Core took too long")).toBeTruthy();
     expect(screen.getAllByText("Inside ERPNext-Connector")).toHaveLength(1);
     expect(screen.getAllByText("Inside Admin Console")).toHaveLength(1);
   });
@@ -263,18 +267,19 @@ describe("detail", () => {
     const board = boardOf();
     const { container } = show(board, sel("sentry-10001"));
     const detail = container.querySelector("[data-detail]") as HTMLElement;
-    expect(within(detail).getByRole("heading", { level: 2, name: "ERPNext refused the request" })).toBeTruthy();
+    expect(within(detail).getByRole("heading", { level: 2, name: "Backend-Core refused the request" })).toBeTruthy();
     const dl = detail.querySelector("dl") as HTMLElement;
-    expect(dl.textContent).toContain("On the cable Connector to ERPNext (invoices)");
+    expect(dl.textContent).toContain("On the cable Connector to Backend-Core (postings)");
     expect(dl.textContent).toContain("403");
     expect(dl.textContent).toContain("Sentry");
     // 2026-11-12T18:29Z is 20:29 in Cairo.
     expect(dl.textContent).toContain("12 Nov, 20:29");
     const hops = Array.from(detail.querySelectorAll(".trace li")).map((li) => li.firstChild?.textContent);
-    expect(hops).toEqual(["POS", "Backend-Core", "ERPNext-Connector", "ERPNext"]);
+    // The Connector calls Backend-Core: the request runs Connector -> Backend-Core, and Backend-Core fails.
+    expect(hops).toEqual(["ERPNext-Connector", "Backend-Core"]);
     const failing = detail.querySelectorAll('.trace li[data-fail="true"]');
     expect(failing).toHaveLength(1);
-    expect(failing[0].textContent).toContain("ERPNext");
+    expect(failing[0].firstChild?.textContent).toBe("Backend-Core");
     expect(failing[0].textContent).toContain("fails here");
     const msg = detail.querySelector(".msg") as HTMLElement;
     expect(msg.getAttribute("dir")).toBe("ltr");
@@ -353,7 +358,8 @@ describe("detail", () => {
   it("renders in Arabic, with the message still left to right", () => {
     const { container } = show(boardOf(), sel("sentry-10001"), "ar");
     const detail = container.querySelector("[data-detail]") as HTMLElement;
-    expect(detail.textContent).toContain("ERPNext رفض الطلب");
+    expect(detail.textContent).toContain("Backend-Core رفض الطلب");
+    expect(detail.textContent).toContain("على كابل الجسر إلى Backend-Core (قيود)");
     expect(detail.textContent).toContain(fmtStamp(new Date("2026-11-12T18:29:00Z"), "ar"));
     expect(detail.textContent).toContain("20:29");
     expect((detail.querySelector(".msg") as HTMLElement).getAttribute("dir")).toBe("ltr");

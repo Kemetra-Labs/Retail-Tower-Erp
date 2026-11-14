@@ -1,4 +1,4 @@
-import type { CableId, HostId, I18n, StationId } from "./types";
+import type { AlarmAt, CableId, HostId, I18n, StationId } from "./types";
 
 export type Tier = "front" | "core" | "integration" | "books";
 
@@ -70,6 +70,12 @@ export const ARCH = {
     c3: { id: "c3", from: "core", to: "conn", carries: { en: "Postings", ar: "قيود" } },
     c4: { id: "c4", from: "conn", to: "erp", carries: { en: "Invoices", ar: "فواتير" } },
   } satisfies Record<CableId, ArchCable>,
+  /**
+   * The station that owns the route each cable carries: the hop that fails
+   * when a request on the cable fails. The Connector pulls postings FROM
+   * Backend-Core, so c3's owner is Backend-Core, not the Connector.
+   */
+  cableOwner: { c1: "core", c2: "core", c3: "core", c4: "erp" } satisfies Record<CableId, StationId>,
   /** The static allowed request path, up to the hop where a fault happens. */
   path: ["pos", "core", "conn", "erp"] satisfies StationId[],
   /** Keys are the Datadog host_name exactly as Port stores it. */
@@ -91,6 +97,14 @@ export function stationForService(serviceId: string): StationId | null {
     if (ARCH.stations[id].serviceId === serviceId) return id;
   }
   return null;
+}
+
+/** The failing hop of an alarm placed at `at`: the cable's route owner, the station itself, a server's station, or none. */
+export function failingHopOf(at: AlarmAt): StationId | null {
+  if (at === "unlocated") return null;
+  if (isCableId(at)) return ARCH.cableOwner[at];
+  if (isHostId(at)) return ARCH.hosts[at];
+  return at;
 }
 
 export function isCableId(value: string): value is CableId {

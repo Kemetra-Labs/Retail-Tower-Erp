@@ -1,3 +1,4 @@
+import { failingHopOf } from "./architecture";
 import type { Alarm, I18n, Light, SourceId, SourceView, StationView, Verdict } from "./types";
 
 /**
@@ -32,11 +33,18 @@ const faults = (n: number) => count(n, ["fault", "faults"], ["عطل واحد", 
 const errors = (n: number) => count(n, ["error", "errors"], ["خطأ واحد", "خطأين", "أخطاء", "خطأ"]);
 const alarmsOf = (n: number) => count(n, ["alarm", "alarms"], ["إنذار واحد", "إنذارين", "إنذارات", "إنذار"]);
 
-// ---- scopes (spec 7b): cashier = POS, backend = Backend-Core, accounts = Connector + Invoices cable (+ ERPNext host)
+// ---- scopes (spec 7b, placed by route owner): cashier = what the POS app reports;
+// backend = every alarm whose failing hop is Backend-Core (inside it, on its servers, or on
+// a cable whose route it owns: c1, c2 and c3); accounts = failing hop Connector or ERPNext
+// (inside the bridge, the Invoices cable c4, the ERPNext server). An alarm the Connector
+// reports about a Backend-Core route is Backend's, not the accounts side's.
 
 const inCashier = (a: Alarm) => a.station === "pos";
-const inBackend = (a: Alarm) => a.station === "core";
-const inAccounts = (a: Alarm) => a.station === "conn" || a.station === "erp" || a.at === "c4";
+const inBackend = (a: Alarm) => failingHopOf(a.at) === "core";
+const inAccounts = (a: Alarm) => {
+  const hop = failingHopOf(a.at);
+  return hop === "conn" || hop === "erp";
+};
 
 const checksText = (c: { ok: number; total: number }): I18n =>
   t(`${num(c.ok)} of ${num(c.total)} checks OK`, `${num(c.ok)} من ${num(c.total)} فحوصات تمام`);
@@ -178,8 +186,8 @@ function accountsPart(v: VerdictInput, mine: Alarm[], unplaced: number): Part {
 
 function accountsFault(mine: Alarm[]): Part {
   const onCable = mine.filter((a) => a.at === "c4").length;
-  const inside = mine.filter((a) => a.at !== "c4" && a.station === "conn").length;
-  const onErp = mine.filter((a) => a.at !== "c4" && a.station === "erp").length;
+  const inside = mine.filter((a) => a.at !== "c4" && failingHopOf(a.at) === "conn").length;
+  const onErp = mine.filter((a) => a.at !== "c4" && failingHopOf(a.at) === "erp").length;
   if (onCable === 0) {
     const a = alarmsOf(mine.length);
     return {

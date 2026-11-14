@@ -3,7 +3,7 @@ import { useLang } from "../i18n/LangContext";
 import { STATION_IDS } from "../model/architecture";
 import type { Board, StationId } from "../model/types";
 import { AlarmBody, HostBody, StationBody } from "./DetailBodies";
-import { KIND_TITLE } from "./room/icons";
+import { alarmTitle } from "./where";
 import type { Selection } from "./room/selection";
 
 export type DetailProps = {
@@ -36,7 +36,7 @@ export function isResolvable(board: Board, selection: Selection): boolean {
  * It renders nothing for a selection that no longer exists.
  */
 export function Detail({ board, selection, onSelect, focusOnOpen = false, onUnmount }: DetailProps) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const heading = useRef<HTMLHeadingElement>(null);
   const wants = useRef(focusOnOpen);
   wants.current = focusOnOpen;
@@ -60,7 +60,7 @@ export function Detail({ board, selection, onSelect, focusOnOpen = false, onUnmo
   const alarm = selection.type === "alarm" ? board.alarms.find((a) => a.id === selection.id) : undefined;
   const station = selection.type === "station" ? board.stations.find((s) => s.id === selection.id) : undefined;
   const host = selection.type === "host" ? board.hosts.find((h) => h.id === selection.id) : undefined;
-  const title = alarm ? t(KIND_TITLE[alarm.kind]) : (station?.name ?? host?.id ?? "");
+  const title = alarm ? alarmTitle(alarm, lang) : (station?.name ?? host?.id ?? "");
   return (
     <div className="detail" data-detail ref={root}>
       <button type="button" className="back" onClick={() => onSelect(null, true)}>
