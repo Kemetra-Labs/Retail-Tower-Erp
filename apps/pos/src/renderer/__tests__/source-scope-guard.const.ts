@@ -693,3 +693,27 @@ export function isRt1343CreditVoidExemptFile(branch: string, file: string): bool
     (RT_1343_CREDIT_VOID_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1372-pos-od10-guidance` implements Jira RT-1372: Backend-Core records reward-line returns since
+ * RT-1367 PR 2 (#589), so the POS restores the OD-10 "add the reward units" guidance and is repinned to that
+ * contract commit on `main` (`npm run contracts:repin`, acceptance criterion 1), which regenerates
+ * `src/shared/api-types.ts` (description text only).
+ *
+ * Authority: Jira RT-1372 acceptance criterion 1 ("the pinned `sales.yaml` (after a repin, if needed)") and
+ * the owner's instruction in chat on 2026-11-14 ("Start RT-1372"), following the RT-1114 / RT-1343 repin
+ * pattern: exactly ONE file on exactly ONE branch (exact name; the `-preflight` branch is not exempt).
+ * Narrowness is asserted by `source-scope-guard-rt1372.test.ts`.
+ */
+export const RT_1372_OD10_REPIN_BRANCH = 'claude/rt-1372-pos-od10-guidance' as const;
+export const RT_1372_OD10_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1372 exemption allows on `branch`. */
+export function isRt1372ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1372_OD10_REPIN_BRANCH &&
+    (RT_1372_OD10_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

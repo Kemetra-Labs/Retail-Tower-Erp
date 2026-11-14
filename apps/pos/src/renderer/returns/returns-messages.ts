@@ -25,8 +25,10 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
   credit_sale_reversal_restricted:
     'هذا البيع عليه مسؤولية دفع آجلة، فلا يُرجَع من هنا. لم يُسجَّل المرتجع ولم يُصرف أي نقد.',
   // RT-1339 (spec 048 OD-10 / OD-11): an automatic offer's discount. Backend-Core decides; nothing is recorded.
+  // RT-1372: Backend-Core records reward-line returns since RT-1367 PR 2, so the OD-10 remedy is back: add the
+  // reward units. The OD-11 interim code keeps the manager while an older Backend-Core can still return it.
   promotion_clawback_exceeds_refund:
-    'خصم العرض الذي أخذه العميل أكبر من مبلغ الأصناف المختارة، ولا يُسجَّل هذا المرتجع من هنا حاليًا. لم يُسجَّل المرتجع ولم يُصرف أي نقد. راجع المدير.',
+    'خصم العرض الذي أخذه العميل أكبر من مبلغ الأصناف المختارة. لم يُسجَّل المرتجع ولم يُصرف أي نقد. أضف وحدات المكافأة من البيع نفسه إلى المرتجع ثم أرسله من جديد.',
   promotion_return_requires_clawback:
     'هذا المرتجع يُلغي خصم عرض على الأصناف الباقية مع العميل، ولا يُسجَّل من هنا حاليًا. لم يُسجَّل المرتجع ولم يُصرف أي نقد. راجع المدير.',
   // Decided on the till.
@@ -80,7 +82,7 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
 export const OFFER_ROLE_COPY = Object.freeze({
   reward: 'أخذت هذه الوحدة خصم عرض',
   participant: 'ضمن عرض',
-  note: 'بعض الأصناف المختارة بيعت ضمن عرض. قد يرفض الخادم المرتجع أو يُنقص مبلغ الاسترداد حسب العرض، وتظهر نتيجته هنا. عند الرفض راجع المدير.',
+  note: 'بعض الأصناف المختارة بيعت ضمن عرض. قد يُنقص الخادم مبلغ الاسترداد حسب العرض، وتظهر نتيجته هنا. إن رفضه لأن خصم العرض أكبر من المبلغ، فأضف وحدات المكافأة إلى المرتجع.',
 });
 
 /** Non-refusal outcomes and notices; each distinct from every refusal line. */
