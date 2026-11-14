@@ -6,7 +6,7 @@ import { traceStats } from "../../model/telemetry";
 import type { Board, TraceView } from "../../model/types";
 import { fixture, NOW } from "../../state/__tests__/testkit";
 import { LangProvider, useLang } from "../../i18n/LangContext";
-import { STRINGS, agoText, fmtTime, type StringKey } from "../../i18n/strings";
+import { STRINGS, agoText, fmtStamp, fmtTime, type StringKey } from "../../i18n/strings";
 import { Header } from "../Header";
 import { Telemetry } from "../Telemetry";
 import { Trace } from "../Trace";
@@ -84,6 +84,21 @@ describe("clock and numbers", () => {
       const d = new Date(Date.UTC(2026, 10, 13, h, 59));
       expect(fmtTime(d, "ar")).not.toMatch(ARABIC_INDIC);
       expect(fmtTime(d, "ar")).toMatch(/^\d{2}:\d{2}$/);
+    }
+  });
+
+  it("(L) maps Arabic-Indic digits to Latin even when the ICU data would print them", () => {
+    const real = Intl.DateTimeFormat.prototype.formatToParts;
+    const spy = vi.spyOn(Intl.DateTimeFormat.prototype, "formatToParts").mockImplementation(function (this: Intl.DateTimeFormat, d?: Date | number) {
+      const indic = (s: string) => s.replace(/\d/g, (c) => String.fromCharCode(0x660 + Number(c)));
+      return real.call(this, d).map((part) => (part.type === "literal" ? part : { ...part, value: indic(part.value) }));
+    });
+    try {
+      expect(fmtTime(new Date("2026-11-13T12:30:00Z"), "ar")).toBe("14:30");
+      expect(fmtStamp(new Date("2026-11-13T12:30:00Z"), "ar")).toMatch(/^\d{1,2} .+, 14:30$/);
+      expect(fmtStamp(new Date("2026-11-13T12:30:00Z"), "ar")).not.toMatch(ARABIC_INDIC);
+    } finally {
+      spy.mockRestore();
     }
   });
 

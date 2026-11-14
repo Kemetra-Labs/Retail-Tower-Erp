@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/LangContext";
 import type { Board } from "../model/types";
 import type { BoardEvent } from "../state/diff";
@@ -36,9 +36,19 @@ export function AlarmPanel({ board, events, selection, onSelect, focusOnOpen = f
   const [tab, setTab] = useState<Tab>("alarms");
   const open = isResolvable(board, selection);
 
-  // A selection that no longer exists (an alarm cleared, the example turned off) is dropped quietly.
+  // Whether focus sat inside the detail when it went away (see `Detail.onUnmount`).
+  const hadFocus = useRef(false);
+  const onDetailUnmount = useCallback((focused: boolean) => {
+    hadFocus.current = focused;
+  }, []);
+  // A selection that no longer exists (an alarm cleared, the example turned off) is dropped. When focus
+  // was inside its detail the close counts as a keyboard one, so focus goes back to the opener (or the
+  // next place in the chain) instead of falling to the page body; otherwise focus is left where it is.
   useEffect(() => {
-    if (selection !== null && !open) onSelect(null, false);
+    if (selection === null || open) return;
+    const focused = hadFocus.current;
+    hadFocus.current = false;
+    onSelect(null, focused);
   }, [selection, open, onSelect]);
 
   const notRead = !board.alarmRead.sentry;
@@ -53,7 +63,7 @@ export function AlarmPanel({ board, events, selection, onSelect, focusOnOpen = f
             </span>
           </div>
         )}
-        {open && <Detail board={board} selection={selection} onSelect={onSelect} focusOnOpen={focusOnOpen} />}
+        {open && <Detail board={board} selection={selection} onSelect={onSelect} focusOnOpen={focusOnOpen} onUnmount={onDetailUnmount} />}
         <div hidden={open} data-lists>
           <div className="tabs" role="tablist">
             <button
@@ -64,7 +74,7 @@ export function AlarmPanel({ board, events, selection, onSelect, focusOnOpen = f
               aria-controls="panel-alarms"
               onClick={() => setTab("alarms")}
             >
-              {`${t("alarms")} (${board.alarms.length})`}
+              {`${t("alarms")} (${notRead && board.alarms.length === 0 ? t("notRead") : board.alarms.length})`}
             </button>
             <button
               type="button"

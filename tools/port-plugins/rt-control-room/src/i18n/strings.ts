@@ -186,6 +186,8 @@ const LATIN_DIGIT = (ch: string): string => {
   if (code >= 0x6f0 && code <= 0x6f9) return String(code - 0x6f0);
   return ch;
 };
+// Latin digits are enforced twice, independent of the ICU build: the formatters ask for `latn` (both as
+// the `-u-nu-latn` tag and as `numberingSystem`), and every part is mapped through `toLatin` anyway.
 const toLatin = (s: string): string => s.replace(/[٠-٩۰-۹]/g, LATIN_DIGIT);
 
 const clocks: Record<Lang, Intl.DateTimeFormat> = {
@@ -194,6 +196,7 @@ const clocks: Record<Lang, Intl.DateTimeFormat> = {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
+    numberingSystem: "latn",
     timeZone: CAIRO,
   }),
 };
@@ -213,6 +216,7 @@ const stampers: Record<Lang, Intl.DateTimeFormat> = {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
+    numberingSystem: "latn",
     timeZone: CAIRO,
   }),
 };

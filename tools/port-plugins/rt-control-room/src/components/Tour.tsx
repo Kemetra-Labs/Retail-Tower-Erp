@@ -59,8 +59,9 @@ export type TourProps = {
 
 /**
  * A manual tour: Back, Next and Exit, nothing on a timer. Focus moves to Next
- * when it opens; Escape ends it, unless a detail is open, which keeps its own
- * Escape (the next one ends the tour).
+ * when it opens; Escape ends it, unless a detail is open or the key was already
+ * used to close one (`defaultPrevented`): the detail keeps that Escape and the
+ * next one ends the tour, whatever order the two listeners run in.
  */
 export function Tour({ steps, index, onIndex, onEnd }: TourProps) {
   const { t } = useLang();
@@ -73,7 +74,8 @@ export function Tour({ steps, index, onIndex, onEnd }: TourProps) {
   }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !document.querySelector("[data-detail]")) end.current();
+      // An Escape that already closed a detail (marked as used) never ends the tour as well.
+      if (e.key === "Escape" && !e.defaultPrevented && !document.querySelector("[data-detail]")) end.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

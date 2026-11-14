@@ -85,8 +85,8 @@ export function StatusTable({ board, fresh, onSelect }: Props) {
                   )}
                 </th>
                 <td className={state.tone}>{state.text}</td>
-                <td className={`measured ${ledger ? "" : alarms === "not-read" ? "unk" : alarms > 0 ? "bad" : ""}`}>
-                  {ledger ? "-" : alarms === "not-read" ? t("notRead") : alarms}
+                <td className={`measured ${alarms === "not-read" ? "unk" : alarms > 0 ? "bad" : ""}`}>
+                  {alarms === "not-read" ? t("notRead") : ledger && alarms === 0 ? "-" : alarms}
                 </td>
                 <td className={`measured ${checks.tone}`}>{checks.text}</td>
                 <td>

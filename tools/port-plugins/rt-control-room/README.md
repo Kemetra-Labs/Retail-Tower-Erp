@@ -122,6 +122,11 @@ npx port-plugins upload --file dist/index.html --identifier rt-control-room --ti
 
 Then add it in Port: dashboard, **Add widget**, **Custom widget**, **Retail Tower Control Room**. Whether it sits beside or replaces the `ck_arch` widget is the owner's rollout decision.
 
+### Known risks to check at upload
+
+1. **Fonts under Port's CSP.** The IBM Plex Sans Arabic and Inter fonts are inlined as `data:` woff2 URLs in the single HTML file. Port's documented content security policy lists only `default-src 'self' https://*.getport.io https://*.port.io`, so a browser may block those `data:` fonts (not verified). With a policy that allows `font-src data:` there is no violation. If they are blocked the widget falls back to the system fonts, Arabic included, and stays readable; check the browser console for a CSP report at first upload.
+2. **Non-admin viewers.** If `GET /v1/integration` answers 403 for a viewer, source freshness falls back to the newest `$updatedAt` of the entities. The Sentry and Datadog dependent lights can then stay amber when those collections are quiet (no recent change reads as "not fresh"). That is the honest-unknown rule at work, not a fault; confirm it with a non-admin account before any wider rollout.
+
 ## What has and has not been verified
 
 Done, locally:

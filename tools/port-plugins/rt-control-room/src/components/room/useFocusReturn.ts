@@ -103,7 +103,10 @@ export function useSelection(options: FocusReturnOptions = {}): UseSelection {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open.current) select(null, true);
+      if (e.key !== "Escape" || !open.current) return;
+      // Mark the key as used, so a listener that comes after (the Story tour) leaves it alone: one Escape, one thing.
+      e.preventDefault();
+      select(null, true);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

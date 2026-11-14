@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../../i18n/LangContext";
 import { format, type Lang } from "../../i18n/strings";
@@ -29,7 +30,9 @@ type Format = typeof format;
 const tIn = (lang: Lang) => (key: Parameters<Format>[0], vars?: Parameters<Format>[2]) => format(key, lang, vars);
 const step5 = (board: Board, lang: Lang): string => tourSteps(board, tIn(lang))[4].text;
 
+const afterEachRestore: (() => void)[] = [];
 afterEach(() => {
+  for (const undo of afterEachRestore.splice(0)) undo();
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -145,6 +148,19 @@ describe("Tour", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onEnd).not.toHaveBeenCalled();
     detail.remove();
+  });
+
+  it("leaves an Escape that something else already handled (J)", () => {
+    // A listener registered BEFORE the tour (the selection's own) that closes a detail and marks the key as used.
+    const claim = (e: KeyboardEvent) => e.preventDefault();
+    document.addEventListener("keydown", claim);
+    const onEnd = vi.fn();
+    rtlRender(<Harness onEnd={onEnd} />);
+    fireEvent.keyDown(document, { key: "Escape", cancelable: true });
+    expect(onEnd).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", claim);
+    fireEvent.keyDown(document, { key: "Escape", cancelable: true });
+    expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
   it("reads in Arabic", () => {
@@ -287,6 +303,35 @@ describe("App modes", () => {
     expect(document.activeElement).toBe(tourButton);
   });
 
+  it("(J) with the tour and a detail open, the first Escape closes the detail only and the next ends the tour", async () => {
+    const user = userEvent.setup();
+    // jsdom has no layout: an element counts as visible unless it sits in a hidden subtree.
+    const proto = Element.prototype as unknown as { getClientRects: () => unknown[] };
+    const saved = proto.getClientRects;
+    proto.getClientRects = function (this: Element) {
+      return this.closest("[hidden]") ? [] : [{}];
+    };
+    afterEachRestore.push(() => {
+      proto.getClientRects = saved;
+    });
+    const { container } = await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Story" }));
+    fireEvent.click(screen.getByRole("button", { name: "Story tour" }));
+    const conn = container.querySelector('[data-focus="station:conn"]') as HTMLElement;
+    conn.focus();
+    await user.keyboard("{Enter}");
+    expect(container.querySelector("[data-detail]")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Story tour" })).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    expect(container.querySelector("[data-detail]")).toBeNull();
+    expect(screen.getByRole("region", { name: "Story tour" })).toBeTruthy();
+    expect(document.activeElement).toBe(conn);
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Story tour" })).toBeNull();
+  });
+
   it("a mode switch while the tour is open ends the tour", async () => {
     const { container } = await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Story" }));
@@ -354,5 +399,25 @@ describe("App example alarm", () => {
     await waitFor(() => expect(container.querySelector("[data-detail]")).toBeNull());
     expect(screen.getByRole("tab", { name: "Alarms (5)" })).toBeTruthy();
     expect(container.querySelector('[aria-pressed="true"][data-focus^="alarm:"]')).toBeNull();
+  });
+});
+
+describe("App with a stale board", () => {
+  it("(F) has exactly one live status region in the document, the alarm announcer", async () => {
+    cleanup();
+    const port = createFakePort();
+    port.fail("deployment", 500);
+    port.install();
+    setBridge();
+    const { container } = render(<App />);
+    await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 });
+    expect(screen.getByText(/Showing the last good snapshot/)).toBeTruthy();
+    const regions = document.querySelectorAll('[role="status"]');
+    expect(regions).toHaveLength(1);
+    expect(regions[0].hasAttribute("data-announcer")).toBe(true);
+    // Story mode with its tour adds only the tour's own polite region, which is not a status role.
+    fireEvent.click(screen.getByRole("button", { name: "Story" }));
+    fireEvent.click(screen.getByRole("button", { name: "Story tour" }));
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 });

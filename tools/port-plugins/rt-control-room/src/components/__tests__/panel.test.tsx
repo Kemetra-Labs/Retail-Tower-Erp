@@ -162,6 +162,34 @@ describe("alarms tab", () => {
     expect(screen.getByText(/Error tracker not read\. Alarms may be missing\./)).toBeTruthy();
   });
 
+  it("(E) the Alarms tab reads 'not read', never a zero count, when the error read failed with nothing cached", () => {
+    const board = boardOf((s) => {
+      s.sentryIssues = [];
+    }, { sentry: false });
+    wrap(<AlarmPanel board={board} events={[]} selection={null} onSelect={noop} />);
+    expect(screen.getByRole("tab", { name: "Alarms (not read)" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Alarms (0)" })).toBeNull();
+  });
+
+  it("(E) the Alarms tab keeps the count of the cached alarms when the error read failed", () => {
+    wrap(<AlarmPanel board={boardOf(undefined, { sentry: false })} events={[]} selection={null} onSelect={noop} />);
+    expect(screen.getByRole("tab", { name: "Alarms (5)" })).toBeTruthy();
+  });
+
+  it("(E) the Alarms tab says 0 only for a successful read with no alarms, and reads in Arabic", () => {
+    const empty = boardOf((s) => {
+      s.sentryIssues = [];
+    });
+    const { unmount } = wrap(<AlarmPanel board={empty} events={[]} selection={null} onSelect={noop} />);
+    expect(screen.getByRole("tab", { name: "Alarms (0)" })).toBeTruthy();
+    unmount();
+    const unread = boardOf((s) => {
+      s.sentryIssues = [];
+    }, { sentry: false });
+    wrap(<AlarmPanel board={unread} events={[]} selection={null} onSelect={noop} />, "ar");
+    expect(screen.getByRole("tab", { name: "الإنذارات (مش مقروء)" })).toBeTruthy();
+  });
+
   it("says why it is empty, and keeps the unknown places listed", () => {
     const board = boardOf((s) => {
       s.sentryIssues = [];
@@ -593,6 +621,71 @@ describe("table view of the map", () => {
     expect(within(container.querySelector("[data-detail]") as HTMLElement).getByRole("heading", { level: 2, name: "ERPNext-Connector" })).toBeTruthy();
     await user.keyboard("{Escape}");
     expect(document.activeElement).toBe(row);
+  });
+
+  it("(G) a detail that vanishes while focus is on its heading hands focus back, never to the page body", async () => {
+    const user = userEvent.setup();
+    const { container, rerender } = wrap(<Live board={boardOf()} />);
+    const pin = container.querySelector('[data-focus="pin:sentry-10001"]') as HTMLElement;
+    pin.focus();
+    await user.keyboard("{Enter}");
+    const heading = container.querySelector("[data-detail] h2") as HTMLElement;
+    expect(document.activeElement).toBe(heading);
+
+    // A poll resolves the alarm: its detail, its pin and its list row all go.
+    const gone = boardOf((s) => {
+      s.sentryIssues = s.sentryIssues.filter((i) => i.identifier !== "sentry-10001");
+    });
+    rerender(
+      <LangProvider initial="en">
+        <Live board={gone} />
+      </LangProvider>,
+    );
+    expect(container.querySelector("[data-detail]")).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.getAttribute("role")).toBe("tab");
+  });
+
+  it("(G) a vanished detail does not steal focus the viewer had already moved elsewhere", async () => {
+    const user = userEvent.setup();
+    const { container, rerender } = wrap(<Live board={boardOf()} />);
+    (container.querySelector('[data-focus="pin:sentry-10001"]') as HTMLElement).focus();
+    await user.keyboard("{Enter}");
+    const other = container.querySelector('[data-focus="station:core"]') as HTMLElement;
+    other.focus();
+    const gone = boardOf((s) => {
+      s.sentryIssues = s.sentryIssues.filter((i) => i.identifier !== "sentry-10001");
+    });
+    rerender(
+      <LangProvider initial="en">
+        <Live board={gone} />
+      </LangProvider>,
+    );
+    expect(container.querySelector("[data-detail]")).toBeNull();
+    expect(document.activeElement).toBe(other);
+  });
+
+  it("(I) the ERPNext row shows the alarm count of the ledger, not a dash, and a dash only when none", () => {
+    const withAlarm = boardOf((s) => {
+      s.monitors.push({
+        identifier: "m-lab03",
+        title: "Disk usage high on lab-03",
+        properties: { overallState: "Alert", link: null, tags: ["host:lab-03"] },
+        relations: { service: null },
+        createdAt: "2026-10-20T08:00:00Z",
+        updatedAt: "2026-11-13T12:00:00Z",
+      });
+    });
+    expect(withAlarm.stations.find((x) => x.id === "erp")!.readings.alarms).toBe(1);
+    const { container, unmount } = wrap(<StatusTable board={withAlarm} />);
+    const cells = (id: string) =>
+      Array.from((container.querySelector(`[data-station-row="${id}"]`) as HTMLElement).querySelectorAll("td")).map((c) => c.textContent);
+    expect(cells("erp")[0]).toBe("Fault");
+    expect(cells("erp")[1]).toBe("1");
+    unmount();
+    const quiet = wrap(<StatusTable board={boardOf()} />);
+    const row = quiet.container.querySelector('[data-station-row="erp"]') as HTMLElement;
+    expect(row.querySelectorAll("td")[1].textContent).toBe("-");
   });
 
   it("does not leave the 'Replaying' state stuck while the table is shown", async () => {

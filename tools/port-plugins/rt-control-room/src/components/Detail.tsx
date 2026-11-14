@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useLang } from "../i18n/LangContext";
 import { STATION_IDS } from "../model/architecture";
 import type { Board, StationId } from "../model/types";
@@ -13,6 +13,12 @@ export type DetailProps = {
   onSelect: (sel: Selection, byKey?: boolean) => void;
   /** True when the keyboard opened the current selection: the heading then takes focus. */
   focusOnOpen?: boolean;
+  /**
+   * Called as the detail leaves the page, with whether focus was inside it at that moment (still
+   * known: the DOM is removed after this cleanup). The panel uses it to hand focus back when the
+   * selection vanishes by itself (an alarm resolved by a poll), where focus would fall to `<body>`.
+   */
+  onUnmount?: (hadFocus: boolean) => void;
 };
 
 /** True when the selection still points at something on the board (an alarm can resolve while its detail is open). */
@@ -29,11 +35,21 @@ export function isResolvable(board: Board, selection: Selection): boolean {
  * focus when the keyboard opened it, and Back is the selection's own clear.
  * It renders nothing for a selection that no longer exists.
  */
-export function Detail({ board, selection, onSelect, focusOnOpen = false }: DetailProps) {
+export function Detail({ board, selection, onSelect, focusOnOpen = false, onUnmount }: DetailProps) {
   const { t } = useLang();
   const heading = useRef<HTMLHeadingElement>(null);
   const wants = useRef(focusOnOpen);
   wants.current = focusOnOpen;
+  const root = useRef<HTMLDivElement>(null);
+  const leave = useRef(onUnmount);
+  leave.current = onUnmount;
+  useLayoutEffect(
+    () => () => {
+      const active = document.activeElement;
+      leave.current?.(root.current !== null && active !== null && root.current.contains(active));
+    },
+    [],
+  );
   const key = selection ? `${selection.type}:${selection.id}` : "";
   // Only when what is open changes, never on a poll re-render or a language switch.
   useEffect(() => {
@@ -46,7 +62,7 @@ export function Detail({ board, selection, onSelect, focusOnOpen = false }: Deta
   const host = selection.type === "host" ? board.hosts.find((h) => h.id === selection.id) : undefined;
   const title = alarm ? t(KIND_TITLE[alarm.kind]) : (station?.name ?? host?.id ?? "");
   return (
-    <div className="detail" data-detail>
+    <div className="detail" data-detail ref={root}>
       <button type="button" className="back" onClick={() => onSelect(null, true)}>
         {t("back")}
       </button>
