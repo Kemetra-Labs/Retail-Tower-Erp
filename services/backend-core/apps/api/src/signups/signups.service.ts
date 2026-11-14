@@ -47,7 +47,8 @@ import {
 import type { SignupCompleteInput, SignupRequestInput } from "./signup.dto";
 import type { PendingSignupRecord, SignupAuditRow, SignupUserRecord, SignupsStore } from "./signups.store";
 
-export type TenantTxRunner = <T>(pool: Pool, ctx: SystemContext, work: (client: PoolClient) => Promise<T>) => Promise<T>;
+/** The narrow-privilege transaction runner (RT-1389): `runWithSystemPrivilege`, or a test fake. */
+export type SignupTxRunner = <T>(pool: Pool, ctx: SystemContext, work: (client: PoolClient) => Promise<T>) => Promise<T>;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -68,7 +69,7 @@ export interface SignupsServiceDeps {
    * the account was switched off: it must not get a link or a session. Default: `none`.
    */
   readonly linkState?: (userId: string) => Promise<LinkState>;
-  readonly tx?: TenantTxRunner;
+  readonly tx?: SignupTxRunner;
   readonly now?: () => Date;
   readonly env?: Env;
   /** Bound on each limiter call (RT-628). */
@@ -113,7 +114,7 @@ function sqlState(err: unknown): string | null {
 }
 
 export class SignupsService implements OnModuleDestroy {
-  private readonly tx: TenantTxRunner;
+  private readonly tx: SignupTxRunner;
   private readonly now: () => Date;
   private readonly env: Env;
   private readonly pendingWork = new Set<Promise<void>>();

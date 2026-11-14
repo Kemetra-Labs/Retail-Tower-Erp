@@ -33,6 +33,7 @@ ALLOWLIST=(
   docs/operations/sql/sale-responsibilities-feed-rehead.sql
   docs/operations/sql/erpnext-posting-resolution-catchup.sql
   docs/operations/sql/inventory-effect-integration-catchup.sql
+  docs/operations/sql/erp-provisioning-host-label-catchup.sql
   packages/db/drizzle/0038_erpnext_posting_resolution_backfill.sql
   packages/db/drizzle/0043_inventory_effect_integration_backfill.sql
 )

@@ -47,6 +47,9 @@ export interface SweepResult {
   readonly hostUnknown: number;
 }
 
+/** The values the `erp_provisioning_request_last_error_class_valid` CHECK allows. */
+type ErpProvisioningErrorClass = "failed_transient" | "permanently_rejected" | "conflict" | "capacity" | "compatibility" | "dependency";
+
 const SWEEP_CTX: SystemContext = { tenantId: null, privilege: "provisioning_sweep" };
 
 /** Point the sweep transaction at the tenant of a request it already read (never a caller-supplied id). */
@@ -62,7 +65,7 @@ async function moveStatus(
   client: PoolClient,
   row: { readonly id: string; readonly status: ErpProvisioningStatus; readonly version: number },
   to: ErpProvisioningStatus,
-  set: { readonly lastErrorClass: string | null; readonly lastReason: string | null; readonly terminalAt: Date; readonly host: string | null },
+  set: { readonly lastErrorClass: ErpProvisioningErrorClass | null; readonly lastReason: string | null; readonly terminalAt: Date; readonly host: string | null },
 ): Promise<void> {
   if (!erpProvisioningTransitionAllowed(row.status, to)) {
     throw new Error(`erp_provisioning_request: transition ${row.status} -> ${to} is not allowed`);
