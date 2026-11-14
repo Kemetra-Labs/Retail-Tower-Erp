@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { usePortPluginData } from "@port-labs/plugins-sdk/react";
+import { usePortBridge } from "./bridge/usePortBridge";
 import "./styles/fonts.css";
 import "./styles/tokens.css";
 import "./styles/app.css";
@@ -17,13 +17,16 @@ function ShellMessage({ children }: { children: ReactNode }) {
 export function App() {
   // Hooks first, never after an early return: Port delivers the token on a
   // later render, and a conditional hook would blank the iframe.
-  const { portToken, portApiBaseUrl, applyThemeCss } = usePortPluginData();
+  const { applyThemeCss, status } = usePortBridge();
 
   useEffect(() => {
     applyThemeCss();
   }, [applyThemeCss]);
 
-  if (!portApiBaseUrl || !portToken) {
+  if (status === "untrusted") {
+    return <ShellMessage>Untrusted Port API host</ShellMessage>;
+  }
+  if (status !== "ready") {
     return <ShellMessage>Waiting for Port...</ShellMessage>;
   }
 
