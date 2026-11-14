@@ -61,7 +61,7 @@ describe("i18n table", () => {
   it("uses the same {placeholders} in both languages", () => {
     const holes = (s: string) => (s.match(/\{\w+\}/g) ?? []).sort().join(",");
     // Arabic one and two ("ساعة", "ساعتين") are words without a number.
-    const wordForms = (k: string) => /^ago\w+(One|Two)$/.test(k);
+    const wordForms = (k: string) => /^(ago\w+|tourFaults)(One|Two)$/.test(k);
     for (const k of keys.filter((k) => !wordForms(k))) expect(holes(STRINGS[k].ar), k).toBe(holes(STRINGS[k].en));
   });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLang } from "../i18n/LangContext";
 import { agoText, fmtTime, type StringKey } from "../i18n/strings";
 import type { Board } from "../model/types";
@@ -17,6 +17,8 @@ export type HeaderProps = {
   /** The Pause motion flag, owned by the host (see `usePaused`). */
   paused: boolean;
   onTogglePause: () => void;
+  /** Extra controls (the Ops | Story switch, the example button), placed before the language button. */
+  controls?: ReactNode;
 };
 
 type Theme = "dark" | "light";
@@ -59,7 +61,7 @@ function StatusChip({ status, asOf }: { status: BoardStatus; asOf: Date | null }
 }
 
 export function Header(props: HeaderProps) {
-  const { board, status, replaying, asOf, labUpdatedAt, paused, onTogglePause } = props;
+  const { board, status, replaying, asOf, labUpdatedAt, paused, onTogglePause, controls } = props;
   const { lang, t, setLang } = useLang();
   const [theme, toggleTheme] = useTheme();
 
@@ -81,6 +83,7 @@ export function Header(props: HeaderProps) {
       )}
       {replaying && !paused && <span className="chip stale">{t("replay")}</span>}
       <div className="grow" />
+      {controls}
       <button
         type="button"
         lang={lang === "en" ? "ar" : "en"}

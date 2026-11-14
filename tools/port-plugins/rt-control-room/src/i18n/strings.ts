@@ -4,6 +4,7 @@
 // Strings that the model already produces as `{ en, ar }` (verdict, cable and
 // station names) and the change-event texts are not repeated here.
 
+import { MODE_STRINGS } from "./modeStrings";
 import { PANEL_STRINGS } from "./panelStrings";
 import { ROOM_STRINGS } from "./roomStrings";
 
@@ -156,6 +157,7 @@ export const STRINGS = {
   },
   ...ROOM_STRINGS,
   ...PANEL_STRINGS,
+  ...MODE_STRINGS,
 } as const satisfies Record<string, Entry>;
 
 export type StringKey = keyof typeof STRINGS;

@@ -44,6 +44,12 @@ export type ControlRoomProps = {
   table?: ReactNode;
   /** Draw each station's eight readings (default true). Story mode turns them off. */
   readings?: boolean;
+  /**
+   * The guided tour's frame: stations and cables outside it dim to 30%
+   * (`null` in a list lights all of that kind). When set it replaces the
+   * selection's own dimming; leave it out or `null` outside the tour.
+   */
+  spot?: { stations: readonly StationId[] | null; cables: readonly CableId[] | null } | null;
 };
 
 const ZONE: Record<string, StringKey> = {
@@ -77,7 +83,7 @@ function resolve(board: Board, selection: Selection) {
  * change, and never while paused, under reduced motion or off screen.
  */
 export function ControlRoom(props: ControlRoomProps) {
-  const { board, events, replayQueue, paused, replaying, onReplayDone, onSelect, selection, table, readings = true } = props;
+  const { board, events, replayQueue, paused, replaying, onReplayDone, onSelect, selection, table, readings = true, spot = null } = props;
   const { t } = useLang();
   const sectionRef = useRef<HTMLElement | null>(null);
   const narrow = useNarrow(sectionRef);
@@ -198,7 +204,7 @@ export function ControlRoom(props: ControlRoomProps) {
                 cable={cable}
                 geom={geom}
                 notRead={notRead}
-                dim={sel.active && !sel.unplaced && !related}
+                dim={spot ? spot.cables !== null && !spot.cables.includes(cable.id) : sel.active && !sel.unplaced && !related}
                 slow={slowStations.has(cable.from) || slowStations.has(cable.to)}
                 wrapRef={keep("cable", cable.id)}
                 gateRef={keep("gate", cable.id)}
@@ -226,7 +232,7 @@ export function ControlRoom(props: ControlRoomProps) {
                 box={box}
                 unknown={unknownIds.has(view.id)}
                 selected={selection?.type === "station" && selection.id === view.id && sel.active}
-                dim={!related}
+                dim={spot ? spot.stations !== null && !spot.stations.includes(view.id) : !related}
                 readings={readings}
                 wrapRef={keep("station", view.id)}
                 onSelect={onSelect}
