@@ -170,7 +170,7 @@ Reviewed on 2026-11-13 against mockup v13 (premium clean, unchanged). Previews l
 
 | # | Proposal | Class | In the mockup | Needs |
 |---|---|---|---|---|
-| 1 | Group the 4 pins on the Invoices cable into one count badge | Recommended visual enhancement | Specimen ("Pin grouping") | Owner decision: hides kinds until expanded |
+| 1 | Group the 3 pins on the Invoices cable into one count badge | Recommended visual enhancement | Specimen ("Pin grouping") | Owner decision: hides kinds until expanded |
 | 2 | Progressive disclosure on station cards | Recommended visual enhancement | Not previewed | Owner decision: changes the approved card |
 | 3 | Table view below about 900 px | Recommended visual enhancement | Live table ("Table view for narrow tiles") | Owner decision on the breakpoint |
 | 4 | Story mode, manual tour | Owner decision required | Five-step tour | Owner approval of frames and copy |
@@ -189,7 +189,7 @@ Reviewed on 2026-11-13 against mockup v13 (premium clean, unchanged). Previews l
 | Below about 900 px | Table replaces the diagram; verdict lights in a row; telemetry two columns |
 | 640 px and below | One column everywhere (as v13); the Story tour card sits above the table |
 
-**Story mode storyboard (manual, nothing moves by itself).** The preview runs the tour over the Ops board (the calmer Story presentation in section 5, with a larger verdict and hidden readings, is still not mocked): one frame per step, Back, Next and Exit buttons, Escape exits, focus moves to Next on start. Stations and cables outside the frame dim to 30 percent. Text uses only facts already on the board; no frame invents a number. In the build every count (for example the 4 faults in step 5) is read from the board data; the mockup's 4 is the 2026-11-13 snapshot.
+**Story mode storyboard (manual, nothing moves by itself).** The preview runs the tour over the Ops board (the calmer Story presentation in section 5, with a larger verdict and hidden readings, is still not mocked): one frame per step, Back, Next and Exit buttons, Escape exits, focus moves to Next on start. Stations and cables outside the frame dim to 30 percent. Text uses only facts already on the board; no frame invents a number. In the build every count (for example the faults on the invoice cable in step 5) is read from the board data; the mockup's 3 is the 2026-11-13 snapshot.
 
 | Step | Highlight | Plain sentence (English; the Arabic is in the mockup) |
 |---|---|---|
@@ -197,7 +197,7 @@ Reviewed on 2026-11-13 against mockup v13 (premium clean, unchanged). Previews l
 | 2 | POS, Admin Console, Sales and Catalog cables | Cashiers sell on the POS. Managers run stores in the Admin Console. Both talk only to Backend-Core. |
 | 3 | Backend-Core and its three cables | Sales and catalog changes pass through Backend-Core. Nothing skips it on the way to the ledger. |
 | 4 | Connector, ERPNext, Postings and Invoices | ERPNext is the accounting ledger, outside Retail Tower. Only the Connector may reach it. |
-| 5 | Invoices cable | Where something is wrong, the board shows where it comes from: 4 faults on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy. |
+| 5 | Invoices cable | Where something is wrong, the board shows where it comes from: 3 faults on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy. |
 
 **State rules (essential).** Red means a confirmed fault only. Amber means unknown, stale or missing monitoring. Neutral means watched and normal. No state ever reads green or healthy by default. Open conflict for the owner: RT-1386 and this rule say amber for unknown, but mockup v13 draws "no health check" and the Backend "Not sure" light in muted grey. The table preview follows the rule (amber). Decide whether v13 moves to amber or the rule moves to grey; the build follows the decision.
 
