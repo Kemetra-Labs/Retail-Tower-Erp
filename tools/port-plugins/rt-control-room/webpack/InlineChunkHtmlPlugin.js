@@ -21,7 +21,7 @@ class InlineChunkHtmlPlugin {
     if (!this.tests.some((test) => name.match(test))) return tag;
     const asset = assets[name];
     if (asset == null) return tag;
-    const source = String(asset.source()).replace(/<\/script/gi, "<\/script");
+    const source = String(asset.source()).replace(/<\/(script)/gi, "<\\/$1"); // a real backslash (case kept), so the inline tag cannot be closed early
     return { tagName: "script", innerHTML: source, closeTag: true };
   }
 

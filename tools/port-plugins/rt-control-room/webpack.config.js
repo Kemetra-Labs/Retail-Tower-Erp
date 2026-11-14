@@ -29,7 +29,9 @@ module.exports = (env, argv) => ({
             loader: "postcss-loader",
             options: {
               postcssOptions: {
-                plugins: [["postcss-preset-env", {}]],
+                // Keep logical properties (inline-start, margin-inline, ...): Arabic mode is RTL and the
+                // default preset rewrites them into left-to-right physical properties.
+                plugins: [["postcss-preset-env", { features: { "logical-properties-and-values": false } }]],
               },
             },
           },

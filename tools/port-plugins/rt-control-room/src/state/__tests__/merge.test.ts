@@ -102,6 +102,14 @@ describe("mergeSnapshot replace versus merge", () => {
     expect(next.prs.some((p) => p.properties.mergedAt === null)).toBe(true);
   });
 
+  it("prunes an old done Jira issue with the same status rule as the board (whitespace and case)", () => {
+    const prev = fixture();
+    const base = prev.jira[0];
+    const oldDone = { ...base, identifier: "j-old-done", properties: { ...base.properties, status: " Resolved ", resolutionDate: "2026-10-01T00:00:00Z" } };
+    const next = mergeSnapshot(prev, { jira: [oldDone], fetchedAt: NOW.toISOString() }, []);
+    expect(next.jira.some((j) => j.identifier === "j-old-done")).toBe(false);
+  });
+
   it("starts from an empty base that still builds a board", () => {
     const empty = emptySnapshot(NOW.toISOString());
     const b = board(empty, false);

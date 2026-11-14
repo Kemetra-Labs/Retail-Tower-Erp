@@ -1,5 +1,6 @@
 import type { Collection, Deployment, JiraIssue, PullRequest, Snapshot, WorkflowRun } from "../model/types";
 import { DAY_MS, WINDOW_DAYS } from "./blueprints";
+import { isDone } from "../model/stations";
 
 type Entity = { identifier: string };
 
@@ -56,14 +57,12 @@ const before = (stamp: string | null | undefined, cutoff: number): boolean => {
   return !Number.isNaN(ms) && ms < cutoff;
 };
 
-const DONE = /^(done|closed|resolved)$/i;
-
 /** Windowed collections drop entities older than the window; an entity with no usable date is kept. */
 function prune(collection: Collection, items: Entity[], cutoff: number): Entity[] {
   switch (collection) {
     case "jira":
       return (items as JiraIssue[]).filter(
-        (j) => !(DONE.test(j.properties?.status ?? "") && before(j.properties?.resolutionDate, cutoff)),
+        (j) => !(isDone(j.properties?.status) && before(j.properties?.resolutionDate, cutoff)),
       );
     case "prs":
       return (items as PullRequest[]).filter((p) => !before(p.properties?.mergedAt, cutoff));
