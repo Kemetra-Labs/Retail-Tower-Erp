@@ -146,6 +146,7 @@ Not done:
 - `@port-labs/plugins-sdk` is declared `^0.1.0` (the template's range) and the lockfile resolves 0.1.1. `npm view @port-labs/plugins-sdk version` returned 0.4.0 on 2026-11-14. No upgrade has been done; it is a separate decision.
 - Built from the Port template pack `port-labs/port-skills` at commit `fb55927d2f46095d93d5fd9d684eced800c48d90`.
 - Plugin version 0.1.0.
+- Dependencies: `react-dev-utils` (the template's inline-script webpack plugin) was replaced by a small local plugin, `webpack/InlineChunkHtmlPlugin.js`, because its dependency chain carries an osv advisory with no fixed version (deepmerge, GHSA-gcqx-w48m-w2h4) and the repo's `dependency-review` fails on any advisory. An npm `overrides` entry pins `uuid` to `^11.1.1` for the dev server's `sockjs` (GHSA-w5hq-g745-h8pq). `npm audit` reports 0 findings.
 
 ## Relation to `rt-architecture-map`
 
@@ -164,6 +165,7 @@ rt-control-room/
     i18n/         # English and Arabic strings
     styles/       # tokens and CSS
   scripts/        # check-dist.mjs, check-src.mjs
+  webpack/        # local InlineChunkHtmlPlugin
   dist/index.html # committed upload artifact
   upload-params.json
 ```

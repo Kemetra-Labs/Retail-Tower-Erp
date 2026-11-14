@@ -1,5 +1,5 @@
 const HtmlWebpackPlugin = require("html-webpack-plugin");
-const InlineChunkHtmlPlugin = require("react-dev-utils/InlineChunkHtmlPlugin");
+const InlineChunkHtmlPlugin = require("./webpack/InlineChunkHtmlPlugin");
 const TerserPlugin = require("terser-webpack-plugin");
 const path = require("path");
 
