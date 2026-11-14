@@ -1,4 +1,5 @@
 import { ARCH, stationForService } from "../model/architecture";
+import { isRealDeployment } from "../model/deployments";
 import {
   ALARM_STATES,
   firstRelation,
@@ -146,7 +147,7 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot, opts: DiffOptions 
     const old = byId(prev.deployments);
     for (const d of next.deployments) {
       const at = stampOf(d.createdAt);
-      if (at && !old.has(d.identifier)) events.push(deployEvent(d, at));
+      if (at && isRealDeployment(d) && !old.has(d.identifier)) events.push(deployEvent(d, at));
     }
   }
   return events;
@@ -182,7 +183,7 @@ export function replayEvents(snapshot: Snapshot, now: Date): BoardEvent[] {
   }
   for (const d of snapshot.deployments) {
     const at = stampOf(d.createdAt);
-    if (recent(at)) events.push(deployEvent(d, at));
+    if (recent(at) && isRealDeployment(d)) events.push(deployEvent(d, at));
   }
   for (const alarm of sentryAlarms(snapshot.sentryIssues, byWorkload)) {
     if (recent(stampOf(alarm.since))) events.push(alarmEvent(alarm, alarm.since as string));

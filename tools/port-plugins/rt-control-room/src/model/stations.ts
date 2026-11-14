@@ -1,4 +1,5 @@
 import { ARCH, STATION_IDS } from "./architecture";
+import { isRealDeployment } from "./deployments";
 import { firstRelation, normaliseState } from "./alarms";
 import { lampEvidence, stationLamps } from "./lamps";
 import { completedDays, dailySeries } from "./telemetry";
@@ -66,7 +67,7 @@ function readingsFrom(snapshot: Snapshot, id: StationId, now: Date, unread: Unre
     tasks: unread.has("jira") ? null : linked(snapshot.jira, serviceId).filter((j) => !isDone(j.properties?.status)).length,
     prs: unread.has("prs") ? null : prs.filter(isOpenPr).length,
     merged7d: unread.has("prs") ? null : recent,
-    deploys: unread.has("deployments") ? null : linked(snapshot.deployments, serviceId).length,
+    deploys: unread.has("deployments") ? null : linked(snapshot.deployments.filter(isRealDeployment), serviceId).length,
     ciFails7d: typeof fails === "number" ? fails : null,
     merged,
     runs7d: typeof runs === "number" ? runs : null,

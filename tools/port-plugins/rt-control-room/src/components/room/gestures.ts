@@ -1,3 +1,4 @@
+import { ARCH } from "../../model/architecture";
 import type { AlarmKind, CableId, SourceId, StationId } from "../../model/types";
 import { busRoute, type RoomLayout } from "./geometry";
 import { pointAt, reversed, type Curve } from "./path";
@@ -8,7 +9,9 @@ import { pointAt, reversed, type Curve } from "./path";
 //  - every class change inside a gesture is at least 500 ms from the next (a
 //    dot only moves; fades are one class plus a CSS transition);
 //  - cancel() removes the moving dot and every class it added and never runs the
-//    completion effect (so a cancelled 502 never dims ERPNext).
+//    completion effect (so a cancelled 502 never dims the failing hop);
+//  - on a cable the dot runs from the caller to the route's owner (on c3 from the
+//    Connector to Backend-Core), and a 502 dims that owner: the hop that failed.
 // Gestures only touch the `fx` layer and wrapper elements React never styles.
 
 export type Scheduler = {
@@ -203,6 +206,9 @@ function run(kind: AlarmKind, tl: Timeline, refs: GestureRefs, finish: () => voi
   const up = (end: () => void) => busDot(tl, refs, source, BAD, "up", end);
   const cable = refs.cable ? refs.layout.cables.find((c) => c.id === refs.cable) : undefined;
   const fx = refs.fx as Element;
+  // The route's owner fails; the request runs toward it.
+  const owner = cable ? ARCH.cableOwner[cable.id] : null;
+  const curve = cable ? (owner === ARCH.cables[cable.id].from ? reversed(cable.curve) : cable.curve) : null;
 
   // A cable fault travels the cable; a fault inside a station flashes the station.
   if (!cable && (kind === "refused" || kind === "timeout" || kind === "down" || kind === "reset")) {
@@ -212,14 +218,14 @@ function run(kind: AlarmKind, tl: Timeline, refs: GestureRefs, finish: () => voi
     case "refused": {
       const gate = refs.gate(cable!.id);
       tl.after(900, () => hold(tl, gate, "on", 900));
-      return dot(tl, fx, cable!.curve, { color: BAD, dur: 1800, map: bounce }, () => up(finish));
+      return dot(tl, fx, curve!, { color: BAD, dur: 1800, map: bounce }, () => up(finish));
     }
     case "timeout":
-      return dot(tl, fx, cable!.curve, { color: BAD, dur: 2400, map: stall, fading: true }, () => up(finish));
+      return dot(tl, fx, curve!, { color: BAD, dur: 2400, map: stall, fading: true }, () => up(finish));
     case "down":
-      return dot(tl, fx, cable!.curve, { color: BAD, dur: 1300 }, () => {
+      return dot(tl, fx, curve!, { color: BAD, dur: 1300 }, () => {
         const done = join(2, finish);
-        hold(tl, refs.wrap(cable!.to), "down", 1600, done);
+        hold(tl, refs.wrap(owner!), "down", 1600, done);
         up(done);
       });
     case "reset": {

@@ -1,14 +1,25 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isRealDeployment } from "../model/deployments";
 import { useQuery } from "@tanstack/react-query";
 import { createPortClient } from "../api/portClient";
 import { usePortBridge } from "../bridge/usePortBridge";
 import { requestPortToken } from "../bridge/requestToken";
 import { buildBoard } from "../model/board";
-import type { Board, Collection } from "../model/types";
+import type { Board, Collection, Deployment } from "../model/types";
 import type { BoardEvent } from "./diff";
 import { createPollerState, runPoll, type PollerState, type PollResult } from "./poller";
 import { nextPoll } from "./schedule";
 import { useVisible } from "./useVisible";
+import { POLL_MS } from "./blueprints";
+
+/** No good core read for this long means the board is stale, even if no poll has failed yet. */
+export const SILENT_AFTER_MS = 2 * POLL_MS;
+const SILENCE_CHECK_MS = 15_000;
+
+/** True when the last good core read is older than `SILENT_AFTER_MS` (never true before the first one). */
+export function isSilent(lastGoodAt: number | null, now: number): boolean {
+  return lastGoodAt !== null && now - lastGoodAt > SILENT_AFTER_MS;
+}
 
 export type BoardStatus = "loading" | "ready" | "error" | "stale";
 
@@ -49,17 +60,23 @@ const CORE: Collection[] = ["services", "workloads", "sentryIssues", "monitors",
 const QUERY_KEY = ["rt-control-room", "board"] as const;
 const MIN_DELAY_MS = 1_000;
 
+/** Port's `deployment.environment` values that mean the test lab (it has no "lab" value; lab jobs are "Staging"). */
+const LAB_ENVIRONMENTS = new Set(["staging", "lab"]);
+
 /**
  * When the newest lab deployment happened. The entity's `updatedAt` moves on
  * every resync, so it is not used: the deployment's own `createdAt` property,
- * or else the entity's `createdAt`, is. Deployments of another environment are skipped.
+ * or else the entity's `createdAt`, is. Only Staging or lab deployments count
+ * (any case); Unknown, other environments and none at all are skipped, so a
+ * Port that lists only Unknown ones gives `null` ("no data").
  */
-function newestDeployment(data: PollResult | undefined): string | null {
+export function newestLabDeployment(deployments: readonly Deployment[]): string | null {
   let best: string | null = null;
   let bestMs = -Infinity;
-  for (const d of data?.snapshot?.deployments ?? []) {
-    const env = d.properties.environment;
-    if (typeof env === "string" && env.toLowerCase() !== "lab") continue;
+  for (const d of deployments) {
+    const env = d.properties?.environment;
+    if (typeof env !== "string" || !LAB_ENVIRONMENTS.has(env.toLowerCase())) continue;
+    if (!isRealDeployment(d)) continue;
     const own = d.properties.createdAt;
     const at = typeof own === "string" ? own : d.createdAt;
     const ms = Date.parse(at);
@@ -132,17 +149,25 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
     [data, demo],
   );
 
-  let status: BoardStatus;
-  if (!data) status = query.isError ? "error" : "loading";
-  else if (!data.hasData) status = "error";
-  else if (data.failed.length > 0 || query.isError) status = "stale";
-  else status = "ready";
-
   // A poll that failed in the core still advances `data.now`, but its board is not "as of" that moment.
   const goodSyncRef = useRef<number | null>(null);
   if (data?.hasData && !data.failed.some((c) => CORE.includes(c))) goodSyncRef.current = data.now;
 
-  const labUpdatedAt = useMemo(() => newestDeployment(data), [data]);
+  // Re-check the clock even when no poll returns (a hung or paused poll), so a silent board turns stale.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), SILENCE_CHECK_MS);
+    return () => clearInterval(id);
+  }, []);
+  const silent = isSilent(goodSyncRef.current, clock);
+
+  let status: BoardStatus;
+  if (!data) status = query.isError ? "error" : "loading";
+  else if (!data.hasData) status = "error";
+  else if (data.failed.length > 0 || query.isError || silent) status = "stale";
+  else status = "ready";
+
+  const labUpdatedAt = useMemo(() => newestLabDeployment(data?.snapshot?.deployments ?? []), [data]);
 
   const onReplayDone = useCallback(() => setReplayDone(true), []);
   const replayQueue = data?.replayQueue ?? [];

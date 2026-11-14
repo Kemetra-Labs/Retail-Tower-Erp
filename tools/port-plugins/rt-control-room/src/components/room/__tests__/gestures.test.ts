@@ -160,6 +160,34 @@ describe("gestures", () => {
     expect(wrap.classList.contains("down")).toBe(false);
   });
 
+  it("a 502 on the Postings cable c3 dims Backend-Core (the failing hop), never the Connector or ERPNext", async () => {
+    const r = rig();
+    const refs = r.refs("conn", "c3");
+    playGesture("down", refs, { paused: false, reducedMotion: false });
+    await step(1500);
+    expect(refs.wrap("core")?.classList.contains("down")).toBe(true);
+    expect(refs.wrap("conn")?.classList.contains("down")).toBe(false);
+    expect(refs.wrap("erp")?.classList.contains("down")).toBe(false);
+  });
+
+  it("puts each cable's refused gate at the route owner's end: Backend-Core for c3, the far end otherwise", () => {
+    const gate = (id: string) => layout.cables.find((c) => c.id === id)!.gate.x;
+    const core = layout.stations.core;
+    expect(gate("c3")).toBe(core.x + core.w + 18);
+    expect(gate("c4")).toBe(layout.stations.erp.x - 18);
+    expect(gate("c1")).toBe(core.x - 18);
+  });
+
+  it("the c3 dot travels from the Connector toward Backend-Core (the request's direction)", async () => {
+    const r = rig();
+    playGesture("down", r.refs("conn", "c3"), { paused: false, reducedMotion: false });
+    await step(100);
+    const dot = r.fx.querySelector("circle") as Element;
+    const conn = layout.stations.conn;
+    // It starts at the Connector's end of the cable, not at Backend-Core's.
+    expect(Number(dot.getAttribute("cx"))).toBeGreaterThan(conn.x - 60);
+  });
+
   it("flashes the station itself when a cable kind has no cable", async () => {
     const r = rig();
     const end = vi.fn();

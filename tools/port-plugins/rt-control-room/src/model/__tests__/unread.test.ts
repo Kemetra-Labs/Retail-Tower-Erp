@@ -16,6 +16,12 @@ const without = (...keys: Collection[]): Snapshot => {
   return snap as unknown as Snapshot;
 };
 
+/** Without the three c3 alarms, whose failing hop (Backend-Core) would make the backend light a fault. */
+const noPostingAlarms = (snap: Snapshot): Snapshot => ({
+  ...snap,
+  sentryIssues: snap.sentryIssues.filter((i) => !i.title.includes("/api/connector/v1/")),
+});
+
 describe("a collection that was never read is 'no data', never 0", () => {
   it("control: nothing unread changes nothing", () => {
     const b = build(fixture(), []);
@@ -64,7 +70,7 @@ describe("a collection that was never read is 'no data', never 0", () => {
   });
 
   it("monitors unread: no station says 'no health check'; the Datadog lamp reads not read (amber), the checks no data", () => {
-    const b = build(without("monitors"), ["monitors"]);
+    const b = build(noPostingAlarms(without("monitors")), ["monitors"]);
     expect(b.unknowns).toEqual([]);
     for (const id of ["core", "admin", "conn"] as const) {
       const s = b.stations.find((x) => x.id === id)!;
@@ -84,7 +90,7 @@ describe("a collection that was never read is 'no data', never 0", () => {
   });
 
   it("monitors read but empty still says 'no health check' (control)", () => {
-    const b = build(without("monitors"), []);
+    const b = build(noPostingAlarms(without("monitors")), []);
     expect(b.unknowns.map((u) => u.station).sort()).toEqual(["admin", "conn", "core"]);
     expect(b.verdict.lights.backend.text.en).toMatch(/no health check/i);
     expect(b.stations.find((x) => x.id === "core")!.lamps.datadog.unread).toBeUndefined();

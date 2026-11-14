@@ -5,6 +5,7 @@ import { ICONS, KIND_CODE, LEGEND_KINDS } from "./icons";
 const SWATCHES: { key: StringKey; color: string; dash: boolean }[] = [
   { key: "lgLive", color: "var(--color-cool)", dash: false },
   { key: "lgFault", color: "var(--color-bad)", dash: true },
+  { key: "lgUnwatched", color: "var(--color-stale)", dash: true },
   { key: "lgInfra", color: "var(--color-rule-2)", dash: true },
   { key: "lgRule", color: "var(--color-muted)", dash: true },
 ];

@@ -150,6 +150,7 @@ export const STRINGS = {
   cablesH: { en: "Cables", ar: "الكابلات" },
   lgLive: { en: "Cable, no faults", ar: "كابل سليم" },
   lgFault: { en: "Cable with a fault", ar: "كابل فيه عطل" },
+  lgUnwatched: { en: "Cable not watched (no error source)", ar: "كابل مش متراقب (مفيش مصدر أخطاء)" },
   lgInfra: { en: "Runs on (server)", ar: "شغال على (سيرفر)" },
   lgRule: { en: "Not allowed (by design)", ar: "ممنوع (مقصود)" },
   lgIcons: { en: "Alarm icons", ar: "أيقونات الإنذار" },

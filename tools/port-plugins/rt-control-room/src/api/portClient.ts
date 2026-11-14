@@ -4,6 +4,9 @@ export interface PortRule {
   value?: unknown;
 }
 
+/** A Port request that takes longer than this is aborted and counts as a failed read. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+
 export interface PortQuery {
   combinator: "and" | "or";
   /** Rules may nest: Port accepts a `{ combinator, rules }` group wherever a rule goes. */
@@ -54,7 +57,12 @@ export function createPortClient(
     const token = getToken();
     if (!token) throw new Error("No Port token");
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-    const init: RequestInit & { headers: Record<string, string> } = { method, headers };
+    // A hung request must fail, or the poll never ends and the board keeps looking current.
+    const init: RequestInit & { headers: Record<string, string> } = {
+      method,
+      headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
       init.body = JSON.stringify(body);

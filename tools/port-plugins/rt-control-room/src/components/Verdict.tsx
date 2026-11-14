@@ -11,7 +11,8 @@ type LightKey = "cashier" | "backend" | "accounts";
 // The mockup's 18 x 18 stroke icons (its ICONS table); shape, not only colour, tells the tones apart.
 // A fault uses the icon of what usually breaks there: the cut cable for Accounts (the mockup's pick),
 // the bell for a Backend check in alert, the broken code for a screen that failed to draw.
-const OK_ICON = "M4 9l3 3 7-7";
+// A neutral light is "no errors reported", not a pass: it draws a plain dash, never a check mark.
+const NEUTRAL_ICON = "M5 9h8";
 const UNKNOWN_ICON = "M7 7a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.5M9 13v.5";
 const FAULT_ICON: Record<LightKey, string> = {
   accounts: "M1 9h5M12 9h5M6 5v8M12 5v8M9 3l-1 3M9 15l1-3",
@@ -19,7 +20,7 @@ const FAULT_ICON: Record<LightKey, string> = {
   cashier: "M6 5L2 9l4 4M12 5l4 4-4 4M10 3L8 15",
 };
 const iconOf = (tone: Tone, key: LightKey): string =>
-  tone === "fault" ? FAULT_ICON[key] : tone === "unknown" ? UNKNOWN_ICON : OK_ICON;
+  tone === "fault" ? FAULT_ICON[key] : tone === "unknown" ? UNKNOWN_ICON : NEUTRAL_ICON;
 const TONE_COLOR: Record<Tone, string> = {
   fault: "var(--color-bad)",
   unknown: "var(--color-stale)",

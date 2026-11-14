@@ -3,10 +3,10 @@ import { ARCH } from "../model/architecture";
 import type { Alarm, Board, HostView, Lamp, StationView } from "../model/types";
 import { Since, WhereText } from "./AlarmList";
 import { KindIcon } from "./KindIcon";
-import { KIND_CODE, KIND_TITLE } from "./room/icons";
+import { KIND_CODE } from "./room/icons";
 import { LETTER, ORDER, SOURCE_NAME, STATE_TEXT } from "./room/Lamps";
 import type { Selection } from "./room/selection";
-import { httpsLink, pathOf, whereOf } from "./where";
+import { alarmTitle, httpsLink, pathOf, whereOf } from "./where";
 
 type Open = (sel: Selection, byKey?: boolean) => void;
 
@@ -66,7 +66,7 @@ export function AlarmBody({ alarm }: { alarm: Alarm }) {
 }
 
 function AlarmButtons({ alarms, onOpen }: { alarms: Alarm[]; onOpen: Open }) {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   return (
     <ul className="alarms">
       {alarms.map((a) => (
@@ -76,7 +76,7 @@ function AlarmButtons({ alarms, onOpen }: { alarms: Alarm[]; onOpen: Open }) {
               <KindIcon kind={a.kind} />
             </span>
             <span>
-              <span className="tt">{t(KIND_TITLE[a.kind])}</span>
+              <span className="tt">{alarmTitle(a, lang)}</span>
               <span className="loc measured">{KIND_CODE[a.kind]}</span>
             </span>
           </button>

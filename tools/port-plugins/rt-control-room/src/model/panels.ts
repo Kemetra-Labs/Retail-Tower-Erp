@@ -1,4 +1,4 @@
-import { ARCH, HOST_IDS } from "./architecture";
+import { ARCH, HOST_IDS, isHostId } from "./architecture";
 import { ALARM_STATES, firstRelation, hostOfMonitor, normaliseState } from "./alarms";
 import { isDone } from "./stations";
 import { completedDays, dailySeries, traceStats } from "./telemetry";
@@ -7,6 +7,7 @@ import type {
   Collection,
   DatadogMonitor,
   HealthGroup,
+  HostId,
   HostView,
   PerStationRow,
   Snapshot,
@@ -108,6 +109,20 @@ export function buildCi(snapshot: Snapshot, unread: Unread = NO_UNREAD): Board["
 }
 
 /**
+ * The lab server a Datadog host entity is, from the suffix of its title (or,
+ * failing that, its host_name): Port's identifiers are numeric and the names
+ * read "retail-tower-lab-01". Anything else (a container id) is no lab server.
+ */
+export function labHostOf(entity: Snapshot["hosts"][number]): HostId | null {
+  for (const name of [entity.title, entity.properties?.host_name]) {
+    const m = typeof name === "string" ? name.match(/(?:^|[-.])(lab-\d+)$/i) : null;
+    const id = m?.[1].toLowerCase();
+    if (id && isHostId(id)) return id;
+  }
+  return null;
+}
+
+/**
  * Datadog checks per lab server: the multi-host monitors (`integration:host`)
  * watch every server, a monitor that names one server counts for it alone, and
  * a monitor that cannot be placed counts for none.
@@ -118,7 +133,7 @@ export function buildHosts(snapshot: Snapshot, unread: Unread = NO_UNREAD): Host
     (m.properties?.tags ?? []).some((t) => typeof t === "string" && t.toLowerCase() === "integration:host");
   return HOST_IDS.map((id) => {
     const mine = own.filter((m) => (isPack(m) ? true : hostOfMonitor(m) === id));
-    const entity = snapshot.hosts.find((h) => h.identifier === id || h.properties?.host_name === id);
+    const entity = snapshot.hosts.find((h) => labHostOf(h) === id);
     const up = typeof entity?.properties?.up === "boolean" ? entity.properties.up : null;
     const ok = mine.filter((m) => normaliseState(m.properties?.overallState) === "ok").length;
     return {

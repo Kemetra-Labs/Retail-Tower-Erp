@@ -37,12 +37,12 @@ export const MODE_STRINGS = {
   tour5Title: { en: "Honest about faults", ar: "صريحين في الأعطال" },
   // Three readings of the last step, all from board data: a count, no faults reported, or counts not read.
   tour5Faults: {
-    en: "Where something is wrong, the board shows where it comes from: {faults} on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy.",
-    ar: "لما في عطل، اللوحة بتوريك جاي منين: {faults} على كابل الفواتير، من Sentry. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم.",
+    en: "Where something is wrong, the board shows where it comes from: {faults} on the bridge's cables (postings and invoices), reported by Sentry. What is not watched yet shows as unknown, never as healthy.",
+    ar: "لما في عطل، اللوحة بتوريك جاي منين: {faults} على كابلات الجسر (القيود والفواتير)، من Sentry. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم.",
   },
   tour5None: {
-    en: "The board shows where a fault comes from. No faults are reported on the invoice cable right now. What is not watched yet shows as unknown, never as healthy.",
-    ar: "اللوحة بتوريك العطل جاي منين. مفيش أعطال مبلّغ عنها على كابل الفواتير دلوقتي. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم.",
+    en: "The board shows where a fault comes from. No faults are reported on the bridge's cables right now. What is not watched yet shows as unknown, never as healthy.",
+    ar: "اللوحة بتوريك العطل جاي منين. مفيش أعطال مبلّغ عنها على كابلات الجسر دلوقتي. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم.",
   },
   tour5NotRead: {
     en: "The board shows where a fault comes from, but fault counts are not read right now: the error tracker could not be read. What is not watched yet shows as unknown, never as healthy.",

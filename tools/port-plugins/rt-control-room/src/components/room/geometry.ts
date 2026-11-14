@@ -33,7 +33,7 @@ export type CableGeom = {
   label: Pt;
   /** Top of the alarm-pin row sitting on the cable. */
   pinY: number;
-  /** The to-end gate line (the "refused" gesture). */
+  /** The gate line of the "refused" gesture, at the route owner's end (Backend-Core's end on c3). */
   gate: { x: number; y1: number; y2: number };
 };
 export type RiserGeom = { station: StationId; curve: Curve; d: string };
@@ -163,7 +163,10 @@ export function layoutRoom(): RoomLayout {
       mid,
       label: { x: mid.x, y: mid.y + dy },
       pinY: Math.min(mid.y - 48, mid.y + dy - 14 - 24),
-      gate: { x: b.x - 18, y1: cy(b) - 15, y2: cy(b) + 15 },
+      gate:
+        ARCH.cableOwner[id] === from
+          ? { x: a.x + a.w + 18, y1: cy(a) - 15, y2: cy(a) + 15 }
+          : { x: b.x - 18, y1: cy(b) - 15, y2: cy(b) + 15 },
     };
   });
 

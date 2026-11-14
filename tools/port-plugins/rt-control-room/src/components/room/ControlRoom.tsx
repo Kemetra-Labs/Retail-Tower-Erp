@@ -223,7 +223,8 @@ export function ControlRoom(props: ControlRoomProps) {
 
           {board.stations.map((view) => {
             const box = layout.stations[view.id];
-            const cableTo = sel.cable ? ARCH.cables[sel.cable].to : null;
+            // The route's owner (the failing hop) stays lit with the reporting station: on c3 that is Backend-Core.
+            const cableTo = sel.cable ? ARCH.cableOwner[sel.cable] : null;
             const related = !sel.active || sel.unplaced || view.id === sel.station || view.id === cableTo;
             return (
               <Station

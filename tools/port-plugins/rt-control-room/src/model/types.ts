@@ -82,7 +82,7 @@ export type Collection = Exclude<keyof Snapshot, "fetchedAt">;
 
 export type StationId = "pos" | "admin" | "core" | "conn" | "erp";
 export type CableId = "c1" | "c2" | "c3" | "c4";
-/** The Datadog host_name exactly as Port stores it; never normalised. */
+/** A lab server, named by the suffix of its Datadog title ("retail-tower-lab-01" is lab-01). */
 export type HostId = "lab-01" | "lab-02" | "lab-03";
 export type AlarmKind =
   | "refused"
@@ -150,6 +150,12 @@ export type CableView = {
   carries: I18n;
   state: "live" | "fault";
   faults: number;
+  /**
+   * Some source could place a fault on this cable: the station that reports
+   * its faults (POS for c1, Admin Console for c2, the Connector for c3 and c4)
+   * has a Sentry project. An unwatched cable reads "Not watched", never "no faults".
+   */
+  watched: boolean;
 };
 
 export type SourceView = {

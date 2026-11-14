@@ -18,10 +18,12 @@ vi.mock("../../bridge/usePortBridge", () => ({ usePortBridge: () => bridge.value
 
 import { App } from "../../App";
 
-const boardOf = (opts: { faultsOnC4?: number; sentryRead?: boolean } = {}): Board => {
+/** `faultsOnBridge` puts that many faults on c3 and none on c4: step 5 counts both of the bridge's cables. */
+const boardOf = (opts: { faultsOnBridge?: number; sentryRead?: boolean } = {}): Board => {
   const board = buildBoard(fixture(), { now: NOW, demo: false, alarmRead: { sentry: opts.sentryRead ?? true } });
-  if (opts.faultsOnC4 !== undefined) {
-    board.cables = board.cables.map((c) => (c.id === "c4" ? { ...c, faults: opts.faultsOnC4 as number } : c));
+  if (opts.faultsOnBridge !== undefined) {
+    const n = opts.faultsOnBridge;
+    board.cables = board.cables.map((c) => (c.id === "c3" ? { ...c, faults: n } : c.id === "c4" ? { ...c, faults: 0 } : c));
   }
   return board;
 };
@@ -40,34 +42,34 @@ afterEach(() => {
 });
 
 describe("tour text", () => {
-  it("reads the fault count of step 5 from the invoice cable of the board (3 on the fixture, not 4)", () => {
-    expect(step5(boardOf(), "en")).toContain("3 faults on the invoice cable");
-    expect(step5(boardOf(), "ar")).toContain("3 أعطال على كابل الفواتير");
+  it("reads the fault count of step 5 from the bridge's cables of the board (3 on the fixture, not 4)", () => {
+    expect(step5(boardOf(), "en")).toContain("3 faults on the bridge's cables");
+    expect(step5(boardOf(), "ar")).toContain("3 أعطال على كابلات الجسر");
     expect(step5(boardOf(), "en")).not.toContain("4 faults");
   });
 
   it("phrases 1, 2 and 11 faults correctly in both languages", () => {
-    expect(step5(boardOf({ faultsOnC4: 1 }), "en")).toContain("1 fault on the invoice cable");
-    expect(step5(boardOf({ faultsOnC4: 1 }), "en")).not.toContain("1 faults");
-    expect(step5(boardOf({ faultsOnC4: 1 }), "ar")).toContain("عطل واحد على كابل الفواتير");
-    expect(step5(boardOf({ faultsOnC4: 2 }), "ar")).toContain("عطلين على كابل الفواتير");
-    expect(step5(boardOf({ faultsOnC4: 11 }), "en")).toContain("11 faults on the invoice cable");
-    expect(step5(boardOf({ faultsOnC4: 11 }), "ar")).toContain("11 عطل على كابل الفواتير");
+    expect(step5(boardOf({ faultsOnBridge: 1 }), "en")).toContain("1 fault on the bridge's cables");
+    expect(step5(boardOf({ faultsOnBridge: 1 }), "en")).not.toContain("1 faults");
+    expect(step5(boardOf({ faultsOnBridge: 1 }), "ar")).toContain("عطل واحد على كابلات الجسر");
+    expect(step5(boardOf({ faultsOnBridge: 2 }), "ar")).toContain("عطلين على كابلات الجسر");
+    expect(step5(boardOf({ faultsOnBridge: 11 }), "en")).toContain("11 faults on the bridge's cables");
+    expect(step5(boardOf({ faultsOnBridge: 11 }), "ar")).toContain("11 عطل على كابلات الجسر");
   });
 
   it("says no faults are reported (and never that anything is healthy) when the cable has none", () => {
-    const en = step5(boardOf({ faultsOnC4: 0 }), "en");
-    expect(en).toContain("No faults are reported on the invoice cable");
+    const en = step5(boardOf({ faultsOnBridge: 0 }), "en");
+    expect(en).toContain("No faults are reported on the bridge's cables");
     expect(en).not.toMatch(/\d+ faults?/);
     expect(en.replace("never as healthy", "")).not.toMatch(/healthy/);
-    expect(step5(boardOf({ faultsOnC4: 0 }), "ar")).toContain("مفيش أعطال مبلّغ عنها على كابل الفواتير");
+    expect(step5(boardOf({ faultsOnBridge: 0 }), "ar")).toContain("مفيش أعطال مبلّغ عنها على كابلات الجسر");
   });
 
   it("says fault counts are not read when the error read failed, and claims no health", () => {
     const board = boardOf({ sentryRead: false });
     const en = step5(board, "en");
     expect(en).toContain("fault counts are not read");
-    expect(en).not.toMatch(/\d+ faults? on the invoice cable/);
+    expect(en).not.toMatch(/\d+ faults? on the bridge's cables/);
     expect(en).not.toContain("No faults");
     expect(en.replace("never as healthy", "")).not.toMatch(/healthy/);
     expect(step5(board, "ar")).toContain("عدد الأعطال مش مقروء");
@@ -86,10 +88,16 @@ describe("tour text", () => {
     expect(tourSteps(boardOf(), tIn("ar"))[0].title).toBe("معمل تجربة واحد، من الكاشير للدفتر");
   });
 
-  it("frames only stations and cables that exist, and the last step frames the invoice cable", () => {
+  it("counts c3 and c4 together in step 5", () => {
+    const board = boardOf({ faultsOnBridge: 2 });
+    board.cables = board.cables.map((c) => (c.id === "c4" ? { ...c, faults: 1 } : c));
+    expect(step5(board, "en")).toContain("3 faults on the bridge's cables");
+  });
+
+  it("frames only stations and cables that exist, and the last step frames the bridge's two cables and their ends", () => {
     const last = tourSteps(boardOf(), tIn("en"))[4];
-    expect(last.cables).toEqual(["c4"]);
-    expect(last.stations).toEqual(["conn", "erp"]);
+    expect(last.cables).toEqual(["c3", "c4"]);
+    expect(last.stations).toEqual(["core", "conn", "erp"]);
     expect(tourSteps(boardOf(), tIn("en"))[0]).toMatchObject({ stations: null, cables: null });
   });
 });
@@ -240,7 +248,7 @@ describe("App modes", () => {
 
   const loaded = async () => {
     const view = render(<App />);
-    await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 });
+    await screen.findByText("3 alarms open", {}, { timeout: 4000 });
     return view;
   };
 
@@ -262,7 +270,7 @@ describe("App modes", () => {
     expect(container.querySelectorAll(".pin")).toHaveLength(5);
     expect(container.querySelectorAll('[data-focus^="station:"]')).toHaveLength(5);
     expect(container.querySelector(".srole")).toBeTruthy();
-    expect(screen.getByText(/3 faults on the invoice cable/)).toBeTruthy();
+    expect(screen.getByText("3 alarms open")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Alarms (5)" })).toBeTruthy();
     expect(container.querySelector(".shell")?.className).toContain("mode-story");
     expect(screen.getByRole("button", { name: "Story tour" })).toBeTruthy();
@@ -285,10 +293,10 @@ describe("App modes", () => {
     for (let i = 0; i < 3; i++) fireEvent.click(next);
     expect(screen.getByText("Step 5 of 5")).toBeTruthy();
     const card = screen.getByRole("region", { name: "Story tour" });
-    expect(card.textContent).toContain("3 faults on the invoice cable");
+    expect(card.textContent).toContain("3 faults on the bridge's cables");
     expect(card.textContent).not.toContain("4 faults");
-    expect(dimmedStations(container)).toEqual(["station:admin", "station:core", "station:pos"]);
-    expect(dimmedCables(container)).toEqual(["c1", "c2", "c3"]);
+    expect(dimmedStations(container)).toEqual(["station:admin", "station:pos"]);
+    expect(dimmedCables(container)).toEqual(["c1", "c2"]);
   });
 
   it("Escape ends the tour, the dimming goes and focus returns to the Tour button", async () => {
@@ -381,14 +389,14 @@ describe("App example alarm", () => {
 
   it("has no example button without demo=1", async () => {
     render(<App />);
-    await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 });
+    await screen.findByText("3 alarms open", {}, { timeout: 4000 });
     expect(screen.queryByRole("button", { name: /Example/ })).toBeNull();
   });
 
   it("with demo=1 the button adds a labelled example alarm, and hiding it with its detail open clears the selection", async () => {
     window.history.pushState({}, "", "/?demo=1");
     const { container } = render(<App />);
-    await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 });
+    await screen.findByText("3 alarms open", {}, { timeout: 4000 });
     const toggle = screen.getByRole("button", { name: "Example: a Datadog alarm" });
     fireEvent.click(toggle);
     expect(screen.getByRole("tab", { name: "Alarms (6)" })).toBeTruthy();
@@ -410,7 +418,7 @@ describe("App with a stale board", () => {
     port.install();
     setBridge();
     const { container } = render(<App />);
-    await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 });
+    await screen.findByText("3 alarms open", {}, { timeout: 4000 });
     expect(screen.getByText(/Showing the last good snapshot/)).toBeTruthy();
     const regions = document.querySelectorAll('[role="status"]');
     expect(regions).toHaveLength(1);

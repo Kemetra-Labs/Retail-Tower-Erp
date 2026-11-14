@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import raw from "./fixtures/snapshot-2026-11-13.json";
-import { ARCH, HOST_IDS, stationForService } from "../architecture";
+import { ARCH, HOST_IDS, failingHopOf, stationForService } from "../architecture";
 import {
   classifySentryKind,
   datadogAlarms,
@@ -72,20 +72,59 @@ describe("classifySentryKind", () => {
   });
 });
 
-describe("placeSentryAlarm", () => {
-  it("pins a Connector issue that names an /erpnext/ route on the Invoices cable", () => {
-    expect(placeSentryAlarm("conn", T403)).toBe("c4");
-    expect(placeSentryAlarm("conn", TTIMEOUT)).toBe("c4");
-    expect(placeSentryAlarm("conn", T502)).toBe("c4");
+describe("placeSentryAlarm (by route owner)", () => {
+  it("pins a Connector issue that names a Backend-Core route (/api/connector/v1/) on the Postings cable c3", () => {
+    expect(placeSentryAlarm("conn", T403)).toBe("c3");
+    expect(placeSentryAlarm("conn", T502)).toBe("c3");
   });
 
-  it("keeps a Connector issue that names no route inside the Connector (never invents a route)", () => {
+  it("pins a Connector issue that targets Backend-Core's port 3000 on c3", () => {
+    expect(placeSentryAlarm("conn", TTIMEOUT)).toBe("c3");
+    expect(placeSentryAlarm("conn", "ConnectionError: http://10.0.0.5:3000/health refused")).toBe("c3");
+  });
+
+  it("pins a Connector issue that names a Frappe route (/api/resource/, /api/method/) on the Invoices cable c4", () => {
+    expect(placeSentryAlarm("conn", "HTTPError: 417 Client Error for url: https://erp.example/api/resource/Sales%20Invoice")).toBe("c4");
+    expect(placeSentryAlarm("conn", "HTTPError: 500 Server Error for url: https://erp.example/api/method/frappe.auth.get_logged_user")).toBe("c4");
+  });
+
+  it("pins a POS issue that names a Backend-Core route on the Sales cable c1", () => {
+    expect(placeSentryAlarm("pos", "TypeError: Failed to fetch https://lab.example/api/v1/sales")).toBe("c1");
+    expect(placeSentryAlarm("pos", "Error: connect ECONNREFUSED 127.0.0.1:3000")).toBe("c1");
+  });
+
+  it("pins an Admin Console issue that names a Backend-Core route on the Catalog cable c2", () => {
+    expect(placeSentryAlarm("admin", "Error: 500 from /api/v1/catalog/items")).toBe("c2");
+  });
+
+  it("keeps an issue that names no route inside its station (never invents a route)", () => {
     expect(placeSentryAlarm("conn", TRESET)).toBe("conn");
+    expect(placeSentryAlarm("admin", TREACT)).toBe("admin");
+    expect(placeSentryAlarm("pos", "Error: something odd at /internal/thing")).toBe("pos");
   });
 
-  it("keeps every other issue inside its station, even when it names /erpnext/", () => {
-    expect(placeSentryAlarm("admin", TREACT)).toBe("admin");
+  it("never uses the old /erpnext/ rule: a Backend-Core route that contains /erpnext/ is not the Invoices cable", () => {
+    expect(placeSentryAlarm("conn", T403)).not.toBe("c4");
+  });
+
+  it("keeps Backend-Core's own issues inside Backend-Core, whatever route they name", () => {
     expect(placeSentryAlarm("core", T403)).toBe("core");
+    expect(placeSentryAlarm("core", "HTTPError for url: https://erp.example/api/resource/Item")).toBe("core");
+  });
+});
+
+describe("failingHopOf", () => {
+  it("names the owner of the route: Backend-Core for c1, c2 and c3, ERPNext for c4", () => {
+    expect(failingHopOf("c1")).toBe("core");
+    expect(failingHopOf("c2")).toBe("core");
+    expect(failingHopOf("c3")).toBe("core");
+    expect(failingHopOf("c4")).toBe("erp");
+  });
+
+  it("is the station itself inside a station, the server's station on a server, and none when unplaced", () => {
+    expect(failingHopOf("conn")).toBe("conn");
+    expect(failingHopOf("lab-03")).toBe("erp");
+    expect(failingHopOf("unlocated")).toBeNull();
   });
 });
 
@@ -98,17 +137,18 @@ describe("sentryAlarms on the 2026-11-13 snapshot", () => {
     expect(alarms.every((a) => a.source === "Sentry")).toBe(true);
   });
 
-  it("places 3 on c4, 1 inside the Connector and 1 inside Admin Console", () => {
-    expect(at("c4")).toBe(3);
+  it("places 3 on c3 (Postings), none on c4, 1 inside the Connector and 1 inside Admin Console", () => {
+    expect(at("c3")).toBe(3);
+    expect(at("c4")).toBe(0);
     expect(at("conn")).toBe(1);
     expect(at("admin")).toBe(1);
   });
 
   it("classifies and places each real title", () => {
     const by = (needle: string) => alarms.find((a) => a.title.includes(needle))!;
-    expect(by("403")).toMatchObject({ kind: "refused", at: "c4", station: "conn" });
-    expect(by("ConnectTimeout")).toMatchObject({ kind: "timeout", at: "c4", station: "conn" });
-    expect(by("502")).toMatchObject({ kind: "down", at: "c4", station: "conn" });
+    expect(by("403")).toMatchObject({ kind: "refused", at: "c3", station: "conn" });
+    expect(by("ConnectTimeout")).toMatchObject({ kind: "timeout", at: "c3", station: "conn" });
+    expect(by("502")).toMatchObject({ kind: "down", at: "c3", station: "conn" });
     expect(by("ConnectionResetError")).toMatchObject({ kind: "reset", at: "conn", station: "conn" });
     expect(by("React child")).toMatchObject({ kind: "bug", at: "admin", station: "admin" });
   });
@@ -240,13 +280,15 @@ describe("datadogAlarms", () => {
 });
 
 describe("ARCH", () => {
-  it("uses the Datadog host_name unchanged for hosts", () => {
+  it("names the lab servers by the suffix of their real Datadog title (retail-tower-lab-0N)", () => {
     const fixtureLabHosts = snapshot.hosts
-      .map((h) => h.properties.host_name as string)
-      .filter((n) => n.startsWith("lab-"))
+      .map((h) => h.title.match(/(?:^|-)(lab-\d+)$/)?.[1])
+      .filter((n): n is string => typeof n === "string")
       .sort();
     expect([...HOST_IDS].sort()).toEqual(fixtureLabHosts);
     expect(Object.keys(ARCH.hosts).sort()).toEqual(fixtureLabHosts);
+    // Port identifiers are numeric, never the server name.
+    expect(snapshot.hosts.every((h) => /^\d+$/.test(h.identifier))).toBe(true);
   });
 
   it("maps servers to stations and keeps the static request path", () => {

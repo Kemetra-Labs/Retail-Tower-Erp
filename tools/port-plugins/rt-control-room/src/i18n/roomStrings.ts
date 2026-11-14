@@ -58,9 +58,13 @@ export const ROOM_STRINGS = {
   lampAlert: { en: "alarm", ar: "إنذار" },
 
   // ---- alarm kinds -----------------------------------------------------------
-  kindRefused: { en: "ERPNext refused the request", ar: "ERPNext رفض الطلب" },
-  kindDown: { en: "ERPNext is not answering", ar: "ERPNext مش بيرد" },
+  kindRefused: { en: "The request was refused", ar: "الطلب اترفض" },
+  kindDown: { en: "The server is not answering", ar: "السيرفر مش بيرد" },
   kindTimeout: { en: "The request took too long", ar: "الطلب اتأخر وانتهت المهلة" },
+  // The same kinds when the route's owner (the failing hop) is known.
+  kindRefusedBy: { en: "{name} refused the request", ar: "{name} رفض الطلب" },
+  kindDownBy: { en: "{name} is not answering", ar: "{name} مش بيرد" },
+  kindTimeoutBy: { en: "The request to {name} took too long", ar: "الطلب لـ {name} اتأخر وانتهت المهلة" },
   kindReset: { en: "The connection was cut", ar: "الاتصال اتقطع" },
   kindBug: { en: "A screen failed to draw", ar: "شاشة فشلت تترسم" },
   kindUnknown: { en: "Health not watched", ar: "الصحة مش متراقبة" },
@@ -72,6 +76,7 @@ export const ROOM_STRINGS = {
   cableFaults: { en: "{n} faults", ar: "{n} أعطال" },
   cableFaultsOne: { en: "1 fault", ar: "عطل واحد" },
   cableNoFaults: { en: "no faults", ar: "مفيش أعطال" },
+  cableNotWatched: { en: "Not watched", ar: "مش متراقب" },
   ruleNote: {
     en: "No direct cable to ERPNext: a deliberate protection",
     ar: "مفيش كابل مباشر لـ ERPNext: حماية مقصودة",

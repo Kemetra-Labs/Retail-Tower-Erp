@@ -1,10 +1,10 @@
 import { ARCH, CABLE_IDS } from "./architecture";
-import { datadogAlarms, sentryAlarms, workloadServiceMap } from "./alarms";
+import { datadogAlarms, firstRelation, sentryAlarms, stationOfWorkload, workloadServiceMap } from "./alarms";
 import { buildCi, buildHealthChecks, buildHosts, buildJira, buildPerStation, buildTelemetry } from "./panels";
 import { buildSources } from "./sources";
 import { buildStations } from "./stations";
 import { buildVerdict } from "./verdict";
-import type { Alarm, Board, CableView, Collection, Snapshot, StationView } from "./types";
+import type { Alarm, Board, CableView, Collection, Snapshot, StationId, StationView } from "./types";
 
 export type BoardOptions = {
   /** The instant "now" is measured from (freshness, 7-day windows, Cairo days). */
@@ -40,11 +40,25 @@ const EXAMPLE_ALARM: Alarm = {
   example: true,
 };
 
-function buildCables(alarms: Alarm[]): CableView[] {
+/** Stations with a Sentry project on some workload (the snapshot's `sentry_project` relation). */
+function sentryWatched(snapshot: Snapshot): Set<StationId> {
+  const byWorkload = workloadServiceMap(snapshot.workloads);
+  const out = new Set<StationId>();
+  for (const w of snapshot.workloads) {
+    if (firstRelation(w.relations?.sentry_project) === null) continue;
+    const station = stationOfWorkload(w.identifier, byWorkload);
+    if (station) out.add(station);
+  }
+  return out;
+}
+
+function buildCables(alarms: Alarm[], snapshot: Snapshot): CableView[] {
+  const watchedBy = sentryWatched(snapshot);
   return CABLE_IDS.map((id) => {
     const faults = alarms.filter((a) => a.at === id).length;
     const { from, to, carries } = ARCH.cables[id];
-    return { id, from, to, carries, state: faults > 0 ? "fault" : "live", faults };
+    const watched = watchedBy.has(ARCH.cableReporter[id]);
+    return { id, from, to, carries, state: faults > 0 ? "fault" : "live", faults, watched };
   });
 }
 
@@ -72,10 +86,11 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
   const stations = buildStations(snapshot, alarms, opts.now, sentryRead, unread);
   const sources = buildSources(snapshot, opts.now);
   const checks = (id: "core" | "conn") => stations.find((s) => s.id === id)?.readings.checks ?? null;
+  const hosts = buildHosts(snapshot, unread);
 
   return {
     stations,
-    cables: buildCables(alarms),
+    cables: buildCables(alarms, snapshot),
     alarms,
     unknowns: unknownStations(stations),
     sources,
@@ -86,8 +101,10 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
       sources,
       sentryRead,
       monitorsRead: !unread.has("monitors"),
+      posSentry: stations.find((s) => s.id === "pos")?.lamps.sentry.state ?? "none",
+      coreHosts: hosts.filter((h) => h.station === "core").map((h) => ({ id: h.id, up: h.up })),
     }),
-    hosts: buildHosts(snapshot, unread),
+    hosts,
     perStation: buildPerStation(snapshot, stations),
     healthChecks: buildHealthChecks(snapshot, stations, unread),
     jira: buildJira(snapshot, unread),

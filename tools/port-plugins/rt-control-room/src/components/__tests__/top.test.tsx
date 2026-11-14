@@ -302,10 +302,10 @@ describe("Verdict", () => {
     expect(screen.getByText(board.verdict.sentence.en)).toBeTruthy();
     const lights = container.querySelectorAll(".light");
     expect(lights).toHaveLength(3);
-    expect(Array.from(lights).map((l) => l.getAttribute("data-tone"))).toEqual(["neutral", "neutral", "fault"]);
+    expect(Array.from(lights).map((l) => l.getAttribute("data-tone"))).toEqual(["unknown", "fault", "fault"]);
     expect(within(lights[0] as HTMLElement).getByText("Cashier app")).toBeTruthy();
-    expect(within(lights[1] as HTMLElement).getByText("7 of 7 checks OK")).toBeTruthy();
-    expect(within(lights[2] as HTMLElement).getByText("3 faults on the invoice cable, 1 inside the bridge")).toBeTruthy();
+    expect(within(lights[1] as HTMLElement).getByText("3 alarms open")).toBeTruthy();
+    expect(within(lights[2] as HTMLElement).getByText("1 alarm open")).toBeTruthy();
   });
 
   it("renders the Arabic sentence and light names after the switch", () => {
@@ -466,6 +466,25 @@ describe("Trace", () => {
       );
       expect(line().getAttribute("class")).toContain("drawn");
     }
+  });
+
+  it("draws no check-mark on a neutral light (a dash, never a tick)", () => {
+    const board = boardOf();
+    const quiet = {
+      ...board,
+      verdict: {
+        ...board.verdict,
+        lights: {
+          cashier: { tone: "neutral" as const, text: { en: "No errors reported", ar: "مفيش أخطاء متبلّغ عنها" } },
+          backend: board.verdict.lights.backend,
+          accounts: board.verdict.lights.accounts,
+        },
+      },
+    };
+    const { container } = wrap(<Verdict board={quiet} status="ready" />);
+    const paths = Array.from(container.querySelectorAll(".light path")).map((p) => p.getAttribute("d"));
+    expect(paths).not.toContain("M4 9l3 3 7-7");
+    expect(paths[0]).toBe("M5 9h8");
   });
 
   it("uses the mockup's cut-cable, bell and broken-code icons for faults, never green", () => {

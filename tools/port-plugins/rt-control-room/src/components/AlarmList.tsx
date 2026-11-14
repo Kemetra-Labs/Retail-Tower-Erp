@@ -3,9 +3,9 @@ import { fmtStamp } from "../i18n/strings";
 import { ARCH } from "../model/architecture";
 import type { Alarm, Board } from "../model/types";
 import { KindIcon } from "./KindIcon";
-import { KIND_CODE, KIND_TITLE } from "./room/icons";
+import { KIND_CODE } from "./room/icons";
 import type { Selection } from "./room/selection";
-import { whereOf, type Where } from "./where";
+import { alarmTitle, whereOf, type Where } from "./where";
 
 type Props = {
   board: Board;
@@ -51,7 +51,7 @@ function AlarmRow({ alarm, selected, onSelect }: { alarm: Alarm; selected: boole
           <KindIcon kind={alarm.kind} />
         </span>
         <span>
-          <span className="tt">{t(KIND_TITLE[alarm.kind])}</span>
+          <span className="tt">{alarmTitle(alarm, lang)}</span>
           <span className="loc">
             <WhereText where={whereOf(alarm, lang)} />
           </span>

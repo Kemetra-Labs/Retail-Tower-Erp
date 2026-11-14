@@ -1,6 +1,7 @@
 import { useLang } from "../../i18n/LangContext";
 import type { Alarm } from "../../model/types";
-import { ICONS, KIND_CODE, KIND_TITLE } from "./icons";
+import { alarmTitle } from "../where";
+import { ICONS, KIND_CODE } from "./icons";
 import type { Selection } from "./selection";
 
 type Props = {
@@ -13,9 +14,9 @@ type Props = {
 
 /** An alarm pinned where it happens: a focusable button on the map (Enter or click opens the detail). */
 export function AlarmPin({ alarm, x, y, selected, onSelect }: Props) {
-  const { t } = useLang();
+  const { lang } = useLang();
   const kind = alarm.kind;
-  const label = `${t(KIND_TITLE[kind])}, ${KIND_CODE[kind]}`;
+  const label = `${alarmTitle(alarm, lang)}, ${KIND_CODE[kind]}`;
   const sel: Selection = { type: "alarm", id: alarm.id };
   return (
     <g
@@ -40,7 +41,7 @@ export function AlarmPin({ alarm, x, y, selected, onSelect }: Props) {
     >
       <rect x={x} y={y} width={20} height={20} rx={4} className="box" filter="url(#rt-glow)" />
       <path d={ICONS[kind]} className="ic" transform={`translate(${x + 3} ${y + 3}) scale(${14 / 18})`} />
-      <title>{`${t(KIND_TITLE[kind])} (${KIND_CODE[kind]})`}</title>
+      <title>{`${alarmTitle(alarm, lang)} (${KIND_CODE[kind]})`}</title>
     </g>
   );
 }

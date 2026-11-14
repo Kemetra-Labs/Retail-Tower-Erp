@@ -9,6 +9,11 @@ const ARABIC = /[؀-ۿ]/;
 
 /** A fresh copy per test: the imported JSON module object is shared. */
 const fixture = (): Snapshot => structuredClone(raw) as unknown as Snapshot;
+/** The fixture without the three Connector issues on Backend-Core routes (the c3 alarms). */
+const withoutPostingAlarms = (snap: Snapshot): Snapshot => ({
+  ...snap,
+  sentryIssues: snap.sentryIssues.filter((i) => !i.title.includes("/api/connector/v1/")),
+});
 const opts = (over: Partial<BoardOptions> = {}): BoardOptions => ({ now: NOW, demo: false, ...over });
 const station = (b: Board, id: StationId) => b.stations.find((s) => s.id === id)!;
 const lightTexts = (b: Board) => [
@@ -21,9 +26,10 @@ const lightTexts = (b: Board) => [
 describe("buildBoard on the 2026-11-13 snapshot", () => {
   const board = buildBoard(fixture(), opts());
 
-  it("finds the 5 alarms: 3 on the invoice cable, 1 inside the Connector, 1 inside Admin Console", () => {
+  it("finds the 5 alarms: 3 on the postings cable (Backend-Core routes), 1 inside the Connector, 1 inside Admin Console", () => {
     expect(board.alarms).toHaveLength(5);
-    expect(board.alarms.filter((a) => a.at === "c4")).toHaveLength(3);
+    expect(board.alarms.filter((a) => a.at === "c3")).toHaveLength(3);
+    expect(board.alarms.filter((a) => a.at === "c4")).toHaveLength(0);
     expect(board.alarms.filter((a) => a.at === "conn")).toHaveLength(1);
     expect(board.alarms.filter((a) => a.at === "admin")).toHaveLength(1);
     const reset = board.alarms.find((a) => a.title.includes("ConnectionResetError"));
@@ -38,25 +44,27 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
     ]);
   });
 
-  it("draws c4 as a fault with 3 faults and the other cables live", () => {
+  it("draws c3 (Postings) as a fault with 3 faults and the other cables live", () => {
     const c = Object.fromEntries(board.cables.map((x) => [x.id, x]));
-    expect(c.c4).toMatchObject({ state: "fault", faults: 3, from: "conn", to: "erp" });
-    for (const id of ["c1", "c2", "c3"]) expect(c[id]).toMatchObject({ state: "live", faults: 0 });
-    expect(c.c4.carries).toEqual({ en: "Invoices", ar: "فواتير" });
+    expect(c.c3).toMatchObject({ state: "fault", faults: 3, from: "core", to: "conn" });
+    for (const id of ["c1", "c2", "c4"]) expect(c[id]).toMatchObject({ state: "live", faults: 0 });
+    expect(c.c3.carries).toEqual({ en: "Postings", ar: "قيود" });
   });
 
   it("gives the three lights", () => {
     const { lights } = board.verdict;
+    // The failing hop of the three c3 alarms is Backend-Core: they are Backend's, not the accounts side's.
+    expect(lights.backend.tone).toBe("fault");
+    expect(lights.backend.text.en).toBe("3 alarms open");
     expect(lights.accounts.tone).toBe("fault");
-    expect(lights.accounts.text.en).toBe("3 faults on the invoice cable, 1 inside the bridge");
-    expect(lights.backend).toEqual({
-      tone: "neutral",
-      text: { en: "7 of 7 checks OK", ar: "7 من 7 فحوصات تمام" },
-    });
-    expect(lights.cashier.tone).toBe("neutral");
-    expect(lights.cashier.text.en).toBe("No errors reported");
-    expect(board.verdict.sentence.en).toContain("3 faults");
-    expect(board.verdict.sentence.en).not.toContain("4 faults");
+    expect(lights.accounts.text.en).toBe("1 alarm open");
+    // POS has a Sentry project but no issue ever reached Port: no sign it reports errors, so not neutral.
+    expect(lights.cashier.tone).toBe("unknown");
+    expect(lights.cashier.text.en).toBe("Not sure: no sign the cashier app reports errors");
+    expect(board.verdict.sentence.en).toContain("3 alarms");
+    // Faults first.
+    expect(board.verdict.sentence.en.startsWith("The backend has 3 alarms open.")).toBe(true);
+    expect(board.verdict.sentence.en).not.toContain("4 ");
   });
 
   it("has Arabic for every verdict text", () => {
@@ -82,7 +90,7 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
       tasks: 10,
       prs: 21,
       merged7d: 18,
-      deploys: 2,
+      deploys: 1, // 1 lab_job; the merge_proxy deployment is not a deploy
       ciFails7d: 1,
     });
     expect(station(board, "admin").readings).toMatchObject({ alarms: 1, checks: null, ci7d: 95, tasks: 21 });
@@ -160,9 +168,69 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
   });
 });
 
+describe("Datadog hosts in Port's real shape", () => {
+  // Live (read-only, 2026-11-14): identifiers are numeric, title and host_name are
+  // "retail-tower-lab-0N"; other hosts are container ids. `up` is a boolean.
+  it("maps the lab servers by the title suffix lab-0N, never by identifier", () => {
+    const b = buildBoard(fixture(), opts());
+    expect(b.hosts.map((h) => [h.id, h.up])).toEqual([
+      ["lab-01", true],
+      ["lab-02", true],
+      ["lab-03", true],
+    ]);
+  });
+
+  it("reads a down server as down and a missing one (or one with no up) as unknown", () => {
+    const snap = fixture();
+    snap.hosts = snap.hosts
+      .filter((h) => !h.title.endsWith("lab-03"))
+      .map((h) => (h.title.endsWith("lab-02") ? { ...h, properties: { ...h.properties, up: false } } : h))
+      .map((h) => (h.title.endsWith("lab-01") ? { ...h, properties: { host_name: h.properties.host_name } } : h));
+    const b = buildBoard(snap, opts());
+    expect(b.hosts.map((h) => h.up)).toEqual([null, false, null]);
+    // A Backend-Core server is down: the backend light is red.
+    expect(b.verdict.lights.backend.tone).toBe("fault");
+  });
+
+  it("does not take a longer suffix (lab-010) or a container id for a lab server", () => {
+    const snap = fixture();
+    snap.hosts = snap.hosts.map((h) => (h.title.endsWith("lab-01") ? { ...h, title: "retail-tower-lab-010", properties: { up: true, host_name: "retail-tower-lab-010" } } : h));
+    expect(buildBoard(snap, opts()).hosts[0].up).toBeNull();
+  });
+});
+
+describe("watched cables", () => {
+  it("on the fixture every cable is watched: POS, Admin and the Connector each have a Sentry project", () => {
+    const b = buildBoard(fixture(), opts());
+    expect(b.cables.map((c) => [c.id, c.watched])).toEqual([
+      ["c1", true],
+      ["c2", true],
+      ["c3", true],
+      ["c4", true],
+    ]);
+  });
+
+  it("a cable whose reporting station has no Sentry project is not watched, derived from the snapshot", () => {
+    const snap = fixture();
+    const pos = snap.workloads.find((w) => w.relations.service === "pos")!;
+    pos.relations.sentry_project = null;
+    const b = buildBoard(snap, opts());
+    expect(b.cables.find((c) => c.id === "c1")?.watched).toBe(false);
+    expect(b.cables.find((c) => c.id === "c2")?.watched).toBe(true);
+  });
+
+  it("the Connector without a Sentry project leaves both of its cables (c3 and c4) unwatched", () => {
+    const snap = fixture();
+    snap.sentryIssues = [];
+    for (const w of snap.workloads) if (w.relations.service === "erpnext-connector") w.relations.sentry_project = null;
+    const b = buildBoard(snap, opts());
+    expect(b.cables.filter((c) => !c.watched).map((c) => c.id)).toEqual(["c3", "c4"]);
+  });
+});
+
 describe("buildBoard missing and degraded data", () => {
   it("removing Core's monitors makes the backend light unknown, never neutral", () => {
-    const snap = fixture();
+    const snap = withoutPostingAlarms(fixture());
     snap.monitors = snap.monitors.filter((m) => m.relations.service === null);
     const b = buildBoard(snap, opts());
     expect(b.verdict.lights.backend.tone).toBe("unknown");
@@ -259,8 +327,8 @@ describe("buildBoard missing and degraded data", () => {
 
 describe("buildBoard example and unlocated alarms", () => {
   it("demo adds the example latency alarm flagged example", () => {
-    const b = buildBoard(fixture(), opts({ demo: true }));
-    expect(b.alarms).toHaveLength(6);
+    const b = buildBoard(withoutPostingAlarms(fixture()), opts({ demo: true }));
+    expect(b.alarms).toHaveLength(3);
     const example = b.alarms.filter((a) => a.example);
     expect(example).toHaveLength(1);
     expect(example[0]).toMatchObject({ kind: "latency", source: "Datadog", station: "core", at: "core" });
@@ -268,19 +336,19 @@ describe("buildBoard example and unlocated alarms", () => {
     expect(b.verdict.lights.backend.text.en).toBe("Slow responses (example)");
     expect(station(b, "core").readings.alarms).toBe(1);
     expect(station(b, "core").lamps.datadog).toEqual({ state: "alert", checks: { ok: 6, total: 7 } });
-    expect(b.cables.find((c) => c.id === "c4")?.faults).toBe(3);
+    expect(b.cables.find((c) => c.id === "c3")?.faults).toBe(0);
   });
 
   it("an untagged host-pack monitor in Alert is counted, never pinned, and weakens the lights", () => {
-    const snap = fixture();
+    const snap = withoutPostingAlarms(fixture());
     const pack = snap.monitors.find((m) => m.identifier === "datadog-monitor-900101")!;
     pack.properties.overallState = "Alert";
     const b = buildBoard(snap, opts());
-    expect(b.alarms).toHaveLength(6);
+    expect(b.alarms).toHaveLength(3);
     const lost = b.alarms.find((a) => a.id === "datadog-monitor-900101")!;
     expect(lost).toMatchObject({ at: "unlocated", station: null });
-    for (const s of b.stations) expect(s.readings.alarms).toBe(s.id === "admin" ? 1 : s.id === "conn" ? 4 : 0);
-    expect(b.cables.find((c) => c.id === "c4")?.faults).toBe(3);
+    for (const s of b.stations) expect(s.readings.alarms).toBe(s.id === "admin" ? 1 : s.id === "conn" ? 1 : 0);
+    expect(b.cables.find((c) => c.id === "c3")?.faults).toBe(0);
     expect(b.verdict.lights.backend.tone).toBe("unknown");
     expect(b.verdict.lights.backend.text.en).toBe("Not sure: 1 alarm not placed");
     expect(b.verdict.lights.accounts.tone).toBe("fault");
@@ -308,18 +376,19 @@ describe("buildBoard when the Sentry alarm read failed (criterion 7)", () => {
     }
     expect(b.verdict.sentence.en).toContain("The error tracker could not be read");
     // A cable has no not-read state: with nothing cached it carries 0 known faults.
-    expect(b.cables.find((c) => c.id === "c4")?.faults).toBe(0);
+    expect(b.cables.find((c) => c.id === "c3")?.faults).toBe(0);
   });
 
-  it("(b) with the retained issues all 5 alarms stay and c4 still has 3 faults", () => {
+  it("(b) with the retained issues all 5 alarms stay and c3 still has 3 faults", () => {
     const b = buildBoard(fixture(), opts(failed));
     expect(b.alarms).toHaveLength(5);
-    expect(b.cables.find((c) => c.id === "c4")).toMatchObject({ state: "fault", faults: 3 });
+    expect(b.cables.find((c) => c.id === "c3")).toMatchObject({ state: "fault", faults: 3 });
     for (const s of b.stations) expect(s.readings.alarms).toBe("not-read");
     expect(b.verdict.lights.accounts.tone).toBe("fault");
     expect(b.verdict.lights.cashier.tone).toBe("unknown");
     expect(b.verdict.lights.cashier.text.en).not.toMatch(/No errors reported/);
-    expect(b.verdict.sentence.en).toContain("3 faults");
+    expect(b.verdict.lights.backend.tone).toBe("fault");
+    expect(b.verdict.sentence.en).toContain("3 alarms");
     expect(b.verdict.sentence.en).toContain("The error tracker could not be read");
   });
 
@@ -328,7 +397,8 @@ describe("buildBoard when the Sentry alarm read failed (criterion 7)", () => {
       const b = buildBoard(fixture(), o);
       expect(station(b, "conn").readings.alarms).toBe(4);
       expect(station(b, "pos").readings.alarms).toBe(0);
-      expect(b.verdict.lights.cashier.text.en).toBe("No errors reported");
+      // Read again, but POS has never sent an issue: no sign it reports errors, never "No errors reported".
+      expect(b.verdict.lights.cashier.text.en).toBe("Not sure: no sign the cashier app reports errors");
     }
   });
 });
@@ -340,6 +410,6 @@ describe("Board.alarmRead", () => {
     const failed = buildBoard(fixture(), opts({ alarmRead: { sentry: false } }));
     expect(failed.alarmRead).toEqual({ sentry: false });
     // The retained issues still count: the failed read changes the label, not the fault count.
-    expect(failed.cables.find((c) => c.id === "c4")?.faults).toBe(3);
+    expect(failed.cables.find((c) => c.id === "c3")?.faults).toBe(3);
   });
 });
