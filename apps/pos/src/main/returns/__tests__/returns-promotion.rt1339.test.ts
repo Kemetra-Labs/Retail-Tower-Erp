@@ -76,12 +76,14 @@ describe('the two offer refusals', () => {
       expect(message).toContain('لم يُسجَّل المرتجع');
       expect(message).toContain('لم يُصرف أي نقد');
     }
-    // OD-10 and the OD-11 interim: Backend-Core refuses every return with a reward line for now, so
-    // "add the reward units" would only meet another refusal. Both send the cashier to the manager.
-    for (const message of [exceeds, requires]) {
-      expect(message).toContain('راجع المدير');
-      expect(message).not.toContain('أضف إلى المرتجع');
-    }
+    // RT-1372: Backend-Core records a return with a reward line since RT-1367 PR 2, so the OD-10 remedy
+    // works again: add the reward units of the same sale to the return. The OD-11 interim code still goes
+    // to the manager while an older Backend-Core can return it.
+    expect(exceeds).toContain('أضف وحدات المكافأة');
+    expect(exceeds).toContain('إلى المرتجع');
+    expect(exceeds).not.toContain('راجع المدير');
+    expect(requires).toContain('راجع المدير');
+    expect(requires).not.toContain('أضف وحدات المكافأة');
   });
 });
 
