@@ -138,6 +138,13 @@ describe("decideOutcome", () => {
     expect(decideOutcome(state({ status: "verifying" }), { ...input, reportedBy: "lab-03" }).kind).toBe("replay");
     expect(decideOutcome(state({ status: "verifying" }), { ...input, reportedBy: "lab-04" }).kind).toBe("lease_lost");
     expect(decideOutcome(state({ status: "succeeded", leaseHolder: "lab-03", leaseExpiresAt: later(-1) }), input).kind).toBe("replay");
+    // RT-1389: a succeeded request keeps no lease; its recorded host is the replay key.
+    expect(decideOutcome(state({ status: "succeeded", provisionedHostLabel: "lab-03" }), input).kind).toBe("replay");
+    expect(decideOutcome(state({ status: "succeeded", provisionedHostLabel: "lab-04" }), input).kind).toBe("lease_lost");
+    // RT-1389: a failed request keeps no lease either; the audited reporter is the replay key.
+    const failed = state({ status: "failed_permanent", lastErrorClass: "conflict" });
+    expect(decideOutcome(failed, { ...input, outcome: "conflict", reason: "x", reportedBy: "lab-03" }).kind).toBe("replay");
+    expect(decideOutcome(failed, { ...input, outcome: "conflict", reason: "x", reportedBy: "lab-04" }).kind).toBe("lease_lost");
     expect(decideOutcome(state({ status: "failed_permanent", lastErrorClass: "conflict", leaseHolder: "lab-03", leaseExpiresAt: later(-1) }), { ...input, outcome: "conflict", reason: "x" }).kind).toBe("replay");
   });
 

@@ -2,10 +2,10 @@
  * signups.service.integration.spec.ts — RT-1350 slice 3, real Postgres (Testcontainers).
  *
  * The real `SignupsService` + `SignupsRepository` run on the NON-SUPERUSER `app_test`
- * pool, so row-level security is ENFORCED (the pre-tenant `pending_signups` and
- * `user_consents` tables are platform-admin-only; the `restricted` entitlement can be
- * inserted only in a platform-admin context pinned to the new tenant, RT-1350 comment
- * 16773). Only the identity provider, the limiter, the human-proof verifier, the email
+ * pool, so row-level security is ENFORCED (RT-1389: the service runs on the narrow
+ * `signup` privilege, never the platform-admin flag; 0111 lets it reach `pending_signups`
+ * and `user_consents`, and insert the `restricted` entitlement only pinned to the new
+ * tenant, RT-1350 comment 16773). Only the identity provider, the limiter, the human-proof verifier, the email
  * and audit producers and the session store are fakes. Fixtures and assertions use the
  * superuser pool.
  *

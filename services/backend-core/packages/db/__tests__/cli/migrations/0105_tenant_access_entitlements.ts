@@ -3,7 +3,8 @@
  * table, its three policies (SELECT, INSERT, UPDATE; no DELETE) and the forward-only
  * guard trigger]. 0104 is reserved for the RT-452 migration (PR #536).
  */
-import { countPolicies, countTables, type MigrationEntry } from "../migration-probes";
+import { countTables, type MigrationEntry } from "../migration-probes";
+import { SYSTEM_PRIVILEGE_POLICIES } from "./0111_system_privilege_policies";
 
 const TABLES = ["tenant_access_entitlements"];
 
@@ -12,13 +13,14 @@ export const MIGRATION: MigrationEntry = {
   probe: {
     measure: async (db) => [
       await countTables(db, TABLES),
-      // 0110 adds a fourth policy by name; it is counted by 0110's own probe, so 0105's
-      // three stay countable when only 0110 is rolled back.
+      // 0110 and 0111 add policies by name; each is counted by its own probe, so 0105's
+      // three stay countable when only 0110 or 0111 is rolled back.
       await db.count(
         `SELECT COUNT(*)::text AS count FROM pg_policies
           WHERE schemaname = 'public' AND tablename = ANY($1::text[])
-            AND policyname <> 'tenant_access_entitlements_platform_select'`,
-        [TABLES],
+            AND policyname <> 'tenant_access_entitlements_platform_select'
+            AND NOT (policyname = ANY($2::text[]))`,
+        [TABLES, SYSTEM_PRIVILEGE_POLICIES],
       ),
       await db.count(
         `SELECT COUNT(*)::text AS count FROM pg_trigger

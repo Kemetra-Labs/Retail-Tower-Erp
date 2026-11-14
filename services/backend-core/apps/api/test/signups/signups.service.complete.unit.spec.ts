@@ -80,7 +80,7 @@ describe("completeSignup: a NEW user", () => {
 
     // lookup tx (no tenant), then the write tx pinned to the new tenant.
     const writeCtx = h.txContexts[h.txContexts.length - 1]!;
-    expect(writeCtx).toEqual({ tenantId: result.tenantId, isPlatformAdmin: true });
+    expect(writeCtx).toEqual({ tenantId: result.tenantId, privilege: "signup" });
 
     expect(h.store.calls.slice(h.store.calls.indexOf("lockPending"))).toEqual([
       "lockPending",

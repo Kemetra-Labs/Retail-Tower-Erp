@@ -316,8 +316,8 @@ describe("pull and step acknowledgement", () => {
     const tok = await issueProvisioner("lab-03");
     await unlockA();
     await h.env().admin.query(
-      `INSERT INTO erp_provisioning_request (id, tenant_id, kind, status, site_name, template_id, template_version, lease_holder, lease_id, lease_expires_at, terminal_at, attempt_floor)
-       SELECT gen_random_uuid(), $1, 'tenant.provision', 'succeeded', 'old-' || g, 'egypt-retail', 1, 'lab-03', gen_random_uuid(), now(), now(), 1 FROM generate_series(1, 20) g`,
+      `INSERT INTO erp_provisioning_request (id, tenant_id, kind, status, site_name, template_id, template_version, provisioned_host_label, terminal_at, attempt_floor)
+       SELECT gen_random_uuid(), $1, 'tenant.provision', 'succeeded', 'old-' || g, 'egypt-retail', 1, 'lab-03', now(), 1 FROM generate_series(1, 20) g`,
       [TENANT_B],
     );
     expect((await bearer(h.get(FEED, null), tok).expect(200)).body.items).toHaveLength(0);
@@ -521,8 +521,10 @@ describe("outcome", () => {
     await ack(tok, id, "claimed", 1).expect(200);
     await outcome(other, id, { outcome: "conflict", reason: "marker" }).expect(409);
     await outcome(tok, id, { outcome: "conflict", reason: "marker" }).expect(200);
-    expect((await requestsOf(h.env().admin))[0]).toMatchObject({ status: "failed_permanent", last_error_class: "conflict" });
+    // RT-1389: a terminal row keeps no lease; the replay key is the host in the `failed` audit row.
+    expect((await requestsOf(h.env().admin))[0]).toMatchObject({ status: "failed_permanent", last_error_class: "conflict", lease_holder: null, lease_id: null, lease_expires_at: null });
     await outcome(tok, id, { outcome: "conflict", reason: "marker" }).expect(200);
+    await outcome(other, id, { outcome: "conflict", reason: "marker" }).expect(409);
     await outcome(tok, id, { outcome: "succeeded" }).expect(400);
   });
 });

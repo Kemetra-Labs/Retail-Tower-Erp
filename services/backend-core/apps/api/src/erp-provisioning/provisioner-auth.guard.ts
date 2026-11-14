@@ -8,12 +8,12 @@
  *      (hash match, unrevoked, unexpired, on the auth-lookup pool);
  *   2. its scope must be `connector_provisioner` (a tenant `connector`, device,
  *      dashboard or POS token, and a cookie session, are the generic 401);
- *   3. a short, READ-ONLY, platform-admin transaction reads the unrevoked
- *      `erp_provisioner_credential` of the token for its host label and
- *      environment (the provisioner policy cannot read that table, and the
- *      lookup role holds no grant on it). This transaction never sets
- *      `app.is_provisioner`: the provisioner and platform-admin settings are
- *      never together;
+ *   3. a short, READ-ONLY transaction on the narrow `provisioner_lookup`
+ *      privilege (RT-1389, migration 0111: SELECT on `erp_provisioner_credential`
+ *      only, never the platform-admin flag) reads the unrevoked credential of the
+ *      token for its host label and environment (the provisioner policy cannot
+ *      read that table, and the lookup role holds no grant on it). This
+ *      transaction never sets `app.is_provisioner`;
  *   4. the credential's environment must equal `DEPLOYMENT_ENVIRONMENT`, else a
  *      generic 403 `forbidden` (the body names neither environment).
  *
@@ -21,7 +21,7 @@
  * label only; the token itself is not propagated past this guard.
  */
 import { type CanActivate, type ExecutionContext, ForbiddenException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
 import { type AuthedRequest, readBearerToken } from "../auth/auth.guard";
@@ -58,7 +58,7 @@ export class ProvisionerAuthGuard implements CanActivate {
       recordAuthFailure({ cause: "bad_token" });
       throw new UnauthorizedException("Unauthorized");
     }
-    const credential = await runWithTenantContext(this.pool, { tenantId: null, isPlatformAdmin: true }, async (client) => {
+    const credential = await runWithSystemPrivilege(this.pool, { tenantId: null, privilege: "provisioner_lookup" }, async (client) => {
       const r = await client.query<{ host_label: string; environment: string }>(
         `SELECT host_label, environment FROM erp_provisioner_credential WHERE token_id = $1::uuid AND revoked_at IS NULL`,
         [token.id],

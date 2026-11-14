@@ -1,16 +1,15 @@
 /**
- * RT-1358 — the ONLY writer of `erp_provisioning_request` and the only reader
+ * RT-1358 — the api writer of `erp_provisioning_request` and the only reader
  * that maps it. Migration 0109 lets the provisioner UPDATE every column the guard
- * trigger does not freeze, so the DB cannot enforce the machine: every write
- * here goes through `writeRequest`, which checks `transitionAllowed` and the
- * optimistic `version`. A fence test pins that no other source file contains
- * `UPDATE erp_provisioning_request`.
+ * trigger does not freeze, so every write here goes through `writeRequest`, which
+ * checks `transitionAllowed` and the optimistic `version`. The worker sweep
+ * (`packages/db/src/helpers/erp-provisioning-sweep.ts`) is the only other writer and
+ * checks the same shared table (RT-1389); migration 0112's trigger enforces it in SQL
+ * too. A fence test pins both writers.
  *
- * KNOWN COMPROMISE (RT-1358 review): `writeRequest`'s `end` mode, used when a request finishes, keeps the
- * lease holder with an expiry of "now", so a terminal `succeeded` row carries a SYNTHETIC ended lease (the
- * ERP host label) that `countSitesForHost` reads for the per-host site ceiling (OD-10). The all-or-none lease
- * CHECK does not allow a holder alone, so "lease" has two meanings on a terminal row; terminal rows are never
- * offered or reclaimed. RT-1361's migration should add a real `provisioned_host_label` column and drop it.
+ * RT-1389: no terminal row carries a lease. A `succeeded` request records its host
+ * in `provisioned_host_label` (the OD-10 per-host site count reads it); the host
+ * that reported a failure is read from the audit trail (the feed's `reportedBy`).
  */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
@@ -38,6 +37,7 @@ export interface RequestRow extends RequestState {
   readonly templateId: string;
   readonly templateVersion: number;
   readonly connectorRegistrationId: string | null;
+  readonly provisionedHostLabel: string | null;
   readonly version: number;
   readonly createdAt: Date;
 }
@@ -60,13 +60,14 @@ interface DbRow {
   template_id: string;
   template_version: number;
   connector_registration_id: string | null;
+  provisioned_host_label: string | null;
   version: number;
   created_at: Date;
 }
 
 const COLS = `id, tenant_id, kind, generation, status, attempt, attempt_floor, lease_holder, lease_id,
   lease_expires_at, not_before, last_error_class, last_reason, site_name, template_id, template_version,
-  connector_registration_id, version, created_at`;
+  connector_registration_id, provisioned_host_label, version, created_at`;
 
 function map(r: DbRow): RequestRow {
   return {
@@ -87,6 +88,7 @@ function map(r: DbRow): RequestRow {
     templateId: r.template_id,
     templateVersion: r.template_version,
     connectorRegistrationId: r.connector_registration_id,
+    provisionedHostLabel: r.provisioned_host_label,
     version: r.version,
     createdAt: r.created_at,
   };
@@ -162,7 +164,7 @@ export async function pullOfferable(
 export async function countSitesForHost(client: PoolClient, host: string): Promise<number> {
   const r = await client.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM erp_provisioning_request
-      WHERE kind = 'tenant.provision' AND status = 'succeeded' AND lease_holder = $1`,
+      WHERE kind = 'tenant.provision' AND status = 'succeeded' AND provisioned_host_label = $1`,
     [host],
   );
   return Number(r.rows[0]!.n);
@@ -218,8 +220,10 @@ export interface RequestWrite {
   readonly status?: RequestStatus;
   readonly attempt?: number;
   readonly attemptFloor?: number;
-  readonly lease: "take" | "renew" | "clear" | "end" | "keep";
+  readonly lease: "take" | "renew" | "clear" | "keep";
   readonly host?: string;
+  /** Only with `status: "succeeded"`: the host that provisioned the site (the OD-10 count input). */
+  readonly provisionedHost?: string;
   readonly notBefore?: Date | null;
   readonly lastErrorClass?: ErrorClass | null;
   readonly lastReason?: string | null;
@@ -241,7 +245,7 @@ export function writeFromPatch(patch: RequestPatch, host: string): RequestWrite 
 
 const NO_LEASE = { leaseHolder: null, leaseId: null, leaseExpiresAt: null } as const;
 
-/** The lease columns after a write: `take` a new one, `renew` the expiry, `clear` it, `end` it now (holder kept), or `keep`. */
+/** The lease columns after a write: `take` a new one, `renew` the expiry, `clear` it, or `keep`. */
 function nextLease(
   row: RequestRow,
   write: RequestWrite,
@@ -256,22 +260,26 @@ function nextLease(
       return { ...kept, leaseExpiresAt: new Date(now.getTime() + ttlMs) };
     case "clear":
       return NO_LEASE;
-    case "end":
-      return row.leaseId === null ? kept : { ...kept, leaseExpiresAt: now };
     default:
       return kept;
   }
 }
 
 /**
- * THE write. Checks the transition table and the optimistic version, bumps the
- * terminal timestamp, and returns the new row. `end` stops the lease now but
- * keeps the holder (the host that did the work, the OD-10 site count input).
+ * THE api write. Checks the transition table and the optimistic version, bumps the
+ * terminal timestamp, and returns the new row. A `succeeded` write records the
+ * provisioning host in `provisioned_host_label` and clears the lease.
  */
 export async function writeRequest(client: PoolClient, row: RequestRow, write: RequestWrite, now: Date, leaseTtlMs: number): Promise<RequestRow> {
   const status = write.status ?? row.status;
   if (!transitionAllowed(row.status, status)) {
     throw new Error(`erp_provisioning_request: transition ${row.status} -> ${status} is not allowed`);
+  }
+  if (write.provisionedHost !== undefined && status !== "succeeded") {
+    throw new Error("erp_provisioning_request: a provisioned host is recorded only on succeeded");
+  }
+  if (isTerminal(status) && write.lease !== "clear") {
+    throw new Error("erp_provisioning_request: a terminal request keeps no lease");
   }
   const { leaseHolder, leaseId, leaseExpiresAt } = nextLease(row, write, now, leaseTtlMs);
   const terminal = isTerminal(status);
@@ -279,7 +287,7 @@ export async function writeRequest(client: PoolClient, row: RequestRow, write: R
     `UPDATE erp_provisioning_request
         SET status = $3, attempt = $4, attempt_floor = $5, lease_holder = $6, lease_id = $7,
             lease_expires_at = $8, not_before = $9, last_error_class = $10, last_reason = $11,
-            terminal_at = $12
+            terminal_at = $12, provisioned_host_label = $13
       WHERE id = $1::uuid AND version = $2
       RETURNING ${COLS}`,
     [
@@ -295,6 +303,7 @@ export async function writeRequest(client: PoolClient, row: RequestRow, write: R
       write.lastErrorClass === undefined ? row.lastErrorClass : write.lastErrorClass,
       write.lastReason === undefined ? row.lastReason : write.lastReason,
       terminal ? now : null,
+      write.provisionedHost ?? row.provisionedHostLabel,
     ],
   );
   if (r.rowCount === 0) throw new Error("erp_provisioning_request: version conflict");

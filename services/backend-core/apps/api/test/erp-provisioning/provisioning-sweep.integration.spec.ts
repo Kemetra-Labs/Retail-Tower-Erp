@@ -112,7 +112,8 @@ describe("sweepErpProvisioning", () => {
     const res = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
     expect(res.succeeded).toBe(1);
     const after = await row(r.id);
-    expect(after).toMatchObject({ status: "succeeded", last_reason: null, lease_holder: "lab-03" });
+    // RT-1389: the host is recorded in provisioned_host_label; a succeeded row keeps no lease.
+    expect(after).toMatchObject({ status: "succeeded", last_reason: null, provisioned_host_label: "lab-03", lease_holder: null, lease_id: null, lease_expires_at: null });
     expect(after["terminal_at"]).not.toBeNull();
     const ent = await env!.admin.query(`SELECT state FROM tenant_access_entitlements WHERE tenant_id = $1`, [TENANT_A]);
     expect(ent.rows[0].state).toBe("restricted");
@@ -124,7 +125,7 @@ describe("sweepErpProvisioning", () => {
     await seedHeartbeat(env!.admin, TENANT_A, r.registrationId);
     const res = await sweepErpProvisioning(env!.app, { now: new Date(), heartbeatTimeoutMs: HOUR });
     expect(res).toMatchObject({ succeeded: 1, hostUnknown: 1 });
-    expect(await row(r.id)).toMatchObject({ status: "succeeded", lease_holder: null, lease_id: null });
+    expect(await row(r.id)).toMatchObject({ status: "succeeded", provisioned_host_label: null, lease_holder: null, lease_id: null });
   });
 
   it("(c) fails a reported request with an alert after the heartbeat timeout, and not before", async () => {

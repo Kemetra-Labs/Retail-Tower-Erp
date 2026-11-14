@@ -59,7 +59,7 @@ describe("requestSignup: an eligible address", () => {
     expect(await service.requestSignup(REQUEST, CTX)).toBe("accepted");
     await service.settleWork();
 
-    expect(h.txContexts).toEqual([{ tenantId: null, isPlatformAdmin: true }]);
+    expect(h.txContexts).toEqual([{ tenantId: null, privilege: "signup" }]);
     const order = h.store.calls.filter((c) => ["expirePendingByEmail", "insertPending"].includes(c));
     expect(order).toEqual(["expirePendingByEmail", "insertPending"]);
   });
