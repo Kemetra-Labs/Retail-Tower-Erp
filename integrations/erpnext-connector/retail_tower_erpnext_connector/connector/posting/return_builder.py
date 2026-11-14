@@ -178,6 +178,9 @@ def build_return_invoice(
 		for item in doc["items"]:
 			if is_give_back_ref(item.get("rt_line_ref")):
 				item["uom"] = give_back.uom  # the give-back Item's own stock UOM, not the reward line's
+				# ERPNext's duplicate check for non-stock rows compares item_code + description: two give-backs
+				# on one credit note must not look alike (CodeRabbit, PR #584).
+				item["description"] = _give_back_description(item["rt_line_ref"])
 
 	# Provenance is the return's own work item (Connector #28), never the original sale's id.
 	doc["rt_source_system"] = work_item.source_system
@@ -227,6 +230,10 @@ def _give_back_item(ref, resolvers: ReturnResolvers) -> GiveBackItem | None:
 	if item is None:
 		raise GiveBackItemNotConfigured()
 	return item
+
+
+def _give_back_description(stamp: str) -> str:
+	return f"Promotion give-back for sale line {stamp[: -len(GIVE_BACK_REF_SUFFIX)]}"
 
 
 def _give_back(returned: ReturnLine) -> Decimal | None:

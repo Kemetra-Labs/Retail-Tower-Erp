@@ -115,7 +115,7 @@ class _Frappe(types.ModuleType):
 		self.posted_company = "Original Co"  # RT-378 replay: the already-posted return's company
 		self.duplicate = False  # RT-458: the return already exists under its provenance (crash window)
 		# RT-1340: the fixed promotion give-back Item as read back (None = missing).
-		self.give_back_row = {"disabled": 0, "is_stock_item": 0, "stock_uom": "Unit"}
+		self.give_back_row = {"disabled": 0, "is_stock_item": 0, "is_sales_item": 1, "stock_uom": "Unit"}
 		self._rows = [
 			{
 				"name": "row-a",
@@ -149,7 +149,10 @@ class _Frappe(types.ModuleType):
 
 	def _get_value(self, doctype, filters, fields, **_):
 		if doctype == "Item":  # RT-1340: the give-back Item lookup
-			assert (filters, fields) == ("RT-PROMO-GIVEBACK", ["disabled", "is_stock_item", "stock_uom"])
+			assert (filters, fields) == (
+				"RT-PROMO-GIVEBACK",
+				["disabled", "is_stock_item", "is_sales_item", "stock_uom"],
+			)
 			return self.give_back_row
 		if isinstance(filters, dict):  # provenance lookups
 			if filters.get("rt_external_id") == "POS-9001" and filters.get("docstatus") == 1:

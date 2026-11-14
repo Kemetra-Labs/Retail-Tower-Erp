@@ -21,7 +21,7 @@ from .return_builder import GiveBackItem, GiveBackItemNotConfigured
 
 GIVE_BACK_ITEM_CODE = "RT-PROMO-GIVEBACK"
 GIVE_BACK_ITEM_NAME = "Retail Tower promotion give-back"
-GIVE_BACK_ITEM_FIELDS = ["disabled", "is_stock_item", "stock_uom"]
+GIVE_BACK_ITEM_FIELDS = ["disabled", "is_stock_item", "is_sales_item", "stock_uom"]
 
 
 def give_back_item_problem(row: Mapping[str, object] | None) -> str | None:
@@ -32,6 +32,8 @@ def give_back_item_problem(row: Mapping[str, object] | None) -> str | None:
 		return "is disabled"
 	if int(row.get("is_stock_item") or 0):
 		return "is a stock Item (a give-back must not move stock)"
+	if not int(row.get("is_sales_item") or 0):
+		return "is not a sales Item (ERPNext refuses it on a Sales Invoice)"
 	if not row.get("stock_uom"):
 		return "has no stock UOM"
 	return None

@@ -452,6 +452,7 @@ class TestPromotionGiveBack:
 			"warehouse": "Main - RT",
 			"currency": "EGP",
 			"rt_line_ref": f"{_A}{rtb.GIVE_BACK_REF_SUFFIX}",
+			"description": f"Promotion give-back for sale line {_A}",
 		}
 		assert doc["payments"] == [{"mode_of_payment": "Cash", "amount": "-200.00"}]
 

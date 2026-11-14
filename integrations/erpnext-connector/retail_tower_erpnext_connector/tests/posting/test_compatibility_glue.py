@@ -57,7 +57,12 @@ def _site():
 			("Sales Taxes and Charges Template", "VAT 14%"): {"disabled": 0},
 			("Sales Taxes and Charges Template", "Empty Tax"): {"disabled": 0},
 			# RT-1340: the fixed promotion give-back Item, as ensure_give_back_item creates it.
-			("Item", "RT-PROMO-GIVEBACK"): {"disabled": 0, "is_stock_item": 0, "stock_uom": "Nos"},
+			("Item", "RT-PROMO-GIVEBACK"): {
+				"disabled": 0,
+				"is_stock_item": 0,
+				"is_sales_item": 1,
+				"stock_uom": "Nos",
+			},
 		},
 		"lists": {
 			"Custom Field": [{"name": n} for n in _CUSTOM_FIELDS],
@@ -371,7 +376,11 @@ class TestRunPreflight:
 		("row", "why"),
 		[
 			(None, "does not exist"),
-			({"disabled": 0, "is_stock_item": 1, "stock_uom": "Nos"}, "is a stock Item"),
+			({"disabled": 0, "is_stock_item": 1, "is_sales_item": 1, "stock_uom": "Nos"}, "is a stock Item"),
+			(
+				{"disabled": 0, "is_stock_item": 0, "is_sales_item": 0, "stock_uom": "Nos"},
+				"is not a sales Item",
+			),
 		],
 	)
 	def test_an_unusable_give_back_item_warns_but_posting_continues(self, load_glue, row, why):

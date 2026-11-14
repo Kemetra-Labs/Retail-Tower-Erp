@@ -97,7 +97,8 @@ def after_migrate() -> None:
 
 
 # A fresh ERPNext site has these after its setup wizard; before it, the Item is created on a later migrate.
-_GIVE_BACK_ITEM_GROUP = "All Item Groups"
+# A leaf Item Group: "Services" (the give-back is not a product) when the site has it, else the first leaf.
+_GIVE_BACK_ITEM_GROUP = "Services"
 _GIVE_BACK_UOM = "Nos"
 _GIVE_BACK_SAVEPOINT = "rt_give_back_item"
 
@@ -118,9 +119,8 @@ def ensure_give_back_item() -> None:
 	try:
 		if frappe.db.exists("Item", GIVE_BACK_ITEM_CODE):
 			return
-		if not (
-			frappe.db.exists("Item Group", _GIVE_BACK_ITEM_GROUP) and frappe.db.exists("UOM", _GIVE_BACK_UOM)
-		):
+		item_group = _give_back_item_group()
+		if not (item_group and frappe.db.exists("UOM", _GIVE_BACK_UOM)):
 			_log_give_back("give_back_item.deferred", "Item Group or UOM not set up yet (setup wizard)")
 			return
 		frappe.db.savepoint(_GIVE_BACK_SAVEPOINT)
@@ -129,7 +129,7 @@ def ensure_give_back_item() -> None:
 				"doctype": "Item",
 				"item_code": GIVE_BACK_ITEM_CODE,
 				"item_name": GIVE_BACK_ITEM_NAME,
-				"item_group": _GIVE_BACK_ITEM_GROUP,
+				"item_group": item_group,
 				"stock_uom": _GIVE_BACK_UOM,
 				"is_stock_item": 0,
 				"is_sales_item": 1,
@@ -143,6 +143,12 @@ def ensure_give_back_item() -> None:
 	except Exception as exc:  # the migrate must not fail for it; logged at error so operators see it
 		_rollback_give_back()
 		_log_give_back("give_back_item.ensure_failed", f"{type(exc).__name__}: {exc}")
+
+
+def _give_back_item_group() -> str | None:
+	"""A leaf Item Group for the give-back Item, or None before the setup wizard created any."""
+	leaf = frappe.db.get_value("Item Group", {"name": _GIVE_BACK_ITEM_GROUP, "is_group": 0}, "name")
+	return leaf or frappe.db.get_value("Item Group", {"is_group": 0}, "name", order_by="name asc")
 
 
 def _rollback_give_back() -> None:

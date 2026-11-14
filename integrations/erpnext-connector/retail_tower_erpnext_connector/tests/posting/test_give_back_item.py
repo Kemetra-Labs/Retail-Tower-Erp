@@ -21,7 +21,7 @@ from retail_tower_erpnext_connector.connector.posting.return_builder import (
 
 _SCHEMA = "retail_tower_erpnext_connector.connector.schema"
 _MISSING = object()
-_OK = {"disabled": 0, "is_stock_item": 0, "stock_uom": "Nos"}
+_OK = {"disabled": 0, "is_stock_item": 0, "is_sales_item": 1, "stock_uom": "Nos"}
 
 
 class TestResolve:
@@ -37,6 +37,7 @@ class TestResolve:
 			({**_OK, "disabled": 1}, "is disabled"),
 			({**_OK, "is_stock_item": 1}, "is a stock Item"),
 			({**_OK, "stock_uom": None}, "has no stock UOM"),
+			({**_OK, "is_sales_item": 0}, "is not a sales Item"),
 		],
 	)
 	def test_an_unusable_item_fails_closed_with_the_reason(self, row, why):
@@ -53,6 +54,7 @@ class _Frappe(types.ModuleType):
 		self.savepoints, self.rollbacks, self.set_names = [], [], []
 		self.db = types.SimpleNamespace(
 			exists=lambda doctype, name: (doctype, name) in self.existing,
+			get_value=self._get_value,
 			commit=self._commit,
 			savepoint=self.savepoints.append,
 			rollback=lambda save_point=None: self.rollbacks.append(save_point),
@@ -61,6 +63,14 @@ class _Frappe(types.ModuleType):
 
 	def _commit(self):
 		self.commits += 1
+
+	def _get_value(self, doctype, filters, field, order_by=None):
+		# Leaf Item Groups only; the named lookup asks for "Services" itself.
+		assert doctype == "Item Group" and filters["is_group"] == 0
+		leaves = sorted(name for kind, name in self.existing if kind == "Item Group")
+		if "name" in filters:
+			return filters["name"] if filters["name"] in leaves else None
+		return leaves[0] if leaves else None
 
 	def get_doc(self, payload):
 		fake = self
@@ -91,7 +101,7 @@ def load_schema():
 			sys.modules[name] = value
 
 
-_READY = {("Item Group", "All Item Groups"), ("UOM", "Nos")}
+_READY = {("Item Group", "Products"), ("Item Group", "Services"), ("UOM", "Nos")}
 
 
 class TestEnsureGiveBackItem:
@@ -99,6 +109,7 @@ class TestEnsureGiveBackItem:
 		fake = _Frappe(existing=_READY)
 		load_schema(fake).ensure_give_back_item()
 		((doc),) = fake.inserted
+		assert doc["item_group"] == "Services"  # a leaf group, never the "All Item Groups" root
 		assert (doc["doctype"], doc["item_code"], doc["is_stock_item"], doc["stock_uom"]) == (
 			"Item",
 			"RT-PROMO-GIVEBACK",
@@ -135,3 +146,8 @@ class TestEnsureGiveBackItem:
 		load_schema(fake).ensure_give_back_item()
 		assert fake.savepoints == ["rt_give_back_item"] and fake.rollbacks == ["rt_give_back_item"]
 		assert fake.commits == 0
+
+	def test_without_services_the_first_leaf_group_is_used(self, load_schema):
+		fake = _Frappe(existing={("Item Group", "Products"), ("UOM", "Nos")})
+		load_schema(fake).ensure_give_back_item()
+		assert fake.inserted[0]["item_group"] == "Products"
