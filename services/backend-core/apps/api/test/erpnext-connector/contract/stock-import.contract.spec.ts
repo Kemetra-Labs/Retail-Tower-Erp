@@ -177,7 +177,14 @@ describe("erpnext-connector/stock-import.yaml — document (RT-1286)", () => {
     expect(info()).toContain("ERPNext v16 stores `actual_qty` 0 on the ledger row of an untracked Stock Reconciliation, whatever its purpose");
     expect(info()).toContain("two ledger rows of one voucher row, warehouse and Batch (the out row and the in row of a tracked Stock Reconciliation) MUST NEVER share a key either");
     expect(info()).toContain("CANCELLATION PAIRING (DC-6, 1.1.0-draft)");
-    expect(info()).toContain("the same base tuple and the opposite `actualQty`");
+    expect(info()).toContain("Pairing applies only to a row not already recorded at its position");
+    expect(info()).toContain("a `creation` strictly earlier than this row's, and an `actualQty` that is the exact-decimal numeric negation of this row's");
+    expect(info()).toContain("whether it is imported or becomes a finding stays RT-1288's rule");
+    expect(info()).toContain("Known ambiguity, NOT VERIFIED on the bench");
+    expect(info()).toContain("the rows read twice are absorbed by their position (`erpnextWarehouseRef`, `ledgerEntryRef`, `entryIndex`), before any key or pairing");
+    expect(info()).toContain("so no reported row is lost to a key collision");
+    expect(info()).not.toContain("absorbed by the key");
+    expect(info()).not.toContain("sum to ERPNext's ledger");
     expect(info()).toContain("For 1.1.0-draft: this contract lands first; then Backend-Core's ingestion keys and pairs rows");
     expect(info()).toContain("The connector's stock import stays unscheduled and its site switch off until both are on `main`");
     // The bullet list keeps its line breaks (more-indented lines of a folded scalar), so compare
@@ -185,6 +192,9 @@ describe("erpnext-connector/stock-import.yaml — document (RT-1286)", () => {
     const qty = String((schema("StockImportRow").properties?.["actualQty"] as { description?: string })?.description).replace(/\s+/g, " ");
     expect(qty).toContain("The row's signed stock movement at the warehouse");
     expect(qty).toContain("the `qty` minus the `current_qty` of the Stock Reconciliation Item that `voucherDetailNo` names");
+    expect(qty).toContain("a Stock Reconciliation that has no Serial and Batch Bundle and no `batch_no` (an untracked Item), whose `actual_qty` is 0");
+    expect(qty).toContain("the entry's own sign when it is 0 (as 1.0.1-draft's reader does)");
+    expect(qty).toContain("A ledger row of any other voucher type whose `actual_qty` is 0: 0");
     expect(qty).toContain("A 0 therefore means the row moved nothing");
     expect(qty).not.toContain("Signed as the ledger row's `actual_qty`");
     for (const f of ["ledgerEntryRef", "entryIndex"]) {
@@ -458,18 +468,23 @@ describe("stock-import.yaml — instances", () => {
     ];
     const dc4Key = (r: Row, warehouse: string): string[] => [...baseTuple(r, warehouse), r.ledgerEntryRef, String(r.entryIndex)];
     const same = (a: string[], b: string[]): boolean => JSON.stringify(a) === JSON.stringify(b);
-    const negate = (q: string): string => (q.startsWith("-") ? q.slice(1) : `-${q}`);
     /**
-     * CANCELLATION PAIRING over rows in read order: a cancelled row is the reverse of the earliest
-     * recorded, not yet compensated original with the same base tuple and the opposite quantity
-     * (its key + `cancel`); any other row keys itself.
+     * An ILLUSTRATION of CANCELLATION PAIRING over rows in read order (the contract text is
+     * asserted in section 1; RT-1288's ingest is the implementation): a cancelled row is the
+     * reverse of the earliest recorded, not yet compensated original with the same base tuple, a
+     * strictly earlier `creation` and the numerically negated quantity (its key + `cancel`); any
+     * other row keys itself.
      */
     const keyAll = (rows: Row[], warehouse: string): string[][] => {
       const originals: { row: Row; key: string[]; compensated: boolean }[] = [];
       return rows.map((r) => {
         if (r.isCancelled) {
           const o = originals.find(
-            (x) => !x.compensated && same(baseTuple(x.row, warehouse), baseTuple(r, warehouse)) && x.row.actualQty === negate(r.actualQty),
+            (x) =>
+              !x.compensated &&
+              same(baseTuple(x.row, warehouse), baseTuple(r, warehouse)) &&
+              Date.parse(x.row.creation) < Date.parse(r.creation) &&
+              Number(x.row.actualQty) === -Number(r.actualQty),
           );
           if (o !== undefined) {
             o.compensated = true;
@@ -508,7 +523,7 @@ describe("stock-import.yaml — instances", () => {
       expect(sum([out, inn])).toBe(-1);
     });
 
-    it("reports an untracked Stock Reconciliation by its movement, never the ledger's stored 0 (RT-1396, bench)", () => {
+    it("illustrates: the bench's untracked Stock Reconciliation movements are valid report rows (the rule itself is asserted in section 1)", () => {
       const opening = { voucherType: "Stock Reconciliation", purpose: "Opening Stock", erpnextBatchRef: null };
       // Opening Stock 0 -> 10 and 10 -> 12, Stock Reconciliation 12 -> 7: the ledger stored actual_qty 0 for each.
       for (const [voucherNo, purpose, qty] of [
@@ -533,6 +548,21 @@ describe("stock-import.yaml — instances", () => {
       expect(keys[3]).toEqual([...dc4Key(inn, "Stores - RT"), "cancel"]);
       expect(new Set(keys.map((k) => JSON.stringify(k))).size).toBe(4);
       expect(sum([out, inn, revOut, revIn])).toBe(0);
+    });
+
+    it("illustrates the known ambiguity: equal and opposite rows first read cancelled may mis-pair, yet no quantity is lost or doubled", () => {
+      const reco = { voucherType: "Stock Reconciliation", voucherNo: "MAT-RECO-2026-00011", voucherDetailNo: "reco-row-2", isCancelled: true, erpnextBatchRef: { doctype: "Batch", name: "OA" } };
+      const out = row({ ...reco, ledgerEntryRef: "SLE-E", actualQty: "-3.000000", creation: "2026-11-11T09:00:00.000000+02:00" });
+      const inn = row({ ...reco, ledgerEntryRef: "SLE-F", actualQty: "3.000000", creation: "2026-11-11T09:00:00.001000+02:00" });
+      const revOut = row({ ...reco, ledgerEntryRef: "SLE-G", actualQty: "3.000000", creation: "2026-11-11T10:00:00.000000+02:00" });
+      const revIn = row({ ...reco, ledgerEntryRef: "SLE-H", actualQty: "-3.000000", creation: "2026-11-11T10:00:00.000000+02:00" });
+      const keys = keyAll([out, inn, revOut, revIn], "Stores - RT");
+      expect(keys[1]).toEqual([...dc4Key(out, "Stores - RT"), "cancel"]); // the ambiguity the contract names
+      expect(new Set(keys.map((k) => JSON.stringify(k))).size).toBe(4); // every row is one effect, none collides
+      expect(sum([out, inn, revOut, revIn])).toBe(0);
+      // With equal `creation` values (one instant) the strict-earlier rule keeps them apart.
+      const innSame = row({ ...reco, ledgerEntryRef: "SLE-F", actualQty: "3.000000", creation: out.creation });
+      expect(keyAll([out, innSame], "Stores - RT")[1]).toEqual(dc4Key(innSame, "Stores - RT"));
     });
 
     it("a cancelled untracked Opening Stock: +5 on the original (its movement), −5 on the reverse, net 0 (bench X1)", () => {

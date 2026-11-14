@@ -71,9 +71,11 @@ info:
     the second one. NORMATIVE (1.1.0-draft): two ledger rows of one voucher
     row, warehouse and Batch (the out row and the in row of a tracked Stock
     Reconciliation) MUST NEVER share a key either; `ledgerEntryRef` and
-    `entryIndex` make every report row's key its own, so every row is at
-    most one effect and the imported quantities of a warehouse always sum to
-    ERPNext's ledger there. RT-1288 fixes only the string format and the
+    `entryIndex` make every report row's key its own, so no reported row is
+    lost to a key collision. A row is recorded once at its position
+    (`erpnextWarehouseRef`, `ledgerEntryRef`, `entryIndex`); a row read again
+    at a recorded position (run-start overlap) is skipped before it is keyed
+    or paired, so it never becomes a second effect. RT-1288 fixes only the string format and the
     unique index, under its migration gate. The wire is unchanged by this:
     each report is for one requested warehouse. `ledgerEntryRef` and
     `entryIndex` also place a row in the read order. Owner decisions
@@ -81,15 +83,24 @@ info:
     on every row; a refused request answered with a refusal report.
 
     CANCELLATION PAIRING (DC-6, 1.1.0-draft). A reverse row has its own
-    `ledgerEntryRef`, so it cannot carry its original's key. A row with
+    `ledgerEntryRef`, so it cannot carry its original's key. Pairing applies
+    only to a row not already recorded at its position. A row with
     `isCancelled` true is the reverse of an original when Backend-Core has
-    already recorded, earlier in read order, an original row with the same
-    base tuple and the opposite `actualQty` that no reverse has yet
-    compensated (the earliest recorded such original when there are several);
-    its compensating effect takes that original's key plus `cancel`. Any
-    other row keys itself. Pairing decides only which effect a compensation
-    names: since every row keys itself or its original's `cancel`, the
-    quantities still sum to ERPNext's ledger.
+    already recorded, earlier in read order, an original row (one it keyed
+    with its own key, whatever that row's outcome) with the same base tuple,
+    a `creation` strictly earlier than this row's, and an `actualQty` that is
+    the exact-decimal numeric negation of this row's, and no reverse has yet
+    compensated that original (the earliest recorded such original when there
+    are several). Its compensating effect takes that original's key plus
+    `cancel`; whether it is imported or becomes a finding stays RT-1288's
+    rule (a compensation of an original that moved nothing in Retail Tower's
+    books is a finding). Any other row keys itself. Known ambiguity, NOT
+    VERIFIED on the bench: when the out row and the in row of one tracked
+    reconciliation row and Batch have equal and opposite quantities and are
+    first read already cancelled with different `creation` values, the in
+    row can pair as the reverse of the out row; every row still keys itself
+    or its original's `cancel` once, so no quantity is lost or doubled, and
+    only the effect a compensation names can be the wrong one.
 
     CURSOR, SETTLE AND OVERLAP (captain decisions D2 and D3, owner
     delegation 2026-11-11). Backend-Core owns the cursor (RT-1288). The read
@@ -109,7 +120,8 @@ info:
     can still commit behind the cursor; the backstop is the run-start
     overlap: page 0 of a new run starts `overlapSeconds` before the
     previous run's last non-null `readThrough.creation`, and the rows read
-    twice are absorbed by the key. Both windows are Backend-Core settings
+    twice are absorbed by their position (`erpnextWarehouseRef`,
+    `ledgerEntryRef`, `entryIndex`), before any key or pairing. Both windows are Backend-Core settings
     (default `settleSeconds` 300 until measured) sized by bench
     measurement on the pinned v16 bench (Frappe v16.52.0 / ERPNext
     v16.51.0, RT-1287). Rows of the Inventory Anchor are recorded as
@@ -859,27 +871,37 @@ components:
             connector converts deterministically, round half-even to 6 dp, as for
             `stock-view.yaml` quantities). The connector reads it as follows, and
             in no other way:
-              * A ledger row whose `actual_qty` is not 0: its `actual_qty`. For a
-                Batch-entry row, that entry's quantity with the ledger row's sign.
-                This covers every non-reconciliation voucher, both rows of a
-                tracked Stock Reconciliation (bench: −4 out, then +3 in) and every
-                reverse row of a cancellation.
-              * A ledger row of an untracked Stock Reconciliation (no Batch on the
-                row or its bundle) whose `actual_qty` is 0, whatever its purpose
-                and whether or not it is cancelled: the `qty` minus the
-                `current_qty` of the Stock Reconciliation Item that
-                `voucherDetailNo` names. ERPNext v16 records that change only in
-                `qty_after_transaction`; its own Stock Ledger report derives it
-                the same way (`report/stock_ledger/stock_ledger.py`, as
-                `qty_after_transaction` minus the previous row's). Bench (Frappe
-                v16.52.0 / ERPNext v16.51.0, RT-1287 comment 17044): Opening Stock
-                0 → 10 gives +10, Opening Stock 10 → 12 gives +2, Stock
-                Reconciliation 12 → 7 gives −5, and a cancelled Opening Stock of 5
-                gives +5 on its original row and −5 on its reverse row.
-              * Any other ledger row whose `actual_qty` is 0: 0.
+              * A Batch-entry row (the ledger row has a Serial and Batch Bundle
+                that carries a Batch): that entry's quantity, with the ledger
+                row's sign when the ledger row's `actual_qty` is not 0 and the
+                entry's own sign when it is 0 (as 1.0.1-draft's reader does).
+                Bench: both rows of a tracked Stock Reconciliation (−4 out, then
+                +3 in) and a batch Opening Stock on an empty position (+4, +6).
+              * Any other ledger row whose `actual_qty` is not 0: its
+                `actual_qty`. This covers every non-reconciliation voucher, a
+                serial-only bundle's ledger row (bench, RT-1394 comment 17037:
+                a serial count writes −3 out, then +2 in) and every reverse row
+                of a cancellation.
+              * A ledger row of a Stock Reconciliation that has no Serial and
+                Batch Bundle and no `batch_no` (an untracked Item), whose
+                `actual_qty` is 0, whatever its purpose and whether or not it is
+                cancelled: the `qty` minus the `current_qty` of the Stock
+                Reconciliation Item that `voucherDetailNo` names. ERPNext v16
+                records that change only in `qty_after_transaction`; its own
+                Stock Ledger report derives the same change from
+                `qty_after_transaction` minus the previous row's
+                (`report/stock_ledger/stock_ledger.py`, read at 16.51.0), and on
+                the bench both gave the same value. Bench (Frappe v16.52.0 /
+                ERPNext v16.51.0, RT-1287 comment 17044): Opening Stock 0 → 10
+                gives +10, Opening Stock 10 → 12 gives +2, Stock Reconciliation
+                12 → 7 gives −5, and a cancelled Opening Stock of 5 gives +5 on
+                its original row and −5 on its reverse row.
+              * A ledger row of any other voucher type whose `actual_qty` is 0:
+                0.
             A 0 therefore means the row moved nothing. NOT VERIFIED on the bench:
             a tracked Stock Reconciliation on an empty position, a tracked Opening
-            Stock on a position that already holds stock, and serial Items. BENCH
+            Stock on a position that already holds stock, and a serial Opening
+            Stock. BENCH
             risk, unchanged: a backdated ERP entry can repost a later ledger row
             (and a reconciliation's `current_qty`) without moving its `creation`;
             this feed reads each row once, so such a change reaches Backend-Core
