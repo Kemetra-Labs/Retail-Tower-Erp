@@ -196,6 +196,12 @@ describe("erpnext-connector/stock-import.yaml — document (RT-1286)", () => {
     expect(qty).toContain("the entry's own sign when it is 0 (as 1.0.1-draft's reader does)");
     expect(qty).toContain("A ledger row of any other voucher type whose `actual_qty` is 0: 0");
     expect(qty).toContain("A 0 therefore means the row moved nothing");
+    // RT-1401: the reverse row of a cancelled untracked Stock Reconciliation reports the negated movement.
+    expect(qty).toContain("whose `isCancelled` is true and whose `actual_qty` is not 0 (the reverse row ERPNext writes when such a reconciliation is cancelled; RT-1401, recorded on Jira RT-1401 comment 17083)");
+    expect(qty).toContain("the negation of that same difference, `-(qty - current_qty)`, of the Stock Reconciliation Item that `voucherDetailNo` names");
+    expect(qty).toContain("When the position was empty it stores `-qty`, which is already the movement");
+    expect(qty).toContain("and the reverse row of a cancellation of any voucher other than an untracked Stock Reconciliation");
+    expect(info()).toContain("The reverse row of an untracked Stock Reconciliation reports the exact negation of its original's `actualQty` (see `actualQty`, RT-1401), so it pairs");
     expect(qty).not.toContain("Signed as the ledger row's `actual_qty`");
     for (const f of ["ledgerEntryRef", "entryIndex"]) {
       expect(flat(JSON.stringify(schema("StockImportRow").properties?.[f]))).toContain("A DC-4 key component since 1.1.0-draft");
