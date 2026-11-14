@@ -48,14 +48,18 @@ _ROW_KEYS = {
 
 
 class FakeSource:
-	def __init__(self, entries=(), bundles=None, facts=None, warehouses=(_WH,), now=_NOW, zone=_ZONE):
+	def __init__(
+		self, entries=(), bundles=None, facts=None, warehouses=(_WH,), now=_NOW, zone=_ZONE, items=None
+	):
 		self.entries = list(entries)
 		self.bundles = bundles or {}
 		self.facts = facts or {}
 		self.warehouses = set(warehouses)
 		self.now = now
 		self.zone = zone
+		self.items = items or {}
 		self.reads = []
+		self.item_reads = []
 
 	def warehouse_exists(self, warehouse):
 		return warehouse in self.warehouses
@@ -91,6 +95,10 @@ class FakeSource:
 
 	def voucher_facts(self, vouchers):
 		return {v: self.facts[v] for v in vouchers if v in self.facts}
+
+	def reconciliation_items(self, details):
+		self.item_reads.append(list(details))
+		return {d: self.items[d] for d in details if d in self.items}
 
 
 def sle(name, creation, *, vt="Purchase Receipt", vno="PR-1", detail="d1", qty=10.0, item="ITEM-1", **kw):
@@ -437,3 +445,138 @@ def test_zero_quantity_is_not_negative():
 	)
 	[row] = wire_rows(report(src))
 	assert row["actualQty"] == "0.000000"
+
+
+# --- RT-1398: untracked Stock Reconciliation rows stored with actual_qty 0 (1.1.0-draft) ----------
+
+_RECO = "Stock Reconciliation"
+
+
+def reco_sle(name, creation, detail="sri-1", **kw):
+	"""A ledger row of a Stock Reconciliation as ERPNext v16 stores an untracked one: actual_qty 0."""
+	return sle(
+		name, creation, vt=_RECO, vno=kw.pop("vno", "RECO-1"), detail=detail, qty=kw.pop("qty", 0), **kw
+	)
+
+
+@pytest.mark.parametrize(
+	("purpose", "qty", "current_qty", "expected"),
+	[
+		("Opening Stock", 10, 0, "10.000000"),  # bench: Opening Stock 0 -> 10
+		("Opening Stock", 12, 10, "2.000000"),  # bench: Opening Stock 10 -> 12
+		("Stock Reconciliation", 7, 12, "-5.000000"),  # bench: Stock Reconciliation 12 -> 7
+		("Stock Reconciliation", 5, 5, "0.000000"),  # counted equal to the balance: moved nothing
+		("Opening Stock", 0.1234565, 0, "0.123456"),  # round half-even to 6 dp
+		("Stock Reconciliation", 0, 3.5, "-3.500000"),  # counted zero: all out
+	],
+)
+def test_untracked_reconciliation_reports_qty_minus_current_qty(purpose, qty, current_qty, expected):
+	src = FakeSource(
+		[reco_sle("SLE-1", at(1))],
+		facts={(_RECO, "RECO-1"): r.VoucherFacts(purpose=purpose)},
+		items={"sri-1": r.RawReconciliationItem(qty=qty, current_qty=current_qty)},
+	)
+	[row] = wire_rows(report(src))
+	assert row["actualQty"] == expected
+	assert _QTY_RE.match(row["actualQty"])
+	assert (row["purpose"], row["entryIndex"], row["erpnextBatchRef"]) == (purpose, 0, None)
+
+
+def test_cancelled_opening_stock_reads_the_same_item_for_original_and_reverse():
+	# Bench: Opening Stock of 5 on an empty position, then cancelled. Both ledger rows are stored 0 and
+	# flagged cancelled and name the same voucher row. The reader reports what the rule says for each
+	# row it is given (qty - current_qty of that row); the original is +5. The reverse row's -5 is
+	# checked on the bench (its ledger row there stores a non-zero actual_qty, or the item is read as
+	# at cancel time); see the evidence on RT-1398.
+	item = r.RawReconciliationItem(qty=5, current_qty=0)
+	src = FakeSource(
+		[reco_sle("SLE-ORIG", at(1), is_cancelled=True)],
+		items={"sri-1": item},
+	)
+	[row] = wire_rows(report(src))
+	assert (row["ledgerEntryRef"], row["isCancelled"], row["actualQty"]) == ("SLE-ORIG", True, "5.000000")
+
+
+def test_reverse_row_with_its_own_actual_qty_passes_through():
+	# A reverse row that ERPNext does store with a non-zero actual_qty keeps it (other rows unchanged).
+	src = FakeSource(
+		[reco_sle("SLE-REV", at(2), qty=-5, is_cancelled=True)],
+		items={"sri-1": r.RawReconciliationItem(qty=5, current_qty=0)},
+	)
+	[row] = wire_rows(report(src))
+	assert row["actualQty"] == "-5.000000"
+	assert src.item_reads == []  # no Stock Reconciliation Item read for a row that has its own quantity
+
+
+@pytest.mark.parametrize("kw", [{"bundle": "SBB-1"}, {"batch_no": "B1"}], ids=["bundle", "batch_no"])
+def test_tracked_reconciliation_row_never_uses_the_reconciliation_item(kw):
+	src = FakeSource(
+		[reco_sle("SLE-1", at(1), **kw)],
+		bundles={"SBB-1": [r.RawBundleEntry("B1", -4.0)]},
+		items={"sri-1": r.RawReconciliationItem(qty=99, current_qty=0)},
+	)
+	[row] = wire_rows(report(src))
+	assert row["actualQty"] == ("-4.000000" if "bundle" in kw else "0.000000")
+	assert src.item_reads == []
+
+
+def test_batch_entry_rows_keep_the_sign_rule():
+	# Bench: tracked reconciliation -4 out then +3 in (ledger sign), and a batch Opening Stock +4, +6
+	# on an empty position (ledger row 0, so the entry's own sign).
+	src = FakeSource(
+		[
+			reco_sle("SLE-OUT", at(1), qty=-4, bundle="SBB-OUT"),
+			reco_sle("SLE-IN", at(1, 1), qty=3, bundle="SBB-IN"),
+			reco_sle("SLE-OPEN", at(2), vno="RECO-2", detail="sri-2", bundle="SBB-OPEN"),
+		],
+		bundles={
+			"SBB-OUT": [r.RawBundleEntry("B1", 4.0)],
+			"SBB-IN": [r.RawBundleEntry("B1", 3.0)],
+			"SBB-OPEN": [r.RawBundleEntry("B1", 4.0), r.RawBundleEntry("B2", 6.0)],
+		},
+	)
+	assert [x["actualQty"] for x in wire_rows(report(src))] == [
+		"-4.000000",
+		"3.000000",
+		"4.000000",
+		"6.000000",
+	]
+
+
+def test_other_voucher_types_with_zero_actual_qty_report_zero_and_read_no_item():
+	src = FakeSource([sle("SLE-1", at(1), vt="Stock Entry", vno="STE-1", detail="sed-1", qty=0)])
+	[row] = wire_rows(report(src))
+	assert row["actualQty"] == "0.000000"
+	assert src.item_reads == []
+
+
+def test_items_are_read_once_per_chunk_for_the_distinct_voucher_rows():
+	src = FakeSource(
+		[
+			reco_sle("SLE-1", at(1), detail="sri-1"),
+			reco_sle("SLE-2", at(2), detail="sri-1"),
+			reco_sle("SLE-3", at(3), detail="sri-2"),
+			sle("SLE-4", at(4)),
+		],
+		items={
+			"sri-1": r.RawReconciliationItem(qty=1, current_qty=0),
+			"sri-2": r.RawReconciliationItem(qty=2, current_qty=0),
+		},
+	)
+	assert len(wire_rows(report(src))) == 4
+	assert src.item_reads == [["sri-1", "sri-2"]]
+
+
+@pytest.mark.parametrize(
+	("detail", "items"),
+	[
+		("sri-1", {}),  # the named Stock Reconciliation Item does not exist
+		(None, {}),  # the ledger row names no voucher row
+		("sri-1", {"sri-1": r.RawReconciliationItem(qty=None, current_qty=4)}),  # blank counted quantity
+	],
+	ids=["item-missing", "no-detail", "qty-blank"],
+)
+def test_untracked_reconciliation_row_without_its_quantities_fails_closed(detail, items):
+	src = FakeSource([reco_sle("SLE-1", at(1), detail=detail)], items=items)
+	with pytest.raises(r.StockImportReadError):
+		report(src)
