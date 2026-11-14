@@ -88,10 +88,59 @@ def ensure_g5_indexes() -> None:
 
 def after_install() -> None:
 	ensure_g5_indexes()
+	ensure_give_back_item()
 
 
 def after_migrate() -> None:
 	ensure_g5_indexes()
+	ensure_give_back_item()
+
+
+# A fresh ERPNext site has these after its setup wizard; before it, the Item is created on a later migrate.
+_GIVE_BACK_ITEM_GROUP = "All Item Groups"
+_GIVE_BACK_UOM = "Nos"
+
+
+def ensure_give_back_item() -> None:
+	"""Create the fixed non-stock promotion give-back Item when it is missing (RT-1340, owner decision).
+
+	⏳ BENCH-VALIDATION. Idempotent: an existing Item is never changed, even a wrong one (the
+	Compatibility Profile warns about it and give-back returns stay ``failed_transient``). Never fails
+	the migrate: unlike the G5 indexes, posting is safe without it, so a failure is logged at error and
+	the next migrate tries again.
+	"""
+	from .posting.give_back_item import GIVE_BACK_ITEM_CODE, GIVE_BACK_ITEM_NAME
+
+	try:
+		if frappe.db.exists("Item", GIVE_BACK_ITEM_CODE):
+			return
+		if not (
+			frappe.db.exists("Item Group", _GIVE_BACK_ITEM_GROUP) and frappe.db.exists("UOM", _GIVE_BACK_UOM)
+		):
+			_log_give_back("give_back_item.deferred", "Item Group or UOM not set up yet (setup wizard)")
+			return
+		frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": GIVE_BACK_ITEM_CODE,
+				"item_name": GIVE_BACK_ITEM_NAME,
+				"item_group": _GIVE_BACK_ITEM_GROUP,
+				"stock_uom": _GIVE_BACK_UOM,
+				"is_stock_item": 0,
+				"is_sales_item": 1,
+				"is_purchase_item": 0,
+				"include_item_in_manufacturing": 0,
+				"description": "Posted by the Retail Tower connector: a promotion discount given back on a "
+				"return after an earlier clawback (OD-11). Do not rename, disable or make it a stock Item.",
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception as exc:  # the migrate must not fail for it; logged at error so operators see it
+		_log_give_back("give_back_item.ensure_failed", f"{type(exc).__name__}: {exc}")
+
+
+def _log_give_back(event: str, detail: str) -> None:
+	frappe.logger("retail_tower_posting").error({"event": event, "detail": detail})
 
 
 def _ensure(doctype: str, index_name: str, columns: tuple[str, ...], create) -> None:

@@ -118,6 +118,8 @@ class SiteSnapshot:
 	default_tax_templates: tuple[str, ...] = ()
 	# The site config ``scheduler_tick_interval`` in seconds, or None when unset (RT-494).
 	scheduler_tick_s: int | None = None
+	# Why the fixed promotion give-back Item cannot be used, or None when it can (RT-1340; warning only).
+	give_back_item_problem: str | None = None
 
 
 @dataclass(frozen=True)
@@ -264,6 +266,11 @@ def _warnings(snapshot: SiteSnapshot) -> tuple[str, ...]:
 			"by ignore_pricing_rule (RT-377)"
 		)
 	warnings += _scheduler_tick_warnings(snapshot)
+	if snapshot.give_back_item_problem:
+		warnings.append(
+			f"promotion give-back Item {snapshot.give_back_item_problem}: a return with a promotion give-back "
+			"is acked failed_transient until it is fixed (RT-1340); bench migrate creates a missing one"
+		)
 	return tuple(warnings)
 
 

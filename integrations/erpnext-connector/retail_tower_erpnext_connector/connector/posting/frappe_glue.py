@@ -45,6 +45,7 @@ from .batch_policy import (
 )
 from .builder import LineDiscountNotPostable, SaleTaxNotPosted, UnmappedUnit, build_sales_invoice
 from .contracts import ErpnextDocumentRef, OutcomeAckRequest, PostingWorkItem
+from .give_back_item import GIVE_BACK_ITEM_CODE, GIVE_BACK_ITEM_FIELDS, resolve_give_back_item
 from .idempotency import IdempotencyConflict, IdempotencyStore, key_for, provenance_id
 from .posting_time import PostingClock, PostingStamp, apply_stamp, raise_to_original, stamp_for
 from .reasons import FailureKind, scrub_message, to_rejection_reason
@@ -58,6 +59,8 @@ from .representation_check import (
 )
 from .resolution_check import InvoiceLine, InvoiceSnapshot, check_existing, check_replayed_representation
 from .return_builder import (
+	GiveBackItem,
+	GiveBackItemNotConfigured,
 	MissingRefundTenders,
 	PromotionAmountNotPostable,
 	ReturnResolvers,
@@ -737,6 +740,10 @@ def _build_or_reject(
 		return build()
 	except _transient_exceptions() as exc:
 		return _ack_transient(client, work_item, correlation_id, exc)
+	except GiveBackItemNotConfigured as exc:
+		# RT-1340 owner decision: a missing or wrong give-back Item is re-offered, not rejected (the
+		# Compatibility Profile warns; Backend-Core's retry budget bounds the wait).
+		return _ack_transient(client, work_item, correlation_id, exc)
 	except UnmappedUnit as exc:
 		return _reject(client, work_item, correlation_id, FailureKind.UNMAPPED_UNIT, _exception_message(exc))
 	except validation_errors as exc:
@@ -1259,7 +1266,7 @@ def _guard_tracked_items(
 	"""
 	try:
 		tracking = _read_item_tracking(doc_payload)
-		lines = line_tracking(work_item)
+		lines = line_tracking(work_item, doc_payload)
 		assert_tracking_postable(doc_payload, lines, tracking)
 		if doc_payload.get("is_return"):
 			original_batches = _read_original_batches(doc_payload, tracking)
@@ -1406,6 +1413,7 @@ def _build_reversal(
 			warehouse_for=_warehouse_for(work_item, warehouses),
 			customer_for=customers.for_store,
 			mode_of_payment_for=tenders.resolve,
+			give_back_item=_give_back_item,
 		)
 		return build_return_invoice(work_item, resolvers, posting_stamp=stamp)
 	return build_reversing_invoice(
@@ -1415,6 +1423,16 @@ def _build_reversal(
 		customer_for=customers.for_store,
 		posting_stamp=stamp,
 	)
+
+
+def _give_back_item() -> GiveBackItem:
+	"""The fixed promotion give-back Item and its stock UOM (OD-11 Hybrid, RT-1340). ⏳ BENCH-VALIDATION.
+
+	Read only when a returned line carries a give-back; a missing, disabled or stock Item raises
+	:class:`GiveBackItemNotConfigured`, which the build maps to ``failed_transient``.
+	"""
+	row = frappe.db.get_value("Item", GIVE_BACK_ITEM_CODE, GIVE_BACK_ITEM_FIELDS, as_dict=True)
+	return resolve_give_back_item(row)
 
 
 def _link_to_original(kind: str, doc_payload: dict, original: dict) -> dict:

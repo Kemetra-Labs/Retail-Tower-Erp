@@ -111,9 +111,9 @@ class PromotionAmountNotPostable(Exception):
 class GiveBackItemNotConfigured(Exception):
 	"""A return carries a promotion give-back but no give-back Item is configured (OD-11 Hybrid)."""
 
-	def __init__(self) -> None:
+	def __init__(self, reason: str = "is not configured") -> None:
 		super().__init__(
-			"return carries a promotionGiveBackAmount but no promotion give-back Item is configured"
+			f"return carries a promotionGiveBackAmount but the promotion give-back Item {reason}"
 		)
 
 
