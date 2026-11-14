@@ -474,6 +474,8 @@ function expectFeedShares(item: PostingWorkItem, expected: ReadonlyArray<FeedLin
   const lines = item.reversalOf!.returnLines!;
   const actual = lines.map((l) => [l.lineRef, units4(l.promotionClawbackAmount), units4(l.promotionGiveBackAmount)]);
   const wanted = new Map(expected.map((f) => [lineRefOf(f.saleLineRef), [units4(f.promotionClawbackAmount), units4(f.promotionGiveBackAmount)]] as const));
+  // Every expected share has its return line: a projection that dropped a line would otherwise pass unchecked.
+  expect(lines.map((l) => l.lineRef)).toEqual(expect.arrayContaining([...wanted.keys()]));
   expect(actual).toEqual(lines.map((l) => [l.lineRef, ...(wanted.get(l.lineRef) ?? [0, 0])]));
   // A zero share is omitted, never written as "0.0000".
   for (const l of lines) {
