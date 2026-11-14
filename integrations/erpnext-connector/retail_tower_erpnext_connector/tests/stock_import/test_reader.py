@@ -13,6 +13,7 @@ overlap re-read (same request → identical report), the refusal, and the time r
 
 import re
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -486,7 +487,7 @@ def test_cancelled_opening_stock_reports_plus_on_the_original_and_minus_on_the_r
 	# Bench (v16.51.0, RT-1287 comment 17044, RT-1398): Opening Stock of 5 on an empty position, then
 	# cancelled. Both ledger rows are flagged cancelled and name the same voucher row. The original is
 	# stored with actual_qty 0 (the rule gives qty - current_qty = +5); the reverse row is stored with
-	# actual_qty -5, which passes through. The item is read for the original only.
+	# actual_qty -5, which the reverse-row rule also reports as -(qty - current_qty) = -5.
 	src = FakeSource(
 		[
 			reco_sle("SLE-ORIG", at(1), is_cancelled=True),
@@ -527,15 +528,60 @@ def test_reconciliation_rows_across_chunks_and_a_resume_at_one_of_them():
 	assert seen == [("SLE-1", "10.000000"), ("SLE-2", "2.000000"), ("SLE-3", "-5.000000")]
 
 
-def test_reverse_row_with_its_own_actual_qty_passes_through():
-	# A reverse row that ERPNext does store with a non-zero actual_qty keeps it (other rows unchanged).
+@pytest.mark.parametrize(
+	("qty", "current_qty", "stored_reverse", "original", "reverse"),
+	[
+		# bench (RT-1401, ERPNext 16.51.0): the reverse row stores the balance before the reconciliation
+		(12, 10, 10, "2.000000", "-2.000000"),  # Stock Reconciliation 10 -> 12 cancelled
+		(7, 10, 10, "-3.000000", "3.000000"),  # 10 -> 7 cancelled
+		(5, 0, -5, "5.000000", "-5.000000"),  # Opening Stock 5 on an empty position cancelled
+		(0, 4, 4, "-4.000000", "4.000000"),  # counted zero cancelled
+	],
+)
+def test_cancelled_untracked_reconciliation_pair_is_the_exact_negation(
+	qty, current_qty, stored_reverse, original, reverse
+):
 	src = FakeSource(
-		[reco_sle("SLE-REV", at(2), qty=-5, is_cancelled=True)],
-		items={"sri-1": r.RawReconciliationItem(qty=5, current_qty=0)},
+		[
+			reco_sle("SLE-ORIG", at(1), is_cancelled=True),
+			reco_sle("SLE-REV", at(2), qty=stored_reverse, is_cancelled=True),
+		],
+		items={"sri-1": r.RawReconciliationItem(qty=qty, current_qty=current_qty)},
+	)
+	rows = wire_rows(report(src))
+	assert [x["actualQty"] for x in rows] == [original, reverse]
+	assert Decimal(original) == -Decimal(reverse)  # what Backend-Core pairs on (DC-6)
+
+
+def test_uncancelled_untracked_reconciliation_row_with_its_own_quantity_passes_through():
+	# Not expected on v16 (an untracked reconciliation row is stored 0 until cancelled), so it is not guessed.
+	src = FakeSource(
+		[reco_sle("SLE-1", at(1), qty=4)],
+		items={"sri-1": r.RawReconciliationItem(qty=9, current_qty=0)},
+	)
+	[row] = wire_rows(report(src))
+	assert row["actualQty"] == "4.000000"
+	assert src.item_reads == []
+
+
+@pytest.mark.parametrize(
+	"kw",
+	[
+		{"vt": "Stock Entry", "vno": "STE-1", "detail": "sed-1"},  # another voucher type
+		{"vt": _RECO, "bundle": "SBB-REV"},  # a tracked reconciliation's reverse row
+		{"vt": _RECO, "batch_no": "B1"},  # a legacy batch ledger row
+	],
+	ids=["other-voucher", "bundle", "batch_no"],
+)
+def test_other_cancelled_reverse_rows_pass_through(kw):
+	src = FakeSource(
+		[sle("SLE-REV", at(2), qty=-5, is_cancelled=True, **kw)],
+		bundles={"SBB-REV": [r.RawBundleEntry("B1", 5.0)]},
+		items={"sri-1": r.RawReconciliationItem(qty=99, current_qty=0)},
 	)
 	[row] = wire_rows(report(src))
 	assert row["actualQty"] == "-5.000000"
-	assert src.item_reads == []  # no Stock Reconciliation Item read for a row that has its own quantity
+	assert src.item_reads == []
 
 
 @pytest.mark.parametrize("kw", [{"bundle": "SBB-1"}, {"batch_no": "B1"}], ids=["bundle", "batch_no"])
@@ -608,5 +654,11 @@ def test_items_are_read_once_per_chunk_for_the_distinct_voucher_rows():
 )
 def test_untracked_reconciliation_row_without_its_quantities_fails_closed(detail, items):
 	src = FakeSource([reco_sle("SLE-1", at(1), detail=detail)], items=items)
+	with pytest.raises(r.StockImportReadError):
+		report(src)
+
+
+def test_reverse_row_without_its_item_fails_closed():
+	src = FakeSource([reco_sle("SLE-REV", at(2), qty=10, is_cancelled=True)], items={})
 	with pytest.raises(r.StockImportReadError):
 		report(src)
