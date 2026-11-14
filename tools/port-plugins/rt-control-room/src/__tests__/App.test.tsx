@@ -1,4 +1,6 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PortBridge } from "../bridge/usePortBridge";
 
@@ -11,6 +13,12 @@ vi.mock("../bridge/usePortBridge", () => ({
 }));
 
 import { App } from "../App";
+
+// useBoard needs a QueryClient, and a ready bridge makes it fetch: the stand-in
+// answers 500 so no test reaches the real Port API.
+function render(ui: ReactElement) {
+  return rtlRender(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
+}
 
 function setBridge(partial: Partial<PortBridge>): void {
   bridge.value = {
@@ -26,10 +34,17 @@ function setBridge(partial: Partial<PortBridge>): void {
 describe("App", () => {
   beforeEach(() => {
     setBridge({});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })),
+    );
   });
 
   // vitest globals are off, so Testing Library does not auto-clean between tests.
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it("waits for Port when no bridge data has arrived", () => {
     render(<App />);
@@ -61,5 +76,27 @@ describe("App", () => {
     setBridge({ applyThemeCss });
     render(<App />);
     expect(applyThemeCss).toHaveBeenCalled();
+  });
+});
+
+describe("App hook order", () => {
+  it("renders the same hooks before and after the token arrives", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    setBridge({});
+    const queryClient = new QueryClient();
+    const ui = (
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    );
+    const { rerender, container } = rtlRender(ui);
+    expect(screen.getByText("Waiting for Port...")).toBeTruthy();
+
+    setBridge({ status: "ready", trusted: true, token: "tok-secret", baseUrl: "https://api.getport.io" });
+    expect(() => rerender(ui)).not.toThrow();
+    expect(container.querySelector(".shell")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBeTruthy();
+    expect(errors.mock.calls.flat().join(" ")).not.toMatch(/hook/i);
+    errors.mockRestore();
   });
 });

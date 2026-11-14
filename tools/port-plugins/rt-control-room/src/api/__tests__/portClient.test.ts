@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPortClient, type PortQuery } from "../portClient";
+import { createPortClient, PortApiError, type PortQuery } from "../portClient";
 
 const BASE = "https://api.getport.io";
 const QUERY: PortQuery = {
@@ -99,6 +99,8 @@ describe("createPortClient", () => {
     const client = createPortClient(BASE, () => "tok-secret", onUnauthorized);
     const err = await client.search("service", QUERY).catch((e: Error) => e);
     expect((err as Error).message).toBe("Port API 403");
+    expect(err).toBeInstanceOf(PortApiError);
+    expect((err as PortApiError).status).toBe(403);
     expect((err as Error).message).not.toContain("tok-secret");
     expect(onUnauthorized).not.toHaveBeenCalled();
   });

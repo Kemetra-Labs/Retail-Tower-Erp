@@ -6,7 +6,18 @@ export interface PortRule {
 
 export interface PortQuery {
   combinator: "and" | "or";
-  rules: PortRule[];
+  /** Rules may nest: Port accepts a `{ combinator, rules }` group wherever a rule goes. */
+  rules: (PortRule | PortQuery)[];
+}
+
+/** HTTP failure of the Port API. Carries the status only, never the response body. */
+export class PortApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "PortApiError";
+    this.status = status;
+  }
 }
 
 export interface SearchOptions {
@@ -51,9 +62,9 @@ export function createPortClient(
     const res = await fetch(`${root}${path}`, init);
     if (res.status === 401) {
       onUnauthorized();
-      throw new Error("Unauthorized");
+      throw new PortApiError("Unauthorized", 401);
     }
-    if (!res.ok) throw new Error(`Port API ${res.status}`);
+    if (!res.ok) throw new PortApiError(`Port API ${res.status}`, res.status);
     return (await res.json()) as T;
   }
 
