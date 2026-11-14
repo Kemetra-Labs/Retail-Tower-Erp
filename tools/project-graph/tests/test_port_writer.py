@@ -31,8 +31,9 @@ def stored_entity(number=559, **overrides):
 
 
 class FakeGithub:
-    def __init__(self, tip, prs):
+    def __init__(self, tip, prs, detached=True):
         self.tip = tip
+        self.detached = detached             # False: hand out the stored objects themselves
         self.prs = {p["number"]: dict(p) for p in prs}
         self.counts = Counter()
         self.hooks = {}                      # (method, n-th call) -> callable(self)
@@ -49,11 +50,13 @@ class FakeGithub:
 
     def get_pr(self, number):
         self._tick("get_pr")
-        return copy.deepcopy(self.prs.get(number))
+        pr = self.prs.get(number)
+        return copy.deepcopy(pr) if self.detached else pr
 
 
 class FakePort:
-    def __init__(self, entities, services=None):
+    def __init__(self, entities, services=None, detached=True):
+        self.detached = detached             # False: hand out the stored objects themselves
         self.entities = copy.deepcopy(entities)
         self.services = set(ps.SERVICES if services is None else services)
         self.patches = []
@@ -74,8 +77,8 @@ class FakePort:
         self._tick("find_entities")
         if self.break_find_after_patch and self.patches:
             raise OSError("read failed")
-        return copy.deepcopy([e for e in self.entities
-                              if e.get("properties", {}).get("prNumber") == number])
+        found = [e for e in self.entities if e.get("properties", {}).get("prNumber") == number]
+        return copy.deepcopy(found) if self.detached else found
 
     def service_ids(self):
         self._tick("service_ids")
@@ -414,6 +417,83 @@ class ApplyTests(Executor):
         self.assertEqual(report["request"]["body"]["relations"], {"affected_services": ["backend-core", "pos"]})
         recorded = report["request"]["body"]["properties"]["classification_policy_ref"]
         self.assertEqual(recorded, ps.policy_ref(self.repo, self.sha["c1"]))
+
+
+class AliasedTransportTests(Executor):
+    """The transport contract does not promise detached objects. A transport that hands out its own
+    cached objects must not be able to move the executor's before-state baselines."""
+
+    def setUp(self):
+        super().setUp()
+        self.github = FakeGithub(self.tip, [self.pr], detached=False)
+        self.port = FakePort([stored_entity(559)], detached=False)
+
+    def test_an_in_place_write_that_clobbers_the_legacy_service_is_still_detected(self):
+        self.port.drop_service = True
+        report = self.apply()
+        self.assertEqual(report["result"], "verify_failed")
+        self.assertIn("PRESERVED_FIELDS_CHANGED", report["violations"])
+
+    def test_an_entity_changed_in_place_before_the_write_still_blocks(self):
+        self.port.hooks[("find_entities", 2)] = lambda p: p.entities[0]["properties"].update(has_reviewers=True)
+        report = self.apply()
+        self.assertEqual((report["result"], report["reasons"]), ("blocked", ["ENTITY_CHANGED"]))
+        self.assertEqual(self.port.patches, [])
+
+    def test_a_writer_field_changed_in_place_before_the_write_still_blocks(self):
+        self.port.hooks[("find_entities", 2)] = lambda p: p.entities[0]["properties"].update(
+            attribution_status="pending")
+        self.assertEqual(self.apply()["reasons"], ["ENTITY_CHANGED"])
+
+    def test_a_pr_changed_in_place_before_the_write_still_blocks(self):
+        self.github.hooks[("get_pr", 2)] = lambda g: g.prs[559].update(state="closed", merged=True)
+        report = self.apply()
+        self.assertEqual((report["result"], report["reasons"]), ("blocked", ["PR_CHANGED"]))
+        self.assertEqual(self.port.patches, [])
+
+    def test_the_report_does_not_alias_the_transport_either(self):
+        report = self.go()
+        self.port.entities[0]["properties"]["status"] = "closed"
+        self.assertEqual(report["before"]["properties"], {k: None for k in ps.WRITER_PROPERTIES})
+
+
+class CrossRepositoryTests(Executor):
+    """Port can hold another repository's PR with the same number. The planner ignores it (it keys
+    on the repository relation), so every later read must resolve the entity the same way."""
+
+    def setUp(self):
+        super().setUp()
+        self.other = base.entity(559, relations={"repository": {"identifier": "Another-Repo"}},
+                                 identifier="Another-Repo-pr-559")
+        self.port = FakePort([stored_entity(559), self.other])
+
+    def test_an_unrelated_entity_with_the_same_number_does_not_block_a_write(self):
+        report = self.apply()
+        self.assertEqual((report["result"], report["writes"], report["violations"]), ("written", 1, []))
+        self.assertEqual(len(self.port.patches), 1)
+        self.assertTrue(self.port.patches[0]["path"].endswith("/Retail-Tower-Erp-pr-559"))
+        self.assertEqual(self.port.entities[1], self.other, "the other repository's entity is untouched")
+
+    def test_such_an_entity_appearing_between_snapshot_and_write_does_not_block(self):
+        self.port.entities.pop()
+        self.port.hooks[("find_entities", 2)] = lambda p: p.entities.append(copy.deepcopy(self.other))
+        self.assertEqual(self.apply()["result"], "written")
+
+    def test_such_an_entity_changing_during_the_write_is_not_a_violation(self):
+        self.port.hooks[("find_entities", 3)] = lambda p: p.entities[1]["properties"].update(status="closed")
+        self.assertEqual(self.apply()["result"], "written")
+
+    def test_the_best_effort_read_back_after_a_write_error_ignores_it(self):
+        self.port.fail_patch = RuntimeError("down")
+        self.assertIsNotNone(self.apply()["after"])
+
+    def test_a_second_entity_of_this_repository_is_still_ambiguous(self):
+        self.port.entities.append(stored_entity(559))
+        report = self.go()
+        self.assertEqual((report["result"], report["reasons"]), ("blocked", ["PORT_ENTITY_AMBIGUOUS"]))
+        self.port.entities.pop()
+        self.port.entities.pop(0)                                    # ours is gone, theirs remains
+        self.assertEqual(self.go()["reasons"], ["PORT_ENTITY_MISSING"])
 
 
 class VerificationTests(Executor):

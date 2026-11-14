@@ -16,7 +16,7 @@ The only CLI command is this offline `dry-run` over recorded snapshots (same fil
 |---|---|
 | `github.main_sha()` | the trusted protected-branch tip right now |
 | `github.get_pr(number)` | the PR snapshot `port_sync` documents, or `None` |
-| `port.find_entities(number)` | every Port pull-request entity with that PR number (so ambiguity is visible) |
+| `port.find_entities(number)` | every Port pull-request entity with that PR number, of any repository. Each read resolves the one entity of this repository with the planner's own `find_entity`, so another repository's entity with the same number is ignored, while a second entity of this repository is ambiguous |
 | `port.service_ids()` | identifiers of the Port service entities |
 | `port.patch_entity(request)` | sends exactly the validated partial update, the only write |
 
@@ -48,8 +48,10 @@ The only CLI command is this offline `dry-run` over recorded snapshots (same fil
 
 ## Limits worth knowing
 
-- A concurrent change to **any** field between the first read and the write blocks the run. That is deliberate and can cause a retry, never a wrong write. A change made by another system after the PATCH but before the read-back is reported as `verify_failed`.
-- The recheck narrows the race window; it cannot close it, because Port offers no compare-and-swap.
+- A change to **any** field that the recheck observes between the first read and the recheck blocks the run. That is deliberate and can cost a retry.
+- The recheck narrows the race window; it cannot close it, because Port offers no compare-and-swap. A change made after the recheck read and before the PATCH is not blocked: the write still goes out, and the read-back reports it as `verify_failed` only if it altered a field the executor compares. So a stale write is detected after the fact, not prevented, and the rollback request is the remedy.
+- A change made by another system after the PATCH but before the read-back is likewise reported as `verify_failed`.
+- The baselines are deep copies taken at the first read, so a transport that returns its own cached objects cannot move them.
 - The report contains the stored values of the writer-owned fields and the full request. It holds no credentials; the transports own those.
 
 ## Not here

@@ -9,7 +9,8 @@ classifier and planner are reused unchanged, so there is no second classifier or
 Transports (duck-typed; the real ones are a later, separately authorized slice):
     github.main_sha()          -> full SHA of the trusted protected branch tip right now
     github.get_pr(number)      -> the PR snapshot `port_sync` documents, or None
-    port.find_entities(number) -> every Port pull-request entity whose PR number matches
+    port.find_entities(number) -> every Port pull-request entity whose PR number matches (any
+                                  repository; each read resolves ours with `port_sync.find_entity`)
     port.service_ids()         -> identifiers of the Port service entities
     port.patch_entity(request) -> sends exactly the validated partial update (the only write)
 
@@ -79,6 +80,17 @@ def _preserved(entity):
                           for k in sorted(rels) if k != port_sync.WRITER_RELATION}}
 
 
+def _resolve(entities, number):
+    """The one entity of this repository for this PR number, or None.
+
+    Every read goes through the planner's own resolution (`port_sync.find_entity`), so an entity of
+    another repository that happens to share the number is ignored, exactly as it is when planning."""
+    if not isinstance(entities, list) or not all(isinstance(e, dict) for e in entities):
+        return None
+    entity, problem = port_sync.find_entity(entities, number)
+    return None if problem else entity
+
+
 def _fingerprint(entity):
     return {"preserved": _preserved(entity), "writer": port_sync._stored(entity)}
 
@@ -127,7 +139,9 @@ def _snapshot(github, port, main_tip, number):
         return None, ["TRANSPORT_READ_FAILED"]
     if not isinstance(entities, list) or not all(isinstance(e, dict) for e in entities):
         return None, ["TRANSPORT_READ_FAILED"]
-    return {"pr": pr, "entities": entities, "services": services}, []
+    # Detached copies: the baselines for the recheck and the read-back must not move if a transport
+    # hands out cached objects that a later read or the write itself changes in place.
+    return {"pr": copy.deepcopy(pr), "entities": copy.deepcopy(entities), "services": services}, []
 
 
 def _recheck(github, port, main_tip, number, item, first_pr, first_entity):
@@ -148,8 +162,8 @@ def _recheck(github, port, main_tip, number, item, first_pr, first_entity):
             reasons.add("STALE_HEAD")
         if _pr_key(pr) != _pr_key(first_pr):
             reasons.add("PR_CHANGED")
-    if not (isinstance(entities, list) and len(entities) == 1 and isinstance(entities[0], dict)
-            and _fingerprint(entities[0]) == _fingerprint(first_entity)):
+    current = _resolve(entities, number)
+    if current is None or _fingerprint(current) != _fingerprint(first_entity):
         reasons.add("ENTITY_CHANGED")
     try:
         present = set(services)
@@ -162,9 +176,8 @@ def _recheck(github, port, main_tip, number, item, first_pr, first_entity):
 
 def _best_effort_after(port, number):
     ok, entities = _read(port.find_entities, number)
-    if ok and isinstance(entities, list) and len(entities) == 1 and isinstance(entities[0], dict):
-        return _writer_view(entities[0])
-    return None
+    entity = _resolve(entities, number) if ok else None
+    return _writer_view(entity) if entity is not None else None
 
 
 def _verify(repo, main_tip, number, item, pr, before_entity, github, port):
@@ -176,12 +189,11 @@ def _verify(repo, main_tip, number, item, pr, before_entity, github, port):
     if not (ok_entities and ok_pr and ok_services) or not isinstance(entities, list):
         violations.add("READBACK_FAILED")
     else:
-        unique = len(entities) == 1 and isinstance(entities[0], dict)
-        checks.append({"name": "entity_unique", "ok": unique})
-        if not unique:
+        after_entity = _resolve(entities, number)
+        checks.append({"name": "entity_unique", "ok": after_entity is not None})
+        if after_entity is None:
             violations.add("ENTITY_NOT_UNIQUE")
         else:
-            after_entity = entities[0]
             after_view = _writer_view(after_entity)
             desired = item["desired"]
             took_effect = (after_view["properties"] == desired["properties"]
