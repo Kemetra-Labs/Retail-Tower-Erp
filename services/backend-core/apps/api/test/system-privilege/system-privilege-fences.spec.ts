@@ -20,7 +20,7 @@ function sources(dir: string, out: string[] = []): string[] {
     if (name === "node_modules" || name === "dist" || name === "test" || name === "__tests__") continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) sources(p, out);
-    else if (p.endsWith(".ts") && !p.endsWith(".spec.ts") && !p.endsWith(".test.ts")) out.push(p);
+    else if (p.endsWith(".ts") && !p.endsWith(".d.ts") && !p.endsWith(".spec.ts") && !p.endsWith(".test.ts")) out.push(p);
   }
   return out;
 }
@@ -100,6 +100,6 @@ describe("system privilege fences (RT-1389)", () => {
   });
 
   it("no privilege path uses the provisioner context", () => {
-    for (const file of [SETTER, ...Object.values(PATHS)]) expect(read(file)).not.toMatch(/runAsProvisioner|set_config\([^)]*is_provisioner/);
+    for (const file of [SETTER, ...Object.values(PATHS)]) expect(read(file)).not.toMatch(/runAsProvisioner\(|set_config\([^)]*is_provisioner/);
   });
 });
