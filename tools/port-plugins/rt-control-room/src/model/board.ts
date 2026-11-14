@@ -82,5 +82,6 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
     perStation: buildPerStation(snapshot, stations),
     jira: buildJira(snapshot),
     ci: buildCi(snapshot),
+    alarmRead: { sentry: sentryRead },
   };
 }

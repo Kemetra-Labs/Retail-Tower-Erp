@@ -1,0 +1,454 @@
+/*
+ * The control-room diagram. Copied from the approved mockup's resolved cascade
+ * (base pass plus the "premium clean finish"). Colour roles: neutral for normal,
+ * the single indigo accent for live signal, red for faults only, amber for stale
+ * or unknown. The diagram reads left to right in both languages.
+ */
+.room {
+  background: linear-gradient(180deg, var(--color-sheen), transparent), var(--color-paper-2);
+  border-radius: var(--radius-card);
+  box-shadow:
+    inset 0 1px 0 var(--color-hi),
+    inset 0 0 0 1px var(--color-rule),
+    var(--shadow-card);
+  padding: var(--space-lg);
+  min-width: 0;
+}
+
+.room h2 {
+  margin: 0;
+  font: 600 var(--text-md) / 1.2 var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.room .sub {
+  margin: var(--space-2xs) 0 var(--space-md);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+svg.grid {
+  width: 100%;
+  height: auto;
+  display: block;
+  direction: ltr;
+}
+
+svg.grid .zone {
+  fill: var(--color-muted);
+  font: 500 13px var(--font-body);
+}
+
+svg.grid .cc rect.frame {
+  fill: var(--color-frame);
+  stroke: var(--color-rule);
+}
+
+.bus {
+  stroke: var(--color-cool);
+  stroke-width: 2;
+  stroke-opacity: 0.35;
+}
+
+/* sources */
+.tap rect {
+  fill: var(--color-paper-3);
+  stroke: var(--color-rule);
+}
+.tap .t1 {
+  fill: var(--color-ink);
+  font: 500 13px var(--font-body);
+}
+.tap .t2 {
+  fill: var(--color-muted);
+  font: 400 12.5px var(--font-body);
+}
+.tap .t3 {
+  fill: var(--color-ok);
+  font: 400 12.5px var(--font-outlier);
+}
+.tap .ic {
+  stroke: var(--color-ok);
+}
+.tap.stale rect,
+.tap.unknown rect {
+  stroke: var(--color-stale);
+  stroke-dasharray: 4 4;
+}
+.tap.stale .t3,
+.tap.unknown .t3 {
+  fill: var(--color-stale);
+}
+.tap.stale .ic,
+.tap.unknown .ic {
+  stroke: var(--color-stale);
+}
+
+/* cables and dots */
+.riser {
+  stroke: var(--color-rule-2);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  fill: none;
+}
+.cable {
+  fill: none;
+  stroke-linecap: round;
+  transition: opacity var(--dur-short) var(--ease-out);
+}
+.cable.live {
+  stroke: var(--color-cool);
+  stroke-width: 6;
+  stroke-opacity: 0.22;
+}
+.cable.fault {
+  stroke: var(--color-bad);
+  stroke-width: 4;
+  stroke-dasharray: 10 6;
+  animation: faultpulse 1.6s ease-in-out infinite;
+}
+.cable.infra {
+  stroke: var(--color-rule-2);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+}
+.cable.rule {
+  stroke: var(--color-rule-2);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+.cstate.rule-note {
+  fill: var(--color-muted);
+}
+@keyframes faultpulse {
+  50% {
+    stroke-opacity: 0.35;
+  }
+}
+.current {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 4;
+  stroke-dasharray: 1 16;
+  animation: flow var(--dur, 2.4s) linear infinite;
+}
+.current.live,
+.current.stall,
+.current.riser {
+  stroke: var(--color-cool);
+}
+.current.riser {
+  stroke-width: 3;
+  stroke-dasharray: 1 12;
+  opacity: 0.8;
+}
+.current.stall {
+  animation: stall 3.2s linear infinite;
+}
+.current.slow {
+  --dur: 8s;
+}
+@keyframes flow {
+  to {
+    stroke-dashoffset: -34;
+  }
+}
+@keyframes stall {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  55% {
+    stroke-dashoffset: -40;
+  }
+  100% {
+    stroke-dashoffset: -40;
+  }
+}
+.dim {
+  opacity: 0.3;
+  transition: opacity var(--dur-short) var(--ease-out);
+}
+.clabel {
+  fill: var(--color-ink-2);
+  font: 500 13px var(--font-body);
+}
+.cstate {
+  font: 400 12.5px var(--font-body);
+}
+.clabel-bg {
+  fill: var(--color-paper-2);
+  stroke: var(--color-rule-2);
+  stroke-width: 1;
+}
+
+/* gesture hooks: classes toggled by gestures.ts on wrappers React never restyles */
+.gate line {
+  stroke: var(--color-bad);
+  stroke-width: 3;
+  opacity: 0;
+  transition: opacity 400ms var(--ease-out);
+}
+.gate.on line {
+  opacity: 0.9;
+}
+[data-fx-station] {
+  transition: opacity 400ms var(--ease-out);
+}
+[data-fx-station].down {
+  opacity: 0.25;
+}
+[data-cable-wrap].gap path.cable {
+  stroke-dasharray: 30 40 400;
+}
+.fx-dot.fading {
+  animation: fadeout 2400ms linear forwards;
+}
+@keyframes fadeout {
+  to {
+    opacity: 0;
+  }
+}
+.scan {
+  fill: var(--color-bad);
+  opacity: 0.55;
+}
+.scan[fill="none"] {
+  fill: none;
+}
+
+/* Pause, reduced motion and a hidden tile: a still board */
+.room[data-still="true"] .current,
+.room[data-still="true"] .cable.fault,
+.room[data-still="true"] .fx-dot {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .room .current,
+  .room .cable.fault,
+  .room .fx-dot {
+    animation: none !important;
+  }
+}
+
+/* stations */
+.station {
+  cursor: pointer;
+}
+.station .face {
+  fill: var(--color-paper-3);
+  stroke: var(--color-rule-2);
+  stroke-width: 1;
+  transition: stroke var(--dur-short) var(--ease-out);
+}
+.station.err .face {
+  stroke: var(--color-bad);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 8px var(--color-bad-glow));
+}
+.station.ledger .face {
+  fill: transparent;
+  stroke: var(--color-rule-2);
+  stroke-dasharray: 4 4;
+}
+.station:hover .face,
+.station:focus-visible .face,
+.station[aria-pressed="true"] .face {
+  stroke: var(--color-cool);
+  stroke-width: 2;
+}
+.station:focus,
+.host:focus,
+.pin:focus {
+  outline: none;
+}
+.sname {
+  fill: var(--color-ink);
+  font: 600 17px var(--font-display);
+  letter-spacing: -0.02em;
+}
+.srole,
+.sk {
+  fill: var(--color-muted);
+  font: 400 12.5px var(--font-body);
+}
+.srole {
+  font-size: 12px;
+}
+.sv {
+  fill: var(--color-ink);
+  font: 600 17px var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.sv.bad {
+  fill: var(--color-bad);
+}
+.sv.unk {
+  fill: var(--color-stale);
+  font-size: 13px;
+}
+.sv.nd {
+  fill: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.station .rule {
+  stroke: var(--color-rule);
+}
+.station .bar {
+  fill: var(--color-cool);
+}
+.ic {
+  fill: none;
+  stroke: var(--color-bad);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic.unk {
+  stroke: var(--color-stale);
+}
+.ic.ok {
+  stroke: var(--color-ok);
+}
+.ic.bad {
+  stroke: var(--color-bad);
+}
+
+/* lamps */
+.lamp rect {
+  stroke-width: 1;
+  fill: transparent;
+  stroke: var(--color-muted);
+  stroke-dasharray: 3 3;
+}
+.lamp text {
+  font: 500 11px var(--font-display);
+  fill: var(--color-muted);
+}
+.lamp.sending rect,
+.lamp.live rect {
+  fill: var(--color-ok-soft);
+  stroke: var(--color-ok);
+  stroke-dasharray: none;
+}
+.lamp.sending text,
+.lamp.live text {
+  fill: var(--color-ok);
+}
+.lamp.linked rect {
+  fill: var(--color-paper-2);
+  stroke: var(--color-cool);
+}
+.lamp.linked text {
+  fill: var(--color-cool);
+}
+.lamp.na rect {
+  stroke: var(--color-rule-2);
+}
+.lamp.alert rect {
+  fill: var(--color-bad-soft);
+  stroke: var(--color-bad);
+  stroke-dasharray: none;
+}
+.lamp.alert text {
+  fill: var(--color-bad);
+}
+.lamp.unk rect {
+  stroke: var(--color-stale);
+  fill: var(--color-stale-soft);
+}
+.lamp.unk text {
+  fill: var(--color-stale);
+}
+
+/* servers */
+.host {
+  cursor: pointer;
+}
+.host rect {
+  fill: var(--color-paper-3);
+  stroke: var(--color-rule);
+}
+.host:hover rect,
+.host:focus-visible rect,
+.host[aria-pressed="true"] rect {
+  stroke: var(--color-cool);
+}
+.hname {
+  fill: var(--color-ink);
+  font: 500 13px var(--font-body);
+}
+.hsub {
+  fill: var(--color-muted);
+  font: 400 12.5px var(--font-body);
+}
+.hsub.good {
+  fill: var(--color-ok);
+}
+.hsub.unk {
+  fill: var(--color-stale);
+}
+
+/* pins */
+.pin {
+  cursor: pointer;
+}
+.pin rect.box {
+  fill: var(--color-paper-2);
+  stroke: var(--color-bad);
+}
+.pin:hover rect.box,
+.pin.on rect.box,
+.pin:focus-visible rect.box {
+  fill: var(--color-bad);
+}
+.pin:hover .ic,
+.pin.on .ic,
+.pin:focus-visible .ic {
+  stroke: var(--color-paper-3);
+}
+
+:root[lang="ar"] svg.grid text:not(.sv):not(.t3) {
+  font-family: var(--font-arabic);
+}
+
+/* legend */
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
+  margin-top: var(--space-md);
+  font-size: var(--text-xs);
+  color: var(--color-ink-2);
+  align-items: center;
+}
+.legend-row .it {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.legend-row .swatch {
+  width: 26px;
+  height: 0;
+  border-top: 4px solid var(--color-muted);
+}
+.legend-row .swatch.dash {
+  border-top-style: dashed;
+}
+.legend-row .sep {
+  width: 1px;
+  height: 16px;
+  background: var(--color-rule-2);
+}
+.legend-row .ic {
+  stroke: var(--color-bad);
+}
+.legend-row .ic.unk {
+  stroke: var(--color-stale);
+}
+.legend-cap {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}

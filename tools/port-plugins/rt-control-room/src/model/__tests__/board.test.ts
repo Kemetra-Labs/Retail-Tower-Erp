@@ -322,3 +322,14 @@ describe("buildBoard when the Sentry alarm read failed (criterion 7)", () => {
     }
   });
 });
+
+describe("Board.alarmRead", () => {
+  it("exposes whether the Sentry read succeeded, so cables can say 'not read' instead of 'no faults'", () => {
+    expect(buildBoard(fixture(), opts()).alarmRead).toEqual({ sentry: true });
+    expect(buildBoard(fixture(), opts({ alarmRead: { sentry: true } })).alarmRead).toEqual({ sentry: true });
+    const failed = buildBoard(fixture(), opts({ alarmRead: { sentry: false } }));
+    expect(failed.alarmRead).toEqual({ sentry: false });
+    // The retained issues still count: the failed read changes the label, not the fault count.
+    expect(failed.cables.find((c) => c.id === "c4")?.faults).toBe(3);
+  });
+});

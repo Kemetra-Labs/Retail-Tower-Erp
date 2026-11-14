@@ -93,6 +93,10 @@ export function stationForService(serviceId: string): StationId | null {
   return null;
 }
 
+export function isCableId(value: string): value is CableId {
+  return Object.prototype.hasOwnProperty.call(ARCH.cables, value);
+}
+
 export function isHostId(value: string): value is HostId {
   return Object.prototype.hasOwnProperty.call(ARCH.hosts, value);
 }

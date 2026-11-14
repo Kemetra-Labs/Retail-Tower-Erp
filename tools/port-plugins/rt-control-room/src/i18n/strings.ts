@@ -4,6 +4,8 @@
 // Strings that the model already produces as `{ en, ar }` (verdict, cable and
 // station names) and the change-event texts are not repeated here.
 
+import { ROOM_STRINGS } from "./roomStrings";
+
 export type Lang = "en" | "ar";
 type Entry = { readonly en: string; readonly ar: string };
 
@@ -148,6 +150,7 @@ export const STRINGS = {
     en: "Moving dots: the link is up. On the cables up to the control room, speed follows each station's activity in the last 7 days. It is not sales traffic.",
     ar: "النقط اللي بتتحرك: الرابط شغال. على الأسلاك الطالعة لغرفة التحكم السرعة حسب نشاط كل محطة في آخر 7 أيام. دي مش حركة مبيعات.",
   },
+  ...ROOM_STRINGS,
 } as const satisfies Record<string, Entry>;
 
 export type StringKey = keyof typeof STRINGS;

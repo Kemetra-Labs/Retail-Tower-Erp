@@ -125,6 +125,10 @@ describe("App with the board", () => {
     expect(await screen.findByText(/3 faults on the invoice cable/, {}, { timeout: 4000 })).toBeTruthy();
     expect(screen.getByText("Test lab, not real stores")).toBeTruthy();
     expect(container.querySelectorAll("svg.trace")).toHaveLength(4);
+    // The control room: five stations and the alarm pins; it adds no status region (the announcer is the panel's).
+    expect(container.querySelectorAll('[data-focus^="station:"]')).toHaveLength(5);
+    expect(container.querySelectorAll(".pin")).toHaveLength(5);
+    expect(container.querySelector('.room [role="status"]')).toBeNull();
     expect(container.textContent).not.toContain("tok-secret");
 
     fireEvent.click(screen.getByRole("button", { name: "Pause motion" }));

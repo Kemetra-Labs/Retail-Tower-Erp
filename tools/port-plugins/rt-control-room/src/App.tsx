@@ -1,5 +1,7 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Header } from "./components/Header";
+import { ControlRoom } from "./components/room/ControlRoom";
+import { useSelection } from "./components/room/useFocusReturn";
 import { Telemetry } from "./components/Telemetry";
 import { Verdict } from "./components/Verdict";
 import { LangProvider, useLang } from "./i18n/LangContext";
@@ -10,6 +12,12 @@ import "./styles/fonts.css";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/top.css";
+import "./styles/room.css";
+
+/** Where focus goes when the opener of a closed detail is gone: the active tab button. */
+function activeTabButton(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+}
 
 function ShellMessage({ children }: { children: ReactNode }) {
   return (
@@ -27,8 +35,10 @@ function ControlRoomApp() {
   const { t } = useLang();
   const { applyThemeCss, status } = usePortBridge();
   // Gated inside by token, base URL, trust and visibility, so it is safe to call before the guards.
-  const { board, status: boardStatus, replaying, asOf, labUpdatedAt } = useBoard();
+  const { board, events, replayQueue, status: boardStatus, replaying, onReplayDone, asOf, labUpdatedAt } = useBoard();
   const [paused, togglePause] = usePaused();
+  // The detail panel (next task) renders `selection`; Escape and Back return focus to the opener.
+  const { selection, select } = useSelection({ fallback: activeTabButton });
   const asOfDate = useMemo(() => (asOf === null ? null : new Date(asOf)), [asOf]);
 
   useEffect(() => {
@@ -56,7 +66,23 @@ function ControlRoomApp() {
       <main className="main">
         <Verdict board={board} status={boardStatus} />
         <Telemetry board={board} paused={paused} />
-        {/* The control room diagram and the alarm panels are added by the next tasks. */}
+        {board ? (
+          <ControlRoom
+            board={board}
+            events={events}
+            replayQueue={replayQueue}
+            paused={paused}
+            replaying={replaying}
+            onReplayDone={onReplayDone}
+            onSelect={select}
+            selection={selection}
+          />
+        ) : (
+          <section className="room" aria-busy={boardStatus === "loading"}>
+            <p className="muted">{t(boardStatus === "error" ? "stateErrorNote" : "stateLoadingNote")}</p>
+          </section>
+        )}
+        {/* The alarm panels and the detail are added by the next task. */}
       </main>
     </div>
   );

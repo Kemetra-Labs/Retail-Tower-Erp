@@ -201,4 +201,6 @@ export type Board = {
   perStation: PerStationRow[];
   jira: Record<"todo" | "inProgress" | "review" | "done", number>;
   ci: { last72: ("s" | "f" | "c" | "k")[]; passRate: number | null };
+  /** `sentry` is false when the error read never succeeded or the latest read failed: counts are then "not read", not 0. */
+  alarmRead: { sentry: boolean };
 };
