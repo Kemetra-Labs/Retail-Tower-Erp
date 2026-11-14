@@ -24,6 +24,9 @@ import { StockRunSweepWorker } from "../src/erpnext-reconciliation/stock-run-swe
 import { ReservationSweepWorker } from "../src/ai-usage/reservation-sweep.worker";
 import { ReplayPurgeWorker } from "../src/cashier-admissions/replay-purge.worker";
 import { SaleRedriveWorker } from "../src/sales/sale-redrive.worker";
+import { ProvisioningSweepWorker } from "../src/erp-provisioning/provisioning-sweep.worker";
+import { RepeatableWorker } from "../src/common/repeatable-worker";
+import { WorkerModule } from "../src/worker.module";
 
 class FakeEmailWorker {
   starts = 0;
@@ -85,6 +88,9 @@ class FakeAppContext implements Partial<INestApplicationContext> {
   readonly replayPurgeWorker = new FakeRetentionWorker();
   readonly saleRedriveWorker = new FakeRetentionWorker();
   readonly reservationSweepWorker = new FakeRetentionWorker();
+  readonly provisioningSweepWorker = new FakeRetentionWorker();
+  /** Every token `bootstrap` resolved, with the fake it got back (RT-1358 guard). */
+  readonly resolved = new Map<unknown, { starts: number }>();
   constructor(
     private readonly emailWorker: FakeEmailWorker,
     private readonly auditWorker: FakeAuditWorker,
@@ -96,6 +102,14 @@ class FakeAppContext implements Partial<INestApplicationContext> {
   // `SaleWorker` → fake sale. Anything else throws so a future bootstrap
   // addition surfaces here instead of silently returning the wrong fake.
   get<TInput = unknown, TResult = TInput>(token: TInput): TResult {
+    const fake = this.lookup<TInput, TResult>(token);
+    this.resolved.set(token, fake as unknown as { starts: number });
+    return fake;
+  }
+  private lookup<TInput, TResult>(token: TInput): TResult {
+    if ((token as unknown) === ProvisioningSweepWorker) {
+      return this.provisioningSweepWorker as unknown as TResult;
+    }
     if ((token as unknown) === EmailWorker) {
       return this.emailWorker as unknown as TResult;
     }
@@ -242,6 +256,32 @@ describe("bootstrap — happy path", () => {
     expect(ctx.reservationSweepWorker.starts).toBe(1);
   });
 
+  it("RT-1358: starts the ERP provisioning sweep worker exactly once", async () => {
+    const { ctx } = await setup();
+    expect(ctx.provisioningSweepWorker.starts).toBe(1);
+  });
+
+  it("RT-1358: starts every RepeatableWorker that WorkerModule registers", async () => {
+    // A repeatable scheduler registers its job at module init, but the worker
+    // only consumes the queue after an explicit start(). A worker registered
+    // in WorkerModule and missing from bootstrap leaves its queue unconsumed
+    // (RT-1400: erp-provisioning-sweep lag grew 1 s per second on the lab).
+    // Scope: direct class providers of WorkerModule only; object-form
+    // providers, imported modules and the non-repeatable email/audit/sale
+    // workers keep their own tests above.
+    const providers = (Reflect.getMetadata("providers", WorkerModule) ?? []) as unknown[];
+    const repeatable = providers.filter(
+      (p): p is abstract new (...args: never[]) => RepeatableWorker =>
+        typeof p === "function" && p.prototype instanceof RepeatableWorker,
+    );
+    expect(repeatable.length).toBeGreaterThan(0);
+    const { ctx } = await setup();
+    const notStarted = repeatable
+      .filter((w) => (ctx.resolved.get(w)?.starts ?? 0) !== 1)
+      .map((w) => w.name);
+    expect(notStarted).toEqual([]);
+  });
+
   it("registers SIGTERM and SIGINT handlers exactly once", async () => {
     const { proc } = await setup();
     expect(proc.handlers["SIGTERM"]).toHaveLength(1);
@@ -296,6 +336,9 @@ describe("bootstrap — happy path", () => {
     );
     expect(result.reservationSweepWorker).toBe(
       ctx.reservationSweepWorker as unknown as ReservationSweepWorker,
+    );
+    expect(result.provisioningSweepWorker).toBe(
+      ctx.provisioningSweepWorker as unknown as ProvisioningSweepWorker,
     );
   });
 });
