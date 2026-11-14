@@ -1,0 +1,97 @@
+/*
+ * Ops and Story modes, and the guided tour. Story is the same board, calmer:
+ * a larger verdict line, no station readings, no lower panels (App decides what
+ * mounts; this file only changes how what is left looks). Tokens come from
+ * tokens.css; nothing here moves by itself.
+ */
+
+/* ---- the Ops | Story switch: two buttons that read as one control ---- */
+.mode-switch {
+  display: inline-flex;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--color-rule);
+}
+
+.mode-switch button {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.mode-switch button + button {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+.mode-switch button:first-child {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.mode-switch button[aria-pressed="true"] {
+  background: var(--color-cool-soft);
+  color: var(--color-ink);
+  box-shadow: inset 0 -2px 0 var(--color-cool);
+}
+
+/* ---- Story: the verdict line is the headline ---- */
+.mode-story .verdict .line {
+  font-size: var(--text-lg);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+@media (min-width: 900px) {
+  .mode-story .verdict .line {
+    font-size: var(--text-xl);
+    line-height: 1.25;
+  }
+}
+
+/* ---- the stage: the tour card sits above the map, in the map's column ---- */
+.stage-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.tour {
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-paper-2);
+  border-radius: var(--radius-card);
+  box-shadow:
+    inset 0 1px 0 var(--color-hi),
+    inset 0 0 0 1px var(--color-rule-2),
+    var(--shadow-card);
+}
+
+.tour h3 {
+  margin: 0 0 var(--space-2xs);
+  color: var(--color-ink);
+  font-size: var(--text-md);
+}
+
+.tour p {
+  margin: 0 0 var(--space-md);
+  color: var(--color-ink-2);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.tour .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.tour .primary {
+  background: var(--color-cool);
+  border-color: var(--color-cool);
+  color: var(--color-cool-ink);
+}
+
+.tour button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

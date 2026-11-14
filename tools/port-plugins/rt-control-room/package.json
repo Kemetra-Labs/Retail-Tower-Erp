@@ -1,0 +1,47 @@
+{
+  "name": "port-rt-control-room-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Retail Tower Control Room, a read-only Port custom widget",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "webpack --mode production",
+    "dev": "webpack serve --mode development",
+    "test": "vitest run",
+    "check": "node scripts/check-dist.mjs && node scripts/check-src.mjs"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-sans-arabic": "^5.2.0",
+    "@fontsource/inter": "^5.2.0",
+    "@port-labs/plugins-sdk": "^0.1.0",
+    "@tanstack/react-query": "^5.101.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  },
+  "devDependencies": {
+    "@port-labs/port-plugins-cli": "^0.1.2",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "css-loader": "^7.1.4",
+    "html-webpack-plugin": "^5.6.6",
+    "jsdom": "^26.0.0",
+    "postcss": "^8.5.0",
+    "postcss-loader": "^8.1.0",
+    "postcss-preset-env": "^10.0.0",
+    "style-loader": "^4.0.0",
+    "terser-webpack-plugin": "^5.3.10",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "webpack": "^5.97.0",
+    "webpack-cli": "^6.0.0",
+    "webpack-dev-server": "^5.1.0"
+  }
+}

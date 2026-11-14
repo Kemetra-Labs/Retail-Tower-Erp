@@ -519,7 +519,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     { id: "a1", kind: "refused", at: "c4", station: "conn", msg: "HTTPError: 403 Client Error: Forbidden for url: https://lab.kemetralabs.com/api/connector/v1/erpnext/postings", since: "12 Nov 20:29", src: "Sentry" },
     { id: "a2", kind: "timeout", at: "c4", station: "conn", msg: "ConnectTimeout: HTTPConnectionPool(host='172.26.2.233', port=3000): Max retries exceeded with url: /api/connector/v1/erpnext/postings", since: "12 Nov 20:29", src: "Sentry" },
     { id: "a3", kind: "down", at: "c4", station: "conn", msg: "HTTPError: 502 Server Error: Bad Gateway for url: https://lab.kemetralabs.com/api/connector/v1/erpnext/bin-view-requests", since: "12 Nov 20:29", src: "Sentry" },
-    { id: "a4", kind: "reset", at: "c4", station: "conn", msg: "ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))", since: "12 Nov 20:29", src: "Sentry" },
+    { id: "a4", kind: "reset", at: "conn", station: "conn", msg: "ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))", since: "12 Nov 20:29", src: "Sentry" },
     { id: "a5", kind: "bug", at: "admin", station: "admin", msg: "Error: Objects are not valid as a React child (found: <redacted>). If you meant to render a collection of children, use an array instead.", since: "12 Nov 20:29", src: "Sentry" }
   ];
   var WATCH = [ // not faults: places where health is not watched
@@ -888,8 +888,8 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   // ================= verdict, pulse, lower =================
   function drawVerdict() {
     var v = document.getElementById("verdict"); while (v.children.length > 1) v.removeChild(v.lastChild);
-    document.getElementById("vline").textContent = (lang === "ar" ? "الـ Backend " + (demo ? "بطيء (مثال)" : demoU ? "مش متأكدين إنه سليم" : "سليم") + " وتطبيق الكاشير مفيهوش أخطاء. كابل الفواتير من الجسر لـ ERPNext عليه 4 أعطال في بيئة التجربة." : "The backend is " + (demo ? "slow (example)" : demoU ? "not confirmed healthy" : "healthy") + " and the cashier app reports no errors. The invoice cable from the bridge to ERPNext has 4 faults in the test lab.") + (demoU ? (lang === "ar" ? " إنذار واحد مش قادرين نحدد مكانه على الخريطة." : " 1 alarm could not be placed on the map.") : "");
-    [["ok", "var(--color-ok)", { en: "No errors reported", ar: "مفيش أخطاء" }], (demo ? ["latency", "var(--color-bad)", { en: "Slow responses (example)", ar: "ردود بطيئة (مثال)" }] : demoU ? ["unknown", "var(--color-muted)", { en: "Not sure: 1 alarm not placed", ar: "مش متأكد: إنذار مش متحدد" }] : ["ok", "var(--color-ok)", { en: "Healthy, 7 checks OK", ar: "سليم، 7 فحوصات تمام" }]), ["reset", "var(--color-bad)", { en: "4 faults on the invoice cable", ar: "4 أعطال على كابل الفواتير" }]].forEach(function (l, i) {
+    document.getElementById("vline").textContent = (lang === "ar" ? "الـ Backend " + (demo ? "بطيء (مثال)" : demoU ? "مش متأكدين إنه سليم" : "سليم") + " وتطبيق الكاشير مفيهوش أخطاء. كابل الفواتير من الجسر لـ ERPNext عليه 3 أعطال، وفي عطل تاني جوه الجسر، في بيئة التجربة." : "The backend is " + (demo ? "slow (example)" : demoU ? "not confirmed healthy" : "healthy") + " and the cashier app reports no errors. The invoice cable from the bridge to ERPNext has 3 faults, and 1 more sits inside the bridge, in the test lab.") + (demoU ? (lang === "ar" ? " إنذار واحد مش قادرين نحدد مكانه على الخريطة." : " 1 alarm could not be placed on the map.") : "");
+    [["ok", "var(--color-ok)", { en: "No errors reported", ar: "مفيش أخطاء" }], (demo ? ["latency", "var(--color-bad)", { en: "Slow responses (example)", ar: "ردود بطيئة (مثال)" }] : demoU ? ["unknown", "var(--color-muted)", { en: "Not sure: 1 alarm not placed", ar: "مش متأكد: إنذار مش متحدد" }] : ["ok", "var(--color-ok)", { en: "Healthy, 7 checks OK", ar: "سليم، 7 فحوصات تمام" }]), ["reset", "var(--color-bad)", { en: "3 faults on the invoice cable", ar: "3 أعطال على كابل الفواتير" }]].forEach(function (l, i) {
       var d = h("div", "light"); d.appendChild(h("div", "k", t("lights")[i])); var vv = h("div", "v"); vv.appendChild(iconHtml(l[0], l[1])); vv.appendChild(document.createTextNode(pick(l[2]))); d.appendChild(vv); v.appendChild(d);
     });
   }
@@ -1002,7 +1002,7 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
     { st: ["pos", "admin"], cb: ["c1", "c2"], title: { en: "The till and the console", ar: "الكاشير ولوحة الإدارة" }, text: { en: "Cashiers sell on the POS. Managers run stores in the Admin Console. Both talk only to Backend-Core.", ar: "الكاشير بيبيع على الـ POS. المديرين بيديروا المحلات من لوحة الإدارة. الاتنين بيكلموا Backend-Core بس." } },
     { st: ["core"], cb: ["c1", "c2", "c3"], title: { en: "Backend-Core is the hub", ar: "Backend-Core هو المحور" }, text: { en: "Sales and catalog changes pass through Backend-Core. Nothing skips it on the way to the ledger.", ar: "المبيعات وتعديلات الكتالوج بتعدي على Backend-Core. مفيش حاجة بتتخطاه في الطريق للدفتر." } },
     { st: ["conn", "erp"], cb: ["c3", "c4"], title: { en: "The bridge to the ledger", ar: "الجسر للدفتر" }, text: { en: "ERPNext is the accounting ledger, outside Retail Tower. Only the Connector may reach it.", ar: "ERPNext هو دفتر الحسابات، برّه Retail Tower. الجسر بس اللي يوصله." } },
-    { st: ["conn", "erp"], cb: ["c4"], title: { en: "Honest about faults", ar: "صريحين في الأعطال" }, text: { en: "Where something is wrong, the board shows where it comes from: 4 faults on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy.", ar: "لما في عطل، اللوحة بتوريك جاي منين: 4 أعطال على كابل الفواتير، من Sentry. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم." } }
+    { st: ["conn", "erp"], cb: ["c4"], title: { en: "Honest about faults", ar: "صريحين في الأعطال" }, text: { en: "Where something is wrong, the board shows where it comes from: 3 faults on the invoice cable, reported by Sentry. What is not watched yet shows as unknown, never as healthy.", ar: "لما في عطل، اللوحة بتوريك جاي منين: 3 أعطال على كابل الفواتير، من Sentry. اللي لسه مش متراقب بيظهر مجهول، عمره ما بيظهر سليم." } }
   ];
   function spot(fr) {
     Object.keys(stationEls).forEach(function (k) { stationEls[k].classList.toggle("dim", !!fr.st && fr.st.indexOf(k) < 0); });
@@ -1058,15 +1058,15 @@ svg.grid .cc rect.frame { fill: var(--color-frame); stroke: var(--color-rule); }
   function drawPins() {
     var c = document.getElementById("pinsCard"); c.hidden = !pinsOn; if (!pinsOn) return;
     while (c.firstChild) c.removeChild(c.firstChild);
-    c.appendChild(h("div", "k", lang === "ar" ? "مقترح: الـ 4 دبابيس على كابل الفواتير تتجمع في شارة واحدة بعدد، وكل إنذار يفضل ليه هويته وتفاصيله." : "PROPOSAL: the 4 pins on the invoice cable become one count badge. Each alarm keeps its own identity and detail."));
-    var sv = el("svg", { viewBox: "0 0 520 80", width: "100%", "class": "grid", role: "img", "aria-label": lang === "ar" ? "الحالي: 4 دبابيس. المقترح: شارة واحدة فيها 4." : "Now: 4 pins. Proposed: one badge reading 4." });
+    c.appendChild(h("div", "k", lang === "ar" ? "مقترح: الـ 3 دبابيس على كابل الفواتير تتجمع في شارة واحدة بعدد، وكل إنذار يفضل ليه هويته وتفاصيله." : "PROPOSAL: the 3 pins on the invoice cable become one count badge. Each alarm keeps its own identity and detail."));
+    var sv = el("svg", { viewBox: "0 0 520 80", width: "100%", "class": "grid", role: "img", "aria-label": lang === "ar" ? "الحالي: 3 دبابيس. المقترح: شارة واحدة فيها 3." : "Now: 3 pins. Proposed: one badge reading 3." });
     sv.style.maxWidth = "520px";
     sv.appendChild(el("text", { x: 8, y: 14, "class": "sk" }, lang === "ar" ? "الحالي" : "Now"));
-    ["refused", "timeout", "down", "reset"].forEach(function (k, i) { var x = 8 + i * 26; sv.appendChild(el("rect", { x: x, y: 26, width: 20, height: 20, rx: 4, fill: "var(--color-paper-2)", stroke: "var(--color-bad)" })); sv.appendChild(icon(k, x + 3, 29, 14)); });
+    ["refused", "timeout", "down"].forEach(function (k, i) { var x = 8 + i * 26; sv.appendChild(el("rect", { x: x, y: 26, width: 20, height: 20, rx: 4, fill: "var(--color-paper-2)", stroke: "var(--color-bad)" })); sv.appendChild(icon(k, x + 3, 29, 14)); });
     sv.appendChild(el("text", { x: 280, y: 14, "class": "sk" }, lang === "ar" ? "المقترح" : "Proposed"));
     sv.appendChild(el("rect", { x: 280, y: 26, width: 44, height: 20, rx: 4, fill: "var(--color-paper-2)", stroke: "var(--color-bad)" }));
-    sv.appendChild(el("text", { x: 302, y: 42, "text-anchor": "middle", "class": "sv bad" }, "4"));
-    sv.appendChild(el("text", { x: 332, y: 41, "class": "sk" }, lang === "ar" ? "اضغط: القائمة بـ 403 و timeout و 502 و reset" : "Open: the list, 403, timeout, 502, reset"));
+    sv.appendChild(el("text", { x: 302, y: 42, "text-anchor": "middle", "class": "sv bad" }, "3"));
+    sv.appendChild(el("text", { x: 332, y: 41, "class": "sk" }, lang === "ar" ? "اضغط: القائمة بـ 403 و timeout و 502" : "Open: the list, 403, timeout, 502"));
     c.appendChild(sv);
   }
   function drawProposals() {

@@ -1,0 +1,338 @@
+/*
+ * Header, verdict and telemetry. Copied from the approved mockup's resolved
+ * cascade (base pass plus the "premium clean finish"): floating cards with a
+ * hairline ring, pill chips, one accent for live signal, red for faults only,
+ * amber for stale or unknown.
+ */
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+button {
+  font: 500 var(--text-sm) var(--font-body);
+  color: var(--color-ink);
+  background: transparent;
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-pill);
+  padding: var(--space-xs) var(--space-md);
+  min-height: 34px;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-short) var(--ease-out),
+    border-color var(--dur-short) var(--ease-out);
+}
+
+button:hover {
+  background: var(--color-rule);
+}
+
+button[aria-pressed="true"] {
+  border-color: var(--color-cool);
+}
+
+.measured {
+  font-family: var(--font-outlier);
+  font-variant-numeric: tabular-nums;
+}
+
+.k {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* ---- header ---- */
+.bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding-bottom: var(--space-md);
+}
+
+.wordmark {
+  font: 600 var(--text-lg) / 1 var(--font-display);
+  letter-spacing: var(--tracking-display);
+}
+
+.asof {
+  color: var(--color-cool);
+  font-size: var(--text-sm);
+}
+
+.grow {
+  flex: 1;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-ink-2);
+  background: var(--color-ok-soft);
+  border: var(--rule-hair) solid transparent;
+  border-radius: 999px;
+  padding: 2px var(--space-sm);
+  white-space: nowrap;
+}
+
+.chip.bad {
+  background: var(--color-bad-soft);
+  color: var(--color-bad-ink);
+}
+
+.chip.stale {
+  background: var(--color-stale-soft);
+  color: var(--color-stale-ink);
+}
+
+/* ---- verdict and telemetry cards ---- */
+.verdict,
+.pulse {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.verdict {
+  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
+}
+
+.pulse {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.verdict > div,
+.pulse > div {
+  min-width: 0;
+  padding: var(--space-md) var(--space-lg);
+  background: linear-gradient(180deg, var(--color-sheen), transparent), var(--color-paper-2);
+  border-radius: var(--radius-card);
+  box-shadow:
+    inset 0 1px 0 var(--color-hi),
+    inset 0 0 0 1px var(--color-rule),
+    var(--shadow-card);
+}
+
+.pulse > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.verdict .line {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  overflow-wrap: break-word;
+}
+
+.verdict .gapnote,
+.pulse .note {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.verdict .gapnote {
+  margin-top: var(--space-xs);
+}
+
+.verdict .staleNote {
+  color: var(--color-stale-ink);
+}
+
+.light .v {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.light .v svg {
+  flex: none;
+}
+
+.light.tone-fault .v {
+  color: var(--color-bad-ink);
+}
+
+.light.tone-unknown .v {
+  color: var(--color-stale-ink);
+}
+
+.pulse .note {
+  margin-top: auto;
+  padding-top: var(--space-2xs);
+}
+
+.pulse .spike-label {
+  color: var(--color-stale-ink);
+  font-weight: 500;
+}
+
+.pulse .spike-note {
+  display: block;
+  margin-top: 2px;
+}
+
+.trace-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.trace-v {
+  font: 600 var(--text-xl) / 1.1 var(--font-outlier);
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: -0.03em;
+}
+
+/* Never read: amber "no data", never a number. */
+.trace-v.unk {
+  color: var(--color-stale-ink);
+  font-size: var(--text-md);
+}
+
+.trace-v small {
+  margin-inline-start: var(--space-2xs);
+  font: 400 var(--text-xs) var(--font-body);
+  color: var(--color-muted);
+  letter-spacing: 0;
+}
+
+/* The trace reads left to right (oldest first) in both languages. */
+svg.trace {
+  display: block;
+  width: 100%;
+  height: 70px;
+  margin-top: var(--space-xs);
+  direction: ltr;
+  overflow: visible;
+}
+
+.trace .band {
+  fill: var(--color-band);
+}
+
+.trace .area {
+  fill: color-mix(in oklab, var(--color-cool) 16%, transparent);
+}
+
+/* pathLength is 1, so one dash covers the line whatever its drawn length */
+.trace .line {
+  fill: none;
+  stroke: var(--color-cool);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: trace-draw 1.6s var(--ease-out) forwards;
+}
+
+.trace .line.badline {
+  stroke: var(--color-bad);
+}
+
+.trace .now {
+  fill: var(--color-cool);
+  animation: trace-beacon 2.4s ease-in-out infinite;
+}
+
+.trace .spike {
+  fill: var(--color-stale);
+}
+
+.trace .badpt {
+  fill: var(--color-bad);
+}
+
+.trace .axis {
+  stroke: var(--color-rule);
+  stroke-width: 1;
+}
+
+@keyframes trace-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* under 1 Hz: well inside the 2 Hz limit */
+@keyframes trace-beacon {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Once drawn, the line stays drawn: Pause and Resume never replay it. */
+.trace .line.drawn {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+
+/* Pause freezes the beating point where it is; nothing else moves. */
+.trace-cell[data-paused="true"] .now {
+  animation-play-state: paused;
+}
+
+/* A line that has not drawn yet (paused from the start) is shown whole, never frozen invisible. */
+.trace-cell[data-paused="true"] .line:not(.drawn) {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trace .line,
+  .trace .now {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---- loading and error placeholders: no figures, no colour ---- */
+.skel i {
+  display: block;
+  height: 10px;
+  margin: var(--space-sm) 0;
+  border-radius: 4px;
+  background: var(--color-rule-2);
+}
+
+.skel i:nth-child(2) {
+  width: 70%;
+}
+
+.skel i:nth-child(3) {
+  width: 45%;
+}
+
+.verdict.unavailable {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ---- narrow tiles ---- */
+@media (max-width: 900px) {
+  .verdict {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .verdict > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .pulse {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .verdict,
+  .pulse {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -115,6 +115,19 @@ State this in the PR body.
   Admin Console and Backend-Core pnpm, Connector uv). Read the product's `package.json` first: a
   library can be pinned only through `pnpm.overrides`, not as a direct dependency.
 - Check the lockfile diff touches only the intended packages.
+- **A new lockfile anywhere is audited by `dependency-review` (RT-1381, 2026-11-14).**
+  - The job runs osv-scanner over every lockfile in the tree and fails on any advisory the base
+    does not have, dev-only ones included. It has no ignore list: `.github/scripts/dependency_review.py`
+    rejects `osv-scanner.toml`. So run `npm audit` (all deps, not `--omit=dev`) before the first push.
+  - The Port plugin template's `react-dev-utils` pulls in `deepmerge` (GHSA-gcqx-w48m-w2h4, no fixed
+    version). `tools/port-plugins/rt-control-room` replaces it with a local
+    `webpack/InlineChunkHtmlPlugin.js`, and overrides `uuid` (via `webpack-dev-server` → `sockjs`).
+  - A new `package.json` is also checked against `tools/versions/shared-deps.yaml` by
+    `.github/scripts/shared_deps.py check --repo . --mode report`. Declare the shared libraries at the
+    policy version.
+- **No CI job runs `tools/port-plugins/**` tests.** A green `required` proves classification and the
+  other products, not the plugin. Post local `npm ci && npm test && npm run build && npm run check`
+  output on the issue. Adding a job is a `.github` policy change.
 
 ## Common mistakes
 
