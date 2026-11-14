@@ -90,7 +90,7 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
       tasks: 10,
       prs: 21,
       merged7d: 18,
-      deploys: 2,
+      deploys: 1, // 1 lab_job; the merge_proxy deployment is not a deploy
       ciFails7d: 1,
     });
     expect(station(board, "admin").readings).toMatchObject({ alarms: 1, checks: null, ci7d: 95, tasks: 21 });

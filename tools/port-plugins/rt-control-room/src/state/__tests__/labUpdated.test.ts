@@ -5,10 +5,14 @@ import { newestLabDeployment } from "../useBoard";
 // Real Port shape (live, read-only, 2026-11-14): `deployment.environment` is one of
 // Production / Staging / Development / Unknown; lab deploy jobs are "Staging" with
 // `evidenceType: "lab_job"` and their own `properties.createdAt`.
-const dep = (id: string, env: string | undefined, at: string, own?: string): Deployment => ({
+const dep = (id: string, env: string | undefined, at: string, own?: string, evidence = "lab_job"): Deployment => ({
   identifier: id,
   title: id,
-  properties: { ...(env === undefined ? {} : { environment: env }), ...(own ? { createdAt: own } : {}) },
+  properties: {
+    evidenceType: evidence,
+    ...(env === undefined ? {} : { environment: env }),
+    ...(own ? { createdAt: own } : {}),
+  },
   relations: { service: "backend-core" },
   createdAt: at,
   updatedAt: "2026-11-13T11:00:00Z",
@@ -39,5 +43,15 @@ describe("newestLabDeployment", () => {
   it("is no data (null) when only Unknown deployments exist, as most of Port's do", () => {
     expect(newestLabDeployment([dep("u1", "Unknown", "2026-11-13T12:00:00Z"), dep("u2", "Unknown", "2026-11-13T11:00:00Z")])).toBeNull();
     expect(newestLabDeployment([])).toBeNull();
+  });
+
+  it("never counts a merge proxy as a deploy, even in Staging and newer", () => {
+    expect(
+      newestLabDeployment([
+        dep("real", "Staging", "2026-11-12T10:00:00Z"),
+        dep("proxy", "Staging", "2026-11-13T10:00:00Z", undefined, "merge_proxy"),
+      ]),
+    ).toBe("2026-11-12T10:00:00Z");
+    expect(newestLabDeployment([dep("proxy", "Staging", "2026-11-13T10:00:00Z", undefined, "merge_proxy")])).toBeNull();
   });
 });

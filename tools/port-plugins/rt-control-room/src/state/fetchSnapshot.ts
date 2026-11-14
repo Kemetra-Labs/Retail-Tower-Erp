@@ -86,10 +86,13 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     replace: true,
     delta: false,
   });
+  // A full read may filter on the server (`status = unresolved`); a delta must not, or an issue
+  // resolved since the last poll is never returned and its alarm lingers until the next full poll.
+  // The client drops every issue that is not unresolved (`sentryAlarms`).
   const alarm = (collection: Collection, blueprint: string, base: PortRule[]): Plan => ({
     collection,
     blueprint,
-    query: { combinator: "and", rules: [...base, ...updated(collection)] },
+    query: { combinator: "and", rules: [...(isDelta(collection) ? [] : base), ...updated(collection)] },
     replace: !isDelta(collection),
     delta: isDelta(collection),
   });
