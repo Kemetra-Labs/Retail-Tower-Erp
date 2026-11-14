@@ -113,7 +113,8 @@ describe("useBoard polling", () => {
     expect(only("githubPullRequest")).toEqual({ combinator: "and", rules: [between("mergedAt")] });
     expect(only("githubWorkflowRun")).toEqual({ combinator: "and", rules: [between("createdAt")] });
     expect(only("deployment")).toEqual({ combinator: "and", rules: [between("createdAt")] });
-    expect(only("jiraIssue")).toEqual({ combinator: "and", rules: [between("$updatedAt")] });
+    // First load reads every Jira issue; the client then filters it.
+    expect(only("jiraIssue")).toEqual({ combinator: "and", rules: [] });
   });
 
   it("polls only deltas after 60 s and makes the 5th poll full", async () => {
@@ -137,6 +138,7 @@ describe("useBoard polling", () => {
     // The small blueprints are re-read in full every poll.
     for (const bp of ["service", "workload", "datadogHost"] as const) expect(hasDelta(bp), bp).toBe(false);
 
+    // Jira follows the same rhythm: delta on polls 3, 4 and 6, an all-issues read on poll 5.
     const expected = { 3: true, 4: true, 5: false, 6: true } as const;
     for (const number of [3, 4, 5, 6] as const) {
       port.calls.length = 0;
@@ -144,6 +146,7 @@ describe("useBoard polling", () => {
       expect(port.callsFor("sentryIssue"), `poll ${number}`).toHaveLength(1);
       expect(hasDelta("sentryIssue"), `poll ${number} sentry`).toBe(expected[number]);
       expect(hasDelta("datadogMonitor"), `poll ${number} monitors`).toBe(expected[number]);
+      expect(hasDelta("jiraIssue"), `poll ${number} jira`).toBe(expected[number]);
     }
   });
 

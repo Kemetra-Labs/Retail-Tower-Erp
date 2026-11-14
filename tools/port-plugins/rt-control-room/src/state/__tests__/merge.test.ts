@@ -132,7 +132,7 @@ describe("fetchSnapshot", () => {
 
   it("replaces the alarm collections on a full fetch and merges them on a delta", async () => {
     const full = await fetchSnapshot(fakeClient({}), null, true, { now: NOW });
-    expect(full.replace.sort()).toEqual(["hosts", "integrations", "monitors", "sentryIssues", "services", "workloads"].sort());
+    expect(full.replace.sort()).toEqual(["hosts", "integrations", "jira", "monitors", "sentryIssues", "services", "workloads"].sort());
     expect(full.delta).toEqual([]);
 
     const delta = await fetchSnapshot(fakeClient({}), "2026-11-13T12:00:00.000Z", false, { now: NOW });
@@ -176,16 +176,37 @@ describe("fetchSnapshot Jira client-side filtering", () => {
     });
     const res = await fetchSnapshot(client, null, true, { now: NOW });
     expect((res.data.jira ?? []).map((j) => j.identifier)).toEqual(["OPEN-1", "DONE-NEW"]);
-    expect(client.searches[0] && client.searches.find((s) => s.blueprint === "jiraIssue")!.query).toEqual({
-      combinator: "and",
-      rules: [
-        {
-          property: "$updatedAt",
-          operator: "between",
-          value: { from: "2026-10-30T12:30:00.000Z", to: NOW.toISOString() },
-        },
-      ],
-    });
+    expect(client.searches.find((s) => s.blueprint === "jiraIssue")!.query).toEqual({ combinator: "and", rules: [] });
+    expect(res.replace).toContain("jira");
+    expect(res.delta).not.toContain("jira");
+  });
+
+  it("a delta reads only issues updated since the last poll and merges them without removing", async () => {
+    const since = "2026-11-13T12:00:00.000Z";
+    const prev = fixture();
+    const before = prev.jira.length;
+    const client = fakeClient({ jiraIssue: [issue("NEW-1", "In Progress", null, "pos")] });
+    const res = await fetchSnapshot(client, since, false, { now: NOW });
+    expect(client.searches.find((s) => s.blueprint === "jiraIssue")!.query.rules).toEqual([
+      { property: "$updatedAt", operator: "between", value: { from: since, to: NOW.toISOString() } },
+    ]);
+    expect(res.delta).toContain("jira");
+    expect(res.replace).not.toContain("jira");
+    expect(mergeSnapshot(prev, res.data, res.replace).jira).toHaveLength(before + 1);
+  });
+
+  it("a full poll replaces the Jira collection, and counts an open issue untouched for 60 days", async () => {
+    const prev = fixture();
+    const stale = issue("OLD-OPEN", "To Do", null, "pos");
+    stale.updatedAt = "2026-09-14T00:00:00Z";
+    const tasksOf = (snap: Snapshot) => board(snap).stations.find((s) => s.id === "pos")!.readings.tasks;
+    const baseline = tasksOf({ ...prev, jira: [] });
+
+    const res = await fetchSnapshot(fakeClient({ jiraIssue: [stale] }), "2026-11-13T12:00:00.000Z", true, { now: NOW });
+    // Keep the fixture's services: the stand-in answers every other blueprint with [].
+    const next = mergeSnapshot(prev, { jira: res.data.jira, fetchedAt: res.data.fetchedAt }, res.replace);
+    expect(next.jira.map((j) => j.identifier)).toEqual(["OLD-OPEN"]); // replaced, not merged
+    expect(tasksOf(next)).toBe((baseline ?? 0) + 1);
   });
 });
 

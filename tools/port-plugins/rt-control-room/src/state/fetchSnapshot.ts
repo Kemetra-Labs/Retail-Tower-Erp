@@ -78,13 +78,21 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     replace: !isDelta(collection),
     delta: isDelta(collection),
   });
-  const windowed = (collection: Collection, blueprint: string, rules: PortRule[], keep?: Plan["keep"]): Plan => ({
+  const windowed = (collection: Collection, blueprint: string, rules: PortRule[]): Plan => ({
     collection,
     blueprint,
     query: { combinator: "and", rules: [...rules, ...updated(collection)] },
     replace: false,
     delta: isDelta(collection),
-    keep,
+  });
+
+  const jira = (): Plan => ({
+    collection: "jira",
+    blueprint: BLUEPRINTS.jira,
+    query: { combinator: "and", rules: [...EVERYTHING, ...updated("jira")] },
+    replace: !isDelta("jira"),
+    delta: isDelta("jira"),
+    keep: keepJira(Date.parse(start)),
   });
 
   return [
@@ -93,11 +101,11 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     tiny("hosts", BLUEPRINTS.host),
     alarm("sentryIssues", BLUEPRINTS.sentryIssue, [rule("status", "=", "unresolved")]),
     alarm("monitors", BLUEPRINTS.monitor, EVERYTHING),
-    // Limitation: Jira is read by `$updatedAt` over the 14-day window only. "Open" and "has a
-    // service" cannot be sent with proven rules, so they are applied on the client (`keepJira`),
-    // and an open issue untouched for more than 14 days is not read. A full poll replaces the
-    // window; a delta narrows the same `$updatedAt` rule to `since`.
-    windowed("jira", BLUEPRINTS.jira, isDelta("jira") ? [] : [between("$updatedAt", start, to)], keepJira(Date.parse(start))),
+    // Jira: the first load and every full poll read EVERY issue (`rules: []`, paged) so an open issue
+    // untouched for months is still counted, then `keepJira` keeps service-linked issues and drops old
+    // Done ones; that read is authoritative and replaces the collection. A delta reads only issues
+    // updated since the last poll (`$updatedAt between`) and is merged by identifier.
+    jira(),
     windowed("prs", BLUEPRINTS.pullRequest, [between("mergedAt", start, to)]),
     windowed("runs", BLUEPRINTS.workflowRun, [between("createdAt", start, to)]),
     windowed("deployments", BLUEPRINTS.deployment, [between("createdAt", start, to)]),
