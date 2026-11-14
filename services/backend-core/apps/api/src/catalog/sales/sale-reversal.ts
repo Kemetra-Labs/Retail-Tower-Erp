@@ -57,18 +57,6 @@ export class PromotionClawbackExceedsRefundError extends Error {
   }
 }
 
-/**
- * RT-1337 (OD-11, RT-1340 finding): a return with a clawback, a give-back of a discount an
- * earlier return clawed back, or a reward line cannot be posted by the Connector yet → 422
- * `promotion_return_requires_clawback`, fail closed.
- */
-export class PromotionReturnRequiresClawbackError extends Error {
-  constructor() {
-    super("this return needs a promotion give-back that cannot be recorded or posted yet");
-    this.name = "PromotionReturnRequiresClawbackError";
-  }
-}
-
 /** Refund tenders do not sum to the server-computed total (D3) → 422. */
 export class ReturnTenderMismatchError extends Error {
   constructor() {

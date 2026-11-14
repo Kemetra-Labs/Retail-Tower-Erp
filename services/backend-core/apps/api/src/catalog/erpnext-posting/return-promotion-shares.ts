@@ -21,8 +21,8 @@
  * invariant error, never a silently wrong feed item.
  *
  * The same stored rows give the same shares on every re-pull, so the feed stays byte-identical.
- * A return with no clawback and no give-back (every return until the RT-1337 refusals lift) yields
- * an empty map, and its work item has none of the new fields.
+ * A return with no clawback and no give-back (every return before RT-1367 PR 2 lifted the RT-1337
+ * refusals) yields an empty map, and its work item has none of the new fields.
  */
 import type { PoolClient } from "pg";
 

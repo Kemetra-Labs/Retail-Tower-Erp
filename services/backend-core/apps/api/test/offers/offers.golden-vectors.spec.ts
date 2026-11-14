@@ -155,7 +155,7 @@ type ReturnHistory = { returnedUnits: Map<string, bigint>; clawbacks: bigint };
 /**
  * Spec 048 §9 (multi-return form), for the one offer O of the sale: one
  * return after `history`, with the frozen version and prices. Updates
- * `history` as if the return were recorded (a refused return is not).
+ * `history` as if the return were recorded (an OD-10 refused return is not).
  */
 function settleReturn(sale: Sale, returned: Returned, history: ReturnHistory): StepExpected {
   const { offer, saleLines, minorUnit } = sale;
@@ -252,7 +252,9 @@ describe("offers golden vectors — file", () => {
     expect([byId.get("R3")?.dRemaining, byId.get("R3")?.refund]).toEqual(["0.00", "220.00"]);
   });
 
-  it("covers the OD-10 refusal and the OD-11 interim refusal", () => {
+  // `promotion_return_requires_clawback` is the RT-1335 label for "carries a clawback or a give-back"; since RT-1367
+  // PR 2 the runtime records such a return.
+  it("covers the OD-10 refusal, a clawback or give-back return, and a plain return", () => {
     const outcomes = vectors.returns.map((v) => v.expected.outcome);
     expect(outcomes).toContain("promotion_clawback_exceeds_refund");
     expect(outcomes).toContain("promotion_return_requires_clawback");
@@ -343,7 +345,7 @@ describe("offers golden vectors — return sequences (spec 048 §9, multi-return
   it.each(vectors.returnSequences.map((v) => [v.id, v] as const))("%s agrees with the reference refund, step by step", (_id, sequence) => {
     const history = freshHistory();
     for (const [index, step] of sequence.steps.entries()) {
-      // A step the runtime still refuses (a clawback or a give-back, until the Connector posts them) counts as recorded.
+      // Every step but an OD-10 refusal is recorded, a clawback or a give-back included (RT-1367 PR 2).
       const { feedLines: _feedLines, ...expected } = step.expected;
       expect([index, settleReturn(sequence, step.returned, history)]).toEqual([index, expected]);
     }

@@ -11,24 +11,22 @@
  *   - `refund_O` below 0 is REFUSED, 422 `promotion_clawback_exceeds_refund`
  *     (OD-10): the till asks the cashier to add the reward units; a return
  *     never charges the customer;
- *   - `clawback_O` above 0, a return that would GIVE BACK an earlier clawback
- *     (golden sequence S3, step 2) and the return of a REWARD line
- *     (`discountAmount` above 0) are REFUSED, 422 `promotion_return_requires_clawback`,
- *     fail closed (coordinator decision, RT-1337 validation). OD-11 is decided
- *     (option A plus the Hybrid give-back) and the posting feed now carries the
- *     per-line clawback and give-back (1.13.0-draft; the shares are derived by
- *     `erpnext-posting/return-promotion-shares.ts`), but the Connector cannot post
- *     them yet (RT-1340 phase 2), so such a return would be permanently rejected at
- *     ERPNext. The refusal lifts when the Connector supports both feed fields;
- *     `insertReturnClawbacks` and the net-of-clawback-plus-give-back tender rule are
- *     ready for that lift.
+ *   - otherwise the return is ACCEPTED (OD-11 option A plus the Hybrid give-back,
+ *     RT-1367 PR 2): `clawback_O` above 0 is recorded per offer version
+ *     (`insertReturnClawbacks`), a reward unit of an earlier clawback gives that
+ *     discount back (golden sequence S3, step 2), and the refund tenders are the
+ *     returned `lineAmount` less the clawback plus the give-back. The posting feed
+ *     carries the per-line split (1.13.0-draft, derived by
+ *     `erpnext-posting/return-promotion-shares.ts`), which the Connector posts
+ *     since RT-1340 phase 2 (#584, deployed to the lab in lab-2026.11.8). The
+ *     interim 422 `promotion_return_requires_clawback` refusal is gone.
  *
- * A return of a non-reward promoted line that changes no discount (clawback 0)
- * is accepted as an ordinary return.
+ * A return of a non-reward promoted line that changes no discount (clawback 0),
+ * and a reward line returned at its net with no clawback, are ordinary returns.
  */
 import type { PoolClient } from "pg";
 
-import { formatColumnAmount, scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import { formatColumnAmount, wholeUnits } from "../../offers/evaluator/offer-decimal";
 import {
   allocateReturnPromotion,
   allocationLineOf,
@@ -38,7 +36,7 @@ import {
 import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
 import { minorUnitExponent } from "./iso4217-minor-units";
 import { replaySaleReturns } from "./sale-return-history";
-import { PromotionClawbackExceedsRefundError, PromotionReturnRequiresClawbackError } from "./sale-reversal";
+import { PromotionClawbackExceedsRefundError } from "./sale-reversal";
 
 export interface ReturnClawback {
   readonly offerId: string;
@@ -51,13 +49,6 @@ interface PromotedSaleLine extends SaleOfferLine {
   readonly offerId: string;
   readonly offerVersion: number;
 }
-
-/**
- * PR 1 of the OD-11 contract slice keeps the fail-closed refusals: the posting feed now CARRIES the clawback and the
- * give-back (1.13.0-draft), but the Connector cannot post them yet (RT-1340 phase 2). The second PR deletes this
- * constant and the guard below it.
- */
-const CONNECTOR_POSTS_PROMOTION_RETURNS = false;
 
 export interface ReturnPromotionSettlement {
   /** One per offer version with a clawback above 0. */
@@ -159,14 +150,7 @@ export async function settleReturnPromotions(
     const [offerId, offerVersion] = key.split(":");
     clawbacks.push({ offerId: offerId!, offerVersion: Number(offerVersion), amount: formatColumnAmount(amount, exponent) });
   }
-  const rewardReturned = lines.some((l) => returnedNow.has(l.lineRef) && scaled(l.discountAmount, exponent) > 0n);
   assertReturnedLinesHold({ lines, returned: args.lines, returnedNow, exponent, clawbackByOffer, giveBackByOffer });
-
-  // Fail closed until the Connector posts it (RT-1340 phase 2): a clawback, a give-back and the return of a reward
-  // line (the Connector's return builder needs unitPrice x quantity = lineAmount) are all refused.
-  if (!CONNECTOR_POSTS_PROMOTION_RETURNS && (rewardReturned || giveBack > 0n || clawbacks.length > 0)) {
-    throw new PromotionReturnRequiresClawbackError();
-  }
   return { clawbacks, giveBack: formatColumnAmount(giveBack, exponent) };
 }
 

@@ -8,7 +8,8 @@
  * `outcome` in the file keeps the RT-1335 wording: `promotion_return_requires_clawback`
  * marks a return whose clawback or give-back is above 0. OD-11 is decided (option A + Hybrid,
  * 2026-11-12) and the posting feed carries both per line (`feedLines`, checked here against the
- * real allocation rule); the runtime still refuses such a return until the Connector posts it.
+ * real allocation rule). Since RT-1367 PR 2 the runtime ACCEPTS such a return (the Connector posts
+ * it, RT-1340); the label is kept because the POS golden test reads the same file.
  * The vector's numbers (refund, clawback, giveBack, feedLines) are what must hold.
  */
 import { readFileSync } from "node:fs";
