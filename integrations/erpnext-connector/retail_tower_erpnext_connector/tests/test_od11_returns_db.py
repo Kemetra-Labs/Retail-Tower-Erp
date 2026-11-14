@@ -124,6 +124,11 @@ class TestOd11ReturnsOnBench(unittest.TestCase):
 				"doctype": "Stock Entry",
 				"stock_entry_type": "Material Receipt",
 				"company": company,
+				# Before the sale's business date (2026-06-01): the glue posts on that date, so stock received
+				# "today" would not exist yet when the sale is valued (NegativeStockError on the first run).
+				"set_posting_time": 1,
+				"posting_date": "2026-01-02",
+				"posting_time": "08:00:00",
 				"items": [
 					{
 						"item_code": code,
