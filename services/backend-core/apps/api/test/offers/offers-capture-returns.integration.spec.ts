@@ -15,8 +15,11 @@
  *   - returns: every golden `returns` and `returnSequences` vector of
  *     `packages/contracts/fixtures/offers/golden-vectors.json` end to end:
  *     the refund, the recorded clawback and `returnTotal`; the OD-10 refusal;
- *     the OD-11 clawback accepted; the give-back of S3 step 2 refused (fail
- *     closed, see `sale-return-promotions.ts`);
+ *     since RT-1367 PR 2 the OD-11 clawback, the Hybrid give-back of S3 step 2
+ *     and a returned reward line are ACCEPTED, and each accepted return is
+ *     projected through the production `buildWorkItem`: the per-line
+ *     `promotionClawbackAmount` / `promotionGiveBackAmount` equal the vector's
+ *     `feedLines` and `refundTenders` = Σ lineAmount − Σ clawback + Σ give-back;
  *   - tenant isolation: another tenant cannot cite a tenant's offer.
  */
 import "reflect-metadata";
@@ -26,6 +29,7 @@ import { resolve } from "node:path";
 
 import { runWithTenantContext } from "@data-pulse-2/db";
 
+import { buildWorkItem, type PostingWorkItem } from "../../src/catalog/erpnext-posting/posting-work-item.projection";
 import { OfferDefinitionSchema, normaliseDefinition, type OfferDefinition } from "../../src/offers/offers.dto";
 import { SALE_OFFER_REVIEW_ACTION } from "../../src/catalog/sales/sale-promotions";
 import { rebuildOfferPack } from "../../src/offers/offer-pack.rebuild";
@@ -412,7 +416,8 @@ describe("captureSale with an automatic-offer promotion", () => {
 // -------------------------------------------------------------------- returns
 
 interface VectorSaleLine { saleLineRef: string; productId: string; unitPrice: string; quantity: string; lineAmount: string; promotion: { discountAmount: string } | null }
-interface StepExpected { refund: string; clawback: string | null; outcome: string }
+interface FeedLine { saleLineRef: string; promotionClawbackAmount?: string; promotionGiveBackAmount?: string }
+interface StepExpected { refund: string; clawback: string | null; giveBack: string; outcome: string; feedLines?: FeedLine[] }
 interface ReturnCase {
   id: string;
   offer: { buyQuantity: number; getQuantity: number; percentOff: string; maxApplicationsPerSale: number | null };
@@ -429,10 +434,62 @@ const CASES: ReturnCase[] = [
   ...vectors.returnSequences,
 ];
 
+/** Exact decimal text at any scale up to 4 → an integer count of 0.0001 (the feed and column scale). */
+const units4 = (text: string | undefined): number => Math.round(Number(text ?? "0") * 10_000);
+
+/** Confirmed ERPNext item maps for the offer's products, so the return projects as a feed work item (RT-73). */
+async function mapForPosting(productIds: ReadonlyArray<string>): Promise<void> {
+  for (const [i, id] of productIds.entries()) {
+    await env().admin.query(
+      `INSERT INTO erpnext_item_map (id, tenant_id, tenant_product_id, erpnext_item_ref, state, suggestion_source, confirmed_by, confirmed_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'confirmed', 'manual', $4, now()) ON CONFLICT DO NOTHING`,
+      [TENANT_A, id, `ERP-RT1367-${id.slice(-8)}-${i}`, ACTOR],
+    );
+  }
+}
+
+/** The return's `reversal` work item, built by the production projection the feed serves. */
+async function projectReturn(saleRef: string, returnRef: string): Promise<PostingWorkItem> {
+  const item = await runWithTenantContext(env().app, { tenantId: TENANT_A, isPlatformAdmin: false }, (client) =>
+    buildWorkItem(client, {
+      id: "01900000-0000-7000-8000-000000001367",
+      kind: "reversal",
+      saleId: saleRef,
+      sourceRefId: returnRef,
+      sourceSystem: "pos-1",
+      externalId: `rt1367-${returnRef.slice(-8)}`,
+      payloadHash: "b".repeat(64),
+      sequence: "1",
+    }),
+  );
+  expect(item).not.toBeNull();
+  return item!;
+}
+
+/**
+ * The feed carries the vector's per-line split (`feedLines`, lines not listed carry none) and the refund tenders sum
+ * to Σ lineAmount − Σ clawback + Σ give-back = the refund (posting-feed.yaml 1.13.0-draft).
+ */
+function expectFeedShares(item: PostingWorkItem, expected: ReadonlyArray<FeedLine>, lineRefOf: (vectorRef: string) => string, refund: string): void {
+  const lines = item.reversalOf!.returnLines!;
+  const actual = lines.map((l) => [l.lineRef, units4(l.promotionClawbackAmount), units4(l.promotionGiveBackAmount)]);
+  const wanted = new Map(expected.map((f) => [lineRefOf(f.saleLineRef), [units4(f.promotionClawbackAmount), units4(f.promotionGiveBackAmount)]] as const));
+  expect(actual).toEqual(lines.map((l) => [l.lineRef, ...(wanted.get(l.lineRef) ?? [0, 0])]));
+  // A zero share is omitted, never written as "0.0000".
+  for (const l of lines) {
+    expect(l.promotionClawbackAmount === undefined || units4(l.promotionClawbackAmount) > 0).toBe(true);
+    expect(l.promotionGiveBackAmount === undefined || units4(l.promotionGiveBackAmount) > 0).toBe(true);
+  }
+  const formula = lines.reduce((s, l) => s + units4(l.lineAmount) - units4(l.promotionClawbackAmount) + units4(l.promotionGiveBackAmount), 0);
+  const tenders = item.reversalOf!.refundTenders!.reduce((s, t) => s + units4(t.amount), 0);
+  expect([formula, tenders]).toEqual([units4(refund), units4(refund)]);
+}
+
 describe("recordReturn with a clawback — the golden return vectors end to end", () => {
   it.each(CASES.map((c) => [c.id, c] as const))("%s", async (_id, c) => {
     if (skip()) return;
     const o = await seedOffer({ products: c.saleLines.length, offer: c.offer });
+    await mapForPosting(o.productIds);
     const byVectorRef = new Map<string, number>();
     const captureRes = await capture(
       body(
@@ -457,35 +514,29 @@ describe("recordReturn with a clawback — the golden return vectors end to end"
       const lines = step.returned.map((r) => ({ lineRef: lineRefs[byVectorRef.get(r.saleLineRef)!]!, quantity: r.quantity }));
       const key = `${c.id}-${stepIndex}`;
       const refund = step.expected.refund;
-      const giveBack = c.id === "S3-clawback-then-reward" && stepIndex === 1;
       if (step.expected.outcome === "promotion_clawback_exceeds_refund") {
         const res = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, "0.00"), idempKey(key));
         expect([res.status, res.body.error?.code]).toEqual([422, "promotion_clawback_exceeds_refund"]);
         expect(await sql(`SELECT 1 FROM sale_returns WHERE external_id = $1`, [`rt1337-ret-${key}`])).toEqual([]);
         continue;
       }
-      if (giveBack) {
-        const res = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
-        expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
-        expect(await sql(`SELECT 1 FROM sale_returns WHERE external_id = $1`, [`rt1337-ret-${key}`])).toEqual([]);
-        continue;
-      }
-      const clawback = step.expected.clawback;
-      const rewardReturned = step.returned.some((r) => Number(c.saleLines.find((l) => l.saleLineRef === r.saleLineRef)!.promotion?.discountAmount ?? 0) > 0);
-      if ((clawback !== null && Number(clawback) > 0) || rewardReturned) {
-        // Fail closed until the ledger can post it (RT-1340): a clawback, or a returned reward line, is refused
-        // (the refund the vector expects is what the lift will pay), and nothing is recorded.
-        const res = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
-        expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
-        expect(await sql(`SELECT 1 FROM sale_returns WHERE external_id = $1`, [`rt1337-ret-${key}`])).toEqual([]);
-        expect(await sql(`SELECT 1 FROM sale_return_promotion_clawbacks`)).toEqual([]);
-        // The vector's later steps assume this return happened; they stay covered by the pure settlement spec.
-        break;
-      }
+      // RT-1367 PR 2: a clawback, a Hybrid give-back (S3 step 2) and a returned reward line are all recorded now (the
+      // vector's `outcome` label keeps the RT-1335 wording; the POS golden test reads the same file).
       const res = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
       expect([res.status, res.body.error]).toEqual([201, undefined]);
-      expect(Number(res.body.returnTotal)).toBe(Number(refund));
-      expect(res.body.promotionClawbacks).toBeUndefined();
+      expect(units4(res.body.returnTotal)).toBe(units4(refund));
+      const clawback = step.expected.clawback;
+      if (clawback !== null && units4(clawback) > 0) {
+        expect(res.body.promotionClawbacks.map((p: { offerId: string; offerVersion: number; amount: string }) => [p.offerId, p.offerVersion, units4(p.amount)])).toEqual([
+          [o.offerId, 1, units4(clawback)],
+        ]);
+      } else {
+        expect(res.body.promotionClawbacks).toBeUndefined();
+      }
+      const item = await projectReturn(captureRes.body.saleRef, res.body.returnRef);
+      expectFeedShares(item, step.expected.feedLines ?? [], (vectorRef) => lineRefs[byVectorRef.get(vectorRef)!]!, refund);
+      // Re-projection from the same stored rows is byte-identical (the feed re-pulls).
+      expect(await projectReturn(captureRes.body.saleRef, res.body.returnRef)).toEqual(item);
       // A replay answers the stored return, clawbacks included.
       const replay = await postReturn(h, captureRes.body.saleRef, returnBody(`rt1337-ret-${key}`, lines, refund), idempKey(key));
       expect([replay.status, replay.headers["idempotent-replayed"]]).toEqual([201, "true"]);
@@ -493,9 +544,10 @@ describe("recordReturn with a clawback — the golden return vectors end to end"
     }
   });
 
-  it("refuses a return with a clawback while the ledger cannot post it, and records nothing", async () => {
+  it("records a return with a clawback, stores the clawback row and projects it on the trigger line (E1, option A)", async () => {
     if (skip()) return;
     const o = await seedOffer({ products: 2 });
+    await mapForPosting(o.productIds);
     const cap = await capture(
       body([
         { product: o.productIds[0]!, unitPrice: "300.00", lineAmount: "300.00", promotion: cite(o, "0.00") },
@@ -503,23 +555,32 @@ describe("recordReturn with a clawback — the golden return vectors end to end"
       ]),
     );
     // E1: returning the 300.00 trigger takes the 80.00 discount back (clawback 80.00, refund 220.00).
-    const res = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-rows", [{ lineRef: cap.body.lines[0].lineRef, quantity: "1" }], "220.00"), idempKey("rows"));
-    expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
-    expect(await sql(`SELECT 1 FROM sale_returns WHERE external_id = $1`, ["rt1337-ret-rows"])).toEqual([]);
+    const trigger = cap.body.lines[0].lineRef as string;
+    const res = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-rows", [{ lineRef: trigger, quantity: "1" }], "220.00"), idempKey("rows"));
+    expect([res.status, res.body.error]).toEqual([201, undefined]);
+    expect(units4(res.body.returnTotal)).toBe(units4("220.00"));
+    const rows = await sql<{ amount: string }>(`SELECT amount::text AS amount FROM sale_return_promotion_clawbacks WHERE return_id = $1`, [res.body.returnRef]);
+    expect(rows.map((r) => units4(r.amount))).toEqual([units4("80.00")]);
+    const item = await projectReturn(cap.body.saleRef, res.body.returnRef);
+    expectFeedShares(item, [{ saleLineRef: "trigger", promotionClawbackAmount: "80.00" }], () => trigger, "220.00");
   });
 
-  it("refuses the return of a reward line even when it takes no clawback", async () => {
+  it("records the return of a reward line at its net with no clawback, and projects no promotion field", async () => {
     if (skip()) return;
     const o = await seedOffer({ products: 2 });
+    await mapForPosting(o.productIds);
     const cap = await capture(
       body([
         { product: o.productIds[0]!, unitPrice: "300.00", lineAmount: "300.00", promotion: cite(o, "0.00") },
         { product: o.productIds[1]!, unitPrice: "200.00", lineAmount: "120.00", promotion: cite(o, "80.00") },
       ]),
     );
-    // The reward line comes back at its net: the Connector's return builder could not post unitPrice x quantity != lineAmount.
+    // The reward line comes back at its net (unitPrice x quantity > lineAmount); the Connector posts it as a visible
+    // discount (RT-1340 F3), so nothing is taken back and neither feed field is present.
     const res = await postReturn(h, cap.body.saleRef, returnBody("rt1337-ret-reward", [{ lineRef: cap.body.lines[1].lineRef, quantity: "1" }], "120.00"), idempKey("reward"));
-    expect([res.status, res.body.error?.code]).toEqual([422, "promotion_return_requires_clawback"]);
+    expect([res.status, res.body.error, res.body.promotionClawbacks]).toEqual([201, undefined, undefined]);
+    const item = await projectReturn(cap.body.saleRef, res.body.returnRef);
+    expectFeedShares(item, [], (r) => r, "120.00");
   });
 
   it("accepts the return of a non-reward promoted line that changes no discount, as an ordinary return", async () => {

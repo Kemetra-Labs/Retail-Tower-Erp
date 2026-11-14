@@ -174,6 +174,10 @@ Consequences:
   no re-drive), and its return builder requires `unitPrice` × `quantity` = `lineAmount`, so a reward line cannot post as
   it is. Backend-Core therefore keeps the 422 `promotion_return_requires_clawback` refusal for a clawback above 0, a
   give-back and the return of a reward line, and lifts it in a second small PR after the Connector PR merges.
+- **Lifted (RT-1367 PR 2, 2026-11-14).** The Connector posts option A, the give-back row and a reward line at its net
+  (RT-1340 phase 2, #584, deployed to the lab in `lab-2026.11.8`, with its contract PIN on posting-feed 1.13.0-draft), so
+  Backend-Core records these returns and no longer returns `promotion_return_requires_clawback`. OD-10
+  (`promotion_clawback_exceeds_refund`) stays.
 
 ## OD-12 — Permissions and guardrails
 

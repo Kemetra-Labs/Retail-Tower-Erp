@@ -377,7 +377,8 @@ info:
     and a repin to the merge commit of this version; (2) only then does
     Backend-Core stop refusing a return with a clawback, a give-back or a
     reward line (422 `promotion_return_requires_clawback`). Until then no
-    work item carries either field.
+    work item carries either field. Both steps are done: (1) RT-1340 phase 2
+    (#584, PIN on this version, lab `lab-2026.11.8`), (2) RT-1367 PR 2.
 
     RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114
     comment 16670, 2026-11-12, applying RT-1098 decision 4A of comment 16394:
