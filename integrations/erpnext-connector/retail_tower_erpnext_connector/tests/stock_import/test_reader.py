@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Retail Tower OS and contributors
 # For license information, please see license.txt
 
-"""RT-1287 — the pure stock import read rule (``stock-import.yaml`` 1.0.0-draft), frappe-free.
+"""RT-1287, RT-1398 — the pure stock import read rule (``stock-import.yaml`` 1.1.0-draft), frappe-free.
 
 A fake :class:`LedgerSource` stands in for ERPNext: it orders and filters ledger rows as the
 frappe glue's SQL does (keyset on (``creation``, ``name``), ``creation`` ≤ cutoff). Covered: the
@@ -482,19 +482,49 @@ def test_untracked_reconciliation_reports_qty_minus_current_qty(purpose, qty, cu
 	assert (row["purpose"], row["entryIndex"], row["erpnextBatchRef"]) == (purpose, 0, None)
 
 
-def test_cancelled_opening_stock_reads_the_same_item_for_original_and_reverse():
-	# Bench: Opening Stock of 5 on an empty position, then cancelled. Both ledger rows are stored 0 and
-	# flagged cancelled and name the same voucher row. The reader reports what the rule says for each
-	# row it is given (qty - current_qty of that row); the original is +5. The reverse row's -5 is
-	# checked on the bench (its ledger row there stores a non-zero actual_qty, or the item is read as
-	# at cancel time); see the evidence on RT-1398.
-	item = r.RawReconciliationItem(qty=5, current_qty=0)
+def test_cancelled_opening_stock_reports_plus_on_the_original_and_minus_on_the_reverse():
+	# Bench (v16.51.0, RT-1287 comment 17044, RT-1398): Opening Stock of 5 on an empty position, then
+	# cancelled. Both ledger rows are flagged cancelled and name the same voucher row. The original is
+	# stored with actual_qty 0 (the rule gives qty - current_qty = +5); the reverse row is stored with
+	# actual_qty -5, which passes through. The item is read for the original only.
 	src = FakeSource(
-		[reco_sle("SLE-ORIG", at(1), is_cancelled=True)],
-		items={"sri-1": item},
+		[
+			reco_sle("SLE-ORIG", at(1), is_cancelled=True),
+			reco_sle("SLE-REV", at(2), qty=-5, is_cancelled=True),
+		],
+		items={"sri-1": r.RawReconciliationItem(qty=5, current_qty=0)},
 	)
-	[row] = wire_rows(report(src))
-	assert (row["ledgerEntryRef"], row["isCancelled"], row["actualQty"]) == ("SLE-ORIG", True, "5.000000")
+	rows = wire_rows(report(src))
+	assert [(x["ledgerEntryRef"], x["isCancelled"], x["actualQty"]) for x in rows] == [
+		("SLE-ORIG", True, "5.000000"),
+		("SLE-REV", True, "-5.000000"),
+	]
+	assert src.item_reads == [["sri-1"]]
+
+
+def test_reconciliation_rows_across_chunks_and_a_resume_at_one_of_them():
+	# max_rows=1 reads the ledger in chunks of 2: each chunk reads its own items, and a page that resumes
+	# `after` a reconciliation row still reports the next one with its own delta.
+	src = FakeSource(
+		[
+			reco_sle("SLE-1", at(1), detail="sri-1"),
+			reco_sle("SLE-2", at(2), detail="sri-2"),
+			reco_sle("SLE-3", at(3), detail="sri-3"),
+		],
+		items={
+			"sri-1": r.RawReconciliationItem(qty=10, current_qty=0),
+			"sri-2": r.RawReconciliationItem(qty=12, current_qty=10),
+			"sri-3": r.RawReconciliationItem(qty=7, current_qty=12),
+		},
+	)
+	after = None
+	seen = []
+	for _ in range(3):
+		rep = report(src, request(after=after, max_rows=1))
+		[row] = wire_rows(rep)
+		seen.append((row["ledgerEntryRef"], row["actualQty"]))
+		after = rep.read_through
+	assert seen == [("SLE-1", "10.000000"), ("SLE-2", "2.000000"), ("SLE-3", "-5.000000")]
 
 
 def test_reverse_row_with_its_own_actual_qty_passes_through():

@@ -206,12 +206,17 @@ def needs_reconciliation_item(entry: RawLedgerEntry) -> bool:
 		entry.voucher_type == STOCK_RECONCILIATION
 		and not entry.serial_and_batch_bundle
 		and not entry.batch_no
-		and Decimal(quantize_qty(entry.actual_qty)) == 0
+		and entry.actual_qty == 0  # the stored value, as `_entry_qty` reads the ledger sign
 	)
 
 
 def _reconciliation_qty(entry: RawLedgerEntry, item: RawReconciliationItem | None) -> str:
-	"""``qty - current_qty`` of the reconciliation row, each at 6 dp half-even; fail closed if unknown."""
+	"""``qty - current_qty`` of the reconciliation row, each at 6 dp half-even; fail closed if unknown.
+
+	On the v16 bench both columns are NOT NULL (default 0) and a valuation-only row is stored with
+	``qty`` = ``current_qty`` (delta 0), so ``qty`` None is a defence against a source that returns it,
+	never a guess of 0.
+	"""
 	if item is None or item.qty is None:
 		raise StockImportReadError(
 			f"{entry.name}: no counted quantity for Stock Reconciliation Item {entry.voucher_detail_no!r}"
