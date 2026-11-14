@@ -58,9 +58,12 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
     expect(lights.backend.text.en).toBe("3 alarms open");
     expect(lights.accounts.tone).toBe("fault");
     expect(lights.accounts.text.en).toBe("1 alarm open");
-    expect(lights.cashier.tone).toBe("neutral");
-    expect(lights.cashier.text.en).toBe("No errors reported");
+    // POS has a Sentry project but no issue ever reached Port: no sign it reports errors, so not neutral.
+    expect(lights.cashier.tone).toBe("unknown");
+    expect(lights.cashier.text.en).toBe("Not sure: no sign the cashier app reports errors");
     expect(board.verdict.sentence.en).toContain("3 alarms");
+    // Faults first.
+    expect(board.verdict.sentence.en.startsWith("The backend has 3 alarms open.")).toBe(true);
     expect(board.verdict.sentence.en).not.toContain("4 ");
   });
 
@@ -363,7 +366,8 @@ describe("buildBoard when the Sentry alarm read failed (criterion 7)", () => {
       const b = buildBoard(fixture(), o);
       expect(station(b, "conn").readings.alarms).toBe(4);
       expect(station(b, "pos").readings.alarms).toBe(0);
-      expect(b.verdict.lights.cashier.text.en).toBe("No errors reported");
+      // Read again, but POS has never sent an issue: no sign it reports errors, never "No errors reported".
+      expect(b.verdict.lights.cashier.text.en).toBe("Not sure: no sign the cashier app reports errors");
     }
   });
 });

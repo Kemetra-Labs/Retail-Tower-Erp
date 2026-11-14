@@ -31,6 +31,11 @@ function input(over: Partial<VerdictInput> = {}): VerdictInput {
     checks: { core: { ok: 7, total: 7 }, conn: null },
     sources: { sentry: fresh("sentry"), datadog: fresh("datadog"), github: fresh("github"), jira: fresh("jira") },
     sentryRead: true,
+    posSentry: "sending",
+    coreHosts: [
+      { id: "lab-01", up: true },
+      { id: "lab-02", up: true },
+    ],
     ...over,
   };
 }
@@ -134,6 +139,87 @@ describe("buildVerdict lights", () => {
     const v = buildVerdict(input({ sources }));
     expect(v.lights.cashier.tone).toBe("neutral");
     expect(v.lights.backend.tone).toBe("unknown");
+  });
+});
+
+describe("buildVerdict honesty (never claims health from absence of evidence)", () => {
+  it("the cashier light is neutral only when POS's Sentry lamp is sending", () => {
+    for (const state of ["linked", "none", "na", "live", "alert"] as const) {
+      const v = buildVerdict(input({ posSentry: state }));
+      expect(v.lights.cashier.tone, state).toBe("unknown");
+      expect(v.lights.cashier.text).toEqual({
+        en: "Not sure: no sign the cashier app reports errors",
+        ar: "مش متأكد: مفيش علامة إن تطبيق الكاشير بيبلّغ عن أخطاء",
+      });
+    }
+    expect(buildVerdict(input({ posSentry: "sending" })).lights.cashier.tone).toBe("neutral");
+  });
+
+  it("the backend light is amber when a Backend-Core server's up-state is unknown", () => {
+    const v = buildVerdict(input({ coreHosts: [{ id: "lab-01", up: true }, { id: "lab-02", up: null }] }));
+    expect(v.lights.backend.tone).toBe("unknown");
+    expect(v.lights.backend.text.en).toBe("Not sure: server lab-02 state unknown");
+    expect(v.lights.backend.text.ar).toMatch(ARABIC);
+  });
+
+  it("the backend light is red when a Backend-Core server is down", () => {
+    const v = buildVerdict(input({ coreHosts: [{ id: "lab-01", up: false }, { id: "lab-02", up: true }] }));
+    expect(v.lights.backend.tone).toBe("fault");
+    expect(v.lights.backend.text.en).toBe("Server lab-01 is down");
+    expect(v.sentence.en.startsWith("Server lab-01 of the backend is down.")).toBe(true);
+  });
+
+  it("the backend light is never neutral while an alarm fails at Backend-Core", () => {
+    const v = buildVerdict(input({ alarms: [alarm("c3", "conn", { kind: "down" })] }));
+    expect(v.lights.backend.tone).toBe("fault");
+  });
+
+  it("the sentence puts faults first, then unknowns, then the neutral clauses", () => {
+    const v = buildVerdict(
+      input({
+        alarms: [alarm("conn", "conn", { kind: "reset" })],
+        posSentry: "linked",
+        checks: { core: { ok: 7, total: 7 }, conn: { ok: 2, total: 2 } },
+      }),
+    );
+    expect(v.lights.accounts.tone).toBe("fault");
+    expect(v.lights.cashier.tone).toBe("unknown");
+    expect(v.lights.backend.tone).toBe("neutral");
+    const en = v.sentence.en;
+    const fault = en.indexOf("The accounts side has");
+    const unknown = en.indexOf("The cashier app's state is not confirmed.");
+    const neutral = en.indexOf("The backend: no errors reported");
+    expect(fault).toBe(0);
+    expect(unknown).toBeGreaterThan(fault);
+    expect(neutral).toBeGreaterThan(unknown);
+    expect(v.sentence.ar.indexOf("جانب الحسابات")).toBe(0);
+  });
+
+  it("puts the not-read and unplaced notes with the unknowns, before any neutral clause", () => {
+    const v = buildVerdict(input({ alarms: [alarm("unlocated", null)], checks: { core: { ok: 7, total: 7 }, conn: { ok: 1, total: 1 } } }));
+    const en = v.sentence.en;
+    expect(en.indexOf("could not be placed on the map")).toBeLessThan(en.indexOf("The cashier app: no errors reported."));
+  });
+
+  it("never says 'passes all' or 'reports no' in any state", () => {
+    const states: Partial<VerdictInput>[] = [
+      { checks: { core: { ok: 7, total: 7 }, conn: { ok: 2, total: 2 } } },
+      {},
+      { sentryRead: false },
+      { posSentry: "linked" },
+    ];
+    for (const s of states) {
+      const v = buildVerdict(input(s));
+      for (const t of allTexts(v)) expect(t.en).not.toMatch(/passes all|reports no/i);
+      expect(v.sentence.ar).not.toContain("عدّى كل");
+    }
+  });
+
+  it("a fully quiet board reads 'no errors reported' clause by clause", () => {
+    const v = buildVerdict(input({ checks: { core: { ok: 7, total: 7 }, conn: { ok: 2, total: 2 } } }));
+    expect(v.sentence.en).toBe(
+      "The backend: no errors reported, 7 of 7 health checks OK. The cashier app: no errors reported. The accounts side: no errors reported in the test lab.",
+    );
   });
 });
 

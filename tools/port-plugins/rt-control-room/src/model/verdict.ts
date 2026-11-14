@@ -1,5 +1,5 @@
 import { failingHopOf } from "./architecture";
-import type { Alarm, I18n, Light, SourceId, SourceView, StationView, Verdict } from "./types";
+import type { Alarm, HostId, I18n, Light, LinkState, SourceId, SourceView, StationView, Verdict } from "./types";
 
 /**
  * What the verdict needs. Station checks come from `StationView.readings.checks`
@@ -16,6 +16,10 @@ export type VerdictInput = {
   sentryRead: boolean;
   /** False while the Datadog monitors were never read: a missing check then reads "not read", not "no health check". Default true. */
   monitorsRead?: boolean;
+  /** POS's Sentry lamp: only "sending" is evidence that the cashier app reports errors at all. */
+  posSentry: LinkState;
+  /** The servers Backend-Core runs on, with Datadog's up-state (`null` = not known). */
+  coreHosts: { id: HostId; up: boolean | null }[];
 };
 
 type Checks = { ok: number; total: number } | null;
@@ -54,18 +58,23 @@ const checksOf = (c: StationView["readings"]["checks"]): Checks => (c === "na" ?
 
 const notFresh = (v: VerdictInput, ids: SourceId[]) => ids.some((id) => v.sources[id].state !== "fresh");
 
-type Unknown = { why: "unplaced" | "none" | "checks-unread" | "partial" | "stale" | "not-read" };
+type Unknown = {
+  why: "unplaced" | "none" | "checks-unread" | "partial" | "stale" | "not-read" | "no-signal" | "host-unknown";
+  host?: HostId;
+};
 
 /**
- * First reason a light that has no alarm cannot be neutral. Order matters: a
+ * First reason a light that has no fault cannot be neutral. Order matters: a
  * failed error read outranks everything, then alarms nobody could place.
  */
 function unknownReason(
   v: VerdictInput,
-  opts: { checks: Checks; needsChecks: boolean; sources: SourceId[]; unplaced: number },
+  opts: { checks: Checks; needsChecks: boolean; sources: SourceId[]; unplaced: number; hosts?: VerdictInput["coreHosts"] },
 ): Unknown | null {
   if (!v.sentryRead) return { why: "not-read" };
   if (opts.unplaced > 0) return { why: "unplaced" };
+  const unknownHost = opts.hosts?.find((h) => h.up === null);
+  if (unknownHost) return { why: "host-unknown", host: unknownHost.id };
   if (opts.needsChecks && opts.checks === null) return { why: v.monitorsRead === false ? "checks-unread" : "none" };
   if (opts.needsChecks && opts.checks && opts.checks.ok < opts.checks.total) return { why: "partial" };
   if (notFresh(v, opts.sources)) return { why: "stale" };
@@ -86,6 +95,10 @@ function unknownText(reason: Unknown, checks: Checks, unplaced: number, cashier:
       const a = alarmsOf(unplaced);
       return t(`Not sure: ${a.en} not placed`, unplaced === 1 ? "مش متأكد: إنذار واحد مش متحدد" : `مش متأكد: ${a.ar} مش متحدد`);
     }
+    case "no-signal":
+      return t("Not sure: no sign the cashier app reports errors", "مش متأكد: مفيش علامة إن تطبيق الكاشير بيبلّغ عن أخطاء");
+    case "host-unknown":
+      return t(`Not sure: server ${reason.host} state unknown`, `مش متأكد: حالة السيرفر ${reason.host} مش معروفة`);
     case "none":
       return t("Not sure: no health check", "مجهول: مفيش فحص صحة");
     case "checks-unread":
@@ -99,7 +112,7 @@ function unknownText(reason: Unknown, checks: Checks, unplaced: number, cashier:
   }
 }
 
-// ---- the three lights and their sentence clauses ---------------------------
+// ---- the three lights and their sentence clauses (each clause a full sentence) ----
 
 type Part = { light: Light; clause: I18n };
 
@@ -108,54 +121,63 @@ function cashierPart(v: VerdictInput, mine: Alarm[]): Part {
     const e = errors(mine.length);
     return {
       light: { tone: "fault", text: t(`${e.en} reported`, `${e.ar} في التطبيق`) },
-      clause: t(`the cashier app reports ${e.en}`, `تطبيق الكاشير فيه ${e.ar}`),
+      clause: t(`The cashier app reports ${e.en}.`, `تطبيق الكاشير فيه ${e.ar}.`),
     };
   }
-  const why = unknownReason(v, { checks: null, needsChecks: false, sources: ["sentry"], unplaced: 0 });
+  let why = unknownReason(v, { checks: null, needsChecks: false, sources: ["sentry"], unplaced: 0 });
+  // Neutral needs evidence the app reports errors at all: its Sentry lamp is sending.
+  if (!why && v.posSentry !== "sending") why = { why: "no-signal" };
   if (why) {
     return {
       light: { tone: "unknown", text: unknownText(why, null, 0, true) },
-      clause: t("the cashier app's state is not confirmed", "حالة تطبيق الكاشير مش مؤكدة"),
+      clause: t("The cashier app's state is not confirmed.", "حالة تطبيق الكاشير مش مؤكدة."),
     };
   }
   return {
-    light: { tone: "neutral", text: t("No errors reported", "مفيش أخطاء") },
-    clause: t("the cashier app reports no errors", "تطبيق الكاشير مفيهوش أخطاء"),
+    light: { tone: "neutral", text: t("No errors reported", "مفيش أخطاء متبلّغ عنها") },
+    clause: t("The cashier app: no errors reported.", "تطبيق الكاشير: مفيش أخطاء متبلّغ عنها."),
+  };
+}
+
+function backendFault(mine: Alarm[], down: VerdictInput["coreHosts"]): Part {
+  if (mine.length === 0) {
+    const ids = down.map((h) => h.id).join(", ");
+    return {
+      light: { tone: "fault", text: t(`Server ${ids} is down`, `السيرفر ${ids} واقع`) },
+      clause: t(`Server ${ids} of the backend is down.`, `السيرفر ${ids} بتاع الـ Backend واقع.`),
+    };
+  }
+  if (mine.length === 1 && mine[0].kind === "latency") {
+    const ex = mine[0].example === true;
+    return {
+      light: { tone: "fault", text: t(`Slow responses${ex ? " (example)" : ""}`, `ردود بطيئة${ex ? " (مثال)" : ""}`) },
+      clause: t(`The backend is slow${ex ? " (example)" : ""}.`, `الـ Backend بطيء${ex ? " (مثال)" : ""}.`),
+    };
+  }
+  const a = alarmsOf(mine.length);
+  return {
+    light: { tone: "fault", text: t(`${a.en} open`, `إنذارات شغالة: ${num(mine.length)}`) },
+    clause: t(`The backend has ${a.en} open.`, `الـ Backend عليه ${a.ar}.`),
   };
 }
 
 function backendPart(v: VerdictInput, mine: Alarm[], unplaced: number): Part {
   const checks = checksOf(v.checks.core);
-  if (mine.length > 0) {
-    if (mine.length === 1 && mine[0].kind === "latency") {
-      const ex = mine[0].example === true;
-      return {
-        light: {
-          tone: "fault",
-          text: t(`Slow responses${ex ? " (example)" : ""}`, `ردود بطيئة${ex ? " (مثال)" : ""}`),
-        },
-        clause: t(`The backend is slow${ex ? " (example)" : ""}`, `الـ Backend بطيء${ex ? " (مثال)" : ""}`),
-      };
-    }
-    const a = alarmsOf(mine.length);
-    return {
-      light: { tone: "fault", text: t(`${a.en} open`, `إنذارات شغالة: ${num(mine.length)}`) },
-      clause: t(`The backend has ${a.en} open`, `الـ Backend عليه ${a.ar}`),
-    };
-  }
-  const why = unknownReason(v, { checks, needsChecks: true, sources: ["sentry", "datadog"], unplaced });
+  const down = v.coreHosts.filter((h) => h.up === false);
+  if (mine.length > 0 || down.length > 0) return backendFault(mine, down);
+  const why = unknownReason(v, { checks, needsChecks: true, sources: ["sentry", "datadog"], unplaced, hosts: v.coreHosts });
   if (why) {
     return {
       light: { tone: "unknown", text: unknownText(why, checks, unplaced, false) },
-      clause: t("The backend's state is not confirmed", "حالة الـ Backend مش مؤكدة"),
+      clause: t("The backend's state is not confirmed.", "حالة الـ Backend مش مؤكدة."),
     };
   }
   const c = checks as { ok: number; total: number };
   return {
     light: { tone: "neutral", text: checksText(c) },
     clause: t(
-      `The backend passes all ${num(c.total)} health checks`,
-      `الـ Backend عدّى كل فحوصات الصحة (${num(c.total)})`,
+      `The backend: no errors reported, ${num(c.ok)} of ${num(c.total)} health checks OK.`,
+      `الـ Backend: مفيش أخطاء متبلّغ عنها، ${num(c.ok)} من ${num(c.total)} فحوصات صحة تمام.`,
     ),
   };
 }
@@ -179,8 +201,8 @@ function accountsPart(v: VerdictInput, mine: Alarm[], unplaced: number): Part {
     };
   }
   return {
-    light: { tone: "neutral", text: t("No faults", "مفيش أعطال") },
-    clause: t("The accounts side reports no faults in the test lab.", "جانب الحسابات مفيهوش أعطال في بيئة التجربة."),
+    light: { tone: "neutral", text: t("No errors reported", "مفيش أخطاء متبلّغ عنها") },
+    clause: t("The accounts side: no errors reported in the test lab.", "جانب الحسابات: مفيش أخطاء متبلّغ عنها في بيئة التجربة."),
   };
 }
 
@@ -211,12 +233,34 @@ function accountsFault(mine: Alarm[]): Part {
   };
 }
 
+/** Notes that make the board less certain: they read with the unknowns. */
+function notes(input: VerdictInput, unplaced: number): I18n[] {
+  const out: I18n[] = [];
+  if (!input.sentryRead) {
+    out.push(t("The error tracker could not be read, so error counts are not known.", "مقدرناش نقرا متتبع الأخطاء، فعدد الأخطاء مش معروف."));
+  }
+  if (unplaced > 0) {
+    const a = alarmsOf(unplaced);
+    out.push(
+      t(
+        `${a.en} could not be placed on the map.`,
+        unplaced === 1 ? "إنذار واحد مش قادرين نحدد مكانه على الخريطة." : `${a.ar} مش قادرين نحدد مكانهم على الخريطة.`,
+      ),
+    );
+  }
+  return out;
+}
+
+const RANK: Record<Light["tone"], number> = { fault: 0, unknown: 1, neutral: 2 };
+
 /**
  * Three lights and one sentence (spec 7b). A light is a fault when its scope
- * has an open alarm, unknown when its health is not known or a source is
- * stale or unread, and neutral (never green) only when it is watched and quiet.
- * Alarms that cannot be placed keep Backend and Accounts at unknown at best.
- * A fault always outranks unknown, and a failed Sentry read never clears one.
+ * has an open alarm (or, for Backend, a server is down), unknown when its
+ * health is not known (no check, a server of unknown state, no sign the app
+ * reports errors, a stale or unread source), and neutral (never green, no
+ * check mark) only when it is watched and quiet. The sentence names faults
+ * first, then unknowns, then the neutral clauses, and never claims health from
+ * absence of evidence: it says "no errors reported", never "passes all".
  */
 export function buildVerdict(input: VerdictInput): Verdict {
   const unplaced = input.alarms.filter((a) => a.at === "unlocated").length;
@@ -224,20 +268,15 @@ export function buildVerdict(input: VerdictInput): Verdict {
   const backend = backendPart(input, input.alarms.filter(inBackend), unplaced);
   const accounts = accountsPart(input, input.alarms.filter(inAccounts), unplaced);
 
-  let en = `${backend.clause.en} and ${cashier.clause.en}. ${accounts.clause.en}`;
-  let ar = `${backend.clause.ar} و${cashier.clause.ar}. ${accounts.clause.ar}`;
-  if (!input.sentryRead) {
-    en += " The error tracker could not be read, so error counts are not known.";
-    ar += " مقدرناش نقرا متتبع الأخطاء، فعدد الأخطاء مش معروف.";
-  }
-  if (unplaced > 0) {
-    const a = alarmsOf(unplaced);
-    en += ` ${a.en} could not be placed on the map.`;
-    ar += unplaced === 1 ? " إنذار واحد مش قادرين نحدد مكانه على الخريطة." : ` ${a.ar} مش قادرين نحدد مكانهم على الخريطة.`;
-  }
+  // Stable sort keeps backend, cashier, accounts within a tone.
+  const ordered = [backend, cashier, accounts]
+    .map((p) => ({ rank: RANK[p.light.tone], clause: p.clause }))
+    .concat(notes(input, unplaced).map((clause) => ({ rank: RANK.unknown, clause })))
+    .sort((a, b) => a.rank - b.rank)
+    .map((p) => p.clause);
 
   return {
     lights: { cashier: cashier.light, backend: backend.light, accounts: accounts.light },
-    sentence: { en, ar },
+    sentence: { en: ordered.map((c) => c.en).join(" "), ar: ordered.map((c) => c.ar).join(" ") },
   };
 }

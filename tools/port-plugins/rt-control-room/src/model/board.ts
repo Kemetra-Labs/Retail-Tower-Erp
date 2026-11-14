@@ -86,6 +86,7 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
   const stations = buildStations(snapshot, alarms, opts.now, sentryRead, unread);
   const sources = buildSources(snapshot, opts.now);
   const checks = (id: "core" | "conn") => stations.find((s) => s.id === id)?.readings.checks ?? null;
+  const hosts = buildHosts(snapshot, unread);
 
   return {
     stations,
@@ -100,8 +101,10 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
       sources,
       sentryRead,
       monitorsRead: !unread.has("monitors"),
+      posSentry: stations.find((s) => s.id === "pos")?.lamps.sentry.state ?? "none",
+      coreHosts: hosts.filter((h) => h.station === "core").map((h) => ({ id: h.id, up: h.up })),
     }),
-    hosts: buildHosts(snapshot, unread),
+    hosts,
     perStation: buildPerStation(snapshot, stations),
     healthChecks: buildHealthChecks(snapshot, stations, unread),
     jira: buildJira(snapshot, unread),
