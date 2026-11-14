@@ -107,6 +107,12 @@ svg.grid .cc rect.frame {
   stroke-dasharray: 10 6;
   animation: faultpulse 1.6s ease-in-out infinite;
 }
+/* Nothing could place a fault on it: static, dashed, amber. Never drawn as "no faults". */
+.cable.unwatched {
+  stroke: var(--color-stale);
+  stroke-width: 3;
+  stroke-dasharray: 6 6;
+}
 .cable.infra {
   stroke: var(--color-rule-2);
   stroke-width: 2;

@@ -165,6 +165,35 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
   });
 });
 
+describe("watched cables", () => {
+  it("on the fixture every cable is watched: POS, Admin and the Connector each have a Sentry project", () => {
+    const b = buildBoard(fixture(), opts());
+    expect(b.cables.map((c) => [c.id, c.watched])).toEqual([
+      ["c1", true],
+      ["c2", true],
+      ["c3", true],
+      ["c4", true],
+    ]);
+  });
+
+  it("a cable whose reporting station has no Sentry project is not watched, derived from the snapshot", () => {
+    const snap = fixture();
+    const pos = snap.workloads.find((w) => w.relations.service === "pos")!;
+    pos.relations.sentry_project = null;
+    const b = buildBoard(snap, opts());
+    expect(b.cables.find((c) => c.id === "c1")?.watched).toBe(false);
+    expect(b.cables.find((c) => c.id === "c2")?.watched).toBe(true);
+  });
+
+  it("the Connector without a Sentry project leaves both of its cables (c3 and c4) unwatched", () => {
+    const snap = fixture();
+    snap.sentryIssues = [];
+    for (const w of snap.workloads) if (w.relations.service === "erpnext-connector") w.relations.sentry_project = null;
+    const b = buildBoard(snap, opts());
+    expect(b.cables.filter((c) => !c.watched).map((c) => c.id)).toEqual(["c3", "c4"]);
+  });
+});
+
 describe("buildBoard missing and degraded data", () => {
   it("removing Core's monitors makes the backend light unknown, never neutral", () => {
     const snap = withoutPostingAlarms(fixture());

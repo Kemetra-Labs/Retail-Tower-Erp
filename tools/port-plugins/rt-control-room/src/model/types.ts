@@ -150,6 +150,12 @@ export type CableView = {
   carries: I18n;
   state: "live" | "fault";
   faults: number;
+  /**
+   * Some source could place a fault on this cable: the station that reports
+   * its faults (POS for c1, Admin Console for c2, the Connector for c3 and c4)
+   * has a Sentry project. An unwatched cable reads "Not watched", never "no faults".
+   */
+  watched: boolean;
 };
 
 export type SourceView = {

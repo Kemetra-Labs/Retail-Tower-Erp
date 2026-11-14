@@ -76,6 +76,8 @@ export const ARCH = {
    * Backend-Core, so c3's owner is Backend-Core, not the Connector.
    */
   cableOwner: { c1: "core", c2: "core", c3: "core", c4: "erp" } satisfies Record<CableId, StationId>,
+  /** The station whose error reports can place a fault on each cable (the caller of its route). */
+  cableReporter: { c1: "pos", c2: "admin", c3: "conn", c4: "conn" } satisfies Record<CableId, StationId>,
   /** The static allowed request path, up to the hop where a fault happens. */
   path: ["pos", "core", "conn", "erp"] satisfies StationId[],
   /** Keys are the Datadog host_name exactly as Port stores it. */

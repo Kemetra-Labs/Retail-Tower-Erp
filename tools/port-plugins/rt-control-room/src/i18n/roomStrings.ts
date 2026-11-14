@@ -76,6 +76,7 @@ export const ROOM_STRINGS = {
   cableFaults: { en: "{n} faults", ar: "{n} أعطال" },
   cableFaultsOne: { en: "1 fault", ar: "عطل واحد" },
   cableNoFaults: { en: "no faults", ar: "مفيش أعطال" },
+  cableNotWatched: { en: "Not watched", ar: "مش متراقب" },
   ruleNote: {
     en: "No direct cable to ERPNext: a deliberate protection",
     ar: "مفيش كابل مباشر لـ ERPNext: حماية مقصودة",

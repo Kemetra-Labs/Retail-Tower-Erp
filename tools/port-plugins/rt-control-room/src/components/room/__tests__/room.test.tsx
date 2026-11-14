@@ -86,6 +86,35 @@ describe("the drawn board", () => {
     expect([at("c3"), at("c4"), at("conn"), at("admin")]).toEqual([3, 0, 1, 1]);
   });
 
+  it("draws an unwatched cable static, dashed and amber with the tag 'Not watched', never 'no faults'", () => {
+    const board = boardOf();
+    board.cables = board.cables.map((c) => (c.id === "c1" ? { ...c, watched: false } : c));
+    const { container } = mount({ board });
+    const path = container.querySelector('path.cable[data-cable="c1"]') as Element;
+    expect(path.getAttribute("class")).toContain("unwatched");
+    expect(path.getAttribute("class")).not.toContain("live");
+    // No flow animation on an unwatched cable.
+    expect(container.querySelector('[data-cable-wrap="c1"] path.current')).toBeNull();
+    const tag = text(container, '[data-cable-tag="c1"]');
+    expect(tag).toContain("Not watched");
+    expect(tag).not.toContain("no faults");
+    expect(container.querySelector('[data-cable-tag="c1"] [data-state="not-watched"]')?.getAttribute("fill")).toBe("var(--color-stale)");
+    // A watched cable keeps its flow.
+    expect(container.querySelector('[data-cable-wrap="c2"] path.current')).not.toBeNull();
+  });
+
+  it("the legend explains the unwatched cable", () => {
+    const { container } = mount();
+    expect(container.querySelector(".legend-block")?.textContent).toContain("Cable not watched (no error source)");
+  });
+
+  it("says 'Not watched' in Arabic", () => {
+    const board = boardOf();
+    board.cables = board.cables.map((c) => (c.id === "c2" ? { ...c, watched: false } : c));
+    const { container } = mount({ board }, "ar");
+    expect(text(container, '[data-cable-tag="c2"]')).toContain("مش متراقب");
+  });
+
   it("draws c3 (Postings) as a fault and the other cables as live, with their fault counts", () => {
     const { container } = mount();
     const cls = (id: string) => container.querySelector(`path.cable[data-cable="${id}"]`)?.getAttribute("class") ?? "";
