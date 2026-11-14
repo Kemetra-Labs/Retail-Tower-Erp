@@ -280,13 +280,15 @@ describe("datadogAlarms", () => {
 });
 
 describe("ARCH", () => {
-  it("uses the Datadog host_name unchanged for hosts", () => {
+  it("names the lab servers by the suffix of their real Datadog title (retail-tower-lab-0N)", () => {
     const fixtureLabHosts = snapshot.hosts
-      .map((h) => h.properties.host_name as string)
-      .filter((n) => n.startsWith("lab-"))
+      .map((h) => h.title.match(/(?:^|-)(lab-\d+)$/)?.[1])
+      .filter((n): n is string => typeof n === "string")
       .sort();
     expect([...HOST_IDS].sort()).toEqual(fixtureLabHosts);
     expect(Object.keys(ARCH.hosts).sort()).toEqual(fixtureLabHosts);
+    // Port identifiers are numeric, never the server name.
+    expect(snapshot.hosts.every((h) => /^\d+$/.test(h.identifier))).toBe(true);
   });
 
   it("maps servers to stations and keeps the static request path", () => {

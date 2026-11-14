@@ -4,7 +4,7 @@ import { createPortClient } from "../api/portClient";
 import { usePortBridge } from "../bridge/usePortBridge";
 import { requestPortToken } from "../bridge/requestToken";
 import { buildBoard } from "../model/board";
-import type { Board, Collection } from "../model/types";
+import type { Board, Collection, Deployment } from "../model/types";
 import type { BoardEvent } from "./diff";
 import { createPollerState, runPoll, type PollerState, type PollResult } from "./poller";
 import { nextPoll } from "./schedule";
@@ -49,17 +49,22 @@ const CORE: Collection[] = ["services", "workloads", "sentryIssues", "monitors",
 const QUERY_KEY = ["rt-control-room", "board"] as const;
 const MIN_DELAY_MS = 1_000;
 
+/** Port's `deployment.environment` values that mean the test lab (it has no "lab" value; lab jobs are "Staging"). */
+const LAB_ENVIRONMENTS = new Set(["staging", "lab"]);
+
 /**
  * When the newest lab deployment happened. The entity's `updatedAt` moves on
  * every resync, so it is not used: the deployment's own `createdAt` property,
- * or else the entity's `createdAt`, is. Deployments of another environment are skipped.
+ * or else the entity's `createdAt`, is. Only Staging or lab deployments count
+ * (any case); Unknown, other environments and none at all are skipped, so a
+ * Port that lists only Unknown ones gives `null` ("no data").
  */
-function newestDeployment(data: PollResult | undefined): string | null {
+export function newestLabDeployment(deployments: readonly Deployment[]): string | null {
   let best: string | null = null;
   let bestMs = -Infinity;
-  for (const d of data?.snapshot?.deployments ?? []) {
-    const env = d.properties.environment;
-    if (typeof env === "string" && env.toLowerCase() !== "lab") continue;
+  for (const d of deployments) {
+    const env = d.properties?.environment;
+    if (typeof env !== "string" || !LAB_ENVIRONMENTS.has(env.toLowerCase())) continue;
     const own = d.properties.createdAt;
     const at = typeof own === "string" ? own : d.createdAt;
     const ms = Date.parse(at);
@@ -142,7 +147,7 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
   const goodSyncRef = useRef<number | null>(null);
   if (data?.hasData && !data.failed.some((c) => CORE.includes(c))) goodSyncRef.current = data.now;
 
-  const labUpdatedAt = useMemo(() => newestDeployment(data), [data]);
+  const labUpdatedAt = useMemo(() => newestLabDeployment(data?.snapshot?.deployments ?? []), [data]);
 
   const onReplayDone = useCallback(() => setReplayDone(true), []);
   const replayQueue = data?.replayQueue ?? [];

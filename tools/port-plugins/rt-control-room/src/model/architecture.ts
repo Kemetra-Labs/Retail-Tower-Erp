@@ -80,7 +80,7 @@ export const ARCH = {
   cableReporter: { c1: "pos", c2: "admin", c3: "conn", c4: "conn" } satisfies Record<CableId, StationId>,
   /** The static allowed request path, up to the hop where a fault happens. */
   path: ["pos", "core", "conn", "erp"] satisfies StationId[],
-  /** Keys are the Datadog host_name exactly as Port stores it. */
+  /** Keys are the suffix of the Datadog host title ("retail-tower-lab-01" is lab-01). */
   hosts: {
     "lab-01": "core",
     "lab-02": "core",

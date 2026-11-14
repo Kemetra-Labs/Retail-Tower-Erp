@@ -168,6 +168,37 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
   });
 });
 
+describe("Datadog hosts in Port's real shape", () => {
+  // Live (read-only, 2026-11-14): identifiers are numeric, title and host_name are
+  // "retail-tower-lab-0N"; other hosts are container ids. `up` is a boolean.
+  it("maps the lab servers by the title suffix lab-0N, never by identifier", () => {
+    const b = buildBoard(fixture(), opts());
+    expect(b.hosts.map((h) => [h.id, h.up])).toEqual([
+      ["lab-01", true],
+      ["lab-02", true],
+      ["lab-03", true],
+    ]);
+  });
+
+  it("reads a down server as down and a missing one (or one with no up) as unknown", () => {
+    const snap = fixture();
+    snap.hosts = snap.hosts
+      .filter((h) => !h.title.endsWith("lab-03"))
+      .map((h) => (h.title.endsWith("lab-02") ? { ...h, properties: { ...h.properties, up: false } } : h))
+      .map((h) => (h.title.endsWith("lab-01") ? { ...h, properties: { host_name: h.properties.host_name } } : h));
+    const b = buildBoard(snap, opts());
+    expect(b.hosts.map((h) => h.up)).toEqual([null, false, null]);
+    // A Backend-Core server is down: the backend light is red.
+    expect(b.verdict.lights.backend.tone).toBe("fault");
+  });
+
+  it("does not take a longer suffix (lab-010) or a container id for a lab server", () => {
+    const snap = fixture();
+    snap.hosts = snap.hosts.map((h) => (h.title.endsWith("lab-01") ? { ...h, title: "retail-tower-lab-010", properties: { up: true, host_name: "retail-tower-lab-010" } } : h));
+    expect(buildBoard(snap, opts()).hosts[0].up).toBeNull();
+  });
+});
+
 describe("watched cables", () => {
   it("on the fixture every cable is watched: POS, Admin and the Connector each have a Sentry project", () => {
     const b = buildBoard(fixture(), opts());

@@ -1,4 +1,5 @@
 {
+  "_note": "Synthetic sample on real Port shapes (checked read-only 2026-11-14: datadogHost ids numeric, titles retail-tower-lab-0N or container ids; deployment.environment Staging or Unknown). Not a raw Port export.",
   "services": [
     {"identifier":"pos","title":"POS","properties":{"runtime":"Electron","github_workflow_runs_7d":50,"github_failed_workflow_runs_7d":4},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
     {"identifier":"admin-console","title":"Admin Console","properties":{"runtime":"Next.js","github_workflow_runs_7d":60,"github_failed_workflow_runs_7d":3},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
@@ -40,11 +41,11 @@
     {"identifier":"datadog-monitor-900203","title":"lab-03 Redis instance down","properties":{"overallState":"OK","link":"https://app.datadoghq.eu/monitors/900203","tags":["env:lab"]},"relations":{"service":null},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"}
   ],
   "hosts": [
-    {"identifier":"lab-01","title":"lab-01","properties":{"up":true,"host_name":"lab-01"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"lab-02","title":"lab-02","properties":{"up":true,"host_name":"lab-02"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"lab-03","title":"lab-03","properties":{"up":true,"host_name":"lab-03"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"ci-runner-a","title":"ci-runner-a","properties":{"up":true,"host_name":"ci-runner-a"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"ci-runner-b","title":"ci-runner-b","properties":{"up":true,"host_name":"ci-runner-b"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"}
+    {"identifier":"52777186174182","title":"retail-tower-lab-01","properties":{"up":true,"host_name":"retail-tower-lab-01"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"52777186191925","title":"retail-tower-lab-02","properties":{"up":true,"host_name":"retail-tower-lab-02"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"52777186206568","title":"retail-tower-lab-03","properties":{"up":true,"host_name":"retail-tower-lab-03"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"52777190000001","title":"3f2a9c1b7d4e","properties":{"up":true,"host_name":"3f2a9c1b7d4e"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"52777190000002","title":"8e61d0a4c2b9","properties":{"up":true,"host_name":"8e61d0a4c2b9"},"relations":{},"createdAt":"2026-10-20T08:00:00Z","updatedAt":"2026-11-13T11:00:00Z"}
   ],
   "jira": [
     {"identifier":"SAMPLE-1000","title":"Sample task 1000","properties":{"status":"In Progress","resolutionDate":null},"relations":{"service":"pos"},"createdAt":"2026-10-27T12:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
@@ -369,18 +370,18 @@
     {"identifier":"run-700071","title":"CI run 700071","properties":{"conclusion":"success","createdAt":"2026-11-13T12:30:00Z"},"relations":{"service":"erpnext-connector"},"createdAt":"2026-11-13T12:30:00Z","updatedAt":"2026-11-13T12:30:00Z"}
   ],
   "deployments": [
-    {"identifier":"deploy-admin-console-0","title":"Lab deployment admin-console 0","properties":{"environment":"lab"},"relations":{"service":"admin-console"},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-admin-console-1","title":"Lab deployment admin-console 1","properties":{"environment":"lab"},"relations":{"service":"admin-console"},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-backend-core-0","title":"Lab deployment backend-core 0","properties":{"environment":"lab"},"relations":{"service":"backend-core"},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-backend-core-1","title":"Lab deployment backend-core 1","properties":{"environment":"lab"},"relations":{"service":"backend-core"},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-erpnext-connector-0","title":"Lab deployment erpnext-connector 0","properties":{"environment":"lab"},"relations":{"service":"erpnext-connector"},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-erpnext-connector-1","title":"Lab deployment erpnext-connector 1","properties":{"environment":"lab"},"relations":{"service":"erpnext-connector"},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-none-0","title":"Lab deployment unlinked 0","properties":{"environment":"lab"},"relations":{"service":null},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-none-1","title":"Lab deployment unlinked 1","properties":{"environment":"lab"},"relations":{"service":null},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-none-2","title":"Lab deployment unlinked 2","properties":{"environment":"lab"},"relations":{"service":null},"createdAt":"2026-11-12T09:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-none-3","title":"Lab deployment unlinked 3","properties":{"environment":"lab"},"relations":{"service":null},"createdAt":"2026-11-12T00:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-none-4","title":"Lab deployment unlinked 4","properties":{"environment":"lab"},"relations":{"service":null},"createdAt":"2026-11-11T15:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
-    {"identifier":"deploy-none-5","title":"Lab deployment unlinked 5","properties":{"environment":"lab"},"relations":{"service":null},"createdAt":"2026-11-11T06:30:00Z","updatedAt":"2026-11-13T11:00:00Z"}
+    {"identifier":"deploy-admin-console-0","title":"Lab deployment admin-console 0","properties":{"environment":"Staging","evidenceType":"lab_job","createdAt":"2026-11-13T03:30:00Z"},"relations":{"service":"admin-console"},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-admin-console-1","title":"Lab deployment admin-console 1","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-12T18:30:00Z"},"relations":{"service":"admin-console"},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-backend-core-0","title":"Lab deployment backend-core 0","properties":{"environment":"Staging","evidenceType":"lab_job","createdAt":"2026-11-13T03:30:00Z"},"relations":{"service":"backend-core"},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-backend-core-1","title":"Lab deployment backend-core 1","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-12T18:30:00Z"},"relations":{"service":"backend-core"},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-erpnext-connector-0","title":"Lab deployment erpnext-connector 0","properties":{"environment":"Staging","evidenceType":"lab_job","createdAt":"2026-11-13T03:30:00Z"},"relations":{"service":"erpnext-connector"},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-erpnext-connector-1","title":"Lab deployment erpnext-connector 1","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-12T18:30:00Z"},"relations":{"service":"erpnext-connector"},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-none-0","title":"Lab deployment unlinked 0","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-13T03:30:00Z"},"relations":{"service":null},"createdAt":"2026-11-13T03:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-none-1","title":"Lab deployment unlinked 1","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-12T18:30:00Z"},"relations":{"service":null},"createdAt":"2026-11-12T18:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-none-2","title":"Lab deployment unlinked 2","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-12T09:30:00Z"},"relations":{"service":null},"createdAt":"2026-11-12T09:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-none-3","title":"Lab deployment unlinked 3","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-12T00:30:00Z"},"relations":{"service":null},"createdAt":"2026-11-12T00:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-none-4","title":"Lab deployment unlinked 4","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-11T15:30:00Z"},"relations":{"service":null},"createdAt":"2026-11-11T15:30:00Z","updatedAt":"2026-11-13T11:00:00Z"},
+    {"identifier":"deploy-none-5","title":"Lab deployment unlinked 5","properties":{"environment":"Unknown","evidenceType":"merge_proxy","createdAt":"2026-11-11T06:30:00Z"},"relations":{"service":null},"createdAt":"2026-11-11T06:30:00Z","updatedAt":"2026-11-13T11:00:00Z"}
   ],
   "integrations": [
     {"installationId":"example-sentry","integrationType":"sentry","resyncState":{"lastResyncEnd":"2026-11-13T11:05:00Z","status":"completed"}},
