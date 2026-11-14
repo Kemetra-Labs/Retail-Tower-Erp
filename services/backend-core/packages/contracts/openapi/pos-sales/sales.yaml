@@ -1246,8 +1246,8 @@ paths:
         offer are refunded as before. If
         `refund_O < 0` (possible when Y > X or the percent is high) the return
         is refused with 422 `promotion_clawback_exceeds_refund` (OD-10): the
-        till would ask the cashier to add the reward units to the return (possible
-        once reward-line returns are allowed, see below); a return
+        till would ask the cashier to add the reward units to the return
+        (reward-line returns are allowed since RT-1367 PR 2, see below); a return
         never charges the customer. The same refusal applies when the
         returned lines of an offer cannot hold its clawback (see the
         allocation below).
@@ -3640,13 +3640,12 @@ components:
             RT-1335 (spec 048 §9, OD-3): per automatic offer of the sale, the
             discount the customer no longer earns on the units they keep,
             deducted from `returnTotal`. Absent when no offer is clawed back
-            and from a Backend-Core that predates RT-1337. The RT-1337 runtime
-            refuses a return whose clawback is above 0, so it is never present
-            yet (see `recordReturn`, Automatic offers). OD-11 is decided
-            (option A plus Hybrid); the posting feed carries the per-line
-            clawback (`posting-feed.yaml` 1.13.0-draft). Once the Connector
-            supports it and the refusal lifts, an accepted return will carry an
-            entry for each offer whose clawback is above 0.
+            and from a Backend-Core that predates RT-1337. Since RT-1367 PR 2
+            an accepted return carries one entry for each offer whose clawback
+            is above 0 (from RT-1337 until then such a return was refused, so
+            the field was never present; see `recordReturn`, Automatic
+            offers). The posting feed carries the per-line clawback
+            (`posting-feed.yaml` 1.13.0-draft, OD-11 option A plus Hybrid).
     PromotionClawback:
       type: object
       additionalProperties: false
@@ -4272,8 +4271,8 @@ components:
         `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from
         the RT-1337 runtime) — an automatic offer's `refund_O` would be
         negative (see `recordReturn`, Automatic offers); the return cannot be
-        recorded as it is (adding the reward units is the remedy once
-        reward-line returns are allowed);
+        recorded as it is (adding the reward units to the return is the
+        remedy);
         `promotion_return_requires_clawback` (RT-1335; returned by the
         RT-1337 runtime only until RT-1367 PR 2, and no longer returned) —
         the return had a clawback above 0, would give back a discount an
