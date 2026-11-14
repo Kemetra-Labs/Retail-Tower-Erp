@@ -49,7 +49,7 @@ The only CLI command is this offline `dry-run` over recorded snapshots (same fil
 ## Limits worth knowing
 
 - A change to **any** field that the recheck observes between the first read and the recheck blocks the run. That is deliberate and can cost a retry.
-- The recheck narrows the race window; it cannot close it, because Port offers no compare-and-swap. A change made after the recheck read and before the PATCH is not blocked: the write still goes out, and the read-back reports it as `verify_failed` only if it altered a field the executor compares. So a stale write is detected after the fact, not prevented, and the rollback request is the remedy.
+- The recheck narrows the race window; it cannot close it, because Port offers no compare-and-swap. A change made after the recheck read and before the PATCH is not blocked: the write still goes out. The read-back may not detect it. If another writer changed one of the fields this PATCH sets (`affected_services` or an attribution property) in that gap, the PATCH overwrites it, the read-back matches the desired state, and the run is reported `written`. Only a change to a field the PATCH does not set (for example the legacy `service` relation) shows up as `verify_failed`. A lost update to the writer-owned fields can therefore go unnoticed, and nothing in this executor prevents it.
 - A change made by another system after the PATCH but before the read-back is likewise reported as `verify_failed`.
 - The baselines are deep copies taken at the first read, so a transport that returns its own cached objects cannot move them.
 - The report contains the stored values of the writer-owned fields and the full request. It holds no credentials; the transports own those.
