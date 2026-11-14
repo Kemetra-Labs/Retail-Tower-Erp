@@ -1,5 +1,6 @@
 import { ARCH, stationForService } from "../model/architecture";
 import {
+  ALARM_STATES,
   firstRelation,
   hostOfMonitor,
   normaliseState,
@@ -91,6 +92,7 @@ function monitorEvent(monitor: DatadogMonitor, at: string, byWorkload: Map<strin
     at,
     kind: "monitor",
     station,
+    alarming: ALARM_STATES.has(normaliseState(state)),
     ...(host !== "unlocated" ? { host } : {}),
     alarmId: monitor.identifier,
     text: { en: `Monitor ${monitor.title}: ${state}`, ar: `المراقب ${monitor.title}: ${state}` },

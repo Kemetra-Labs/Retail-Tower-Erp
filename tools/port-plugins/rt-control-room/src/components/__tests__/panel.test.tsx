@@ -43,6 +43,9 @@ const event = (over: Partial<BoardEvent> = {}): BoardEvent => ({
 const alarmEvent = (title: string, over: Partial<BoardEvent> = {}): BoardEvent =>
   event({ kind: "alarm", text: { en: `New error: ${title}`, ar: `خطأ جديد: ${title}` }, ...over });
 
+const monitorEvent = (title: string, over: Partial<BoardEvent> = {}): BoardEvent =>
+  event({ kind: "monitor", alarming: true, text: { en: `Monitor alert: ${title}`, ar: `تنبيه من المراقبة: ${title}` }, ...over });
+
 /** The map, the side panel and the selection state wired as `App` wires them. */
 function Live(props: {
   board: Board;
@@ -454,6 +457,42 @@ describe("the quiet status region", () => {
     act(() => utils.rerender(view([y, x, first, old])));
     act(() => void vi.advanceTimersByTime(15_000));
     expect(screen.getByRole("status").textContent).toBe("2 new alarms. Latest: New error: Three");
+  });
+
+  it("announces a new Datadog alarm, and not a monitor that went back to OK, a replay or one present at mount", () => {
+    const { text, feed, wait } = setup();
+    feed([monitorEvent("Disk full", { replay: true })]);
+    wait(30_000);
+    expect(text()).toBe("");
+    const back = monitorEvent("Disk full", { alarming: false, text: { en: "Monitor Disk full: OK", ar: "x" } });
+    feed([back]);
+    wait(30_000);
+    expect(text()).toBe("");
+    const up = monitorEvent("Queue stuck");
+    feed([up, back]);
+    expect(text()).toBe("Monitor alert: Queue stuck");
+  });
+
+  it("reads a Datadog alarm and a Sentry alarm in one burst as one update with the count", () => {
+    const { text, feed, wait } = setup();
+    const first = alarmEvent("One");
+    feed([first]);
+    const sentry = alarmEvent("Two");
+    const datadog = monitorEvent("Three");
+    feed([datadog, sentry, first]);
+    wait(15_000);
+    expect(text()).toBe("2 new alarms. Latest: Monitor alert: Three");
+  });
+
+  it("does not announce a Datadog alarm already on screen at mount", () => {
+    vi.useFakeTimers();
+    const old = monitorEvent("Already there");
+    render(
+      <LangProvider>
+        <AlarmPanel board={board} events={[old]} selection={null} onSelect={noop} />
+      </LangProvider>,
+    );
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("is the only status region of the panel and is removed with it (no timer left)", () => {

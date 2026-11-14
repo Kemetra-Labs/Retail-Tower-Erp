@@ -18,6 +18,12 @@ export type BoardEvent = {
   alarmId?: string;
   text: I18n;
   replay?: boolean;
+  /**
+   * Set on a `monitor` event only: true when the monitor is now in Alert, Warn
+   * or No Data (an alarm change the status region reads aloud), false for any
+   * other state. Absent on every other kind.
+   */
+  alarming?: boolean;
 };
 
 export type DiffOptions = {
@@ -52,6 +58,8 @@ export function alarmEvent(alarm: Alarm, at: string): BoardEvent {
     at,
     kind: "monitor",
     station: alarm.station,
+    // A Datadog alarm on the board is, by construction, in Alert, Warn or No Data.
+    alarming: true,
     ...(isHostId(alarm.at) ? { host: alarm.at } : {}),
     alarmId: alarm.id,
     text: { en: `Monitor alert: ${alarm.title}`, ar: `تنبيه من المراقبة: ${alarm.title}` },

@@ -55,6 +55,31 @@ describe("diffBoards", () => {
     expect(events[0]).toMatchObject({ kind: "monitor", station: "core", alarmId: "m-1", at: AT });
   });
 
+  it("marks a monitor event that puts a monitor into an alarm state as alarming, and a Sentry event not", () => {
+    const monitor = diffBoards(before, board(withMonitor(fixture(), "m-1", "queue stuck", "retail-tower-backend-api-staging")), { at: AT });
+    expect(monitor[0].alarming).toBe(true);
+    const sentry = diffBoards(before, board(withSentry(fixture(), "sentry-1", "TypeError: boom", "retail-tower-backend-api-staging")), { at: AT });
+    expect(sentry[0].alarming).toBeUndefined();
+  });
+
+  it("marks a Warn or No Data monitor alarming too", () => {
+    for (const state of ["Warn", "No Data"]) {
+      const snap = withMonitor(fixture(), "m-w", "queue stuck", "retail-tower-backend-api-staging");
+      snap.monitors[snap.monitors.length - 1].properties.overallState = state;
+      const [event] = diffBoards(before, board(snap), { at: AT });
+      expect(event.alarming, state).toBe(true);
+    }
+  });
+
+  it("never marks a merge, CI run, Jira change or deployment as alarming", () => {
+    const next = fixture();
+    next.prs[0].properties.mergedAt = "2026-11-13T12:30:10Z";
+    next.deployments.push({ ...next.deployments[0], identifier: "deploy-new", createdAt: "2026-11-13T12:30:50Z" });
+    const events = diffSnapshots(fixture(), next, { at: AT });
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) expect(e.alarming).toBeUndefined();
+  });
+
   it("keeps an unlocated monitor with station null and no host", () => {
     const next = board(withMonitor(fixture(), "m-2", "Disk usage is high on host {{host.name}}", null, ["env:lab"]));
     const [event] = diffBoards(before, next, { at: AT });
@@ -134,5 +159,15 @@ describe("replayEvents", () => {
     snap.monitors[snap.monitors.length - 1].updatedAt = "2026-11-13T12:00:00Z";
     const event = replayEvents(snap, NOW).find((e) => e.alarmId === "m-9");
     expect(event).toMatchObject({ kind: "monitor", station: null });
+  });
+
+  it("flags a replayed monitor alarming only when its state is Alert, Warn or No Data", () => {
+    const snap = withMonitor(fixture(), "m-8", "Disk usage is high on host {{host.name}}", null, ["env:lab"]);
+    const ok = withMonitor(snap, "m-ok", "Disk is fine on host {{host.name}}", null, ["env:lab"]);
+    ok.monitors[ok.monitors.length - 1].properties.overallState = "OK";
+    for (const m of ok.monitors.slice(-2)) m.updatedAt = "2026-11-13T12:00:00Z";
+    const events = replayEvents(ok, NOW);
+    expect(events.find((e) => e.alarmId === "m-8")?.alarming).toBe(true);
+    expect(events.find((e) => e.alarmId === "m-ok")?.alarming).toBe(false);
   });
 });

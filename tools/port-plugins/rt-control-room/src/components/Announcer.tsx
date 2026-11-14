@@ -6,8 +6,13 @@ import type { BoardEvent } from "../state/diff";
 /** At most one spoken update per this many ms (spec: a quiet region, not a ticker). */
 export const ANNOUNCE_GAP_MS = 15_000;
 
-/** Only a new live alarm is read aloud: never a merge, CI run, Jira change or deployment, never a replay. */
-const spoken = (e: BoardEvent): boolean => e.kind === "alarm" && !e.replay;
+/**
+ * Only a new live alarm is read aloud: a new Sentry issue, or a Datadog monitor
+ * that went INTO Alert, Warn or No Data. Never a monitor back to OK, a merge, CI
+ * run, Jira change or deployment, and never a replay.
+ */
+const spoken = (e: BoardEvent): boolean =>
+  !e.replay && (e.kind === "alarm" || (e.kind === "monitor" && e.alarming === true));
 
 /**
  * The text of the quiet status region. A burst waits for the next window and
