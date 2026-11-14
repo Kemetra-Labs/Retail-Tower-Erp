@@ -47,6 +47,8 @@ export const STRINGS = {
   stateError: { en: "Error", ar: "خطأ" },
   stateErrorNote: { en: "Cannot read Port.", ar: "مش قادر يقرا من Port." },
   alarmsMayBeMissing: { en: "Alarms may be missing.", ar: "إنذارات ممكن تكون ناقصة." },
+  staleOldData: { en: "Older data in: {list}.", ar: "بيانات أقدم في: {list}." },
+  tlNotRead: { en: "Not read yet.", ar: "لسه متقراش." },
   noData: { en: "no data", ar: "مفيش بيانات" },
   waiting: { en: "Waiting for Port...", ar: "مستني Port..." },
   untrusted: { en: "Untrusted Port API host", ar: "عنوان Port API مش موثوق" },

@@ -5,6 +5,7 @@ import { completedDays, dailySeries } from "./telemetry";
 import type {
   Alarm,
   AlarmReading,
+  Collection,
   Lamp,
   PullRequest,
   Relation,
@@ -20,7 +21,7 @@ const DONE = new Set(["done", "closed", "resolved"]);
 export const isDone = (status: string | null | undefined): boolean => DONE.has(normaliseState(status));
 
 /** A pull request that is neither merged nor closed. */
-const isOpenPr = (pr: PullRequest): boolean =>
+export const isOpenPr = (pr: PullRequest): boolean =>
   !pr.properties?.mergedAt && !["closed", "merged", "declined"].includes(normaliseState(pr.properties?.status));
 
 const linked = <T extends { relations?: { service?: Relation } }>(items: T[], serviceId: string): T[] =>
@@ -41,7 +42,10 @@ function checksReading(lamp: Lamp, hasService: boolean): StationView["readings"]
 
 const NO_DATA = { ci7d: null, tasks: null, prs: null, merged7d: null, deploys: null, ciFails7d: null };
 
-function readingsFrom(snapshot: Snapshot, id: StationId, now: Date) {
+/** Collections never read yet; a reading derived from one is `null` ("no data"), never 0. */
+type Unread = ReadonlySet<Collection>;
+
+function readingsFrom(snapshot: Snapshot, id: StationId, now: Date, unread: Unread) {
   const serviceId = ARCH.stations[id].serviceId;
   const service = serviceId ? snapshot.services.find((s) => s.identifier === serviceId) : undefined;
   if (!serviceId || !service) return { ...NO_DATA, merged: [] as string[], runs7d: null };
@@ -49,15 +53,20 @@ function readingsFrom(snapshot: Snapshot, id: StationId, now: Date) {
   const runs = service.properties?.github_workflow_runs_7d;
   const fails = service.properties?.github_failed_workflow_runs_7d;
   const prs = linked(snapshot.prs, serviceId);
-  const merged = prs.map((p) => p.properties?.mergedAt).filter((m): m is string => typeof m === "string");
+  const merged = unread.has("prs")
+    ? []
+    : prs.map((p) => p.properties?.mergedAt).filter((m): m is string => typeof m === "string");
   const recent = merged.filter((m) => Date.parse(m) > now.getTime() - WEEK_MS).length;
   return {
-    // A pass rate needs runs; zero or missing runs is "no data", never 0 or 100.
-    ci7d: typeof runs === "number" && runs > 0 ? Math.round(((runs - (fails ?? 0)) / runs) * 100) : null,
-    tasks: linked(snapshot.jira, serviceId).filter((j) => !isDone(j.properties?.status)).length,
-    prs: prs.filter(isOpenPr).length,
-    merged7d: recent,
-    deploys: linked(snapshot.deployments, serviceId).length,
+    // A pass rate needs runs AND a failed count; a missing figure is "no data", never 0 or 100.
+    ci7d:
+      typeof runs === "number" && runs > 0 && typeof fails === "number"
+        ? Math.round(((runs - fails) / runs) * 100)
+        : null,
+    tasks: unread.has("jira") ? null : linked(snapshot.jira, serviceId).filter((j) => !isDone(j.properties?.status)).length,
+    prs: unread.has("prs") ? null : prs.filter(isOpenPr).length,
+    merged7d: unread.has("prs") ? null : recent,
+    deploys: unread.has("deployments") ? null : linked(snapshot.deployments, serviceId).length,
     ciFails7d: typeof fails === "number" ? fails : null,
     merged,
     runs7d: typeof runs === "number" ? runs : null,
@@ -68,19 +77,21 @@ function readingsFrom(snapshot: Snapshot, id: StationId, now: Date) {
  * The five stations with their readings. A missing service entity (and the
  * ERPNext ledger, which has none by design) reads `null` ("no data"), never 0.
  * Alarm counts come from the alarms themselves, or "not-read" when the Sentry
- * read failed, so a failed read can never show as 0.
+ * read failed, so a failed read can never show as 0. A collection in `unread`
+ * (never read yet) makes the readings derived from it `null`, "no data".
  */
 export function buildStations(
   snapshot: Snapshot,
   alarms: Alarm[],
   now: Date,
   sentryRead: boolean,
+  unread: Unread = new Set(),
 ): StationView[] {
   return STATION_IDS.map((id) => {
     const arch = ARCH.stations[id];
     const hasService = snapshot.services.some((s) => s.identifier === arch.serviceId);
-    const lamps = withExampleAlarms(stationLamps(id, lampEvidence(id, snapshot)), id, alarms);
-    const r = readingsFrom(snapshot, id, now);
+    const lamps = withExampleAlarms(stationLamps(id, lampEvidence(id, snapshot), unread), id, alarms);
+    const r = readingsFrom(snapshot, id, now, unread);
     const alarmReading: AlarmReading = sentryRead ? alarms.filter((a) => a.station === id).length : "not-read";
     return {
       id,
@@ -97,7 +108,7 @@ export function buildStations(
         deploys: r.deploys,
         ciFails7d: r.ciFails7d,
       },
-      merged13d: hasService ? completedDays(dailySeries(r.merged, now)) : [],
+      merged13d: hasService && !unread.has("prs") ? completedDays(dailySeries(r.merged, now)) : [],
       activity7d: (r.runs7d ?? 0) + (r.merged7d ?? 0),
     };
   });

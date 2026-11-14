@@ -677,6 +677,35 @@ describe("lower panels", () => {
     expect(core.className).toContain("bad");
   });
 
+  it("never-read monitors read 'not read' in the health panel, the status table and the station lamps, never 'none'", () => {
+    const snap = fixture();
+    snap.monitors = [];
+    const board = buildBoard(snap, { now: NOW, demo: false, unread: ["monitors"] });
+    const { container } = wrap(
+      <>
+        <HealthChecks board={board} />
+        <StatusTable board={board} />
+      </>,
+    );
+    const chip = (g: string) => container.querySelector(`[data-group="${g}"] .chip`) as HTMLElement;
+    expect(chip("core").textContent).toBe("not read");
+    expect(chip("admin").textContent).toBe("not read");
+    expect(chip("pos").textContent).toBe("not needed");
+    const row = (id: string) => container.querySelector(`[data-station-row="${id}"]`) as HTMLElement;
+    expect(row("core").textContent).not.toMatch(/none/);
+    expect(row("core").querySelectorAll("td")[2].textContent).toBe("not read");
+    expect(row("core").querySelectorAll("td")[0].textContent).toBe("Not read");
+    expect(row("admin").querySelector(".unk")).not.toBeNull();
+  });
+
+  it("never-read Jira reads 'no data' in the river and the CI strip stays real", () => {
+    const snap = fixture();
+    snap.jira = [];
+    const board = buildBoard(snap, { now: NOW, demo: false, unread: ["jira"] });
+    const { container } = wrap(<JiraRiver board={board} />);
+    expect(Array.from(container.querySelectorAll(".col .n")).map((x) => x.textContent)).toEqual(["no data", "no data", "no data", "no data"]);
+  });
+
   it("LowerPanels is one wrapper around the four panels", () => {
     const { container } = wrap(<LowerPanels board={boardOf()} />);
     expect(container.querySelectorAll("[data-lower-panels] > section")).toHaveLength(4);
@@ -703,6 +732,18 @@ describe("a stale board", () => {
     expect(focusKeys(container, "alarm:")).toHaveLength(5);
     expect(container.querySelector('[data-group="core"] .chip')?.textContent).toBe("7/7");
     expect(container.querySelector('[data-row="core"]')).not.toBeNull();
+  });
+
+  it("names the old panels, and does not say alarms may be missing, when only CI or Jira failed", () => {
+    const board = boardOf();
+    wrap(<AlarmPanel board={board} events={[]} selection={null} onSelect={noop} fresh={{ ...fresh, failed: ["runs"] }} />);
+    expect(screen.queryByText("Alarms may be missing.")).toBeNull();
+    expect(screen.getByText("Older data in: Code history.")).toBeTruthy();
+  });
+
+  it("keeps the alarms-may-be-missing note when the monitors failed", () => {
+    wrap(<AlarmPanel board={boardOf()} events={[]} selection={null} onSelect={noop} fresh={{ ...fresh, failed: ["monitors"] }} />);
+    expect(screen.getByText("Alarms may be missing.")).toBeTruthy();
   });
 
   it("shows no chip while the board is fresh", () => {

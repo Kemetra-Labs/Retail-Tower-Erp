@@ -34,7 +34,7 @@ export function HealthChecks({ board, fresh }: { board: Board; fresh?: Freshness
           <div className="hrow" key={g.key} data-group={g.key}>
             <span>{t(LABEL[g.key], { n: HOST_IDS.length })}</span>
             <span className={`chip ${toneOf(g)} measured`}>
-              {g.na ? t("lampNa") : g.total === 0 ? t("none") : `${g.ok}/${g.total}`}
+              {g.na ? t("lampNa") : g.unread ? t("notRead") : g.total === 0 ? t("none") : `${g.ok}/${g.total}`}
             </span>
           </div>
         ))}

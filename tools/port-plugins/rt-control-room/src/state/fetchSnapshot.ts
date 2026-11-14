@@ -1,7 +1,7 @@
 import { PortApiError, type PortClient, type PortQuery, type PortRule } from "../api/portClient";
 import { firstRelation } from "../model/alarms";
-import { isDone } from "../model/stations";
-import type { Collection, Integration, JiraIssue, Snapshot } from "../model/types";
+import { isDone, isOpenPr } from "../model/stations";
+import type { Collection, Integration, JiraIssue, PullRequest, Snapshot } from "../model/types";
 import { BLUEPRINTS, DAY_MS, JIRA_SERVICE_RELATION, WINDOW_DAYS } from "./blueprints";
 
 export type FetchOptions = {
@@ -56,6 +56,21 @@ const keepJira =
     return !(isDone(issue.properties?.status) && !Number.isNaN(resolved) && resolved < windowStart);
   };
 
+/**
+ * Pull requests the board reads. An open PR has no `mergedAt`, so a window rule on it would never
+ * return one: a full read takes EVERY PR and keeps service-linked ones that are open or were merged
+ * inside the window. A delta read (`$updatedAt between`) keeps every service-linked PR it returns,
+ * so a PR that just closed replaces its cached open copy instead of leaving it counted.
+ */
+const keepPr =
+  (windowStart: number, full: boolean) =>
+  (pr: PullRequest): boolean => {
+    if (!firstRelation(pr.relations?.service)) return false;
+    if (!full) return true;
+    const merged = Date.parse(pr.properties?.mergedAt ?? "");
+    return isOpenPr(pr) || (!Number.isNaN(merged) && merged >= windowStart);
+  };
+
 /** Fetch scope per blueprint (plan Task 7). Bodies are nested under `query`. */
 function plansFor(since: string | null, full: boolean, now: Date, neverRead?: ReadonlySet<Collection>): Plan[] {
   const to = now.toISOString();
@@ -95,6 +110,15 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     keep: keepJira(Date.parse(start)),
   });
 
+  const prs = (): Plan => ({
+    collection: "prs",
+    blueprint: BLUEPRINTS.pullRequest,
+    query: { combinator: "and", rules: [...EVERYTHING, ...updated("prs")] },
+    replace: !isDelta("prs"),
+    delta: isDelta("prs"),
+    keep: keepPr(Date.parse(start), !isDelta("prs")),
+  });
+
   return [
     tiny("services", BLUEPRINTS.service),
     tiny("workloads", BLUEPRINTS.workload),
@@ -106,7 +130,9 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     // Done ones; that read is authoritative and replaces the collection. A delta reads only issues
     // updated since the last poll (`$updatedAt between`) and is merged by identifier.
     jira(),
-    windowed("prs", BLUEPRINTS.pullRequest, [between("mergedAt", start, to)]),
+    // Pull requests follow the Jira rhythm: every PR on a full poll (an open one is never "merged in
+    // the window"), only the ones updated since the last poll on a delta.
+    prs(),
     windowed("runs", BLUEPRINTS.workflowRun, [between("createdAt", start, to)]),
     windowed("deployments", BLUEPRINTS.deployment, [between("createdAt", start, to)]),
   ];

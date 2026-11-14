@@ -127,6 +127,25 @@ describe("diffSnapshots", () => {
     for (const e of events) expect(e.text.ar.length).toBeGreaterThan(0);
   });
 
+  it("reports a CI run that was in progress at the last poll and has concluded since", () => {
+    const prev = fixture();
+    prev.runs.push({
+      ...prev.runs[0],
+      identifier: "run-live",
+      title: "CI run live",
+      properties: { conclusion: null, createdAt: "2026-11-13T12:20:00Z" },
+    });
+    const same = diffSnapshots(prev, prev, { at: AT });
+    expect(same.filter((e) => e.kind === "ci")).toEqual([]);
+
+    const next = structuredClone(prev);
+    next.runs[next.runs.length - 1].properties.conclusion = "success";
+    const events = diffSnapshots(prev, next, { at: AT }).filter((e) => e.kind === "ci");
+    expect(events).toHaveLength(1);
+    expect(events[0].text.en).toContain("success");
+    expect(events[0].text.en).toContain("CI run live");
+  });
+
   it("raises nothing for collections read for the first time", () => {
     const next = fixture();
     next.deployments.push({ ...next.deployments[0], identifier: "deploy-new", createdAt: "2026-11-13T12:30:50Z" });

@@ -1,13 +1,19 @@
 import type { ReactNode } from "react";
 import { useLang } from "../i18n/LangContext";
 import { fmtTime } from "../i18n/strings";
+import type { Collection } from "../model/types";
 
 /**
  * Whether the board on screen is the last good snapshot (a poll failed in
  * part) and when that snapshot was read. Every panel shows the same chip, so a
  * stale board never passes for live (spec section 10).
  */
-export type Freshness = { stale: boolean; asOf: Date | null };
+export type Freshness = {
+  stale: boolean;
+  asOf: Date | null;
+  /** The collections whose latest read failed; decides whether the "alarms may be missing" note applies. */
+  failed?: readonly Collection[];
+};
 
 /** The amber chip of a stale panel: "Stale, last sync 14:30". Nothing when the board is fresh. */
 export function StaleChip({ fresh }: { fresh?: Freshness }) {

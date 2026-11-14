@@ -16,6 +16,7 @@ export const ROOM_STRINGS = {
   zoneBooks: { en: "Books", ar: "الدفاتر" },
   busTitle: { en: "Control room: Port reads from", ar: "غرفة التحكم: Port بيقرا من" },
   busLabel: { en: "Signal bus", ar: "خط الإشارات" },
+  srcPort: { en: "Port catalog", ar: "كتالوج Port" },
   srcSentry: { en: "Error tracker", ar: "متتبع الأخطاء" },
   srcDatadog: { en: "Health checks", ar: "فحوصات الصحة" },
   srcGithub: { en: "Code history", ar: "تاريخ الكود" },

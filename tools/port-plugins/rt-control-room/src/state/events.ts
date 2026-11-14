@@ -123,7 +123,11 @@ export function diffSnapshots(prev: Snapshot, next: Snapshot, opts: DiffOptions 
     const old = byId(prev.runs);
     for (const run of next.runs) {
       const at = stampOf(run.properties?.createdAt, run.createdAt);
-      if (at && run.properties?.conclusion && !old.has(run.identifier)) events.push(ciEvent(run, at));
+      const conclusion = run.properties?.conclusion;
+      // New runs and runs seen in progress (no conclusion) that have concluded since both count.
+      if (at && conclusion && old.get(run.identifier)?.properties?.conclusion !== conclusion) {
+        events.push(ciEvent(run, at));
+      }
     }
   }
   if (!skip("jira")) {

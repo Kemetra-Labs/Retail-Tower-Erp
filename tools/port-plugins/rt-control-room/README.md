@@ -34,7 +34,7 @@ Datadog monitors in Alert, Warn or No Data become alarms on the station of their
 ### Honest-unknown rules
 
 - Unknown is never green. A light is red with an open alarm, amber when its health is unknown or a source is stale, and neutral (never "healthy") when it has no alarm and is watched. The POS has no Datadog by design, so it reads "No errors reported".
-- A reading with no data shows "no data", never 0.
+- A reading with no data shows "no data", never 0. A CI pass rate with no failed-run count is "no data", not 100%.
 - A collection whose read failed or came back incomplete is "unchanged", never "empty". Only a present result (including an empty list) is authoritative.
 - **Failed Sentry read (acceptance criterion 7).** When the `sentryIssue` read fails or has never succeeded, every station's alarm reading is "not read" (never "none reported" or 0), and a failed read never clears an alarm already on the board. Resolved or deleted issues disappear only on a successful full poll.
 - A source is fresh when its newest change or completed sync is under 6 hours old, stale (amber) beyond that, and unknown when the call fails or is forbidden. "Sending" needs evidence; "linked" means a relation exists with no evidence yet.
@@ -52,7 +52,7 @@ All reads are `POST /v1/blueprints/{blueprint}/entities/search` with the body ne
 | Alarms from Sentry | `sentryIssue` | `status = unresolved` | read, replaces (resolved issues drop out) | adds `$updatedAt between since..now`, merged by `identifier` |
 | Datadog checks | `datadogMonitor` | all | read, replaces | adds `$updatedAt between`, merged |
 | Open tasks, Jira by status, tasks done | `jiraIssue` | all, narrowed on the client to issues with a `service` relation, minus Done issues resolved before the window | read, replaces | adds `$updatedAt between`, merged |
-| PRs, merged this week, merged per day | `githubPullRequest` | `mergedAt between WINDOW` | read, merged | adds `$updatedAt between` |
+| Open PRs, merged this week, merged per day | `githubPullRequest` | all (`rules: []`, paged), narrowed on the client to PRs with a `service` relation that are open or merged inside the window | read, replaces | adds `$updatedAt between`, merged (a PR that closes replaces its cached open copy) |
 | Last 72 finished runs and pass rate, CI runs and failures per day | `githubWorkflowRun` | `createdAt between WINDOW` | read, merged | adds `$updatedAt between` |
 | Deploys | `deployment` | `createdAt between WINDOW` | read, merged | adds `$updatedAt between` |
 
@@ -63,6 +63,9 @@ Notes on the table:
 - **Why the filters are small.** Only rule shapes that Port documents (the empty group, `between` on a date, `=` on a property) are sent. Anything else (set tests, `notIn`, nested groups) is filtered on the client, because a 422 on an unproven shape would keep the board stale.
 - **CI figures.** The per-station CI pass rate and fails come from the `service` aggregations; the 72-run strip and the daily traces come from the windowed runs. Per-service run history in Port starts 2026-11-11.
 - **Jira.** The first load and every full poll read every issue (paged), so an open issue untouched for months still counts.
+- **Pull requests.** An open PR has no `mergedAt`, so a window rule on it would never return one. Like Jira, the first load and every full poll read every PR (paged) and keep, on the client, only those with a `service` relation that are open or were merged inside the 14-day window; that read replaces the collection, so an open PR older than 14 days still counts in a station's PRs reading.
+- **Never-read collections.** A collection that no poll has read yet (its blueprint always fails, say) is "no data", never 0: tasks and the Jira statuses, PRs and merged counts, deploys, the CI strip and pass rate, the matching telemetry traces, and the Datadog checks all read "no data" or "not read", and a station is "not read", not "no health check". Collections that were read once and later fail keep their last good content.
+- **Sync time.** The board turns stale when any collection failed in the latest poll, but "As of last sync" and "Lab updated" use the last poll that read the core collections (`service`, `workload`, `sentryIssue`, `datadogMonitor`, `datadogHost`). The "alarms may be missing" note appears only when the Sentry or monitor read failed; otherwise the note names the panels that hold older data.
 
 What Port holds today for each element, and what is missing:
 

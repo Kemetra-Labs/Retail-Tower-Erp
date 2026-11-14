@@ -110,7 +110,8 @@ describe("useBoard polling", () => {
       rules: [{ property: "status", operator: "=", value: "unresolved" }],
     });
     expect(only("datadogMonitor")).toEqual(all());
-    expect(only("githubPullRequest")).toEqual({ combinator: "and", rules: [between("mergedAt")] });
+    // Open PRs have no mergedAt, so the first load reads every PR and the client keeps open or recently merged ones.
+    expect(only("githubPullRequest")).toEqual(all());
     expect(only("githubWorkflowRun")).toEqual({ combinator: "and", rules: [between("createdAt")] });
     expect(only("deployment")).toEqual({ combinator: "and", rules: [between("createdAt")] });
     // First load reads every Jira issue; the client then filters it.
@@ -147,6 +148,7 @@ describe("useBoard polling", () => {
       expect(hasDelta("sentryIssue"), `poll ${number} sentry`).toBe(expected[number]);
       expect(hasDelta("datadogMonitor"), `poll ${number} monitors`).toBe(expected[number]);
       expect(hasDelta("jiraIssue"), `poll ${number} jira`).toBe(expected[number]);
+      expect(hasDelta("githubPullRequest"), `poll ${number} prs`).toBe(expected[number]);
     }
   });
 
@@ -354,6 +356,77 @@ describe("useBoard Sentry read status (criterion 7)", () => {
     expect(result.current.status).toBe("ready");
     expect(board.alarms).toHaveLength(5);
     expect(stationAlarms(board)).toEqual({ pos: 0, admin: 1, core: 0, conn: 4, erp: 0 });
+  });
+});
+
+describe("useBoard collections that cannot be read", () => {
+  it("(B) a Jira blueprint that always fails keeps every Jira-derived reading at no data, never 0", async () => {
+    port.fail("jiraIssue", 500);
+    const { result } = mount();
+    await settle();
+    for (const n of [1, 2, 3]) {
+      const board = result.current.board!;
+      expect(board, `poll ${n}`).not.toBeNull();
+      expect(board.stations.map((s) => s.readings.tasks)).toEqual([null, null, null, null, null]);
+      expect(board.jira).toEqual({ todo: null, inProgress: null, review: null, done: null });
+      expect(board.telemetry.find((t) => t.key === "done")!.unread).toBe(true);
+      // What was read is still real.
+      expect(board.stations.find((s) => s.id === "core")!.readings.prs).not.toBeNull();
+      await tick(60_000);
+    }
+    expect(result.current.failed).toEqual(["jira"]);
+    port.heal("jiraIssue");
+    await tick(60_000);
+    expect(result.current.board!.stations.find((s) => s.id === "pos")!.readings.tasks).not.toBeNull();
+    expect(result.current.board!.jira.todo).not.toBeNull();
+  });
+
+  it("(A) an open PR older than 14 days is counted in the station PRs reading after the first load", async () => {
+    const snap = fixture();
+    const stale = {
+      ...snap.prs[0],
+      identifier: "pr-open-60d",
+      createdAt: "2026-09-14T00:00:00Z",
+      updatedAt: "2026-09-14T00:00:00Z",
+      properties: { status: "open", mergedAt: null },
+      relations: { service: "pos" },
+    };
+    const before = snap.prs.filter((p) => p.relations.service === "pos" && p.properties.mergedAt === null).length;
+    port.set("githubPullRequest", [...snap.prs, stale]);
+    const { result } = mount();
+    await settle();
+    expect(result.current.board!.stations.find((s) => s.id === "pos")!.readings.prs).toBe(before + 1);
+  });
+
+  it("(B) a first load that never reads the monitors says 'not read', not 'no health check'", async () => {
+    port.fail("datadogMonitor", 500);
+    const { result } = mount();
+    await settle();
+    const board = result.current.board!;
+    expect(board.unknowns).toEqual([]);
+    expect(board.stations.find((s) => s.id === "core")!.lamps.datadog.unread).toBe(true);
+  });
+
+  it("(C) one permanently unreadable blueprint leaves the board stale but keeps the sync time", async () => {
+    port.fail("deployment", 500);
+    const { result } = mount();
+    await settle();
+    expect(result.current.status).toBe("stale");
+    expect(result.current.failed).toEqual(["deployments"]);
+    expect(result.current.asOf).toBe(NOW.getTime());
+    await tick(60_000);
+    expect(result.current.status).toBe("stale");
+    expect(result.current.asOf).toBe(NOW.getTime() + 60_000);
+  });
+
+  it("(C) a failing core collection still withholds the sync time", async () => {
+    port.fail("datadogMonitor", 500);
+    const { result } = mount();
+    await settle();
+    expect(result.current.asOf).toBeNull();
+    port.heal("datadogMonitor");
+    await tick(60_000);
+    expect(result.current.asOf).toBe(NOW.getTime() + 60_000);
   });
 });
 

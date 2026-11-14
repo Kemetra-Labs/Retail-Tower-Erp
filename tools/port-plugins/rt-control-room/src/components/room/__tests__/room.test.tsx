@@ -104,6 +104,17 @@ describe("the drawn board", () => {
     expect(text(core, '[data-lamp="datadog"]')).toContain("HLT 7/7");
   });
 
+  it("draws the Datadog lamp of a never-read monitor collection amber and reads 'not read', not 'no health check'", () => {
+    const snap = fixture();
+    snap.monitors = [];
+    const board = buildBoard(snap, { now: NOW, demo: false, unread: ["monitors"] });
+    const { container } = mount({ board });
+    const lamp = container.querySelector('[data-focus="station:core"] [data-lamp="datadog"]') as Element;
+    expect(lamp.getAttribute("class")).toContain("unk");
+    expect(lamp.querySelector("title")?.textContent).toBe("Health checks: not read");
+    expect(container.querySelector("[data-unknown-icon]")).toBeNull();
+  });
+
   it("makes every station, pin and server a focusable button", () => {
     const { container } = mount();
     const all = q(container, '[data-focus^="station:"], [data-focus^="pin:"], [data-focus^="host:"]');

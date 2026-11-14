@@ -6,7 +6,7 @@ import {
   stationOfWorkload,
   workloadServiceMap,
 } from "./alarms";
-import type { Lamp, Relation, SourceId, Snapshot, StationId } from "./types";
+import type { Collection, Lamp, Relation, SourceId, Snapshot, StationId } from "./types";
 
 /** What a station's four link lamps are drawn from; counts, never guesses. */
 export type LampEvidence = {
@@ -24,10 +24,17 @@ export type LampEvidence = {
 
 const SOURCES: SourceId[] = ["sentry", "datadog", "github", "jira"];
 
-function datadogLamp(station: StationId, m: LampEvidence["monitors"]): Lamp {
+/** Collections never read yet (see `BoardOptions.unread`). */
+type Unread = ReadonlySet<Collection>;
+const NO_UNREAD: Unread = new Set();
+
+/** "None" with no evidence is "not read" when a collection behind it was never read. */
+const noEvidence = (unread: boolean): Lamp => (unread ? { state: "none", unread: true } : { state: "none" });
+
+function datadogLamp(station: StationId, m: LampEvidence["monitors"], unread: boolean): Lamp {
   // POS has no Datadog by design; it is "not needed", not "missing".
   if (station === "pos") return { state: "na" };
-  if (m.total === 0) return { state: "none" };
+  if (m.total === 0) return noEvidence(unread);
   const checks = { ok: m.ok, total: m.total };
   if (m.alarming > 0) return { state: "alert", checks };
   // "Sending" needs evidence: at least one monitor reporting OK.
@@ -35,20 +42,25 @@ function datadogLamp(station: StationId, m: LampEvidence["monitors"]): Lamp {
 }
 
 /** The four link lamps of one station. The ERPNext ledger has none: all "na". */
-export function stationLamps(station: StationId, evidence: LampEvidence): Record<SourceId, Lamp> {
+export function stationLamps(
+  station: StationId,
+  evidence: LampEvidence,
+  unread: Unread = NO_UNREAD,
+): Record<SourceId, Lamp> {
   if (station === "erp") {
     return Object.fromEntries(SOURCES.map((s) => [s, { state: "na" } satisfies Lamp])) as Record<
       SourceId,
       Lamp
     >;
   }
+  const githubUnread = unread.has("prs") || unread.has("runs") || unread.has("deployments");
   return {
-    sentry: {
-      state: evidence.sentryProject ? (evidence.sentryIssues > 0 ? "sending" : "linked") : "none",
-    },
-    datadog: datadogLamp(station, evidence.monitors),
-    github: { state: evidence.github > 0 ? "live" : "none" },
-    jira: { state: evidence.jira > 0 ? "live" : "none" },
+    sentry: evidence.sentryProject
+      ? { state: evidence.sentryIssues > 0 ? "sending" : "linked" }
+      : noEvidence(unread.has("workloads")),
+    datadog: datadogLamp(station, evidence.monitors, unread.has("monitors")),
+    github: evidence.github > 0 ? { state: "live" } : noEvidence(githubUnread),
+    jira: evidence.jira > 0 ? { state: "live" } : noEvidence(unread.has("jira")),
   };
 }
 

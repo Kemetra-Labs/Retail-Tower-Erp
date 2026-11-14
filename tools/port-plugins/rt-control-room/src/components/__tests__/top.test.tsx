@@ -331,7 +331,32 @@ describe("Verdict", () => {
     const board = boardOf();
     wrap(<Verdict board={board} status="stale" />);
     expect(screen.getByText(board.verdict.sentence.en)).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("Showing the last good snapshot");
+    expect(screen.getByText(/Showing the last good snapshot/)).toBeTruthy();
+    // The one quiet live region of the board is the alarm announcer; this note is plain text (F).
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText(/Alarms may be missing\./)).toBeTruthy();
+  });
+
+  it("(C) a stale board with only a Jira or CI read failing names the old panels and does not claim alarms are missing", () => {
+    wrap(<Verdict board={boardOf()} status="stale" failed={["deployments", "jira"]} />);
+    const note = screen.getByText(/Showing the last good snapshot/).textContent ?? "";
+    expect(note).toContain("Older data in: Code history, Task tracker.");
+    expect(note).not.toContain("Alarms may be missing");
+  });
+
+  it("(C) a failed Sentry or monitor read keeps the alarms-may-be-missing note", () => {
+    for (const failed of [["sentryIssues"], ["monitors", "deployments"]] as const) {
+      wrap(<Verdict board={boardOf()} status="stale" failed={[...failed]} />);
+      expect(screen.getByText(/Showing the last good snapshot/).textContent).toContain("Alarms may be missing.");
+      cleanup();
+    }
+  });
+
+  it("(C) the stale note has Arabic for the old-data sentence", () => {
+    const board = boardOf();
+    wrap(<Verdict board={board} status="stale" failed={["jira"]} />);
+    expect(STRINGS.staleOldData.ar).toMatch(ARABIC);
+    expect(STRINGS.srcPort.ar).toMatch(ARABIC);
   });
 
   it("shows busy placeholders without numbers while loading", () => {
@@ -346,6 +371,25 @@ describe("Verdict", () => {
     expect(container.textContent).toContain("Cannot read Port.");
     expect(container.textContent).not.toMatch(/\d/);
     expect(container.querySelector(".verdict")?.getAttribute("aria-busy")).not.toBe("true");
+  });
+});
+
+describe("Trace of a collection that was never read", () => {
+  it("says no data instead of drawing a flat zero line", () => {
+    const board = buildBoard(fixture(), { now: NOW, demo: false, unread: ["runs"] });
+    const { container } = wrap(<Telemetry board={board} paused={false} />);
+    const cells = Array.from(container.querySelectorAll(".trace-cell"));
+    expect(cells).toHaveLength(4);
+    // Only the two runs-derived traces are unread: no polyline, "no data" in place of the value.
+    expect(container.querySelectorAll("svg.trace")).toHaveLength(2);
+    const unread = cells.filter((c) => c.getAttribute("data-unread") === "true");
+    expect(unread).toHaveLength(2);
+    for (const cell of unread) {
+      expect(cell.querySelector(".trace-v")?.textContent).toBe("no data");
+      expect(cell.querySelector("polyline")).toBeNull();
+      expect(cell.textContent).toContain(STRINGS.tlNotRead.en);
+    }
+    expect(STRINGS.tlNotRead.ar).toMatch(ARABIC);
   });
 });
 

@@ -25,8 +25,10 @@ export type UseBoard = {
   /** Collections whose latest read failed (their previous content is still shown). */
   failed: Collection[];
   /**
-   * The start (ms) of the last poll that read every collection, or null when there has been none.
-   * A stale board keeps the time of its last good sync, never the time of the failed poll.
+   * The start (ms) of the last poll that read the CORE collections (services, workloads, Sentry,
+   * Datadog monitors and hosts), or null when there has been none. A stale board keeps the time
+   * of its last good sync, never the time of the failed poll. One blueprint that never reads (a
+   * misspelled Jira, say) keeps the board "stale" but does not hide this time.
    */
   asOf: number | null;
   /** When the newest lab deployment changed (ISO), or null when Port lists none. */
@@ -40,6 +42,9 @@ export type UseBoardOptions = {
   /** Adds the labelled example alarm (`?demo=1`). Never real data. */
   demo?: boolean;
 };
+
+/** The collections that give the board its meaning: alarms, health and the map itself. */
+const CORE: Collection[] = ["services", "workloads", "sentryIssues", "monitors", "hosts"];
 
 const QUERY_KEY = ["rt-control-room", "board"] as const;
 const MIN_DELAY_MS = 1_000;
@@ -122,7 +127,7 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
   const board = useMemo(
     () =>
       data?.hasData && data.snapshot
-        ? buildBoard(data.snapshot, { now: new Date(data.now), demo, alarmRead: data.alarmRead })
+        ? buildBoard(data.snapshot, { now: new Date(data.now), demo, alarmRead: data.alarmRead, unread: data.unread })
         : null,
     [data, demo],
   );
@@ -133,9 +138,9 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
   else if (data.failed.length > 0 || query.isError) status = "stale";
   else status = "ready";
 
-  // A poll that failed in part still advances `data.now`, but its board is not "as of" that moment.
+  // A poll that failed in the core still advances `data.now`, but its board is not "as of" that moment.
   const goodSyncRef = useRef<number | null>(null);
-  if (data?.hasData && data.failed.length === 0) goodSyncRef.current = data.now;
+  if (data?.hasData && !data.failed.some((c) => CORE.includes(c))) goodSyncRef.current = data.now;
 
   const labUpdatedAt = useMemo(() => newestDeployment(data), [data]);
 

@@ -25,7 +25,7 @@ function Host({ view, box, selected, onSelect }: HostProps) {
   // A server that is down or not known is not shown as fine: red for down, amber for unknown.
   const tone = view.up === true ? "ok" : view.up === false ? "bad" : "unk";
   const checks =
-    total === 0 ? t("hostNoChecks") : ok === total ? t("hostChecksOk", { n: ok }) : t("hostChecksSome", { ok, total });
+    view.unread ? t("notRead") : total === 0 ? t("hostNoChecks") : ok === total ? t("hostChecksOk", { n: ok }) : t("hostChecksSome", { ok, total });
   const sel: Selection = { type: "host", id: view.id };
   return (
     <g

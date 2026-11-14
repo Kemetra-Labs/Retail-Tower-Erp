@@ -4,7 +4,7 @@ import { buildCi, buildHealthChecks, buildHosts, buildJira, buildPerStation, bui
 import { buildSources } from "./sources";
 import { buildStations } from "./stations";
 import { buildVerdict } from "./verdict";
-import type { Alarm, Board, CableView, Snapshot, StationView } from "./types";
+import type { Alarm, Board, CableView, Collection, Snapshot, StationView } from "./types";
 
 export type BoardOptions = {
   /** The instant "now" is measured from (freshness, 7-day windows, Cairo days). */
@@ -17,6 +17,13 @@ export type BoardOptions = {
    * claims there are no errors; alarms already known are still listed. Default true.
    */
   alarmRead?: { sentry: boolean };
+  /**
+   * Collections never read successfully yet. What is derived from one reads
+   * "no data" (`null`), never 0 or "none": tasks, PRs, merges, deploys, CI,
+   * the matching telemetry traces, and the Datadog checks (a station is then
+   * "not read", not "no health check"). Sentry has its own `alarmRead`.
+   */
+  unread?: readonly Collection[];
 };
 
 /** The example alarm of the approved mockup: a latency alarm on Backend-Core, labelled example. */
@@ -44,7 +51,7 @@ function buildCables(alarms: Alarm[]): CableView[] {
 function unknownStations(stations: StationView[]): Board["unknowns"] {
   // A station with no health check at all. POS (none by design) and ERPNext (external ledger) are "na".
   return stations
-    .filter((s) => s.lamps.datadog.state === "none")
+    .filter((s) => s.lamps.datadog.state === "none" && !s.lamps.datadog.unread)
     .map((s) => ({ station: s.id, reason: "no-health-check" as const }));
 }
 
@@ -61,7 +68,8 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
     ...datadogAlarms(snapshot.monitors, byWorkload),
     ...(opts.demo ? [EXAMPLE_ALARM] : []),
   ];
-  const stations = buildStations(snapshot, alarms, opts.now, sentryRead);
+  const unread = new Set<Collection>(opts.unread ?? []);
+  const stations = buildStations(snapshot, alarms, opts.now, sentryRead, unread);
   const sources = buildSources(snapshot, opts.now);
   const checks = (id: "core" | "conn") => stations.find((s) => s.id === id)?.readings.checks ?? null;
 
@@ -71,18 +79,19 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
     alarms,
     unknowns: unknownStations(stations),
     sources,
-    telemetry: buildTelemetry(snapshot, opts.now),
+    telemetry: buildTelemetry(snapshot, opts.now, unread),
     verdict: buildVerdict({
       alarms,
       checks: { core: checks("core"), conn: checks("conn") },
       sources,
       sentryRead,
+      monitorsRead: !unread.has("monitors"),
     }),
-    hosts: buildHosts(snapshot),
+    hosts: buildHosts(snapshot, unread),
     perStation: buildPerStation(snapshot, stations),
-    healthChecks: buildHealthChecks(snapshot, stations),
-    jira: buildJira(snapshot),
-    ci: buildCi(snapshot),
+    healthChecks: buildHealthChecks(snapshot, stations, unread),
+    jira: buildJira(snapshot, unread),
+    ci: buildCi(snapshot, unread),
     alarmRead: { sentry: sentryRead },
   };
 }

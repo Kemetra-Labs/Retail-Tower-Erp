@@ -11,6 +11,20 @@ import { nextPoll, type ScheduleState } from "./schedule";
 /** Collections that are fetched as a delta once they have been read. */
 const DELTA_COLLECTIONS: Collection[] = ["sentryIssues", "monitors", "jira", "prs", "runs", "deployments"];
 
+/** Every collection of a snapshot. */
+const ALL_COLLECTIONS: Collection[] = [
+  "services",
+  "workloads",
+  "sentryIssues",
+  "monitors",
+  "hosts",
+  "jira",
+  "prs",
+  "runs",
+  "deployments",
+  "integrations",
+];
+
 /** Mutable bookkeeping of the polling loop. Lives in a ref; React never reads it directly. */
 export type PollerState = ScheduleState & {
   snapshot: Snapshot | null;
@@ -42,6 +56,8 @@ export type PollResult = {
   now: number;
   /** false when `sentryIssues` was never read or the latest read failed. */
   alarmRead: { sentry: boolean };
+  /** Collections that no poll has read successfully yet: what derives from them is "no data", never 0. */
+  unread: Collection[];
   /** Collections whose latest read failed or was incomplete. */
   failed: Collection[];
   errorStatus: number | null;
@@ -88,8 +104,10 @@ export async function runPoll(client: PortClient, state: PollerState, now: Date)
 
   const everRead = Object.keys(state.lastOk).length > 0;
   const alarmRead = { sentry: state.lastOk.sentryIssues !== undefined && !res.failed.includes("sentryIssues") };
+  const unread = ALL_COLLECTIONS.filter((c) => state.lastOk[c] === undefined);
   const base = {
     alarmRead,
+    unread,
     failed: res.failed,
     errorStatus: res.errorStatus,
     now: now.getTime(),
@@ -101,7 +119,7 @@ export async function runPoll(client: PortClient, state: PollerState, now: Date)
 
   const prevSnapshot = state.snapshot;
   const snapshot = mergeSnapshot(prevSnapshot ?? emptySnapshot(now.toISOString()), res.data, res.replace);
-  const board = buildBoard(snapshot, { now, demo: false, alarmRead });
+  const board = buildBoard(snapshot, { now, demo: false, alarmRead, unread });
 
   let fresh: BoardEvent[];
   if (state.board === null || prevSnapshot === null) {

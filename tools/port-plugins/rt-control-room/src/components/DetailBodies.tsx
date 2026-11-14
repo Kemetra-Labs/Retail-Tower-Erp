@@ -116,7 +116,9 @@ export function StationBody({ view, board, onOpen }: { view: StationView; board:
           <div className="kvrow" key={src}>
             <dt>{`${LETTER[src]} ${t(SOURCE_NAME[src])}`}</dt>
             <dd>
-              <span className={`chip ${chipTone(view.lamps[src])}`}>{t(STATE_TEXT[view.lamps[src].state])}</span>
+              <span className={`chip ${chipTone(view.lamps[src])}`}>
+                {view.lamps[src].unread ? t("notRead") : t(STATE_TEXT[view.lamps[src].state])}
+              </span>
             </dd>
           </div>
         ))}
@@ -150,7 +152,7 @@ export function HostBody({ host, board, onOpen }: { host: HostView; board: Board
   const tone = host.up === true ? "ok" : host.up === false ? "bad" : "stale";
   const { ok, total } = host.checks;
   const checks =
-    total === 0 ? t("hostNoChecks") : ok === total ? t("hostChecksOk", { n: ok }) : t("hostChecksSome", { ok, total });
+    host.unread ? t("notRead") : total === 0 ? t("hostNoChecks") : ok === total ? t("hostChecksOk", { n: ok }) : t("hostChecksSome", { ok, total });
   const pack = board.healthChecks.find((g) => g.key === "servers")?.total ?? 0;
   return (
     <>

@@ -13,6 +13,8 @@ export type VerdictInput = {
   sources: Record<SourceId, SourceView>;
   /** False when the Sentry issue read never succeeded or the latest one failed. */
   sentryRead: boolean;
+  /** False while the Datadog monitors were never read: a missing check then reads "not read", not "no health check". Default true. */
+  monitorsRead?: boolean;
 };
 
 type Checks = { ok: number; total: number } | null;
@@ -44,7 +46,7 @@ const checksOf = (c: StationView["readings"]["checks"]): Checks => (c === "na" ?
 
 const notFresh = (v: VerdictInput, ids: SourceId[]) => ids.some((id) => v.sources[id].state !== "fresh");
 
-type Unknown = { why: "unplaced" | "none" | "partial" | "stale" | "not-read" };
+type Unknown = { why: "unplaced" | "none" | "checks-unread" | "partial" | "stale" | "not-read" };
 
 /**
  * First reason a light that has no alarm cannot be neutral. Order matters: a
@@ -56,7 +58,7 @@ function unknownReason(
 ): Unknown | null {
   if (!v.sentryRead) return { why: "not-read" };
   if (opts.unplaced > 0) return { why: "unplaced" };
-  if (opts.needsChecks && opts.checks === null) return { why: "none" };
+  if (opts.needsChecks && opts.checks === null) return { why: v.monitorsRead === false ? "checks-unread" : "none" };
   if (opts.needsChecks && opts.checks && opts.checks.ok < opts.checks.total) return { why: "partial" };
   if (notFresh(v, opts.sources)) return { why: "stale" };
   return null;
@@ -78,6 +80,8 @@ function unknownText(reason: Unknown, checks: Checks, unplaced: number, cashier:
     }
     case "none":
       return t("Not sure: no health check", "مجهول: مفيش فحص صحة");
+    case "checks-unread":
+      return t("Not sure: health checks not read", "مجهول: فحوصات الصحة مش مقروءة");
     case "partial":
       return checksText(checks as { ok: number; total: number });
     case "stale":

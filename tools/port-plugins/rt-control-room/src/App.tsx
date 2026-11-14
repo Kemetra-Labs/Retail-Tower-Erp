@@ -51,7 +51,9 @@ function ControlRoomApp() {
   const [demoAvailable] = useState(isDemo);
   const [demoOn, setDemoOn] = useState(false);
   // Gated inside by token, base URL, trust and visibility, so it is safe to call before the guards.
-  const { board, events, replayQueue, status: boardStatus, replaying, onReplayDone, asOf, labUpdatedAt } = useBoard({ demo: demoOn });
+  const { board, events, replayQueue, status: boardStatus, replaying, onReplayDone, asOf, labUpdatedAt, failed } = useBoard({
+    demo: demoOn,
+  });
   const [paused, togglePause] = usePaused();
   // The detail panel renders `selection`; Escape and Back return focus to the opener (or the active tab).
   const { selection, select } = useSelection({ fallback: activeTabButton });
@@ -97,7 +99,10 @@ function ControlRoomApp() {
   }, [demoOn, selection, select]);
   const asOfDate = useMemo(() => (asOf === null ? null : new Date(asOf)), [asOf]);
   // A stale board shows the last good snapshot, with the time of that sync on every panel.
-  const fresh = useMemo<Freshness>(() => ({ stale: boardStatus === "stale", asOf: asOfDate }), [boardStatus, asOfDate]);
+  const fresh = useMemo<Freshness>(
+    () => ({ stale: boardStatus === "stale", asOf: asOfDate, failed }),
+    [boardStatus, asOfDate, failed],
+  );
 
   useEffect(() => {
     applyThemeCss();
@@ -137,7 +142,7 @@ function ControlRoomApp() {
         controls={controls}
       />
       <main className="main">
-        <Verdict board={board} status={boardStatus} />
+        <Verdict board={board} status={boardStatus} failed={failed} />
         <Telemetry board={board} paused={paused} />
         {board ? (
           <>

@@ -33,9 +33,10 @@ export function Lamps({ station, box, unknown }: { station: StationView; box: Re
         const lamp: Lamp = station.lamps[src];
         const x = box.x + 14 + i * pw;
         const y = box.y + 56;
-        const amber = src === "datadog" && unknown && lamp.state === "none";
+        // Amber: a health lamp with no check behind it, or any lamp whose collection was never read.
+        const amber = lamp.unread === true || (src === "datadog" && unknown && lamp.state === "none");
         const checks = src === "datadog" && lamp.checks && lamp.checks.total > 0 ? ` ${lamp.checks.ok}/${lamp.checks.total}` : "";
-        const state = amber ? t("kindUnknown") : t(STATE_TEXT[lamp.state]);
+        const state = lamp.unread ? t("notRead") : amber ? t("kindUnknown") : t(STATE_TEXT[lamp.state]);
         return (
           <g key={src} className={`lamp ${lamp.state}${amber ? " unk" : ""}`} data-lamp={src}>
             <rect x={x} y={y} width={pw - 6} height={20} rx={8} />

@@ -14,6 +14,8 @@ function stateOf(view: StationView, unknown: boolean, t: T): { tone: Tone; text:
   if (typeof n === "number" && n > 0) return { tone: "bad", text: t("stFault") };
   if (view.id === "erp") return { tone: "unk", text: t("stLedger") };
   if (unknown) return { tone: "unk", text: t("stUnknown") };
+  // The health checks were never read: a quiet error tracker alone does not make the station fine.
+  if (view.lamps.datadog.unread) return { tone: "unk", text: t("stNotRead") };
   if (n === "not-read") return { tone: "unk", text: t("stNotRead") };
   return { tone: "", text: view.readings.checks === "na" ? t("stNoErrors") : t("stNoFaults") };
 }
@@ -21,6 +23,7 @@ function stateOf(view: StationView, unknown: boolean, t: T): { tone: Tone; text:
 function checksOf(view: StationView, unknown: boolean, t: T): { tone: Tone; text: string } {
   if (view.id === "erp" || view.readings.checks === "na") return { tone: "", text: "-" };
   if (unknown) return { tone: "unk", text: t("none") };
+  if (view.lamps.datadog.unread) return { tone: "unk", text: t("notRead") };
   const c = view.readings.checks;
   if (c === null) return { tone: "unk", text: t("noData") };
   return c.total === 0 ? { tone: "unk", text: t("none") } : { tone: c.ok < c.total ? "bad" : "", text: `${c.ok}/${c.total}` };
@@ -28,7 +31,7 @@ function checksOf(view: StationView, unknown: boolean, t: T): { tone: Tone; text
 
 function linkTone(src: SourceId, lamp: Lamp, unknown: boolean): Tone {
   if (lamp.state === "alert") return "bad";
-  return src === "datadog" && unknown ? "unk" : "";
+  return lamp.unread || (src === "datadog" && unknown) ? "unk" : "";
 }
 
 type Props = {
@@ -93,7 +96,7 @@ export function StatusTable({ board, fresh, onSelect }: Props) {
                     <ul className="links">
                       {ORDER.map((src) => (
                         <li key={src} className={linkTone(src, view.lamps[src], unknown)}>
-                          <span className="measured">{LETTER[src]}</span> {t(STATE_TEXT[view.lamps[src].state])}
+                          <span className="measured">{LETTER[src]}</span> {view.lamps[src].unread ? t("notRead") : t(STATE_TEXT[view.lamps[src].state])}
                         </li>
                       ))}
                     </ul>

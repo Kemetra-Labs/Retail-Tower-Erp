@@ -24,6 +24,23 @@ export function Trace({ trace, paused }: { trace: TraceView; paused: boolean }) 
   const n = series.length;
   const [titleKey, subKey] = TITLE[trace.key];
 
+  // Never read: say so, rather than a flat zero line that looks like a quiet week.
+  if (trace.unread) {
+    return (
+      <div className="trace-cell" data-paused={paused ? "true" : "false"} data-unread="true">
+        <div className="trace-h">
+          <span className="k">{t(titleKey)}</span>
+          <span className="trace-v unk" dir="ltr">
+            {t("noData")}
+          </span>
+        </div>
+        <div className="note">
+          {t(subKey)}. {t("tlNotRead")}
+        </div>
+      </div>
+    );
+  }
+
   const x = (i: number) => (n > 1 ? (i * W) / (n - 1) : 0);
   const y = (v: number) => H - (Math.min(v, cap) / cap) * (H - 6) - 2;
   const points = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");

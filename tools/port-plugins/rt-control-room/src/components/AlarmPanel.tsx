@@ -7,6 +7,7 @@ import { AlarmAnnouncer } from "./Announcer";
 import { Detail, isResolvable } from "./Detail";
 import { EventList } from "./EventList";
 import { StaleChip, type Freshness } from "./PanelHead";
+import { StaleSentence } from "./StaleSentence";
 import type { Selection } from "./room/selection";
 
 export type AlarmPanelProps = {
@@ -47,7 +48,9 @@ export function AlarmPanel({ board, events, selection, onSelect, focusOnOpen = f
         {fresh?.stale && (
           <div className="stale-row">
             <StaleChip fresh={fresh} />
-            <span className="note">{t("alarmsMayBeMissing")}</span>
+            <span className="note">
+              <StaleSentence failed={fresh.failed} />
+            </span>
           </div>
         )}
         {open && <Detail board={board} selection={selection} onSelect={onSelect} focusOnOpen={focusOnOpen} />}

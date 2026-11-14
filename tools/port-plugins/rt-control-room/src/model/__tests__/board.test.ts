@@ -191,6 +191,16 @@ describe("buildBoard missing and degraded data", () => {
     expect(station(b, "core").readings.ci7d).toBe(98);
   });
 
+  it("a service with no failed-run count reads no data for the pass rate, never 100%", () => {
+    const snap = fixture();
+    const core = snap.services.find((s) => s.identifier === "backend-core")!;
+    delete core.properties.github_failed_workflow_runs_7d;
+    const b = buildBoard(snap, opts());
+    expect(station(b, "core").readings.ci7d).toBeNull();
+    expect(station(b, "core").readings.ciFails7d).toBeNull();
+    expect(station(b, "admin").readings.ci7d).toBe(95);
+  });
+
   it("an entirely empty snapshot builds a board of unknowns", () => {
     const empty: Snapshot = {
       services: [],

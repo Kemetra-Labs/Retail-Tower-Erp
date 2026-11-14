@@ -132,7 +132,9 @@ describe("fetchSnapshot", () => {
 
   it("replaces the alarm collections on a full fetch and merges them on a delta", async () => {
     const full = await fetchSnapshot(fakeClient({}), null, true, { now: NOW });
-    expect(full.replace.sort()).toEqual(["hosts", "integrations", "jira", "monitors", "sentryIssues", "services", "workloads"].sort());
+    expect(full.replace.sort()).toEqual(
+      ["hosts", "integrations", "jira", "monitors", "prs", "sentryIssues", "services", "workloads"].sort(),
+    );
     expect(full.delta).toEqual([]);
 
     const delta = await fetchSnapshot(fakeClient({}), "2026-11-13T12:00:00.000Z", false, { now: NOW });
@@ -210,3 +212,59 @@ describe("fetchSnapshot Jira client-side filtering", () => {
   });
 });
 
+
+describe("fetchSnapshot pull requests", () => {
+  const pr = (id: string, status: string, mergedAt: string | null, service: unknown) => ({
+    identifier: id,
+    title: id,
+    properties: { status, mergedAt },
+    relations: service === undefined ? {} : { service },
+    createdAt: "2026-08-01T00:00:00Z",
+    updatedAt: "2026-11-13T00:00:00Z",
+  });
+  const posPrs = (snap: Snapshot) => board(snap).stations.find((s) => s.id === "pos")!.readings.prs;
+
+  it("a full poll reads every PR (rules: []) and keeps service-linked open or recently merged ones", async () => {
+    const client = fakeClient({
+      githubPullRequest: [
+        pr("OPEN-OLD", "open", null, "pos"),
+        pr("OPEN-NOSVC", "open", null, undefined),
+        pr("MERGED-NEW", "merged", "2026-11-10T00:00:00Z", "pos"),
+        pr("MERGED-OLD", "merged", "2026-10-01T00:00:00Z", "pos"),
+        pr("CLOSED", "closed", null, "pos"),
+      ],
+    });
+    const res = await fetchSnapshot(client, null, true, { now: NOW });
+    expect((res.data.prs ?? []).map((p) => p.identifier)).toEqual(["OPEN-OLD", "MERGED-NEW"]);
+    expect(client.searches.find((s) => s.blueprint === "githubPullRequest")!.query).toEqual({ combinator: "and", rules: [] });
+    expect(res.replace).toContain("prs");
+    expect(res.delta).not.toContain("prs");
+  });
+
+  it("counts an open PR older than 14 days in the station reading after a full poll", async () => {
+    const prev = { ...fixture(), prs: [] };
+    const res = await fetchSnapshot(
+      fakeClient({ githubPullRequest: [pr("OPEN-OLD", "open", null, "pos")] }),
+      "2026-11-13T12:00:00.000Z",
+      true,
+      { now: NOW },
+    );
+    const next = mergeSnapshot(prev, { prs: res.data.prs, fetchedAt: res.data.fetchedAt }, res.replace);
+    expect(posPrs(next)).toBe(1);
+  });
+
+  it("a delta reads updated PRs only and merges them: a PR that closes leaves the open count", async () => {
+    const since = "2026-11-13T12:00:00.000Z";
+    const prev = { ...fixture(), prs: [pr("P1", "open", null, "pos"), pr("P2", "open", null, "pos")] } as unknown as Snapshot;
+    expect(posPrs(prev)).toBe(2);
+    const client = fakeClient({ githubPullRequest: [pr("P1", "closed", null, "pos")] });
+    const res = await fetchSnapshot(client, since, false, { now: NOW });
+    expect(client.searches.find((s) => s.blueprint === "githubPullRequest")!.query.rules).toEqual([
+      { property: "$updatedAt", operator: "between", value: { from: since, to: NOW.toISOString() } },
+    ]);
+    expect(res.delta).toContain("prs");
+    expect(res.replace).not.toContain("prs");
+    // Keep the fixture's services: the stand-in answers every other blueprint with [].
+    expect(posPrs(mergeSnapshot(prev, { prs: res.data.prs, fetchedAt: res.data.fetchedAt }, res.replace))).toBe(1);
+  });
+});

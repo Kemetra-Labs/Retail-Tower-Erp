@@ -1,7 +1,8 @@
 import { useLang } from "../i18n/LangContext";
 import { pick, type StringKey } from "../i18n/strings";
-import type { Board, Light } from "../model/types";
+import type { Board, Collection, Light } from "../model/types";
 import type { BoardStatus } from "../state/useBoard";
+import { StaleSentence } from "./StaleSentence";
 
 type Tone = Light["tone"];
 
@@ -68,7 +69,7 @@ function Unavailable({ status }: { status: BoardStatus }) {
 }
 
 /** The sentence and the three lights (Cashier app, Backend, Accounts) of `board.verdict`. */
-export function Verdict({ board, status }: { board: Board | null; status: BoardStatus }) {
+export function Verdict({ board, status, failed }: { board: Board | null; status: BoardStatus; failed?: readonly Collection[] }) {
   const { lang, t } = useLang();
   if (!board) return <Unavailable status={status} />;
 
@@ -79,8 +80,8 @@ export function Verdict({ board, status }: { board: Board | null; status: BoardS
         <div className="line">{pick(sentence, lang)}</div>
         <div className="gapnote">{t("gapNote")}</div>
         {status === "stale" && (
-          <div className="gapnote staleNote" role="status">
-            {t("stateStaleNote")} {t("alarmsMayBeMissing")}
+          <div className="gapnote staleNote">
+            {t("stateStaleNote")} <StaleSentence failed={failed} />
           </div>
         )}
       </div>

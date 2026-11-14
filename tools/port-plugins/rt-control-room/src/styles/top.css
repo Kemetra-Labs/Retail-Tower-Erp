@@ -192,6 +192,12 @@ button[aria-pressed="true"] {
   letter-spacing: -0.03em;
 }
 
+/* Never read: amber "no data", never a number. */
+.trace-v.unk {
+  color: var(--color-stale-ink);
+  font-size: var(--text-md);
+}
+
 .trace-v small {
   margin-inline-start: var(--space-2xs);
   font: 400 var(--text-xs) var(--font-body);

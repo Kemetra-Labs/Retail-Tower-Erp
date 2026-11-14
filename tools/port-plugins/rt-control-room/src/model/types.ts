@@ -114,7 +114,12 @@ export type I18n = { en: string; ar: string };
 
 export type SourceId = "sentry" | "datadog" | "github" | "jira";
 export type LinkState = "sending" | "live" | "linked" | "none" | "na" | "alert";
-export type Lamp = { state: LinkState; checks?: { ok: number; total: number } };
+export type Lamp = {
+  state: LinkState;
+  checks?: { ok: number; total: number };
+  /** The collection behind this lamp was never read, so "none" means "not read", not "nothing there". */
+  unread?: boolean;
+};
 
 /** Alarm count of a station: a number, or "not-read" when the Sentry read failed (never 0). */
 export type AlarmReading = number | "not-read";
@@ -162,6 +167,8 @@ export type TraceView = {
   band: [number, number];
   cap: number;
   spikes: number[];
+  /** The collection behind this trace was never read: it reads "no data", not a flat zero line. */
+  unread?: boolean;
 };
 
 export type HostView = {
@@ -169,6 +176,8 @@ export type HostView = {
   station: StationId;
   up: boolean | null;
   checks: { ok: number; total: number };
+  /** The monitors were never read: the checks read "not read", not "none". */
+  unread?: boolean;
 };
 
 export type PerStationRow = {
@@ -194,6 +203,8 @@ export type HealthGroup = {
   alert: boolean;
   /** The group needs no check by design (POS). */
   na: boolean;
+  /** The monitors were never read: the group reads "not read", not "none". */
+  unread?: boolean;
 };
 
 export type Light = {
@@ -217,7 +228,9 @@ export type Board = {
   hosts: HostView[];
   perStation: PerStationRow[];
   healthChecks: HealthGroup[];
-  jira: Record<"todo" | "inProgress" | "review" | "done", number>;
+  /** Issues per status; `null` when Jira was never read ("no data", never 0). */
+  jira: Record<"todo" | "inProgress" | "review" | "done", number | null>;
+  /** Empty and `null` when the workflow runs were never read ("no data"). */
   ci: { last72: ("s" | "f" | "c" | "k")[]; passRate: number | null };
   /** `sentry` is false when the error read never succeeded or the latest read failed: counts are then "not read", not 0. */
   alarmRead: { sentry: boolean };
