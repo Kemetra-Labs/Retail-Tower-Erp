@@ -34,12 +34,14 @@ export const ROOM_STRINGS = {
   rdChecks: { en: "Checks", ar: "فحوصات" },
   rdCi: { en: "CI 7d", ar: "CI 7 أيام" },
   rdTasks: { en: "Tasks", ar: "مهام" },
-  rdPrs: { en: "PRs", ar: "طلبات تعديل" },
+  // Shorter than the mockup wording so it does not run into the next column on the station card.
+  rdPrs: { en: "PRs", ar: "تعديلات" },
   rdMerged: { en: "Merged", ar: "اتدمج" },
   rdDeploys: { en: "Deploys", ar: "تنزيلات" },
   rdCiFails: { en: "CI fails", ar: "فشل CI" },
   notRead: { en: "not read", ar: "مش مقروء" },
-  na: { en: "n/a", ar: "مش مطلوب" },
+  // Station card cell: the approved mockup prints n/a in both languages (the detail view says it in words).
+  na: { en: "n/a", ar: "n/a" },
   none: { en: "none", ar: "مفيش" },
   okCount: { en: "{n} OK", ar: "{n} تمام" },
   okOfCount: { en: "{ok}/{total} OK", ar: "{ok}/{total} تمام" },
