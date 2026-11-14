@@ -1,6 +1,8 @@
 import { PortApiError, type PortClient, type PortQuery, type PortRule } from "../api/portClient";
-import type { Collection, Integration, Snapshot } from "../model/types";
-import { BLUEPRINTS, DAY_MS, JIRA_DONE_STATUSES, JIRA_SERVICE_RELATION, WINDOW_DAYS } from "./blueprints";
+import { firstRelation } from "../model/alarms";
+import { isDone } from "../model/stations";
+import type { Collection, Integration, JiraIssue, Snapshot } from "../model/types";
+import { BLUEPRINTS, DAY_MS, JIRA_SERVICE_RELATION, WINDOW_DAYS } from "./blueprints";
 
 export type FetchOptions = {
   /** The instant this poll starts; the windows end here. Defaults to the clock. */
@@ -22,16 +24,37 @@ export type FetchResult = {
   errorStatus: number | null;
 };
 
-type Plan = { collection: Collection; blueprint: string; query: PortQuery; replace: boolean; delta: boolean };
+type Plan = {
+  collection: Collection;
+  blueprint: string;
+  query: PortQuery;
+  replace: boolean;
+  delta: boolean;
+  /** Client-side narrowing of what the server returned (see `keepJira`). */
+  keep?: (entity: never) => boolean;
+};
 
 const rule = (property: string, operator: string, value?: unknown): PortRule =>
   value === undefined ? { property, operator } : { property, operator, value };
 const between = (property: string, from: string, to: string): PortRule =>
   rule(property, "between", { from, to });
-const all = (blueprint: string): PortQuery => ({
-  combinator: "and",
-  rules: [rule("$blueprint", "=", blueprint)],
-});
+
+/**
+ * Only Port-documented or live-proven rule shapes are sent: `{ combinator: "and", rules: [] }`
+ * for "everything of this blueprint" (the endpoint is already per blueprint), `between` on a
+ * date property, and a plain property `=`. A 422 on an unproven shape would keep the board
+ * stale forever, so anything else (set tests, `notIn`, nested groups) is filtered on the client.
+ */
+const EVERYTHING: PortRule[] = [];
+
+/** Jira issues the board reads: linked to a service, and not resolved before the window. */
+const keepJira =
+  (windowStart: number) =>
+  (issue: JiraIssue): boolean => {
+    if (!firstRelation(issue.relations?.[JIRA_SERVICE_RELATION])) return false;
+    const resolved = Date.parse(issue.properties?.resolutionDate ?? "");
+    return !(isDone(issue.properties?.status) && !Number.isNaN(resolved) && resolved < windowStart);
+  };
 
 /** Fetch scope per blueprint (plan Task 7). Bodies are nested under `query`. */
 function plansFor(since: string | null, full: boolean, now: Date, neverRead?: ReadonlySet<Collection>): Plan[] {
@@ -44,7 +67,7 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
   const tiny = (collection: Collection, blueprint: string): Plan => ({
     collection,
     blueprint,
-    query: all(blueprint),
+    query: { combinator: "and", rules: EVERYTHING },
     replace: true,
     delta: false,
   });
@@ -55,12 +78,13 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     replace: !isDelta(collection),
     delta: isDelta(collection),
   });
-  const windowed = (collection: Collection, blueprint: string, rules: (PortRule | PortQuery)[]): Plan => ({
+  const windowed = (collection: Collection, blueprint: string, rules: PortRule[], keep?: Plan["keep"]): Plan => ({
     collection,
     blueprint,
     query: { combinator: "and", rules: [...rules, ...updated(collection)] },
     replace: false,
     delta: isDelta(collection),
+    keep,
   });
 
   return [
@@ -68,15 +92,12 @@ function plansFor(since: string | null, full: boolean, now: Date, neverRead?: Re
     tiny("workloads", BLUEPRINTS.workload),
     tiny("hosts", BLUEPRINTS.host),
     alarm("sentryIssues", BLUEPRINTS.sentryIssue, [rule("status", "=", "unresolved")]),
-    alarm("monitors", BLUEPRINTS.monitor, [rule("$blueprint", "=", BLUEPRINTS.monitor)]),
-    // Unconfirmed against live Port until Task 12: the relation-set rule and the nested "or" group.
-    windowed("jira", BLUEPRINTS.jira, [
-      rule(JIRA_SERVICE_RELATION, "isNotEmpty"),
-      {
-        combinator: "or",
-        rules: [rule("status", "notIn", JIRA_DONE_STATUSES), between("resolutionDate", start, to)],
-      },
-    ]),
+    alarm("monitors", BLUEPRINTS.monitor, EVERYTHING),
+    // Limitation: Jira is read by `$updatedAt` over the 14-day window only. "Open" and "has a
+    // service" cannot be sent with proven rules, so they are applied on the client (`keepJira`),
+    // and an open issue untouched for more than 14 days is not read. A full poll replaces the
+    // window; a delta narrows the same `$updatedAt` rule to `since`.
+    windowed("jira", BLUEPRINTS.jira, isDelta("jira") ? [] : [between("$updatedAt", start, to)], keepJira(Date.parse(start))),
     windowed("prs", BLUEPRINTS.pullRequest, [between("mergedAt", start, to)]),
     windowed("runs", BLUEPRINTS.workflowRun, [between("createdAt", start, to)]),
     windowed("deployments", BLUEPRINTS.deployment, [between("createdAt", start, to)]),
@@ -123,7 +144,7 @@ export async function fetchSnapshot(
   plans.forEach((plan, i) => {
     const res = searches[i];
     if (res.status === "rejected") return fail(plan.collection, res.reason);
-    store[plan.collection] = res.value;
+    store[plan.collection] = plan.keep ? (res.value as never[]).filter(plan.keep) : res.value;
     if (plan.replace) replace.push(plan.collection);
     if (plan.delta) delta.push(plan.collection);
   });

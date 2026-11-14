@@ -154,3 +154,38 @@ describe("fetchSnapshot", () => {
     expect(sentry.query.rules).toHaveLength(1);
   });
 });
+
+describe("fetchSnapshot Jira client-side filtering", () => {
+  const issue = (id: string, status: string, resolutionDate: string | null, service: unknown) => ({
+    identifier: id,
+    title: id,
+    properties: { status, resolutionDate },
+    relations: service === undefined ? {} : { service },
+    createdAt: "2026-10-01T00:00:00Z",
+    updatedAt: "2026-11-13T00:00:00Z",
+  });
+
+  it("keeps service-linked open issues and recent Done ones; drops unlinked and old Done ones", async () => {
+    const client = fakeClient({
+      jiraIssue: [
+        issue("OPEN-1", "In Progress", null, "pos"),
+        issue("NOSVC-1", "In Progress", null, undefined),
+        issue("DONE-NEW", "Done", "2026-11-10T00:00:00Z", "pos"),
+        issue("DONE-OLD", "Done", "2026-10-01T00:00:00Z", "pos"),
+      ],
+    });
+    const res = await fetchSnapshot(client, null, true, { now: NOW });
+    expect((res.data.jira ?? []).map((j) => j.identifier)).toEqual(["OPEN-1", "DONE-NEW"]);
+    expect(client.searches[0] && client.searches.find((s) => s.blueprint === "jiraIssue")!.query).toEqual({
+      combinator: "and",
+      rules: [
+        {
+          property: "$updatedAt",
+          operator: "between",
+          value: { from: "2026-10-30T12:30:00.000Z", to: NOW.toISOString() },
+        },
+      ],
+    });
+  });
+});
+

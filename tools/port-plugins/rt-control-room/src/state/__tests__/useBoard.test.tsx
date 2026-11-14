@@ -101,28 +101,19 @@ describe("useBoard polling", () => {
       expect(port.callsFor(bp)).toHaveLength(1);
       return port.callsFor(bp)[0].query;
     };
-    const all = (bp: string) => ({ combinator: "and", rules: [{ property: "$blueprint", operator: "=", value: bp }] });
-    expect(only("service")).toEqual(all("service"));
-    expect(only("workload")).toEqual(all("workload"));
-    expect(only("datadogHost")).toEqual(all("datadogHost"));
+    const all = () => ({ combinator: "and", rules: [] });
+    expect(only("service")).toEqual(all());
+    expect(only("workload")).toEqual(all());
+    expect(only("datadogHost")).toEqual(all());
     expect(only("sentryIssue")).toEqual({
       combinator: "and",
       rules: [{ property: "status", operator: "=", value: "unresolved" }],
     });
-    expect(only("datadogMonitor")).toEqual(all("datadogMonitor"));
+    expect(only("datadogMonitor")).toEqual(all());
     expect(only("githubPullRequest")).toEqual({ combinator: "and", rules: [between("mergedAt")] });
     expect(only("githubWorkflowRun")).toEqual({ combinator: "and", rules: [between("createdAt")] });
     expect(only("deployment")).toEqual({ combinator: "and", rules: [between("createdAt")] });
-    expect(only("jiraIssue")).toEqual({
-      combinator: "and",
-      rules: [
-        { property: "service", operator: "isNotEmpty" },
-        {
-          combinator: "or",
-          rules: [{ property: "status", operator: "notIn", value: ["Done"] }, between("resolutionDate")],
-        },
-      ],
-    });
+    expect(only("jiraIssue")).toEqual({ combinator: "and", rules: [between("$updatedAt")] });
   });
 
   it("polls only deltas after 60 s and makes the 5th poll full", async () => {
@@ -154,6 +145,30 @@ describe("useBoard polling", () => {
       expect(hasDelta("sentryIssue"), `poll ${number} sentry`).toBe(expected[number]);
       expect(hasDelta("datadogMonitor"), `poll ${number} monitors`).toBe(expected[number]);
     }
+  });
+
+  it("never sends an unproven rule shape, on a first load, a delta poll or a full poll", async () => {
+    mount();
+    await settle();
+    for (let n = 0; n < 5; n += 1) await tick(60_000); // polls 2-4 are deltas, poll 5 is full
+
+    // Port-documented or live-proven only: no set tests, no `notIn`, no `$blueprint` rule, no nested group.
+    const bad: string[] = [];
+    const walk = (blueprint: string, node: unknown): void => {
+      if (node === null || typeof node !== "object") return;
+      const n = node as Record<string, unknown>;
+      if (n.operator === "isNotEmpty" || n.operator === "isEmpty" || n.operator === "notIn") bad.push(`${blueprint}: ${String(n.operator)}`);
+      if (n.property === "$blueprint") bad.push(`${blueprint}: $blueprint rule`);
+      if (n.combinator === "or") bad.push(`${blueprint}: or group`);
+      if (Array.isArray(n.rules)) for (const child of n.rules) if (child && typeof child === "object" && "rules" in child) bad.push(`${blueprint}: nested group`);
+      for (const value of Object.values(n)) walk(blueprint, value);
+    };
+    expect(port.calls.length).toBeGreaterThanOrEqual(45);
+    for (const call of port.calls) {
+      walk(call.blueprint, call.body);
+      expect((call.body.query as { combinator: string }).combinator).toBe("and");
+    }
+    expect(bad).toEqual([]);
   });
 
   it("stops polling while the document is hidden and resumes when visible", async () => {

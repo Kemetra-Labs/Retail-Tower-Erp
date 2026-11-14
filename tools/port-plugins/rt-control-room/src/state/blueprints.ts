@@ -17,8 +17,6 @@ export const BLUEPRINTS = {
 
 /** The Jira issue relation that points at a `service` entity. */
 export const JIRA_SERVICE_RELATION = "service";
-/** Terminal Jira status that leaves the "open" set (the plan's "status not Done"). */
-export const JIRA_DONE_STATUSES = ["Done"];
 
 /** Poll cadence. */
 export const POLL_MS = 60_000;
