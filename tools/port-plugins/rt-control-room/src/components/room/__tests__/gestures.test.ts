@@ -170,6 +170,14 @@ describe("gestures", () => {
     expect(refs.wrap("erp")?.classList.contains("down")).toBe(false);
   });
 
+  it("puts each cable's refused gate at the route owner's end: Backend-Core for c3, the far end otherwise", () => {
+    const gate = (id: string) => layout.cables.find((c) => c.id === id)!.gate.x;
+    const core = layout.stations.core;
+    expect(gate("c3")).toBe(core.x + core.w + 18);
+    expect(gate("c4")).toBe(layout.stations.erp.x - 18);
+    expect(gate("c1")).toBe(core.x - 18);
+  });
+
   it("the c3 dot travels from the Connector toward Backend-Core (the request's direction)", async () => {
     const r = rig();
     playGesture("down", r.refs("conn", "c3"), { paused: false, reducedMotion: false });
