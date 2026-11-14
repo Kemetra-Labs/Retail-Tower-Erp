@@ -58,7 +58,7 @@ export function placeSentryAlarm(station: StationId, title: string): StationId |
   return station;
 }
 
-function stationOfWorkload(
+export function stationOfWorkload(
   workload: Relation,
   workloadToService: Map<string, string>,
 ): StationId | null {
@@ -93,9 +93,9 @@ export function sentryAlarms(
   return alarms;
 }
 
-const ALARM_STATES = new Set(["alert", "warn", "nodata"]);
+export const ALARM_STATES = new Set(["alert", "warn", "nodata"]);
 
-function normaliseState(state: string | null | undefined): string {
+export function normaliseState(state: string | null | undefined): string {
   return (state ?? "").toLowerCase().replace(/[\s_-]+/g, "");
 }
 
