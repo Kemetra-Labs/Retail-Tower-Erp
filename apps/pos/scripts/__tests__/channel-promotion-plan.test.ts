@@ -314,6 +314,40 @@ describe('planPromotion — refusals (one reason code each)', () => {
     ).toBe('staging_percentage_lowered');
   });
 
+  it('refuses a staging-only raise when stable serves another installer at that version', () => {
+    const facts = release('production', '1.0.0');
+    const state = laneState('production', { lab: '1.0.0', canary: '1.0.0', stable: '1.0.0' });
+    const other = channelYml('POS-Pulse-Setup-1.0.0-other.exe', 'BBBB', 5, {
+      version: '1.0.0',
+      stagingPercentage: 10,
+    });
+    const swapped = { ...state, channels: { ...state.channels, stable: other } };
+    expect(
+      refusal(
+        planPromotion(promote('production', 'stable', { stagingPercentage: 20 }), facts, swapped),
+      ),
+    ).toBe('channel_file_mismatch');
+  });
+
+  it.each(['../pilot/POS-Pulse-Setup-1.1.0.exe.blockmap', 'stable.yml', 'sub/x.blockmap'])(
+    'refuses an artifact destination that is not a bare, non-channel file name: %s',
+    (file) => {
+      const base = release('production', '1.1.0');
+      const facts = withManifest(
+        { ...base, blockmap: { name: file, sha256: base.blockmap?.sha256 ?? '' } },
+        (m) => {
+          const entry = (m['artifacts'] as Record<string, unknown>[]).find(
+            (a) => a['name'] === 'pos-blockmap',
+          );
+          if (entry) entry['file'] = file;
+        },
+      );
+      expect(refusal(planPromotion(promote('production', 'lab'), facts, prodState))).toBe(
+        'artifact_name_unsafe',
+      );
+    },
+  );
+
   it('refuses a promotion without an https evidence reference', () => {
     const facts = release('production', '1.1.0');
     expect(
@@ -474,6 +508,8 @@ describe('compareVersions (semantic-version precedence)', () => {
     ['1.0.0-beta.2', '1.0.0-beta.11', -1],
     ['1.0.0-rc.1', '1.0.0-beta.11', 1],
     ['1.0.0-rc.1', '1.0.0-rc.1', 0],
+    ['9007199254740993.0.0', '9007199254740992.0.0', 1],
+    ['1.0.0-9007199254740992', '1.0.0-9007199254740993', -1],
   ])('%s vs %s is %i', (a, b, expected) => {
     expect(compareVersions(a, b)).toBe(expected);
   });

@@ -68,6 +68,7 @@ type RefusalReason =
   | 'stage_skipped'
   | 'version_not_higher'
   | 'artifact_name_reused'
+  | 'artifact_name_unsafe'
   | 'halt_reason_missing'
   | 'halt_not_lower'
   | 'halt_artifact_missing';
@@ -267,9 +268,26 @@ function targetNeedsWrite(
 function raisesStaging(release: ChannelFile, staging: number, current: ChannelFile): boolean {
   const served = current.stagingPercentage ?? 100;
   const at = `stable serves ${release.version} at ${String(served)}%`;
+  if (!samePayload(release, current)) {
+    fail('channel_file_mismatch', `${at} with another installer; a new version is required`);
+  }
   if (staging < served) fail('staging_percentage_lowered', at);
   if (staging === served) fail('version_not_higher', at);
   return true;
+}
+
+/** Same installer reference, hash and size in both channel files. */
+function samePayload(a: ChannelFile, b: ChannelFile): boolean {
+  const sameFile = (f: FileEntry, i: number): boolean => {
+    const g = b.files[i];
+    return g !== undefined && f.url === g.url && f.sha512 === g.sha512 && f.size === g.size;
+  };
+  return (
+    a.path === b.path &&
+    a.sha512 === b.sha512 &&
+    a.files.length === b.files.length &&
+    a.files.every(sameFile)
+  );
 }
 
 function checkStaging(stage: Channel, pct: number | undefined): number | undefined {
@@ -349,6 +367,7 @@ function channelWrite(channel: Channel, parsed: ChannelFile, staging: number | u
 function verifyRelease(lane: Lane, pin: string, release: ReleaseFacts): ChannelFile {
   const rule = LANE_RULES[lane];
   checkPublisher(rule, lane, pin, release.publisher);
+  presentArtifacts(release).forEach(checkArtifactName);
   const manifest = asRecord(release.manifest);
   if (manifest === null) fail('manifest_mismatch', 'the manifest is not an object');
   checkSigning(rule, lane, manifest);
@@ -360,6 +379,13 @@ function verifyRelease(lane: Lane, pin: string, release: ReleaseFacts): ChannelF
   checkArtifacts(manifest['artifacts'], release);
   checkChannelMatchesInstaller(parsed, release.installer);
   return parsed;
+}
+
+/** An artifact lands in the lane directory: a bare file name that is not a channel file. */
+function checkArtifactName(artifact: ArtifactFacts): void {
+  if (!isSafeName(artifact.name) || artifact.name.toLowerCase().endsWith('.yml')) {
+    fail('artifact_name_unsafe', `${artifact.name} is not a bare, non-channel file name`);
+  }
 }
 
 const LAB_MARKER = /LAB TEST|NOT FOR PRODUCTION/i;
@@ -606,9 +632,16 @@ export function compareVersions(a: string, b: string): number {
 }
 
 function compareCore(a: string, b: string): number {
-  const [x, y] = [a.split('.').map(Number), b.split('.').map(Number)];
-  const diff = [0, 1, 2].map((i) => (x[i] ?? 0) - (y[i] ?? 0)).find((d) => d !== 0);
-  return Math.sign(diff ?? 0);
+  const [x, y] = [a.split('.'), b.split('.')];
+  const diff = [0, 1, 2].map((i) => compareNumeric(x[i] ?? '0', y[i] ?? '0')).find((d) => d !== 0);
+  return diff ?? 0;
+}
+
+/** Exact comparison of two decimal digit strings (no Number precision loss). */
+function compareNumeric(p: string, q: string): number {
+  const [bp, bq] = [BigInt(p), BigInt(q)];
+  if (bp === bq) return 0;
+  return bp < bq ? -1 : 1;
 }
 
 function comparePrerelease(a: readonly string[] | null, b: readonly string[] | null): number {
@@ -636,6 +669,6 @@ function compareMissing(p: string | undefined, q: string | undefined): number {
 function compareValues(p: string, q: string): number {
   const [pn, qn] = [NUMERIC.test(p), NUMERIC.test(q)];
   if (pn !== qn) return pn ? -1 : 1;
-  if (pn) return Math.sign(Number(p) - Number(q));
+  if (pn) return compareNumeric(p, q);
   return p < q ? -1 : 1;
 }
