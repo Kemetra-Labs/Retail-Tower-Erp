@@ -240,8 +240,9 @@ export type OutcomeDecision =
   | { readonly kind: "replay" };
 
 /**
- * The same logical outcome again, from the host that gave it: the holder (a failed request keeps its
- * ended lease), the host recorded on a `succeeded` request, or the audited reporter while it waits.
+ * The same logical outcome again, from the host that gave it: the holder (a failed row from before
+ * RT-1389 may still carry its ended lease), the host recorded on a `succeeded` request, or the audited
+ * reporter (while it waits for the heartbeat, or of a permanent failure).
  */
 function isOutcomeReplay(state: RequestState, host: string, outcome: OutcomeName, reportedBy: string | null): boolean {
   if ((state.leaseHolder ?? state.provisionedHostLabel ?? reportedBy) !== host) return false;

@@ -7,10 +7,9 @@
  * checks the same shared table (RT-1389); migration 0112's trigger enforces it in SQL
  * too. A fence test pins both writers.
  *
- * RT-1389: a `succeeded` request records its host in `provisioned_host_label` (the
- * OD-10 per-host site count reads it) and keeps no lease. A `failed_permanent`
- * request still ends its lease with the holder kept (`end`): that holder is the
- * replay key of a repeated failure report; nothing counts it.
+ * RT-1389: no terminal row carries a lease. A `succeeded` request records its host
+ * in `provisioned_host_label` (the OD-10 per-host site count reads it); the host
+ * that reported a failure is read from the audit trail (the feed's `reportedBy`).
  */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
@@ -221,7 +220,7 @@ export interface RequestWrite {
   readonly status?: RequestStatus;
   readonly attempt?: number;
   readonly attemptFloor?: number;
-  readonly lease: "take" | "renew" | "clear" | "end" | "keep";
+  readonly lease: "take" | "renew" | "clear" | "keep";
   readonly host?: string;
   /** Only with `status: "succeeded"`: the host that provisioned the site (the OD-10 count input). */
   readonly provisionedHost?: string;
@@ -246,10 +245,7 @@ export function writeFromPatch(patch: RequestPatch, host: string): RequestWrite 
 
 const NO_LEASE = { leaseHolder: null, leaseId: null, leaseExpiresAt: null } as const;
 
-/**
- * The lease columns after a write: `take` a new one, `renew` the expiry, `clear` it, `end` it now (holder kept:
- * a `failed_permanent` row's replay key, never a host count), or `keep`.
- */
+/** The lease columns after a write: `take` a new one, `renew` the expiry, `clear` it, or `keep`. */
 function nextLease(
   row: RequestRow,
   write: RequestWrite,
@@ -264,8 +260,6 @@ function nextLease(
       return { ...kept, leaseExpiresAt: new Date(now.getTime() + ttlMs) };
     case "clear":
       return NO_LEASE;
-    case "end":
-      return row.leaseId === null ? kept : { ...kept, leaseExpiresAt: now };
     default:
       return kept;
   }
@@ -284,8 +278,8 @@ export async function writeRequest(client: PoolClient, row: RequestRow, write: R
   if (write.provisionedHost !== undefined && status !== "succeeded") {
     throw new Error("erp_provisioning_request: a provisioned host is recorded only on succeeded");
   }
-  if (status === "succeeded" && write.lease === "end") {
-    throw new Error("erp_provisioning_request: a succeeded request keeps no lease (use provisionedHost)");
+  if (isTerminal(status) && write.lease !== "clear") {
+    throw new Error("erp_provisioning_request: a terminal request keeps no lease");
   }
   const { leaseHolder, leaseId, leaseExpiresAt } = nextLease(row, write, now, leaseTtlMs);
   const terminal = isTerminal(status);

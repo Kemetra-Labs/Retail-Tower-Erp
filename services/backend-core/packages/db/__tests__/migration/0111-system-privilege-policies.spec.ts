@@ -102,8 +102,8 @@ beforeAll(async () => {
     for (const tenant of [TENANT_A, TENANT_B]) {
       await a.query(
         `INSERT INTO erp_provisioning_request (tenant_id, kind, site_name, template_id, template_version)
-         VALUES ($1, 'tenant.provision', 'site-' || substr($1::text, 1, 8), 'egypt-retail', 1)`,
-        [tenant],
+         VALUES ($1, 'tenant.provision', $2, 'egypt-retail', 1)`,
+        [tenant, `site-${tenant.slice(-5)}`],
       );
     }
     const tok = await a.query<{ id: string }>(

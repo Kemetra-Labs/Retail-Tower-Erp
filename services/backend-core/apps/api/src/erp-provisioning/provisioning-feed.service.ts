@@ -365,8 +365,9 @@ export class ProvisioningFeedService {
         case "invalid_transition":
           throw new BadRequestException({ code: "validation_error", message: "This outcome is not allowed in the request's current state." });
         case "fail_permanent": {
-          await writeRequest(client, row, { status: "failed_permanent", lease: "end", lastErrorClass: decision.errorClass, lastReason: decision.reason }, now, 0);
-          await insertProvisioningAudit(client, { ...base, action: AUDIT.failed, metadata: { outcome: decision.errorClass } });
+          await writeRequest(client, row, { status: "failed_permanent", lease: "clear", lastErrorClass: decision.errorClass, lastReason: decision.reason }, now, 0);
+          // The reporting host is the replay key of a repeated failure report (the row keeps no lease, RT-1389).
+          await insertProvisioningAudit(client, { ...base, action: AUDIT.failed, metadata: { outcome: decision.errorClass, host } });
           return done(false);
         }
         case "hold_for_heartbeat":
@@ -386,11 +387,18 @@ export class ProvisioningFeedService {
     });
   }
 
-  /** The host that reported `succeeded` while the request waits for its heartbeat (audit trail, no holder on the row). */
+  /**
+   * The host that reported the latest outcome of a request that holds no lease (audit trail): `succeeded`
+   * while it waits for its heartbeat, or a permanent failure (RT-1389: a terminal row keeps no lease). A
+   * failure audited before RT-1389 has no `host` in its metadata; its actor label `provisioner:<host>`
+   * names it. A sweep failure (actor `sweep`) names no host.
+   */
   private async reportedBy(client: PoolClient, requestId: string): Promise<string | null> {
     const r = await client.query<{ host: string | null }>(
-      `SELECT metadata->>'host' AS host FROM audit_events
-        WHERE target_id = $1::uuid AND action = 'erp.provisioning.step_recorded' AND metadata->>'outcome' = 'succeeded_reported'
+      `SELECT coalesce(metadata->>'host', substring(actor_label FROM '^provisioner:(.+)$')) AS host FROM audit_events
+        WHERE target_id = $1::uuid
+          AND ((action = 'erp.provisioning.step_recorded' AND metadata->>'outcome' = 'succeeded_reported')
+               OR action = 'erp.provisioning.failed')
         ORDER BY occurred_at DESC LIMIT 1`,
       [requestId],
     );

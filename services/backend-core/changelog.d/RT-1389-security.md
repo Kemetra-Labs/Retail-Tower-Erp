@@ -11,6 +11,7 @@
   `packages/db`, used by the api repository and the worker sweep, and migration `0112`'s
   guard trigger rejects any other status change in SQL. A `succeeded` request records its
   host in the new `provisioned_host_label` column (the OD-10 per-host site count) instead of
-  a synthetic ended lease; `0113` backfills it. Deploy note: once the new api and worker are
-  up, re-run `SELECT erp_provisioning_backfill_host_labels();` as the migration owner
-  (idempotent; it returns 0 when nothing was left).
+  a synthetic ended lease, and no terminal request keeps a lease (a failure's reporting host
+  is in its audit row); `0113` backfills the label. Deploy step 4 now also runs
+  `docs/operations/sql/erp-provisioning-host-label-catchup.sql` (idempotent) after the new
+  api and worker are up.

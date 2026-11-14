@@ -521,8 +521,10 @@ describe("outcome", () => {
     await ack(tok, id, "claimed", 1).expect(200);
     await outcome(other, id, { outcome: "conflict", reason: "marker" }).expect(409);
     await outcome(tok, id, { outcome: "conflict", reason: "marker" }).expect(200);
-    expect((await requestsOf(h.env().admin))[0]).toMatchObject({ status: "failed_permanent", last_error_class: "conflict" });
+    // RT-1389: a terminal row keeps no lease; the replay key is the host in the `failed` audit row.
+    expect((await requestsOf(h.env().admin))[0]).toMatchObject({ status: "failed_permanent", last_error_class: "conflict", lease_holder: null, lease_id: null, lease_expires_at: null });
     await outcome(tok, id, { outcome: "conflict", reason: "marker" }).expect(200);
+    await outcome(other, id, { outcome: "conflict", reason: "marker" }).expect(409);
     await outcome(tok, id, { outcome: "succeeded" }).expect(400);
   });
 });

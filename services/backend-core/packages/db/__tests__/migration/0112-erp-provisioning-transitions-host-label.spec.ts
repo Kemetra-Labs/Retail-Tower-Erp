@@ -69,7 +69,7 @@ beforeAll(async () => {
     await applyMigrationsBefore(env, DRIZZLE_DIR, UP_0112);
     await env.admin.query(
       `INSERT INTO tenants (id, slug, name, default_currency_code)
-       SELECT t, 'tr-' || substr(t::text, 20, 5), 'TR', 'USD' FROM unnest($1::uuid[]) t`,
+       SELECT t, 'tr-' || right(t::text, 5), 'TR', 'USD' FROM unnest($1::uuid[]) t`,
       [TENANTS],
     );
     await ensureAppRole(env);
@@ -144,12 +144,13 @@ describe("0113 backfill under FORCE RLS as the NOSUPERUSER owner", () => {
     const l = await e.admin.query(`SELECT lease_holder, provisioned_host_label FROM ${T} WHERE id = $1`, [live]);
     expect(l.rows[0]).toEqual({ lease_holder: "lab-04", provisioned_host_label: null });
 
-    // 0113 down rebuilds the synthetic lease (label kept), and is idempotent; up again is a no-op on those rows.
+    // 0113 down rebuilds the synthetic lease (label kept), and is idempotent; up again clears those leases again.
     await e.admin.query(sql("0113_erp_provisioning_host_label_backfill.down.sql"));
     expect(await hostCounts("lease_holder")).toEqual(before);
     expect(await errorCode(() => e.admin.query(sql("0113_erp_provisioning_host_label_backfill.down.sql")))).toBeNull();
     expect(await errorCode(() => e.admin.query(sql("0113_erp_provisioning_host_label_backfill.sql")))).toBeNull();
     expect(await hostCounts("provisioned_host_label")).toEqual(before);
+    expect(await hostCounts("lease_holder")).toEqual({});
   });
 });
 

@@ -131,10 +131,13 @@ op run --env-file=deploy/prod.env -- \
 
 # 4. Freeze any posting intent the previous release wrote during step 1
 #    (RT-330), and record `not_posted` for any inventory movement it wrote
-#    (RT-425). Idempotent; each exits non-zero on failure.
+#    (RT-425), and move the ERP host of any provisioning request the previous
+#    release finished during step 1 into `provisioned_host_label` (RT-1389).
+#    Idempotent; each exits non-zero on failure.
 op run --env-file=deploy/grants.env -- sh -c \
   'psql -X -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&
-   psql -X -f docs/operations/sql/inventory-effect-integration-catchup.sql'
+   psql -X -f docs/operations/sql/inventory-effect-integration-catchup.sql &&
+   psql -X -f docs/operations/sql/erp-provisioning-host-label-catchup.sql'
 ```
 
 `op run` resolves private references in memory and does not write them back to
@@ -815,7 +818,8 @@ op run --env-file=deploy/grants.env -- deploy/apply-domain-grants.sh
 op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml up -d --build
 op run --env-file=deploy/grants.env -- sh -c \
   'psql -X -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&
-   psql -X -f docs/operations/sql/inventory-effect-integration-catchup.sql'
+   psql -X -f docs/operations/sql/inventory-effect-integration-catchup.sql &&
+   psql -X -f docs/operations/sql/erp-provisioning-host-label-catchup.sql'
 # stop
 op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml down   # keeps volumes (redis AOF, caddy certs)
 ```
