@@ -4,6 +4,7 @@
 // Strings that the model already produces as `{ en, ar }` (verdict, cable and
 // station names) and the change-event texts are not repeated here.
 
+import { PANEL_STRINGS } from "./panelStrings";
 import { ROOM_STRINGS } from "./roomStrings";
 
 export type Lang = "en" | "ar";
@@ -116,8 +117,11 @@ export const STRINGS = {
   jiraReview: { en: "In review", ar: "مراجعة" },
   jiraDone: { en: "Done", ar: "خلصت" },
   ciTitle: { en: "Automatic checks (CI)", ar: "الفحص التلقائي (CI)" },
-  ciSub: { en: "The last 72 runs, oldest on the left.", ar: "آخر 72 تشغيلة، الأقدم على الشمال." },
-  ciOf: { en: "of the last 1000 runs passed", ar: "من آخر 1000 تشغيلة نجحت" },
+  ciSub: { en: "The last {n} runs, oldest on the left.", ar: "آخر {n} تشغيلة، الأقدم على الشمال." },
+  ciOf: {
+    en: "of the last {n} runs passed (cancelled and skipped not counted)",
+    ar: "من آخر {n} تشغيلة نجحت (الملغي والمتخطّى مش محسوبين)",
+  },
   passed: { en: "Passed", ar: "نجح" },
   failed: { en: "Failed", ar: "فشل" },
   cancelled: { en: "Cancelled", ar: "اتلغى" },
@@ -151,6 +155,7 @@ export const STRINGS = {
     ar: "النقط اللي بتتحرك: الرابط شغال. على الأسلاك الطالعة لغرفة التحكم السرعة حسب نشاط كل محطة في آخر 7 أيام. دي مش حركة مبيعات.",
   },
   ...ROOM_STRINGS,
+  ...PANEL_STRINGS,
 } as const satisfies Record<string, Entry>;
 
 export type StringKey = keyof typeof STRINGS;
@@ -188,6 +193,32 @@ const clocks: Record<Lang, Intl.DateTimeFormat> = {
     timeZone: CAIRO,
   }),
 };
+
+const stampers: Record<Lang, Intl.DateTimeFormat> = {
+  en: new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: CAIRO,
+  }),
+  ar: new Intl.DateTimeFormat("ar-EG-u-nu-latn", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: CAIRO,
+  }),
+};
+
+/** "12 Nov, 20:29": day, month and a 24-hour clock in Africa/Cairo, Latin digits in both languages. */
+export function fmtStamp(d: Date, lang: Lang): string {
+  const parts = stampers[lang].formatToParts(d);
+  const part = (type: string) => toLatin(parts.find((p) => p.type === type)?.value ?? "");
+  return `${part("day")} ${part("month")}, ${part("hour").padStart(2, "0")}:${part("minute").padStart(2, "0")}`;
+}
 
 /** HH:MM on a 24-hour clock in Africa/Cairo (the lab's day), Latin digits in both languages. */
 export function fmtTime(d: Date, lang: Lang): string {

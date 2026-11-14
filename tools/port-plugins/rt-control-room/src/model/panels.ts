@@ -1,8 +1,8 @@
 import { ARCH, HOST_IDS } from "./architecture";
-import { firstRelation, hostOfMonitor, normaliseState } from "./alarms";
+import { ALARM_STATES, firstRelation, hostOfMonitor, normaliseState } from "./alarms";
 import { isDone } from "./stations";
 import { completedDays, dailySeries, traceStats } from "./telemetry";
-import type { Board, HostView, PerStationRow, Snapshot, StationView, TraceView } from "./types";
+import type { Board, DatadogMonitor, HealthGroup, HostView, PerStationRow, Snapshot, StationView, TraceView } from "./types";
 
 const FAILED = new Set(["failure", "timedout", "startupfailure"]);
 
@@ -97,4 +97,46 @@ export function buildHosts(snapshot: Snapshot): HostView[] {
     const ok = mine.filter((m) => normaliseState(m.properties?.overallState) === "ok").length;
     return { id, station: ARCH.hosts[id], up, checks: { ok, total: mine.length } };
   });
+}
+
+const isPackMonitor = (m: DatadogMonitor): boolean =>
+  (m.properties?.tags ?? []).some((t) => typeof t === "string" && t.toLowerCase() === "integration:host");
+
+function tally(key: HealthGroup["key"], monitors: DatadogMonitor[]): HealthGroup {
+  const states = monitors.map((m) => normaliseState(m.properties?.overallState));
+  return {
+    key,
+    ok: states.filter((s) => s === "ok").length,
+    total: monitors.length,
+    alert: states.some((s) => ALARM_STATES.has(s)),
+    na: false,
+  };
+}
+
+/**
+ * Datadog checks grouped by what they watch, in the order the panel shows them.
+ * Station groups read the station's Datadog lamp; the monitors that have no
+ * workload are split into the multi-host pack, the ones that name one server
+ * (databases and cache) and the ones that cannot be placed ("other", only when
+ * there are any). Every monitor is counted exactly once.
+ */
+export function buildHealthChecks(snapshot: Snapshot, stations: StationView[]): HealthGroup[] {
+  const own = snapshot.monitors.filter((m) => firstRelation(m.relations?.service) === null);
+  const pack = own.filter(isPackMonitor);
+  const rest = own.filter((m) => !isPackMonitor(m));
+  const named = rest.filter((m) => hostOfMonitor(m) !== "unlocated");
+  const other = rest.filter((m) => hostOfMonitor(m) === "unlocated");
+  const fromStation = (key: "core" | "admin" | "conn" | "pos"): HealthGroup => {
+    const lamp = stations.find((s) => s.id === key)?.lamps.datadog;
+    const checks = lamp?.checks;
+    return {
+      key,
+      ok: checks?.ok ?? 0,
+      total: checks?.total ?? 0,
+      alert: lamp?.state === "alert",
+      na: lamp?.state === "na",
+    };
+  };
+  const groups = [fromStation("core"), tally("servers", pack), tally("databases", named), fromStation("admin"), fromStation("conn"), fromStation("pos")];
+  return other.length > 0 ? [...groups, tally("other", other)] : groups;
 }

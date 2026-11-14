@@ -1,6 +1,6 @@
 import { ARCH, CABLE_IDS } from "./architecture";
 import { datadogAlarms, sentryAlarms, workloadServiceMap } from "./alarms";
-import { buildCi, buildHosts, buildJira, buildPerStation, buildTelemetry } from "./panels";
+import { buildCi, buildHealthChecks, buildHosts, buildJira, buildPerStation, buildTelemetry } from "./panels";
 import { buildSources } from "./sources";
 import { buildStations } from "./stations";
 import { buildVerdict } from "./verdict";
@@ -80,6 +80,7 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
     }),
     hosts: buildHosts(snapshot),
     perStation: buildPerStation(snapshot, stations),
+    healthChecks: buildHealthChecks(snapshot, stations),
     jira: buildJira(snapshot),
     ci: buildCi(snapshot),
     alarmRead: { sentry: sentryRead },

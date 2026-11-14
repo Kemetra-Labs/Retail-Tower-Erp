@@ -3,14 +3,14 @@ import type { StringKey } from "../../i18n/strings";
 import type { Lamp, LinkState, SourceId, StationView } from "../../model/types";
 import type { Rect } from "./geometry";
 
-const LETTER: Record<SourceId, string> = { sentry: "ERR", datadog: "HLT", github: "GIT", jira: "JIR" };
-const SOURCE_NAME: Record<SourceId, StringKey> = {
+export const LETTER: Record<SourceId, string> = { sentry: "ERR", datadog: "HLT", github: "GIT", jira: "JIR" };
+export const SOURCE_NAME: Record<SourceId, StringKey> = {
   sentry: "srcSentry",
   datadog: "srcDatadog",
   github: "srcGithub",
   jira: "srcJira",
 };
-const STATE_TEXT: Record<LinkState, StringKey> = {
+export const STATE_TEXT: Record<LinkState, StringKey> = {
   sending: "lampSending",
   live: "lampLive",
   linked: "lampLinked",
@@ -18,7 +18,7 @@ const STATE_TEXT: Record<LinkState, StringKey> = {
   na: "lampNa",
   alert: "lampAlert",
 };
-const ORDER: SourceId[] = ["sentry", "datadog", "github", "jira"];
+export const ORDER: SourceId[] = ["sentry", "datadog", "github", "jira"];
 
 /**
  * The four link lamps of a station. A health lamp with no check behind it is

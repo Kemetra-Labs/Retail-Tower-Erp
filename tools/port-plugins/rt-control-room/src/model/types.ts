@@ -179,6 +179,23 @@ export type PerStationRow = {
   failed: number | null;
 };
 
+/**
+ * Datadog checks grouped by what they watch. The station groups come from the
+ * station's Datadog lamp (so an example alarm lowers `ok` as everywhere else);
+ * `servers` are the multi-host checks, `databases` the checks that name one
+ * server, `other` any check that cannot be placed. A group with `total` 0 and
+ * `na` false has no check at all: unknown, never healthy.
+ */
+export type HealthGroup = {
+  key: "core" | "servers" | "databases" | "admin" | "conn" | "pos" | "other";
+  ok: number;
+  total: number;
+  /** A check of the group is in alarm. */
+  alert: boolean;
+  /** The group needs no check by design (POS). */
+  na: boolean;
+};
+
 export type Light = {
   tone: "fault" | "unknown" | "neutral";
   text: I18n;
@@ -199,6 +216,7 @@ export type Board = {
   verdict: Verdict;
   hosts: HostView[];
   perStation: PerStationRow[];
+  healthChecks: HealthGroup[];
   jira: Record<"todo" | "inProgress" | "review" | "done", number>;
   ci: { last72: ("s" | "f" | "c" | "k")[]; passRate: number | null };
   /** `sentry` is false when the error read never succeeded or the latest read failed: counts are then "not read", not 0. */

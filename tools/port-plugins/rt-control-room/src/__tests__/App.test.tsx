@@ -129,6 +129,11 @@ describe("App with the board", () => {
     expect(container.querySelectorAll('[data-focus^="station:"]')).toHaveLength(5);
     expect(container.querySelectorAll(".pin")).toHaveLength(5);
     expect(container.querySelector('.room [role="status"]')).toBeNull();
+    // The side panel, the four lower panels and the table toggle (the diagram stays the default).
+    expect(screen.getByRole("tab", { name: "Alarms (5)" })).toBeTruthy();
+    expect(container.querySelectorAll("[data-lower-panels] > section")).toHaveLength(4);
+    expect(container.querySelector("[data-status-table]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Table view" }).getAttribute("aria-pressed")).toBe("false");
     expect(container.textContent).not.toContain("tok-secret");
 
     fireEvent.click(screen.getByRole("button", { name: "Pause motion" }));
