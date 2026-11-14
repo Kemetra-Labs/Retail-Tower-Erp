@@ -4,7 +4,7 @@ These are the Datadog EU1 (`datadoghq.eu`) definitions for the AWS lab (`env:sta
 
 | File | What |
 | --- | --- |
-| `monitors.json` | 3 P1 and 7 P2 metric/service-check monitors |
+| `monitors.json` | 3 P1 and 8 P2 metric/service-check monitors |
 | `synthetics-api-health.json` | P1 Synthetics API test on `https://lab.kemetralabs.com/api/v1/health/ready` |
 | `dashboard-retail-tower-lab.json` | The "Retail Tower — lab" dashboard |
 | `apply.mjs` | Idempotent create-or-update through the Datadog API |
