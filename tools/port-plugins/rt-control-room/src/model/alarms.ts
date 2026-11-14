@@ -104,7 +104,7 @@ export function normaliseState(state: string | null | undefined): string {
  * title. A name outside ARCH.hosts, or several different names, is never
  * coerced to a known host.
  */
-function hostOfMonitor(monitor: DatadogMonitor): HostId | "unlocated" {
+export function hostOfMonitor(monitor: DatadogMonitor): HostId | "unlocated" {
   const tagged = (monitor.properties?.tags ?? [])
     .filter((t) => typeof t === "string" && /^host:/i.test(t))
     .map((t) => t.slice(5));
