@@ -212,7 +212,7 @@ export interface Harness {
   readonly audit: FakeAudit;
   readonly sessions: FakeSessions;
   readonly external: FakeExternal;
-  readonly txContexts: { tenantId: string | null; isPlatformAdmin: boolean }[];
+  readonly txContexts: { tenantId: string | null; privilege: string }[];
   readonly clock: { now: () => Date };
 }
 

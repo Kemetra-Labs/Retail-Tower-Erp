@@ -19,6 +19,8 @@ export {
   type SweepResult,
 } from "./helpers/erp-provisioning-sweep";
 export * from "./middleware/tenant-context";
+export { runWithSystemPrivilege, type SystemContext, type SystemPrivilege } from "./middleware/system-privilege";
+export { ERP_PROVISIONING_ALLOWED_TRANSITIONS, erpProvisioningTransitionAllowed } from "./helpers/erp-provisioning-transitions";
 export { insertAuditEvent, type AuditEventInsertRow } from "./helpers/audit-insert";
 export * from "./outbox";
 export {

@@ -6,16 +6,20 @@
  *
  * Writers of `erp_provisioning_request` (all through the repository):
  *   - the provisioner feed, deciding with this module;
- *   - the unlock trigger (INSERT), the lease sweep and the manual
- *     mark-provisioned cancel, in the platform-admin context.
+ *   - the unlock trigger (INSERT) and the manual mark-provisioned cancel, in the
+ *     platform-admin context.
+ * The worker sweep (`packages/db`) is the other writer; it checks the same
+ * transition table, which lives in `packages/db` (RT-1389) and is re-exported here.
  */
+import {
+  ERP_PROVISIONING_ALLOWED_TRANSITIONS,
+  ERP_PROVISIONING_STATUSES,
+  erpProvisioningTransitionAllowed,
+  type ErpProvisioningStatus,
+} from "@data-pulse-2/db";
 
-export const REQUEST_STATUSES = [
-  "requested", "claimed", "site_created", "erp_configured", "connector_installed",
-  "credential_bound", "verifying", "succeeded",
-  "failed_retryable", "failed_permanent", "compensating", "compensated", "cancelled",
-] as const;
-export type RequestStatus = (typeof REQUEST_STATUSES)[number];
+export const REQUEST_STATUSES = ERP_PROVISIONING_STATUSES;
+export type RequestStatus = ErpProvisioningStatus;
 
 export const TERMINAL_STATUSES: readonly RequestStatus[] = ["succeeded", "failed_permanent", "compensated", "cancelled"];
 
@@ -72,6 +76,8 @@ export interface RequestState {
   readonly attemptFloor: number;
   readonly leaseHolder: string | null;
   readonly leaseExpiresAt: Date | null;
+  /** The host that provisioned a `succeeded` request (migration 0112, RT-1389); null otherwise. */
+  readonly provisionedHostLabel?: string | null;
   readonly notBefore: Date | null;
   readonly lastErrorClass: ErrorClass | null;
   readonly lastReason: string | null;
@@ -233,9 +239,12 @@ export type OutcomeDecision =
   /** The same logical outcome again: nothing changes. */
   | { readonly kind: "replay" };
 
-/** The same logical outcome again, from the host that gave it (the holder, or the audited reporter while the request waits). */
+/**
+ * The same logical outcome again, from the host that gave it: the holder (a failed request keeps its
+ * ended lease), the host recorded on a `succeeded` request, or the audited reporter while it waits.
+ */
 function isOutcomeReplay(state: RequestState, host: string, outcome: OutcomeName, reportedBy: string | null): boolean {
-  if ((state.leaseHolder ?? reportedBy) !== host) return false;
+  if ((state.leaseHolder ?? state.provisionedHostLabel ?? reportedBy) !== host) return false;
   if (outcome === "succeeded") return state.status === "succeeded" || outcomeReported(state);
   return state.status === "failed_permanent" && state.lastErrorClass === outcome;
 }
@@ -262,23 +271,9 @@ export function decideOutcome(
   return { kind: "fail_permanent", errorClass: input.outcome, reason: input.reason ?? input.outcome };
 }
 
-/** The status transitions any writer may perform (the exhaustive test pins this table). */
-export const ALLOWED_TRANSITIONS: Readonly<Record<RequestStatus, readonly RequestStatus[]>> = {
-  requested: ["claimed", "cancelled"],
-  claimed: ["site_created", "erp_configured", "connector_installed", "credential_bound", "verifying", "failed_retryable", "failed_permanent", "cancelled"],
-  site_created: ["erp_configured", "connector_installed", "credential_bound", "verifying", "failed_retryable", "failed_permanent", "cancelled"],
-  erp_configured: ["connector_installed", "credential_bound", "verifying", "failed_retryable", "failed_permanent", "cancelled"],
-  connector_installed: ["credential_bound", "verifying", "failed_retryable", "failed_permanent", "cancelled"],
-  credential_bound: ["verifying", "failed_retryable", "failed_permanent", "cancelled"],
-  verifying: ["succeeded", "failed_retryable", "failed_permanent", "cancelled"],
-  succeeded: [],
-  failed_retryable: ["claimed", "failed_permanent", "cancelled"],
-  failed_permanent: [],
-  compensating: [],
-  compensated: [],
-  cancelled: [],
-};
+/** The status transitions any writer may perform: the shared `packages/db` table (RT-1389). */
+export const ALLOWED_TRANSITIONS = ERP_PROVISIONING_ALLOWED_TRANSITIONS;
 
 export function transitionAllowed(from: RequestStatus, to: RequestStatus): boolean {
-  return from === to || ALLOWED_TRANSITIONS[from].includes(to);
+  return erpProvisioningTransitionAllowed(from, to);
 }

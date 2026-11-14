@@ -377,7 +377,7 @@ export class ProvisioningFeedService {
             await writeRequest(client, row, { lease: "clear", lastErrorClass: null, lastReason: null }, now, 0);
             await insertProvisioningAudit(client, { ...base, action: AUDIT.stepRecorded, metadata: { outcome: "succeeded_reported", heartbeat: false, host } });
           } else {
-            await writeRequest(client, row, { status: "succeeded", lease: "end", lastErrorClass: null, lastReason: null }, now, 0);
+            await writeRequest(client, row, { status: "succeeded", lease: "clear", provisionedHost: host, lastErrorClass: null, lastReason: null }, now, 0);
             await insertProvisioningAudit(client, { ...base, action: AUDIT.succeeded, metadata: { heartbeat: true, host } });
           }
           return done(false);

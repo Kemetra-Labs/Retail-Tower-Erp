@@ -11,10 +11,11 @@
  *   address and a failure never reaches the caller.
  *
  * completeSignup
- *   token -> pending row -> (provider user, outside the DB) -> ONE platform-admin
- *   transaction pinned to the new tenant: lock the pending row, user + link, tenant +
- *   roles + owner membership + `restricted` entitlement (inserted in a platform-admin
- *   context pinned to the target tenant, RT-1353), consent record, completion, audit.
+ *   token -> pending row -> (provider user, outside the DB) -> ONE transaction on the
+ *   narrow `signup` privilege (RT-1389), pinned to the new tenant: lock the pending row,
+ *   user + link, tenant + roles + owner membership + `restricted` entitlement (the 0111
+ *   signup INSERT policy, pinned to the target tenant, RT-1353), consent record,
+ *   completion, audit.
  *   A rollback leaves the row `pending`. The session is minted after the commit.
  *   A signup completes at most once; a replay is the generic invalid.
  *
@@ -23,7 +24,7 @@
  */
 import type { OnModuleDestroy } from "@nestjs/common";
 
-import { runWithTenantContext, type TenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege, type SystemContext } from "@data-pulse-2/db";
 import { createLogger, newId, type Logger } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
@@ -46,7 +47,7 @@ import {
 import type { SignupCompleteInput, SignupRequestInput } from "./signup.dto";
 import type { PendingSignupRecord, SignupAuditRow, SignupUserRecord, SignupsStore } from "./signups.store";
 
-export type TenantTxRunner = <T>(pool: Pool, ctx: TenantContext, work: (client: PoolClient) => Promise<T>) => Promise<T>;
+export type TenantTxRunner = <T>(pool: Pool, ctx: SystemContext, work: (client: PoolClient) => Promise<T>) => Promise<T>;
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -93,8 +94,12 @@ export type CompleteResult =
   | { readonly kind: "invalid" }
   | { readonly kind: "unavailable" };
 
-/** Platform-admin context with no tenant: reads and the pre-tenant pending-row writes. */
-const PLATFORM_CTX: TenantContext = { tenantId: null, isPlatformAdmin: true };
+/**
+ * The narrow signup privilege with no tenant: reads and the pre-tenant pending-row writes.
+ * RT-1389: never the platform-admin flag (migration 0111 grants this privilege only
+ * pending_signups, user_consents and the new tenant's `restricted` entitlement row).
+ */
+const SIGNUP_CTX: SystemContext = { tenantId: null, privilege: "signup" };
 
 let logger: Logger | null = null;
 function log(): Logger {
@@ -114,7 +119,7 @@ export class SignupsService implements OnModuleDestroy {
   private readonly pendingWork = new Set<Promise<void>>();
 
   constructor(private readonly deps: SignupsServiceDeps) {
-    this.tx = deps.tx ?? runWithTenantContext;
+    this.tx = deps.tx ?? runWithSystemPrivilege;
     this.now = deps.now ?? (() => new Date());
     this.env = deps.env ?? process.env;
   }
@@ -180,7 +185,7 @@ export class SignupsService implements OnModuleDestroy {
   }
 
   /**
-   * One platform-admin transaction: decide eligibility, supersede any older pending row
+   * One signup-privilege transaction: decide eligibility, supersede any older pending row
    * (stale or live: a fresh request replaces it, comment 16878) and insert the new one.
    * Returns null when the address is not eligible.
    */
@@ -192,7 +197,7 @@ export class SignupsService implements OnModuleDestroy {
     const now = this.now();
     const link = this.deps.links.prepare({ email: body.email, locale: body.locale ?? null });
     const pendingId = newId();
-    const eligible = await this.tx(this.deps.pool, PLATFORM_CTX, async (client) => {
+    const eligible = await this.tx(this.deps.pool, SIGNUP_CTX, async (client) => {
       const user = await store.findUserByEmail(client, body.email);
       if (user !== null && (user.isPlatformAdmin || (await this.isBlocked(user)))) return false;
       const since = new Date(now.getTime() - SIGNUP_RECENT_COMPLETION_MS);
@@ -239,7 +244,7 @@ export class SignupsService implements OnModuleDestroy {
     const ownerUserId = user?.id ?? newId();
     let committed: boolean;
     try {
-      committed = await this.tx(this.deps.pool, { tenantId, isPlatformAdmin: true }, (client) =>
+      committed = await this.tx(this.deps.pool, { tenantId, privilege: "signup" }, (client) =>
         this.writeSignup(client, { pending, tenantId, ownerUserId, existingUser: user !== null, providerSubject, requestId: ctx.requestId }),
       );
     } catch (err: unknown) {
@@ -270,7 +275,7 @@ export class SignupsService implements OnModuleDestroy {
     // Only a hash-keyed adapter (A) is supported today; an email-keyed provider adapter would add its own lookup.
     if (verified.kind === "refused" || verified.tokenHash === null) return { kind: "invalid" };
     const tokenHash = verified.tokenHash;
-    const found = await this.tx(this.deps.pool, PLATFORM_CTX, async (client) => {
+    const found = await this.tx(this.deps.pool, SIGNUP_CTX, async (client) => {
       const pending = await this.deps.store.findPendingByTokenHash(client, tokenHash);
       if (!this.isLivePending(pending)) return null;
       return { pending, user: await this.deps.store.findUserByEmail(client, pending.emailNormalized) };

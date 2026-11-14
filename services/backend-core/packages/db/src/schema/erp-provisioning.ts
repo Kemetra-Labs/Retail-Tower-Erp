@@ -110,6 +110,8 @@ export const erpProvisioningRequest = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     terminalAt: timestamp("terminal_at", { withTimezone: true }),
+    // RT-1389 (0112): the host that provisioned a `succeeded` request (the OD-10 count input).
+    provisionedHostLabel: text("provisioned_host_label"),
   },
   (t) => [
     uniqueIndex("uq_erp_provisioning_request_active_tenant_provision")
@@ -149,6 +151,10 @@ export const erpProvisioningRequest = pgTable(
     check(
       "erp_provisioning_request_last_error_class_valid",
       sql`${t.lastErrorClass} IS NULL OR ${t.lastErrorClass} IN ('failed_transient', 'permanently_rejected', 'conflict', 'capacity', 'compatibility', 'dependency')`,
+    ),
+    check(
+      "erp_provisioning_request_provisioned_host_label_valid",
+      sql`${t.provisionedHostLabel} IS NULL OR (${t.status} = 'succeeded' AND length(${t.provisionedHostLabel}) BETWEEN 1 AND 64)`,
     ),
     check(
       "erp_provisioning_request_text_bounds",
