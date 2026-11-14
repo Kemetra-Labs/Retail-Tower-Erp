@@ -411,3 +411,7 @@ class TestGiveBackReplay:
 	def test_a_give_back_row_on_a_return_without_a_give_back_is_a_mismatch(self):
 		rows = [("ITEM-A", "WH-ORIG", _A), ("RT-PROMO-GIVEBACK", "WH-ORIG", _GIVE_BACK_REF)]
 		assert "not a line this work item posts" in check_existing(_return(_A), _invoice(*rows))
+
+	def test_a_missing_give_back_row_is_a_mismatch(self):
+		rows = [("ITEM-A", "WH-ORIG", _A)]
+		assert "no give-back row" in check_existing(_give_back_return(), _invoice(*rows))

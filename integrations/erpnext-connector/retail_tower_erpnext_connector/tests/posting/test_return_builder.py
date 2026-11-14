@@ -483,3 +483,16 @@ class TestPromotionGiveBack:
 			_promotion_return("300.00", "1", "300.00", "1", "300.00", clawback="80.00"), give_back_item=None
 		)
 		assert len(doc["items"]) == 1
+
+	def test_a_give_back_whose_stamp_would_overflow_rt_line_ref_is_refused(self):
+		work_item = _promotion_return("200.00", "1", "120.00", "1", "120.00", give_back="80.00")
+		long_ref = "x" * 55  # 55 + len("#give-back") = 65 > 64
+		sale_line = dataclasses.replace(work_item.sale.lines[0], line_ref=long_ref)
+		returned = dataclasses.replace(work_item.reversal_of.return_lines[0], line_ref=long_ref)
+		work_item = dataclasses.replace(
+			work_item,
+			sale=dataclasses.replace(work_item.sale, lines=(sale_line, *work_item.sale.lines[1:])),
+			reversal_of=dataclasses.replace(work_item.reversal_of, return_lines=(returned,)),
+		)
+		with pytest.raises(rtb.PromotionAmountNotPostable, match="over 64 characters"):
+			_build_with_give_back(work_item)

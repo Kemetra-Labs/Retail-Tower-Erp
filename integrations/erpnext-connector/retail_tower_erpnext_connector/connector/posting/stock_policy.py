@@ -204,7 +204,7 @@ def link_return_to_original(
 
 	A promotion give-back row (OD-11 Hybrid, RT-1340; stamped ``<lineRef>#give-back``) is a non-stock
 	Item that is not on the original invoice: it is left unlinked, keeps the warehouse and UOM the
-	builder gave it, and must sit next to its own returned line on this credit note.
+	builder gave it, and its own returned line must be on this credit note.
 	"""
 	if not doc.get("is_return"):
 		raise ValueError("link_return_to_original expects a return (is_return=1) document")

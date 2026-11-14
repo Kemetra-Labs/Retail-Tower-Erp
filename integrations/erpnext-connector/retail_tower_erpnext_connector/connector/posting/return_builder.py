@@ -244,6 +244,13 @@ def _credit_note_lines(
 	if amount is None:
 		return pieces
 	sale_line = _sale_line(work_item, returned)
+	stamp = returned.line_ref + GIVE_BACK_REF_SUFFIX
+	if len(stamp) > _RT_LINE_REF_LENGTH:
+		raise PromotionAmountNotPostable(
+			returned.line_ref,
+			"promotionGiveBackAmount",
+			f"cannot be stamped: {stamp!r} is over {_RT_LINE_REF_LENGTH} characters",
+		)
 	_check_promotion_amount(
 		sale_line, returned, "promotionGiveBackAmount", amount, _returned_discount(sale_line, returned)
 	)
@@ -256,7 +263,7 @@ def _credit_note_lines(
 		line_amount=text,
 		tax_amount=None,
 		erpnext_item_ref=ErpnextItemRef(doctype="Item", name=give_back.item_code),
-		line_ref=returned.line_ref + GIVE_BACK_REF_SUFFIX,
+		line_ref=stamp,
 		erpnext_batch_ref=None,
 		tracking_mode=None,
 	)
@@ -291,6 +298,9 @@ def _check_promotion_amount(
 # A whole-number quantity above this is not split into quantity-1 rows (a bound on the credit note's size);
 # such a line is refused by the sale builder when its net has no exact per-unit rate.
 _MAX_SPLIT_ROWS = 100
+
+# The length of the Sales Invoice Item ``rt_line_ref`` custom field (fixtures/custom_field.json).
+_RT_LINE_REF_LENGTH = 64
 
 
 def _returned_lines(work_item: PostingWorkItem, returned: ReturnLine) -> list[SaleLine]:

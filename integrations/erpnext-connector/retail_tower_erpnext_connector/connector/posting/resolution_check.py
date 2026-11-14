@@ -192,7 +192,18 @@ def _stamped_mismatch(
 	duplicate = _first_unexpected_repeat(stamped, expected_rows)
 	if duplicate is not None:
 		return f"existing document carries line {duplicate} more times than this work item posts it"
+	missing = _first_missing_give_back(stamped, expected_rows)
+	if missing is not None:
+		return f"existing document carries no give-back row {missing}, which this work item posts"
 	return next(filter(None, (_stamped_line_mismatch(line, frozen, required) for line in stamped)), None)
+
+
+def _first_missing_give_back(stamped: list[InvoiceLine], expected_rows: Counter | None) -> str | None:
+	"""A give-back row (OD-11 Hybrid) the work item posts but the document lacks: its Item is not frozen,
+	so only its ref and count identify it, and a missing one would otherwise pass."""
+	counts = Counter(line.line_ref for line in stamped)
+	wanted = (ref for ref in (expected_rows or Counter()) if is_give_back_ref(ref))
+	return next((ref for ref in wanted if counts[ref] != expected_rows[ref]), None)
 
 
 def _first_unexpected_repeat(stamped: list[InvoiceLine], expected_rows: Counter | None) -> str | None:
