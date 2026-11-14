@@ -99,13 +99,17 @@ def after_migrate() -> None:
 # A fresh ERPNext site has these after its setup wizard; before it, the Item is created on a later migrate.
 _GIVE_BACK_ITEM_GROUP = "All Item Groups"
 _GIVE_BACK_UOM = "Nos"
+_GIVE_BACK_SAVEPOINT = "rt_give_back_item"
 
 
 def ensure_give_back_item() -> None:
 	"""Create the fixed non-stock promotion give-back Item when it is missing (RT-1340, owner decision).
 
 	⏳ BENCH-VALIDATION. Idempotent: an existing Item is never changed, even a wrong one (the
-	Compatibility Profile warns about it and give-back returns stay ``failed_transient``). Never fails
+	Compatibility Profile warns about it and give-back returns stay ``failed_transient``). The Item is
+	inserted with ``set_name`` so a site whose Stock Settings ``item_naming_by`` is "Naming Series" still
+	names it ``RT-PROMO-GIVEBACK`` (ERPNext's ``Item.autoname`` would otherwise give it a series name
+	and overwrite ``item_code``). A failed insert is rolled back to its savepoint. Never fails
 	the migrate: unlike the G5 indexes, posting is safe without it, so a failure is logged at error and
 	the next migrate tries again.
 	"""
@@ -119,6 +123,7 @@ def ensure_give_back_item() -> None:
 		):
 			_log_give_back("give_back_item.deferred", "Item Group or UOM not set up yet (setup wizard)")
 			return
+		frappe.db.savepoint(_GIVE_BACK_SAVEPOINT)
 		frappe.get_doc(
 			{
 				"doctype": "Item",
@@ -133,10 +138,19 @@ def ensure_give_back_item() -> None:
 				"description": "Posted by the Retail Tower connector: a promotion discount given back on a "
 				"return after an earlier clawback (OD-11). Do not rename, disable or make it a stock Item.",
 			}
-		).insert(ignore_permissions=True)
+		).insert(ignore_permissions=True, set_name=GIVE_BACK_ITEM_CODE)
 		frappe.db.commit()
 	except Exception as exc:  # the migrate must not fail for it; logged at error so operators see it
+		_rollback_give_back()
 		_log_give_back("give_back_item.ensure_failed", f"{type(exc).__name__}: {exc}")
+
+
+def _rollback_give_back() -> None:
+	"""Undo a half-written Item so the next migrate tries again (a missing savepoint is ignored)."""
+	try:
+		frappe.db.rollback(save_point=_GIVE_BACK_SAVEPOINT)
+	except Exception as exc:
+		_log_give_back("give_back_item.rollback_failed", f"{type(exc).__name__}: {exc}")
 
 
 def _log_give_back(event: str, detail: str) -> None:

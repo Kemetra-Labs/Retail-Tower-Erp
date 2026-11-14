@@ -50,8 +50,12 @@ class _Frappe(types.ModuleType):
 		self.existing = set(existing)
 		self.inserted, self.commits, self.logged = [], 0, []
 		self.insert_error = insert_error
+		self.savepoints, self.rollbacks, self.set_names = [], [], []
 		self.db = types.SimpleNamespace(
-			exists=lambda doctype, name: (doctype, name) in self.existing, commit=self._commit
+			exists=lambda doctype, name: (doctype, name) in self.existing,
+			commit=self._commit,
+			savepoint=self.savepoints.append,
+			rollback=lambda save_point=None: self.rollbacks.append(save_point),
 		)
 		self.logger = lambda name=None: types.SimpleNamespace(error=self.logged.append)
 
@@ -62,7 +66,8 @@ class _Frappe(types.ModuleType):
 		fake = self
 
 		class _Doc:
-			def insert(self, ignore_permissions=False):
+			def insert(self, ignore_permissions=False, set_name=None):
+				fake.set_names.append(set_name)
 				if fake.insert_error is not None:
 					raise fake.insert_error
 				fake.inserted.append(payload)
@@ -118,3 +123,15 @@ class TestEnsureGiveBackItem:
 		load_schema(fake).ensure_give_back_item()  # no raise
 		assert fake.logged[0]["event"] == "give_back_item.ensure_failed"
 		assert "RuntimeError: Income Account missing" in fake.logged[0]["detail"]
+
+	def test_the_item_is_named_by_its_code_whatever_the_naming_setting(self, load_schema):
+		# Review: Item.autoname gives a series name under item_naming_by = "Naming Series"; set_name skips it.
+		fake = _Frappe(existing=_READY)
+		load_schema(fake).ensure_give_back_item()
+		assert fake.set_names == ["RT-PROMO-GIVEBACK"]
+
+	def test_a_failed_insert_is_rolled_back_to_its_savepoint(self, load_schema):
+		fake = _Frappe(existing=_READY, insert_error=RuntimeError("on_update failed"))
+		load_schema(fake).ensure_give_back_item()
+		assert fake.savepoints == ["rt_give_back_item"] and fake.rollbacks == ["rt_give_back_item"]
+		assert fake.commits == 0

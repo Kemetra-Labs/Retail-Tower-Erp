@@ -313,6 +313,7 @@ def _replay_expected(work_item: PostingWorkItem, company: str | None) -> Expecte
 			warehouses=_WarehouseNotCompared(),
 			customers=stand_in,
 			tenders=stand_in,
+			give_back_item=_give_back_item_not_compared,
 		)
 		payload = {**payload, "company": company}
 	else:
@@ -1401,11 +1402,14 @@ def _build_reversal(
 	warehouses: PreResolvedWarehouse,
 	customers: StoreCustomerMap,
 	tenders: TenderModeMap,
+	give_back_item=None,
 ) -> dict:
 	"""The pure reversing payload: a partial return (RT-16) or a void/refund credit note.
 
 	A void takes no tender map (its Modes of Payment come from the original invoice, RT-78); a
 	return pays its refund out through the CURRENT map (a new cash payout, RT-10 D6).
+	``give_back_item`` defaults to the live, checked give-back Item (RT-1340); the replay rebuild
+	passes :func:`_give_back_item_not_compared` instead.
 	"""
 	if work_item.reversal_of is not None and work_item.reversal_of.reversal_kind == "return":
 		resolvers = ReturnResolvers(
@@ -1413,7 +1417,7 @@ def _build_reversal(
 			warehouse_for=_warehouse_for(work_item, warehouses),
 			customer_for=customers.for_store,
 			mode_of_payment_for=tenders.resolve,
-			give_back_item=_give_back_item,
+			give_back_item=give_back_item or _give_back_item,
 		)
 		return build_return_invoice(work_item, resolvers, posting_stamp=stamp)
 	return build_reversing_invoice(
@@ -1433,6 +1437,12 @@ def _give_back_item() -> GiveBackItem:
 	"""
 	row = frappe.db.get_value("Item", GIVE_BACK_ITEM_CODE, GIVE_BACK_ITEM_FIELDS, as_dict=True)
 	return resolve_give_back_item(row)
+
+
+def _give_back_item_not_compared() -> GiveBackItem:
+	"""The give-back Item for the RT-378 replay rebuild: only its fixed code is compared (``uom`` is
+	exempt), so an already-posted return stays verifiable after the Item is disabled or changed."""
+	return GiveBackItem(item_code=GIVE_BACK_ITEM_CODE, uom="")
 
 
 def _link_to_original(kind: str, doc_payload: dict, original: dict) -> dict:

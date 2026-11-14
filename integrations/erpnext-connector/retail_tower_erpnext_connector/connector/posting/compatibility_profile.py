@@ -324,6 +324,9 @@ def fingerprint(snapshot: SiteSnapshot) -> str:
 	if snapshot.scheduler_tick_s is not None:
 		# Only when set (RT-494), so adding the field does not move every existing site's fingerprint.
 		canonical["scheduler_tick_s"] = snapshot.scheduler_tick_s
+	if snapshot.give_back_item_problem is not None:
+		# Only when set (RT-1340), for the same reason: a broken give-back Item logs compatibility.drift.
+		canonical["give_back_item_problem"] = snapshot.give_back_item_problem
 	payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
 	return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
