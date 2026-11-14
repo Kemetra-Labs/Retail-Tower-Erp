@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector ERP-Origin Stock Import API
-  version: "1.0.1-draft"
+  version: "1.1.0-draft"
   description: >
     RT-1286 (Inventory Gate 8 follow-up P2; [GATED: OpenAPI] owner go-ahead
     2026-11-11, recorded on Jira RT-1286 comment 16540 and RT-1283 comment
@@ -13,6 +13,20 @@ info:
     their Batch (DC-4, G7-3); the Connector reader is RT-1287 and the
     Backend-Core ingestion is RT-1288, which serves both operations (1.0.1-draft
     lifts their contract-only markers; wording only, no shape change).
+
+    1.1.0-draft (RT-1396; [GATED: OpenAPI] owner authorization 2026-11-14,
+    recorded on Jira RT-1396 comment 17048). No shape change: every field,
+    type and pattern is as in 1.0.1-draft; two meanings change, so consumers
+    implement them (see ROLLOUT ORDER). (1) `actualQty` is the row's signed
+    stock movement. ERPNext v16 stores `actual_qty` 0 on the ledger row of an
+    untracked Stock Reconciliation, whatever its purpose, although the
+    balance moved: on the pinned v16 bench an Opening Stock 0 → 10 and
+    10 → 12 and a Stock Reconciliation 12 → 7 all stored 0 (RT-1287 comment
+    17044, RT-1394 comment 17037), so 1.0.1-draft's "signed as the ledger
+    row's `actual_qty`" lost them. (2) The DC-4 key adds `ledgerEntryRef` and
+    `entryIndex`: a tracked Stock Reconciliation writes an out row and an in
+    row with one voucher row, warehouse and Batch (bench: −4 then +3), which
+    shared one 1.0.1-draft key, so the second became a duplicate.
 
     The transport mirrors `stock-view.yaml` (the connector is the ONLY
     component that talks to ERPNext; Backend-Core makes NO outbound HTTP — it
@@ -42,25 +56,40 @@ info:
     stays the valuation authority. Quantities are exact-decimal strings,
     never floats.
 
-    DC-4 KEY (captain decision D1, owner delegation 2026-11-11, RT-1286).
-    The effect key of an imported row (DC-4, source `'erpnext'`) is built
-    from exactly these components: `voucherType`, `voucherNo`,
-    `voucherDetailNo`, the request's `erpnextWarehouseRef`, and, when the row
-    has one, `erpnextBatchRef.name`. A cancellation's compensating effect
-    adds a `cancel` component (DC-6). NORMATIVE: two effects of one voucher
-    row at different warehouses (a Stock Entry row with a source and a
-    target warehouse, a Purchase Receipt row with a rejected warehouse) MUST
-    NEVER share a key; the planning record's
+    DC-4 KEY (captain decision D1, owner delegation 2026-11-11, RT-1286;
+    extended in 1.1.0-draft, RT-1396). The effect key of an imported row
+    (DC-4, source `'erpnext'`) is built from exactly these components:
+    `voucherType`, `voucherNo`, `voucherDetailNo`, the request's
+    `erpnextWarehouseRef`, when the row has one, `erpnextBatchRef.name`, and
+    then `ledgerEntryRef` and `entryIndex`. The components before
+    `ledgerEntryRef` are the row's BASE TUPLE. A cancellation's compensating
+    effect adds a `cancel` component (DC-6). NORMATIVE: two effects of one
+    voucher row at different warehouses (a Stock Entry row with a source and
+    a target warehouse, a Purchase Receipt row with a rejected warehouse)
+    MUST NEVER share a key; the planning record's
     `'<vt>:<vno>:<detail>[:<batch>]'` lacks the warehouse and would swallow
-    the second one. RT-1288 fixes only the string format and the unique
-    index, under its migration gate. The wire is unchanged by this: each
-    report is for one requested warehouse. `ledgerEntryRef` and `entryIndex`
-    are not key components; they place a row in the read order, and
-    `ledgerEntryRef` tells an original ledger row from the reverse row
-    ERPNext adds when the voucher is cancelled (see `isCancelled`). Owner
-    decisions 2026-11-11 (RT-1286): one report row per Batch entry;
-    `ledgerEntryRef` on every row; a refused request answered with a
-    refusal report.
+    the second one. NORMATIVE (1.1.0-draft): two ledger rows of one voucher
+    row, warehouse and Batch (the out row and the in row of a tracked Stock
+    Reconciliation) MUST NEVER share a key either; `ledgerEntryRef` and
+    `entryIndex` make every report row's key its own, so every row is at
+    most one effect and the imported quantities of a warehouse always sum to
+    ERPNext's ledger there. RT-1288 fixes only the string format and the
+    unique index, under its migration gate. The wire is unchanged by this:
+    each report is for one requested warehouse. `ledgerEntryRef` and
+    `entryIndex` also place a row in the read order. Owner decisions
+    2026-11-11 (RT-1286): one report row per Batch entry; `ledgerEntryRef`
+    on every row; a refused request answered with a refusal report.
+
+    CANCELLATION PAIRING (DC-6, 1.1.0-draft). A reverse row has its own
+    `ledgerEntryRef`, so it cannot carry its original's key. A row with
+    `isCancelled` true is the reverse of an original when Backend-Core has
+    already recorded, earlier in read order, an original row with the same
+    base tuple and the opposite `actualQty` that no reverse has yet
+    compensated (the earliest recorded such original when there are several);
+    its compensating effect takes that original's key plus `cancel`. Any
+    other row keys itself. Pairing decides only which effect a compensation
+    names: since every row keys itself or its original's `cancel`, the
+    quantities still sum to ERPNext's ledger.
 
     CURSOR, SETTLE AND OVERLAP (captain decisions D2 and D3, owner
     delegation 2026-11-11). Backend-Core owns the cursor (RT-1288). The read
@@ -116,7 +145,12 @@ info:
     serves the feed and accepts reports (RT-1288) before the connector reads
     and reports (RT-1287). A connector must not call these paths against a
     Backend-Core that does not serve them yet (RT-1287's site switch stays off
-    until it does).
+    until it does). For 1.1.0-draft: this contract lands first; then
+    Backend-Core's ingestion keys and pairs rows as in DC-4 KEY and
+    CANCELLATION PAIRING (an RT-1288 follow-up; the key is a text value, so no
+    DDL); then the connector reports `actualQty` as defined below (RT-1287).
+    The connector's stock import stays unscheduled and its site switch off
+    until both are on `main`.
 
     Serial Items are outside this version (serial selling is fail-closed,
     RT-50 Q11): a ledger row of a serial Item is reported with
@@ -401,8 +435,10 @@ components:
       description: >
         A position in the connector's read order of report rows at one
         warehouse: by `creation`, then by `ledgerEntryRef` in ERPNext's own
-        ordering, then by `entryIndex`. Backend-Core never compares
-        `ledgerEntryRef` values. A continuation page's `after` is the previous
+        ordering, then by `entryIndex`. Backend-Core never orders
+        `ledgerEntryRef` values (it tests them only for equality, as a DC-4 key
+        component; read order is the order it recorded the rows in). A
+        continuation page's `after` is the previous
         `readThrough`, echoed exactly as received; page 0 of a run is computed
         by Backend-Core (see `StockImportRequest.after`). When
         `ledgerEntryRef` is null, `entryIndex` is null too (expressed by the
@@ -723,9 +759,11 @@ components:
           minLength: 1
           maxLength: 140
           description: >
-            The Stock Ledger Entry `name`. Not a DC-4 key component: it tells an
-            original ledger row from the reverse row of a cancellation, and it is
-            the cursor tie-break. All Batch-entry rows of one ledger row share it.
+            The Stock Ledger Entry `name`. A DC-4 key component since 1.1.0-draft
+            (after the base tuple): it tells two ledger rows of one voucher row,
+            warehouse and Batch apart, including an original from the reverse row
+            of a cancellation, and it is the cursor tie-break. All Batch-entry rows
+            of one ledger row share it.
         entryIndex:
           type: integer
           minimum: 0
@@ -734,8 +772,9 @@ components:
             Batch Entry inside the ledger row's submitted Serial and Batch
             Bundle (stable: a submitted bundle does not change, and a
             cancellation adds new ledger rows rather than editing it); 0 for a
-            ledger row with no bundle. Not a DC-4 key component; it orders the
-            rows of one ledger row and lets a page end inside it.
+            ledger row with no bundle. A DC-4 key component since 1.1.0-draft
+            (the last one): it tells the Batch entries of one ledger row apart,
+            orders them, and lets a page end inside the ledger row.
         voucherType:
           type: string
           minLength: 1
@@ -806,23 +845,45 @@ components:
             on the voucher's original ledger rows and adds reverse rows, also
             flagged, with the same `voucherDetailNo` and the opposite quantity.
             The reverse row is the one created later, so it comes later in read
-            order; Backend-Core tells the two apart by `ledgerEntryRef` (an
-            original it has already recorded, or the earlier `creation`).
+            order. Backend-Core pairs a reverse row with its original by the base
+            tuple and the opposite `actualQty`, as CANCELLATION PAIRING states
+            (1.1.0-draft); `ledgerEntryRef` keeps the two apart.
         actualQty:
           type: string
           pattern: '^-?[0-9]{1,15}(\.[0-9]{1,6})?$'
           description: >
-            The quantity this row moved at the warehouse, an exact-decimal string
-            in `stockUom` (never a float; the connector converts deterministically,
-            round half-even to 6 dp, as for `stock-view.yaml` quantities). Signed
-            as the ledger row's `actual_qty` (negative = out of the warehouse).
-            For a Batch-entry row, that entry's quantity with the same sign. For
-            a Stock Reconciliation it is expected to be the ledger's change, not
-            the counted quantity: a BENCH item for RT-1287 on the v16 bench, not
-            yet verified. Also BENCH: a backdated ERP entry can repost a later
-            ledger row and change its `actual_qty` without moving its
-            `creation`; this feed reads each row once, so such a change reaches
-            Backend-Core only as a reconciliation divergence (RT-1288 risk).
+            The row's signed stock movement at the warehouse (1.1.0-draft,
+            RT-1396): the change in the warehouse's quantity this row stands for,
+            negative = out of the warehouse, never a counted quantity or a
+            balance. An exact-decimal string in `stockUom` (never a float; the
+            connector converts deterministically, round half-even to 6 dp, as for
+            `stock-view.yaml` quantities). The connector reads it as follows, and
+            in no other way:
+              * A ledger row whose `actual_qty` is not 0: its `actual_qty`. For a
+                Batch-entry row, that entry's quantity with the ledger row's sign.
+                This covers every non-reconciliation voucher, both rows of a
+                tracked Stock Reconciliation (bench: −4 out, then +3 in) and every
+                reverse row of a cancellation.
+              * A ledger row of an untracked Stock Reconciliation (no Batch on the
+                row or its bundle) whose `actual_qty` is 0, whatever its purpose
+                and whether or not it is cancelled: the `qty` minus the
+                `current_qty` of the Stock Reconciliation Item that
+                `voucherDetailNo` names. ERPNext v16 records that change only in
+                `qty_after_transaction`; its own Stock Ledger report derives it
+                the same way (`report/stock_ledger/stock_ledger.py`, as
+                `qty_after_transaction` minus the previous row's). Bench (Frappe
+                v16.52.0 / ERPNext v16.51.0, RT-1287 comment 17044): Opening Stock
+                0 → 10 gives +10, Opening Stock 10 → 12 gives +2, Stock
+                Reconciliation 12 → 7 gives −5, and a cancelled Opening Stock of 5
+                gives +5 on its original row and −5 on its reverse row.
+              * Any other ledger row whose `actual_qty` is 0: 0.
+            A 0 therefore means the row moved nothing. NOT VERIFIED on the bench:
+            a tracked Stock Reconciliation on an empty position, a tracked Opening
+            Stock on a position that already holds stock, and serial Items. BENCH
+            risk, unchanged: a backdated ERP entry can repost a later ledger row
+            (and a reconciliation's `current_qty`) without moving its `creation`;
+            this feed reads each row once, so such a change reaches Backend-Core
+            only as a reconciliation divergence (RT-1288 risk).
         stockUom:
           type: string
           minLength: 1
