@@ -433,21 +433,14 @@ export function AppRouter(props: Readonly<AppRouterProps>): JSX.Element {
 }
 
 /**
- * T282 — Wave 5b-renderer manager-only force-fail route placeholder.
+ * T282 — manager-only force-fail route placeholder.
  *
- * The actual `<ForceFailSurface>` component takes a payment_attempt_id
- * + idempotency_key + bridge ref. Until a "list of stuck attempts"
- * surface lands (future Slice 5+ work), this route is a placeholder
- * that the manager reaches by navigating with route state, or — in
- * tests — by mounting `<ForceFailSurface>` directly with the right
- * props. The placeholder itself simply confirms the route + the
- * guard are wired.
- *
- * The COMPONENT (`<ForceFailSurface>`) lives at
- * `src/renderer/ui/payments/ForceFailSurface.tsx` and is unit-tested
- * via `tests/unit/renderer/payments/ForceFailSurface.manager-only.test.tsx`.
- * The route GUARD is exercised by the existing router-level role-
- * guard test (precedent: `manager/cashiers` + `manager/stuck-shifts`).
+ * RT-1232: the placeholder renders a notice only. The renderer has no way
+ * to force-fail a payment (no `payments.forceFail` bridge method and no
+ * `payments:force-fail` IPC channel), and the `<ForceFailSurface>`
+ * component that once called it is deleted. The route GUARD is exercised by
+ * the existing router-level role-guard test (precedent: `manager/cashiers`
+ * + `manager/stuck-shifts`).
  */
 function ManagerForceFailRoutePlaceholder(): JSX.Element {
   // RT-503 (VN-S10 S10-6): a section inside the v5 frame, which owns the one

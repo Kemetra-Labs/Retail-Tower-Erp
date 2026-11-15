@@ -234,6 +234,11 @@ FR-006B / R-13 (LIFO order); returns the surface to tender selection.
 
 ### `payments.forceFail` *(Slice 4 only)*
 
+> **Superseded by RT-1232 (owner decision, RT-1205 item 2, 2026-11-04).** `payments.forceFail`
+> is not on the renderer bridge: no preload method, no `payments:force-fail` IPC channel, and
+> `<ForceFailSurface>` is deleted. The main-side handler and FSM transition remain; nothing
+> registers the handler. The text below is the historical design.
+
 Manager / admin force-fails a stuck `started` attempt.
 
 **Roles:** `manager`, `admin`. **Cashier MUST be refused** with

@@ -152,10 +152,7 @@ describe('makeBridge — an in-memory stand-in for the payment projection', () =
   });
 
   it('answers the calls the surface does not drive', async () => {
-    const { payments, tender } = makeBridge(5_000, []);
-    await expect(
-      payments.forceFail({ payment_attempt_id: 'a', idempotency_key: 'f' }),
-    ).resolves.toMatchObject({ kind: 'ok' });
+    const { tender } = makeBridge(5_000, []);
     await expect(
       tender.reverse({ tender_line_id: 't', idempotency_key: 'r' }),
     ).resolves.toMatchObject({ kind: 'ok', state: 'reversed' });

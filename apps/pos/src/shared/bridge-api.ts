@@ -806,8 +806,8 @@ export interface PreloadBridgeAPI {
   cart: CartBridgeAPI;
   /**
    * 006-payments-tender Slice 3: `payments.*` (attempt-level) +
-   * `tender.*` (per-line) namespaces. Slice 4 adds `payments.forceFail`
-   * (still pending) and `vouchers.*` (Wave 4 — voucher validate path).
+   * `tender.*` (per-line) namespaces. `vouchers.*` is Wave 4 (voucher validate
+   * path). RT-1232: `payments.forceFail` is not on the bridge.
    *
    * Marked optional in S3b — the namespace types are declared but the
    * preload (`src/preload/index.ts`) is wired in S3c (T142). Once S3c
@@ -1115,8 +1115,8 @@ declare global {
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Mirrors specs/006-payments-tender/contracts/bridge-api.md (DRAFT — §A4-A
-// cleared 2026-05-21). Slice-3 subset only: no `payments.forceFail`, no
-// `vouchers.*`. Slice 4 will add those additively.
+// cleared 2026-05-21). Slice-3 subset only: no `vouchers.*` (added later,
+// additively). `payments.forceFail` is never on this bridge (RT-1232).
 
 import type {
   PaymentAttemptRendererView,
@@ -1166,7 +1166,11 @@ export type PaymentsCancelResponse =
     }
   | PaymentRefusal;
 
-// ── payments.forceFail (Wave 5b — manager-only) ──────────────────────────────
+// ── payments.forceFail (main-side only — NOT on the renderer bridge) ─────────
+//
+// RT-1232: these types are used by the main-process handler
+// (`src/main/payments/handlers/payments-force-fail.ts`). There is no preload
+// method and no IPC channel; `PaymentsBridgeAPI` has no `forceFail` key.
 //
 // Manager / admin incident-response action that transitions a stuck
 // `started` attempt to `force_failed` (FR-021 / plan AD-5). The audit
@@ -1300,13 +1304,6 @@ export interface PaymentsBridgeAPI {
   subscribe(req: PaymentsSubscribeRequest): Promise<PaymentsSubscribeResponse>;
   /** One-shot read of the same renderer projection as `subscribe`. */
   read(req: PaymentsReadRequest): Promise<PaymentsReadResponse>;
-  /**
-   * Wave 5b — manager / admin-only force-fail of a stuck `started`
-   * attempt (FR-021). The renderer's `<OperatorRouteGuard>` is
-   * secondary UX defence; the load-bearing role check lives in the
-   * main-process handler. Cashier role is refused with `role_denied`.
-   */
-  forceFail(req: PaymentsForceFailRequest): Promise<PaymentsForceFailResponse>;
 }
 
 export interface TenderBridgeAPI {

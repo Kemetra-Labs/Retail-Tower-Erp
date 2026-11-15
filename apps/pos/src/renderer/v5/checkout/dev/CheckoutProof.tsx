@@ -143,7 +143,6 @@ export function makeBridge(subtotal: number, seed: readonly TenderLineRendererVi
         reversal_pending_tender_line_ids: [],
       });
     },
-    forceFail: () => Promise.resolve({ kind: 'ok' as const, force_failed_at: now() }),
   } as unknown as PaymentsBridgeAPI;
 
   const tender = {

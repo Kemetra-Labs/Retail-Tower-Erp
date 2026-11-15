@@ -145,7 +145,7 @@ function makeBridge(o: MakeBridgeOverrides = {}): {
         async () =>
           await Promise.resolve({ kind: 'ok', payment_attempt: makeAttemptView('started') }),
       ),
-  } as PaymentsBridgeAPI;
+  };
   const tender: TenderBridgeAPI = {
     apply: o.tender?.apply ?? vi.fn<(req: TenderApplyRequest) => Promise<TenderApplyResponse>>(),
     reverse:
