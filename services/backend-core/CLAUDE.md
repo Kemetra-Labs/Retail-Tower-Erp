@@ -30,7 +30,7 @@ Do not duplicate standing-rules content here.
 
 ## What this repo does NOT own
 
-Does not own POS (`Kemetra/POS`) or the admin/operator frontend (`Kemetra/Admin-Console`) — see the root CLAUDE.md §3 for repo ownership. This repo owns the SaaS backend, workers, infrastructure, and the OpenAPI contracts both POS and Admin-Console consume.
+Does not own POS (`apps/pos/`) or the admin/operator frontend (`apps/admin-console/`) — see the Products table in the root [ARCHITECTURE.md](../../ARCHITECTURE.md) and the root CLAUDE.md "Where changes land (MR-7)" for product ownership in this monorepo. This repo owns the SaaS backend, workers, infrastructure, and the OpenAPI contracts both POS and Admin-Console consume.
 
 ## Stack
 
