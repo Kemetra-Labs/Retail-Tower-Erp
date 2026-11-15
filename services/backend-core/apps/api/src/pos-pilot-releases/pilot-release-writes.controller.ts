@@ -4,6 +4,7 @@
  *
  *   POST /api/v1/platform/pos-pilot-releases
  *   POST /api/v1/platform/pos-pilot-releases/{releaseId}/withdraw
+ *   POST /api/v1/platform/pos-pilot-releases/{releaseId}/supersede-current   (RT-1418)
  *
  * Caller: the owner-run promotion workflow, authenticated by its GitHub OIDC
  * token only (`PromotionWriterGuard`, owner decision D-5a). The class is
@@ -17,7 +18,9 @@
  * Guards run before pipes, so an unauthenticated caller never learns the body
  * schema. The register body's `promotionRunUrl` must name the run that holds
  * the token, in the token's own repository (`run_id`, `repository`): a token for
- * one run cannot register a row for another run or another repository.
+ * one run cannot register a row for another run or another repository. In
+ * the same way, supersede-current (`platformSupersedeCurrentPilotRelease`)
+ * acts only for a keeper that the token's own run registered.
  */
 import {
   Body,
@@ -42,8 +45,8 @@ import {
   type PilotReleaseRegistration,
 } from "./dto";
 import { throwRegistryHttpError } from "./pilot-release-registry.http";
-import type { PilotReleaseBody } from "./pilot-release-registry.rows";
-import { PilotReleaseRegistryService } from "./pilot-release-registry.service";
+import { isRunOf, type PilotReleaseBody } from "./pilot-release-registry.rows";
+import { PilotReleaseRegistryService, type SupersedeResult } from "./pilot-release-registry.service";
 import { PromotionWriterGuard, type PromotionRequest } from "./promotion-writer.guard";
 import type { PromotionPrincipal } from "./promotion-oidc.verifier";
 
@@ -63,8 +66,7 @@ function runUrlOf(principal: PromotionPrincipal): string {
 
 /** True when the url is the verified run (or one of its attempts) in the token's own repository. */
 function namesRun(url: string, principal: PromotionPrincipal): boolean {
-  const run = runUrlOf(principal);
-  return url === run || url.startsWith(`${run}/attempts/`);
+  return isRunOf(url, runUrlOf(principal));
 }
 
 /** The registry writes the promotion workflow makes. */
@@ -109,6 +111,30 @@ export class PilotReleaseWritesController {
     const principal = principalOf(request);
     try {
       return await this.registry.withdraw({
+        releaseId,
+        actor: principal.actor,
+        runUrl: runUrlOf(principal),
+        requestId: request.requestId ?? null,
+      });
+    } catch (err) {
+      return throwRegistryHttpError(err);
+    }
+  }
+
+  /**
+   * RT-1418, POST: withdraw the release that is current, never the keeper (the path id), for a keeper this run
+   * registered. 200 also when nothing was current; it never activates anything.
+   */
+  @Post(":releaseId/supersede-current")
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  async supersedeCurrent(
+    @Req() request: WriteRequest,
+    @Param("releaseId", new ZodValidationPipe(ReleaseIdParamSchema)) releaseId: string,
+  ): Promise<SupersedeResult> {
+    const principal = principalOf(request);
+    try {
+      return await this.registry.supersedeCurrent({
         releaseId,
         actor: principal.actor,
         runUrl: runUrlOf(principal),

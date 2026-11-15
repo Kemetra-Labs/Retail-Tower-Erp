@@ -16,7 +16,13 @@
  *     re-approved); withdrawing a withdrawn release is a no-op;
  *   - activate: makes one approved release the current one. At most one is
  *     current (a unique index), so another current release, or a withdrawn
- *     target, is refused; activating the current release again is a no-op.
+ *     target, is refused; activating the current release again is a no-op;
+ *   - supersedeCurrent (RT-1418): the promotion run that registered a release
+ *     (the keeper) withdraws the release that is current at that moment, never
+ *     the keeper, so a platform admin can then activate the keeper. Only a
+ *     keeper of the token's own run, still approved, and strictly newer than
+ *     the current release; nothing current (or the keeper itself current) is a
+ *     no-op. It never activates anything: roll-forward only.
  *
  * `list` (RT-1328, `platformListPilotReleases`) reads every row, newest
  * `registeredAt` first, in the same platform context; it writes nothing.
@@ -35,11 +41,15 @@ import {
   PilotReleaseActivationRefusedError,
   PilotReleaseConflictError,
   PilotReleaseNotFoundError,
+  PilotReleaseNotOwnedError,
+  PilotReleaseSupersedeRefusedError,
   RELEASE_COLUMNS,
   artifactKeyOf,
   assertPilotRelease,
   auditRegistryChange,
   holdsRegistration,
+  isNewerVersion,
+  isRunOf,
   isUniqueViolation,
   toReleaseBody,
   workflowActor,
@@ -64,6 +74,21 @@ export interface WithdrawInput {
   readonly requestId: string | null;
 }
 
+export interface SupersedeInput {
+  /** The keeper: the release the calling run registered; it is never withdrawn here. */
+  readonly releaseId: string;
+  readonly actor: string;
+  /** The verified workflow run, as its url: the keeper must name it, and the audit row records it. */
+  readonly runUrl: string;
+  readonly requestId: string | null;
+}
+
+/** RT-1418: the keeper as it stands, and the release withdrawn for it (null when none was current). */
+export interface SupersedeResult {
+  readonly keeper: PilotReleaseBody;
+  readonly withdrawn: PilotReleaseBody | null;
+}
+
 export interface ActivateInput {
   readonly releaseId: string;
   /** The platform admin (`users.id`). */
@@ -79,6 +104,31 @@ async function lockRelease(client: PoolClient, releaseId: string): Promise<Relea
   const row = res.rows[0];
   if (row === undefined) throw new PilotReleaseNotFoundError();
   return row;
+}
+
+/** Withdraw one approved, locked row and write its audit row; `extra` is added to the audit metadata. */
+async function withdrawLocked(
+  client: PoolClient,
+  row: ReleaseRow,
+  who: { readonly actor: string; readonly runUrl: string; readonly requestId: string | null },
+  extra: Record<string, unknown> = {},
+): Promise<PilotReleaseBody> {
+  const updated = await client.query<ReleaseRow>(
+    `UPDATE pos_pilot_release_registry
+        SET approved = false, withdrawn_at = now(), withdrawn_by = $2
+      WHERE id = $1::uuid
+      RETURNING ${RELEASE_COLUMNS}`,
+    [row.id, who.actor],
+  );
+  const withdrawn = updated.rows[0] as ReleaseRow;
+  await auditRegistryChange(client, {
+    action: "pos.pilot_release.withdrawn",
+    releaseId: withdrawn.id,
+    actor: workflowActor(who.actor),
+    requestId: who.requestId,
+    metadata: { releaseId: withdrawn.id, version: withdrawn.version, withdrawnBy: who.actor, promotionRunUrl: who.runUrl, ...extra },
+  });
+  return toReleaseBody(withdrawn);
 }
 
 /** Insert the release, or return null when its version, sha256 or object key already exists. */
@@ -152,22 +202,30 @@ export class PilotReleaseRegistryService {
     return await runWithTenantContext(this.pool, PLATFORM, async (client) => {
       const row = await lockRelease(client, input.releaseId);
       if (!row.approved) return toReleaseBody(row);
-      const updated = await client.query<ReleaseRow>(
-        `UPDATE pos_pilot_release_registry
-            SET approved = false, withdrawn_at = now(), withdrawn_by = $2
-          WHERE id = $1::uuid
-          RETURNING ${RELEASE_COLUMNS}`,
-        [input.releaseId, input.actor],
+      return await withdrawLocked(client, row, input);
+    });
+  }
+
+  /**
+   * RT-1418: withdraw the release that is current, other than the keeper, for the keeper's own run. One transaction:
+   * the keeper and the current row are locked, so a racing activation waits or is refused by the unique index.
+   */
+  async supersedeCurrent(input: SupersedeInput): Promise<SupersedeResult> {
+    return await runWithTenantContext(this.pool, PLATFORM, async (client) => {
+      const keeper = await lockRelease(client, input.releaseId);
+      if (!isRunOf(keeper.promotion_run_url, input.runUrl)) throw new PilotReleaseNotOwnedError();
+      if (!keeper.approved) throw new PilotReleaseSupersedeRefusedError("release_withdrawn");
+      const current = await client.query<ReleaseRow>(
+        `SELECT ${RELEASE_COLUMNS} FROM pos_pilot_release_registry
+          WHERE approved AND activated_at IS NOT NULL AND id <> $1::uuid
+          FOR UPDATE`,
+        [keeper.id],
       );
-      const withdrawn = updated.rows[0] as ReleaseRow;
-      await auditRegistryChange(client, {
-        action: "pos.pilot_release.withdrawn",
-        releaseId: withdrawn.id,
-        actor: workflowActor(input.actor),
-        requestId: input.requestId,
-        metadata: { releaseId: withdrawn.id, version: withdrawn.version, withdrawnBy: input.actor, promotionRunUrl: input.runUrl },
-      });
-      return toReleaseBody(withdrawn);
+      const row = current.rows[0];
+      if (row === undefined) return { keeper: toReleaseBody(keeper), withdrawn: null };
+      if (!isNewerVersion(keeper.version, row.version)) throw new PilotReleaseSupersedeRefusedError("release_not_newer");
+      const withdrawn = await withdrawLocked(client, row, input, { supersededBy: keeper.id });
+      return { keeper: toReleaseBody(keeper), withdrawn };
     });
   }
 

@@ -3,7 +3,7 @@
  * boot, no database). The HTTP specs build their own module without the global
  * `FailClosedAuthGuard`, so this is what pins the part they cannot:
  *
- *   - the workflow's routes (register, withdraw) are `@Public()` for the global
+ *   - the workflow's routes (register, withdraw, RT-1418 supersede-current) are `@Public()` for the global
  *     cookie guard and are guarded ONLY by `PromotionWriterGuard`, declared on the
  *     class and on no handler: a public route with a forgotten guard would be open
  *     to the world;
@@ -65,12 +65,13 @@ describe("RT-1298 registry write wiring", () => {
     }
   });
 
-  it("puts the three operations on the contract's paths and methods", () => {
+  it("puts the four write operations on the contract's paths and methods", () => {
     expect(Reflect.getMetadata(PATH_METADATA, PilotReleaseWritesController)).toBe("api/v1/platform/pos-pilot-releases");
     expect(Reflect.getMetadata(PATH_METADATA, PilotReleaseActivationController)).toBe("api/v1/platform/pos-pilot-releases");
     const writes = handlers(PilotReleaseWritesController);
     expect(routeOf(writes["register"] as object)).toEqual({ path: "/", method: RequestMethod.POST });
     expect(routeOf(writes["withdraw"] as object)).toEqual({ path: ":releaseId/withdraw", method: RequestMethod.POST });
+    expect(routeOf(writes["supersedeCurrent"] as object)).toEqual({ path: ":releaseId/supersede-current", method: RequestMethod.POST });
     const activation = handlers(PilotReleaseActivationController);
     expect(routeOf(activation["activate"] as object)).toEqual({ path: ":releaseId/activate", method: RequestMethod.POST });
     // RT-1328: the read is a GET on the guarded session controller, not on the public one.
@@ -78,7 +79,7 @@ describe("RT-1298 registry write wiring", () => {
   });
 
   it("keeps each controller to exactly its routes, so the class-level guard covers all of them", () => {
-    expect(Object.keys(handlers(PilotReleaseWritesController)).sort()).toEqual(["register", "withdraw"]);
+    expect(Object.keys(handlers(PilotReleaseWritesController)).sort()).toEqual(["register", "supersedeCurrent", "withdraw"]);
     expect(Object.keys(handlers(PilotReleaseActivationController)).sort()).toEqual(["activate", "list"]);
   });
 });

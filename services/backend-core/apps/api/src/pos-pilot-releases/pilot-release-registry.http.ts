@@ -7,6 +7,8 @@
  *   PilotReleaseConflictError            409 `release_conflict`
  *   PilotReleaseNotPilotError            422 `release_not_pilot`
  *   PilotReleaseActivationRefusedError   409 `release_withdrawn` | `release_current_exists`
+ *   PilotReleaseSupersedeRefusedError    409 `release_withdrawn` | `release_not_newer` (RT-1418)
+ *   PilotReleaseNotOwnedError            403 `forbidden` (RT-1418)
  */
 import { HttpException } from "@nestjs/common";
 
@@ -14,7 +16,9 @@ import {
   PilotReleaseActivationRefusedError,
   PilotReleaseConflictError,
   PilotReleaseNotFoundError,
+  PilotReleaseNotOwnedError,
   PilotReleaseNotPilotError,
+  PilotReleaseSupersedeRefusedError,
 } from "./pilot-release-registry.rows";
 
 interface HttpAnswer {
@@ -29,12 +33,16 @@ const ANSWERS: readonly HttpAnswer[] = [
   { type: PilotReleaseNotFoundError, status: 404, code: "not_found", message: "Not found." },
   { type: PilotReleaseConflictError, status: 409, code: "release_conflict", message: "A release with these values already exists." },
   { type: PilotReleaseNotPilotError, status: 422, code: "release_not_pilot", message: "Only a pilot release can be registered." },
+  { type: PilotReleaseNotOwnedError, status: 403, code: "forbidden", message: "Forbidden" },
 ];
 
 /** Throw the HTTP answer for a registry error, or rethrow an unknown one. */
 export function throwRegistryHttpError(err: unknown): never {
   if (err instanceof PilotReleaseActivationRefusedError) {
     throw new HttpException({ code: err.code, message: "The release cannot be activated." }, 409);
+  }
+  if (err instanceof PilotReleaseSupersedeRefusedError) {
+    throw new HttpException({ code: err.code, message: "The current release cannot be superseded by this release." }, 409);
   }
   const answer = ANSWERS.find((candidate) => err instanceof candidate.type);
   if (answer !== undefined) throw new HttpException({ code: answer.code, message: answer.message }, answer.status);

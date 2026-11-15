@@ -89,6 +89,44 @@ export class PilotReleaseActivationRefusedError extends Error {
   }
 }
 
+/** RT-1418: supersede refused, 409 with this code; nothing is written. */
+export class PilotReleaseSupersedeRefusedError extends Error {
+  constructor(readonly code: "release_withdrawn" | "release_not_newer") {
+    super(`pilot release supersede refused: ${code}`);
+    this.name = "PilotReleaseSupersedeRefusedError";
+  }
+}
+
+/** RT-1418: the keeper was registered by another run than the token's: 403 `forbidden`. */
+export class PilotReleaseNotOwnedError extends Error {
+  constructor() {
+    super("pilot release registered by another run");
+    this.name = "PilotReleaseNotOwnedError";
+  }
+}
+
+/** True when `url` is the run `runUrl` itself or one of its attempts (never a longer run id that starts with it). */
+export function isRunOf(url: string, runUrl: string): boolean {
+  return url === runUrl || url.startsWith(`${runUrl}/attempts/`);
+}
+
+const PLAIN_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
+/**
+ * RT-1418: true only when both are plain X.Y.Z and `candidate` is strictly greater than `current`. A pre-release
+ * or any other shape is never "newer" (fail closed): terminals refuse downgrades, so a replacement must move forward.
+ */
+export function isNewerVersion(candidate: string, current: string): boolean {
+  const a = PLAIN_VERSION.exec(candidate);
+  const b = PLAIN_VERSION.exec(current);
+  if (a === null || b === null) return false;
+  for (let i = 1; i <= 3; i += 1) {
+    const diff = BigInt(a[i] as string) - BigInt(b[i] as string);
+    if (diff !== 0n) return diff > 0n;
+  }
+  return false;
+}
+
 const UNIQUE_VIOLATION = "23505";
 const LAB_MARKER = /LAB TEST|NOT FOR PRODUCTION/i;
 
