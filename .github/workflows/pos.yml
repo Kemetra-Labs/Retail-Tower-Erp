@@ -8,7 +8,7 @@
 # expression and there is no matrix (the three shards are three literal jobs). The
 # workflow `name:` must stay `pos` (listed in gate.yml `workflow_run`).
 # PR-reachable: read-only token, no stored credentials, no environment. The only use of the job token is the
-# "Fetch main tip" step in the three shard jobs (see the comment there).
+# "Fetch main tip" step in the three shard jobs (see the comment there; it runs on pull_request only since RT-1414).
 #
 # Differences from the product workflow, all forced by the project graph:
 #  - the graph is the only selector, so the `changes` job, the `ci` aggregate and every
