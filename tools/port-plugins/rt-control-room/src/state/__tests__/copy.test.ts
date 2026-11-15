@@ -1,5 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestPortToken } from "../../bridge/requestToken";
+import { describe, expect, it } from "vitest";
 import { STRINGS } from "../../i18n/strings";
 import { replayEvents } from "../events";
 import { NOW, fixture } from "./testkit";
@@ -47,40 +46,5 @@ describe("legend wording never claims health from absent evidence (RT-1408 D)", 
     expect(STRINGS.lgLive.en).toBe("Cable, no faults reported");
     expect(STRINGS.lgLive.ar).toMatch(ARABIC);
     expect(STRINGS.lgLive.ar).not.toContain("سليم");
-  });
-});
-
-describe("the token request names its target (RT-1408 D, security)", () => {
-  const post = vi.fn();
-  const parent = Object.getOwnPropertyDescriptor(window, "parent");
-  const referrer = Object.getOwnPropertyDescriptor(Document.prototype, "referrer");
-
-  function frame(ref: string): void {
-    Object.defineProperty(window, "parent", { configurable: true, value: { postMessage: post } });
-    Object.defineProperty(document, "referrer", { configurable: true, value: ref });
-  }
-  afterEach(() => {
-    post.mockClear();
-    if (parent) Object.defineProperty(window, "parent", parent);
-    delete (document as unknown as Record<string, unknown>).referrer;
-    if (referrer) Object.defineProperty(Document.prototype, "referrer", referrer);
-  });
-
-  it("sends only to the parent's own origin when it is a Port origin", () => {
-    frame("https://app.getport.io/dashboard?x=1");
-    requestPortToken();
-    expect(post).toHaveBeenCalledWith({ type: "REQUEST_PORT_TOKEN" }, "https://app.getport.io");
-  });
-
-  it("sends nothing to a parent that is known and is not Port", () => {
-    frame("https://evil.example/page");
-    requestPortToken();
-    expect(post).not.toHaveBeenCalled();
-  });
-
-  it("falls back to the data-free wildcard only when no browser reveals the parent", () => {
-    frame("");
-    requestPortToken();
-    expect(post).toHaveBeenCalledWith({ type: "REQUEST_PORT_TOKEN" }, "*");
   });
 });

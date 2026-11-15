@@ -34,6 +34,11 @@ describe("v13 design changes", () => {
     expect(rule(top, ".trace .line.badline")).toContain("--color-past");
     expect(rule(top, ".trace .badpt")).toContain("--color-past");
     expect(readFileSync(join(dir, "..", "components", "CiStrip.tsx"), "utf8")).toContain('f: "var(--color-past)"');
+    // The station cards' "CI fails" count is history too: a past tone, never the alarm red `.sv.bad`.
+    expect(rule(room, ".sv.past")).toContain("--color-past");
+    const station = readFileSync(join(dir, "..", "components", "room", "Station.tsx"), "utf8");
+    expect(station).toMatch(/past && v > 0 \? "past"/);
+    expect(station).not.toMatch(/bad && v > 0/);
     // The live-alarm cable keeps red.
     expect(rule(room, ".cable.fault")).toContain("--color-bad");
     // Both themes define the token.

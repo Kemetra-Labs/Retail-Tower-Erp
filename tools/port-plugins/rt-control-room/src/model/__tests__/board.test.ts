@@ -428,3 +428,47 @@ describe("one fault count everywhere (RT-1408 A)", () => {
     expect(total).toBe(b.alarms.length);
   });
 });
+
+describe("the station count follows the lights where the reporter and the failing hop differ (RT-1408 A)", () => {
+  const issue = (id: string, workload: string, title: string) => {
+    const base = fixture().sentryIssues[0];
+    return { ...base, identifier: id, title, relations: { workload }, properties: { ...base.properties, status: "unresolved", link: null } };
+  };
+  const workloadOf = (station: "pos" | "conn" | "admin") => {
+    const snap = fixture();
+    const w = snap.workloads.find((x) => {
+      const svc = x.relations?.service;
+      return (Array.isArray(svc) ? svc[0] : svc) === { pos: "pos", conn: "erpnext-connector", admin: "admin-console" }[station];
+    });
+    return w?.identifier;
+  };
+
+  it("a POS error that fails on Backend-Core's cable counts on the POS card, as the Cashier light says, and on Backend-Core", () => {
+    const snap = fixture();
+    snap.sentryIssues = [];
+    const pos = workloadOf("pos");
+    if (!pos) return; // the fixture has no POS workload: nothing to place
+    snap.sentryIssues = [issue("sentry-pos-403", pos, "HTTP 403 Forbidden calling /api/v1/sales")];
+    const b = buildBoard(snap, opts());
+    const a = b.alarms[0];
+    expect(a.station).toBe("pos");
+    expect(a.at).toBe("c1");
+    expect(b.verdict.lights.cashier.tone).toBe("fault");
+    expect(station(b, "pos").readings.alarms).toBe(1);
+    expect(station(b, "core").readings.alarms).toBe(1);
+    expect(b.verdict.lights.backend.tone).toBe("fault");
+  });
+
+  it("a Connector error on the Invoices cable counts on the ERPNext ledger, as the Accounts light says, not on the Connector", () => {
+    const snap = fixture();
+    const conn = workloadOf("conn");
+    if (!conn) return;
+    snap.sentryIssues = [issue("sentry-inv", conn, "HTTP 502 Bad Gateway calling /api/resource/Sales Invoice")];
+    const b = buildBoard(snap, opts());
+    expect(b.alarms[0].at).toBe("c4");
+    expect(station(b, "erp").readings.alarms).toBe(1);
+    expect(station(b, "conn").readings.alarms).toBe(0);
+    expect(b.cables.find((c) => c.id === "c4")?.faults).toBe(1);
+    expect(b.verdict.lights.accounts.tone).toBe("fault");
+  });
+});

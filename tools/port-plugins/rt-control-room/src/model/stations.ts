@@ -75,6 +75,16 @@ function readingsFrom(snapshot: Snapshot, id: StationId, now: Date, unread: Unre
 }
 
 /**
+ * The alarms a station counts and lists (RT-1408 A): where they FAIL (the verdict light's scope), or,
+ * with no known hop, where they were reported. POS also counts what its own app reports (the
+ * Cashier light's scope), so an error the POS app reports about Backend-Core's cable shows on both.
+ * The card, the table row and the detail panel all use this one predicate.
+ */
+export function alarmsOfStation(alarms: Alarm[], id: StationId): Alarm[] {
+  return alarms.filter((a) => (failingHopOf(a.at) ?? a.station) === id || (id === "pos" && a.station === "pos"));
+}
+
+/**
  * The five stations with their readings. A missing service entity (and the
  * ERPNext ledger, which has none by design) reads `null` ("no data"), never 0.
  * Alarm counts come from the alarms themselves, or "not-read" when the Sentry
@@ -95,10 +105,10 @@ export function buildStations(
     const lamps = withExampleAlarms(stationLamps(id, lampEvidence(id, snapshot), unread, failed), id, alarms);
     const r = readingsFrom(snapshot, id, now, unread);
     // One reading everywhere (RT-1408 A): an alarm counts where it FAILS (the verdict light's scope),
-    // not where it was reported. An alarm with no known hop falls back to the reporting service.
-    const alarmReading: AlarmReading = sentryRead
-      ? alarms.filter((a) => (failingHopOf(a.at) ?? a.station) === id).length
-      : "not-read";
+    // not where it was reported. An alarm with no known hop falls back to the reporting service. The
+    // POS card also counts what the POS app itself reports (the Cashier light's scope), even when
+    // the failing hop is Backend-Core's cable, so the card and that light never disagree.
+    const alarmReading: AlarmReading = sentryRead ? alarmsOfStation(alarms, id).length : "not-read";
     return {
       id,
       name: arch.name,

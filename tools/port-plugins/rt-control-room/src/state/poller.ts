@@ -1,7 +1,7 @@
 import type { PortClient } from "../api/portClient";
 import { buildBoard } from "../model/board";
 import type { Board, Collection, Snapshot } from "../model/types";
-import { CORE_COLLECTIONS, EVENT_LIMIT, REPLAY_MS } from "./blueprints";
+import { EVENT_LIMIT, REPLAY_MS } from "./blueprints";
 import { diffBoards, type BoardEvent } from "./diff";
 import { diffSnapshots, replayEvents } from "./events";
 import { fetchSnapshot } from "./fetchSnapshot";
@@ -91,9 +91,13 @@ function sinceMap(lastOk: PollerState["lastOk"]): Partial<Record<Collection, str
   return out;
 }
 
-/** A poll is good when it read something and no core collection failed. Only good polls count for freshness. */
-const isGoodPoll = (readCount: number, failed: readonly Collection[]): boolean =>
-  readCount > 0 && !failed.some((c) => (CORE_COLLECTIONS as readonly Collection[]).includes(c));
+/**
+ * A poll is good when it read at least one collection. Only good polls advance the full-poll count, so
+ * a poll where Port answered nothing is retried as the same (full) poll. One collection that keeps
+ * failing does NOT make every poll full or slow the alarms: it stays in `failed` and the board stays
+ * stale, while the rest keep their own rhythm.
+ */
+const isGoodPoll = (readCount: number): boolean => readCount > 0;
 
 /**
  * One poll. Reads what is scheduled, folds it into the cached snapshot, builds
@@ -101,8 +105,8 @@ const isGoodPoll = (readCount: number, failed: readonly Collection[]): boolean =
  * gets a full or window fetch (never a delta), so a partial first load heals.
  * Each delta collection has its own `since` (its last good read), so a failed
  * interval is covered again by the next delta (the merge is by `identifier`,
- * so the overlap is harmless). A failed read never removes anything. Only good
- * polls advance the full-poll cadence and clear the back-off.
+ * so the overlap is harmless). A failed read never removes anything. Only polls that
+ * read something advance the full-poll cadence and clear the back-off.
  */
 export async function runPoll(client: PortClient, state: PollerState, now: Date): Promise<PollResult> {
   const { full } = nextPoll(state, now.getTime());
@@ -118,12 +122,17 @@ export async function runPoll(client: PortClient, state: PollerState, now: Date)
   );
   const baseline = new Set(read.filter((c) => neverRead.has(c)));
   for (const c of read) state.lastOk[c] = now.toISOString();
+  // A collection Port now refuses (403) or no longer has (404) is not "read": drop it from the
+  // ever-read set so what derives from it reads "no data" again, instead of freezing at old figures.
+  for (const c of res.unavailable) delete state.lastOk[c];
   state.polls += 1;
   state.lastAt = now.getTime();
-  if (isGoodPoll(read.length, res.failed)) {
+  if (isGoodPoll(read.length)) {
     state.okPolls += 1;
     state.failures = 0;
-  } else {
+  } else if (res.errorStatus !== 401) {
+    // Nothing could be read: Port or the network is down, so wait longer each time. A 401 is an expired
+    // token the host re-sends, not an outage: it keeps the normal rhythm.
     state.failures += 1;
   }
 
@@ -144,7 +153,9 @@ export async function runPoll(client: PortClient, state: PollerState, now: Date)
   }
 
   const prevSnapshot = state.snapshot;
-  const snapshot = mergeSnapshot(prevSnapshot ?? emptySnapshot(now.toISOString()), res.data, res.replace);
+  const merged = mergeSnapshot(prevSnapshot ?? emptySnapshot(now.toISOString()), res.data, res.replace);
+  // Its cached entities go too: nothing the widget may no longer read is shown as current.
+  const snapshot = res.unavailable.length === 0 ? merged : { ...merged, ...Object.fromEntries(res.unavailable.map((c) => [c, []])) };
   const board = buildBoard(snapshot, { now, demo: false, alarmRead, unread, failed: res.failed });
 
   let fresh: BoardEvent[];
@@ -156,13 +167,13 @@ export async function runPoll(client: PortClient, state: PollerState, now: Date)
     fresh = [...diffBoards(state.board, board, opts), ...diffSnapshots(prevSnapshot, snapshot, opts)];
   }
   const known = new Set(state.events.map((e) => e.id));
-  // Events older than the replay window are dropped as well as the oldest past the cap, so a board
-  // left open for days does not carry a whole week of CI events in memory.
+  // Events already held for longer than the replay window are dropped as well as the oldest past the
+  // cap, so a board left open for days does not carry a whole week of CI events in memory. This
+  // poll's fresh events are never pruned: a Sentry issue first seen 3 days ago that regressed now is
+  // stamped with its creation time, and it is still news.
   const keepFrom = now.getTime() - REPLAY_MS;
-  state.events = [...fresh.filter((e) => !known.has(e.id)), ...state.events]
-    .filter((e) => !(Date.parse(e.at) < keepFrom))
-    .sort(newestFirst)
-    .slice(0, EVENT_LIMIT);
+  const carried = state.events.filter((e) => !(Date.parse(e.at) < keepFrom));
+  state.events = [...fresh.filter((e) => !known.has(e.id)), ...carried].sort(newestFirst).slice(0, EVENT_LIMIT);
   state.snapshot = snapshot;
   state.board = board;
 

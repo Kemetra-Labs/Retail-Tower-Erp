@@ -345,8 +345,18 @@ describe("detail", () => {
     expect(within(detail).getByRole("heading", { level: 2, name: "ERPNext-Connector" })).toBeTruthy();
     expect(detail.textContent).toContain("HLT Health checks");
     expect(detail.textContent).toContain("not linked");
-    expect(within(detail).getAllByRole("button").filter((b) => b.getAttribute("data-focus")?.startsWith("alarm:"))).toHaveLength(4);
+    const listed = (el: HTMLElement) => within(el).queryAllByRole("button").filter((b) => b.getAttribute("data-focus")?.startsWith("alarm:"));
+    // RT-1408 A: the Connector's panel lists what its card counts (1: the one inside the bridge) ...
+    expect(listed(detail)).toHaveLength(1);
+    expect(detail.textContent).toContain("Alarms: 1");
     first.unmount();
+
+    // ... and Backend-Core's panel lists the 3 on the Postings cable, which the Connector reported.
+    const core = show(board, { type: "station", id: "core" });
+    const coreDetail = core.container.querySelector("[data-detail]") as HTMLElement;
+    expect(coreDetail.textContent).toContain("Alarms: 3");
+    expect(listed(coreDetail)).toHaveLength(3);
+    core.unmount();
 
     const second = show(board, { type: "host", id: "lab-01" });
     const host = second.container.querySelector("[data-detail]") as HTMLElement;
@@ -780,6 +790,7 @@ describe("lower panels", () => {
   it("never-read monitors read 'not read' in the health panel, the status table and the station lamps, never 'none'", () => {
     const snap = fixture();
     snap.monitors = [];
+    snap.sentryIssues = []; // no alarm anywhere: the state cell then shows the unread checks, not "Fault"
     const board = buildBoard(snap, { now: NOW, demo: false, unread: ["monitors"] });
     const { container } = wrap(
       <>
@@ -794,8 +805,7 @@ describe("lower panels", () => {
     const row = (id: string) => container.querySelector(`[data-station-row="${id}"]`) as HTMLElement;
     expect(row("core").textContent).not.toMatch(/none/);
     expect(row("core").querySelectorAll("td")[2].textContent).toBe("not read");
-    // Backend-Core still has its 3 live alarms; the unread monitors only change the checks column.
-    expect(row("core").querySelectorAll("td")[0].textContent).toBe("Fault");
+    expect(row("core").querySelectorAll("td")[0].textContent).toBe("Not read");
     expect(row("admin").querySelector(".unk")).not.toBeNull();
   });
 

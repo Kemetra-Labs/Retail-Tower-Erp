@@ -234,7 +234,7 @@ describe("useBoard failures", () => {
     expect(result.current.board!.alarms).toHaveLength(5);
     expect(result.current.board!.stations.map((s) => s.readings.ci7d)).toEqual(before.stations.map((s) => s.readings.ci7d));
 
-    // One failed poll doubles the wait (RT-1408 C): the retry comes after 2 minutes, not 1.
+    // A total outage doubles the wait (RT-1408 C): the retry comes after 2 minutes, not 1.
     port.healAll();
     await tick(60_000);
     expect(result.current.status).toBe("stale");
@@ -327,7 +327,7 @@ describe("useBoard Sentry read status (criterion 7)", () => {
     const { result } = mount();
     await settle();
     port.heal("sentryIssue");
-    await tick(120_000); // a failed poll doubles the wait
+    await tick(60_000);
     // The first read is a full one (never a delta over an empty cache): it carries no $updatedAt rule.
     const sentryCalls = port.callsFor("sentryIssue");
     const rules = sentryCalls[sentryCalls.length - 1].query.rules;
@@ -356,7 +356,7 @@ describe("useBoard Sentry read status (criterion 7)", () => {
     await tick(60_000);
     port.heal("sentryIssue");
     port.set("sentryIssue", []);
-    await tick(120_000);
+    await tick(60_000);
     const board = result.current.board!;
     expect(result.current.status).toBe("ready");
     expect(board.alarms).toHaveLength(5);
@@ -430,8 +430,8 @@ describe("useBoard collections that cannot be read", () => {
     await settle();
     expect(result.current.asOf).toBeNull();
     port.heal("datadogMonitor");
-    await tick(120_000);
-    expect(result.current.asOf).toBe(NOW.getTime() + 120_000);
+    await tick(60_000);
+    expect(result.current.asOf).toBe(NOW.getTime() + 60_000);
   });
 });
 

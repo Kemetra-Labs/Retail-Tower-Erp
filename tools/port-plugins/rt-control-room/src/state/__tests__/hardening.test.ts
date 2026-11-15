@@ -19,12 +19,16 @@ function client(failing: () => Partial<Record<string, number>> = () => ({})) {
       return snap[BLUEPRINT_KEY[blueprint as keyof typeof BLUEPRINT_KEY]] as unknown as T[];
     },
     async get<T>(): Promise<T> {
+      const status = failing().integration;
+      if (status) throw httpError(status);
       return snap.integrations as unknown as T;
     },
   };
-  return { c, calls };
+  return { c, calls, snap };
 }
 
+/** Port answers nothing at all: every search and the integration read fail. */
+const DOWN = { ...Object.fromEntries(Object.keys(BLUEPRINT_KEY).map((k) => [k, 503])), integration: 503 };
 const at = (ms: number) => new Date(NOW.getTime() + ms);
 const sinceOf = (q: PortQuery): string | undefined => {
   const r = q.rules.find((x) => "property" in x && x.property === "$updatedAt");
@@ -38,16 +42,36 @@ describe("back-off after failures (RT-1408 C)", () => {
     expect(nextPoll({ polls: 3, lastAt: 1_000, failures: 0 }, 5_000).at).toBe(1_000 + POLL_MS);
   });
 
-  it("a failing core read raises the failure count, and a good poll clears it", async () => {
-    let status: number | undefined = 500;
-    const { c } = client(() => (status ? { datadogMonitor: status } : {}));
+  it("a total outage raises the failure count, and a poll that reads something clears it", async () => {
+    let down = true;
+    const { c } = client(() => (down ? DOWN : {}));
     const state = createPollerState();
     await runPoll(c, state, at(0));
     await runPoll(c, state, at(120_000));
     expect(state.failures).toBe(2);
-    status = undefined;
+    expect(state.okPolls).toBe(0);
+    down = false;
     await runPoll(c, state, at(360_000));
     expect(state.failures).toBe(0);
+    expect(state.okPolls).toBe(1);
+  });
+
+  it("one core collection that keeps failing does not slow the alarms or make every poll full", async () => {
+    const { c } = client(() => ({ datadogHost: 500 }));
+    const state = createPollerState();
+    for (let n = 0; n < 4; n += 1) await runPoll(c, state, at(n * POLL_MS));
+    expect(state.failures).toBe(0);
+    expect(state.okPolls).toBe(4);
+    expect(nextPoll(state, 0).at).toBe(NOW.getTime() + 4 * POLL_MS);
+    expect(nextPoll(state, 0).full).toBe(true); // number 5, the normal full poll, not a stuck "first" one
+  });
+
+  it("a 401 keeps the normal rhythm: the host re-sends the token, it is not an outage", async () => {
+    const { c } = client(() => ({ ...DOWN, integration: 401, ...Object.fromEntries(Object.keys(BLUEPRINT_KEY).map((k) => [k, 401])) }));
+    const state = createPollerState();
+    await runPoll(c, state, at(0));
+    expect(state.failures).toBe(0);
+    expect(nextPoll(state, 0).at).toBe(NOW.getTime() + POLL_MS);
   });
 
   it("a failed Jira read alone (not core) does not back the board off", async () => {
@@ -59,19 +83,17 @@ describe("back-off after failures (RT-1408 C)", () => {
 });
 
 describe("only good polls count for freshness and cadence (RT-1408 C)", () => {
-  it("a failed poll does not advance the full-poll count, so a failed full poll is retried as full", async () => {
+  it("a poll where Port answers nothing does not advance the full-poll count, so it is retried as the same poll", async () => {
     const { c } = client();
     const state = createPollerState();
     for (let n = 0; n < 3; n += 1) await runPoll(c, state, at(n * POLL_MS));
     expect(state.okPolls).toBe(3);
-    // Poll 4 fails in the core: poll 5 is still "the 4th good poll + 1" = full only when due by good polls.
-    const failing = client(() => ({ sentryIssue: 500 }));
-    await runPoll(failing.c, state, at(3 * POLL_MS));
+    await runPoll(client(() => DOWN).c, state, at(3 * POLL_MS));
     expect(state.polls).toBe(4);
     expect(state.okPolls).toBe(3);
-    expect(nextPoll(state, 0).full).toBe(false); // number 4: a delta
+    expect(nextPoll(state, 0).full).toBe(false); // still number 4: a delta
     await runPoll(c, state, at(7 * POLL_MS));
-    expect(nextPoll(state, 0).full).toBe(true); // number 5: full
+    expect(nextPoll(state, 0).full).toBe(true); // number 5
   });
 });
 
@@ -157,5 +179,38 @@ describe("no include narrowing (RT-1408 C)", () => {
     await runPoll(c, createPollerState(), at(0));
     expect(calls.length).toBeGreaterThanOrEqual(9);
     for (const call of calls) expect(call.opts?.include).toBeUndefined();
+  });
+});
+
+describe("a fresh alarm event is never pruned (RT-1408 C)", () => {
+  it("a Sentry issue first seen 3 days ago that shows up now still produces its event", async () => {
+    const { c, snap } = client();
+    const state = createPollerState();
+    await runPoll(c, state, at(0));
+    const old = { ...snap.sentryIssues[0], identifier: "sentry-regressed", title: "ConnectionError: refused", createdAt: at(-3 * 86_400_000).toISOString() };
+    snap.sentryIssues = [...snap.sentryIssues, old];
+    await runPoll(c, state, at(POLL_MS));
+    const event = state.events.find((e) => e.alarmId === "sentry-regressed");
+    expect(event).toBeDefined();
+    expect(event?.at).toBe(old.createdAt);
+  });
+});
+
+describe("a collection that becomes unavailable stops looking read (RT-1408 C)", () => {
+  it("read once, then 403: it is unread again, its cached entities are gone and its figures read no data", async () => {
+    let deny = false;
+    const { c } = client(() => (deny ? { githubWorkflowRun: 403 } : {}));
+    const state = createPollerState();
+    const first = await runPoll(c, state, at(0));
+    expect(first.unread).not.toContain("runs");
+    const before = buildBoard(first.snapshot!, { now: at(0), demo: false, unread: first.unread });
+    expect(before.ci.last72.length).toBeGreaterThan(0);
+    deny = true;
+    const second = await runPoll(c, state, at(POLL_MS));
+    expect(second.unavailable).toEqual(["runs"]);
+    expect(second.unread).toContain("runs");
+    expect(second.snapshot!.runs).toEqual([]);
+    const after = buildBoard(second.snapshot!, { now: at(POLL_MS), demo: false, unread: second.unread });
+    expect(after.ci.passRate).toBeNull();
   });
 });

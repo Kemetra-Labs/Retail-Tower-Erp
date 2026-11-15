@@ -148,7 +148,10 @@ function backendFault(mine: Alarm[], down: VerdictInput["coreHosts"]): Part {
     const ids = down.map((h) => h.id).join(", ");
     return {
       light: { tone: "fault", text: t(`Server ${ids} is down`, `السيرفر ${ids} واقع`) },
-      clause: t(`Server ${ids} of the backend is down.`, `السيرفر ${ids} بتاع الـ Backend واقع.`),
+      clause: t(
+        `${down.length === 1 ? `Server ${ids} of the backend is` : `Servers ${ids} of the backend are`} down.`,
+        `${down.length === 1 ? "السيرفر" : "السيرفرات"} ${ids} بتاع الـ Backend واقع${down.length === 1 ? "" : "ين"}.`,
+      ),
     };
   }
   if (mine.length === 1 && mine[0].kind === "latency" && down.length === 0) {
@@ -161,7 +164,7 @@ function backendFault(mine: Alarm[], down: VerdictInput["coreHosts"]): Part {
   const a = alarmsOf(mine.length);
   const ids = down.map((h) => h.id).join(", ");
   // A server that is down is not hidden behind the alarm count (RT-1408 D).
-  const alsoEn = down.length > 0 ? ` Server ${ids} is also down.` : "";
+  const alsoEn = down.length > 0 ? ` ${down.length === 1 ? `Server ${ids} is` : `Servers ${ids} are`} also down.` : "";
   const alsoAr = down.length > 0 ? ` والسيرفر ${ids} واقع كمان.` : "";
   return {
     light: {

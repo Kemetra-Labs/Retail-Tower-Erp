@@ -49,7 +49,7 @@ const JIRA_STATUS_AR: Record<string, string> = {
   done: "تمت",
   closed: "اتقفلت",
   resolved: "اتحلت",
-  backlog: "في الخلفية",
+  backlog: "قائمة الانتظار",
 };
 /** Datadog monitor states by their normalised name. */
 const MONITOR_STATE_AR: Record<string, string> = {

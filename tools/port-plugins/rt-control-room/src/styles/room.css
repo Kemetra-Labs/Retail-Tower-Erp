@@ -290,6 +290,9 @@ svg.grid .cc rect.frame {
 .sv.bad {
   fill: var(--color-bad);
 }
+.sv.past {
+  fill: var(--color-past);
+}
 .sv.unk {
   fill: var(--color-stale);
   font-size: 13px;
