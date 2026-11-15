@@ -173,7 +173,7 @@ function MatchRow({ product }: Readonly<{ product: ProductSnapshotDisplay }>): J
     <li className="v5-diagnostics-hit">
       <div className="v5-diagnostics-hit__copy">
         <span className="v5-diagnostics-hit__name">{product.display_name_ar}</span>
-        {Boolean(product.unit_pack_label ?? product.sku) && (
+        {(Boolean(product.unit_pack_label) || Boolean(product.sku)) && (
           <span className="v5-diagnostics-hit__meta">
             {Boolean(product.unit_pack_label) && <span>{product.unit_pack_label}</span>}
             {Boolean(product.sku) && (

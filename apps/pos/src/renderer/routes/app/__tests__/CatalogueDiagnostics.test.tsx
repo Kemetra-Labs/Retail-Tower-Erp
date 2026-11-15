@@ -382,6 +382,22 @@ describe('CatalogueDiagnostics — search', () => {
     expect(first.getByText(formatHumanMoney(1500))).toHaveAttribute('dir', 'ltr');
   });
 
+  it('an empty pack label never hides the SKU', async () => {
+    renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({
+            kind: 'results' as const,
+            items: [row('p-1', 'بنادول', 'PARA-500', 1500, '')] as never,
+            truncated: false,
+          }),
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'بنادول');
+    const list = await screen.findByRole('list', { name: 'نتائج البحث' });
+    expect(within(list).getByText('PARA-500')).toBeInTheDocument();
+  });
+
   it('never draws a barcode, even when a row carries one', async () => {
     const item = {
       ...row('p-1', 'بنادول', 'PARA-500', 1500, null),
