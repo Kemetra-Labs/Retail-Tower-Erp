@@ -6,8 +6,8 @@
  * namespaces declared in `specs/006-payments-tender/contracts/bridge-api.md`.
  *
  * **Slice-3 subset only.** This test deliberately does NOT cover
- * `payments.forceFail` or `vouchers.*` — those are Slice 4 and are out of
- * scope for S3b. The test also does NOT cover `payments.discardOnSessionEnd`
+ * `vouchers.*` — out of scope for S3b. `payments.forceFail` is never on the
+ * bridge (RT-1232); the negative assertion below pins that. The test also does NOT cover `payments.discardOnSessionEnd`
  * because that handler is main-process-internal (never crosses the bridge).
  *
  * Shared types asserted to exist:
@@ -369,12 +369,12 @@ describe('006 bridge-api contract — typed namespaces', () => {
     expect(expectedKeys).toHaveLength(3);
   });
 
-  it('PaymentsBridgeAPI does NOT declare forceFail (Slice 4)', () => {
+  it('PaymentsBridgeAPI does NOT declare forceFail (RT-1232)', () => {
     // Compile-time negative — if `forceFail` is ever added to
     // PaymentsBridgeAPI, the `@ts-expect-error` directive flips from
-    // "expected error" to "no error" and tsc fails the build, blocking
-    // Slice-4 surface from leaking into Slice 3 silently.
-    // @ts-expect-error 'forceFail' is Slice 4 and must not be a key of PaymentsBridgeAPI.
+    // "expected error" to "no error" and tsc fails the build, so a renderer
+    // force-fail path cannot come back silently.
+    // @ts-expect-error 'forceFail' must not be a key of PaymentsBridgeAPI (RT-1232).
     const _forbidden: keyof PaymentsBridgeAPI = 'forceFail';
     void _forbidden;
     expect(true).toBe(true);

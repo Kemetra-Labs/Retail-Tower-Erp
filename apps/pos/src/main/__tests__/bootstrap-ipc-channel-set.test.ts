@@ -278,7 +278,6 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'tender:reverse',
   'tender:read',
   'vouchers:validate',
-  'payments:force-fail',
   'recovery:list-held',
   'recovery:complete-attempt',
   'recovery:cancel-attempt',

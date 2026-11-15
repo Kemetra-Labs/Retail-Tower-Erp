@@ -444,7 +444,7 @@ describe('registerPayments', () => {
     expect(f.registerCartHandlers).not.toHaveBeenCalled();
   });
 
-  it('hands registerPaymentsHandlers the nine handlers on the guarded ipcMain', () => {
+  it('hands registerPaymentsHandlers the eight handlers on the guarded ipcMain', () => {
     const { h } = setup();
     expect(f.registerPaymentsHandlers).toHaveBeenCalledWith(h.deps.guardedIpcMain, {
       paymentsStart: { marker: 'createPaymentsStartHandler' },
@@ -455,8 +455,14 @@ describe('registerPayments', () => {
       tenderApply: { marker: 'createTenderApplyHandler' },
       tenderReverse: { marker: 'createTenderReverseHandler' },
       tenderRead: { marker: 'createTenderReadHandler' },
-      paymentsForceFail: { marker: 'createPaymentsForceFailHandler' },
     });
+  });
+
+  it('never builds or registers a force-fail handler (RT-1232: no renderer path to force-fail)', () => {
+    setup();
+    expect(f.createPaymentsForceFailHandler).not.toHaveBeenCalled();
+    const registered = f.registerPaymentsHandlers.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(Object.keys(registered)).not.toContain('paymentsForceFail');
   });
 
   it('gives every write handler the shared write deps, with the cash shift gate', () => {
@@ -468,7 +474,6 @@ describe('registerPayments', () => {
       f.createPaymentsCancelHandler,
       f.createTenderApplyHandler,
       f.createTenderReverseHandler,
-      f.createPaymentsForceFailHandler,
     ]) {
       expect(arg(factory)).toMatchObject({
         attemptsRepo: core.paymentsAttemptsRepo,
@@ -481,9 +486,6 @@ describe('registerPayments', () => {
     expect(arg(f.createPaymentsStartHandler)).toMatchObject({
       paymentAttemptFsm: core.paymentAttemptFsm,
       checkCartForPayment: { marker: 'bindCartPaymentEligibility' },
-      attemptHasLiveTender: { marker: 'bindAttemptHasLiveTender' },
-    });
-    expect(arg(f.createPaymentsForceFailHandler)).toMatchObject({
       attemptHasLiveTender: { marker: 'bindAttemptHasLiveTender' },
     });
     expect(arg(f.createTenderApplyHandler)).toMatchObject({ tenderLineFsm: core.tenderLineFsm });

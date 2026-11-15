@@ -6,8 +6,6 @@ import type {
   PaymentsCancelResponse,
   PaymentsConfirmRequest,
   PaymentsConfirmResponse,
-  PaymentsForceFailRequest,
-  PaymentsForceFailResponse,
   PaymentsReadRequest,
   PaymentsReadResponse,
   PaymentsStartRequest,
@@ -42,8 +40,8 @@ import {
  * Security (Constitution §VII / contracts/bridge-api.md):
  *   • RT-442: the internal `payments.discardOnSessionEnd` is deleted (no
  *     session end reverses tender); it was never on this surface.
- *   • `payments.forceFail` is Slice 4 (still gated) and intentionally
- *     absent.
+ *   • RT-1232: `payments.forceFail` is not exposed to the renderer and has
+ *     no IPC channel. A renderer cannot force a payment failure.
  *   • `vouchers.validate` is Wave 4 (§A4-B authorisation 2026-05-25);
  *     `vouchers.redeem` / `vouchers.reverse` are intentionally absent
  *     — they fire ONLY from `payments.confirm` and `tender.reverse`
@@ -63,8 +61,6 @@ export const payments: PaymentsBridgeAPI = {
     ipcRenderer.invoke(PAYMENTS_IPC_CHANNELS.SUBSCRIBE, req) as Promise<PaymentsSubscribeResponse>,
   read: (req: PaymentsReadRequest) =>
     ipcRenderer.invoke(PAYMENTS_IPC_CHANNELS.READ, req) as Promise<PaymentsReadResponse>,
-  forceFail: (req: PaymentsForceFailRequest) =>
-    ipcRenderer.invoke(PAYMENTS_IPC_CHANNELS.FORCE_FAIL, req) as Promise<PaymentsForceFailResponse>,
 };
 
 export const tender: TenderBridgeAPI = {

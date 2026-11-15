@@ -38,7 +38,6 @@ import {
 import { createTenderLineFsm, type TenderLineFsm } from '../payments/fsm/tender-line-fsm.js';
 import { createPaymentsCancelHandler } from '../payments/handlers/payments-cancel.js';
 import { createPaymentsConfirmHandler } from '../payments/handlers/payments-confirm.js';
-import { createPaymentsForceFailHandler } from '../payments/handlers/payments-force-fail.js';
 import { createPaymentsReadHandler } from '../payments/handlers/payments-read.js';
 import { createPaymentsStartHandler } from '../payments/handlers/payments-start.js';
 import { createPaymentsSubscribeHandler } from '../payments/handlers/payments-subscribe.js';
@@ -398,12 +397,6 @@ export function registerPayments(deps: PaymentsDeps, core: PaymentsCore): void {
     tenderLineFsm,
   });
   const tenderRead = createTenderReadHandler(paymentsReadDeps);
-  const paymentsForceFail = createPaymentsForceFailHandler({
-    ...paymentsWriteDeps,
-    paymentAttemptFsm,
-    // RT-441 — restricted: an attempt holding live tender goes to recovery.
-    attemptHasLiveTender: bindAttemptHasLiveTender(db),
-  });
 
   registerPaymentsHandlers(guardedIpcMain, {
     paymentsStart,
@@ -414,7 +407,6 @@ export function registerPayments(deps: PaymentsDeps, core: PaymentsCore): void {
     tenderApply,
     tenderReverse,
     tenderRead,
-    paymentsForceFail,
   });
 
   // RT-441 (RT-116 S6, §5) — manager recovery. Its payment calls run the

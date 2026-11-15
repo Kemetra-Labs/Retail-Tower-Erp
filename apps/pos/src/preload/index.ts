@@ -191,7 +191,7 @@ const api: PreloadBridgeAPI = {
   cart,
   // 006-payments-tender — payments.* + tender.* (Slice 3 / T142) +
   // vouchers.* (Wave 4 / §A4-B authorisation 2026-05-25).
-  // payments.forceFail is still gated and intentionally NOT exposed.
+  // RT-1232: payments.forceFail is NOT exposed (no preload method, no IPC channel).
   payments,
   tender,
   vouchers,
