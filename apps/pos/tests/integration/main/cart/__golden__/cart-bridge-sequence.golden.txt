@@ -1,0 +1,1698 @@
+{
+  "steps": [
+    {
+      "step": "A.create",
+      "result": {
+        "kind": "ok",
+        "cart_id": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "step": "A.add item-a x2",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "merged": false,
+        "version": 1,
+        "display_name": "Panadol",
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 3000,
+        "quantity": 2
+      }
+    },
+    {
+      "step": "A.add item-a x1 (merge)",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "merged": true,
+        "version": 2,
+        "display_name": "Panadol",
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 4500,
+        "quantity": 3
+      }
+    },
+    {
+      "step": "A.add replay a-add-1",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "merged": false,
+        "version": 2,
+        "display_name": "Panadol",
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 4500,
+        "quantity": 3
+      }
+    },
+    {
+      "step": "A.add replay a-add-1 other qty",
+      "result": {
+        "kind": "refused",
+        "reason": "idempotency_payload_mismatch"
+      }
+    },
+    {
+      "step": "A.add unknown item",
+      "result": {
+        "kind": "refused",
+        "reason": "wrong_owner"
+      }
+    },
+    {
+      "step": "A.add item-b x1",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000003",
+        "merged": false,
+        "version": 1,
+        "display_name": "Vitamin C",
+        "unit_price_minor": 2500,
+        "line_subtotal_minor": 2500,
+        "quantity": 1
+      }
+    },
+    {
+      "step": "A.update item-b +2",
+      "result": {
+        "kind": "ok",
+        "version": 2
+      }
+    },
+    {
+      "step": "A.update item-b stale version",
+      "result": {
+        "kind": "refused",
+        "reason": "stale_version"
+      }
+    },
+    {
+      "step": "A.snapshot 1",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "state": "editing",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    },
+    {
+      "step": "A.setNote item-a",
+      "result": {
+        "kind": "ok",
+        "version": 3
+      }
+    },
+    {
+      "step": "A.setNote forbidden pattern",
+      "result": {
+        "kind": "refused",
+        "reason": "note_forbidden_pattern"
+      }
+    },
+    {
+      "step": "A.add item-c x1",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "merged": false,
+        "version": 1,
+        "display_name": "Plaster",
+        "unit_price_minor": 300,
+        "line_subtotal_minor": 300,
+        "quantity": 1
+      }
+    },
+    {
+      "step": "A.remove item-c",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "A.undo remove item-c",
+      "result": {
+        "kind": "ok",
+        "effect": "restored",
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "version": 3
+      }
+    },
+    {
+      "step": "A.snapshot 2",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "state": "editing",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000004",
+              "display_name": "Plaster",
+              "quantity": 1,
+              "unit_price_minor": 300,
+              "line_subtotal_minor": 300,
+              "note": null,
+              "version": 3,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    },
+    {
+      "step": "A.remove item-c again",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "A.discount cashier without approval",
+      "result": {
+        "kind": "refused",
+        "reason": "manager_attribution_required"
+      }
+    },
+    {
+      "step": "A.discount cashier refused approval",
+      "result": {
+        "kind": "refused",
+        "reason": "approval_invalid"
+      }
+    },
+    {
+      "step": "A.discount cashier with approval",
+      "result": {
+        "kind": "ok",
+        "placeholder_id": "a-dp-1",
+        "requires_manager_attribution": true
+      }
+    },
+    {
+      "step": "A.discount replay a-dp-1",
+      "result": {
+        "kind": "ok",
+        "placeholder_id": "a-dp-1",
+        "requires_manager_attribution": true
+      }
+    },
+    {
+      "step": "A.discount second on same line",
+      "result": {
+        "kind": "refused",
+        "reason": "discount_already_applied"
+      }
+    },
+    {
+      "step": "A.update discounted line",
+      "result": {
+        "kind": "refused",
+        "reason": "line_discounted"
+      }
+    },
+    {
+      "step": "A.discount manager on other cashier cart",
+      "result": {
+        "kind": "ok",
+        "placeholder_id": "a-dp-mgr",
+        "requires_manager_attribution": true
+      }
+    },
+    {
+      "step": "A.discount remove a-dp-1",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "A.discount re-add with approval",
+      "result": {
+        "kind": "ok",
+        "placeholder_id": "a-dp-2",
+        "requires_manager_attribution": true
+      }
+    },
+    {
+      "step": "restart-1 A.add replay a-add-1",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "merged": false,
+        "version": 3,
+        "display_name": "Panadol",
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 4500,
+        "quantity": 3
+      }
+    },
+    {
+      "step": "restart-1 A.add replay a-add-2 (merge)",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "merged": true,
+        "version": 3,
+        "display_name": "Panadol",
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 4500,
+        "quantity": 3
+      }
+    },
+    {
+      "step": "restart-1 A.add replay a-add-2 on another item",
+      "result": {
+        "kind": "refused",
+        "reason": "idempotency_payload_mismatch"
+      }
+    },
+    {
+      "step": "restart-1 A.update replay",
+      "result": {
+        "kind": "ok",
+        "version": 2
+      }
+    },
+    {
+      "step": "restart-1 A.discount replay a-dp-2",
+      "result": {
+        "kind": "ok",
+        "placeholder_id": "a-dp-2",
+        "requires_manager_attribution": true
+      }
+    },
+    {
+      "step": "restart-1 A.discount replay a-dp-2 other kind",
+      "result": {
+        "kind": "refused",
+        "reason": "idempotency_payload_mismatch"
+      }
+    },
+    {
+      "step": "A.snapshot 3",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "state": "editing",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003"
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002"
+            }
+          ],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    },
+    {
+      "step": "A.cancel before handoff",
+      "result": {
+        "kind": "refused",
+        "reason": "closed"
+      }
+    },
+    {
+      "step": "A.handoff 1",
+      "result": {
+        "kind": "ok",
+        "envelope": {
+          "envelope_version": "v1",
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "operator_session_id": "cashier-1",
+          "owning_operator_id": "op-cashier-1",
+          "tenant_id": "tenant-1",
+          "branch_id": "branch-1",
+          "terminal_id": "terminal-1",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "item_ref": "item-a",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "last_action_id": "a-note-1"
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "item_ref": "item-b",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "last_action_id": "a-upd-1"
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "placeholder_kind": "manual_amt_500",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "placeholder_kind": "manual_amt_200",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            }
+          ],
+          "subtotal_minor": 12000,
+          "discount_total_minor": 700,
+          "total_due_minor": 11300,
+          "created_at": "2026-11-15T09:00:34.000Z",
+          "handoff_action_id": "a-h-1"
+        }
+      }
+    },
+    {
+      "step": "A.handoff 1 replay",
+      "result": {
+        "kind": "ok",
+        "envelope": {
+          "envelope_version": "v1",
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "operator_session_id": "cashier-1",
+          "owning_operator_id": "op-cashier-1",
+          "tenant_id": "tenant-1",
+          "branch_id": "branch-1",
+          "terminal_id": "terminal-1",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "item_ref": "item-a",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "last_action_id": "a-note-1"
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "item_ref": "item-b",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "last_action_id": "a-upd-1"
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "placeholder_kind": "manual_amt_500",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "placeholder_kind": "manual_amt_200",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            }
+          ],
+          "subtotal_minor": 12000,
+          "discount_total_minor": 700,
+          "total_due_minor": 11300,
+          "created_at": "2026-11-15T09:00:34.000Z",
+          "handoff_action_id": "a-h-1"
+        }
+      }
+    },
+    {
+      "step": "A.add while frozen",
+      "result": {
+        "kind": "refused",
+        "reason": "frozen"
+      }
+    },
+    {
+      "step": "A.returnToSale eligibility",
+      "result": {
+        "kind": "ok",
+        "returnable": true
+      }
+    },
+    {
+      "step": "A.returnToSale",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "A.returnToSale replay",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "A.snapshot 4",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "state": "editing",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003"
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002"
+            }
+          ],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    },
+    {
+      "step": "A.handoff 2",
+      "result": {
+        "kind": "ok",
+        "envelope": {
+          "envelope_version": "v1",
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "operator_session_id": "cashier-1",
+          "owning_operator_id": "op-cashier-1",
+          "tenant_id": "tenant-1",
+          "branch_id": "branch-1",
+          "terminal_id": "terminal-1",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "item_ref": "item-a",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "last_action_id": "a-note-1"
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "item_ref": "item-b",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "last_action_id": "a-upd-1"
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "placeholder_kind": "manual_amt_500",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "placeholder_kind": "manual_amt_200",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            }
+          ],
+          "subtotal_minor": 12000,
+          "discount_total_minor": 700,
+          "total_due_minor": 11300,
+          "created_at": "2026-11-15T09:00:41.000Z",
+          "handoff_action_id": "a-h-2"
+        }
+      }
+    },
+    {
+      "step": "A.cancel post-handoff stale handoff id",
+      "result": {
+        "kind": "refused",
+        "reason": "stale_version"
+      }
+    },
+    {
+      "step": "A.cancel post-handoff refused approval",
+      "result": {
+        "kind": "refused",
+        "reason": "approval_invalid"
+      }
+    },
+    {
+      "step": "A.cancel post-handoff cashier + approval",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "A.snapshot after cancel",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "state": "cancelled",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003"
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002"
+            }
+          ],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    },
+    {
+      "step": "B.create",
+      "result": {
+        "kind": "ok",
+        "cart_id": "00000000-0000-4000-8000-000000000013"
+      }
+    },
+    {
+      "step": "B.add item-b x3",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000014",
+        "merged": false,
+        "version": 1,
+        "display_name": "Vitamin C",
+        "unit_price_minor": 2500,
+        "line_subtotal_minor": 7500,
+        "quantity": 3
+      }
+    },
+    {
+      "step": "B.void",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "B.void replay",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "C.create",
+      "result": {
+        "kind": "ok",
+        "cart_id": "00000000-0000-4000-8000-000000000015"
+      }
+    },
+    {
+      "step": "C.add item-a x1",
+      "result": {
+        "kind": "ok",
+        "line_id": "00000000-0000-4000-8000-000000000016",
+        "merged": false,
+        "version": 1,
+        "display_name": "Panadol",
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 1500,
+        "quantity": 1
+      }
+    },
+    {
+      "step": "C.handoff",
+      "result": {
+        "kind": "ok",
+        "envelope": {
+          "envelope_version": "v1",
+          "cart_id": "00000000-0000-4000-8000-000000000015",
+          "operator_session_id": "cashier-1",
+          "owning_operator_id": "op-cashier-1",
+          "tenant_id": "tenant-1",
+          "branch_id": "branch-1",
+          "terminal_id": "terminal-1",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000016",
+              "item_ref": "item-a",
+              "display_name": "Panadol",
+              "quantity": 1,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 1500,
+              "note": null,
+              "version": 1,
+              "last_action_id": "c-add-1"
+            }
+          ],
+          "discount_placeholders": [],
+          "subtotal_minor": 1500,
+          "discount_total_minor": 0,
+          "total_due_minor": 1500,
+          "created_at": "2026-11-15T09:00:52.000Z",
+          "handoff_action_id": "c-h-1"
+        }
+      }
+    },
+    {
+      "step": "C.cancel post-handoff manager",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "restart A.add replay a-add-1 on cancelled cart",
+      "result": {
+        "kind": "refused",
+        "reason": "closed"
+      }
+    },
+    {
+      "step": "restart A.handoff replay a-h-2",
+      "result": {
+        "kind": "ok",
+        "envelope": {
+          "envelope_version": "v1",
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "operator_session_id": "cashier-1",
+          "owning_operator_id": "op-cashier-1",
+          "tenant_id": "tenant-1",
+          "branch_id": "branch-1",
+          "terminal_id": "terminal-1",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "item_ref": "item-a",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "last_action_id": "a-note-1"
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "item_ref": "item-b",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "last_action_id": "a-upd-1"
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "placeholder_kind": "manual_amt_500",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "placeholder_kind": "manual_amt_200",
+              "requires_manager_attribution": true,
+              "attribution_operator_id": null
+            }
+          ],
+          "subtotal_minor": 12000,
+          "discount_total_minor": 700,
+          "total_due_minor": 11300,
+          "created_at": "2026-11-15T09:00:41.000Z",
+          "handoff_action_id": "a-h-2"
+        }
+      }
+    },
+    {
+      "step": "restart A.cancel replay a-cancel-1",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "restart A.cancel replay other handoff",
+      "result": {
+        "kind": "refused",
+        "reason": "idempotency_payload_mismatch"
+      }
+    },
+    {
+      "step": "restart C.cancel replay on cart A key",
+      "result": {
+        "kind": "refused",
+        "reason": "idempotency_payload_mismatch"
+      }
+    },
+    {
+      "step": "restart B.void replay",
+      "result": {
+        "kind": "ok"
+      }
+    },
+    {
+      "step": "no session add",
+      "result": {
+        "kind": "refused",
+        "reason": "no_session"
+      }
+    },
+    {
+      "step": "restart A.snapshot",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000001",
+          "state": "cancelled",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000002",
+              "display_name": "Panadol",
+              "quantity": 3,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 4500,
+              "note": "keep refrigerated",
+              "version": 3,
+              "controlled_substance": false,
+              "prescription_required": false
+            },
+            {
+              "line_id": "00000000-0000-4000-8000-000000000003",
+              "display_name": "Vitamin C",
+              "quantity": 3,
+              "unit_price_minor": 2500,
+              "line_subtotal_minor": 7500,
+              "note": null,
+              "version": 2,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [
+            {
+              "placeholder_id": "a-dp-mgr",
+              "line_id": "00000000-0000-4000-8000-000000000003"
+            },
+            {
+              "placeholder_id": "a-dp-2",
+              "line_id": "00000000-0000-4000-8000-000000000002"
+            }
+          ],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    },
+    {
+      "step": "restart C.snapshot",
+      "result": {
+        "kind": "ok",
+        "snapshot": {
+          "cart_id": "00000000-0000-4000-8000-000000000015",
+          "state": "cancelled",
+          "lines": [
+            {
+              "line_id": "00000000-0000-4000-8000-000000000016",
+              "display_name": "Panadol",
+              "quantity": 1,
+              "unit_price_minor": 1500,
+              "line_subtotal_minor": 1500,
+              "note": null,
+              "version": 1,
+              "controlled_substance": false,
+              "prescription_required": false
+            }
+          ],
+          "discount_placeholders": [],
+          "paid": false,
+          "envelope": null
+        }
+      }
+    }
+  ],
+  "approvalsConsumed": [
+    {
+      "approvalId": "appr-bad-1",
+      "actionKind": "cart.discount.manual",
+      "subjectRef": "00000000-0000-4000-8000-000000000001_00000000-0000-4000-8000-000000000002_manual_pct_10",
+      "subject": {
+        "version": "discount|tenant-1|branch-1|00000000-0000-4000-8000-000000000001|00000000-0000-4000-8000-000000000002|manual_pct_10|v3|a450",
+        "amountMinor": 450
+      },
+      "session": {
+        "id": "cashier-1",
+        "operator_id": "op-cashier-1",
+        "display_name": "Operator",
+        "role": "cashier",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "started_at": "2026-11-15T08:00:00.000Z",
+        "backend_session_id": "b-cashier-1",
+        "last_activity_at": "2026-11-15T08:00:00.000Z",
+        "lock_state": "active",
+        "locked_at": null
+      }
+    },
+    {
+      "approvalId": "appr-1",
+      "actionKind": "cart.discount.manual",
+      "subjectRef": "00000000-0000-4000-8000-000000000001_00000000-0000-4000-8000-000000000002_manual_pct_10",
+      "subject": {
+        "version": "discount|tenant-1|branch-1|00000000-0000-4000-8000-000000000001|00000000-0000-4000-8000-000000000002|manual_pct_10|v3|a450",
+        "amountMinor": 450
+      },
+      "session": {
+        "id": "cashier-1",
+        "operator_id": "op-cashier-1",
+        "display_name": "Operator",
+        "role": "cashier",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "started_at": "2026-11-15T08:00:00.000Z",
+        "backend_session_id": "b-cashier-1",
+        "last_activity_at": "2026-11-15T08:00:00.000Z",
+        "lock_state": "active",
+        "locked_at": null
+      }
+    },
+    {
+      "approvalId": "appr-3",
+      "actionKind": "cart.discount.manual",
+      "subjectRef": "00000000-0000-4000-8000-000000000001_00000000-0000-4000-8000-000000000002_manual_amt_200",
+      "subject": {
+        "version": "discount|tenant-1|branch-1|00000000-0000-4000-8000-000000000001|00000000-0000-4000-8000-000000000002|manual_amt_200|v3|a200",
+        "amountMinor": 200
+      },
+      "session": {
+        "id": "cashier-1",
+        "operator_id": "op-cashier-1",
+        "display_name": "Operator",
+        "role": "cashier",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "started_at": "2026-11-15T08:00:00.000Z",
+        "backend_session_id": "b-cashier-1",
+        "last_activity_at": "2026-11-15T08:00:00.000Z",
+        "lock_state": "active",
+        "locked_at": null
+      }
+    },
+    {
+      "approvalId": "appr-bad-2",
+      "actionKind": "cart.cancel_post_handoff",
+      "subjectRef": "00000000-0000-4000-8000-000000000001",
+      "subject": {
+        "version": "handoff:a-h-2",
+        "amountMinor": 12000
+      },
+      "session": {
+        "id": "cashier-1",
+        "operator_id": "op-cashier-1",
+        "display_name": "Operator",
+        "role": "cashier",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "started_at": "2026-11-15T08:00:00.000Z",
+        "backend_session_id": "b-cashier-1",
+        "last_activity_at": "2026-11-15T08:00:00.000Z",
+        "lock_state": "active",
+        "locked_at": null
+      }
+    },
+    {
+      "approvalId": "appr-6",
+      "actionKind": "cart.cancel_post_handoff",
+      "subjectRef": "00000000-0000-4000-8000-000000000001",
+      "subject": {
+        "version": "handoff:a-h-2",
+        "amountMinor": 12000
+      },
+      "session": {
+        "id": "cashier-1",
+        "operator_id": "op-cashier-1",
+        "display_name": "Operator",
+        "role": "cashier",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "started_at": "2026-11-15T08:00:00.000Z",
+        "backend_session_id": "b-cashier-1",
+        "last_activity_at": "2026-11-15T08:00:00.000Z",
+        "lock_state": "active",
+        "locked_at": null
+      }
+    }
+  ],
+  "outboxPayloads": [
+    "a-create cart.create {}",
+    "a-add-1 cart.line.add {\"item_ref\":\"item-a\",\"quantity\":2}",
+    "a-add-2 cart.line.merge {\"item_ref\":\"item-a\",\"quantity_added\":1}",
+    "a-add-3 cart.line.add {\"item_ref\":\"item-b\",\"quantity\":1}",
+    "a-upd-1 cart.line.update {\"op\":\"increment\",\"new_quantity\":3}",
+    "a-note-1 cart.line.note_set {\"note_length\":17}",
+    "a-add-4 cart.line.add {\"item_ref\":\"item-c\",\"quantity\":1}",
+    "a-rm-1 cart.line.remove {}",
+    "a-undo-1 cart.line.restore {\"undo_of_action_id\":\"a-rm-1\",\"effect\":\"restored\",\"result_version\":3}",
+    "a-rm-2 cart.line.remove {}",
+    "a-dp-1 cart.discount_placeholder.add {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_kind\":\"manual_pct_10\",\"reason_code\":\"promotion\"}",
+    "a-dp-mgr cart.discount_placeholder.add {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000003\",\"placeholder_kind\":\"manual_amt_500\",\"reason_code\":\"price_correction\"}",
+    "a-dp-rm-1 cart.discount_placeholder.remove {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"placeholder_id\":\"a-dp-1\"}",
+    "a-dp-2 cart.discount_placeholder.add {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_kind\":\"manual_amt_200\",\"reason_code\":\"promotion\"}",
+    "a-h-1 cart.handoff_to_payment {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-1\",\"line_count\":2,\"subtotal_minor\":12000}",
+    "a-back-1 cart.return_to_sale {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-1\"}",
+    "a-h-2 cart.handoff_to_payment {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-2\",\"line_count\":2,\"subtotal_minor\":12000}",
+    "a-cancel-1 cart.cancel.post_handoff {\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-2\"}",
+    "b-create cart.create {}",
+    "b-add-1 cart.line.add {\"item_ref\":\"item-b\",\"quantity\":3}",
+    "b-void-1 cart.void {\"cart_id\":\"00000000-0000-4000-8000-000000000013\"}",
+    "c-create cart.create {}",
+    "c-add-1 cart.line.add {\"item_ref\":\"item-a\",\"quantity\":1}",
+    "c-h-1 cart.handoff_to_payment {\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"handoff_action_id\":\"c-h-1\",\"line_count\":1,\"subtotal_minor\":1500}",
+    "c-x-1 cart.cancel.post_handoff {\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"handoff_action_id\":\"c-h-1\"}"
+  ],
+  "tables": {
+    "audit_events": [
+      {
+        "event_id": "00000000-0000-4000-8000-000000000005",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.discount.manager_authorized",
+        "created_at": "2026-11-15T09:00:19.000Z",
+        "approving_supervisor_id": "mgr-user-1",
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_id\":\"a-dp-1\",\"approval_id\":\"appr-1\",\"reason_code\":\"promotion\",\"kind\":\"percent\",\"value\":10,\"amount_minor\":450,\"approver_role\":\"manager\"}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000006",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-manager-1",
+        "session_id": "manager-1",
+        "shift_id": null,
+        "action_category": "cart.discount.manager_authorized",
+        "created_at": "2026-11-15T09:00:23.000Z",
+        "approving_supervisor_id": "op-manager-1",
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000003\",\"placeholder_id\":\"a-dp-mgr\",\"reason_code\":\"price_correction\",\"kind\":\"amount\",\"value\":500,\"amount_minor\":500,\"approver_role\":\"manager\"}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000007",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.discount.manager_authorized",
+        "created_at": "2026-11-15T09:00:25.000Z",
+        "approving_supervisor_id": "mgr-user-1",
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_id\":\"a-dp-2\",\"approval_id\":\"appr-3\",\"reason_code\":\"promotion\",\"kind\":\"amount\",\"value\":200,\"amount_minor\":200,\"approver_role\":\"manager\"}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000008",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.handoff_to_payment",
+        "created_at": "2026-11-15T09:00:34.000Z",
+        "approving_supervisor_id": null,
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-1\",\"line_count\":2,\"subtotal_minor\":12000}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000009",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.return_to_sale",
+        "created_at": "2026-11-15T09:00:38.000Z",
+        "approving_supervisor_id": null,
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-1\",\"cancelled_payment_attempt_id\":null}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000010",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.handoff_to_payment",
+        "created_at": "2026-11-15T09:00:41.000Z",
+        "approving_supervisor_id": null,
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-2\",\"line_count\":2,\"subtotal_minor\":12000}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000012",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.cancel.post_handoff",
+        "created_at": "2026-11-15T09:00:44.000Z",
+        "approving_supervisor_id": "mgr-user-1",
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-2\",\"approval_id\":\"appr-6\"}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000017",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "cashier-1",
+        "shift_id": null,
+        "action_category": "cart.handoff_to_payment",
+        "created_at": "2026-11-15T09:00:52.000Z",
+        "approving_supervisor_id": null,
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"handoff_action_id\":\"c-h-1\",\"line_count\":1,\"subtotal_minor\":1500}"
+      },
+      {
+        "event_id": "00000000-0000-4000-8000-000000000018",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "originating_terminal_id": "terminal-1",
+        "acting_operator_id": "op-cashier-1",
+        "session_id": "manager-1",
+        "shift_id": null,
+        "action_category": "cart.cancel.post_handoff",
+        "created_at": "2026-11-15T09:00:53.000Z",
+        "approving_supervisor_id": "op-manager-1",
+        "payload": "{\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"handoff_action_id\":\"c-h-1\"}"
+      }
+    ],
+    "cart_action_outbox": [
+      {
+        "action_id": "a-create",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": null,
+        "action_kind": "cart.create",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{}",
+        "applied_at": "2026-11-15T09:00:00.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-add-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "action_kind": "cart.line.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"item_ref\":\"item-a\",\"quantity\":2}",
+        "applied_at": "2026-11-15T09:00:01.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-add-2",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "action_kind": "cart.line.merge",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"item_ref\":\"item-a\",\"quantity_added\":1}",
+        "applied_at": "2026-11-15T09:00:02.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-add-3",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000003",
+        "action_kind": "cart.line.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"item_ref\":\"item-b\",\"quantity\":1}",
+        "applied_at": "2026-11-15T09:00:06.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-upd-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000003",
+        "action_kind": "cart.line.update",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"op\":\"increment\",\"new_quantity\":3}",
+        "applied_at": "2026-11-15T09:00:07.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-note-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "action_kind": "cart.line.note_set",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"note_length\":17}",
+        "applied_at": "2026-11-15T09:00:10.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-add-4",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "action_kind": "cart.line.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"item_ref\":\"item-c\",\"quantity\":1}",
+        "applied_at": "2026-11-15T09:00:12.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-rm-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "action_kind": "cart.line.remove",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{}",
+        "applied_at": "2026-11-15T09:00:13.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-undo-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "action_kind": "cart.line.restore",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"undo_of_action_id\":\"a-rm-1\",\"effect\":\"restored\",\"result_version\":3}",
+        "applied_at": "2026-11-15T09:00:14.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-rm-2",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "action_kind": "cart.line.remove",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{}",
+        "applied_at": "2026-11-15T09:00:16.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-dp-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "action_kind": "cart.discount_placeholder.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": "mgr-user-1",
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_kind\":\"manual_pct_10\",\"reason_code\":\"promotion\"}",
+        "applied_at": "2026-11-15T09:00:19.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-dp-mgr",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000003",
+        "action_kind": "cart.discount_placeholder.add",
+        "acting_operator_id": "op-manager-1",
+        "attribution_operator_id": "op-manager-1",
+        "operator_session_id": "manager-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000003\",\"placeholder_kind\":\"manual_amt_500\",\"reason_code\":\"price_correction\"}",
+        "applied_at": "2026-11-15T09:00:23.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-dp-rm-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "action_kind": "cart.discount_placeholder.remove",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"placeholder_id\":\"a-dp-1\"}",
+        "applied_at": "2026-11-15T09:00:24.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-dp-2",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "action_kind": "cart.discount_placeholder.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": "mgr-user-1",
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"cart_line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_kind\":\"manual_amt_200\",\"reason_code\":\"promotion\"}",
+        "applied_at": "2026-11-15T09:00:25.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-h-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": null,
+        "action_kind": "cart.handoff_to_payment",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-1\",\"line_count\":2,\"subtotal_minor\":12000}",
+        "applied_at": "2026-11-15T09:00:34.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-back-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": null,
+        "action_kind": "cart.return_to_sale",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-1\"}",
+        "applied_at": "2026-11-15T09:00:38.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-h-2",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": null,
+        "action_kind": "cart.handoff_to_payment",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-2\",\"line_count\":2,\"subtotal_minor\":12000}",
+        "applied_at": "2026-11-15T09:00:41.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "a-cancel-1",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": null,
+        "action_kind": "cart.cancel.post_handoff",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"handoff_action_id\":\"a-h-2\"}",
+        "applied_at": "2026-11-15T09:00:44.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "b-create",
+        "cart_id": "00000000-0000-4000-8000-000000000013",
+        "line_id": null,
+        "action_kind": "cart.create",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{}",
+        "applied_at": "2026-11-15T09:00:46.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "b-add-1",
+        "cart_id": "00000000-0000-4000-8000-000000000013",
+        "line_id": "00000000-0000-4000-8000-000000000014",
+        "action_kind": "cart.line.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"item_ref\":\"item-b\",\"quantity\":3}",
+        "applied_at": "2026-11-15T09:00:47.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "b-void-1",
+        "cart_id": "00000000-0000-4000-8000-000000000013",
+        "line_id": null,
+        "action_kind": "cart.void",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000013\"}",
+        "applied_at": "2026-11-15T09:00:48.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "c-create",
+        "cart_id": "00000000-0000-4000-8000-000000000015",
+        "line_id": null,
+        "action_kind": "cart.create",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{}",
+        "applied_at": "2026-11-15T09:00:50.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "c-add-1",
+        "cart_id": "00000000-0000-4000-8000-000000000015",
+        "line_id": "00000000-0000-4000-8000-000000000016",
+        "action_kind": "cart.line.add",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"item_ref\":\"item-a\",\"quantity\":1}",
+        "applied_at": "2026-11-15T09:00:51.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "c-h-1",
+        "cart_id": "00000000-0000-4000-8000-000000000015",
+        "line_id": null,
+        "action_kind": "cart.handoff_to_payment",
+        "acting_operator_id": "op-cashier-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "cashier-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"handoff_action_id\":\"c-h-1\",\"line_count\":1,\"subtotal_minor\":1500}",
+        "applied_at": "2026-11-15T09:00:52.000Z",
+        "synced_at": null
+      },
+      {
+        "action_id": "c-x-1",
+        "cart_id": "00000000-0000-4000-8000-000000000015",
+        "line_id": null,
+        "action_kind": "cart.cancel.post_handoff",
+        "acting_operator_id": "op-manager-1",
+        "attribution_operator_id": null,
+        "operator_session_id": "manager-1",
+        "payload_json": "{\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"handoff_action_id\":\"c-h-1\"}",
+        "applied_at": "2026-11-15T09:00:53.000Z",
+        "synced_at": null
+      }
+    ],
+    "cart_line_discount_placeholders": [
+      {
+        "placeholder_id": "a-dp-mgr",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000003",
+        "placeholder_kind": "manual_amt_500",
+        "requires_manager_attribution": 1,
+        "attribution_operator_id": "op-manager-1",
+        "created_at": "2026-11-15T09:00:23.000Z"
+      },
+      {
+        "placeholder_id": "a-dp-2",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "placeholder_kind": "manual_amt_200",
+        "requires_manager_attribution": 1,
+        "attribution_operator_id": "mgr-user-1",
+        "created_at": "2026-11-15T09:00:25.000Z"
+      }
+    ],
+    "cart_lines": [
+      {
+        "line_id": "00000000-0000-4000-8000-000000000002",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "item_ref": "item-a",
+        "display_name": "Panadol",
+        "quantity": 3,
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 4500,
+        "note": "keep refrigerated",
+        "version": 3,
+        "last_action_id": "a-note-1",
+        "created_at": "2026-11-15T09:00:01.000Z",
+        "updated_at": "2026-11-15T09:00:10.000Z",
+        "removed_at": null
+      },
+      {
+        "line_id": "00000000-0000-4000-8000-000000000003",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "item_ref": "item-b",
+        "display_name": "Vitamin C",
+        "quantity": 3,
+        "unit_price_minor": 2500,
+        "line_subtotal_minor": 7500,
+        "note": null,
+        "version": 2,
+        "last_action_id": "a-upd-1",
+        "created_at": "2026-11-15T09:00:06.000Z",
+        "updated_at": "2026-11-15T09:00:07.000Z",
+        "removed_at": null
+      },
+      {
+        "line_id": "00000000-0000-4000-8000-000000000004",
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "item_ref": "item-c",
+        "display_name": "Plaster",
+        "quantity": 1,
+        "unit_price_minor": 300,
+        "line_subtotal_minor": 300,
+        "note": null,
+        "version": 4,
+        "last_action_id": "a-rm-2",
+        "created_at": "2026-11-15T09:00:12.000Z",
+        "updated_at": "2026-11-15T09:00:16.000Z",
+        "removed_at": "2026-11-15T09:00:16.000Z"
+      },
+      {
+        "line_id": "00000000-0000-4000-8000-000000000014",
+        "cart_id": "00000000-0000-4000-8000-000000000013",
+        "item_ref": "item-b",
+        "display_name": "Vitamin C",
+        "quantity": 3,
+        "unit_price_minor": 2500,
+        "line_subtotal_minor": 7500,
+        "note": null,
+        "version": 1,
+        "last_action_id": "b-add-1",
+        "created_at": "2026-11-15T09:00:47.000Z",
+        "updated_at": "2026-11-15T09:00:47.000Z",
+        "removed_at": null
+      },
+      {
+        "line_id": "00000000-0000-4000-8000-000000000016",
+        "cart_id": "00000000-0000-4000-8000-000000000015",
+        "item_ref": "item-a",
+        "display_name": "Panadol",
+        "quantity": 1,
+        "unit_price_minor": 1500,
+        "line_subtotal_minor": 1500,
+        "note": null,
+        "version": 1,
+        "last_action_id": "c-add-1",
+        "created_at": "2026-11-15T09:00:51.000Z",
+        "updated_at": "2026-11-15T09:00:51.000Z",
+        "removed_at": null
+      }
+    ],
+    "carts": [
+      {
+        "cart_id": "00000000-0000-4000-8000-000000000001",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "terminal_id": "terminal-1",
+        "owning_operator_id": "op-cashier-1",
+        "operator_session_id": "cashier-1",
+        "state": "cancelled",
+        "cart_subtotal_minor": 12000,
+        "created_at": "2026-11-15T09:00:00.000Z",
+        "updated_at": "2026-11-15T09:00:44.000Z",
+        "frozen_at": "2026-11-15T09:00:41.000Z",
+        "cancelled_at": "2026-11-15T09:00:44.000Z",
+        "cancellation_reason": "manager_voided_post_handoff",
+        "handoff_envelope_json": "{\"envelope_version\":\"v1\",\"cart_id\":\"00000000-0000-4000-8000-000000000001\",\"operator_session_id\":\"cashier-1\",\"owning_operator_id\":\"op-cashier-1\",\"tenant_id\":\"tenant-1\",\"branch_id\":\"branch-1\",\"terminal_id\":\"terminal-1\",\"lines\":[{\"line_id\":\"00000000-0000-4000-8000-000000000002\",\"item_ref\":\"item-a\",\"display_name\":\"Panadol\",\"quantity\":3,\"unit_price_minor\":1500,\"line_subtotal_minor\":4500,\"note\":\"keep refrigerated\",\"version\":3,\"last_action_id\":\"a-note-1\"},{\"line_id\":\"00000000-0000-4000-8000-000000000003\",\"item_ref\":\"item-b\",\"display_name\":\"Vitamin C\",\"quantity\":3,\"unit_price_minor\":2500,\"line_subtotal_minor\":7500,\"note\":null,\"version\":2,\"last_action_id\":\"a-upd-1\"}],\"discount_placeholders\":[{\"placeholder_id\":\"a-dp-mgr\",\"line_id\":\"00000000-0000-4000-8000-000000000003\",\"placeholder_kind\":\"manual_amt_500\",\"requires_manager_attribution\":true,\"attribution_operator_id\":\"op-manager-1\"},{\"placeholder_id\":\"a-dp-2\",\"line_id\":\"00000000-0000-4000-8000-000000000002\",\"placeholder_kind\":\"manual_amt_200\",\"requires_manager_attribution\":true,\"attribution_operator_id\":\"mgr-user-1\"}],\"subtotal_minor\":12000,\"discount_total_minor\":700,\"total_due_minor\":11300,\"created_at\":\"2026-11-15T09:00:41.000Z\",\"handoff_action_id\":\"a-h-2\"}",
+        "last_action_id": "a-cancel-1",
+        "parked_at": null,
+        "park_label": null
+      },
+      {
+        "cart_id": "00000000-0000-4000-8000-000000000013",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "terminal_id": "terminal-1",
+        "owning_operator_id": "op-cashier-1",
+        "operator_session_id": "cashier-1",
+        "state": "cancelled",
+        "cart_subtotal_minor": 7500,
+        "created_at": "2026-11-15T09:00:46.000Z",
+        "updated_at": "2026-11-15T09:00:48.000Z",
+        "frozen_at": null,
+        "cancelled_at": "2026-11-15T09:00:48.000Z",
+        "cancellation_reason": "cashier_voided",
+        "handoff_envelope_json": null,
+        "last_action_id": "b-void-1",
+        "parked_at": null,
+        "park_label": null
+      },
+      {
+        "cart_id": "00000000-0000-4000-8000-000000000015",
+        "tenant_id": "tenant-1",
+        "branch_id": "branch-1",
+        "terminal_id": "terminal-1",
+        "owning_operator_id": "op-cashier-1",
+        "operator_session_id": "cashier-1",
+        "state": "cancelled",
+        "cart_subtotal_minor": 1500,
+        "created_at": "2026-11-15T09:00:50.000Z",
+        "updated_at": "2026-11-15T09:00:53.000Z",
+        "frozen_at": "2026-11-15T09:00:52.000Z",
+        "cancelled_at": "2026-11-15T09:00:53.000Z",
+        "cancellation_reason": "manager_voided_post_handoff",
+        "handoff_envelope_json": "{\"envelope_version\":\"v1\",\"cart_id\":\"00000000-0000-4000-8000-000000000015\",\"operator_session_id\":\"cashier-1\",\"owning_operator_id\":\"op-cashier-1\",\"tenant_id\":\"tenant-1\",\"branch_id\":\"branch-1\",\"terminal_id\":\"terminal-1\",\"lines\":[{\"line_id\":\"00000000-0000-4000-8000-000000000016\",\"item_ref\":\"item-a\",\"display_name\":\"Panadol\",\"quantity\":1,\"unit_price_minor\":1500,\"line_subtotal_minor\":1500,\"note\":null,\"version\":1,\"last_action_id\":\"c-add-1\"}],\"discount_placeholders\":[],\"subtotal_minor\":1500,\"discount_total_minor\":0,\"total_due_minor\":1500,\"created_at\":\"2026-11-15T09:00:52.000Z\",\"handoff_action_id\":\"c-h-1\"}",
+        "last_action_id": "c-x-1",
+        "parked_at": null,
+        "park_label": null
+      }
+    ]
+  }
+}
