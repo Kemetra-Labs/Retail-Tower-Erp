@@ -1940,7 +1940,11 @@ paths:
         `submitted`. Variance is counted minus expected at the cut, per product,
         computed from the observations (the sum of the product's positions).
         Every product in the scope must have at least one observation, else
-        400. The submitter is recorded (`submittedBy`) and is barred from
+        400. A product whose counted total (the sum of its positions) or whose
+        variance cannot be represented as a `NonNegativeDecimalQuantity` or
+        `DecimalQuantity` (15 integer digits) is refused with 400
+        `validation_error` and nothing is written; no line is ever returned
+        out of range. The submitter is recorded (`submittedBy`) and is barred from
         approving unless the tenant's audited small-merchant exception applies
         (G6-10). The review lines are read with `listCountVarianceLines`. A
         session not `cut_taken` is 409 `count_session_not_in_state`. Owner,
@@ -2012,6 +2016,7 @@ paths:
                     expectedQuantity: "10"
                     countedQuantity: "7"
                     varianceQuantity: "-3"
+                    lineVersion: "3"
                     flags: [divergence]
                     acknowledgementRequired: true
                     acknowledgement: null
@@ -2097,7 +2102,11 @@ paths:
         threshold and no Retail Tower or platform-admin override in V1. Every
         flagged line (`divergence`, `stale_snapshot`, `pending`) must be listed
         in `acknowledgements`, else 409 `count_flagged_line_not_acknowledged`
-        and nothing is written. A line with an `unmapped` or `uom_mismatch` flag
+        and nothing is written. Each acknowledgement names the `lineVersion` the
+        reviewer saw (`CountVarianceLine.lineVersion`); if the line changed
+        since (a recount, or a late pre-cut event that invalidated it, G6-4)
+        the approval is refused with 409 `count_line_version_stale` and nothing
+        is written, so a stale acknowledgement never approves a changed line. A line with an `unmapped` or `uom_mismatch` flag
         cannot post and cannot be acknowledged into posting; a count-up line
         with no stock or valuation history is refused per line
         (`CountVarianceLine.refusal.code` `count_up_without_valuation_history`,
@@ -2122,6 +2131,7 @@ paths:
             example:
               acknowledgements:
                 - productId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01
+                  lineVersion: "3"
                   note: Recounted twice, shelf is short
       responses:
         "200":
@@ -3916,13 +3926,21 @@ components:
       type: object
       additionalProperties: false
       required:
-        [productId, stockingUnit, expectedQuantity, countedQuantity, varianceQuantity, flags, acknowledgementRequired,
+        [productId, lineVersion, stockingUnit, expectedQuantity, countedQuantity, varianceQuantity, flags, acknowledgementRequired,
          acknowledgement, refusal, observations]
       description: >
         RT-1419 (decision 831) — one product of the scope: counted (the sum of
         its observed positions, G6-1) minus expected at the cut.
       properties:
         productId: { type: string, format: uuid }
+        lineVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >
+            Opaque version of the line's reviewed state (expected, observations
+            and invalidation). It changes whenever any of them changes;
+            compare for equality only. An approval acknowledgement carries it.
         stockingUnit:
           $ref: "#/components/schemas/StockingUnit"
         expectedQuantity:
@@ -3980,9 +3998,14 @@ components:
     CountAcknowledgementInput:
       type: object
       additionalProperties: false
-      required: [productId]
+      required: [productId, lineVersion]
       properties:
         productId: { type: string, format: uuid }
+        lineVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The `CountVarianceLine.lineVersion` the reviewer saw.
         note:
           type: [string, "null"]
           maxLength: 500
@@ -4184,7 +4207,9 @@ components:
         approver is a counter or the submitter and the tenant's audited
         small-merchant exception does not apply (G6-10).
         `count_flagged_line_not_acknowledged`: a flagged line needs an
-        acknowledgement (G6-2). `idempotency_key_conflict`: the
+        acknowledgement (G6-2). `count_line_version_stale`: an
+        acknowledgement's `lineVersion` no longer matches the line, which
+        changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the
         `Idempotency-Key` was already used for a different command. Nothing is
         written. A count-up line without valuation history is not an error of
         the request: it is refused on its line (`CountVarianceLine.refusal`).
