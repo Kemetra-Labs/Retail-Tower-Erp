@@ -30,6 +30,12 @@
 #            the Backend-Core audience. A failure here is retried with "Re-run failed jobs", which repeats only
 #            this job with the upload's outputs; re-running the upload fails closed on the conditional write.
 #
+#            RT-1418, REPLACE_CURRENT (`replace_current` true, promote mode only): after the registration, the same
+#            job, so the same approval, asks Backend-Core to withdraw the release that is current at that moment, never
+#            the one this run registered (supersede-current, which acts only for a release this run registered and only
+#            when it is strictly newer). Nothing is activated: a platform admin activates the new release in the
+#            Console afterwards. Rollback stays roll-forward: a fix ships as a higher version promoted this way.
+#
 # It runs on main only: a copy of this file on another branch could print a verification it did not do, and the
 # Backend-Core `ref` pin and the upload role's trust are each one exact value (refs/heads/main).
 #
@@ -76,6 +82,10 @@ name: promote-pos-pilot
         type: string
         required: false
         default: ''
+      replace_current:
+        description: Promote only (RT-1418). True also withdraws the release that is current when this run registers the new one, never the new one, in the same approved job; the new release must be a higher version. Nothing is activated. False (the default) leaves the current release alone. A withdraw run refuses it.
+        type: boolean
+        default: false
       dry_run:
         description: True (the default) changes nothing. Promote then only verifies; withdraw only checks the request and prints what it would withdraw. False promotes (uploads and registers, never activates) or withdraws, after the environment's approval.
         type: boolean
@@ -263,6 +273,8 @@ jobs:
 
       # What a live promotion would do with these bytes. Nothing here touches S3 or Backend-Core.
       - name: Dry-run result
+        env:
+          REPLACE_CURRENT: ${{ inputs.replace_current }}
         run: |
           set -euo pipefail
           EXE="POS-Pulse-Setup-$VERSION.exe"
@@ -276,6 +288,9 @@ jobs:
             echo
             echo "- upload \`$EXE\` ($SIZE bytes) to \`pos/pilot/${VERSION}/${EXE}\` in the private bucket, with SHA-256 \`$DIGEST\`, never overwriting;"
             echo "- register it with Backend-Core as version \`$VERSION\`, signing class \`pilot\`, publisher \`CN=Kemetra POS PILOT\`, source commit \`$SHA\`, and promotion run $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID;"
+            if [ "${REPLACE_CURRENT:-}" = true ]; then
+              echo "- then (replace_current) withdraw the release that is current at that moment, never this one, and only if \`$VERSION\` is higher; nothing current means nothing is withdrawn;"
+            fi
             echo "- leave the release inactive: a platform admin activates it separately."
             echo
             echo "Checked: published release with exactly the three assets, manifest, .sha256, size, build provenance, and the signature of the pinned leaf \`$LEAF_SHA1\`."
@@ -504,6 +519,7 @@ jobs:
       RUN_ID: ${{ github.run_id }}
     steps:
       - name: Register the release with Backend-Core (OIDC bearer; it is not activated)
+        id: register
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
@@ -532,11 +548,69 @@ jobs:
               '.version == $v and .sha256 == $body.sha256 and .sizeBytes == $body.sizeBytes and .signingClass == "pilot" and .artifactVersionId == $body.artifactVersionId and .approved == true' \
               "$RESP" >/dev/null \
             || fail "Backend-Core answered $HTTP but not with the release that was sent (a withdrawn release answers approved:false)"
+          # RT-1418: the id the replace step names as the release to keep. Only a UUID is passed on; the replace step refuses
+          # to run without one, so a registration stays exactly as before when replace_current is off.
+          RELEASE_ID="$(jq -r '.releaseId | if type == "string" then ascii_downcase else "" end' "$RESP")"
+          if [[ "$RELEASE_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          fi
           {
             echo "### Registered $TAG with Backend-Core (HTTP $HTTP): it is NOT active"
             echo
             echo "- release \`$(jq -r '.releaseId // "unknown"' "$RESP")\`, version \`$VERSION\`"
             echo "- a platform admin activates it separately in the Console; nothing here makes it downloadable"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # RT-1418, replace_current only. Same job, same environment and approval, a fresh token for the same audience. One
+      # POST to supersede-current naming the release register just answered with: Backend-Core withdraws the release
+      # that is current, never that one, and only for a release this run registered. It never activates anything.
+      - name: Withdraw the release that was current, never this one (replace_current; nothing is activated)
+        if: ${{ inputs.replace_current }}
+        env:
+          RELEASE_ID: ${{ steps.register.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          AFTER="The new release $TAG stays registered and inactive and the current release was not withdrawn. Fix the cause, then use Re-run failed jobs: it repeats the registration (an equal replay) and this step."
+          [[ "$RELEASE_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || fail "the register step reported no release id, so nothing is withdrawn. $AFTER"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || fail "version '$VERSION' is not X.Y.Z"
+          [[ "$API_BASE" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$ ]] || fail "POS_PILOT_API_BASE_URL must be an https origin with no path and no trailing slash"
+          [[ "$AUDIENCE" =~ ^[A-Za-z0-9._:/@-]{3,200}$ ]] && [ "$AUDIENCE" != sts.amazonaws.com ] || fail "POS_PILOT_PROMOTION_OIDC_AUDIENCE is blank, malformed, or the AWS audience"
+          [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] || fail "no OIDC token request is available: this job needs id-token: write"
+          # The credentials go through curl's config on stdin, never through the argument list.
+          TOKEN="$(printf 'header = "Authorization: Bearer %s"\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            | curl -K - --silent --show-error --fail --max-time 20 --proto '=https' --tlsv1.2 --get --data-urlencode "audience=$AUDIENCE" "$ACTIONS_ID_TOKEN_REQUEST_URL" \
+            | jq -r '.value // empty')" || fail "GitHub did not issue an OIDC token. $AFTER"
+          [ -n "$TOKEN" ] || fail "GitHub issued an empty OIDC token. $AFTER"
+          echo "::add-mask::$TOKEN"
+          RESP="$RUNNER_TEMP/supersede.json"
+          HTTP="$(printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" \
+            | curl -K - --silent --show-error --max-time 30 --proto '=https' --tlsv1.2 -o "$RESP" -w '%{http_code}' -X POST --data '' \
+                "$API_BASE/api/v1/platform/pos-pilot-releases/$RELEASE_ID/supersede-current")" \
+            || fail "cannot reach Backend-Core, so it is not known whether the current release was withdrawn: read the Console release list. A repeat is safe."
+          # The envelope is { error: { code } }; read only a short plain code out of whatever came back.
+          CODE="$(jq -r '((.error | objects | .code) // .code // "no code") | tostring' "$RESP" 2>/dev/null | tr -cd 'A-Za-z0-9_. -' | head -c 80 || true)"
+          [ -n "$CODE" ] || CODE="no code"
+          [ "$HTTP" = 200 ] || fail "Backend-Core answered $HTTP ($CODE). 409 release_not_newer: $VERSION is not higher than the current release, so ship a higher version. 409 release_withdrawn: this release was withdrawn. 403: the release was registered by another run, or the five POS_PILOT_PROMOTION_OIDC_* pins do not match this token. $AFTER"
+          jq -e --arg id "$RELEASE_ID" --arg v "$VERSION" '
+              (.keeper | type) == "object" and .keeper.releaseId == $id and .keeper.version == $v and .keeper.approved == true
+              and (.withdrawn == null
+                   or ((.withdrawn | type) == "object" and (.withdrawn.releaseId | type) == "string" and .withdrawn.releaseId != $id
+                       and .withdrawn.approved == false and (.withdrawn.withdrawnAt | type) == "string"))
+            ' "$RESP" >/dev/null 2>&1 \
+            || fail "Backend-Core answered 200 but not with $TAG kept and another release withdrawn: do not trust this run, read the Console release list"
+          OLD_ID="$(jq -r '.withdrawn.releaseId // empty' "$RESP" | tr -cd '0-9a-f-' | head -c 36 || true)"
+          OLD_VERSION="$(jq -r '.withdrawn.version // empty' "$RESP" | tr -cd '0-9A-Za-z.+-' | head -c 40 || true)"
+          {
+            if [ -n "$OLD_ID" ]; then
+              echo "### Replaced: withdrew version \`${OLD_VERSION:-unknown}\` (release \`$OLD_ID\`), kept $TAG"
+              echo
+              echo "- the resolver stops offering \`${OLD_VERSION:-unknown}\` at once and it is never approved again"
+            else
+              echo "### Nothing to replace: no other release was current, nothing was withdrawn"
+              echo
+            fi
+            echo "- $TAG (release \`$RELEASE_ID\`) is registered and NOT active: a platform admin activates it in the Console"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # RT-1363, withdraw mode, every run. No environment, no token, no credential and no checkout: it validates the
@@ -553,6 +627,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       RELEASE_ID: ${{ inputs.release_id }}
       DRY_RUN: ${{ inputs.dry_run }}
+      REPLACE_CURRENT: ${{ inputs.replace_current }}
     steps:
       - name: Check the withdraw request
         run: |
@@ -561,6 +636,7 @@ jobs:
           # A value this run was given is never echoed as it came: only its plain characters, and only a few.
           show() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._/@-' | head -c 60 || true; }
           [ "$REF" = refs/heads/main ] || fail "run this workflow from main, not '$(show "$REF")': another branch's copy of it could withdraw a release without the review of main's copy"
+          [ "${REPLACE_CURRENT:-}" != true ] || fail "replace_current is a promote option (RT-1418): a withdraw run names the one release it withdraws, so run it again with replace_current off"
           [[ "$ACTOR" =~ ^[A-Za-z0-9](-?[A-Za-z0-9])*$ ]] && [ "${#ACTOR}" -le 39 ] || fail "the actor '$(show "$ACTOR")' is not a GitHub login the registry accepts (start the run as a person, not an app)"
           [[ "$TAG" =~ ^pos-pilot/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "tag '$(show "$TAG")' is not pos-pilot/vX.Y.Z: name the version of the release to withdraw"
           ID="$(printf '%s' "$RELEASE_ID" | tr 'A-F' 'a-f')"

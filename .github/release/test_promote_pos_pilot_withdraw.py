@@ -72,7 +72,7 @@ def jobs_that_run(text: str, mode: str, dry_run: bool) -> set[str]:
 
 def withdraw_env(tmp: Path, **extra: str) -> dict:
     """What a withdraw step sees: the job's env, the environment's variables and the fakes' log files."""
-    env = {"REF": "refs/heads/main", "ACTOR": "octocat", "TAG": TAG, "RELEASE_ID": RELEASE_ID, "DRY_RUN": "true",
+    env = {"REF": "refs/heads/main", "ACTOR": "octocat", "TAG": TAG, "RELEASE_ID": RELEASE_ID, "DRY_RUN": "true", "REPLACE_CURRENT": "false",
            "API_BASE": API, "AUDIENCE": AUDIENCE, "RUNNER_TEMP": runner_temp(tmp),
            "GITHUB_STEP_SUMMARY": str(tmp / "summary.md"), "CURL_LOG": str(tmp / "curl.log"), "CURL_STDIN": str(tmp / "curl.stdin"),
            "ACTIONS_ID_TOKEN_REQUEST_URL": "https://token.example.net/oidc?api-version=2", "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "requesttoken",
@@ -110,6 +110,9 @@ class PromotePosPilotWithdrawStatic(unittest.TestCase):
         self.assertIn("required: false", release)
         self.assertIn("default: true", one("dry_run"))
         self.assertIn("type: boolean", one("dry_run"))
+        # RT-1418: a promote-only flag; a withdraw run refuses it (see the check tests).
+        self.assertIn("default: false", one("replace_current"))
+        self.assertIn("A withdraw run refuses it", one("replace_current"))
 
     def test_an_empty_pin_still_refuses_a_promotion_because_resolve_checks_it_itself(self):
         script = step_script(job(self.text, "resolve"), "Resolve the tag and the leaf pin")
@@ -154,6 +157,7 @@ class PromotePosPilotWithdrawStatic(unittest.TestCase):
         self.assertNotIn("curl", body)
         self.assertNotIn("vars.", body, "the Backend-Core settings are read by the live job only")
         self.assertNotIn("inputs.dry_run", body.replace("DRY_RUN: ${{ inputs.dry_run }}", ""), "the job runs in a dry run and a live run, and reads the flag only through DRY_RUN")
+        self.assertIn("REPLACE_CURRENT: ${{ inputs.replace_current }}", body, "RT-1418: it reads replace_current only to refuse it")
 
     def test_the_live_job_holds_the_environment_and_an_id_token_only(self):
         body = code(job(self.text, LIVE))
@@ -169,7 +173,7 @@ class PromotePosPilotWithdrawStatic(unittest.TestCase):
             body = code(job(self.text, name))
             for pattern in (r"\baws\b", r"\bs3\b", r"\biam\b", r"configure-aws-credentials", r"put-object",
                             r"delete-object", r"\bgh\b", r"actions/checkout", r"Idempotency-Key", r"/activate", r"-X (?:PUT|DELETE|PATCH)",
-                            r"pos-pilot-releases\"", r"--data-binary", r"\$BODY"):
+                            r"pos-pilot-releases\"", r"--data-binary", r"\$BODY", r"supersede-current"):
                 self.assertNotRegex(body, re.compile(pattern, re.I), f"{name}: {pattern}")
         for name in PROMOTE_JOBS:
             self.assertNotIn("/withdraw", code(job(self.text, name)), name)
@@ -257,6 +261,15 @@ class PromotePosPilotWithdrawChecks(unittest.TestCase):
                 self.assertIn(part, summary)
             self.assertNotIn("nothing was withdrawn", summary)
             self.assertFalse((temp / "curl.log").exists())
+
+    def test_it_refuses_replace_current_in_a_withdraw_run_dry_or_live(self):
+        for dry in ("true", "false"):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.check(temp, DRY_RUN=dry, REPLACE_CURRENT="true")
+                self.assertNotEqual(result.returncode, 0, dry)
+                self.assertIn("replace_current is a promote option", result.stdout + result.stderr)
+                self.assertFalse((temp / "summary.md").exists(), dry)
 
     def test_an_upper_case_release_id_is_accepted_and_shown_in_lower_case(self):
         with tempfile.TemporaryDirectory() as tmp:

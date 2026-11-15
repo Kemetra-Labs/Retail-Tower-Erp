@@ -211,7 +211,16 @@ for (const code of ["release_current_exists", "release_withdrawn"] as const) {
       code === "release_current_exists"
         ? "posPilot.activate.currentExists"
         : "posPilot.activate.withdrawn";
-    await expect(page.getByText(t(key, { version: LTR("0.1.3") }))).toBeVisible();
+    // RT-1418: the current-release notice also names the workflow, its withdraw mode and replace_current, isolated LTR.
+    const names: Record<string, string> =
+      code === "release_current_exists"
+        ? {
+            workflow: LTR("promote-pos-pilot"),
+            withdraw: LTR("withdraw"),
+            replace: LTR("replace_current"),
+          }
+        : {};
+    await expect(page.getByText(t(key, { version: LTR("0.1.3"), ...names }))).toBeVisible();
     expect(server.activations).toHaveLength(1);
     await expectNoAxeViolations(page, `activate ${code}`);
   });

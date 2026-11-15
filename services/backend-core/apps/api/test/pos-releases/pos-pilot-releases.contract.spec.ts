@@ -5,7 +5,7 @@
  * load-only, plus AJV fixtures against the contract schemas. No app boot and
  * no HTTP. Pinned here:
  *
- *   1. The six operations: paths, methods, one operationId each, none carries
+ *   1. The nine operations (RT-1418 added supersede-current): paths, methods, one operationId each, none carries
  *      a contract-only marker (RT-1298 lifted it from the three registry
  *      writes), their audit actions, and their closed statuses.
  *   2. The resolver answer is one of two closed shapes: `available:false` has
@@ -22,6 +22,7 @@ const TENANT = "/api/v1/platform/pos-pilot-tenants/{tenantId}";
 const REGISTER = "/api/v1/platform/pos-pilot-releases";
 const WITHDRAW = "/api/v1/platform/pos-pilot-releases/{releaseId}/withdraw";
 const ACTIVATE = "/api/v1/platform/pos-pilot-releases/{releaseId}/activate";
+const SUPERSEDE = "/api/v1/platform/pos-pilot-releases/{releaseId}/supersede-current";
 const LIST_TENANTS = "/api/v1/platform/pos-pilot-tenants";
 
 let contract: ContractReader;
@@ -58,13 +59,14 @@ describe("RT-1292 pilot releases contract: operations", () => {
     ["post", REGISTER, "platformRegisterPilotRelease"],
     ["post", WITHDRAW, "platformWithdrawPilotRelease"],
     ["post", ACTIVATE, "platformActivatePilotRelease"],
+    ["post", SUPERSEDE, "platformSupersedeCurrentPilotRelease"],
     ["get", REGISTER, "platformListPilotReleases"],
     ["get", LIST_TENANTS, "platformListPilotTenants"],
   ] as const)("declares %s %s as %s", (method, path, operationId) => {
     expect(contract.operation(method, path)["operationId"]).toBe(operationId);
   });
 
-  it("serves all eight operations: no contract-only marker (RT-1298 lifted the registry writes, RT-1328 added the two reads)", () => {
+  it("serves all nine operations: no contract-only marker (RT-1298 lifted the registry writes, RT-1328 added the two reads, RT-1418 supersede-current)", () => {
     const all = [
       ["get", LATEST],
       ["put", TENANT],
@@ -72,6 +74,7 @@ describe("RT-1292 pilot releases contract: operations", () => {
       ["post", REGISTER],
       ["post", WITHDRAW],
       ["post", ACTIVATE],
+      ["post", SUPERSEDE],
       ["get", REGISTER],
       ["get", LIST_TENANTS],
     ] as const;
@@ -89,6 +92,7 @@ describe("RT-1292 pilot releases contract: operations", () => {
     expect(contract.operation("post", REGISTER)["x-audit-action"]).toBe("pos.pilot_release.registered");
     expect(contract.operation("post", WITHDRAW)["x-audit-action"]).toBe("pos.pilot_release.withdrawn");
     expect(contract.operation("post", ACTIVATE)["x-audit-action"]).toBe("pos.pilot_release.activated");
+    expect(contract.operation("post", SUPERSEDE)["x-audit-action"]).toBe("pos.pilot_release.withdrawn");
   });
 
   it("lists the closed statuses of each served operation", () => {
@@ -98,6 +102,7 @@ describe("RT-1292 pilot releases contract: operations", () => {
     expect(statuses("post", REGISTER)).toEqual(["200", "201", "400", "401", "403", "409", "422", "500"]);
     expect(statuses("post", WITHDRAW)).toEqual(["200", "400", "401", "403", "404", "500"]);
     expect(statuses("post", ACTIVATE)).toEqual(["200", "400", "401", "403", "404", "409", "429", "500"]);
+    expect(statuses("post", SUPERSEDE)).toEqual(["200", "400", "401", "403", "404", "409", "500"]);
     expect(statuses("get", REGISTER)).toEqual(["200", "400", "401", "403", "429", "500"]);
     expect(statuses("get", LIST_TENANTS)).toEqual(["200", "400", "401", "403", "429", "500"]);
   });
@@ -176,9 +181,10 @@ describe("RT-1298 pilot releases contract: the promotion credential", () => {
   const schemes = (path: `/${string}`): string[] =>
     (contract.operation("post", path)["security"] as JsonObject[]).flatMap((requirement) => Object.keys(requirement));
 
-  it("authenticates register and withdraw by the promotion workflow's GitHub OIDC token, activate by the session cookie", () => {
+  it("authenticates register, withdraw and supersede-current by the promotion workflow's GitHub OIDC token, activate by the session cookie", () => {
     expect(schemes(REGISTER)).toEqual(["promotionWriter"]);
     expect(schemes(WITHDRAW)).toEqual(["promotionWriter"]);
+    expect(schemes(SUPERSEDE)).toEqual(["promotionWriter"]);
     expect(schemes(ACTIVATE)).toEqual(["cookieAuth"]);
   });
 
@@ -220,6 +226,65 @@ describe("RT-1298 pilot releases contract: the promotion credential", () => {
     expect(contract.accepts("PilotRelease", release)).toBe(true);
     expect(contract.accepts("PilotRelease", { ...release, artifactKey: "k" })).toBe(false);
     expect(contract.accepts("PilotRelease", { ...release, signingClass: "lab" })).toBe(false);
+  });
+});
+
+describe("RT-1418 pilot releases contract: supersede-current", () => {
+  const RELEASE = {
+    releaseId: "0190f5a2-3b4c-7d8e-9f01-000000002929",
+    version: "1.5.0",
+    sha256: "b".repeat(64),
+    sizeBytes: 133865024,
+    publisher: "CN=Kemetra POS PILOT",
+    signingClass: "pilot",
+    attestationRef: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/attestations/123456",
+    sourceSha: "c".repeat(40),
+    approved: true,
+    approvedBy: "kemetra-owner",
+    approvedAt: "2026-11-08T12:00:00.000Z",
+    promotionRunUrl: "https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/987654321",
+    artifactVersionId: "verid",
+    registeredAt: "2026-11-08T12:00:01.000Z",
+    withdrawnAt: null,
+    withdrawnBy: null,
+    activatedAt: null,
+    activatedByUserId: null,
+  };
+  const WITHDRAWN = {
+    ...RELEASE,
+    releaseId: "0190f5a2-3b4c-7d8e-9f01-000000002828",
+    version: "1.4.0",
+    approved: false,
+    withdrawnAt: "2026-11-08T12:10:00.000Z",
+    withdrawnBy: "kemetra-owner",
+    activatedAt: "2026-11-01T12:00:00.000Z",
+    activatedByUserId: "0190f5a2-3b4c-7d8e-9f01-00000000bbbb",
+  };
+
+  it("answers `{ keeper, withdrawn }`, with `withdrawn` null when nothing was current, and refuses an extra or missing key", () => {
+    expect(contract.accepts("PilotReleaseSupersession", { keeper: RELEASE, withdrawn: WITHDRAWN })).toBe(true);
+    expect(contract.accepts("PilotReleaseSupersession", { keeper: RELEASE, withdrawn: null })).toBe(true);
+    expect(contract.accepts("PilotReleaseSupersession", { keeper: RELEASE })).toBe(false);
+    expect(contract.accepts("PilotReleaseSupersession", { keeper: RELEASE, withdrawn: null, activated: true })).toBe(false);
+  });
+
+  it("takes only the keeper's id, no body, and names its two refusals", () => {
+    const operation = contract.operation("post", SUPERSEDE);
+    expect(operation["requestBody"]).toBeUndefined();
+    expect((operation["parameters"] as JsonObject[]).map((p) => p["$ref"])).toEqual(["#/components/parameters/ReleaseIdPath"]);
+    const conflict = ((operation["responses"] as JsonObject)["409"] as JsonObject)["$ref"];
+    expect(conflict).toBe("#/components/responses/ReleaseSupersedeRefused");
+    const responses = (contract.document["components"] as JsonObject)["responses"] as JsonObject;
+    const text = String((responses["ReleaseSupersedeRefused"] as JsonObject)["description"]);
+    expect(text).toContain("release_withdrawn");
+    expect(text).toContain("release_not_newer");
+  });
+
+  it("documents that it never activates, never withdraws the keeper, and acts only for the token's own run", () => {
+    const text = String(contract.operation("post", SUPERSEDE)["description"]);
+    for (const part of ["never the keeper", "never activates", "roll-forward", "run_id", "strictly greater", "withdrawn: null"]) {
+      expect(text).toContain(part);
+    }
   });
 });
 

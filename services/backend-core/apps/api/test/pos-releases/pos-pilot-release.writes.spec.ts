@@ -9,6 +9,7 @@
  *   POST /api/v1/platform/pos-pilot-releases                          platformRegisterPilotRelease
  *   POST /api/v1/platform/pos-pilot-releases/{releaseId}/withdraw     platformWithdrawPilotRelease
  *   POST /api/v1/platform/pos-pilot-releases/{releaseId}/activate     platformActivatePilotRelease
+ *   POST /api/v1/platform/pos-pilot-releases/{releaseId}/supersede-current   platformSupersedeCurrentPilotRelease (RT-1418)
  *
  * What this proves (RT-1298 acceptance 1 and 3 to 6):
  *   - only a genuine token that matches every pin writes: no token, a Console
@@ -465,5 +466,142 @@ describe("RT-1298 activate, withdraw and the resolver: the whole chain", () => {
     expect((await h.post(withdrawPath(id), PLATFORM_ADMIN.session, {})).status).toBe(401);
     expect(await auditsOf(admin, "pos.pilot_release.activated", id)).toHaveLength(0);
     expect(await auditsOf(admin, "pos.pilot_release.withdrawn", id)).toHaveLength(0);
+  });
+});
+
+describe("RT-1418 supersede-current: the run that registered a release withdraws the current one, never its own", () => {
+  const supersedePath = (id: string): string => `${REGISTRY}/${id}/supersede-current`;
+  const OTHER_RUN = "111222333";
+
+  /** Register one version (as this run, or as another run with its own token) and return its id. */
+  async function register(version: string, runId = RUN_ID): Promise<string> {
+    const body = registration(version, { promotionRunUrl: `https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/${runId}` });
+    const res = await post(REGISTRY, body, { token: await token({ claims: { run_id: runId } }) });
+    expect(res.status).toBe(201);
+    return (res.body as { releaseId: string }).releaseId;
+  }
+
+  /** Activate a release as the platform admin. */
+  async function activate(id: string): Promise<void> {
+    expect((await h.post(activatePath(id), PLATFORM_ADMIN.session, {})).status).toBe(200);
+  }
+
+  /** The id of the current release, or null (superuser read). */
+  async function currentId(admin: Pool): Promise<string | null> {
+    const res = await admin.query<{ id: string }>(`SELECT id FROM pos_pilot_release_registry WHERE approved AND activated_at IS NOT NULL`);
+    return res.rows[0]?.id ?? null;
+  }
+
+  it("withdraws the current release (not the keeper), audits it with `supersededBy`, never activates, and a replay writes nothing", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    await h.put(`/api/v1/platform/pos-pilot-tenants/${TENANT_A}`, PLATFORM_ADMIN.session, {});
+    const old = await register("1.4.0");
+    await activate(old);
+    const keeper = await register("1.5.0");
+
+    const res = await post(supersedePath(keeper), {}, { key: null });
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    h.conforms("PilotReleaseSupersession", res.body);
+    expect(res.body).toMatchObject({
+      keeper: { releaseId: keeper, version: "1.5.0", approved: true, activatedAt: null, withdrawnAt: null },
+      withdrawn: { releaseId: old, version: "1.4.0", approved: false, withdrawnBy: "kemetra-owner" },
+    });
+    // Nothing is current now, and nothing is served, until a platform admin activates the keeper.
+    expect(await currentId(admin)).toBeNull();
+    expect((await h.get(LATEST, OWNER_A.session)).body).toEqual({ available: false });
+
+    const rows = await auditsOf(admin, "pos.pilot_release.withdrawn", old);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ actor_user_id: null, actor_label: "github-oidc:kemetra-owner", tenant_id: null });
+    expect(rows[0]?.metadata).toEqual({
+      releaseId: old,
+      version: "1.4.0",
+      withdrawnBy: "kemetra-owner",
+      promotionRunUrl: `https://github.com/Kemetra-Labs/Retail-Tower-Erp/actions/runs/${RUN_ID}`,
+      supersededBy: keeper,
+    });
+    expect(await auditsOf(admin, "pos.pilot_release.withdrawn", keeper)).toHaveLength(0);
+
+    // A retry (Re-run failed jobs) finds nothing else current: 200, withdrawn null, nothing written.
+    const replay = await post(supersedePath(keeper), {}, { key: null });
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({ keeper: { releaseId: keeper, approved: true }, withdrawn: null });
+    expect(await auditsOf(admin, "pos.pilot_release.withdrawn", old)).toHaveLength(1);
+
+    // The admin activates the keeper; a later retry still never touches it.
+    await activate(keeper);
+    expect((await h.get(LATEST, OWNER_A.session)).body).toMatchObject({ available: true, version: "1.5.0" });
+    const afterActivation = await post(supersedePath(keeper), {}, { key: null });
+    expect(afterActivation.status).toBe(200);
+    expect(afterActivation.body).toMatchObject({ keeper: { releaseId: keeper, approved: true }, withdrawn: null });
+    expect(await currentId(admin)).toBe(keeper);
+  });
+
+  it("answers 200 with `withdrawn: null` and writes nothing when no release is current", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    const keeper = await register("1.5.0");
+    const res = await post(supersedePath(keeper), {}, { key: null });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ keeper: { releaseId: keeper, approved: true }, withdrawn: null });
+    const all = await admin.query(`SELECT 1 FROM audit_events WHERE action = 'pos.pilot_release.withdrawn' AND target_id = $1`, [keeper]);
+    expect(all.rowCount).toBe(0);
+  });
+
+  it("answers 409 `release_not_newer` for a keeper that is not strictly newer, and leaves the current release alone", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    const current = await register("1.5.0");
+    await activate(current);
+    const keeper = await register("1.4.9");
+    const res = await post(supersedePath(keeper), {}, { key: null });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ error: { code: "release_not_newer" } });
+    expect(await currentId(admin)).toBe(current);
+    expect(await auditsOf(admin, "pos.pilot_release.withdrawn", current)).toHaveLength(0);
+  });
+
+  it("answers 403 `forbidden` for a keeper another run registered, and leaves the current release alone", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    const current = await register("1.4.0");
+    await activate(current);
+    const keeper = await register("1.5.0", OTHER_RUN);
+    const res = await post(supersedePath(keeper), {}, { key: null });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(await currentId(admin)).toBe(current);
+    // The run that did register it may.
+    const own = await post(supersedePath(keeper), {}, { key: null, token: await token({ claims: { run_id: OTHER_RUN } }) });
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ withdrawn: { releaseId: current } });
+  });
+
+  it("answers 409 `release_withdrawn` for a withdrawn keeper, and leaves the current release alone", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    const current = await register("1.4.0");
+    await activate(current);
+    const keeper = await register("1.5.0");
+    expect((await post(withdrawPath(keeper), {})).status).toBe(200);
+    const res = await post(supersedePath(keeper), {}, { key: null });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ error: { code: "release_withdrawn" } });
+    expect(await currentId(admin)).toBe(current);
+  });
+
+  it("answers 404 for an unknown keeper, 400 for a malformed id, and 401 without the workflow's token (a Console cookie included)", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    const current = await register("1.4.0");
+    await activate(current);
+    const keeper = await register("1.5.0");
+    expect((await post(supersedePath("0190f5a2-3b4c-7d8e-9f01-0000000fffff"), {}, { key: null })).status).toBe(404);
+    expect((await post(supersedePath("not-a-uuid"), {}, { key: null })).status).toBe(400);
+    expect((await post(supersedePath(keeper), {}, { key: null, token: null })).status).toBe(401);
+    expect((await h.post(supersedePath(keeper), PLATFORM_ADMIN.session, {})).status).toBe(401);
+    expect(await currentId(admin)).toBe(current);
   });
 });

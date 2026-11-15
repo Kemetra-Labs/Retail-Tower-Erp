@@ -120,7 +120,7 @@ class PromotePosPilotStatic(unittest.TestCase):
         self.assertEqual(triggers(self.text), ["workflow_dispatch"])
         self.assertNotIn("pull_request", code(self.text))
         inputs = re.findall(r"^      ([a-z_0-9]+):$", re.search(r"workflow_dispatch:\n    inputs:\n((?:      .*\n|        .*\n)+)", self.text).group(1), re.M)
-        self.assertEqual(inputs, ["mode", "tag", "leaf_sha1", "release_id", "dry_run"])
+        self.assertEqual(inputs, ["mode", "tag", "leaf_sha1", "release_id", "replace_current", "dry_run"])
 
     def test_every_action_is_pinned_by_sha_and_already_pinned_by_the_pilot_release_or_the_lab_deploys(self):
         pilot = read(WORKFLOWS / "release-pos-pilot.yml")
@@ -484,6 +484,14 @@ class PromotePosPilotSteps(unittest.TestCase):
                 self.assertIn(part, text)
             for word in ("http://", "X-Amz", "Authorization", "Bearer"):
                 self.assertNotIn(word, text)
+            self.assertNotIn("replace_current", text, "replace_current off: the current release is not mentioned")
+            # RT-1418: with replace_current on, the dry run also says the current release would be withdrawn, never this one.
+            summary.unlink()
+            result = run_bash(script, {**env, "REPLACE_CURRENT": "true"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            text = " ".join(summary.read_text(encoding="utf-8").split())
+            for part in ("replace_current", "withdraw the release that is current", "never this one", "higher", "leave the release inactive"):
+                self.assertIn(part, text)
 
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/rt-gha-pos-pilot-promote"
@@ -509,6 +517,7 @@ STEP_ASSUME = "Assume the upload role (GitHub OIDC, no stored keys)"
 STEP_PUT = "Upload the installer once (conditional write)"
 STEP_BODY = "Build the registration body once"
 STEP_REGISTER = "Register the release with Backend-Core (OIDC bearer; it is not activated)"
+STEP_REPLACE = "Withdraw the release that was current, never this one (replace_current; nothing is activated)"
 RUNBOOK = ROOT / "services/backend-core/docs/operations/pos-pilot-release-bucket.md"
 
 # `gh`, `aws` and `curl` as the live steps use them. Each logs its arguments (never what goes in on stdin).
@@ -686,25 +695,34 @@ class PromotePosPilotLiveStatic(unittest.TestCase):
             self.assertNotIn(word, body, word)
 
     def test_register_posts_once_to_the_register_route_and_never_activates_or_withdraws(self):
-        register = code(job(self.text, "register"))
+        register = step_script(job(self.text, "register"), STEP_REGISTER)
         self.assertEqual(register.count("-X POST"), 1)
         self.assertEqual(register.count("/api/v1/platform/pos-pilot-releases"), 1)
-        for word in ("/activate", "/withdraw", "-X PUT", "-X DELETE", "-X PATCH", "actions/checkout", "put-object"):
+        for word in ("/activate", "/withdraw", "supersede", "-X PUT", "-X DELETE", "-X PATCH", "actions/checkout", "put-object"):
             self.assertNotIn(word, register, word)
+        job_code = code(job(self.text, "register"))
+        for word in ("/activate", "/withdraw", "-X PUT", "-X DELETE", "-X PATCH", "actions/checkout", "put-object"):
+            self.assertNotIn(word, job_code, word)
+        # RT-1418: the job's only other request is the replace step's one POST to supersede-current.
+        self.assertEqual(job_code.count("-X POST"), 2)
+        self.assertEqual(re.findall(r"/api/v1/platform/pos-pilot-releases[^\s\"]*", job_code),
+                         ["/api/v1/platform/pos-pilot-releases", "/api/v1/platform/pos-pilot-releases/$RELEASE_ID/supersede-current"])
         upload = code(job(self.text, "upload"))
         self.assertNotIn("/api/v1/platform", upload, "the upload job only asks whether Backend-Core answers")
         self.assertNotIn("Bearer", upload)
         self.assertEqual(len(re.findall(r"curl [^\n]*/api/v1/health/ready", code(self.text))), 1, "one health request, in the upload job")
 
     def test_no_credential_reaches_a_process_argument_list(self):
-        register = code(job(self.text, "register"))
-        self.assertNotIn('-H "Authorization', register)
-        self.assertEqual(register.count("curl -K -"), 2, "the id-token request and the register call both read their header from stdin")
-        self.assertIn("::add-mask::", register)
+        for name in (STEP_REGISTER, STEP_REPLACE):
+            script = step_script(job(self.text, "register"), name)
+            self.assertNotIn('-H "Authorization', script, name)
+            self.assertEqual(script.count("curl -K -"), 2, f"{name}: the id-token request and the call both read their header from stdin")
+            self.assertIn("::add-mask::", script, name)
+            self.assertLess(script.index("::add-mask::"), script.index("-X POST"), f"{name}: masked before it is used")
         self.assertNotIn("curl -L", self.text)
         self.assertNotIn("--location", self.text)
         calls = re.findall(r"curl (?:-K - )?--silent[^\n]*", code(self.text))
-        self.assertEqual(len(calls), 5, "the Backend-Core check, then the id-token request and the call of register and of withdraw")
+        self.assertEqual(len(calls), 7, "the Backend-Core check, then the id-token request and the call of register, replace (RT-1418) and withdraw")
         for call in calls:
             self.assertIn("--proto '=https'", call, "every curl is https-only")
             self.assertIn("--tlsv1.2", call)
@@ -938,6 +956,18 @@ class PromotePosPilotLiveSteps(unittest.TestCase):
         env.update(extra)
         return env
 
+    def test_register_hands_the_registered_release_id_to_the_replace_step_only_when_it_is_a_uuid(self):
+        for answered_id, expected in (("01A1CADF-32D9-722F-ADEC-1ECC59E1D8DD", {"release_id": "01a1cadf-32d9-722f-adec-1ecc59e1d8dd"}),
+                                      ("11111111-2222-3333-4444-555555555555", {"release_id": "11111111-2222-3333-4444-555555555555"}),
+                                      ("not-an-id", {}), ("x/../activate", {})):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                env = self.register_env(temp)
+                answered = {**json.loads(env["FAKE_RESP"]), "releaseId": answered_id}
+                ok = self.run_step(temp, "register", STEP_REGISTER, {**env, "FAKE_RESP": json.dumps(answered)}, STUB_CURL)
+                self.assertEqual(ok.returncode, 0, f"{answered_id}: a registration never fails on the id alone ({ok.stdout}{ok.stderr})")
+                self.assertEqual(step_outputs(temp), expected, answered_id)
+
     def test_register_sends_the_body_with_an_oidc_bearer_and_accepts_only_the_release_it_sent(self):
         for status in ("201", "200"):
             with tempfile.TemporaryDirectory() as tmp:
@@ -1008,6 +1038,181 @@ class PromotePosPilotLiveSteps(unittest.TestCase):
                 result = self.run_step(temp, "register", STEP_REGISTER, self.register_env(temp, body=body), STUB_CURL)
                 self.assertNotEqual(result.returncode, 0, label)
                 self.assertFalse((temp / "curl.log").exists(), f"{label}: nothing is requested or sent")
+
+
+
+KEEPER_ID = "01a1cadf-32d9-722f-adec-1ecc59e1d8dd"
+OLD_ID = "01a1cadf-32d9-722f-adec-000000000004"
+
+
+def superseded(withdrawn: dict | None | str = "default", **keeper_changes) -> dict:
+    """What supersede-current answers: the keeper as it stands and the release withdrawn for it (or null)."""
+    keeper = {"releaseId": KEEPER_ID, "version": VERSION, "approved": True, "activatedAt": None, "withdrawnAt": None, **keeper_changes}
+    if withdrawn == "default":
+        withdrawn = {"releaseId": OLD_ID, "version": "0.0.9", "approved": False, "withdrawnAt": "2026-11-15T12:00:00.000Z", "withdrawnBy": "octocat"}
+    return {"keeper": keeper, "withdrawn": withdrawn}
+
+
+class PromotePosPilotReplaceStatic(unittest.TestCase):
+    """RT-1418: replace_current, the one-approval replacement of the current release."""
+
+    text = read(WORKFLOW)
+
+    def test_replace_current_is_a_boolean_that_defaults_to_false(self):
+        block = re.search(r"      replace_current:\n((?:        .*\n)+)", self.text).group(1)
+        self.assertIn("type: boolean", block)
+        self.assertIn("default: false", block, "an old dispatch, or one that names nothing, leaves the current release alone")
+        self.assertIn("never the new one", block)
+
+    def test_the_replacement_is_a_step_of_the_register_job_so_it_needs_no_second_approval_and_no_new_job(self):
+        names = re.findall(r"^      - name: (.+)$", job(self.text, "register"), re.M)
+        self.assertEqual(names, [STEP_REGISTER, STEP_REPLACE], "after the registration, in the same environment-gated job")
+        replace = step(job(self.text, "register"), STEP_REPLACE)
+        self.assertIn("if: ${{ inputs.replace_current }}", replace)
+        self.assertIn("RELEASE_ID: ${{ steps.register.outputs.release_id }}", replace)
+        self.assertRegex(step(job(self.text, "register"), STEP_REGISTER), r"(?m)^        id: register$")
+        # No other job gained an environment or a token (the three are upload, register and the live withdraw).
+        self.assertEqual(len(re.findall(r"^    environment:", code(self.text), re.M)), 3)
+
+    def test_the_replace_step_posts_once_to_supersede_current_and_never_activates_withdraws_by_id_or_touches_s3(self):
+        script = step_script(job(self.text, "register"), STEP_REPLACE)
+        self.assertEqual(script.count("-X POST"), 1)
+        self.assertIn('"$API_BASE/api/v1/platform/pos-pilot-releases/$RELEASE_ID/supersede-current"', script)
+        for word in ("/activate", "/withdraw", "Idempotency-Key", "put-object", "-X PUT", "-X DELETE", "-X PATCH"):
+            self.assertNotIn(word, script, word)
+        for pattern in (r"\baws\b", r"\bgh\b", r"\bs3\b"):
+            self.assertNotRegex(script, pattern, pattern)
+        self.assertLess(script.index('"$RELEASE_ID" =~'), script.index("curl"), "the id is checked before any request")
+        self.assertLess(script.index('"$API_BASE" =~'), script.index("curl"))
+
+    def test_the_file_header_says_what_replace_current_does_and_what_it_never_does(self):
+        header = " ".join(self.text.split("\nname: promote-pos-pilot", 1)[0].replace("#", " ").split())
+        for part in ("RT-1418", "replace_current", "never the one this run registered", "Nothing is activated", "roll-forward"):
+            self.assertIn(part, header, part)
+
+    def test_the_runbook_documents_replacement_and_rollback_as_roll_forward(self):
+        doc = read(RUNBOOK)
+        section7 = " ".join(doc.split("## 7. ", 1)[1].split("## 8. ", 1)[0].split())
+        section9 = " ".join(doc.split("## 9. ", 1)[1].split())
+        self.assertNotIn("There is no Console page yet", doc)
+        for part in ("`replace_current`", "roll-forward", "higher", "release_not_newer"):
+            self.assertIn(part, section7, part)
+        for part in ("`replace_current`", "supersede-current", "release_not_newer", "Re-run failed jobs", "never activates"):
+            self.assertIn(part, section9, part)
+
+
+@unittest.skipUnless(HAVE_BASH and shutil.which("jq"), "bash and jq are needed")
+class PromotePosPilotReplaceSteps(unittest.TestCase):
+    text = read(WORKFLOW)
+
+    def replace_env(self, tmp: Path, **extra: str) -> dict:
+        env = live_env(tmp, RELEASE_ID=KEEPER_ID, ACTIONS_ID_TOKEN_REQUEST_URL="https://token.example.net/oidc?api-version=2",
+                       ACTIONS_ID_TOKEN_REQUEST_TOKEN="requesttoken", FAKE_RESP=json.dumps(superseded()), FAKE_HTTP="200")
+        env.update(extra)
+        return env
+
+    def replace(self, tmp: Path, **extra: str) -> subprocess.CompletedProcess:
+        return run_bash(step_script(job(self.text, "register"), STEP_REPLACE), self.replace_env(tmp, **extra), preamble=STUB_CURL)
+
+    def test_it_posts_once_with_an_oidc_bearer_and_reports_the_withdrawn_release_and_that_nothing_is_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            result = self.replace(temp)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = (temp / "curl.log").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(calls), 2, "one token request and one supersede call")
+            self.assertIn(f"--data-urlencode audience={AUDIENCE}", calls[0])
+            self.assertTrue(calls[1].endswith(f"{API}/api/v1/platform/pos-pilot-releases/{KEEPER_ID}/supersede-current"), calls[1])
+            self.assertIn("-X POST", calls[1])
+            for call in calls:
+                self.assertIn("--proto =https", call)
+                self.assertNotIn("requesttoken", call)
+                self.assertNotIn("jwt.test.token", call)
+            self.assertIn("Authorization: Bearer jwt.test.token", (temp / "curl.stdin").read_text(encoding="utf-8"))
+            self.assertIn("::add-mask::jwt.test.token", result.stdout)
+            summary = (temp / "summary.md").read_text(encoding="utf-8")
+            for part in (OLD_ID, "0.0.9", TAG, KEEPER_ID, "NOT active", "Console"):
+                self.assertIn(part, summary)
+
+    def test_nothing_current_is_a_success_that_says_nothing_was_withdrawn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            result = self.replace(temp, FAKE_RESP=json.dumps(superseded(withdrawn=None)))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            summary = (temp / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("nothing was withdrawn", summary)
+            self.assertIn("NOT active", summary)
+
+    def test_it_refuses_every_answer_but_a_200_and_says_how_to_recover(self):
+        for status, body, expected in (
+            ("409", {"error": {"code": "release_not_newer"}}, "release_not_newer"),
+            ("409", {"error": {"code": "release_withdrawn"}}, "release_withdrawn"),
+            ("403", {"error": {"code": "forbidden"}}, "forbidden"),
+            ("401", {"error": {"code": "unauthorized"}}, "unauthorized"),
+            ("404", {"error": {"code": "not_found"}}, "not_found"),
+            ("500", {"error": {"code": "system_failure"}}, "system_failure"),
+            ("201", superseded(), "201"),
+            ("302", {}, "302"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.replace(temp, FAKE_HTTP=status, FAKE_RESP=json.dumps(body))
+                out = result.stdout + result.stderr
+                self.assertNotEqual(result.returncode, 0, status)
+                self.assertIn(expected, out, status)
+                self.assertIn("Re-run failed jobs", out, status)
+                self.assertEqual(out.count("::error::"), 1, status)
+                self.assertFalse((temp / "summary.md").exists(), f"{status}: nothing is reported as replaced")
+
+    def test_it_refuses_a_200_that_does_not_keep_this_release_and_withdraw_another(self):
+        wrong = {
+            "the keeper withdrawn instead": superseded(withdrawn={"releaseId": KEEPER_ID, "version": VERSION, "approved": False, "withdrawnAt": "t"}),
+            "another keeper": superseded(releaseId=OLD_ID),
+            "another keeper version": superseded(version="0.0.9"),
+            "a keeper no longer approved": superseded(approved=False),
+            "a withdrawn release still approved": superseded(withdrawn={"releaseId": OLD_ID, "version": "0.0.9", "approved": True, "withdrawnAt": "t"}),
+            "a withdrawn release with no time": superseded(withdrawn={"releaseId": OLD_ID, "version": "0.0.9", "approved": False, "withdrawnAt": None}),
+            "a withdrawn release with no id": superseded(withdrawn={"version": "0.0.9", "approved": False, "withdrawnAt": "t"}),
+            "no keeper": {"withdrawn": None},
+            "a bare release": {"releaseId": KEEPER_ID, "version": VERSION, "approved": True},
+        }
+        for label, body in wrong.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.replace(temp, FAKE_RESP=json.dumps(body))
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertFalse((temp / "summary.md").exists(), label)
+        for raw in ("{}", "[]", "null", "not json", ""):
+            with tempfile.TemporaryDirectory() as tmp:
+                self.assertNotEqual(self.replace(Path(tmp), FAKE_RESP=raw).returncode, 0, repr(raw))
+
+    def test_it_requests_nothing_without_a_registered_id_or_with_a_bad_setting(self):
+        bad = {
+            "no id from register": {"RELEASE_ID": ""},
+            "a path in the id": {"RELEASE_ID": f"{KEEPER_ID}/../activate"},
+            "an upper-case id": {"RELEASE_ID": KEEPER_ID.upper()},
+            "a plain http api": {"API_BASE": "http://lab.example.com"},
+            "an api with a path": {"API_BASE": "https://lab.example.com/api"},
+            "the AWS audience": {"AUDIENCE": "sts.amazonaws.com"},
+            "no audience": {"AUDIENCE": ""},
+            "a pre-release version": {"VERSION": "0.1.0-rc.1"},
+            "no id-token request url": {"ACTIONS_ID_TOKEN_REQUEST_URL": ""},
+            "no id-token request token": {"ACTIONS_ID_TOKEN_REQUEST_TOKEN": ""},
+        }
+        for label, change in bad.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.replace(temp, **change)
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertFalse((temp / "curl.log").exists(), f"{label}: nothing is requested")
+
+    def test_it_sends_nothing_when_github_issues_no_token(self):
+        for reply in ('{"value":""}', "{}"):
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                result = self.replace(temp, FAKE_TOKEN_REPLY=reply)
+                self.assertNotEqual(result.returncode, 0, reply)
+                self.assertNotIn("supersede-current", (temp / "curl.log").read_text(encoding="utf-8"), reply)
 
 
 if __name__ == "__main__":

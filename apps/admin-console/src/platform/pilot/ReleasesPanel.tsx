@@ -17,6 +17,16 @@ import { PilotTable } from "./PilotTable";
 import { type ActivateKind, canActivate, evidenceHref, releaseState, shortSha } from "./pilotLogic";
 import { type WriteOutcome, useActivateRelease, usePilotReleases } from "./usePosPilot";
 
+/**
+ * RT-1418: the workflow, its withdraw mode and its replace flag that free the current slot, named in the
+ * `currentExists` notice. Machine names, so they are isolated LTR like the version and are not in the catalog.
+ */
+const FREE_SLOT_PARAMS = {
+  workflow: ltr("promote-pos-pilot"),
+  withdraw: ltr("withdraw"),
+  replace: ltr("replace_current"),
+} as const;
+
 /** Decimal megabytes, one decimal place. */
 const MB = 1_000_000;
 
@@ -31,7 +41,10 @@ function noticeOf(t: T, outcome: WriteOutcome<ActivateKind>, raw: string): Pilot
     case "activated":
       return { variant: "success", message: t("posPilot.activate.done", { version }) };
     case "currentExists":
-      return { variant: "warning", message: t("posPilot.activate.currentExists", { version }) };
+      return {
+        variant: "warning",
+        message: t("posPilot.activate.currentExists", { version, ...FREE_SLOT_PARAMS }),
+      };
     case "withdrawn":
       return { variant: "warning", message: t("posPilot.activate.withdrawn", { version }) };
     case "notFound":

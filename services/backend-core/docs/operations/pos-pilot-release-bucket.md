@@ -151,7 +151,7 @@ A release reaches the Console in three separate, audited steps. Registering neve
 |---|---|---|---|
 | Register | The owner-run promotion workflow | Its GitHub OIDC token (no stored secret) | `pos.pilot_release.registered` |
 | Activate | A platform admin | The Console session cookie and a trusted `Origin` | `pos.pilot_release.activated` |
-| Withdraw | The promotion workflow, in its `withdraw` mode (section 9) | Its GitHub OIDC token | `pos.pilot_release.withdrawn` |
+| Withdraw | The promotion workflow, in its `withdraw` mode, or a promotion with `replace_current` (section 9) | Its GitHub OIDC token | `pos.pilot_release.withdrawn` |
 
 **Pins.** Set the five `POS_PILOT_PROMOTION_OIDC_*` values on the host (section 3 shows where; none is a
 secret). They must equal what GitHub puts in the token of the promotion job: the audience the workflow
@@ -172,14 +172,28 @@ values is 409; an equal replay is a 200 that writes nothing.
 
 **Withdrawing.** No Console action and no other credential can withdraw: only the promotion workflow's token can,
 so you start the workflow with `mode` = `withdraw`, the version and the release id (section 9, "Withdrawing a
-release"). To replace the current release, register the replacement first (a promotion, section 9), then withdraw the
-current one, then activate the replacement in the Console. That order keeps the time with no current release as short
-as one withdraw run plus one click.
+release").
 
-**Activating.** There is no Console page yet. A platform admin calls
+**Replacing the current release (RT-1418).** Promote the new, higher version with `replace_current` = true (section
+9, "Replacing the current release"). One approved run then registers it and, in the same job, withdraws the release
+that is current at that moment, never the one it registered; nothing is activated. A platform admin then clicks
+«تفعيل» on the new release in the Console. The time with no current release is the gap between that run and the
+click. Backend-Core refuses the replacement with 409 `release_not_newer` unless the new version is strictly higher
+than the current one (plain `X.Y.Z`), because terminals never install a lower version. Without `replace_current`, the
+old order still works: register the replacement first, then a `withdraw` run, then activate.
+
+**Rollback is roll-forward.** A withdrawn release is never re-approved, the registry never re-activates an old row,
+and the POS updater never installs a lower version, so "going back" means shipping a higher version that holds the
+old code: revert the change on `main`, tag a higher `pos-pilot/vX.Y.Z` from that commit (the pilot release workflow
+builds and signs it), promote it with `replace_current` = true, then activate it in the Console. Terminals update to
+it because it is higher. There is no switch back to an older version, by design.
+
+**Activating.** A platform admin activates a registered release on the Console's POS pilot page
+(`/platform/pos-pilot`, the «تفعيل» action on the release), which calls
 `POST /api/v1/platform/pos-pilot-releases/{releaseId}/activate` with their Console session; the response is the
-release with `activatedAt` set. The tenants that may download it are the allowlist
-(`PUT /api/v1/platform/pos-pilot-tenants/{tenantId}`, also a platform admin).
+release with `activatedAt` set. While another release is current the Console refuses it («يوجد إصدار حالي آخر...»):
+withdraw that one first with a `withdraw` run, or promote with `replace_current`. The tenants that may download it
+are the allowlist (`PUT /api/v1/platform/pos-pilot-tenants/{tenantId}`, also a platform admin).
 
 **What the pins do and do not prove.** GitHub's issuer is shared by every repository, so the pins are what make a
 token yours: the exact `repository`, the `environment` the job runs in, the `ref`, and the `job_workflow_ref`
@@ -214,7 +228,8 @@ checked for shape: replay detection is by content. A retry of a withdrawn releas
 |---|---|
 | Register answers 401 | The token is missing, expired, for another audience or issuer, or GitHub's key set cannot be fetched from the host; or a pin is blank (see the boot warning). |
 | Register answers 403 | A pin differs from the token's claim, or the body's `promotionRunUrl` names another run or repository. The api never says which. |
-| Activate answers 409 `release_current_exists` | Another release is current: withdraw it first (section 9, `withdraw` mode). |
+| Activate answers 409 `release_current_exists` | Another release is current: withdraw it first (section 9, `withdraw` mode), or promote the new release with `replace_current`. |
+| A `replace_current` run answers 409 `release_not_newer` | The new version is not higher than the current one. Nothing was withdrawn; ship a higher version. |
 | Withdraw answers 401 or 403 | A pin on the host differs from the token's claims or is unset (the same five as register). The api never says which. |
 | Withdraw answers 404 `not_found` | No release has this id. Copy it from the Console release list, not from memory (section 9). |
 | The tenant still gets `{ "available": false }` after activation | The tenant is not on the allowlist, the pin, bucket or S3 key (section 3) is blank, or the release was withdrawn. |
@@ -277,7 +292,7 @@ private bucket, and `register` records them in the registry (section 7). A promo
 release: a platform admin does that separately, in the Console. Withdrawing a release is the same workflow with
 `mode` = `withdraw` (see "Withdrawing a release" below); it uses the same environment, variables and pins, and the
 promote jobs do not run in that mode. A promotion asks for your approval on the environment twice, once for each of
-the two live jobs.
+the two live jobs; with `replace_current`, the replacement runs inside `register` and asks for nothing more.
 
 **One-time owner setup** (none of it is a secret; do it before the first live run):
 
@@ -323,6 +338,23 @@ the two live jobs.
 - `register` requests a GitHub OIDC token for the Backend-Core audience (the token never appears in an argument
   list) and sends one `POST /api/v1/platform/pos-pilot-releases`. It accepts `200` or `201` and then checks that
   the answer is the release it sent (a withdrawn release answers `approved: false` and is refused).
+
+**Replacing the current release (RT-1418).** Set `replace_current` = true on a promotion (it defaults to false, which
+leaves the current release alone). After `register` succeeds, the same `register` job, so the same single approval on
+`release-pos-pilot-promote`, requests a fresh token and sends one
+`POST /api/v1/platform/pos-pilot-releases/{releaseId}/supersede-current` naming the release it has just registered.
+Backend-Core then, in one transaction, withdraws the release that is current at that moment, never the one named, and
+only when that release was registered by this same run and is strictly higher (409 `release_not_newer` otherwise, 409
+`release_withdrawn` if it was withdrawn, 403 if another run registered it). It never activates anything: a platform
+admin activates the new release in the Console afterwards. A dry run with `replace_current` says what it would do and
+changes nothing. A `withdraw` run refuses `replace_current`.
+
+- **No release current** (or the new one is already current): a 200 that withdraws nothing; the summary says so.
+- **The replace step failed** (and `register` succeeded): the new release is registered and inactive and the old one
+  is still current. Fix the cause, then use **Re-run failed jobs** on the same run: it repeats `register` (an equal
+  replay, a 200) and the replace step, which is safe to repeat. For `release_not_newer`, ship a higher version instead.
+- **A release that an earlier run registered without `replace_current`** cannot be replaced this way (a new promotion
+  of that version stops at the one-shot upload): use a `withdraw` run for the current one, then activate.
 
 **Withdrawing a release (RT-1363).** Backend-Core takes a withdrawal only from this workflow's GitHub OIDC token, and
 the `job_workflow_ref` pin names `promote-pos-pilot.yml`, so withdrawing is a mode of this file, not another one. It

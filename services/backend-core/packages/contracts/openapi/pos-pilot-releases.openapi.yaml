@@ -24,7 +24,11 @@ info:
          platform-scoped. `platformActivatePilotRelease` — a platform admin on
          the session cookie makes one registered release current (RT-1298).
          Served, audited. Registering a release never makes it downloadable;
-         activating it does.
+         activating it does. `platformSupersedeCurrentPilotRelease` — the same
+         promotion workflow, in the run that registered a release, withdraws
+         the release that is current at that moment, never the one it
+         registered (RT-1418). Served, audited, platform-scoped. It never
+         activates: replacing a release stays roll-forward only.
       4. `platformListPilotReleases` / `platformListPilotTenants` — a platform
          admin on the session cookie reads every registry row and every
          allowlisted tenant (RT-1328). Served, read-only, not audited. Neither
@@ -64,7 +68,9 @@ info:
     No presigned URL, access key, token or email in any row. The registration
     audit row does record the release's `attestationRef` and `promotionRunUrl`
     (public GitHub links, not credentials), and the withdrawal row the run's
-    `promotionRunUrl`, as release metadata.
+    `promotionRunUrl`, as release metadata. A withdrawal made by
+    supersede-current (RT-1418) writes the same `pos.pilot_release.withdrawn`
+    row with one more key, `supersededBy` (the keeper's release id).
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id } }`
@@ -79,7 +85,7 @@ tags:
   - name: pos-pilot-allowlist
     description: Platform-admin management of the pilot tenant allowlist (RT-1292).
   - name: pos-pilot-release-registry
-    description: Writes to the pilot release registry (RT-1298), register and withdraw by the promotion workflow, activate by a platform admin.
+    description: Writes to the pilot release registry (RT-1298), register, withdraw and supersede-current (RT-1418) by the promotion workflow, activate by a platform admin.
 
 paths:
   /api/v1/pos-pilot-releases/latest:
@@ -356,6 +362,55 @@ paths:
           $ref: "#/components/responses/PlatformWriteForbidden"
         "404":
           $ref: "#/components/responses/ReleaseNotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/pos-pilot-releases/{releaseId}/supersede-current:
+    post:
+      summary: Withdraw the current pilot POS release in favour of the one this run registered (promotion workflow only).
+      operationId: platformSupersedeCurrentPilotRelease
+      x-audit-action: pos.pilot_release.withdrawn
+      tags: [pos-pilot-release-registry]
+      security:
+        - promotionWriter: []
+      description: >
+        RT-1418. The path id is the keeper: the release the calling run has just
+        registered. In one transaction Backend-Core withdraws the release that
+        is current at that moment (approved and activated), never the keeper,
+        exactly as `platformWithdrawPilotRelease` does, so a platform admin can
+        then activate the keeper. It never activates anything and never
+        re-approves anything: replacing a release is roll-forward only. The
+        keeper's `promotionRunUrl` must name the run that holds the token (its
+        `run_id` claim, or one of its attempts): a keeper of another run is 403
+        `forbidden`. A withdrawn keeper is 409 `release_withdrawn`. A keeper
+        whose version is not strictly greater than the current release's (both
+        plain `X.Y.Z`; a pre-release is never greater) is 409
+        `release_not_newer`, because terminals refuse a downgrade. When no
+        other release is current (none at all, or the keeper itself is current)
+        the answer is a 200 with `withdrawn: null` that writes nothing, so a
+        retry is safe. No body.
+      parameters:
+        - $ref: "#/components/parameters/ReleaseIdPath"
+      responses:
+        "200":
+          description: The current release is withdrawn (`withdrawn`), or no other release was current (`withdrawn` null, nothing written).
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PilotReleaseSupersession"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformWriteForbidden"
+        "404":
+          $ref: "#/components/responses/ReleaseNotFound"
+        "409":
+          $ref: "#/components/responses/ReleaseSupersedeRefused"
         "500":
           $ref: "#/components/responses/SystemFailure"
 
@@ -722,6 +777,22 @@ components:
           type: [string, "null"]
           format: uuid
 
+    PilotReleaseSupersession:
+      type: object
+      additionalProperties: false
+      description: >
+        RT-1418. `keeper` is the release the run registered, as it stands (never
+        withdrawn by this call). `withdrawn` is the release that was current and
+        is now withdrawn, or null when no other release was current.
+      required: [keeper, withdrawn]
+      properties:
+        keeper:
+          $ref: "#/components/schemas/PilotRelease"
+        withdrawn:
+          oneOf:
+            - $ref: "#/components/schemas/PilotRelease"
+            - type: "null"
+
     Error:
       type: object
       required: [error]
@@ -767,7 +838,7 @@ components:
       description: >
         Unauthenticated (401): a missing or invalid session cookie, a
         non-cookie credential, or (console read) a session with no active
-        tenant; on register and withdraw, a missing, malformed, expired, badly
+        tenant; on register, withdraw and supersede-current, a missing, malformed, expired, badly
         signed or wrong-issuer or wrong-audience promotion token, a key set that
         cannot be fetched, or any credential at all while the promotion pins are
         unset. Non-disclosing; nothing is presigned or written and no audit row
@@ -799,9 +870,10 @@ components:
     PlatformWriteForbidden:
       description: >
         403, `error.code` one of: `forbidden` (a signed-in user who is not a
-        platform admin; or, on register and withdraw, a genuine promotion token
-        whose claims do not match the configured pins, or whose run is not the
-        run the body names) or `origin_rejected` (RT-430: the `Origin` header is
+        platform admin; or, on register, withdraw and supersede-current, a
+        genuine promotion token whose claims do not match the configured pins,
+        or whose run is not the run the body names (register) or the run that
+        registered the keeper (supersede-current)) or `origin_rejected` (RT-430: the `Origin` header is
         missing, or is neither the API's own origin nor listed in
         `ALLOWED_ORIGINS`; cookie routes only). Nothing is written.
       content:
@@ -852,6 +924,15 @@ components:
         409, `error.code` one of: `release_withdrawn` (the release was
         withdrawn, even if it was activated before) or `release_current_exists`
         (another release is current; withdraw it first). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReleaseSupersedeRefused:
+      description: >
+        409, `error.code` one of: `release_withdrawn` (the keeper was
+        withdrawn) or `release_not_newer` (the keeper's version is not strictly
+        greater than the current release's). Nothing is written (RT-1418).
       content:
         application/json:
           schema:
