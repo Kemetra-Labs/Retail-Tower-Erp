@@ -13,8 +13,18 @@ THIS_REPO = "Kemetra-Labs/Retail-Tower-Erp"
 SPEC = "openapi: 3.1.0\ninfo: {title: t, version: 1.0.0}\npaths: {}\n"
 
 
-def header(repo=THIS_REPO):
-    return f"repo: {repo}\ncommit: {'a' * 40}\nsource: contracts\n"
+def base_commit(repo):
+    """A commit holding contracts/a.yaml = SPEC, then removed again so each test starts from an empty
+    tree. PIN headers name it: RT-1407 checks every pinned blob against the PIN's real `commit:`."""
+    repo.write("contracts/a.yaml", SPEC)
+    base = repo.commit_all()
+    repo.git("rm", "-q", "contracts/a.yaml")
+    repo.commit_all()
+    return base
+
+
+def header(commit, repo=THIS_REPO):
+    return f"repo: {repo}\ncommit: {commit}\nsource: contracts\n"
 
 
 class RevisionCase(unittest.TestCase):
@@ -24,6 +34,7 @@ class RevisionCase(unittest.TestCase):
         self.bin = tempfile.TemporaryDirectory(prefix="cc-bin-")
         self.addCleanup(self.bin.cleanup)
         self.blob = self.repo.blob(SPEC)
+        self.base = base_commit(self.repo)
 
     def commit(self, files):
         for rel, text in files.items():
@@ -37,7 +48,7 @@ class RevisionCase(unittest.TestCase):
                                    fake_oasdiff(self.bin.name), None, repository=THIS_REPO, **revs)
 
     def test_contract_is_read_at_the_backend_rev(self):
-        old = self.commit({"contracts/a.yaml": SPEC, "app/PIN": f"{header()}file: a.yaml {self.blob}\n"})
+        old = self.commit({"contracts/a.yaml": SPEC, "app/PIN": f"{header(self.base)}file: a.yaml {self.blob}\n"})
         self.commit({"contracts/b.yaml": SPEC})
         self.repo.git("rm", "-q", "contracts/a.yaml")
         self.commit({})
@@ -47,22 +58,22 @@ class RevisionCase(unittest.TestCase):
         self.assertEqual([f.status for f in self.check(backend_rev=old)], [OK])
 
     def test_a_file_missing_at_the_backend_rev_fails(self):
-        old = self.commit({"app/PIN": f"{header()}file: a.yaml {self.blob}\n", "contracts/b.yaml": SPEC})
+        old = self.commit({"app/PIN": f"{header(self.base)}file: a.yaml {self.blob}\n", "contracts/b.yaml": SPEC})
         self.commit({"contracts/a.yaml": SPEC})
         [f] = self.check(backend_rev=old)
         self.assertEqual(f.status, FAIL)
         self.assertIn(f"does not exist at {old}", f.message)
 
     def test_pin_is_read_at_the_consumer_rev(self):
-        old = self.commit({"contracts/a.yaml": SPEC, "app/PIN": f"{header('Kemetra/Backend-Core')}file: a.yaml {self.blob}\n"})
-        self.commit({"app/PIN": f"{header()}file: a.yaml {self.blob}\n"})
+        old = self.commit({"contracts/a.yaml": SPEC, "app/PIN": f"{header(self.base, 'Kemetra/Backend-Core')}file: a.yaml {self.blob}\n"})
+        self.commit({"app/PIN": f"{header(self.base)}file: a.yaml {self.blob}\n"})
         [f] = self.check(pin_rev=old)
         self.assertEqual(f.status, FAIL)
         self.assertIn("PIN names repo 'Kemetra/Backend-Core'", f.message)
 
     def test_a_pin_missing_at_the_consumer_rev_fails(self):
         old = self.commit({"contracts/a.yaml": SPEC})
-        self.commit({"app/PIN": f"{header()}file: a.yaml {self.blob}\n"})
+        self.commit({"app/PIN": f"{header(self.base)}file: a.yaml {self.blob}\n"})
         [f] = self.check(pin_rev=old)
         self.assertEqual(f.status, FAIL)
         self.assertIn("unreadable PIN", f.message)
@@ -72,8 +83,9 @@ class RevisionCli(unittest.TestCase):
     def setUp(self):
         self.repo = TempRepo()
         self.addCleanup(self.repo.close)
+        base = base_commit(self.repo)
         self.repo.write("contracts/a.yaml", SPEC)
-        self.repo.write("one/PIN", f"{header()}file: a.yaml {self.repo.blob(SPEC)}\n")
+        self.repo.write("one/PIN", f"{header(base)}file: a.yaml {self.repo.blob(SPEC)}\n")
         self.repo.write("two/PIN", "garbage\n")
         self.repo.git("add", "-A")
         self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c")

@@ -43,6 +43,12 @@ class TempRepo:
             path.write_bytes(content)
         return path
 
+    def commit_all(self):
+        """Commit the whole working tree and return the new commit id."""
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "c")
+        return self.git("rev-parse", "HEAD")
+
     def blob(self, content):
         """Store `content` in the object store (not the tree) and return its blob id."""
         data = content.encode() if isinstance(content, str) else content

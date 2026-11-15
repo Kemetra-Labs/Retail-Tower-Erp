@@ -7,7 +7,13 @@ higher fails, as in the Backend-Core gate) and `oasdiff changelog` (every other 
 reported as drift). Anything that cannot be compared fails: a malformed PIN, a PIN whose
 `repo:`/`source:` header does not name this repository's in-tree contract (RT-889), a missing blob,
 a vendored copy that does not hash to its pin, a pinned file gone from the tree, or an
-oasdiff run that does not end in a clean verdict."""
+oasdiff run that does not end in a clean verdict.
+
+RT-1407: a PIN must describe one commit. A `commit:` missing from this repository's object store,
+or a `file:` blob that is not the blob of that path at `commit:` (a partial or hand-mixed pin),
+fails. A pinned blob that differs from the in-tree file is reported as stale drift even when
+oasdiff sees no API change (a description-only edit), so a consumer that lags is visible in the
+job summary without failing: consumers repin on purpose, not on every Backend-Core change."""
 
 import json
 import pathlib
@@ -107,6 +113,24 @@ def read_at(repo, rev, path):
     return proc.stdout if proc.returncode == 0 else None
 
 
+def commit_exists(repo, commit):
+    return _git(repo, "cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
+
+
+def blob_at(repo, rev, path):
+    """The blob id of `path` at commit `rev`, or None when it is not a file there (RT-1407)."""
+    proc = _git(repo, "rev-parse", "--verify", "--quiet", f"{rev}:{path}")
+    sha = proc.stdout.decode().strip() if proc.returncode == 0 else ""
+    if not _SHA.match(sha) or _git(repo, "cat-file", "-t", sha).stdout.decode().strip() != "blob":
+        return None
+    return sha
+
+
+def _repin_hint(consumer):
+    command = consumer.get("repin")
+    return f"repin with `{command}`" if command else "repin this consumer"
+
+
 def hash_object(repo, data):
     proc = _git(repo, "hash-object", "--stdin", stdin=data)
     if proc.returncode != 0:
@@ -189,6 +213,12 @@ def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, 
     foreign = check_header(header, repository, contracts_root)
     if foreign is not None:
         return [Finding("pins", f"{name} {pin_path}", FAIL, f"{foreign}; repin from this repository")]
+    commit = header["commit"]
+    if not commit_exists(repo, commit):
+        return [Finding("pins", f"{name} {pin_path}", FAIL,
+                        f"PIN commit {commit} is not a commit in this repository's object store; cannot "
+                        "verify the pinned blobs (fetch full history, or pin a commit on main)")]
+    hint = _repin_hint(consumer)
     findings = []
     with tempfile.TemporaryDirectory(prefix="contracts-check-") as tmp:
         for path, blob in files:
@@ -229,8 +259,22 @@ def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, 
                     findings.append(Finding("pins", subject, FAIL,
                                             f"pinned file {contracts_root}/{path} no longer exists in the tree"))
                     continue
+            at_commit = blob_at(repo, commit, f"{contracts_root}/{path}")
+            if at_commit != blob:
+                found = f"blob {at_commit}" if at_commit else "no such file"
+                findings.append(Finding("pins", subject, FAIL,
+                                        f"partial pin: pinned blob {blob} is not {path} at the PIN's commit "
+                                        f"{commit} ({found}); every file must come from that one commit, "
+                                        f"{hint}"))
+                continue
             base = pathlib.Path(tmp) / name / path
             base.parent.mkdir(parents=True, exist_ok=True)
             base.write_bytes(data)
             findings += compare_file(oasdiff, base, current, severity_levels, subject)
+            in_tree = hash_object(repo, current.read_bytes())
+            if in_tree != blob:
+                where = backend_rev or "the checked-out tree"
+                findings.append(Finding("pins", subject, DRIFT,
+                                        f"stale pin: pinned blob {blob} differs from {contracts_root}/{path} "
+                                        f"at {where} (blob {in_tree}); reported, not failing: {hint}"))
     return findings
