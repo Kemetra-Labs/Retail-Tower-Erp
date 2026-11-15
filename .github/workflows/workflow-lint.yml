@@ -1,8 +1,11 @@
 # RT-1410: lint the workflow files themselves, in REPORT MODE. Runs actionlint (syntax, expression
 # types, shellcheck on `run:` blocks; ubuntu-24.04 ships shellcheck) and zizmor (security audits:
 # template injection, cache poisoning, unpinned actions, excessive permissions, ...) over
-# .github/workflows and writes the findings to the job summary. It never fails: both exit codes are
-# printed and the job exits 0. Making it blocking is a later owner decision (RT-1410 out of scope).
+# .github/workflows and writes the findings to the job summary. Findings never fail it: both exit
+# codes are printed and each lint step exits 0. Only a failed download or a digest mismatch in the
+# install step fails the job, on purpose (fail closed on the tool supply chain); even then nothing
+# reaches `required`. Making the findings blocking is a later owner decision (RT-1410 out of scope).
+# The summary uses 4-backtick fences, so a workflow line that contains ``` cannot close them early.
 #
 # Not a graph.yaml job and not listed in gate.yml `workflow_run`, so `required` never reads it (same
 # as gitleaks, secrets.yml). Selected by path instead: `.github/**` is the part of the `policy` class
@@ -83,10 +86,10 @@ jobs:
           {
             echo "### actionlint ${ACTIONLINT_VERSION}: ${count} finding(s), exit ${rc} (report only)"
             echo
-            echo '```'
+            echo '````'
             head -n 400 "$out"
             [ "$(wc -l < "$out")" -le 400 ] || echo "... truncated; the full list is in the step log"
-            echo '```'
+            echo '````'
           } >> "$GITHUB_STEP_SUMMARY"
           exit 0
 
@@ -103,9 +106,9 @@ jobs:
             echo
             echo "${total:-no summary line; see the step log}"
             echo
-            echo '```'
+            echo '````'
             head -n 400 "$out"
             [ "$(wc -l < "$out")" -le 400 ] || echo "... truncated; the full list is in the step log"
-            echo '```'
+            echo '````'
           } >> "$GITHUB_STEP_SUMMARY"
           exit 0
