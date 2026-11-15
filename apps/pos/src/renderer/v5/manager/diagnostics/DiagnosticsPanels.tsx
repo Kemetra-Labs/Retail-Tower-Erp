@@ -173,10 +173,10 @@ function MatchRow({ product }: Readonly<{ product: ProductSnapshotDisplay }>): J
     <li className="v5-diagnostics-hit">
       <div className="v5-diagnostics-hit__copy">
         <span className="v5-diagnostics-hit__name">{product.display_name_ar}</span>
-        {(product.unit_pack_label ?? product.sku) !== undefined && (
+        {Boolean(product.unit_pack_label ?? product.sku) && (
           <span className="v5-diagnostics-hit__meta">
-            {product.unit_pack_label !== undefined && <span>{product.unit_pack_label}</span>}
-            {product.sku !== undefined && (
+            {Boolean(product.unit_pack_label) && <span>{product.unit_pack_label}</span>}
+            {Boolean(product.sku) && (
               <bdi className="v5-diagnostics-hit__sku" dir="ltr">
                 {product.sku}
               </bdi>
