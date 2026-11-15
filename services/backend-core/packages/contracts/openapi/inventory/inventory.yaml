@@ -2134,6 +2134,17 @@ paths:
                 id: 0198a0c5-0001-7000-8000-000000000001
                 storeId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a99
                 state: approved
+                scope: { kind: products, productIds: ["0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"] }
+                note: Monthly shelf count, aisle 3
+                cut:
+                  watermark: wm-0198a0c5-0003
+                  cutAt: "2026-11-16T08:15:00Z"
+                  takenBy: 0198a0c4-0000-7000-8000-0000000000a1
+                openedBy: 0198a0c4-0000-7000-8000-0000000000a1
+                openedAt: "2026-11-16T08:00:00Z"
+                counterIds: ["0198a0c4-0000-7000-8000-0000000000a1"]
+                submittedBy: 0198a0c4-0000-7000-8000-0000000000a1
+                submittedAt: "2026-11-16T09:00:00Z"
                 approval:
                   approvedBy: 0198a0c4-0000-7000-8000-0000000000a2
                   approvedAt: "2026-11-16T09:30:00Z"
@@ -2141,6 +2152,7 @@ paths:
                   selfApproved: false
                 cancellation: null
                 lateEventFindingCount: 0
+                updatedAt: "2026-11-16T09:30:00Z"
         "400": { $ref: "#/components/responses/ValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
@@ -2308,7 +2320,8 @@ components:
       required: false
       description: >
         Opaque keyset cursor from a prior page's `nextCursor`, bound to the
-        operation, the tenant, the store, the session and the filters. A value
+        operation, the tenant, the store, the session (when the path has one)
+        and the filters. A value
         the server did not issue, or one reused with other filters, is 400
         `validation_error`. The role and store scope are checked on every
         request and are never carried by the cursor.
@@ -3808,7 +3821,13 @@ components:
         countedQuantity:
           $ref: "#/components/schemas/NonNegativeDecimalQuantity"
         stockingUnit:
-          $ref: "#/components/schemas/StockingUnit"
+          allOf:
+            - $ref: "#/components/schemas/StockingUnit"
+          description: >
+            The unit the counter counted in. Unlike a stock movement, a unit
+            that differs from the product's stocking unit is accepted, not
+            rejected (no coercion): the line is flagged `uom_mismatch` at
+            review and cannot post.
     RecordCountObservationsCommand:
       type: object
       additionalProperties: false
@@ -3832,7 +3851,13 @@ components:
         countedQuantity:
           $ref: "#/components/schemas/NonNegativeDecimalQuantity"
         stockingUnit:
-          $ref: "#/components/schemas/StockingUnit"
+          allOf:
+            - $ref: "#/components/schemas/StockingUnit"
+          description: >
+            The unit the counter counted in. Unlike a stock movement, a unit
+            that differs from the product's stocking unit is accepted, not
+            rejected (no coercion): the line is flagged `uom_mismatch` at
+            review and cannot post.
         countedBy: { type: string, format: uuid }
         countedAt: { type: string, format: date-time }
     CountObservationsResult:
