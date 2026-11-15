@@ -95,6 +95,18 @@ const OPERATION_IDS = [
   // RT-451 S2 (contract-only): the tenant's tracked-selling on/off setting.
   "getTrackedSellingSetting",
   "setTrackedSellingSetting",
+  // RT-1419 (contract-only): the Count Session surface.
+  "approveCountSession",
+  "cancelCountSession",
+  "createCountSession",
+  "getCountSession",
+  "listCountLateEventFindings",
+  "listCountSessions",
+  "listCountVarianceLines",
+  "recordCountObservations",
+  "requestCountRecount",
+  "submitCountSession",
+  "takeCountCut",
 ] as const;
 
 // Operator-surface ops use cookieAuth.
@@ -130,6 +142,18 @@ const OPERATOR_OPERATION_IDS = [
   "listSaleLineFindings",
   "getTrackedSellingSetting",
   "setTrackedSellingSetting",
+  // RT-1419: the Count Session surface.
+  "approveCountSession",
+  "cancelCountSession",
+  "createCountSession",
+  "getCountSession",
+  "listCountLateEventFindings",
+  "listCountSessions",
+  "listCountVarianceLines",
+  "recordCountObservations",
+  "requestCountRecount",
+  "submitCountSession",
+  "takeCountCut",
 ];
 
 // Write ops that MUST carry a required Idempotency-Key.
@@ -143,6 +167,14 @@ const WRITE_OPERATION_IDS = [
   "createInventoryRecall",
   "correctTrackingIdentityExpiry",
   "bindTrackingResolution",
+  // RT-1419: Count Session commands.
+  "approveCountSession",
+  "cancelCountSession",
+  "createCountSession",
+  "recordCountObservations",
+  "requestCountRecount",
+  "submitCountSession",
+  "takeCountCut",
 ];
 // releaseTrackingHold is naturally idempotent (a released hold is final; a
 // second release writes nothing), so it carries no Idempotency-Key.
@@ -169,6 +201,14 @@ const READ_OPERATION_IDS = [
   "listTrackingResolutionQueue",
   "listSaleLineFindings",
   "getTrackedSellingSetting",
+];
+
+// RT-1419: the Count Session reads (the commands are in WRITE_OPERATION_IDS).
+const COUNT_SESSION_READ_IDS = [
+  "listCountSessions",
+  "getCountSession",
+  "listCountVarianceLines",
+  "listCountLateEventFindings",
 ];
 
 const MOVEMENTS_PATH = "/api/inventory/v1/stores/{storeId}/movements";
@@ -470,7 +510,7 @@ describe("inventory/inventory.yaml — idempotency", () => {
   });
 
   it("does NOT require an Idempotency-Key on read operations", () => {
-    for (const id of READ_OPERATION_IDS) {
+    for (const id of [...READ_OPERATION_IDS, ...COUNT_SESSION_READ_IDS]) {
       const params = findOp(id)?.parameters ?? [];
       const hasIdempotencyRef = params.some(
         (p) => p.$ref === "#/components/parameters/IdempotencyKey",
@@ -1343,8 +1383,7 @@ describe("inventory/inventory.yaml — RT-453 identity birth and tracking consis
     ((inventoryDoc.paths?.["/api/inventory/v1/safety/findings"]?.["get"] ?? {}) as Op).description ?? "";
   const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
 
-  it("is the 1.14.0 draft, with a wording-only version note citing the authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.14.0-draft");
+  it("keeps the 1.14.0 wording-only version note citing the authorization (version moved on in RT-1419)", () => {
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.14.0-draft (RT-453, wording only, no shape change;");
     expect(description).toContain("RT-453 comment 16685");
@@ -1366,5 +1405,91 @@ describe("inventory/inventory.yaml — RT-453 identity birth and tracking consis
     const precondition = schemaText("TrackedSellingPrecondition");
     expect(precondition).toContain("every live store has its");
     expect(precondition).toContain("completed after that anchor");
+  });
+});
+
+// ===========================================================================
+// RT-1419 — the Count Session contract (1.15.0-draft, additive, contract-only)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
+  type Op = OperationObject & { "x-runtime-status"?: string; "x-runtime-note"?: string };
+  const BASE = "/api/inventory/v1/stores/{storeId}/count-sessions";
+  const OPS: ReadonlyArray<readonly [string, string, string]> = [
+    [BASE, "post", "createCountSession"],
+    [BASE, "get", "listCountSessions"],
+    [`${BASE}/{sessionId}`, "get", "getCountSession"],
+    [`${BASE}/{sessionId}/observations`, "post", "recordCountObservations"],
+    [`${BASE}/{sessionId}/cut`, "post", "takeCountCut"],
+    [`${BASE}/{sessionId}/submit`, "post", "submitCountSession"],
+    [`${BASE}/{sessionId}/variance-lines`, "get", "listCountVarianceLines"],
+    [`${BASE}/{sessionId}/recount`, "post", "requestCountRecount"],
+    [`${BASE}/{sessionId}/approve`, "post", "approveCountSession"],
+    [`${BASE}/{sessionId}/cancel`, "post", "cancelCountSession"],
+    [`${BASE}/{sessionId}/late-event-findings`, "get", "listCountLateEventFindings"],
+  ];
+  const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
+
+  it("is the 1.15.0 draft, with a version note citing the owner authorization", () => {
+    expect(inventoryDoc.info?.version).toBe("1.15.0-draft");
+    const description = inventoryDoc.info?.description ?? "";
+    expect(description).toContain("**1.15.0-draft (RT-1419, additive, contract-only;");
+    expect(description).toContain("RT-292 comments");
+  });
+
+  it.each(OPS)("maps %s %s to %s as a cookieAuth, contract-only operation with a note", (path, method, operationId) => {
+    const o = (inventoryDoc.paths?.[path]?.[method] ?? {}) as Op;
+    expect(o.operationId).toBe(operationId);
+    expect(o["x-runtime-status"]).toBe("contract-only");
+    expect(o["x-runtime-note"]).toContain("RT-1420");
+    expect(JSON.stringify(o.security)).toContain("cookieAuth");
+    const refs = JSON.stringify(o.responses ?? {});
+    for (const status of ["401", "403", "429", "5XX"]) expect(o.responses).toHaveProperty(status);
+    expect(refs).toContain("TooManyRequests");
+    expect(JSON.stringify(o.parameters ?? [])).toContain("StoreIdPath");
+  });
+
+  it("names the session states of the Gate 6 lifecycle exactly", () => {
+    const states = (inventoryDoc.components?.schemas?.["CountSessionState"] as { enum?: string[] } | undefined)?.enum;
+    expect(states).toEqual([
+      "open",
+      "cut_taken",
+      "submitted",
+      "approved",
+      "posting",
+      "confirmed",
+      "needs_attention",
+      "closed",
+      "cancelled",
+    ]);
+  });
+
+  it("names the variance flags, the approval policy and the late-event fields of Gate 6", () => {
+    const flags = (inventoryDoc.components?.schemas?.["CountVarianceFlag"] as { enum?: string[] } | undefined)?.enum;
+    expect(flags).toEqual(["divergence", "stale_snapshot", "pending", "unmapped", "uom_mismatch"]);
+    expect(schemaText("CountApproval")).toContain("selfApproved");
+    expect(schemaText("CountApproval")).toContain("small_merchant_exception");
+    const finding = schemaText("CountLateEventFinding");
+    for (const field of ["assessment", "understated", "overstated", "quantity", "linkedEvent", "oversellRisk"]) {
+      expect(finding).toContain(field);
+    }
+  });
+
+  it("documents each typed refusal in the existing error envelope", () => {
+    const text = JSON.stringify(inventoryDoc.components?.responses?.["CountSessionConflict"] ?? {});
+    for (const code of [
+      "count_tracked_product_refused",
+      "count_session_not_in_state",
+      "count_approver_conflict",
+      "count_flagged_line_not_acknowledged",
+    ]) {
+      expect(text).toContain(code);
+    }
+    expect(schemaText("CountLineRefusal")).toContain("count_up_without_valuation_history");
+  });
+
+  it("keeps recordStockCount's legacy route unchanged and says so", () => {
+    const o = (inventoryDoc.paths?.[COUNTS_PATH]?.["post"] ?? {}) as Op & { description?: string };
+    expect(o.description).toContain("unchanged until");
+    expect(o["x-runtime-status"]).toBeUndefined();
   });
 });

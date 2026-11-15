@@ -1,13 +1,17 @@
 # Console rate-limit class of each cookieAuth operation in
 # packages/contracts/openapi/inventory/inventory.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
 
+approveCountSession: write
 bindTrackingResolution: write
+cancelCountSession: write
 correctTrackingIdentityExpiry: write
+createCountSession: write
 createInventoryRecall: write
 createRelocation: write
 createStatusMove: write
 createStockMovement: write
 createStockTransfer: write
+getCountSession: cheapRead
 getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
@@ -16,6 +20,9 @@ getTrackedSellingSetting: cheapRead
 getTrackingHold: cheapRead
 getTrackingIdentity: cheapRead
 getTrackingIdentityPositions: expensiveRead
+listCountLateEventFindings: cheapRead
+listCountSessions: cheapRead
+listCountVarianceLines: expensiveRead
 listInventoryRecalls: cheapRead
 listInventorySafetyFindings: expensiveRead
 listSaleLineFindings: expensiveRead
@@ -26,8 +33,12 @@ listTrackingIdentities: cheapRead
 listTrackingIdentityExpiryCorrections: cheapRead
 listTrackingResolutionQueue: expensiveRead
 placeQualityHold: write
+recordCountObservations: write
 recordStockCount: write
 releaseTrackingHold: write
+requestCountRecount: write
 setReturnLandingPolicy: write
 setSafetyTtlSetting: write
 setTrackedSellingSetting: write
+submitCountSession: write
+takeCountCut: write
