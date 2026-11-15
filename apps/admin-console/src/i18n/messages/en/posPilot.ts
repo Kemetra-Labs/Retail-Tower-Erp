@@ -37,7 +37,7 @@ export const posPilot: MessagesOf<typeof ar> = {
   "posPilot.activate.confirm": "Confirm activation",
   "posPilot.activate.done": "Version {version} is now the current release.",
   "posPilot.activate.currentExists":
-    "Another release is current, and it is not withdrawn automatically. Withdraw it with a {withdraw} run of {workflow}, or promote a higher version with {replace}, then activate {version}. Nothing changed.",
+    "Another release is current, and it is not withdrawn automatically. Withdraw it with a {withdraw} run of {workflow}, or promote a higher version with {replace}, then activate that higher version. Nothing changed.",
   "posPilot.activate.withdrawn":
     "Version {version} is withdrawn and can't be activated. Nothing changed.",
   "posPilot.activate.notFound": "This release no longer exists. The list is being read again.",

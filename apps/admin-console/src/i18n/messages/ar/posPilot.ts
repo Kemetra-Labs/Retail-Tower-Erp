@@ -43,7 +43,7 @@ export const posPilot = {
   "posPilot.activate.confirm": "تأكيد التفعيل",
   "posPilot.activate.done": "الإصدار {version} هو الإصدار الحالي الآن.",
   "posPilot.activate.currentExists":
-    "يوجد إصدار حالي آخر، ولا يُسحب تلقائيًا. اسحبه بتشغيل {workflow} في وضع {withdraw}، أو رقِّ إصدارًا أعلى مع {replace}، ثم فعّل {version}. لم يتغيّر شيء.",
+    "يوجد إصدار حالي آخر، ولا يُسحب تلقائيًا. اسحبه بتشغيل {workflow} في وضع {withdraw}، أو رقِّ إصدارًا أعلى مع {replace}، ثم فعّل ذلك الإصدار الأعلى. لم يتغيّر شيء.",
   "posPilot.activate.withdrawn": "الإصدار {version} مسحوب ولا يمكن تفعيله. لم يتغيّر شيء.",
   "posPilot.activate.notFound": "لم يعد هذا الإصدار موجودًا. يُعاد تحميل القائمة.",
 
