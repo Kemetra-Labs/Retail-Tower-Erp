@@ -1823,6 +1823,39 @@ components:
           minLength: 1
           maxLength: 1000
           description: Human-readable detail. No credentials, no sensitive ERPNext internals.
+      allOf:
+        - if:
+            properties:
+              code:
+                const: closed_period
+          then:
+            properties:
+              ackCategory:
+                const: closed_period
+        - if:
+            properties:
+              code:
+                const: unmapped_item
+          then:
+            properties:
+              ackCategory:
+                const: unmapped_item
+        - if:
+            properties:
+              code:
+                enum: [back_dated_permission, provenance_conflict]
+          then:
+            properties:
+              ackCategory:
+                const: other
+        - if:
+            properties:
+              code:
+                enum: [closed_period, unmapped_item, back_dated_permission, provenance_conflict]
+          else:
+            properties:
+              ackCategory:
+                const: validation
     CountLineOutcome:
       type: object
       additionalProperties: false
@@ -1860,10 +1893,12 @@ components:
               result:
                 const: rejected
           then:
-            required: [refusal]
+            required: [refusal, verifiedQtyAfter]
             properties:
               refusal:
                 type: object
+              verifiedQtyAfter:
+                type: "null"
           else:
             required: [verifiedQtyAfter]
             properties:
@@ -1920,6 +1955,28 @@ components:
             properties:
               documentRef:
                 type: "null"
+        - if:
+            properties:
+              outcome:
+                const: rejected
+          then:
+            properties:
+              lines:
+                items:
+                  properties:
+                    result:
+                      const: rejected
+        - if:
+            properties:
+              outcome:
+                const: verified_noop
+          then:
+            properties:
+              lines:
+                items:
+                  properties:
+                    result:
+                      enum: [verified_noop, rejected]
 
     # -----------------------------------------------------------------------
     # Canonical Error envelope (mirrors auth/outbox/pos-sales — verbatim shape)

@@ -1400,4 +1400,34 @@ describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_cou
     expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "rejected", documentRef: doc, lines })).toBe(false);
     expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "posted", documentRef: doc, lines })).toBe(true);
   });
+
+  it("enforces the code to ackCategory mapping, rejects a rejected line with a read-back quantity, and ties line results to the outcome", () => {
+    const refusal = validator("CountRefusal");
+    const r = (code: string, ackCategory: string) => refusal({ code, ackCategory, message: "m" });
+    expect(r("closed_period", "closed_period")).toBe(true);
+    expect(r("closed_period", "validation")).toBe(false);
+    expect(r("unmapped_item", "unmapped_item")).toBe(true);
+    expect(r("unmapped_item", "validation")).toBe(false);
+    expect(r("back_dated_permission", "other")).toBe(true);
+    expect(r("back_dated_permission", "closed_period")).toBe(false);
+    expect(r("provenance_conflict", "other")).toBe(true);
+    expect(r("provenance_conflict", "validation")).toBe(false);
+    for (const code of ["wrong_kind", "invalid_shape", "chunk_too_large", "frozen_datetime_mismatch", "unmapped_bucket", "uom_mismatch", "tracked_item_unsupported", "no_valuation_history", "valuation_rate_forbidden"]) {
+      expect(r(code, "validation")).toBe(true);
+      expect(r(code, "other")).toBe(false);
+    }
+
+    const ref = { code: "uom_mismatch", ackCategory: "validation", message: "m" };
+    expect(validator("CountLineOutcome")({ lineSeq: 1, result: "rejected", verifiedQtyAfter: "7", refusal: ref })).toBe(false);
+
+    const out = validator("CountPostingOutcome");
+    const ok = { lineSeq: 1, result: "adjusted", verifiedQtyAfter: "7", refusal: null };
+    const noop = { lineSeq: 1, result: "verified_noop", verifiedQtyAfter: "7", refusal: null };
+    const rej = { lineSeq: 1, result: "rejected", verifiedQtyAfter: null, refusal: ref };
+    const wi = "00000000-0000-7000-8000-00000000c001";
+    expect(out({ workItemRef: wi, outcome: "rejected", documentRef: null, lines: [ok] })).toBe(false);
+    expect(out({ workItemRef: wi, outcome: "rejected", documentRef: null, lines: [rej] })).toBe(true);
+    expect(out({ workItemRef: wi, outcome: "verified_noop", documentRef: null, lines: [ok] })).toBe(false);
+    expect(out({ workItemRef: wi, outcome: "verified_noop", documentRef: null, lines: [noop, rej] })).toBe(true);
+  });
 });
