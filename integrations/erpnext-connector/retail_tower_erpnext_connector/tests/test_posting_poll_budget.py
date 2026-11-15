@@ -126,6 +126,7 @@ def poller_env(monkeypatch):
 
 		monkeypatch.setattr(poller.worker, "process_page", process_page)  # worker is shared: restored
 		poller._now = clock
+		poller._monotonic = clock  # one fake clock drives both; a wall-clock step is tested separately
 		env.real_job_enqueued_at = poller._job_enqueued_at
 		poller._job_enqueued_at = lambda: enqueued_at
 		poller._ready_posting_path = lambda rid: (object(), lambda item: None)
@@ -221,6 +222,27 @@ class TestPollerLoop:
 		stops = [r for _, r in env.log.records if r.get("event") == "posting.poll.budget_stop"]
 		assert len(stops) == 1
 		assert stops[0]["pages"] == 1
+
+	def test_a_wall_clock_step_back_does_not_shorten_the_measured_page(self, poller_env):
+		# The page duration comes from the monotonic clock: an NTP step back of 30 s during a 40 s page
+		# must not make it look like 10 s (which would let a second page start and overrun the tick).
+		env = poller_env(enqueued_at=0.0, start=13.0, page_seconds=0.0, pages_available=20)
+		wall, mono = _Clock(13.0), _Clock(0.0)
+		env.poller._now, env.poller._monotonic = wall, mono
+
+		def process_page(client, ack_client, *, since, post_valid):
+			env.pulls.append(since)
+			mono.now += 40.0
+			wall.now += 40.0 - 30.0  # the wall clock was stepped back 30 s meanwhile
+			return types.SimpleNamespace(
+				cursor="c", next_page_token="t", degraded=False, degraded_message=None
+			)
+
+		env.poller.worker.process_page = (
+			process_page  # restored by the fixture's monkeypatch of the attribute
+		)
+		env.poller._run_posting_tick("rid")
+		assert len(env.pulls) == 1  # 23 + 40 > 55: stop (a wall-clock duration of 10 s would have continued)
 
 	def test_the_page_cap_still_applies(self, poller_env):
 		env = poller_env(enqueued_at=0.0, start=0.0, page_seconds=0.01, pages_available=1000)

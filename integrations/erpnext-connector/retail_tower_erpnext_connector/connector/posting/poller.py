@@ -97,10 +97,12 @@ def _run_posting_tick(request_id: str) -> None:
 	pages = 0
 	# RT-1383 — end the run before the next scheduler tick: Frappe refuses to enqueue the poll while the
 	# previous run is still going, so a run that overruns the tick leaves a minute without posting.
-	page_started_run = _now()
-	budget = TickBudget(enqueued_at=_job_enqueued_at(), started_at=page_started_run)
+	# Wall-clock for the deadline (it must match RQ's enqueue time); the monotonic clock for durations,
+	# so a clock step cannot make a page look negative or very long.
+	run_started_mono = _monotonic()
+	budget = TickBudget(enqueued_at=_job_enqueued_at(), started_at=_now())
 	while pages < _MAX_PAGES_PER_TICK:
-		page_started = _now()
+		page_started_mono = _monotonic()
 		result = worker.process_page(client, ack_client, since=since, post_valid=post_valid)
 		# A degraded page is an ALERT, not a retry: every item on it already reached a terminal
 		# outcome (posted or acked-rejected), so we ALWAYS advance the cursor — re-pulling would be
@@ -118,13 +120,13 @@ def _run_posting_tick(request_id: str) -> None:
 		# More is pending. Start another page only if one as long as the last would end before the next
 		# tick; otherwise stop here. The cursor is already saved, so the next tick resumes after this
 		# page: nothing is re-pulled, retried or skipped (the same exit as the page cap).
-		now = _now()
-		if not budget.allows_another_page(now=now, last_page_seconds=now - page_started):
+		page_seconds = _monotonic() - page_started_mono
+		if not budget.allows_another_page(now=_now(), last_page_seconds=page_seconds):
 			frappe.logger(_LOGGER).info(
 				{
 					"event": "posting.poll.budget_stop",
 					"pages": pages,
-					"elapsed_s": round(now - page_started_run, 1),
+					"elapsed_s": round(_monotonic() - run_started_mono, 1),
 				}
 			)
 			break
@@ -132,6 +134,10 @@ def _run_posting_tick(request_id: str) -> None:
 
 def _now() -> float:
 	return time.time()
+
+
+def _monotonic() -> float:
+	return time.monotonic()
 
 
 def _job_enqueued_at() -> float | None:
