@@ -1,5 +1,6 @@
 import { usePaymentStore } from '../../stores/payment-store.js';
 import type { RefusalReason } from '../../../shared/payments/types.js';
+import { appliedNetMinor } from './applied-sum.js';
 import { confirmRefusalCopy, moneyStillDue } from './payment-read-copy.js';
 import type { SurfaceContext } from './payment-surface-state.js';
 import { followEndedAttempt, followEndedWithReason } from './surface-follow.js';
@@ -114,19 +115,12 @@ export async function handleLineApplied(ctx: SurfaceContext): Promise<void> {
   // the sum equals the subtotal, the surface stays put and the confirm
   // button becomes visible. The settlement invariant itself is enforced
   // on the main process at payments.confirm time.
-  // CR-11: guard every accumulator step with Number.isSafeInteger
-  // (Constitution §II). A malformed minor value silently produces a
-  // float-tainted running sum without this check.
-  let sumApplied = 0;
-  for (const line of attempt.tender_lines) {
-    if (line.state !== 'applied') continue;
-    if (!Number.isSafeInteger(line.amount_applied_minor)) continue;
-    sumApplied += line.amount_applied_minor;
-    if (!Number.isSafeInteger(sumApplied)) {
-      // Running sum overflowed — bail out without changing the phase.
-      return;
-    }
-  }
+  // RT-1409: the sum is net of change, as main's is. CR-11: `appliedNetMinor`
+  // guards every accumulator step with Number.isSafeInteger (Constitution §II);
+  // a malformed minor value would otherwise give a float-tainted running sum.
+  const sumApplied = appliedNetMinor(attempt.tender_lines);
+  // Running sum overflowed — bail out without changing the phase.
+  if (sumApplied === null) return;
   if (sumApplied < ctx.dueMinor) {
     ctx.setSelectedTender(null);
     ctx.setPhase('tender_selection');

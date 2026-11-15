@@ -17,6 +17,25 @@ import { isCancelStillCurrent, readAttemptWithRetry } from './surface-reads.js';
  */
 
 /**
+ * RT-1409 — the store already holds this attempt force-failed with live tender
+ * (main refuses any payment on it). A cancel read-back that was taken before
+ * that, or that failed, knows less than the store: it must not replace the
+ * snapshot or the hold, or the cashier is offered tender actions main refuses.
+ */
+function isHeldForceFailed(cancel: {
+  readonly attemptId: string;
+  readonly handoffId: string;
+}): boolean {
+  const { attemptId, handoffId } = cancel;
+  const { paymentSlice, cancelRecovery } = usePaymentStore.getState();
+  return (
+    paymentSlice?.payment_attempt_id === attemptId &&
+    paymentSlice.state === 'force_failed' &&
+    holdFor(cancelRecovery, handoffId, attemptId) === 'live_tender'
+  );
+}
+
+/**
  * RT-298 — the cancel threw or was refused, but main may still have committed
  * it (the FSM commits before the audits, so a late failure loses the
  * response). Read the attempt before re-opening any payment action, and act
@@ -33,6 +52,13 @@ async function reconcileAfterCancel(
   if (own.status === 'followed') return;
   own.status = 'answered';
   if (!isCancelStillCurrent(attemptId, handoffId)) {
+    followStoreOutcome(ctx, attemptId);
+    return;
+  }
+  // RT-1409 — a newer read already stored force_failed with live tender. Neither a
+  // started snapshot read before it nor a failed read may replace it or its hold:
+  // show what the store says.
+  if (isHeldForceFailed({ attemptId, handoffId })) {
     followStoreOutcome(ctx, attemptId);
     return;
   }
