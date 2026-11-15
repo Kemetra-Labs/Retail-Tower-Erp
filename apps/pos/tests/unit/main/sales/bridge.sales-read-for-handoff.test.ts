@@ -292,7 +292,7 @@ describe('RT-1322 — session, role and request gates', () => {
       'an own __proto__ key',
       JSON.parse(
         `{"handoff_action_id":"${HANDOFF}","payment_attempt_id":"${ATTEMPT}","__proto__":{}}`,
-      ),
+      ) as Record<string, unknown>,
     ],
     ['an empty object', {}],
     ['an unknown key', { ...KEY, terminal_id: 'terminal-2' }],
