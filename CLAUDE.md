@@ -57,11 +57,11 @@ This repository holds all four products (layout: [README.md](README.md)). The ru
 
 ### Policy class
 
-A change to any of these paths is a policy change (`graph.yaml` `shared_classes.policy`):
+A change to a path in any `shared_classes` entry of `tools/project-graph/graph.yaml` with `policy_change: true` is a policy change; `graph.yaml` is the authoritative list ([ARCHITECTURE.md](ARCHITECTURE.md) summarises it). Today that is the `policy` class:
 
-`.github/**`, `.circleci/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `.depot/**`, `CODEOWNERS`.
+`.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`, `.gitleaks.toml`, `.gitleaksignore`, `.python-version`, `renovate.json5`.
 
-It selects every job, except `.circleci/**`, `.depot/**` (RT-1366) and `.github/release/**`, which select only `contracts/check` (it runs their offline specs; RT-1173); all three are still policy changes that need the approval below. In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
+It selects every job. Three more classes are also policy changes but select only `contracts/check`: `circleci` (`.circleci/**`), `release_tooling` (`.github/release/**`; it runs their offline specs, RT-1173) and `depot` (`.depot/**`, RT-1366). All of them need the approval below. In `required` mode (the default; see the `policy_approval` paragraph below), `required` stays at `POLICY_APPROVAL_REQUIRED` until a login in `policy_approvers` submits an APPROVED review on the exact head commit whose body contains the `policy-change-approved: base=<sha> fingerprint=<fp>` line printed in the `required` summary. Any new commit or base move invalidates it. An agent never approves its own PR and never edits `policy_approvers` without owner authorization.
 
 While `tools/project-graph/graph.yaml` has `policy_approval: observe` (owner decision 2026-10-27: the owner is the only maintainer), that approval is still evaluated and printed but a missing one does not fail `required`; `required` is red only for a real problem (a failed job, an invalid graph or plan). The aggregator reads the mode from the trusted base graph, so a PR cannot relax its own approval. Owner decision 2026-10-28 (RT-578): keep `observe` and keep the admin bypass (solo developer); revisit, by setting `policy_approval: required`, only when a second maintainer joins. An agent never changes this mode without owner authorization.
 
@@ -183,13 +183,15 @@ Do not convert Jira work back into the old queue/materialization model.
 
 ## 3. Current Repositories and Ownership
 
+Since the RT-715 cutover (2026-10-25) the four products below live in this repository, by PR to `main` in `Kemetra-Labs/Retail-Tower-Erp` (MR-7): Backend-Core in `services/backend-core/`, POS in `apps/pos/`, Admin-Console in `apps/admin-console/`, ERPNext-Connector in `integrations/erpnext-connector/`. The `Kemetra/*` repositories named in the headings below are the former source repositories: frozen read-only, kept for history, not a place to open PRs. The ownership lists still apply to each product directory.
+
 ### `Kemetra/Orchestrator` (retired, historical)
 
 Frozen historical source pending archive (AD-ORCH-003). Not an active repository, handbook or dependency.
 
 No production application code belongs here.
 
-### `Kemetra/Backend-Core`
+### Backend-Core (`services/backend-core/`; former `Kemetra/Backend-Core`)
 
 Backend and orchestration boundary.
 
@@ -207,7 +209,7 @@ Owns:
 - ERP posting orchestration;
 - sync operations.
 
-### `Kemetra/POS`
+### POS (`apps/pos/`; former `Kemetra/POS`)
 
 Windows cashier terminal.
 
@@ -221,7 +223,7 @@ Owns:
 - payment interaction;
 - POS ↔ Backend-Core synchronization.
 
-### `Kemetra/Admin-Console`
+### Admin-Console (`apps/admin-console/`; former `Kemetra/Admin-Console`)
 
 Admin/operator frontend.
 
@@ -235,7 +237,7 @@ Owns:
 
 Do not move backend business logic into Admin-Console.
 
-### `Kemetra/ERPNext-Connector`
+### ERPNext-Connector (`integrations/erpnext-connector/`; former `Kemetra/ERPNext-Connector`)
 
 The only ERPNext/Frappe adapter.
 
@@ -250,7 +252,7 @@ Owns:
 
 ### Legacy name aliases
 
-Program shorthand and legacy names still found in constitutions, specs, and config/env identifiers (e.g. `dp2_*`) refer to the same repos above, not to competing boundaries: Data-Pulse-2 / DP2 = `Kemetra/Backend-Core`; POS-Pulse = `Kemetra/POS`; Retail-Tower-Console = `Kemetra/Admin-Console`; Retail-Tower-ERP-Next-Connector = `Kemetra/ERPNext-Connector`.
+Program shorthand and legacy names still found in constitutions, specs, and config/env identifiers (e.g. `dp2_*`) refer to the same products above, not to competing boundaries: Data-Pulse-2 / DP2 = Backend-Core; POS-Pulse = POS; Retail-Tower-Console = Admin-Console; Retail-Tower-ERP-Next-Connector = ERPNext-Connector.
 
 ## 4. Architecture Invariants
 

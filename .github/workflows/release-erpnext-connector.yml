@@ -1,5 +1,5 @@
 # RT-871 (MR-1, MR-9): ERPNext-Connector release, independent of the other products.
-# Shadow: dry-run only.
+# Publication is not enabled yet (RT-717): a dry-run builds and writes the manifest, and publish refuses.
 #
 # Triggers: an `erpnext-connector/vX.Y.Z` tag push, or a manual dispatch whose default is a
 # dry-run. No pull_request trigger: PR code can never start this workflow with the release
@@ -19,8 +19,8 @@
 #             Backend-Core contract tree and the two contract trees the Connector mirrors
 #             (graph.yaml edges, kind: semantic), CI URL. Every run, dry-run included.
 #   publish   release mode only, behind the `release-erpnext-connector` environment. Pushing to
-#             the live mirror is not enabled on Shadow (real releases are RT-717), so it refuses
-#             once admitted.
+#             a Connector GitHub release is not enabled yet (real releases are RT-717), so it refuses
+#             once admitted. The live mirror is fed by mirror-erpnext-connector.yml, not by this job.
 #   env-probe manual negative probe (input probe_environment): asks for the environment from the
 #             dispatched ref; from anything but an erpnext-connector/v* tag it must never start.
 #

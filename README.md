@@ -88,7 +88,7 @@ POS sells the resolved Backend-Core store catalog. Admin-Console operates on the
 | --- | --- |
 | Files inside one product | The risk tiers for those paths. A path that product does not classify counts as `high` and selects that product's full suite. |
 | `services/backend-core/packages/contracts/openapi` | The `contracts` tier: `contracts/check`, and the consumer jobs that tier names. |
-| A policy path, listed below | Every job. In `required` mode the check stays at `POLICY_APPROVAL_REQUIRED` until the approval line is on the head commit. In `observe` mode that result is printed and does not fail `required`. |
+| A policy path, listed below | Every job, except `.circleci/**`, `.depot/**` and `.github/release/**`, which select only `contracts/check`. In `required` mode the check stays at `POLICY_APPROVAL_REQUIRED` until the approval line is on the head commit. In `observe` mode that result is printed and does not fail `required`. |
 | A push to `main` | Every job. |
 
 1. **Classify.** Every changed path is a shared class (`policy`, `tooling`, `e2e`, `docs`, `root`) or a product risk tier (`contracts`, `money`, `sales`, and the rest). Each class or tier names the jobs it needs. A path a product does not classify counts as `high` and selects that product's full suite.
@@ -98,11 +98,11 @@ POS sells the resolved Backend-Core store catalog. Admin-Console operates on the
 
 A change under a policy path also asks for an APPROVED review on the exact head commit, from a login in `policy_approvers`, whose body contains the `policy-change-approved:` line the gate prints. Until that review exists, `required` reports `POLICY_APPROVAL_REQUIRED`.
 
-Policy paths are `.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`, `.gitleaks.toml`, and `.gitleaksignore`. The source of truth is the `policy` class in [`tools/project-graph/graph.yaml`](tools/project-graph/graph.yaml).
+Policy paths are the `shared_classes` of [`tools/project-graph/graph.yaml`](tools/project-graph/graph.yaml) with `policy_change: true`, which is the source of truth. Today that is the `policy` class (`.github/**`, `apps/*/.github/**`, `services/*/.github/**`, `integrations/*/.github/**`, `tools/project-graph/**`, `tools/ci-gate/**`, `tools/agent-broker/**`, `CODEOWNERS`, `.gitleaks.toml`, `.gitleaksignore`, `.python-version`, `renovate.json5`), which selects every job, plus three classes that select only `contracts/check`: `circleci` (`.circleci/**`), `release_tooling` (`.github/release/**`) and `depot` (`.depot/**`). See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 **Current gate mode.** `policy_approval` is `observe` (owner decision 2026-10-27, while the owner is the only maintainer). The approval is still evaluated and printed. A missing approval does not fail `required`. `required` is red for a real problem: a failed job, or an invalid graph or plan. The aggregator reads the mode from the trusted base graph, so a pull request cannot relax its own approval. Making `required` a required status check on `main` is RT-866 and is still open. Detail: [tools/project-graph/README.md](tools/project-graph/README.md).
 
-Workflows outside the graph: `project-graph-selftest.yml` (on every pull request), `pos-asar-parity.yml` (manual only), and the four `release-<product>.yml` workflows (a product tag, or a manual dry-run).
+Workflows outside the graph: `project-graph-selftest.yml` (on every pull request), `pos-asar-parity.yml` (manual only), and the five release workflows, `release-<product>.yml` for each product plus `release-pos-pilot.yml` (a product tag, or a manual dry-run).
 
 ## Run a product
 
@@ -223,7 +223,7 @@ erpnext-connector/vX.Y.Z
 
 Each product releases on its own tag, with its own version and its own runtime packages. Root workflows [`.github/workflows/release-<product>.yml`](.github/workflows/) start from that tag, or from a manual dispatch that defaults to a dry-run. Each run builds the artifact and writes a release manifest: source SHA, product tree hash, artifact digests, contract snapshot, and CI URL.
 
-Publish jobs sit behind one environment per product (`release-<product>`) and refuse on Shadow. Nothing is published until RT-717. A Backend-Core release requires a green `bc/contracts-compat` run on the release SHA. The release model is specified in [ARCHITECTURE.md](ARCHITECTURE.md#release-model-mr-1-mr-3).
+Publish jobs sit behind per-product environments (`release-<product>`) that admit only that product's tags. What publishes today (RT-717 is still open): a Backend-Core or Admin-Console tag creates a GitHub release, a POS tag creates a signed installer release (`pos/v*` lab, `pos-pilot/v*` pilot), and the ERPNext-Connector `publish` job still refuses, because the Connector is distributed through its append-only mirror (RT-712). A Backend-Core release requires a green `bc/contracts-compat` run on the release SHA. The release model is specified in [ARCHITECTURE.md](ARCHITECTURE.md#release-model-mr-1-mr-3).
 
 ## Repository map
 
