@@ -290,6 +290,7 @@ afterEach(() => {
   useOperatorSessionStore.setState({ state: { kind: 'signedOut' } });
   usePaymentStore.getState().reset();
   useFeatureFlagsStore.getState().reset();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -483,6 +484,9 @@ describe('RT-1226 AC2 — PaymentSurface stage transitions (characterization)', 
   });
 
   it('settled sale number (RT-1322): nothing claimed while pending, then the number', async () => {
+    // The poll's timers are under the test's control, so the pending stage is
+    // observed before any second read, however slow the worker is.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     const main = await mountSurface(5_000, {
       saleNumberAnswers: [
         { kind: 'pending' },
@@ -501,7 +505,7 @@ describe('RT-1226 AC2 — PaymentSurface stage transitions (characterization)', 
 
     // The next read is due after the 250 ms fast poll.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await vi.advanceTimersByTimeAsync(300);
     });
     await settle();
     expect(stage()).toMatchSnapshot('2 settled, own sale number shown');
