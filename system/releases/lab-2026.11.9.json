@@ -1,0 +1,11 @@
+{
+  "schema": "retail-tower/system-release@1",
+  "system": "lab-2026.11.9",
+  "backendCore": {"release": "backend-core/v0.15.0"},
+  "adminConsole": {"release": "admin-console/v0.12.0"},
+  "erpnext": {
+    "image": "ghcr.io/kemetra-labs/rt-erpnext@sha256:e6d3500989e8fb332bd35a26945811b1867230536ca5b01883dbc5677c18f072",
+    "sha": "e6e56af368ad4b54e759f5df87e868d97dbc5ee3"
+  },
+  "pos": {"build": "9dfd7d977267806a907d4c03a566382570cbd0c9"}
+}
