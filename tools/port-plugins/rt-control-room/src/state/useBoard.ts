@@ -10,7 +10,7 @@ import type { BoardEvent } from "./diff";
 import { createPollerState, runPoll, type PollerState, type PollResult } from "./poller";
 import { nextPoll } from "./schedule";
 import { useVisible } from "./useVisible";
-import { POLL_MS } from "./blueprints";
+import { CORE_COLLECTIONS, POLL_MS } from "./blueprints";
 
 /** No good core read for this long means the board is stale, even if no poll has failed yet. */
 export const SILENT_AFTER_MS = 2 * POLL_MS;
@@ -35,6 +35,8 @@ export type UseBoard = {
   error: string | null;
   /** Collections whose latest read failed (their previous content is still shown). */
   failed: Collection[];
+  /** Optional collections Port does not share with this widget (403 or 404): they read "not available". */
+  unavailable: Collection[];
   /**
    * The start (ms) of the last poll that read the CORE collections (services, workloads, Sentry,
    * Datadog monitors and hosts), or null when there has been none. A stale board keeps the time
@@ -54,8 +56,7 @@ export type UseBoardOptions = {
   demo?: boolean;
 };
 
-/** The collections that give the board its meaning: alarms, health and the map itself. */
-const CORE: Collection[] = ["services", "workloads", "sentryIssues", "monitors", "hosts"];
+const CORE: readonly Collection[] = CORE_COLLECTIONS;
 
 const QUERY_KEY = ["rt-control-room", "board"] as const;
 const MIN_DELAY_MS = 1_000;
@@ -144,7 +145,13 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
   const board = useMemo(
     () =>
       data?.hasData && data.snapshot
-        ? buildBoard(data.snapshot, { now: new Date(data.now), demo, alarmRead: data.alarmRead, unread: data.unread })
+        ? buildBoard(data.snapshot, {
+            now: new Date(data.now),
+            demo,
+            alarmRead: data.alarmRead,
+            unread: data.unread,
+            failed: data.failed,
+          })
         : null,
     [data, demo],
   );
@@ -179,6 +186,7 @@ export function useBoard(options: UseBoardOptions = {}): UseBoard {
     status,
     error: status === "stale" || status === "error" ? errorText(data?.errorStatus ?? null) : null,
     failed: data?.failed ?? [],
+    unavailable: data?.unavailable ?? [],
     asOf: board ? goodSyncRef.current : null,
     labUpdatedAt,
     replaying: board !== null && replayQueue.length > 0 && !replayDone,

@@ -84,7 +84,8 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
       ciFails7d: 4,
     });
     expect(station(board, "core").readings).toMatchObject({
-      alarms: 0,
+      // RT-1408 A: counted where it FAILS (the 3 on the postings cable are Backend-Core's), as the verdict light does.
+      alarms: 3,
       checks: { ok: 7, total: 7 },
       ci7d: 98,
       tasks: 10,
@@ -94,7 +95,7 @@ describe("buildBoard on the 2026-11-13 snapshot", () => {
       ciFails7d: 1,
     });
     expect(station(board, "admin").readings).toMatchObject({ alarms: 1, checks: null, ci7d: 95, tasks: 21 });
-    expect(station(board, "conn").readings).toMatchObject({ alarms: 4, checks: null, ci7d: 97, prs: 62 });
+    expect(station(board, "conn").readings).toMatchObject({ alarms: 1, checks: null, ci7d: 97, prs: 62 });
     expect(station(board, "erp").readings).toMatchObject({
       alarms: 0,
       checks: "na",
@@ -395,7 +396,8 @@ describe("buildBoard when the Sentry alarm read failed (criterion 7)", () => {
   it("(c) a successful read restores the numeric counts, and so does leaving the option out", () => {
     for (const o of [opts({ alarmRead: { sentry: true } }), opts()]) {
       const b = buildBoard(fixture(), o);
-      expect(station(b, "conn").readings.alarms).toBe(4);
+      expect(station(b, "conn").readings.alarms).toBe(1);
+      expect(station(b, "core").readings.alarms).toBe(3);
       expect(station(b, "pos").readings.alarms).toBe(0);
       // Read again, but POS has never sent an issue: no sign it reports errors, never "No errors reported".
       expect(b.verdict.lights.cashier.text.en).toBe("Not sure: no sign the cashier app reports errors");
@@ -411,5 +413,62 @@ describe("Board.alarmRead", () => {
     expect(failed.alarmRead).toEqual({ sentry: false });
     // The retained issues still count: the failed read changes the label, not the fault count.
     expect(failed.cables.find((c) => c.id === "c3")?.faults).toBe(3);
+  });
+});
+
+describe("one fault count everywhere (RT-1408 A)", () => {
+  it("the station reading, the verdict light and the cable agree on where the 5 alarms fail", () => {
+    const b = buildBoard(fixture(), opts());
+    const reading = (id: "core" | "conn" | "admin" | "pos") => station(b, id).readings.alarms;
+    expect([reading("core"), reading("conn"), reading("admin"), reading("pos")]).toEqual([3, 1, 1, 0]);
+    expect(b.cables.find((c) => c.id === "c3")?.faults).toBe(reading("core"));
+    expect(b.verdict.lights.backend.text.en).toBe("3 alarms open");
+    // Every located alarm is counted exactly once across the stations.
+    const total = b.stations.reduce((n, s) => n + (typeof s.readings.alarms === "number" ? s.readings.alarms : 0), 0);
+    expect(total).toBe(b.alarms.length);
+  });
+});
+
+describe("the station count follows the lights where the reporter and the failing hop differ (RT-1408 A)", () => {
+  const issue = (id: string, workload: string, title: string) => {
+    const base = fixture().sentryIssues[0];
+    return { ...base, identifier: id, title, relations: { workload }, properties: { ...base.properties, status: "unresolved", link: null } };
+  };
+  const workloadOf = (station: "pos" | "conn" | "admin") => {
+    const snap = fixture();
+    const w = snap.workloads.find((x) => {
+      const svc = x.relations?.service;
+      return (Array.isArray(svc) ? svc[0] : svc) === { pos: "pos", conn: "erpnext-connector", admin: "admin-console" }[station];
+    });
+    return w?.identifier;
+  };
+
+  it("a POS error that fails on Backend-Core's cable counts on the POS card, as the Cashier light says, and on Backend-Core", () => {
+    const snap = fixture();
+    snap.sentryIssues = [];
+    const pos = workloadOf("pos");
+    if (!pos) return; // the fixture has no POS workload: nothing to place
+    snap.sentryIssues = [issue("sentry-pos-403", pos, "HTTP 403 Forbidden calling /api/v1/sales")];
+    const b = buildBoard(snap, opts());
+    const a = b.alarms[0];
+    expect(a.station).toBe("pos");
+    expect(a.at).toBe("c1");
+    expect(b.verdict.lights.cashier.tone).toBe("fault");
+    expect(station(b, "pos").readings.alarms).toBe(1);
+    expect(station(b, "core").readings.alarms).toBe(1);
+    expect(b.verdict.lights.backend.tone).toBe("fault");
+  });
+
+  it("a Connector error on the Invoices cable counts on the ERPNext ledger, as the Accounts light says, not on the Connector", () => {
+    const snap = fixture();
+    const conn = workloadOf("conn");
+    if (!conn) return;
+    snap.sentryIssues = [issue("sentry-inv", conn, "HTTP 502 Bad Gateway calling /api/resource/Sales Invoice")];
+    const b = buildBoard(snap, opts());
+    expect(b.alarms[0].at).toBe("c4");
+    expect(station(b, "erp").readings.alarms).toBe(1);
+    expect(station(b, "conn").readings.alarms).toBe(0);
+    expect(b.cables.find((c) => c.id === "c4")?.faults).toBe(1);
+    expect(b.verdict.lights.accounts.tone).toBe("fault");
   });
 });

@@ -345,8 +345,18 @@ describe("detail", () => {
     expect(within(detail).getByRole("heading", { level: 2, name: "ERPNext-Connector" })).toBeTruthy();
     expect(detail.textContent).toContain("HLT Health checks");
     expect(detail.textContent).toContain("not linked");
-    expect(within(detail).getAllByRole("button").filter((b) => b.getAttribute("data-focus")?.startsWith("alarm:"))).toHaveLength(4);
+    const listed = (el: HTMLElement) => within(el).queryAllByRole("button").filter((b) => b.getAttribute("data-focus")?.startsWith("alarm:"));
+    // RT-1408 A: the Connector's panel lists what its card counts (1: the one inside the bridge) ...
+    expect(listed(detail)).toHaveLength(1);
+    expect(detail.textContent).toContain("Alarms: 1");
     first.unmount();
+
+    // ... and Backend-Core's panel lists the 3 on the Postings cable, which the Connector reported.
+    const core = show(board, { type: "station", id: "core" });
+    const coreDetail = core.container.querySelector("[data-detail]") as HTMLElement;
+    expect(coreDetail.textContent).toContain("Alarms: 3");
+    expect(listed(coreDetail)).toHaveLength(3);
+    core.unmount();
 
     const second = show(board, { type: "host", id: "lab-01" });
     const host = second.container.querySelector("[data-detail]") as HTMLElement;
@@ -566,9 +576,10 @@ describe("table view of the map", () => {
     const cells = (id: string) => Array.from(row(id).querySelectorAll("th, td")).map((c) => c.textContent);
 
     expect(cells("pos").slice(0, 4)).toEqual(["POS", "No errors reported", "0", "-"]);
-    expect(cells("core").slice(0, 4)).toEqual(["Backend-Core", "No faults", "0", "7/7"]);
+    // RT-1408 A: the 3 alarms on the postings cable fail on Backend-Core's route, so its row says so.
+    expect(cells("core").slice(0, 4)).toEqual(["Backend-Core", "Fault", "3", "7/7"]);
     expect(cells("conn")[1]).toBe("Fault");
-    expect(cells("conn")[2]).toBe("4");
+    expect(cells("conn")[2]).toBe("1");
     expect(cells("admin")[2]).toBe("1");
     expect(cells("admin")[1]).toBe("Fault");
     expect(cells("erp").slice(0, 4)).toEqual(["ERPNext", "External ledger, not monitored here", "-", "-"]);
@@ -779,6 +790,7 @@ describe("lower panels", () => {
   it("never-read monitors read 'not read' in the health panel, the status table and the station lamps, never 'none'", () => {
     const snap = fixture();
     snap.monitors = [];
+    snap.sentryIssues = []; // no alarm anywhere: the state cell then shows the unread checks, not "Fault"
     const board = buildBoard(snap, { now: NOW, demo: false, unread: ["monitors"] });
     const { container } = wrap(
       <>

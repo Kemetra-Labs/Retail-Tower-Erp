@@ -32,6 +32,7 @@ function input(over: Partial<VerdictInput> = {}): VerdictInput {
     sources: { sentry: fresh("sentry"), datadog: fresh("datadog"), github: fresh("github"), jira: fresh("jira") },
     sentryRead: true,
     posSentry: "sending",
+    connSentry: "linked",
     coreHosts: [
       { id: "lab-01", up: true },
       { id: "lab-02", up: true },
@@ -305,5 +306,38 @@ describe("buildVerdict language", () => {
     const v = buildVerdict(input({ alarms: [c4(), c4(), c4()] }));
     expect(v.lights.accounts.text.ar).toContain("3");
     expect(v.lights.accounts.text.ar).not.toMatch(/[٠-٩]/);
+  });
+});
+
+describe("RT-1408 D: quiet is not evidence without a tracker, a down server is never hidden", () => {
+  const conn = { core: { ok: 7, total: 7 }, conn: { ok: 2, total: 2 } } as const;
+
+  it("Accounts reads unknown, not neutral, when the Connector has no error tracker project", () => {
+    const none = buildVerdict(input({ checks: conn, connSentry: "none" }));
+    expect(none.lights.accounts.tone).toBe("unknown");
+    expect(none.lights.accounts.text.en).toBe("Not sure: no error tracker project on the bridge");
+    expect(none.lights.accounts.text.ar).toMatch(ARABIC);
+    // A linked or sending project is evidence: quiet is neutral.
+    for (const state of ["linked", "sending"] as const) {
+      expect(buildVerdict(input({ checks: conn, connSentry: state })).lights.accounts.tone).toBe("neutral");
+    }
+    // A fault is still a fault with no project.
+    expect(buildVerdict(input({ checks: conn, connSentry: "none", alarms: [c4()] })).lights.accounts.tone).toBe("fault");
+  });
+
+  it("a down server is named in the light and the sentence even when alarms are open", () => {
+    const hosts = [
+      { id: "lab-01" as const, up: true },
+      { id: "lab-02" as const, up: false },
+    ];
+    const v = buildVerdict(input({ alarms: [alarm("c3", "conn"), alarm("c3", "conn")], coreHosts: hosts }));
+    expect(v.lights.backend.tone).toBe("fault");
+    expect(v.lights.backend.text.en).toBe("2 alarms open, lab-02 down");
+    expect(v.sentence.en).toContain("The backend has 2 alarms open. Server lab-02 is also down.");
+    expect(v.lights.backend.text.ar).toContain("lab-02");
+    expect(v.sentence.ar).toContain("lab-02");
+    // A lone latency alarm no longer hides the down server behind "Slow responses".
+    const slow = buildVerdict(input({ alarms: [alarm("core", "core", { kind: "latency", source: "Datadog" })], coreHosts: hosts }));
+    expect(slow.lights.backend.text.en).toBe("1 alarm open, lab-02 down");
   });
 });

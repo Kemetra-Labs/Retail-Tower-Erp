@@ -3,6 +3,7 @@ import { pick, type StringKey } from "../i18n/strings";
 import type { Board, Collection, Light } from "../model/types";
 import type { BoardStatus } from "../state/useBoard";
 import { StaleSentence } from "./StaleSentence";
+import { staleSources } from "./staleInfo";
 
 type Tone = Light["tone"];
 
@@ -70,7 +71,18 @@ function Unavailable({ status }: { status: BoardStatus }) {
 }
 
 /** The sentence and the three lights (Cashier app, Backend, Accounts) of `board.verdict`. */
-export function Verdict({ board, status, failed }: { board: Board | null; status: BoardStatus; failed?: readonly Collection[] }) {
+export function Verdict({
+  board,
+  status,
+  failed,
+  unavailable,
+}: {
+  board: Board | null;
+  status: BoardStatus;
+  failed?: readonly Collection[];
+  /** Optional blueprints Port does not share with this widget (403 or 404): named, not hidden. */
+  unavailable?: readonly Collection[];
+}) {
   const { lang, t } = useLang();
   if (!board) return <Unavailable status={status} />;
 
@@ -83,6 +95,11 @@ export function Verdict({ board, status, failed }: { board: Board | null; status
         {status === "stale" && (
           <div className="gapnote staleNote">
             {t("stateStaleNote")} <StaleSentence failed={failed} />
+          </div>
+        )}
+        {unavailable !== undefined && unavailable.length > 0 && (
+          <div className="gapnote" data-not-available>
+            {t("notAvailableNote", { list: staleSources(unavailable).map((key) => t(key)).join(", ") })}
           </div>
         )}
       </div>

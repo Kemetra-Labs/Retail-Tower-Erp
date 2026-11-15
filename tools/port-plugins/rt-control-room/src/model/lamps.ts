@@ -46,6 +46,7 @@ export function stationLamps(
   station: StationId,
   evidence: LampEvidence,
   unread: Unread = NO_UNREAD,
+  failed: Unread = NO_UNREAD,
 ): Record<SourceId, Lamp> {
   if (station === "erp") {
     return Object.fromEntries(SOURCES.map((s) => [s, { state: "na" } satisfies Lamp])) as Record<
@@ -54,7 +55,7 @@ export function stationLamps(
     >;
   }
   const githubUnread = unread.has("prs") || unread.has("runs") || unread.has("deployments");
-  return {
+  const lamps: Record<SourceId, Lamp> = {
     sentry: evidence.sentryProject
       ? { state: evidence.sentryIssues > 0 ? "sending" : "linked" }
       : noEvidence(unread.has("workloads")),
@@ -62,6 +63,18 @@ export function stationLamps(
     github: evidence.github > 0 ? { state: "live" } : noEvidence(githubUnread),
     jira: evidence.jira > 0 ? { state: "live" } : noEvidence(unread.has("jira")),
   };
+  // A read that failed just now cannot back up what the lamp last said: it reads "not read".
+  const behind: Record<SourceId, Collection[]> = {
+    sentry: ["sentryIssues", "workloads"],
+    datadog: ["monitors", "hosts"],
+    github: ["prs", "runs", "deployments"],
+    jira: ["jira"],
+  };
+  for (const src of SOURCES) {
+    const lamp = lamps[src];
+    if (lamp.state !== "na" && behind[src].some((c) => failed.has(c))) lamps[src] = { ...lamp, unread: true };
+  }
+  return lamps;
 }
 
 function linkedTo(entities: { relations?: { service?: Relation } }[], serviceId: string): number {
