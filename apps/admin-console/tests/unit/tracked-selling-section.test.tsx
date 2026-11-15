@@ -58,6 +58,13 @@ const on = {
 };
 const ok = (data: unknown) => ({ status: 200, data });
 
+/** Resolves after `count` animation frames, so every focus move already queued has run. */
+async function nextFrames(count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
 function renderSection(tenantId = TENANT): void {
   render(
     <QueryClientProvider client={createQueryClient()}>
@@ -257,6 +264,44 @@ describe("owner / tenant_admin view", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Batch selling" })),
     );
+  });
+
+  test("a 404 on the switch: the heading keeps focus while the re-read is still in flight (RT-1415)", async () => {
+    // The re-read is held open, so the old controls are still mounted when the focus frames run.
+    // Before RT-1415 the action button took focus one frame after the heading, then unmounted
+    // with the 404 re-read and left focus on <body>.
+    let answerReRead: (value: unknown) => void = () => undefined;
+    getSetting.mockResolvedValueOnce(ok(off));
+    getSetting.mockReturnValue(
+      new Promise((resolve) => {
+        answerReRead = resolve;
+      }),
+    );
+    putSetting.mockResolvedValue({ status: 404 });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch batch selling on" }));
+    await screen.findByText("The batch selling setting is not available now. Nothing was recorded.");
+    await waitFor(() => expect(getSetting).toHaveBeenCalledTimes(2));
+    await nextFrames(2);
+    const heading = screen.getByRole("heading", { name: "Batch selling" });
+    expect(screen.getByRole("button", { name: "Switch batch selling on" })).toBeTruthy();
+    expect(document.activeElement).toBe(heading);
+
+    answerReRead({ status: 404 });
+    await waitFor(() => expect(screen.queryByTestId("tracked-selling-state")).toBeNull());
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(document.activeElement).toBe(heading);
+  });
+
+  test("no answer: the heading owns focus, not the action button (RT-1415)", async () => {
+    getSetting.mockResolvedValue(ok(off));
+    putSetting.mockRejectedValue(new TypeError("Failed to fetch"));
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch batch selling on" }));
+    await screen.findByText(/No answer arrived, so whether the setting changed/);
+    await waitFor(() => expect(getSetting).toHaveBeenCalledTimes(2));
+    await nextFrames(2);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Batch selling" }));
   });
 
   test("no answer and a failed re-read: the unknown outcome is kept above the read error", async () => {

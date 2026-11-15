@@ -216,8 +216,18 @@ function ConfirmOff({
   );
 }
 
+/**
+ * After a 404 or no answer the re-read may remove the controls, so the heading owns focus
+ * (UX-11.8: the next meaningful owner when the invoker may vanish). Exactly one owner moves
+ * focus per outcome: two queued focus moves raced, and the button could win, then unmount
+ * with the re-read and drop focus on <body> (RT-1415).
+ */
+function headingOwnsFocus(outcome: SwitchOutcome): boolean {
+  return outcome.kind === "unavailable" || outcome.kind === "failed";
+}
+
 interface SwitchControl {
-  submit: (enabled: boolean) => Promise<void>;
+  submit: (enabled: boolean) => Promise<SwitchOutcome>;
   pending: boolean;
   clearOutcome: () => void;
 }
@@ -236,9 +246,9 @@ function ManageView({
   }
 
   async function send(enabled: boolean): Promise<void> {
-    await control.submit(enabled);
+    const result = await control.submit(enabled);
     setConfirming(false);
-    focusAction();
+    if (!headingOwnsFocus(result)) focusAction();
   }
 
   function cancelConfirm(): void {
@@ -341,9 +351,10 @@ function SectionBody({
       const result = await toggle.submit({ enabled });
       setOutcome(result);
       // The controls may be gone after the re-read: the heading keeps focus.
-      if (result.kind === "unavailable" || result.kind === "failed") {
+      if (headingOwnsFocus(result)) {
         requestAnimationFrame(() => headingRef.current?.focus());
       }
+      return result;
     },
   };
 
