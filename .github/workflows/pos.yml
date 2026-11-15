@@ -8,7 +8,7 @@
 # expression and there is no matrix (the three shards are three literal jobs). The
 # workflow `name:` must stay `pos` (listed in gate.yml `workflow_run`).
 # PR-reachable: read-only token, no stored credentials, no environment. The only use of the job token is the
-# "Fetch main tip" step in the three shard jobs (see the comment there).
+# "Fetch main tip" step in the three shard jobs (see the comment there; it runs on pull_request only since RT-1414).
 #
 # Differences from the product workflow, all forced by the project graph:
 #  - the graph is the only selector, so the `changes` job, the `ci` aggregate and every
@@ -201,18 +201,29 @@ jobs:
       # src/renderer/__tests__/source-scope-guard.test.ts runs `git diff origin/main...HEAD`
       # and falls back to `git fetch origin main`. The product repo is public, so that fetch
       # works anonymously there; this repo is private and checkout does not persist
-      # credentials, so fetch the main tip here, right after checkout and before any PR
-      # code runs (npm ci included), with the read-only token passed to this one command
-      # only (never written to .git/config). The refspec is forced (+) because on a push to
-      # main, and on a re-run of an old run, checkout has already created origin/main at the
-      # pushed SHA and a depth-1 fetch of a newer tip is otherwise rejected as non-fast-forward.
+      # credentials, so on a pull_request fetch the main tip here, right after checkout and
+      # before any PR code runs (npm ci included), with the read-only token passed to this one
+      # command only (never written to .git/config). The refspec is forced (+) so a depth-1
+      # fetch is never rejected as non-fast-forward over an existing origin/main.
+      # RT-1414: on a push to main the guard is skipped by pinning origin/main to the pushed
+      # commit (empty diff), with no fetch and no token. Fetching the moving main tip raced
+      # the next push (run 43642539131: 80bdea5 was blamed for 12b160f's api-types.ts), and
+      # comparing with github.event.before cannot work either: every exemption is keyed on
+      # the PR branch name, which is `main` on a push, so each merged exempt PR would fail.
+      # The guard is a PR-scope check; each main commit was guarded on its PR.
       - name: Fetch main tip for the source-scope guard
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --no-recurse-submodules --depth=1 origin +main:refs/remotes/origin/main
+
+      # RT-1414: no fetch on push; see the comment in pos/test-shard-1.
+      - name: Pin origin/main to the pushed commit (source-scope guard sees an empty diff)
+        if: github.event_name == 'push'
+        run: git update-ref refs/remotes/origin/main HEAD
 
       - name: Setup Node 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -256,12 +267,18 @@ jobs:
           persist-credentials: false
 
       - name: Fetch main tip for the source-scope guard
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --no-recurse-submodules --depth=1 origin +main:refs/remotes/origin/main
+
+      # RT-1414: no fetch on push; see the comment in pos/test-shard-1.
+      - name: Pin origin/main to the pushed commit (source-scope guard sees an empty diff)
+        if: github.event_name == 'push'
+        run: git update-ref refs/remotes/origin/main HEAD
 
       - name: Setup Node 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -303,12 +320,18 @@ jobs:
           persist-credentials: false
 
       - name: Fetch main tip for the source-scope guard
+        if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags --no-recurse-submodules --depth=1 origin +main:refs/remotes/origin/main
+
+      # RT-1414: no fetch on push; see the comment in pos/test-shard-1.
+      - name: Pin origin/main to the pushed commit (source-scope guard sees an empty diff)
+        if: github.event_name == 'push'
+        run: git update-ref refs/remotes/origin/main HEAD
 
       - name: Setup Node 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
