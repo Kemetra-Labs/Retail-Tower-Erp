@@ -1,3 +1,4 @@
+import type { ProductSnapshotDisplay } from '../../../../shared/catalogue/product-snapshot';
 import type {
   CatalogueFreshnessResponse,
   CatalogueRefreshResponse,
@@ -69,4 +70,16 @@ export function searchMessage(res: CatalogueSearchResponse | null): string | nul
       // refused, too_short, catalogue_unavailable: the read is not available.
       return DIAGNOSTICS_COPY.unavailable;
   }
+}
+
+/**
+ * RT-860: the rows the catalogue check lists, and whether the bridge cut the list at its
+ * limit. Only a `results` answer has rows; every other answer is a line with no list.
+ */
+export function searchRows(res: CatalogueSearchResponse | null): {
+  items: readonly ProductSnapshotDisplay[];
+  truncated: boolean;
+} {
+  if (res?.kind !== 'results') return { items: [], truncated: false };
+  return { items: res.items, truncated: res.truncated };
 }

@@ -94,6 +94,90 @@
   min-block-size: 0;
 }
 
+/* ── RT-860: the catalogue check's matched-items list (G6C addendum) ─
+ * The second grid row takes the free height; the search panel stretches to the bottom and
+ * its list scrolls inside it. Money keeps the money family, the SKU keeps mono. */
+.v5-diagnostics-grid:has(.v5-diagnostics-hits) {
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+}
+
+.v5-diagnostics-grid:has(.v5-diagnostics-hits) > .v5-manager-panel {
+  align-self: start;
+}
+
+.v5-diagnostics-grid:has(.v5-diagnostics-hits) > [data-testid='diagnostics-search'] {
+  align-self: stretch;
+  min-block-size: 0;
+}
+
+[data-testid='diagnostics-search'] .v5-manager-panel__body {
+  min-block-size: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.v5-diagnostics-hits {
+  min-block-size: 0;
+  margin: 0 calc(var(--space-4) * -1);
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border-block-start: 1px solid var(--color-border-soft);
+  scrollbar-color: var(--color-border) transparent;
+  scrollbar-width: thin;
+}
+
+.v5-diagnostics-hits:focus-visible {
+  outline: 3px solid var(--color-focus-ring, currentColor);
+  outline-offset: -3px;
+}
+
+.v5-diagnostics-hit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-block-end: 1px solid var(--color-border-soft);
+}
+
+.v5-diagnostics-hit__copy {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.v5-diagnostics-hit__name {
+  overflow-wrap: anywhere;
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-diagnostics-hit__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.v5-diagnostics-hit__sku {
+  font-family: var(--font-family-mono);
+}
+
+.v5-diagnostics-hit__price {
+  align-self: center;
+  unicode-bidi: isolate;
+  font-family: var(--font-family-money);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .v5-diagnostics-hits:focus-visible {
+    outline-color: Highlight;
+  }
+}
+
 .v5-manager-panel {
   display: flex;
   flex-direction: column;

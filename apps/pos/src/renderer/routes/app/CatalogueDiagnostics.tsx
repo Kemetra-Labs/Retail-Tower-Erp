@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
 
 import { ScreenSection } from '../../v5/foundation/ScreenSection';
 import { DIAGNOSTICS_COPY } from '../../v5/manager/diagnostics/diagnostics-copy';
-import { searchMessage } from '../../v5/manager/diagnostics/diagnostics-model';
+import { searchMessage, searchRows } from '../../v5/manager/diagnostics/diagnostics-model';
 import {
   CountsPanel,
   DevicePanel,
@@ -28,7 +28,8 @@ import type { PairingStatus } from '../../../shared/pairing-types';
  *   • `pairing.getStatus()` → tenant / store / terminal IDENTIFIERS only.
  *   • `catalogue.counts()`  → products + barcode-alias counts (integers).
  *   • `catalogue.freshness()` + `catalogue.refresh()` → sync state + manual refresh.
- *   • `catalogue.search()`  → read-only local search.
+ *   • `catalogue.search()`  → read-only local search; lists each match (name, pack,
+ *     SKU, price). A search row carries no barcode, so none is shown (RT-860, OD-2 = A).
  *
  * Security policy (mirrors PairedScreen): the `paired` PairingStatus branch omits
  * `device_token` by design; this screen reads ONLY tenant/store/terminal ids +
@@ -171,6 +172,8 @@ export function CatalogueDiagnostics(props: Readonly<CatalogueDiagnosticsProps>)
         }
       : null;
 
+  const { items: matches, truncated } = searchRows(searchResult);
+
   return (
     <ScreenSection title={DIAGNOSTICS_COPY.title}>
       <p className="v5-manager-sub">{DIAGNOSTICS_COPY.sub}</p>
@@ -186,6 +189,8 @@ export function CatalogueDiagnostics(props: Readonly<CatalogueDiagnosticsProps>)
           query={query}
           onQueryChange={(q) => void onSearch(q)}
           message={searchMessage(searchResult)}
+          items={matches}
+          truncated={truncated}
         />
       </div>
     </ScreenSection>
