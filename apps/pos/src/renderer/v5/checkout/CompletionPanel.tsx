@@ -57,7 +57,7 @@ export interface CompletionTestIds {
 }
 
 /** The sale number main proved belongs to this payment (`sales.readForHandoff`). */
-export interface CompletionSaleNumber {
+interface CompletionSaleNumber {
   /** The sequence without leading zeros, or null when main could not parse it. */
   readonly short: string | null;
   /** The stored number as printed on the receipt. */

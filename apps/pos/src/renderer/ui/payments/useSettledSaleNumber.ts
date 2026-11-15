@@ -26,14 +26,14 @@ import type {
  */
 
 /** Delay between reads during the first {@link FAST_WINDOW_MS}. */
-export const FAST_POLL_MS = 250;
-export const FAST_WINDOW_MS = 2_000;
+const FAST_POLL_MS = 250;
+const FAST_WINDOW_MS = 2_000;
 /** Delay between reads after the fast window. */
-export const SLOW_POLL_MS = 1_000;
+const SLOW_POLL_MS = 1_000;
 /** Total time asked for the number; at this point the neutral M-N5 line shows. */
 export const POLL_BOUND_MS = 15_000;
 
-export interface SettledSaleNumberValue {
+interface SettledSaleNumberValue {
   /** The sequence without leading zeros, or null when main could not parse it. */
   readonly short: string | null;
   /** The stored number as printed on the receipt. */
