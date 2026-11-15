@@ -32,10 +32,20 @@
   gap: var(--space-md);
 }
 
-@media (max-width: 1200px) {
+/*
+ * The alarm column stacks under the map until the frame is wide enough to give
+ * the map its 900 px diagram width (NARROW_PX): 900 + 2 x 16 card padding + 370
+ * column + 12 gap + 2 x 16 shell padding + about 15 scroll bar = 1361 px, so 1400
+ * leaves a margin. Below that the diagram takes the full width instead of the
+ * table (RT-1416); pinned by __tests__/stage-breakpoint.test.ts.
+ */
+@media (max-width: 1400px) {
   .stage {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+@media (max-width: 1200px) {
   .lower {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
