@@ -262,6 +262,14 @@ describe('RT-551 — the sale-number day is the Cairo day of finalized_at', () =
     expect(number).toBe('TERM-01-2026-01-16-000001');
   });
 
+  it('RT-1323: a sale at 2026-10-06T22:53Z (Cairo 01:53 on 10-07) is numbered with 2026-10-07', () => {
+    // Summer time (UTC+3) until 2026-10-29. The UTC day is 10-06; the Cairo day is 10-07.
+    const number = finalizeNew('2026-10-06T22:53:00.000Z');
+    expect(number).toBe('TERM-01-2026-10-07-000001');
+    const [row] = all<{ local_calendar_day: string }>('SELECT local_calendar_day FROM sales');
+    expect(row?.local_calendar_day).toBe('2026-10-07');
+  });
+
   it('dates a sale finalized at Cairo 02:30 (summer time) by the Cairo day', () => {
     // 2026-07-14T23:30Z = 2026-07-15 02:30 in Cairo (UTC+3).
     expect(finalizeNew('2026-07-14T23:30:00.000Z')).toBe('TERM-01-2026-07-15-000001');
