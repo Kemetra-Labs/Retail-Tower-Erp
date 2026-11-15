@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import { ScreenSection } from '../../v5/foundation/ScreenSection';
 import { DIAGNOSTICS_COPY } from '../../v5/manager/diagnostics/diagnostics-copy';
-import { searchMessage } from '../../v5/manager/diagnostics/diagnostics-model';
+import { searchMessage, searchRows } from '../../v5/manager/diagnostics/diagnostics-model';
 import {
   CountsPanel,
   DevicePanel,
@@ -28,7 +28,8 @@ import type { PairingStatus } from '../../../shared/pairing-types';
  *   • `pairing.getStatus()` → tenant / store / terminal IDENTIFIERS only.
  *   • `catalogue.counts()`  → products + barcode-alias counts (integers).
  *   • `catalogue.freshness()` + `catalogue.refresh()` → sync state + manual refresh.
- *   • `catalogue.search()`  → read-only local search.
+ *   • `catalogue.search()`  → read-only local search; lists each match (name, pack,
+ *     SKU, price). A search row carries no barcode, so none is shown (RT-860, OD-2 = A).
  *
  * Security policy (mirrors PairedScreen): the `paired` PairingStatus branch omits
  * `device_token` by design; this screen reads ONLY tenant/store/terminal ids +
@@ -96,6 +97,9 @@ export function CatalogueDiagnostics(props: Readonly<CatalogueDiagnosticsProps>)
   const [refreshKind, setRefreshKind] = useState<CatalogueRefreshResponse['kind'] | null>(null);
   const [query, setQuery] = useState<string>('');
   const [searchResult, setSearchResult] = useState<CatalogueSearchResponse | null>(null);
+  // Every query change takes a new number; an answer for an older number is dropped, so a
+  // slow search can never bring its list back under a cleared or changed query.
+  const searchSeq = useRef(0);
 
   const loadFreshness = useCallback(async () => {
     try {
@@ -148,15 +152,19 @@ export function CatalogueDiagnostics(props: Readonly<CatalogueDiagnosticsProps>)
   const onSearch = useCallback(
     async (q: string) => {
       setQuery(q);
+      searchSeq.current += 1;
+      const mine = searchSeq.current;
       if (q.trim().length < 2) {
         setSearchResult(null);
         return;
       }
+      let res: CatalogueSearchResponse;
       try {
-        setSearchResult(await calls.search({ query: q }));
+        res = await calls.search({ query: q });
       } catch {
-        setSearchResult({ kind: 'refused', reason: 'no_session' });
+        res = { kind: 'refused', reason: 'no_session' };
       }
+      if (mine === searchSeq.current) setSearchResult(res);
     },
     [calls],
   );
@@ -170,6 +178,8 @@ export function CatalogueDiagnostics(props: Readonly<CatalogueDiagnosticsProps>)
           terminal_label: pairing.terminal_label,
         }
       : null;
+
+  const { items: matches, truncated } = searchRows(searchResult);
 
   return (
     <ScreenSection title={DIAGNOSTICS_COPY.title}>
@@ -186,6 +196,8 @@ export function CatalogueDiagnostics(props: Readonly<CatalogueDiagnosticsProps>)
           query={query}
           onQueryChange={(q) => void onSearch(q)}
           message={searchMessage(searchResult)}
+          items={matches}
+          truncated={truncated}
         />
       </div>
     </ScreenSection>

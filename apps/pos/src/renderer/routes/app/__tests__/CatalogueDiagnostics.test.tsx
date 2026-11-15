@@ -12,7 +12,7 @@ import type {
   CatalogueSearchResponse,
 } from '../../../../shared/bridge-api.js';
 import type { PairingStatus } from '../../../../shared/pairing-types';
-import { formatHumanDateTime } from '../../../ui/format/human-format';
+import { formatHumanDateTime, formatHumanMoney } from '../../../ui/format/human-format';
 import { expectNoAxeViolations } from '../../../test-utils/axe-config';
 
 /**
@@ -66,6 +66,22 @@ function renderScreen(b: ReturnType<typeof bridge>) {
 
 async function settled(): Promise<void> {
   await waitFor(() => expect(screen.getByTestId('diagnostics-counts')).toHaveTextContent('12,480'));
+}
+
+function row(
+  id: string,
+  name: string,
+  sku: string,
+  priceMinor: number,
+  pack: string | null,
+): Record<string, unknown> {
+  return {
+    product_id: id,
+    display_name_ar: name,
+    sku,
+    price_minor: priceMinor,
+    unit_pack_label: pack,
+  };
 }
 
 const SEARCH_LABEL = 'ابحث بالاسم أو الباركود';
@@ -331,6 +347,189 @@ describe('CatalogueDiagnostics — search', () => {
     await userEvent.type(input, 'p');
     await waitFor(() => expect(input).toHaveValue('p'));
     expect(search).not.toHaveBeenCalled();
+    expect(screen.getByTestId('diagnostics-search-results')).toBeEmptyDOMElement();
+  });
+
+  it('lists each match with name, pack, SKU and price (RT-860, OD-2 = A: no barcode)', async () => {
+    const search = vi.fn(() =>
+      Promise.resolve({
+        kind: 'results' as const,
+        items: [
+          row('p-1', 'بنادول إكسترا', 'PARA-500', 1500, '×24 قرص'),
+          row('p-2', 'بنادول ساخن', 'PARA-HOT', 2250, null),
+        ] as never,
+        truncated: false,
+      }),
+    );
+    renderScreen(bridge({ search }));
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'بنادول');
+    const list = await screen.findByRole('list', { name: 'نتائج البحث' });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent('بنادول إكسترا');
+    expect(rows[0]).toHaveTextContent('×24 قرص');
+    expect(rows[0]).toHaveTextContent('PARA-500');
+    expect(rows[0]).toHaveTextContent(formatHumanMoney(1500));
+    expect(rows[1]).toHaveTextContent('بنادول ساخن');
+    expect(rows[1]).toHaveTextContent('PARA-HOT');
+    expect(rows[1]).toHaveTextContent(formatHumanMoney(2250));
+    // The count line stays above the list.
+    expect(screen.getByTestId('diagnostics-search-results')).toHaveTextContent('نتيجتان');
+    // Read-only: no row action, the SKU and price are left-to-right isolated.
+    expect(within(list).queryAllByRole('button')).toHaveLength(0);
+    const first = within(rows[0] as HTMLElement);
+    expect(first.getByText('PARA-500')).toHaveAttribute('dir', 'ltr');
+    expect(first.getByText(formatHumanMoney(1500))).toHaveAttribute('dir', 'ltr');
+  });
+
+  it('an empty pack label never hides the SKU', async () => {
+    renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({
+            kind: 'results' as const,
+            items: [row('p-1', 'بنادول', 'PARA-500', 1500, '')] as never,
+            truncated: false,
+          }),
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'بنادول');
+    const list = await screen.findByRole('list', { name: 'نتائج البحث' });
+    expect(within(list).getByText('PARA-500')).toBeInTheDocument();
+  });
+
+  it('a search that finishes after the query was cleared never brings its list back', async () => {
+    let finish: (r: CatalogueSearchResponse) => void = () => undefined;
+    const search = vi.fn(
+      () =>
+        new Promise<CatalogueSearchResponse>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderScreen(bridge({ search }));
+    const input = await screen.findByLabelText(SEARCH_LABEL);
+    await userEvent.type(input, 'با');
+    await waitFor(() => {
+      expect(search).toHaveBeenCalled();
+    });
+    await userEvent.clear(input);
+    finish({
+      kind: 'results',
+      items: [row('p-1', 'بنادول', 'PARA-500', 1500, null)] as never,
+      truncated: false,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('list', { name: 'نتائج البحث' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('diagnostics-search-results')).toBeEmptyDOMElement();
+  });
+
+  it('never draws a barcode, even when a row carries one', async () => {
+    const item = {
+      ...row('p-1', 'بنادول', 'PARA-500', 1500, null),
+      selling_barcode: '6221000000011',
+    };
+    renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({ kind: 'results' as const, items: [item] as never, truncated: false }),
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'بنادول');
+    await screen.findByRole('list', { name: 'نتائج البحث' });
+    expect(screen.queryByText('6221000000011')).not.toBeInTheDocument();
+  });
+
+  it('a truncated list shows the shipped limit line under the list', async () => {
+    const items = Array.from({ length: 20 }, (_, i) =>
+      row(`p-${String(i)}`, `فيتامين ${String(i)}`, `VIT-${String(i)}`, 1000 + i, null),
+    );
+    renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({ kind: 'results' as const, items: items as never, truncated: true }),
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'فيتامين');
+    const list = await screen.findByRole('list', { name: 'نتائج البحث' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(20);
+    expect(screen.getByTestId('diagnostics-search-results')).toHaveTextContent('20 نتيجة');
+    expect(screen.getByText('النتائج محدودة؛ عدّل البحث لتضييقها.')).toBeInTheDocument();
+  });
+
+  it('an untruncated list shows no limit line', async () => {
+    renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({
+            kind: 'results' as const,
+            items: [row('p-1', 'بنادول', 'PARA-500', 1500, null)] as never,
+            truncated: false,
+          }),
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'بنادول');
+    await screen.findByRole('list', { name: 'نتائج البحث' });
+    expect(screen.queryByText('النتائج محدودة؛ عدّل البحث لتضييقها.')).not.toBeInTheDocument();
+  });
+
+  it('the list is one keyboard tab stop; rows take no focus; axe is clean', async () => {
+    const { container } = renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({
+            kind: 'results' as const,
+            items: [
+              row('p-1', 'بنادول', 'PARA-500', 1500, '×24 قرص'),
+              row('p-2', 'بنادول ساخن', 'PARA-HOT', 2250, null),
+            ] as never,
+            truncated: false,
+          }),
+      }),
+    );
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'بنادول');
+    const list = await screen.findByRole('list', { name: 'نتائج البحث' });
+    expect(list).toHaveAttribute('tabindex', '0');
+    for (const li of within(list).getAllByRole('listitem')) {
+      expect(li).not.toHaveAttribute('tabindex');
+    }
+    await userEvent.tab(); // refresh button is the first control
+    await userEvent.tab();
+    await expectNoAxeViolations(container);
+  });
+
+  it.each([
+    ['not_found', { kind: 'not_found' }, 'لا توجد نتائج'],
+    ['refused', { kind: 'refused', reason: 'no_session' }, 'غير متاح'],
+    ['too_short', { kind: 'too_short' }, 'غير متاح'],
+    ['catalogue_unavailable', { kind: 'catalogue_unavailable' }, 'غير متاح'],
+  ] as const)('%s shows its line and no list', async (_name, res, text) => {
+    renderScreen(bridge({ search: () => Promise.resolve(res as CatalogueSearchResponse) }));
+    await userEvent.type(await screen.findByLabelText(SEARCH_LABEL), 'زنجبيل');
+    await waitFor(() =>
+      expect(screen.getByTestId('diagnostics-search-results')).toHaveTextContent(text),
+    );
+    expect(screen.queryByRole('list', { name: 'نتائج البحث' })).not.toBeInTheDocument();
+  });
+
+  it('a short query after a result clears the list and the line', async () => {
+    renderScreen(
+      bridge({
+        search: () =>
+          Promise.resolve({
+            kind: 'results' as const,
+            items: [row('p-1', 'بنادول', 'PARA-500', 1500, null)] as never,
+            truncated: false,
+          }),
+      }),
+    );
+    const input = await screen.findByLabelText(SEARCH_LABEL);
+    await userEvent.type(input, 'بنادول');
+    await screen.findByRole('list', { name: 'نتائج البحث' });
+    await userEvent.clear(input);
+    await userEvent.type(input, 'ب');
+    await waitFor(() =>
+      expect(screen.queryByRole('list', { name: 'نتائج البحث' })).not.toBeInTheDocument(),
+    );
     expect(screen.getByTestId('diagnostics-search-results')).toBeEmptyDOMElement();
   });
 

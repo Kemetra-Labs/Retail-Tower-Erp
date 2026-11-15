@@ -1,6 +1,6 @@
 import { useId, type JSX, type ReactNode } from 'react';
 
-import { formatHumanCount } from '../../../ui/format/human-format';
+import { formatHumanCount, formatHumanMoney } from '../../../ui/format/human-format';
 import { DIAGNOSTICS_COPY } from './diagnostics-copy';
 import {
   formatSyncTime,
@@ -9,6 +9,7 @@ import {
   refreshMessage,
   type FreshnessView,
 } from './diagnostics-model';
+import type { ProductSnapshotDisplay } from '../../../../shared/catalogue/product-snapshot';
 import type {
   CatalogueCountsResponse,
   CatalogueFreshnessResponse,
@@ -157,6 +158,37 @@ export interface SearchPanelProps {
   onQueryChange: (query: string) => void;
   /** The Arabic result line, or null before a search was made. */
   message: string | null;
+  /** RT-860: the matched products, in the order the bridge ranked them. Empty = no list. */
+  items: readonly ProductSnapshotDisplay[];
+  /** The bridge cut the list at its limit. */
+  truncated: boolean;
+}
+
+/**
+ * RT-860 (G6C addendum): one read-only row. Name, then pack and SKU, then the price. A
+ * search row carries a SKU and never a barcode (OD-2 = A), so none is drawn.
+ */
+function MatchRow({ product }: Readonly<{ product: ProductSnapshotDisplay }>): JSX.Element {
+  return (
+    <li className="v5-diagnostics-hit">
+      <div className="v5-diagnostics-hit__copy">
+        <span className="v5-diagnostics-hit__name">{product.display_name_ar}</span>
+        {(Boolean(product.unit_pack_label) || Boolean(product.sku)) && (
+          <span className="v5-diagnostics-hit__meta">
+            {Boolean(product.unit_pack_label) && <span>{product.unit_pack_label}</span>}
+            {Boolean(product.sku) && (
+              <bdi className="v5-diagnostics-hit__sku" dir="ltr">
+                {product.sku}
+              </bdi>
+            )}
+          </span>
+        )}
+      </div>
+      <span className="v5-diagnostics-hit__price" dir="ltr">
+        {formatHumanMoney(product.price_minor)}
+      </span>
+    </li>
+  );
 }
 
 export function SearchPanel(props: Readonly<SearchPanelProps>): JSX.Element {
@@ -180,6 +212,17 @@ export function SearchPanel(props: Readonly<SearchPanelProps>): JSX.Element {
       <output data-testid="diagnostics-search-results">
         {props.message === null ? '' : withNumbers(props.message)}
       </output>
+      {props.items.length > 0 && (
+        // One tab stop so a keyboard can scroll the list; no row takes focus or acts.
+        <ul className="v5-diagnostics-hits" tabIndex={0} aria-label={copy.listLabel}>
+          {props.items.map((product) => (
+            <MatchRow key={product.product_id} product={product} />
+          ))}
+        </ul>
+      )}
+      {props.truncated && props.items.length > 0 && (
+        <p className="v5-manager-sub">{copy.truncated}</p>
+      )}
     </Panel>
   );
 }

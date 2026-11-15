@@ -47,5 +47,8 @@ export const DIAGNOSTICS_COPY = {
     heading: 'بحث في الكتالوج المحلي',
     label: 'ابحث بالاسم أو الباركود',
     none: 'لا توجد نتائج',
+    // RT-860 (OD-6): both strings are the sale search's, reused as approved in the G6C addendum.
+    listLabel: 'نتائج البحث',
+    truncated: 'النتائج محدودة؛ عدّل البحث لتضييقها.',
   },
 } as const;
