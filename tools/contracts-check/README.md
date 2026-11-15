@@ -6,13 +6,25 @@
 
 | Check | Compares | Fails on | Reported, not failing |
 | --- | --- | --- | --- |
-| `pins` | each `file: <path> <blob>` of `apps/pos/contracts/backend-core/PIN`, `apps/admin-console/contracts/backend-core/PIN` and `integrations/erpnext-connector/contracts/backend-core/PIN` (RT-704), read from this repository's object store, against the in-tree file (`oasdiff breaking`, Backend-Core severity levels) | WARN or ERR finding; a PIN whose `repo:` is not this repository (`repository` in `config.yaml`) or whose `source:` is not `contracts_root` (RT-889); missing blob; vendored POS copy not hashing to its pin; pinned file gone from the tree; malformed PIN; any oasdiff error or unparseable output | every other change (`oasdiff changelog`) |
+| `pins` | each `file: <path> <blob>` of `apps/pos/contracts/backend-core/PIN`, `apps/admin-console/contracts/backend-core/PIN` and `integrations/erpnext-connector/contracts/backend-core/PIN` (RT-704), read from this repository's object store, against the in-tree file (`oasdiff breaking`, Backend-Core severity levels) | WARN or ERR finding; a PIN whose `repo:` is not this repository (`repository` in `config.yaml`) or whose `source:` is not `contracts_root` (RT-889); a `commit:` that is not in this repository's object store, or a `file:` blob that is not the blob of that path at the PIN's `commit:` (a partial or mixed pin, RT-1407); missing blob; vendored POS copy not hashing to its pin; pinned file gone from the tree; malformed PIN; any oasdiff error or unparseable output | every other change (`oasdiff changelog`); a stale pin, whose blob differs from the in-tree file even when oasdiff sees no API change (RT-1407) |
 | `connector` | `connector/posting/contracts.py`, `connector/bin_view/contracts.py` and `connector/stock_import/contracts.py` (parsed with `ast`, never imported) against `posting-feed.yaml`, `stock-view.yaml` and `stock-import.yaml` | enum set ≠ schema `enum`/`const`; pattern ≠ schema `pattern` (`\d` = `[0-9]` only under `re.ASCII`; `\w`/`\s`/`\b` without `re.ASCII` fail); a read whose key cannot be resolved; a field read or emitted that the schema lacks; a field read by bare subscript that the schema does not require; a required field `to_wire` never emits; a class with `from_wire`/`to_wire` and no same-named schema; an unclassified module-level frozenset or `re.compile` | docstring version ≠ `info.version`; an equal pattern ending in Python `$`, which also accepts a trailing newline that the contract rejects |
 | `identical` | each group under `identical:` in `config.yaml`: the four `obs1-golden-vectors.json` copies and the four `rt879-redaction-vectors.json` copies (RT-879), and the two `golden-vectors.json` copies of the Offer Engine (RT-1339: Backend-Core and POS) | any byte difference or missing copy | — |
 
 Everything that cannot be compared fails (fail closed). The mapping of Connector constants to schema locations is in `config.yaml`; a new constant must be mapped or listed as `local` with a reason.
 
-The Connector PIN (RT-704) pins the four files the Connector calls: `erpnext-connector/posting-feed.yaml`, `stock-view.yaml`, `connector-health.yaml` (heartbeat) and `stock-import.yaml` (RT-1287). `tests/test_pins.py` (`ConnectorPin`) fails when a `contract:` under `connector:` is not pinned, or when a `get`/`post` in the Connector transports targets a method and path that no pinned file serves. The Connector has no repin script or bot; it is repinned by hand from this repository, as the PIN header describes.
+The Connector PIN (RT-704) pins the five files the Connector calls: `erpnext-connector/posting-feed.yaml`, `stock-view.yaml`, `connector-health.yaml` (heartbeat), `stock-import.yaml` (RT-1287) and `provisioning-feed.yaml` (the tenant provisioner, RT-1359). `tests/test_pins.py` (`ConnectorPin`) fails when a `contract:` under `connector:` is not pinned, or when a `get`/`post` in the Connector transports targets a method and path that no pinned file serves.
+
+### Repinning (one commit per PIN, RT-1407)
+
+Every consumer PIN describes one commit: each `file:` blob must be the blob of that path at `commit:`, and `pins` fails otherwise, so a single hand-edited line cannot pass. Rewrite a PIN only with its consumer's command (also `repin` in `config.yaml`), which reads every file at one commit from local git (no network):
+
+| Consumer | Command |
+| --- | --- |
+| POS | `npm run contracts:repin -- --ref <ref>` in `apps/pos` (also refreshes the vendored copies and `api-types.ts`) |
+| Admin-Console | `pnpm generate:client --repin <ref>` in `apps/admin-console` (also regenerates the client) |
+| ERPNext-Connector | `python integrations/erpnext-connector/scripts/contracts_repin.py [--ref <ref>] [--add <path>] [--remove <path>]` from the repository root (default ref `main`; the Connector vendors no copies) |
+
+Pin a commit that is on `main`: CI reads it from git, and a squash merge drops branch-only commits (the Connector script refuses any other commit). The check also applies in the System release gate, to each consumer PIN at its release commit: a Connector commit from before the RT-1407 repin that still carries the RT-1398 partial `stock-import.yaml` pin (#593 up to that repin) fails it, so name a later commit in a release manifest. Consumers lag `main` on purpose until they repin, so a pinned blob behind the in-tree file is a `stale pin` drift line in the job summary, not a failure.
 
 ## Commands
 
