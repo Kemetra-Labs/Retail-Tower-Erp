@@ -25,7 +25,7 @@
 - **Underpay.** Cashier applies less than the subtotal and taps Confirm. Refused as `tender_underpaid`. Status banner shows the generic copy `"Cannot finalise this payment yet."` Cashier applies more tender.
 - **Overpay with change.** Cash is the ONLY tender that supports `change_due_minor`. Overpaying cash is normal — the change comes out of the drawer.
 - **Cash limit (RT-437).** One cash line is capped at EGP 100,000.00, or the balance still owed if that is larger. Above it the cashier sees «المبلغ أكبر من الحد المسموح للنقدية. راجع المبلغ.» and nothing is recorded; it is almost always barcode digits in the amount field. A sale above the cap is paid by entering the exact amount. Logs show `tender.apply.cash_out_of_range` with the attempt id only.
-- **Stuck attempt.** If the cash drawer hardware freezes mid-confirm, the attempt stays in `state='started'` indefinitely. Cashier escalates to manager → manager runs force-fail (section 5).
+- **Stuck attempt.** If the cash drawer hardware freezes mid-confirm, the attempt stays in `state='started'` indefinitely. Cashier escalates to manager → manager uses the recovery screen (**المبيعات المعلقة**). Force-fail is no longer a renderer action (section 5, RT-1232).
 
 ### Implementation references
 
@@ -149,6 +149,13 @@ If any voucher reverse returns `authority_unreachable`, that line moves to `reve
 ---
 
 ## 5. Manager incident response — force-fail (FR-021)
+
+> **Superseded by RT-1232 (owner decision, RT-1205 item 2, 2026-11-04).** The renderer cannot
+> force-fail a payment: there is no `payments.forceFail` bridge method, no `payments:force-fail`
+> IPC channel, and the `ForceFailSurface` screen is deleted. The `manager/force-fail` route shows
+> a notice that links to the recovery screen. The FSM transition, the handler code and the audit
+> design below remain in the codebase, but nothing registers the handler. Treat the procedure
+> below as historical design, not an operator procedure.
 
 A cashier reports their attempt is stuck in `state='started'` (e.g. terminal hardware froze mid-confirm, or the renderer crashed and a stale attempt blocks the cash drawer). The manager intervenes via the **ForceFailSurface** route.
 

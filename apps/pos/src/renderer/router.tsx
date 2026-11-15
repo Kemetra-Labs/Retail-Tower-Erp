@@ -373,14 +373,9 @@ export function AppRouter(props: Readonly<AppRouterProps>): JSX.Element {
               ),
             },
             {
-              // T282 — Wave 5b-renderer manager-only force-fail surface
-              // (FR-021 / plan AD-5). Secondary UX defence; the load-
-              // bearing role check lives in the main-process bridge
-              // handler. The placeholder is rendered without props when
-              // `props.payments` isn't injected — production wires
-              // `window.api.payments` upstream; future "list of stuck
-              // attempts" feature will navigate users here with the
-              // payment_attempt_id in route state.
+              // T282 — manager-only force-fail route. RT-1232: it renders a
+              // notice only; the renderer has no force-fail call (no bridge
+              // method, no IPC channel). The guard is UX defence only.
               path: 'manager/force-fail',
               element: (
                 <OperatorRouteGuard allow={['manager', 'admin']}>
