@@ -1,92 +1,42 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type JSX,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react';
+import type { JSX } from 'react';
 
 import { useOperatorSessionStore } from '../../stores/operator-session-store.js';
-import { usePaymentStore, type CancelHold } from '../../stores/payment-store.js';
-import { useFeatureFlagsStore } from '../../stores/feature-flags-store.js';
+import { usePaymentStore } from '../../stores/payment-store.js';
 import { OperatorBadge } from '../operator/OperatorBadge.js';
-import { useScanOwner } from '../../scan/ScanGuardHost.js';
-import { SCAN_SALE_COMPLETE_MESSAGE } from '../../scan/scan-messages.js';
-import { useScanNoticeStore } from '../../scan/scan-notice-store.js';
-import { TenderPicker, type TenderKind } from '../../v5/checkout/TenderPicker.js';
 import { OrderSummary } from '../../v5/checkout/OrderSummary.js';
 import { PaymentLedger } from '../../v5/checkout/PaymentLedger.js';
-import { cashDraft } from '../../v5/checkout/cash-draft.js';
 import { RecoveryPanel } from '../../v5/checkout/RecoveryPanel.js';
-import { ConfirmDialog } from '../../v5/foundation/ConfirmDialog.js';
-import { ToneIcon } from '../../v5/foundation/ToneIcon.js';
-import { Icon } from '../../icons/Icon.js';
-import { Notice } from '../../v5/foundation/Notice.js';
-import { DISCOUNT_COPY } from '../../v5/sale/discount/discount-copy.js';
-import { envelopeAmountDue } from '../../../shared/cart/handoff-envelope.js';
 import '../../v5/checkout/checkout.css';
-import { CashEntry } from './CashEntry.js';
-import { CheckoutActionBar, FocusWhen, PrimarySlotContext } from './CheckoutActionBar.js';
-import { ExternalCardTerminalEntry } from './ExternalCardTerminalEntry.js';
-import { VoucherEntry } from './VoucherEntry.js';
-import type { BackToSaleEligibility } from '../../sale/useCheckoutBackToSale.js';
-import type {
-  PaymentsBridgeAPI,
-  PaymentsReadResponse,
-  SalesBridgeAPI,
-  TenderApplyRequest,
-  TenderBridgeAPI,
-} from '../../../shared/bridge-api.js';
-import type {
-  PaymentAttemptRendererView,
-  PaymentRefusal,
-  RefusalReason,
-} from '../../../shared/payments/types.js';
-import { DrawerNoticeInline } from '../receipts/DrawerNotice.js';
-import { CompletionPanel } from '../../v5/checkout/CompletionPanel.js';
-import { useSettledSaleNumber } from './useSettledSaleNumber.js';
+import { PrimarySlotContext } from './CheckoutActionBar.js';
 import { FitGuard } from '../../v5/foundation/FitGuard.js';
 import {
-  CONFIRM_ENDED_COPY,
-  START_READ_FAILED_COPY,
-  TENDER_READ_FAILED_COPY,
-  confirmNeedsReadBack,
-  confirmRefusalCopy,
-  moneyStillDue,
-} from './payment-read-copy.js';
-import {
-  BACK_REASON_COPY,
-  BACK_REFUSED_COPY,
-  CANCEL_FAILED_COPY,
-  CANCEL_HOLD_COPY,
-  CANCEL_LIVE_TENDER_COPY,
-  CANCEL_NOT_OPEN_COPY,
   CANCEL_UNKNOWN_COPY,
-  CARD_CANCEL_BODY,
-  CARD_CANCEL_TITLE,
-  COMPLETION_TEST_IDS,
-  FIRST_ENABLED_TENDER_TILE,
   LEDGER_TEST_IDS,
-  LIVE_TENDER_STATES,
   RECOVERY_TEST_IDS,
   TENDER_SELECTED_COPY,
-  backReasonTone,
-  cancelNeedsTerminalVoid,
-  cancelOutcomeFromRead,
-  cancelProvesReversal,
-  commitReasonCopy,
-  deriveBackControl,
-  holdFor,
-  isEscapePress,
-  isOpenCheckout,
-  isResumable,
-  resolveBridge,
-  resumePhase,
-  type BackControl,
-  type CancelOutcome,
-  type OwnCancel,
-  type Phase,
 } from './payment-surface-logic.js';
+import { BackBlockedReason, BackToSaleButton, CardCancelConfirm } from './checkout-parts.js';
+import { guardCommitKey, guardTileKey } from './checkout-key-guards.js';
+import { CheckoutFocusRules } from './CheckoutFocusRules.js';
+import { PaymentActionBar } from './PaymentActionBar.js';
+import { SettledStage } from './SettledStage.js';
+import { TenderEntryStage } from './TenderEntryStage.js';
+import { handleCancel, requestCancel } from './surface-cancel.js';
+import {
+  handleConfirm,
+  handleLineApplied,
+  rereadAttempt,
+  retryFailedRead,
+} from './surface-settle.js';
+import {
+  handleBackToSale,
+  handleCompleteZero,
+  handleTenderSelect,
+  sendTenderApply,
+} from './surface-start.js';
+import { deriveSurfaceView, type SurfaceView } from './surface-view.js';
+import type { PaymentSurfaceProps, SurfaceContext } from './payment-surface-state.js';
+import { usePaymentSurface } from './usePaymentSurface.js';
 
 /**
  * 006-payments-tender S1 + S3d T152 — PaymentSurface.
@@ -106,6 +56,11 @@ import {
  *     least one tender line is applied. Confirm click → `payments.confirm`.
  *     On settled, transitions to a placeholder per FR-031.
  *
+ * RT-1226 — the body is split by stage: `TenderEntryStage` (method tiles and
+ * the entry), `PaymentActionBar` (commit, cancel and the RT-298 hold lines),
+ * `SettledStage` (completion). State lives in `usePaymentSurfaceState`, the
+ * effects in `usePaymentSurface`, the flows in `surface-*.ts`.
+ *
  * SECURITY:
  *   - No sensitive IDs in DOM (FR-035).
  *   - No card data (PAN, CVV, cardholder name) of any kind.
@@ -114,166 +69,7 @@ import {
  *   - Manager identity never in cashier-visible UI.
  */
 
-export interface PaymentSurfaceProps {
-  /**
-   * Test seam: injects payments + tender (+ optional sales) bridge in place of
-   * `window.api`. The same injected-bridge pattern the Sale controllers use
-   * (renderer/sale). When omitted in production, the surface reads from
-   * `window.api.payments` + `window.api.tender` (+ `window.api.sales`) — the
-   * typed preload bridge.
-   */
-  _testBridge?: {
-    payments: PaymentsBridgeAPI;
-    tender: TenderBridgeAPI;
-    sales?: SalesBridgeAPI;
-  };
-  /**
-   * Invoked when the cashier clicks "New sale" on the settled/completed
-   * surface. The route owner (CheckoutRoute) wires this to reset the payment +
-   * cart stores and navigate back to /app/cart — keeping PaymentSurface
-   * Router-agnostic (mirrors the Sale screen's onContinue seam, so the
-   * bare-render unit tests need no Router ancestor). Optional + guarded: when
-   * omitted (tests / Slice-1), the button still renders and is a safe no-op.
-   */
-  onNewSale?: () => void;
-  /**
-   * RT-26 — Checkout Back / Esc to the same sale. Resolves `true` once main
-   * returned the cart to the Sale (the route then leaves this surface), `false`
-   * when main refused or the call failed (the cashier stays here). Optional:
-   * without it no Back control renders and Esc does nothing (Slice-1 / bare
-   * renders). The surface only DISABLES Back while it can see tender activity
-   * or an operation in flight — main is the authority either way.
-   */
-  onBackToSale?: () => Promise<boolean>;
-  /**
-   * RT-26 — main's durable eligibility for this handoff
-   * (`cart.returnToSaleEligibility`). Back is enabled only on `returnable`;
-   * `unknown` (the default: not asked yet, or no answer) keeps it disabled, and
-   * `blocked` shows the reason. Survives remounts, unlike component state.
-   */
-  backToSaleEligibility?: BackToSaleEligibility;
-  /**
-   * RT-998 — a cashier's way to open the shift when main refused a cash tender
-   * with no open shift. The route owner navigates (this surface is
-   * Router-agnostic); without it the refusal shows with no way on.
-   */
-  onOpenShift?: () => void;
-}
-
-/**
- * Runs `onEscape` for an Esc press while `enabled`, consuming the event
- * (preventDefault) so no other Esc handler acts on it. Re-subscribed every
- * render so the handler always sees current state. Used for the RT-24 layer
- * order: an open entry panel closes first; only then is Esc = Back.
- */
-function useEscapeKey(enabled: boolean, onEscape: () => void): void {
-  useEffect(() => {
-    if (!enabled) return undefined;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (!isEscapePress(event)) return;
-      event.preventDefault();
-      onEscape();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  });
-}
-
-/** RT-26 — Back to the same sale (Esc). Rendered only while offered. */
-function BackToSaleButton(
-  props: Readonly<{ back: BackControl; onBack: () => void }>,
-): JSX.Element | null {
-  if (!props.back.offered) return null;
-  return (
-    <button
-      type="button"
-      className="v5-checkout-back v5-btn"
-      data-testid="payment-surface-back"
-      disabled={!props.back.enabled}
-      aria-disabled={props.back.ariaDisabled}
-      aria-keyshortcuts="Escape"
-      onClick={props.onBack}
-    >
-      رجوع إلى البيع
-      <kbd dir="ltr">Esc</kbd>
-    </button>
-  );
-}
-
-/**
- * RT-1025: before any tender the commit is present but unavailable (dashed,
- * `foundation/buttons.css`), so the money column is never blank; its reason
- * sits under it. It never settles, so it is natively disabled.
- */
-function UnavailableCommit(): JSX.Element {
-  return (
-    <button
-      type="button"
-      className="v5-btn v5-btn--primary v5-btn--commit"
-      data-testid="payment-surface-commit-unavailable"
-      disabled
-      aria-describedby="payment-commit-reason"
-    >
-      تأكيد الدفع
-    </button>
-  );
-}
-
-/** Why Back is disabled: money recorded, money reversed, or an entry is open. */
-function BackBlockedReason(props: Readonly<{ back: BackControl }>): JSX.Element | null {
-  if (!props.back.showReason || props.back.reason === null) return null;
-  const tone = backReasonTone(props.back.reason);
-  // RT-243 W1-C: the V5 Notice treatment (tone border, tint, tone icon), so the
-  // M-P13 danger reads as danger by shape too, never by colour alone.
-  return (
-    <output
-      className="v5-checkout__back-reason"
-      data-testid="payment-surface-back-blocked"
-      data-tone={tone}
-    >
-      {tone === 'neutral' ? (
-        <span className="v5-tone-icon" data-icon="neutral">
-          <Icon name="status.neutral" />
-        </span>
-      ) : (
-        <ToneIcon tone={tone} />
-      )}
-      <span>{BACK_REASON_COPY[props.back.reason]}</span>
-    </output>
-  );
-}
-
-/**
- * RT-855 (OZ-1 = Z-A, D1 ZeroCheckout) — the tender panel at 0 due: no method
- * tiles, only why none is needed. «إتمام البيع» is the money column's commit.
- */
-function ZeroDueTender(): JSX.Element {
-  return (
-    <section
-      className="v5-tender-picker"
-      data-testid="tender-zero-due"
-      aria-labelledby="v5-tender-picker-title"
-    >
-      <h2 className="v5-checkout-heading" id="v5-tender-picker-title">
-        طريقة الدفع
-      </h2>
-      <Notice tone="info">{DISCOUNT_COPY.zeroDue}</Notice>
-    </section>
-  );
-}
-
-/** RT-239 (M-S7): a scan on a completed sale starts nothing; it says what to do. */
-function notifySaleComplete(): void {
-  useScanNoticeStore.getState().show(SCAN_SALE_COMPLETE_MESSAGE);
-}
-
-/** Mounted only while the settled screen is on, so it owns scans exactly then. */
-function SettledScanOwner(): null {
-  useScanOwner(notifySaleComplete);
-  return null;
-}
+export type { PaymentSurfaceProps } from './payment-surface-state.js';
 
 /**
  * RT-412 (RT-312 D2) — covered by the in-surface fit notice, never shown
@@ -293,1242 +89,51 @@ export function PaymentSurface(props: PaymentSurfaceProps = {}): JSX.Element | n
   );
 }
 
-function PaymentSurfaceBody({
-  _testBridge,
-  onNewSale,
-  onBackToSale,
-  backToSaleEligibility = 'unknown',
-  onOpenShift,
-}: PaymentSurfaceProps = {}): JSX.Element | null {
-  const sessionState = useOperatorSessionStore((s) => s.state);
-  const envelope = usePaymentStore((s) => s.envelope);
-  const paymentSlice = usePaymentStore((s) => s.paymentSlice);
-
-  const [selectedTender, setSelectedTender] = useState<TenderKind | null>(null);
-  // RT-243 W1-C — the cash typed but not yet applied, for the ledger's preview.
-  const [cashDraftMinor, setCashDraftMinor] = useState<number | null>(null);
-  const [phase, setPhase] = useState<Phase>('tender_selection');
-  // RT-761: true for the first commit only, so arrival focus is not re-applied when
-  // the cashier later returns to the method tiles (Esc from an entry keeps its own rules).
-  // It is judged on that first commit alone: a stale attempt that the mount effect
-  // clears afterwards leaves focus on <body>, as before (no normal flow does this).
-  const [arriving, setArriving] = useState(true);
-  useEffect(() => {
-    setArriving(false);
-  }, []);
-  // RT-238: the pinned primary slot the entry components render their apply-commit into.
-  const [primarySlot, setPrimarySlot] = useState<HTMLElement | null>(null);
-  // RT-238 / I-9: when focus is moved onto the settle commit, a held or doubled
-  // Enter from the apply that preceded it must not settle on its own.
-  const commitFocusedAtRef = useRef(0);
-  // RT-761/RT-763: when focus last landed on the first method tile, on arrival or after a
-  // partial apply (see `guardTileKey`).
-  const tileFocusedAtRef = useRef(0);
-  // RT-298 — the cancel this surface sent and has not finished (its own outcome
-  // code updates the screen; see the hold-sync effect below).
-  const ownCancelRef = useRef<OwnCancel | null>(null);
-  const lastHoldRef = useRef<CancelHold>('none');
-  // RT-238 / Codex P1: after a successful apply the projection must be re-read
-  // before anything else is offered. Until it is, the apply is not offered again
-  // (a second press would record the whole amount a second time, as change).
-  // `blocked`: main's session gate refused the read, so no retry from this
-  // session can succeed; nothing is offered and the refusal line says why.
-  const [afterApply, setAfterApply] = useState<'idle' | 'reading' | 'failed' | 'blocked'>('idle');
-  // RT-341 — what the pending or failed read follows: a fresh start has no money
-  // on it yet, so its retry line must not say an amount was recorded (M-P15).
-  // RT-340: a failed read-back after a refused settle retries through the same
-  // copy decision; the confirm's reason is kept in the store
-  // (`confirmReadPending`), so a remount keeps it too.
-  const [readAfter, setReadAfter] = useState<'start' | 'tender' | 'confirm'>('tender');
-
-  // RT-238: the entry opens below the method tiles, inside the scrolling panes;
-  // bring it into view so the cashier never has to hunt for the amount field.
-  useEffect(() => {
-    if (phase !== 'entry') return;
-    const entry = document.querySelector('.v5-checkout__entry');
-    // jsdom has no layout and no scrollIntoView; the real window always does.
-    if (entry !== null && 'scrollIntoView' in entry) entry.scrollIntoView({ block: 'nearest' });
-  }, [phase]);
-  const [bridgeRefusalCopy, setBridgeRefusalCopy] = useState<string | null>(null);
-  const [isConfirming, setIsConfirming] = useState<boolean>(false);
-  const [isCancelling, setIsCancelling] = useState<boolean>(false);
-  // RT-298 — the cancel key and any hold live in the payment store, so a
-  // Checkout remount keeps both (Codex P2, #576). See `cancelHold` below.
-  const cancelRecovery = usePaymentStore((s) => s.cancelRecovery);
-  const [isStarting, setIsStarting] = useState<boolean>(false);
-  const [reversalPending, setReversalPending] = useState<boolean>(false);
-  // RT-243 W1-C (M-P7, RT-116 §3) — the cancel confirm shown when a card charge
-  // may stand on the terminal.
-  const [confirmCardCancel, setConfirmCardCancel] = useState<boolean>(false);
-  // RT-26 — a Back is in flight, and whether this handoff ever had tender
-  // (a payments.cancel that reversed lines clears the projection, but main
-  // still refuses Back for that cart, so the control stays disabled).
-  const [isReturning, setIsReturning] = useState<boolean>(false);
-  const [tenderTouched, setTenderTouched] = useState<boolean>(false);
-  const [tenderReversed, setTenderReversed] = useState<boolean>(false);
-  // RT-256 — card facts for this handoff live in the payment store, so they
-  // survive a Checkout remount and the attempt clear on cancel (Codex P1, #572).
-  const cardSafety = usePaymentStore((s) => s.cardSafety);
-  // 022 US4a (T011) — the sale id is not retained, and nothing here reads the
-  // terminal-wide `recent` row: it cannot be tied to THIS payment (external
-  // review rounds 2 and 3). RT-1322 (RT-249 N-S2) brings the sale number back
-  // on the exact key instead: `useSettledSaleNumber` below asks main for the
-  // sale of THIS handoff and attempt (`sales.readForHandoff`), and main
-  // confirms the attempt and the session's scope. The receipt (T017) stays
-  // with its own slice.
-  // 008's finalize listener is gated on this flag. With it off no receipt is
-  // ever written, so the completion surface must say so rather than imply a
-  // document is on its way.
-  const saleFinalizationFlag = useFeatureFlagsStore((s) => s.saleFinalization);
-  // RT-103: vouchers are excluded from the pilot (RT-10 D2). Off (the default)
-  // disables the voucher tile and refuses a voucher selection here as well.
-  const voucherTenderFlag = useFeatureFlagsStore((s) => s.voucherTender);
-  // RT-700: card is out of the pilot (RT-536 D4). Off (the default) hides the
-  // card tile and refuses a card selection here; main refuses the apply too.
-  const cardTenderFlag = useFeatureFlagsStore((s) => s.cardTender);
-
-  const bridge = resolveBridge(_testBridge);
-
-  // paymentAttemptId is the source-of-truth from the paymentSlice projection
-  // (set by payments.start → payments.read flow, or seeded by tests via
-  // applyAttemptSnapshot). Keeping a single source avoids drift.
-  const paymentAttemptId = paymentSlice?.payment_attempt_id ?? null;
-
-  // Reset surface state when envelope or session context changes; otherwise a
-  // stale "tender selected" status banner could carry across a new payment
-  // attempt.
-  const envelopeHandoffId = envelope?.handoff_action_id ?? null;
-  // RT-1322 — the settled screen's own sale number. `paymentAttemptId` comes
-  // from `paymentSlice`, which a settle leaves in place (a settled attempt is
-  // resumed as the settled screen) until a new sale resets it, so both ids of
-  // the key stay available until Completion unmounts (doc 20 §5.3). With the
-  // flag off, or before the settle, the hook makes no call.
-  const salesBridge = bridge?.sales;
-  const settledSaleNumber = useSettledSaleNumber({
-    enabled: phase === 'settled' && saleFinalizationFlag,
-    // A bridge built before RT-1322 (a test double) may lack the method: no call.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    read: salesBridge?.readForHandoff?.bind(salesBridge) ?? null,
-    handoffActionId: envelopeHandoffId,
-    paymentAttemptId,
-  });
-  // RT-298 — payment actions held closed after a cancel:
-  //   unconfirmed  — main could not confirm the outcome (response and read both
-  //                  lost); Cancel again resolves it, replaying the same key.
-  //   live_tender  — the attempt was force-failed with live tender; main refuses
-  //                  any new payment for this cart, so only a manager can move on.
-  const cancelHold = holdFor(cancelRecovery, envelopeHandoffId, paymentAttemptId);
-  useEffect(() => {
-    setSelectedTender(null);
-    setBridgeRefusalCopy(null);
-    setIsConfirming(false);
-    setIsCancelling(false);
-    setIsStarting(false);
-    setReversalPending(false);
-    setIsReturning(false);
-    setTenderTouched(false);
-    setTenderReversed(false);
-    setAfterApply('idle');
-    setReadAfter('tender');
-    // Resume a same-handoff attempt across a remount (leaving checkout and
-    // coming back): a `started` one is still held by main, so forgetting it
-    // would re-enable sign-out and make the next tender re-run payments.start,
-    // which main refuses; a `settled` one must come back as the settled
-    // screen, never as tender selection. A cancel hold comes back too (RT-298):
-    // an unconfirmed cancel reopens on its Cancel with its line, and a
-    // force-failed attempt with live tender stays held. Anything else (another
-    // handoff, no session, or a terminal attempt with nothing to resume) is
-    // cleared.
-    const store = usePaymentStore.getState();
-    const kept = store.paymentSlice?.state;
-    const hold = holdFor(
-      store.cancelRecovery,
-      envelopeHandoffId,
-      store.paymentSlice?.payment_attempt_id ?? null,
-    );
-    const resumable =
-      sessionState.kind === 'signedIn' &&
-      store.attemptHandoffId === envelopeHandoffId &&
-      isResumable(kept, hold);
-    if (!resumable) store.clearAttempt();
-    setPhase(resumable ? resumePhase(kept, hold) : 'tender_selection');
-    setBridgeRefusalCopy(resumable ? CANCEL_HOLD_COPY[hold] : null);
-    // RT-243 F1 — the stored projection may be stale: a post-apply read that
-    // failed before the remount left no trace here (`afterApply` is component
-    // state). Read main again before any apply or settle is offered; a failed
-    // read keeps them out of reach and offers the retry, as after an apply. A
-    // cancel hold owns its own read-back (RT-298), so it is left to that.
-    if (resumable && kept === 'started' && hold === 'none') void rereadOnResume();
-    // rereadOnResume reads the store and this render's attempt; the reset
-    // must only run when the session or the handoff changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionState.kind, envelopeHandoffId]);
-
-  /**
-   * RT-298 — show what the store says about this sale's cancel when another
-   * surface (a cancel sent before a remount) moved it on. `forAttemptId`: a
-   * cancel of ours whose answer came after that; a different attempt now in
-   * the store is a new payment, so only our stale line is cleared.
-   */
-  function followStoreOutcome(forAttemptId?: string): void {
-    const store = usePaymentStore.getState();
-    const slice = store.paymentSlice;
-    if (slice === null) {
-      setSelectedTender(null);
-      setAfterApply('idle');
-      setPhase('tender_selection');
-      setBridgeRefusalCopy(null);
-      return;
-    }
-    if (forAttemptId !== undefined && slice.payment_attempt_id !== forAttemptId) {
-      setBridgeRefusalCopy(null);
-      return;
-    }
-    if (slice.state === 'settled') {
-      setPhase('settled');
-      return;
-    }
-    const hold = holdFor(store.cancelRecovery, envelopeHandoffId, slice.payment_attempt_id);
-    const retryable = hold === 'none' && slice.state === 'started';
-    setBridgeRefusalCopy(retryable ? CANCEL_FAILED_COPY : CANCEL_HOLD_COPY[hold]);
-    if (hold === 'live_tender') {
-      setSelectedTender(null);
-      setPhase('tender_selection');
-    }
-  }
-
-  // RT-298 — a cancel sent before a Checkout remount answers in the old
-  // surface, which can only update the store. Follow that outcome here so the
-  // mounted surface never keeps a stale instruction or a dead Cancel (Codex P2,
-  // #576). This surface's own cancels update the screen themselves, unless the
-  // store moves their attempt on, or ends it, while they are still in flight
-  // (RT-305; Codex P1 on #581): a retry sent after a remount may be slow or
-  // lose its answer, so the screen follows the store now and releases Cancel.
-  useEffect(() => {
-    const previous = lastHoldRef.current;
-    lastHoldRef.current = cancelHold;
-    const own = ownCancelRef.current;
-    if (own !== null) {
-      const slice = usePaymentStore.getState().paymentSlice;
-      const stillOpen = slice?.payment_attempt_id === own.attemptId && slice.state === 'started';
-      if (own.status !== 'waiting' || stillOpen) return;
-      own.status = 'followed';
-      ownCancelRef.current = null;
-      setIsCancelling(false);
-      followStoreOutcome(own.attemptId);
-      return;
-    }
-    if (previous === cancelHold) return;
-    followStoreOutcome();
-    // Only a hold change triggers this (moving the attempt on, or ending it,
-    // always changes the hold of a cancel in flight); followStoreOutcome reads
-    // the store itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cancelHold]);
-
-  // History: external review P1 (round 3) removed the earlier recent-sale poll,
-  // which matched on `finalized_at >= settled_at` and so could adopt a prior
-  // sale as this one's number. RT-1322 replaces it with
-  // `useSettledSaleNumber` (above), which reads the exact UNIQUE handoff key
-  // confirmed against this attempt, so it cannot return another sale.
-
-  // RT-256 — M-P13 for this handoff: sticky for the rest of the Checkout,
-  // including Completion after another tender settles (Codex P1, #572).
-  const cardVoidRequired =
-    cardSafety !== null && cardSafety.voidRequired && cardSafety.handoffId === envelopeHandoffId;
-
-  // RT-26 — Back is offered before any tender (see deriveBackControl).
-  const back = deriveBackControl({
-    wired: onBackToSale !== undefined,
-    onOpenCheckout: isOpenCheckout(sessionState.kind, envelope !== null, phase),
-    eligibility: backToSaleEligibility,
-    projectedTenderLines: paymentSlice?.tender_lines.length,
-    tenderTouched,
-    cardVoidRequired,
-    tenderReversed,
-    busy: [isStarting, isConfirming, isCancelling, cancelHold !== 'none', isReturning].some(
-      Boolean,
-    ),
-    entryOpen: phase === 'entry',
-  });
-
-  async function handleBackToSale(): Promise<void> {
-    if (!back.enabled || onBackToSale === undefined) return;
-    setBridgeRefusalCopy(null);
-    setIsReturning(true);
-    const returned = await onBackToSale().catch(() => false);
-    // On success the route leaves this surface; only a refusal stays here.
-    if (!returned) {
-      setIsReturning(false);
-      setBridgeRefusalCopy(BACK_REFUSED_COPY);
-    }
-  }
-
-  // Esc closes an open entry panel (only the panel: the attempt and any
-  // recorded tender are untouched, and Back stays a separate, second action).
-  // RT-298: nothing new is recorded or settled while a cancel is in flight or
-  // its outcome is unconfirmed; main is read first. Esc must not close the
-  // panel either: Cancel lives there and is the named way out (Codex P2, #576).
-  const cancelOpen = isCancelling || cancelHold !== 'none';
-  // M-P7: the confirm belongs to the Cancel press that opened it. If the dialog's
-  // guard fails while it is up (the phase moves on, or a hold from another
-  // surface's cancel appears), drop the request, so it never reopens by itself
-  // when the guard holds again (CodeRabbit on #615).
-  useEffect(() => {
-    if (phase !== 'entry' || cancelOpen) setConfirmCardCancel(false);
-  }, [phase, cancelOpen]);
-  useEscapeKey(phase === 'entry' && !cancelOpen, () => {
-    setSelectedTender(null);
-    setPhase('tender_selection');
-  });
-  useEscapeKey(back.enabled, () => {
-    void handleBackToSale();
-  });
+function PaymentSurfaceBody(props: PaymentSurfaceProps = {}): JSX.Element | null {
+  const { ctx, back, cancelOpen, cardVoidRequired, settledSaleNumber } = usePaymentSurface(props);
+  const { sessionState, envelope, bridge, phase } = ctx;
 
   if (sessionState.kind !== 'signedIn' || envelope === null) {
     return null;
   }
 
   const { display_name, role } = sessionState.session;
-  // RT-854 / RT-855 — what the payment must cover: the envelope's net
-  // `total_due_minor` (Σ gross on an envelope frozen before RT-854). An
-  // unreadable value falls back to the gross, which main then refuses.
-  const dueMinor = envelopeAmountDue(envelope) ?? envelope.subtotal_minor;
-  // OZ-1 = Z-A: a fully discounted sale completes with no tender (D1 ZeroCheckout).
-  const zeroDue = dueMinor === 0;
+  const view = deriveSurfaceView(ctx, cancelOpen, cardVoidRequired);
 
-  async function handleTenderSelect(tender: TenderKind): Promise<void> {
-    // Defence in depth behind the disabled tile: never start or select a
-    // voucher payment while the pilot restriction is active.
-    if (tender === 'internal_voucher' && !voucherTenderFlag) return;
-    if (tender === 'external_card_terminal' && !cardTenderFlag) return;
-    // RT-298: no tender while a cancel hold stands (outcome unknown, or main
-    // refuses every payment for this cart until a manager acts). Its line stays.
-    if (cancelHold !== 'none') return;
-    setSelectedTender(tender);
-    setBridgeRefusalCopy(null);
-
-    if (bridge === null || envelope === null) {
-      // Slice-1 behaviour: status banner only.
-      return;
-    }
-
-    // Split-tender path: an attempt is already started (paymentSlice holds the
-    // attempt id from a prior payments.start). Calling payments.start again
-    // would be refused with `attempt_already_started_on_terminal`. Skip
-    // straight to mounting the new entry component for the remaining balance.
-    if (paymentAttemptId !== null) {
-      setPhase('entry');
-      return;
-    }
-
-    // CR-9 guard: rapid-double clicks before the first start/read cycle
-    // completes would otherwise fire payments.start multiple times in
-    // parallel. paymentAttemptId only updates after the read response lands.
-    if (isStarting) {
-      return;
-    }
-
-    const startedAttemptId = await startAttempt();
-    if (startedAttemptId === null) return;
-    setPhase('entry');
-    // The start succeeded, so a failure from here on is a read failure, never
-    // «could not start» (RT-341).
-    await readAfterStart(startedAttemptId);
-  }
-
-  /**
-   * `payments.start` for this envelope, on the amount due (RT-854: the net).
-   * Resolves to the started attempt's id, or null after showing the refusal.
-   */
-  async function startAttempt(): Promise<string | null> {
-    if (bridge === null || envelope === null) return null;
-    setIsStarting(true);
-    try {
-      const startResponse = await bridge.payments.start({
-        envelope_handoff_action_id: envelope.handoff_action_id,
-        envelope_cart_id: envelope.cart_id,
-        envelope_subtotal_minor: dueMinor,
-        envelope_version: 'v1',
-        idempotency_key: crypto.randomUUID(),
-      });
-
-      if (startResponse.kind === 'refused') {
-        setBridgeRefusalCopy('تعذّر بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
-        return null;
-      }
-
-      // Main now holds a started attempt: record it at once, so an open
-      // payment is known (and V5 sign-out blocked) even if the read below is
-      // slow or fails. The read then replaces this with main's snapshot.
-      usePaymentStore.getState().applyAttemptSnapshot({
-        payment_attempt_id: startResponse.payment_attempt_id,
-        state: 'started',
-        envelope_subtotal_minor: dueMinor,
-        started_at: new Date().toISOString(),
-        tender_lines: [],
-      });
-      return startResponse.payment_attempt_id;
-    } catch {
-      // Bridge rejection (network / IPC layer error). Treat as a generic
-      // refusal — no structured reason crosses into the DOM (FR-005 / FR-017).
-      setBridgeRefusalCopy('تعذّر بدء عملية الدفع. يرجى المحاولة مرة أخرى.');
-      return null;
-    } finally {
-      setIsStarting(false);
-    }
-  }
-
-  /**
-   * RT-855 (OZ-1 = Z-A, D1 ZeroCheckout) — «إتمام البيع» at 0 due: start the
-   * attempt on 0 (unless one is already open) and confirm it with no tender
-   * line; main settles on Σ = 0. A refused or lost confirm reads main back as
-   * any other settle does (RT-340).
-   */
-  async function handleCompleteZero(): Promise<void> {
-    if (bridge === null || isStarting || isConfirming || cancelHold !== 'none') return;
-    setBridgeRefusalCopy(null);
-    const attemptId = paymentAttemptId ?? (await startAttempt());
-    if (attemptId === null) return;
-    await handleConfirm(attemptId);
-  }
-
-  /**
-   * RT-341 — read main after a successful start. Nothing is offered until it
-   * answers (the RT-243 F1 rule); a failed or refused read offers the retry,
-   * and an attempt main has moved on is followed, as on a remount.
-   */
-  async function readAfterStart(attemptId: string | null): Promise<void> {
-    if (attemptId === null) return;
-    const envelopeAtStart = usePaymentStore.getState().envelope;
-    setReadAfter('start');
-    setAfterApply('reading');
-    const outcome = await readAttemptOutcome(attemptId);
-    if (!isStillCurrent(attemptId, envelopeAtStart)) return;
-    if (blockOnSessionRefusal(outcome)) return;
-    const attempt = outcome?.kind === 'ok' ? outcome.payment_attempt : null;
-    if (attempt === null) {
-      setAfterApply('failed');
-      return;
-    }
-    setAfterApply('idle');
-    setReadAfter('tender');
-    if (attempt.state === 'started') {
-      usePaymentStore.getState().applyAttemptSnapshot(attempt);
-      return;
-    }
-    followEndedWithReason(attempt);
-  }
-
-  /**
-   * Every tender apply goes through here: the attempt it was sent on is kept in
-   * the store before the call, so a remount knows money may be recorded even if
-   * the answer or the follow-up read is lost (RT-356).
-   */
-  function sendTenderApply(req: TenderApplyRequest): ReturnType<TenderBridgeAPI['apply']> {
-    if (bridge === null) return Promise.reject(new Error('no payment bridge'));
-    usePaymentStore.getState().recordTenderApplySent(req.payment_attempt_id);
-    return bridge.tender.apply(req);
-  }
-
-  /** A read is idempotent: a transient IPC failure is retried before giving up. */
-  const READ_ATTEMPTS = 3;
-
-  /**
-   * Codex P2 on #626 — main's session gate refused (no session, role, owner or
-   * tenant). Every retry from this session is refused the same way, so offer
-   * nothing and say who can act (M-P28 / M-P26) instead of a dead retry.
-   */
-  function isSessionRefusal(outcome: PaymentsReadResponse | PaymentRefusal | null): boolean {
-    return outcome?.kind === 'refused' && !confirmNeedsReadBack(outcome.reason);
-  }
-
-  function blockOnSessionRefusal(outcome: PaymentsReadResponse | PaymentRefusal | null): boolean {
-    if (outcome?.kind !== 'refused' || !isSessionRefusal(outcome)) return false;
-    setAfterApply('blocked');
-    setReadAfter('tender');
-    setBridgeRefusalCopy(confirmRefusalCopy(outcome.reason, false));
-    return true;
-  }
-
-  async function readAttemptWithRetry(
-    attemptId: string,
-  ): Promise<PaymentAttemptRendererView | null> {
-    const outcome = await readAttemptOutcome(attemptId);
-    return outcome?.kind === 'ok' ? outcome.payment_attempt : null;
-  }
-
-  /**
-   * The read with main's answer kept: the attempt, main's refusal (whose reason
-   * can say a retry is pointless, Codex P2 on #626), or null when it could not
-   * be reached at all.
-   */
-  async function readAttemptOutcome(attemptId: string): Promise<PaymentsReadResponse | null> {
-    if (bridge === null) return null;
-    for (let attempt = 0; attempt < READ_ATTEMPTS; attempt += 1) {
-      try {
-        return await bridge.payments.read({ payment_attempt_id: attemptId });
-      } catch {
-        // Retry: the line itself was applied in main; only the read failed.
-      }
-    }
-    return null;
-  }
-
-  /**
-   * The payment context a read was started for is still the current one. A
-   * cancel (or a new sale) can clear it while the read is in flight; main then
-   * answers with the now-terminal attempt, which must not be written back.
-   */
-  function isStillCurrent(attemptId: string, envelopeAtStart: unknown): boolean {
-    const store = usePaymentStore.getState();
+  if (phase === 'settled') {
     return (
-      store.envelope === envelopeAtStart && store.paymentSlice?.payment_attempt_id === attemptId
+      <SettledStage
+        paidMinor={ctx.dueMinor}
+        changeDueMinor={view.appliedChangeDueMinor}
+        saleFinalization={ctx.saleFinalizationFlag}
+        settledSaleNumber={settledSaleNumber}
+        cardVoidRequired={cardVoidRequired}
+        hasAppliedCash={view.hasAppliedCash}
+        displayName={display_name}
+        role={role}
+        onNewSale={props.onNewSale}
+      />
     );
   }
-
-  /**
-   * RT-298 — the attempt a cancel was sent for is still this sale's current
-   * one. Keyed on ids, not the envelope object, so the answer of a cancel sent
-   * before a Checkout remount still lands on the same attempt.
-   */
-  function isCancelStillCurrent(attemptId: string, handoffId: string): boolean {
-    const store = usePaymentStore.getState();
-    return (
-      store.envelope?.handoff_action_id === handoffId &&
-      store.paymentSlice?.payment_attempt_id === attemptId
-    );
-  }
-
-  /**
-   * RT-243 F1 — the remount read. Nothing is offered until main answers; a
-   * failed read offers the retry (M-P15). Main's answer is followed whatever
-   * it says: a settle whose response was lost before the remount comes back as
-   * the settled screen, never as another commit (Codex P1 on #618).
-   */
-  async function rereadOnResume(): Promise<void> {
-    if (bridge === null || paymentAttemptId === null) return;
-    const attemptId = paymentAttemptId;
-    const store = usePaymentStore.getState();
-    // RT-340 — a settle whose read-back failed before the remount: resume that
-    // reconciliation, so the same copy decision follows (Codex P2 on #626).
-    const pending = store.confirmReadPending;
-    if (pending?.attemptId === attemptId) {
-      await reconcileAfterConfirm(attemptId, pending.reason);
-      return;
-    }
-    const envelopeAtStart = store.envelope;
-    // RT-356 — M-P15 says an amount was recorded: true only once one was sent on
-    // this attempt (kept in the store across the remount); otherwise M-P27.
-    const moneyMaybeRecorded =
-      store.tenderSentAttemptId === attemptId || (store.paymentSlice?.tender_lines.length ?? 0) > 0;
-    setReadAfter(moneyMaybeRecorded ? 'tender' : 'start');
-    setAfterApply('reading');
-    const attempt = await readAttemptWithRetry(attemptId);
-    if (!isStillCurrent(attemptId, envelopeAtStart)) return;
-    if (attempt === null) {
-      setAfterApply('failed');
-      return;
-    }
-    setAfterApply('idle');
-    if (attempt.state === 'started') {
-      usePaymentStore.getState().applyAttemptSnapshot(attempt);
-      return;
-    }
-    followEndedAttempt(attempt);
-  }
-
-  async function handleLineApplied(): Promise<void> {
-    if (bridge === null || paymentAttemptId === null || envelope === null) {
-      return;
-    }
-    const attemptId = paymentAttemptId;
-    const envelopeAtStart = usePaymentStore.getState().envelope;
-    setAfterApply('reading');
-    const outcome = await readAttemptOutcome(attemptId);
-    if (!isStillCurrent(attemptId, envelopeAtStart)) return;
-    if (blockOnSessionRefusal(outcome)) return;
-    const attempt = outcome?.kind === 'ok' ? outcome.payment_attempt : null;
-    if (attempt === null) {
-      // The apply succeeded in main but its state could not be read. Keep the
-      // apply out of reach and offer a retry instead.
-      setAfterApply('failed');
-      return;
-    }
-    setAfterApply('idle');
-    // RT-340 — this read is also the retry after a lost settle: an attempt main
-    // has moved past `started` is followed (settled → Completion), never
-    // offered another commit.
-    if (attempt.state !== 'started') {
-      followEndedWithReason(attempt);
-      return;
-    }
-    usePaymentStore.getState().applyAttemptSnapshot(attempt);
-    // Split-tender (T154): if the running sum is still below the subtotal,
-    // return to tender selection so the cashier may add another line. When
-    // the sum equals the subtotal, the surface stays put and the confirm
-    // button becomes visible. The settlement invariant itself is enforced
-    // on the main process at payments.confirm time.
-    // CR-11: guard every accumulator step with Number.isSafeInteger
-    // (Constitution §II). A malformed minor value silently produces a
-    // float-tainted running sum without this check.
-    let sumApplied = 0;
-    for (const line of attempt.tender_lines) {
-      if (line.state !== 'applied') continue;
-      if (!Number.isSafeInteger(line.amount_applied_minor)) continue;
-      sumApplied += line.amount_applied_minor;
-      if (!Number.isSafeInteger(sumApplied)) {
-        // Running sum overflowed — bail out without changing the phase.
-        return;
-      }
-    }
-    if (sumApplied < dueMinor) {
-      setSelectedTender(null);
-      setPhase('tender_selection');
-    }
-  }
-
-  /**
-   * RT-238: the settle commit is blocked while the projection says money is
-   * owed. If that projection is stale (a failed read after a successful apply),
-   * the cashier must not be stuck: a click on the blocked commit re-reads the
-   * attempt from main, and an up-to-date projection unblocks it.
-   */
-  async function rereadAttempt(): Promise<void> {
-    if (bridge === null || paymentAttemptId === null) return;
-    const attemptId = paymentAttemptId;
-    const envelopeAtStart = usePaymentStore.getState().envelope;
-    try {
-      const readResponse = await bridge.payments.read({ payment_attempt_id: attemptId });
-      if (!isStillCurrent(attemptId, envelopeAtStart)) return;
-      if (readResponse.kind === 'ok') {
-        usePaymentStore.getState().applyAttemptSnapshot(readResponse.payment_attempt);
-      }
-    } catch {
-      // Keep the current projection; the next click retries.
-    }
-  }
-
-  /** A held or doubled Enter right after focus moved here is not a decision to settle. */
-  const COMMIT_ARM_MS = 400;
-
-  /**
-   * I-9 duplicate-submit: the Enter that applied the cash can repeat (key held)
-   * or be tapped twice, and focus has just moved onto the settle commit. Swallow
-   * an Enter that is a key repeat or arrives inside the arm window. Pointer and
-   * programmatic clicks are not affected.
-   */
-  function guardCommitKey(event: ReactKeyboardEvent<HTMLButtonElement>): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    const tooSoon = Date.now() - commitFocusedAtRef.current < COMMIT_ARM_MS;
-    if (event.repeat || tooSoon) event.preventDefault();
-  }
-
-  /**
-   * RT-761 (same I-9 pattern as the settle commit): arriving at Checkout puts
-   * focus on the first method tile, and the Enter that left the Sale on
-   * «المتابعة إلى الدفع» can repeat (key held) or be tapped twice. Swallow an
-   * Enter/Space that is a key repeat or lands inside the arm window, so it never
-   * starts a payment. Pointer clicks and later, deliberate keys are not affected.
-   * In Chromium, preventing the keydown also suppresses Enter's click and the click
-   * that Space would fire on keyup; another engine would need the keyup guarded too.
-   */
-  function guardTileKey(event: ReactKeyboardEvent<HTMLButtonElement>): void {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    if (event.repeat) {
-      event.preventDefault();
-      return;
-    }
-    // The arm window belongs to the tile that arrival focus landed on; a tile the
-    // cashier has since tabbed to activates normally.
-    const onArrivalTile = event.currentTarget === document.querySelector(FIRST_ENABLED_TENDER_TILE);
-    if (onArrivalTile && Date.now() - tileFocusedAtRef.current < COMMIT_ARM_MS) {
-      event.preventDefault();
-    }
-  }
-
-  function commitClickHandler(): void {
-    if (fullyTendered) handleSettleClick();
-    else handleRereadClick();
-  }
-
-  function handleSettleClick(): void {
-    void handleConfirm();
-  }
-
-  function handleRereadClick(): void {
-    void rereadAttempt();
-  }
-
-  /** M-P13 when a card line was touched or a card apply was attempted. Sticky for this handoff. */
-  function flagTerminalVoid(
-    outcome: CancelOutcome,
-    lines: PaymentAttemptRendererView['tender_lines'],
-  ): void {
-    const store = usePaymentStore.getState();
-    const card = {
-      appliedLineIds: new Set(store.cardSafety?.appliedCardLineIds ?? []),
-      attempted: store.cardSafety?.cardApplyAttempted ?? false,
-    };
-    if (cancelNeedsTerminalVoid(outcome, lines, card)) store.markCardVoidRequired();
-  }
-
-  /**
-   * Main cancelled the attempt. `lines` classify the reversed ids: the
-   * projection for a cancel response, main's own lines for a read-back.
-   */
-  function applyCancelOutcome(
-    outcome: CancelOutcome,
-    lines: PaymentAttemptRendererView['tender_lines'],
-  ): void {
-    setReversalPending(outcome.reversal_pending_tender_line_ids.length > 0);
-    if (
-      outcome.reversed_tender_line_ids.length > 0 ||
-      outcome.reversal_pending_tender_line_ids.length > 0
-    ) {
-      setTenderTouched(true);
-    }
-    setTenderReversed(cancelProvesReversal(outcome, lines));
-    flagTerminalVoid(outcome, lines);
-    usePaymentStore.getState().clearCancelRecovery();
-    setSelectedTender(null);
-    setPhase('tender_selection');
-    // The attempt is gone, and with it any pending or failed post-apply read.
-    setAfterApply('idle');
-    usePaymentStore.getState().clearAttempt();
-  }
-
-  /**
-   * RT-298 — the cancel threw or was refused, but main may still have committed
-   * it (the FSM commits before the audits, so a late failure loses the
-   * response). Read the attempt before re-opening any payment action, and act
-   * on main's durable state rather than on the lost answer.
-   */
-  async function reconcileAfterCancel(
-    attemptId: string,
-    handoffId: string,
-    own: OwnCancel,
-  ): Promise<void> {
-    const attempt = await readAttemptWithRetry(attemptId);
-    // RT-305 — the screen already followed the store; this read changes nothing.
-    if (own.status === 'followed') return;
-    own.status = 'answered';
-    if (!isCancelStillCurrent(attemptId, handoffId)) {
-      followStoreOutcome(attemptId);
-      return;
-    }
-    if (attempt === null) {
-      usePaymentStore.getState().setCancelHold('unconfirmed');
-      setBridgeRefusalCopy(CANCEL_UNKNOWN_COPY);
-      return;
-    }
-    if (attempt.state === 'cancelled') {
-      applyCancelOutcome(cancelOutcomeFromRead(attempt), attempt.tender_lines);
-      return;
-    }
-    usePaymentStore.getState().setCancelHold('none');
-    if (attempt.state === 'started') {
-      usePaymentStore.getState().applyAttemptSnapshot(attempt);
-      setBridgeRefusalCopy(CANCEL_FAILED_COPY);
-      return;
-    }
-    setBridgeRefusalCopy(CANCEL_NOT_OPEN_COPY);
-    followEndedAttempt(attempt);
-  }
-
-  /**
-   * An attempt main has moved past `started`, as on a remount of the same
-   * handoff: settled comes back as the settled screen; any other ended attempt
-   * is dropped, so the next tender starts anew.
-   */
-  function followEndedAttempt(attempt: PaymentAttemptRendererView): void {
-    if (attempt.state === 'settled') {
-      usePaymentStore.getState().applyAttemptSnapshot(attempt);
-      setPhase('settled');
-      return;
-    }
-    const live = attempt.tender_lines.filter((l) => LIVE_TENDER_STATES.has(l.state));
-    if (attempt.state === 'force_failed' && live.length > 0) {
-      holdForceFailedLiveTender(attempt, live);
-      return;
-    }
-    leaveEndedAttempt(attempt);
-  }
-
-  /**
-   * Codex P1 on #576 — force-fail does not reverse tender, and main refuses any
-   * new payments.start for a cart whose force-failed attempt still holds live
-   * tender. Keep the attempt visible and every payment action closed rather than
-   * offering a start main will refuse; a card among the live lines may still
-   * stand on the terminal (M-P13).
-   */
-  function holdForceFailedLiveTender(
-    attempt: PaymentAttemptRendererView,
-    live: PaymentAttemptRendererView['tender_lines'],
-  ): void {
-    flagTerminalVoid(
-      {
-        reversed_tender_line_ids: live.map((l) => l.tender_line_id),
-        reversal_pending_tender_line_ids: [],
-      },
-      attempt.tender_lines,
-    );
-    const store = usePaymentStore.getState();
-    store.applyAttemptSnapshot(attempt);
-    // The hold lives on the attempt's cancel record. A confirm or remount read
-    // reaches here without one, and setting a hold on no record is a no-op
-    // (Codex P2 on #626): make sure the record exists first.
-    store.cancelKeyFor(attempt.payment_attempt_id);
-    store.setCancelHold('live_tender');
-    setBridgeRefusalCopy(CANCEL_LIVE_TENDER_COPY);
-    setSelectedTender(null);
-    setPhase('tender_selection');
-  }
-
-  /**
-   * The attempt ended without this cancel (failed / force-failed). Nothing was
-   * reversed here, so a card the customer may have been charged for still
-   * needs the terminal void before any new charge (M-P13).
-   */
-  function leaveEndedAttempt(attempt: PaymentAttemptRendererView): void {
-    const lineIds = attempt.tender_lines.map((l) => l.tender_line_id);
-    flagTerminalVoid(
-      { reversed_tender_line_ids: lineIds, reversal_pending_tender_line_ids: [] },
-      attempt.tender_lines,
-    );
-    // Main refuses Back for a cart with any tender history; the projection that
-    // showed it is cleared here, so keep the fact (Codex P2 on #626).
-    if (attempt.tender_lines.length > 0) setTenderTouched(true);
-    usePaymentStore.getState().clearCancelRecovery();
-    setSelectedTender(null);
-    setPhase('tender_selection');
-    setAfterApply('idle');
-    usePaymentStore.getState().clearAttempt();
-  }
-
-  async function handleCancel(): Promise<void> {
-    if (bridge === null || paymentAttemptId === null || envelope === null) {
-      return;
-    }
-    const attemptId = paymentAttemptId;
-    const handoffId = envelope.handoff_action_id;
-    setBridgeRefusalCopy(null);
-    setIsCancelling(true);
-    const own: OwnCancel = { attemptId, status: 'waiting' };
-    ownCancelRef.current = own;
-    const store = usePaymentStore.getState();
-    const key = store.cancelKeyFor(attemptId);
-    // Held from the moment it is sent: leaving and re-entering Checkout before
-    // main answers must not reopen payment actions (Codex P2, #576).
-    store.setCancelHold('in_flight');
-    try {
-      const response = await bridge.payments
-        .cancel({ payment_attempt_id: attemptId, idempotency_key: key })
-        .catch(() => null);
-      // RT-305 — the screen already followed the store's outcome for this
-      // attempt; a late answer must not apply one of its own.
-      if (own.status === 'followed') return;
-      // A late answer (a retry after a remount already settled this cancel,
-      // and another attempt may have begun) must not touch that newer attempt
-      // (Codex P1, #576). Whatever settled it, this surface shows the store's
-      // outcome rather than keeping its own stale line (Codex P2, #576).
-      if (!isCancelStillCurrent(attemptId, handoffId)) {
-        followStoreOutcome(attemptId);
-        return;
-      }
-      if (response?.kind === 'ok') {
-        const linesAtCancel = usePaymentStore.getState().paymentSlice?.tender_lines ?? [];
-        applyCancelOutcome(response, linesAtCancel);
-      } else {
-        await reconcileAfterCancel(attemptId, handoffId, own);
-      }
-    } finally {
-      // Hand the hold back to the sync effect at the value this cancel left,
-      // so it never re-applies this surface's own outcome. A followed cancel
-      // (RT-305) already handed the screen over, and a newer cancel may own it.
-      if (ownCancelRef.current === own) {
-        const after = usePaymentStore.getState();
-        lastHoldRef.current = holdFor(
-          after.cancelRecovery,
-          handoffId,
-          after.paymentSlice?.payment_attempt_id ?? null,
-        );
-        ownCancelRef.current = null;
-        setIsCancelling(false);
-      }
-    }
-  }
-
-  // 023 V5 sale lifecycle — the settled phase above is component state and
-  // dies with this surface, so the payment projection must carry the settle
-  // for a Sale screen reopened later to recognise the sale as paid.
-  // The confirm `ok` is main's authoritative settle: record it at once so a
-  // failed follow-up read can never leave the sale payable again. The re-read
-  // then only refines the projection, and is discarded if the payment context
-  // moved on (New sale / another envelope) while it was in flight.
-  function recordSettledFromConfirm(attemptId: string, settledAt: string): void {
-    const store = usePaymentStore.getState();
-    const slice = store.paymentSlice;
-    if (slice?.payment_attempt_id !== attemptId) return;
-    store.applyAttemptSnapshot({ ...slice, state: 'settled', settled_at: settledAt });
-  }
-
-  async function refineSettledAttempt(attemptId: string): Promise<void> {
-    if (bridge === null) return;
-    const envelopeAtConfirm = usePaymentStore.getState().envelope;
-    try {
-      const readResponse = await bridge.payments.read({ payment_attempt_id: attemptId });
-      const store = usePaymentStore.getState();
-      const sameContext =
-        store.envelope === envelopeAtConfirm &&
-        store.paymentSlice?.payment_attempt_id === attemptId;
-      if (
-        readResponse.kind === 'ok' &&
-        sameContext &&
-        readResponse.payment_attempt.payment_attempt_id === attemptId
-      ) {
-        store.applyAttemptSnapshot(readResponse.payment_attempt);
-      }
-    } catch {
-      // Keep the settle already recorded from the confirm response.
-    }
-  }
-
-  async function handleConfirm(startedAttemptId?: string): Promise<void> {
-    const attemptId = startedAttemptId ?? paymentAttemptId;
-    if (bridge === null || attemptId === null) {
-      return;
-    }
-    setBridgeRefusalCopy(null);
-    setIsConfirming(true);
-    try {
-      const response = await bridge.payments
-        .confirm({ payment_attempt_id: attemptId, idempotency_key: crypto.randomUUID() })
-        .catch(() => null);
-      if (response?.kind === 'ok') {
-        setPhase('settled');
-        recordSettledFromConfirm(attemptId, response.settled_at);
-        void refineSettledAttempt(attemptId);
-        return;
-      }
-      await reconcileAfterConfirm(attemptId, response?.reason ?? null);
-    } finally {
-      setIsConfirming(false);
-    }
-  }
-
-  /**
-   * RT-340 — the settle was refused or its answer lost, but main may have
-   * settled it (a confirm whose response was lost comes back as
-   * `attempt_terminal`). Read main and follow it rather than inviting a retry
-   * that cannot succeed. `reason` is null when the confirm itself failed.
-   */
-  async function reconcileAfterConfirm(
-    attemptId: string,
-    reason: RefusalReason | null,
-  ): Promise<void> {
-    if (reason !== null && blockOnSessionRefusal({ kind: 'refused', reason })) return;
-    const store = usePaymentStore.getState();
-    const envelopeAtStart = store.envelope;
-    store.setConfirmReadPending({ attemptId, reason });
-    setReadAfter('confirm');
-    setAfterApply('reading');
-    const outcome = await readAttemptOutcome(attemptId);
-    if (!isStillCurrent(attemptId, envelopeAtStart)) return;
-    const attempt = outcome?.kind === 'ok' ? outcome.payment_attempt : null;
-    if (attempt === null && !isSessionRefusal(outcome)) {
-      // The outcome is unknown: offer the read retry (M-P15), never the commit.
-      // The retry, here or after a remount, comes back here with this reason
-      // (Codex P2 on #626). Set again: a reconcile of the same attempt that
-      // answered meanwhile may have cleared it.
-      usePaymentStore.getState().setConfirmReadPending({ attemptId, reason });
-      setAfterApply('failed');
-      return;
-    }
-    usePaymentStore.getState().setConfirmReadPending(null);
-    if (blockOnSessionRefusal(outcome) || attempt === null) return;
-    setAfterApply('idle');
-    setReadAfter('tender');
-    if (attempt.state === 'started') {
-      usePaymentStore.getState().applyAttemptSnapshot(attempt);
-      setBridgeRefusalCopy(confirmRefusalCopy(reason, moneyStillDue(attempt)));
-      return;
-    }
-    followEndedWithReason(attempt);
-  }
-
-  /**
-   * RT-340 — follow an attempt main ended after this surface sent a payment
-   * action, saying why it is gone (M-P25) unless it settled. The line is set
-   * first: a force-failed attempt with live tender replaces it with M-P20.
-   */
-  function followEndedWithReason(attempt: PaymentAttemptRendererView): void {
-    setBridgeRefusalCopy(attempt.state === 'settled' ? null : CONFIRM_ENDED_COPY);
-    followEndedAttempt(attempt);
-  }
-
-  const appliedLines = (paymentSlice?.tender_lines ?? []).filter((l) => l.state === 'applied');
-  const hasAppliedLine = appliedLines.length > 0;
-  const hasAppliedCash = appliedLines.some((l) => l.tender_type === 'cash');
-  // Split-tender remaining-balance derivation (T154). Pass to entry components
-  // so each successive line is scoped to what's still owed, not the full
-  // subtotal.
-  // CR-11: skip any line whose amount_applied_minor isn't a safe integer
-  // (Constitution §II). The main-process projection should always emit safe
-  // integers; this is the renderer-side belt to that braces.
-  let sumAppliedMinor = 0;
-  for (const line of appliedLines) {
-    if (!Number.isSafeInteger(line.amount_applied_minor)) continue;
-    sumAppliedMinor += line.amount_applied_minor;
-  }
-  const remainingBalanceMinor = Number.isSafeInteger(sumAppliedMinor)
-    ? Math.max(dueMinor - sumAppliedMinor, 0)
-    : 0;
-
-  // RT-237 — the change to hand back is main's `change_due_minor` on the
-  // applied lines, never recomputed here. Shown after apply (PaymentLedger) and
-  // on completion; unsafe values are skipped like the amount accumulator above.
-  let appliedChangeDueMinor = 0;
-  for (const line of appliedLines) {
-    const change = line.change_due_minor;
-    if (change === undefined || !Number.isSafeInteger(change) || change <= 0) continue;
-    appliedChangeDueMinor += change;
-  }
-  if (!Number.isSafeInteger(appliedChangeDueMinor)) {
-    appliedChangeDueMinor = 0;
-  }
-
-  // RT-238: exactly one control owns the primary slot at a time. While an entry
-  // is open and money is still owed, that is the entry's own apply-commit; the
-  // settle commit cannot proceed yet, so it waits out of the slot.
-  const fullyTendered = hasAppliedLine && remainingBalanceMinor === 0;
-  // While a post-apply read is pending or failed, nobody gets an apply or a settle:
-  // the projection is not trustworthy until main has been read again.
-  const entryOwnsPrimary = phase === 'entry' && remainingBalanceMinor > 0 && afterApply === 'idle';
-  const showSettle = hasAppliedLine && !entryOwnsPrimary && afterApply === 'idle' && !cancelOpen;
-  // RT-1025: no method chosen and nothing recorded yet; at 0 due «إتمام البيع» owns the slot.
-  // Never beside a refusal line or M-P13, which must not suggest completing the payment,
-  // and not while the chosen tender is starting (a method is already chosen).
-  const awaitingTender =
-    phase === 'tender_selection' &&
-    !isStarting &&
-    !hasAppliedLine &&
-    !zeroDue &&
-    afterApply === 'idle' &&
-    !cancelOpen &&
-    bridgeRefusalCopy === null &&
-    !cardVoidRequired;
-  const entryOpen =
-    bridge !== null && phase === 'entry' && paymentAttemptId !== null && !cancelOpen;
-  // RT-243 W1-C (RT-255 item 1) — the change or shortfall of the cash being
-  // typed is previewed in the pinned ledger, only while money is still owed and
-  // the projection is current. Once the due is covered the ledger shows main's
-  // recorded change instead; a preview against a zero due would show the amount
-  // received as change (RT-237).
-  const cashEntryOpen = entryOpen && selectedTender === 'cash';
-  const ledgerDraft =
-    cashEntryOpen && afterApply === 'idle' && remainingBalanceMinor > 0
-      ? cashDraft(cashDraftMinor, remainingBalanceMinor)
-      : null;
 
   // Refusals and hints stay next to the commit, in the pinned bar. With no bridge
   // (Slice-1 mode) there is no bar, so they render in the surface as before.
   // RT-243 W1-C: they are the V5 RecoveryPanel; the copy is unchanged.
   const notices = (
     <RecoveryPanel
-      refusal={bridgeRefusalCopy}
-      refusalIsUnknownOutcome={bridgeRefusalCopy === CANCEL_UNKNOWN_COPY}
-      reversalPending={reversalPending}
+      refusal={ctx.bridgeRefusalCopy}
+      refusalIsUnknownOutcome={ctx.bridgeRefusalCopy === CANCEL_UNKNOWN_COPY}
+      reversalPending={ctx.reversalPending}
       testIds={RECOVERY_TEST_IDS}
     />
   );
 
-  /**
-   * M-P7 (RT-116 §3) — a cancel here does not void a charge on the standalone
-   * terminal. When one may stand (a card line is recorded, or a card apply was
-   * sent for this sale, even one whose answer was lost: the RT-256 facts), the
-   * cashier confirms first, with «رجوع» focused. A retry of a cancel already
-   * sent (a hold stands) replays the same key and is not asked again.
-   */
-  function requestCancel(): void {
-    const store = usePaymentStore.getState();
-    const safety = store.cardSafety;
-    const cardForThisSale =
-      safety !== null &&
-      safety.handoffId === envelopeHandoffId &&
-      (safety.cardApplyAttempted || safety.appliedCardLineIds.length > 0);
-    const cardRecorded = (store.paymentSlice?.tender_lines ?? []).some(
-      (l) => l.tender_type === 'external_card_terminal' && l.state === 'applied',
-    );
-    if (cancelHold === 'none' && (cardForThisSale || cardRecorded)) {
-      setConfirmCardCancel(true);
-      return;
-    }
-    void handleCancel();
-  }
-
-  /** Retry the post-apply / post-start read that failed, through the same copy decision as before. */
-  function retryFailedRead(): void {
-    if (readAfter === 'start') {
-      void readAfterStart(paymentAttemptId);
-    } else if (readAfter === 'confirm' && paymentAttemptId !== null) {
-      const pending = usePaymentStore.getState().confirmReadPending;
-      const reason = pending?.attemptId === paymentAttemptId ? pending.reason : null;
-      void reconcileAfterConfirm(paymentAttemptId, reason);
-    } else {
-      void handleLineApplied();
-    }
-  }
-
-  /** The settle commit at 0 due: nothing is offered while main is being read back. */
-  function completeZeroControl(): JSX.Element | null {
-    if (afterApply !== 'idle') return null;
-    return (
-      <button
-        type="button"
-        className="v5-btn v5-btn--primary v5-btn--commit"
-        data-testid="payment-surface-complete-zero"
-        disabled={isStarting || isConfirming}
-        onKeyDown={guardCommitKey}
-        onClick={() => {
-          void handleCompleteZero();
-        }}
-      >
-        {DISCOUNT_COPY.completeSale}
-      </button>
-    );
-  }
-
-  /**
-   * The action bar's primary slot. RT-298: while a cancel is open nothing here
-   * may move the attempt on, the post-apply read retry included (Codex P2, #576).
-   */
-  function commitControl(): JSX.Element | null {
-    if (cancelOpen) return null;
-    if (afterApply === 'failed') {
-      return (
-        <button
-          type="button"
-          className="v5-btn v5-btn--primary v5-btn--commit"
-          data-testid="payment-surface-reread"
-          onClick={retryFailedRead}
-        >
-          إعادة المحاولة
-        </button>
-      );
-    }
-    if (zeroDue) return completeZeroControl();
-    if (awaitingTender) return <UnavailableCommit />;
-    if (!showSettle) return null;
-    return (
-      <button
-        type="button"
-        className="v5-btn v5-btn--primary v5-btn--commit"
-        data-testid="payment-surface-confirm"
-        disabled={isConfirming}
-        aria-disabled={isConfirming || !fullyTendered ? 'true' : undefined}
-        aria-describedby={fullyTendered ? undefined : 'payment-commit-reason'}
-        onKeyDown={guardCommitKey}
-        onClick={commitClickHandler}
-      >
-        تأكيد الدفع
-      </button>
-    );
-  }
-
-  /** The line under the primary action: why a re-read is offered, or why settle is not yet. */
-  function commitReason(): JSX.Element | null {
-    if (cancelOpen) return null;
-    if (afterApply === 'failed') {
-      return (
-        <output className="v5-checkout-actions__reason" data-testid="payment-surface-reread-notice">
-          {readAfter === 'start' ? START_READ_FAILED_COPY : TENDER_READ_FAILED_COPY}
-        </output>
-      );
-    }
-    const reason = commitReasonCopy(awaitingTender, showSettle && !fullyTendered);
-    if (reason === null) return null;
-    return (
-      <p
-        id="payment-commit-reason"
-        className="v5-checkout-actions__reason"
-        data-testid="payment-surface-commit-reason"
-        data-tone={awaitingTender ? 'neutral' : undefined}
-      >
-        {reason}
-      </p>
-    );
-  }
-
-  /*
-   * RT-238 — the pinned action bar (15 §4 A2). Cancel lives in the start slot,
-   * the primary/commit in the end slot, and neither slot is ever filled by an
-   * action of the opposite consequence. RT-243 W1-C mounts it unchanged at the
-   * foot of the money column, outside its scrolling middle, so the commit cannot
-   * scroll out of view; refusals stay with it.
-   */
-  const actionBar =
-    bridge === null ? undefined : (
-      <CheckoutActionBar
-        endSlotRef={setPrimarySlot}
-        cancel={
-          phase === 'entry' ? (
-            <button
-              type="button"
-              className="v5-btn v5-btn--danger-quiet"
-              data-testid="payment-surface-cancel"
-              disabled={isCancelling}
-              aria-disabled={isCancelling ? 'true' : undefined}
-              onClick={requestCancel}
-            >
-              إلغاء
-            </button>
-          ) : null
-        }
-        // RT-298: while a cancel is open nothing here may move the attempt
-        // on, the post-apply read retry included (Codex P2, #576).
-        commit={commitControl()}
-        reason={commitReason()}
-        notices={notices}
-      />
-    );
-
-  if (phase === 'settled') {
-    // 022 US4a — NFR-6 / P2 (truthfulness), as revised by external review rounds
-    // 2 and 3: a terminal-wide `recent` row cannot be tied to THIS payment, so
-    // the surface claimed only that the payment was taken.
-    //
-    // RT-1322 (RT-249 N-S2, doc 20 §5.3) restores the sale number on an exact
-    // key. While main answers `pending` nothing more is shown or claimed; on
-    // `ok` the number and «اكتمل البيع» show (M-C1); at the 15 s bound, or on a
-    // refusal, the neutral M-N5 line shows and nothing says the sale was saved.
-    // The receipt (T017) is a separate slice on the same key.
-
-    return (
-      <>
-        <SettledScanOwner />
-        <CompletionPanel
-          paidMinor={dueMinor}
-          changeDueMinor={appliedChangeDueMinor}
-          saleFinalization={saleFinalizationFlag}
-          saleNumber={settledSaleNumber.status === 'ok' ? settledSaleNumber.saleNumber : undefined}
-          saleNumberUnavailable={settledSaleNumber.status === 'unavailable'}
-          cardVoidCopy={cardVoidRequired ? BACK_REASON_COPY.card_void : null}
-          // RT-241 (D-B1) — a drawer that did not open on this session's sale
-          // shows here only inside CASH completion: the notice store knows the
-          // failure happened this session, not that it belongs to this sale, so
-          // a card or voucher completion must not say "open it manually".
-          drawerNotice={hasAppliedCash ? <DrawerNoticeInline /> : null}
-          operator={<OperatorBadge display_name={display_name} role={role} />}
-          onNewSale={onNewSale}
-          testIds={COMPLETION_TEST_IDS}
-        />
-      </>
-    );
-  }
+  const actionBar = bridge === null ? undefined : actionBarFor(ctx, view, cancelOpen, notices);
 
   return (
-    <PrimarySlotContext.Provider value={{ node: primarySlot, entryOwnsPrimary }}>
+    <PrimarySlotContext.Provider
+      value={{ node: ctx.primarySlot, entryOwnsPrimary: view.entryOwnsPrimary }}
+    >
       <section className="v5-checkout" data-testid="payment-surface" aria-label="الدفع">
         <header className="v5-checkout__titlebar">
           <h1>الدفع</h1>
@@ -1537,7 +142,7 @@ function PaymentSurfaceBody({
           <BackToSaleButton
             back={back}
             onBack={() => {
-              void handleBackToSale();
+              void handleBackToSale(ctx, back);
             }}
           />
           <div className="v5-checkout__operator">
@@ -1547,20 +152,14 @@ function PaymentSurfaceBody({
 
         <BackBlockedReason back={back} />
 
-        {confirmCardCancel && phase === 'entry' && !cancelOpen && (
-          <ConfirmDialog
-            label={CARD_CANCEL_TITLE}
-            title={CARD_CANCEL_TITLE}
-            body={CARD_CANCEL_BODY}
-            cancelLabel="رجوع"
-            confirmLabel="تأكيد الإلغاء"
-            tone="danger"
-            onCancel={() => {
-              setConfirmCardCancel(false);
+        {ctx.confirmCardCancel && phase === 'entry' && !cancelOpen && (
+          <CardCancelConfirm
+            onDismiss={() => {
+              ctx.setConfirmCardCancel(false);
             }}
             onConfirm={() => {
-              setConfirmCardCancel(false);
-              void handleCancel();
+              ctx.setConfirmCardCancel(false);
+              void handleCancel(ctx);
             }}
           />
         )}
@@ -1578,130 +177,102 @@ function PaymentSurfaceBody({
         <div className="v5-checkout__body" data-testid="payment-surface-body">
           <OrderSummary envelope={envelope} />
 
-          <div className="v5-checkout__tender">
-            {zeroDue ? (
-              <ZeroDueTender />
-            ) : (
-              <TenderPicker
-                envelope={envelope}
-                selectedTender={selectedTender}
-                voucherEnabled={voucherTenderFlag}
-                cardEnabled={cardTenderFlag}
-                onTileKeyDown={guardTileKey}
-                onTenderSelect={(tender) => {
-                  void handleTenderSelect(tender);
-                }}
-              />
-            )}
-
-            {/* S3d mode: entry component for the selected tender. */}
-            {entryOpen && (
-              <div className="v5-checkout__entry" data-testid="payment-surface-entry">
-                {selectedTender === 'cash' && (
-                  <CashEntry
-                    remainingBalanceMinor={remainingBalanceMinor}
-                    paymentAttemptId={paymentAttemptId}
-                    tenderApply={sendTenderApply}
-                    onDraftChange={setCashDraftMinor}
-                    onApplied={() => {
-                      void handleLineApplied();
-                    }}
-                    // RT-339: main holds tender this screen has not seen; read it.
-                    onNothingOwed={() => {
-                      void handleLineApplied();
-                    }}
-                    onOpenShift={onOpenShift}
-                  />
-                )}
-                {selectedTender === 'external_card_terminal' && cardTenderFlag && (
-                  <ExternalCardTerminalEntry
-                    remainingBalanceMinor={remainingBalanceMinor}
-                    paymentAttemptId={paymentAttemptId}
-                    tenderApply={(req) => {
-                      // Recorded before the call: if main commits but the
-                      // response is lost, a later cancel still warns (RT-256).
-                      usePaymentStore.getState().recordCardApplyAttempted();
-                      return sendTenderApply(req);
-                    }}
-                    onApplied={(response) => {
-                      usePaymentStore.getState().recordCardApplied(response.tender_line_id);
-                      void handleLineApplied();
-                    }}
-                  />
-                )}
-                {selectedTender === 'internal_voucher' && voucherTenderFlag && (
-                  <VoucherEntry
-                    remainingBalanceMinor={remainingBalanceMinor}
-                    paymentAttemptId={paymentAttemptId}
-                    tenderApply={sendTenderApply}
-                    onApplied={() => {
-                      void handleLineApplied();
-                    }}
-                  />
-                )}
-              </div>
-            )}
-          </div>
+          <TenderEntryStage
+            envelope={envelope}
+            zeroDue={view.zeroDue}
+            selectedTender={ctx.selectedTender}
+            voucherEnabled={ctx.voucherTenderFlag}
+            cardEnabled={ctx.cardTenderFlag}
+            onTileKeyDown={(event) => {
+              guardTileKey(event, ctx.tileFocusedAtRef);
+            }}
+            onTenderSelect={(tender) => {
+              void handleTenderSelect(ctx, tender);
+            }}
+            entryOpen={view.entryOpen}
+            remainingBalanceMinor={view.remainingBalanceMinor}
+            paymentAttemptId={ctx.paymentAttemptId}
+            sendTenderApply={(req) => sendTenderApply(ctx, req)}
+            onDraftChange={ctx.setCashDraftMinor}
+            onLineApplied={() => {
+              void handleLineApplied(ctx);
+            }}
+            onOpenShift={props.onOpenShift}
+          />
 
           {/* RT-243 F1 — recorded money stays in view whether or not an entry
               is open (Esc, or a remount after a resize below 1024). */}
           <PaymentLedger
-            dueMinor={remainingBalanceMinor}
-            lines={appliedLines}
-            changeDueMinor={appliedChangeDueMinor}
-            draft={ledgerDraft}
+            dueMinor={view.remainingBalanceMinor}
+            lines={view.appliedLines}
+            changeDueMinor={view.appliedChangeDueMinor}
+            draft={view.ledgerDraft}
             testIds={LEDGER_TEST_IDS}
             actions={actionBar}
           />
         </div>
 
         {/* Slice-1 mode: status banner only (no bridge wiring). */}
-        {bridge === null && selectedTender !== null && (
+        {bridge === null && ctx.selectedTender !== null && (
           <div data-testid="payment-surface-tender-selected" role="status" aria-live="polite">
-            {TENDER_SELECTED_COPY[selectedTender]}
+            {TENDER_SELECTED_COPY[ctx.selectedTender]}
           </div>
         )}
 
-        {/* The primary action changes under the cashier's hands; keep focus with them. */}
         {bridge === null && notices}
-        <FocusWhen
-          active={fullyTendered}
-          find={() =>
-            document.querySelector<HTMLElement>('[data-testid="payment-surface-confirm"]')
-          }
-          onFocused={() => {
-            commitFocusedAtRef.current = Date.now();
-          }}
-        />
-        {/* RT-763: the refocus after a partial apply arms the same tile guard as arrival. */}
-        <FocusWhen
-          active={phase === 'tender_selection' && hasAppliedLine && !fullyTendered}
-          find={() => document.querySelector<HTMLElement>(FIRST_ENABLED_TENDER_TILE)}
-          onFocused={() => {
-            tileFocusedAtRef.current = Date.now();
-          }}
-        />
-        {/* RT-855: at 0 due there is no tile; arrival focus lands on «إتمام البيع», armed. */}
-        <FocusWhen
-          active={arriving && zeroDue && cancelHold === 'none'}
-          find={() =>
-            document.querySelector<HTMLElement>('[data-testid="payment-surface-complete-zero"]')
-          }
-          onFocused={() => {
-            commitFocusedAtRef.current = Date.now();
-          }}
-        />
-        {/* RT-761 / freeze 15 §3.2: arriving at Checkout puts focus on the first method tile. */}
-        <FocusWhen
-          active={
-            arriving && phase === 'tender_selection' && !hasAppliedLine && cancelHold === 'none'
-          }
-          find={() => document.querySelector<HTMLElement>(FIRST_ENABLED_TENDER_TILE)}
-          onFocused={() => {
-            tileFocusedAtRef.current = Date.now();
-          }}
+        <CheckoutFocusRules
+          arriving={ctx.arriving}
+          onTenderSelection={phase === 'tender_selection'}
+          hasAppliedLine={view.hasAppliedLine}
+          fullyTendered={view.fullyTendered}
+          zeroDue={view.zeroDue}
+          noCancelHold={ctx.cancelHold === 'none'}
+          commitFocusedAtRef={ctx.commitFocusedAtRef}
+          tileFocusedAtRef={ctx.tileFocusedAtRef}
         />
       </section>
     </PrimarySlotContext.Provider>
+  );
+}
+
+/** RT-238 — the pinned action bar, wired to this render's flows. */
+function actionBarFor(
+  ctx: SurfaceContext,
+  view: SurfaceView,
+  cancelOpen: boolean,
+  notices: JSX.Element,
+): JSX.Element {
+  return (
+    <PaymentActionBar
+      endSlotRef={ctx.setPrimarySlot}
+      entryPhase={ctx.phase === 'entry'}
+      isCancelling={ctx.isCancelling}
+      onCancel={() => {
+        requestCancel(ctx);
+      }}
+      cancelOpen={cancelOpen}
+      afterApply={ctx.afterApply}
+      readAfter={ctx.readAfter}
+      onRetryRead={() => {
+        retryFailedRead(ctx);
+      }}
+      zeroDue={view.zeroDue}
+      isStarting={ctx.isStarting}
+      isConfirming={ctx.isConfirming}
+      onCompleteZero={() => {
+        void handleCompleteZero(ctx);
+      }}
+      awaitingTender={view.awaitingTender}
+      showSettle={view.showSettle}
+      fullyTendered={view.fullyTendered}
+      onCommitKeyDown={(event) => {
+        guardCommitKey(event, ctx.commitFocusedAtRef);
+      }}
+      onCommit={() => {
+        if (view.fullyTendered) void handleConfirm(ctx);
+        else void rereadAttempt(ctx);
+      }}
+      notices={notices}
+    />
   );
 }
