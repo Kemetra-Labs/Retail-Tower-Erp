@@ -117,7 +117,7 @@ export type LinkState = "sending" | "live" | "linked" | "none" | "na" | "alert";
 export type Lamp = {
   state: LinkState;
   checks?: { ok: number; total: number };
-  /** The collection behind this lamp was never read, so "none" means "not read", not "nothing there". */
+  /** The collection behind this lamp was never read, or its latest read failed: it reads "not read", never "nothing there". */
   unread?: boolean;
 };
 

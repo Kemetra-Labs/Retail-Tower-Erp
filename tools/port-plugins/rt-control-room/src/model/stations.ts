@@ -1,4 +1,4 @@
-import { ARCH, STATION_IDS } from "./architecture";
+import { ARCH, STATION_IDS, failingHopOf } from "./architecture";
 import { isRealDeployment } from "./deployments";
 import { firstRelation, normaliseState } from "./alarms";
 import { lampEvidence, stationLamps } from "./lamps";
@@ -87,13 +87,18 @@ export function buildStations(
   now: Date,
   sentryRead: boolean,
   unread: Unread = new Set(),
+  failed: Unread = new Set(),
 ): StationView[] {
   return STATION_IDS.map((id) => {
     const arch = ARCH.stations[id];
     const hasService = snapshot.services.some((s) => s.identifier === arch.serviceId);
-    const lamps = withExampleAlarms(stationLamps(id, lampEvidence(id, snapshot), unread), id, alarms);
+    const lamps = withExampleAlarms(stationLamps(id, lampEvidence(id, snapshot), unread, failed), id, alarms);
     const r = readingsFrom(snapshot, id, now, unread);
-    const alarmReading: AlarmReading = sentryRead ? alarms.filter((a) => a.station === id).length : "not-read";
+    // One reading everywhere (RT-1408 A): an alarm counts where it FAILS (the verdict light's scope),
+    // not where it was reported. An alarm with no known hop falls back to the reporting service.
+    const alarmReading: AlarmReading = sentryRead
+      ? alarms.filter((a) => (failingHopOf(a.at) ?? a.station) === id).length
+      : "not-read";
     return {
       id,
       name: arch.name,

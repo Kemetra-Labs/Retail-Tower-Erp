@@ -8,7 +8,7 @@ type Code = Board["ci"]["last72"][number];
 
 const COLOR: Record<Code, string> = {
   s: "var(--color-ok)",
-  f: "var(--color-bad)",
+  f: "var(--color-past)",
   c: "var(--color-rule-2)",
   k: "var(--color-cool-soft)",
 };

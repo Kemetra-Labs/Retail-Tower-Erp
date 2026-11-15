@@ -570,3 +570,20 @@ describe("pause reaches the telemetry", () => {
     expect(container.querySelector(".trace-cell")?.getAttribute("data-paused")).toBe("true");
   });
 });
+
+describe("not-available note (RT-1408 C)", () => {
+  it("names the optional sources Port does not share, and is absent otherwise", () => {
+    const board = boardOf();
+    const { container, rerender } = wrap(<Verdict board={board} status="ready" />);
+    expect(container.querySelector("[data-not-available]")).toBeNull();
+    rerender(
+      <LangProvider>
+        <Verdict board={board} status="ready" unavailable={["jira", "runs"]} />
+      </LangProvider>,
+    );
+    expect(container.querySelector("[data-not-available]")?.textContent).toMatch(
+      /^Not available to this widget: .+, .+\. Those figures read "no data"\.$/,
+    );
+    expect(STRINGS.notAvailableNote.ar).toMatch(ARABIC);
+  });
+});

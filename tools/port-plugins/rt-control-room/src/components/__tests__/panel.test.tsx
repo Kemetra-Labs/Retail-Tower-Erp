@@ -566,9 +566,10 @@ describe("table view of the map", () => {
     const cells = (id: string) => Array.from(row(id).querySelectorAll("th, td")).map((c) => c.textContent);
 
     expect(cells("pos").slice(0, 4)).toEqual(["POS", "No errors reported", "0", "-"]);
-    expect(cells("core").slice(0, 4)).toEqual(["Backend-Core", "No faults", "0", "7/7"]);
+    // RT-1408 A: the 3 alarms on the postings cable fail on Backend-Core's route, so its row says so.
+    expect(cells("core").slice(0, 4)).toEqual(["Backend-Core", "Fault", "3", "7/7"]);
     expect(cells("conn")[1]).toBe("Fault");
-    expect(cells("conn")[2]).toBe("4");
+    expect(cells("conn")[2]).toBe("1");
     expect(cells("admin")[2]).toBe("1");
     expect(cells("admin")[1]).toBe("Fault");
     expect(cells("erp").slice(0, 4)).toEqual(["ERPNext", "External ledger, not monitored here", "-", "-"]);
@@ -793,7 +794,8 @@ describe("lower panels", () => {
     const row = (id: string) => container.querySelector(`[data-station-row="${id}"]`) as HTMLElement;
     expect(row("core").textContent).not.toMatch(/none/);
     expect(row("core").querySelectorAll("td")[2].textContent).toBe("not read");
-    expect(row("core").querySelectorAll("td")[0].textContent).toBe("Not read");
+    // Backend-Core still has its 3 live alarms; the unread monitors only change the checks column.
+    expect(row("core").querySelectorAll("td")[0].textContent).toBe("Fault");
     expect(row("admin").querySelector(".unk")).not.toBeNull();
   });
 

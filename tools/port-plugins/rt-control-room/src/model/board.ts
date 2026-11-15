@@ -24,6 +24,11 @@ export type BoardOptions = {
    * "not read", not "no health check"). Sentry has its own `alarmRead`.
    */
   unread?: readonly Collection[];
+  /**
+   * Collections whose LATEST read failed (the last good copy is still shown). The link lamps built
+   * on them read "not read" instead of keeping a "sending" or "live" the failed read cannot back up.
+   */
+  failed?: readonly Collection[];
 };
 
 /** The example alarm of the approved mockup: a latency alarm on Backend-Core, labelled example. */
@@ -83,7 +88,7 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
     ...(opts.demo ? [EXAMPLE_ALARM] : []),
   ];
   const unread = new Set<Collection>(opts.unread ?? []);
-  const stations = buildStations(snapshot, alarms, opts.now, sentryRead, unread);
+  const stations = buildStations(snapshot, alarms, opts.now, sentryRead, unread, new Set(opts.failed ?? []));
   const sources = buildSources(snapshot, opts.now);
   const checks = (id: "core" | "conn") => stations.find((s) => s.id === id)?.readings.checks ?? null;
   const hosts = buildHosts(snapshot, unread);
@@ -102,6 +107,7 @@ export function buildBoard(snapshot: Snapshot, opts: BoardOptions): Board {
       sentryRead,
       monitorsRead: !unread.has("monitors"),
       posSentry: stations.find((s) => s.id === "pos")?.lamps.sentry.state ?? "none",
+      connSentry: stations.find((s) => s.id === "conn")?.lamps.sentry.state ?? "none",
       coreHosts: hosts.filter((h) => h.station === "core").map((h) => ({ id: h.id, up: h.up })),
     }),
     hosts,

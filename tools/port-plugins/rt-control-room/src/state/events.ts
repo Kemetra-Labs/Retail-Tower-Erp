@@ -31,7 +31,36 @@ const stationOf = (relation: Relation): StationId | null => {
 const stampOf = (...values: (string | null | undefined)[]): string | null =>
   values.find((v): v is string => typeof v === "string" && !Number.isNaN(Date.parse(v))) ?? null;
 
-const CONCLUSION_AR: Record<string, string> = { success: "ناجح", failure: "فشل", cancelled: "أُلغي" };
+const CONCLUSION_AR: Record<string, string> = {
+  success: "ناجح",
+  failure: "فشل",
+  cancelled: "أُلغي",
+  skipped: "اتخطى",
+  timedout: "انتهت مهلته",
+  neutral: "محايد",
+  actionrequired: "محتاج إجراء",
+};
+/** Jira statuses by their normalised name; an unknown one keeps the raw word. */
+const JIRA_STATUS_AR: Record<string, string> = {
+  todo: "للعمل",
+  inprogress: "قيد التنفيذ",
+  inreview: "قيد المراجعة",
+  blocked: "متوقفة",
+  done: "تمت",
+  closed: "اتقفلت",
+  resolved: "اتحلت",
+  backlog: "في الخلفية",
+};
+/** Datadog monitor states by their normalised name. */
+const MONITOR_STATE_AR: Record<string, string> = {
+  ok: "تمام",
+  alert: "إنذار",
+  warn: "تحذير",
+  nodata: "مفيش بيانات",
+  unknown: "مجهول",
+  skipped: "اتخطى",
+  ignored: "متجاهل",
+};
 
 function mergeEvent(pr: PullRequest, at: string): BoardEvent {
   return {
@@ -64,7 +93,7 @@ function jiraEvent(issue: JiraIssue, at: string): BoardEvent {
     at,
     kind: "jira",
     station: stationOf(issue.relations?.service),
-    text: { en: `${issue.identifier} is now ${status}`, ar: `${issue.identifier} أصبحت ${status}` },
+    text: { en: `${issue.identifier} is now ${status}`, ar: `${issue.identifier} بقت ${JIRA_STATUS_AR[normaliseState(status)] ?? status}` },
   };
 }
 
@@ -96,7 +125,7 @@ function monitorEvent(monitor: DatadogMonitor, at: string, byWorkload: Map<strin
     alarming: ALARM_STATES.has(normaliseState(state)),
     ...(host !== "unlocated" ? { host } : {}),
     alarmId: monitor.identifier,
-    text: { en: `Monitor ${monitor.title}: ${state}`, ar: `المراقب ${monitor.title}: ${state}` },
+    text: { en: `Monitor ${monitor.title}: ${state}`, ar: `المراقب ${monitor.title}: ${MONITOR_STATE_AR[normaliseState(state)] ?? state}` },
   };
 }
 

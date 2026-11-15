@@ -27,6 +27,8 @@
   --color-stale-soft: oklch(82% 0.13 80 / 0.13);
   --color-ledger: oklch(86% 0.03 85);
   --color-focus: oklch(70% 0.14 275);
+  /* History, not an alarm (RT-1408 B4): old CI failures. Red stays for live alarms only. */
+  --color-past: oklch(74% 0.015 270);
   /* chip text: same as the strokes in dark */
   --color-bad-ink: var(--color-bad);
   --color-stale-ink: var(--color-stale);
@@ -88,6 +90,7 @@
   --color-stale-soft: oklch(93% 0.05 80);
   --color-ledger: oklch(40% 0.04 70);
   --color-focus: oklch(50% 0.14 250);
+  --color-past: oklch(44% 0.015 270);
   /* chip text only: 5.11:1 and 5.01:1 on the soft chips (the strokes keep the tokens above) */
   --color-bad-ink: oklch(52% 0.19 28);
   --color-stale-ink: oklch(50% 0.14 70);

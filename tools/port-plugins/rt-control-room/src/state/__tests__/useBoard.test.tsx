@@ -90,6 +90,7 @@ describe("useBoard polling", () => {
     expect(port.gets).toEqual(["/v1/integration"]);
     const start = iso(port.calls[0].at);
     const from = iso(port.calls[0].at - DAYS_14);
+    // No `include`: Port would return only `properties` for it (RT-1408 C, checked live).
     for (const call of port.calls) expect(Object.keys(call.body).sort()).toEqual(["limit", "query"]);
 
     const between = (property: string) => ({
@@ -233,7 +234,10 @@ describe("useBoard failures", () => {
     expect(result.current.board!.alarms).toHaveLength(5);
     expect(result.current.board!.stations.map((s) => s.readings.ci7d)).toEqual(before.stations.map((s) => s.readings.ci7d));
 
+    // One failed poll doubles the wait (RT-1408 C): the retry comes after 2 minutes, not 1.
     port.healAll();
+    await tick(60_000);
+    expect(result.current.status).toBe("stale");
     await tick(60_000);
     expect(result.current.status).toBe("ready");
     expect(result.current.error).toBeNull();
@@ -250,9 +254,10 @@ describe("useBoard failures", () => {
     expect(result.current.asOf).toBe(NOW.getTime());
 
     port.healAll();
-    await tick(60_000);
+    await tick(120_000);
     expect(result.current.status).toBe("ready");
-    expect(result.current.asOf).toBe(NOW.getTime() + 120_000);
+    // Failed at +60 s, retried 2 minutes later: the sync time moves to that good poll only.
+    expect(result.current.asOf).toBe(NOW.getTime() + 180_000);
   });
 
   it("has no sync time when no poll ever read everything", async () => {
@@ -322,19 +327,19 @@ describe("useBoard Sentry read status (criterion 7)", () => {
     const { result } = mount();
     await settle();
     port.heal("sentryIssue");
-    await tick(60_000);
+    await tick(120_000); // a failed poll doubles the wait
     // The first read is a full one (never a delta over an empty cache): it carries no $updatedAt rule.
     const sentryCalls = port.callsFor("sentryIssue");
     const rules = sentryCalls[sentryCalls.length - 1].query.rules;
     expect(rules.some((r) => "property" in r && r.property === "$updatedAt")).toBe(false);
     expect(result.current.board!.alarms).toHaveLength(5);
-    expect(stationAlarms(result.current.board!).conn).toBe(4);
+    expect(stationAlarms(result.current.board!).conn).toBe(1);
   });
 
   it("(b) a failed Sentry poll keeps all 5 alarms, reads not-read and goes stale", async () => {
     const { result } = mount();
     await settle();
-    expect(stationAlarms(result.current.board!)).toMatchObject({ conn: 4, admin: 1, core: 0, pos: 0 });
+    expect(stationAlarms(result.current.board!)).toMatchObject({ conn: 1, admin: 1, core: 3, pos: 0 });
 
     port.fail("sentryIssue", 500);
     await tick(60_000);
@@ -351,11 +356,11 @@ describe("useBoard Sentry read status (criterion 7)", () => {
     await tick(60_000);
     port.heal("sentryIssue");
     port.set("sentryIssue", []);
-    await tick(60_000);
+    await tick(120_000);
     const board = result.current.board!;
     expect(result.current.status).toBe("ready");
     expect(board.alarms).toHaveLength(5);
-    expect(stationAlarms(board)).toEqual({ pos: 0, admin: 1, core: 0, conn: 4, erp: 0 });
+    expect(stationAlarms(board)).toEqual({ pos: 0, admin: 1, core: 3, conn: 1, erp: 0 });
   });
 });
 
@@ -425,8 +430,8 @@ describe("useBoard collections that cannot be read", () => {
     await settle();
     expect(result.current.asOf).toBeNull();
     port.heal("datadogMonitor");
-    await tick(60_000);
-    expect(result.current.asOf).toBe(NOW.getTime() + 60_000);
+    await tick(120_000);
+    expect(result.current.asOf).toBe(NOW.getTime() + 120_000);
   });
 });
 
