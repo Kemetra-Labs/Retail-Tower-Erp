@@ -1520,6 +1520,32 @@ export type SalesListRecentResponse =
     }
   | { kind: 'refused'; reason: SalesRefusalReason };
 
+// ── sales.readForHandoff (RT-1322, RT-249 N-S2) ─────────────────────────────
+
+/**
+ * Completion reads ITS OWN finalized sale (doc 20 §5.1). The key is the exact
+ * UNIQUE `envelope_handoff_action_id` of the payment on screen plus its
+ * `payment_attempt_id`; both are ids the renderer already holds. Main confirms
+ * the attempt and the session's scope, so the answer can never be another sale.
+ * The request carries no scope, role, operator or date.
+ */
+export interface SalesReadForHandoffRequest {
+  handoff_action_id: string;
+  payment_attempt_id: string;
+}
+
+export type SalesReadForHandoffResponse =
+  | {
+      kind: 'ok';
+      /** The same projection as `sales.read`; it omits both ids of the key (§P15). */
+      sale: SaleSummary;
+      /** The sequence without leading zeros, or null when the number does not parse. */
+      short_number: string | null;
+    }
+  /** No sale has finalized for this handoff yet. Not an error; ask again. */
+  | { kind: 'pending' }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
 // ── SalesBridgeAPI surface ──────────────────────────────────────────────────
 
 /**
@@ -1543,6 +1569,8 @@ export interface SalesBridgeAPI {
   list(req: SalesListRequest): Promise<SalesListResponse>;
   /** RT-1189: this terminal's sales on the current Cairo business day. */
   listRecent(req: SalesListRecentRequest): Promise<SalesListRecentResponse>;
+  /** RT-1322: Completion's own sale, by the exact handoff key plus the payment attempt. */
+  readForHandoff(req: SalesReadForHandoffRequest): Promise<SalesReadForHandoffResponse>;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

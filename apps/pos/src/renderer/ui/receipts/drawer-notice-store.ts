@@ -16,9 +16,11 @@ import type { DrawerFailureState } from './useDrawerBannerState';
  * - cleared on acknowledgement («تم» or «بيع جديد»), on the next successful
  *   drawer event (the projection clears), on sign-out, and on restart.
  *
- * The renderer cannot tie a finalized sale to the payment on screen (X-4: no
- * correlation key), so "during this session" means "not in this session's
- * first known projection". The first `ok` read is the baseline; a failure
+ * The drawer projection is terminal-wide and carries no handoff or attempt id,
+ * so a drawer failure cannot be tied to the payment on screen (RT-1322 ties the
+ * sale NUMBER to its payment through `sales.readForHandoff`, not the drawer
+ * event). "During this session" therefore means "not in this session's first
+ * known projection". The first `ok` read is the baseline; a failure
  * already in it belongs to an earlier session or run and stays hidden. Module
  * memory is the session: a restart (or a renderer reload) starts empty, and
  * sign-out resets it explicitly.

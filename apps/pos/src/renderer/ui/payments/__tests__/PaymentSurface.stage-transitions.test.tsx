@@ -12,8 +12,8 @@
  * Walks: cash exact, cash with change, card, split tender (cash then card),
  * cancel before settle, the card-cancel confirm (M-P7), the cancel holds
  * (unconfirmed and live tender), a failed read-back, the 0-due completion, Esc
- * then Back, and the settled screen with sale finalization off (the fail-closed
- * receipt warning) and on.
+ * then Back, the settled screen with sale finalization off (the fail-closed
+ * receipt warning) and on, and the settled screen's own sale number (RT-1322).
  *
  * Not walked here (covered by their own suites, unchanged by the split):
  * Slice-1 with no bridge, voucher entry, reversal pending, the session-refusal
@@ -27,7 +27,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { PaymentIntentEnvelope } from '../../../../shared/cart/handoff-envelope.js';
 import type { PaymentAttemptRendererView } from '../../../../shared/payments/types.js';
-import type { PaymentsBridgeAPI, TenderBridgeAPI } from '../../../../shared/bridge-api.js';
+import type {
+  PaymentsBridgeAPI,
+  SaleSummary,
+  SalesBridgeAPI,
+  SalesReadForHandoffResponse,
+  TenderBridgeAPI,
+} from '../../../../shared/bridge-api.js';
 import { useOperatorSessionStore } from '../../../stores/operator-session-store.js';
 import { usePaymentStore } from '../../../stores/payment-store.js';
 import { useFeatureFlagsStore } from '../../../stores/feature-flags-store.js';
@@ -89,11 +95,31 @@ interface FakeMainOptions {
   readFailsFrom?: number;
   /** `payments.confirm` is refused with this reason, and main ends the attempt. */
   confirmRefusal?: { reason: 'attempt_terminal'; endState: AttemptState };
+  /** RT-1322 — `sales.readForHandoff` answers these in turn (the last one repeats). */
+  saleNumberAnswers?: readonly SalesReadForHandoffResponse[];
 }
 
 interface FakeMain {
-  bridge: { payments: PaymentsBridgeAPI; tender: TenderBridgeAPI };
+  bridge: { payments: PaymentsBridgeAPI; tender: TenderBridgeAPI; sales?: SalesBridgeAPI };
   calls: string[];
+}
+
+/** RT-1322 — the sales bridge with only `readForHandoff`, answering in turn. */
+function makeSales(
+  answers: readonly SalesReadForHandoffResponse[],
+  calls: string[],
+): SalesBridgeAPI {
+  let asked = 0;
+  return {
+    readForHandoff: vi.fn((req: { handoff_action_id: string; payment_attempt_id: string }) => {
+      calls.push(
+        `sales.readForHandoff handoff=${req.handoff_action_id} attempt=${req.payment_attempt_id}`,
+      );
+      const answer = answers[Math.min(asked, answers.length - 1)];
+      asked += 1;
+      return Promise.resolve(answer);
+    }),
+  } as unknown as SalesBridgeAPI;
 }
 
 /**
@@ -190,7 +216,11 @@ function makeFakeMain(dueMinor: number, options: FakeMainOptions = {}): FakeMain
     ),
   } as unknown as TenderBridgeAPI;
 
-  return { bridge: { payments, tender }, calls };
+  const sales =
+    options.saleNumberAnswers === undefined
+      ? {}
+      : { sales: makeSales(options.saleNumberAnswers, calls) };
+  return { bridge: { payments, tender, ...sales }, calls };
 }
 
 /** Let every pending bridge promise and the renders they cause settle. */
@@ -450,5 +480,31 @@ describe('RT-1226 AC2 — PaymentSurface stage transitions (characterization)', 
 
     await click('payment-surface-new-sale');
     expect(onNewSale).toHaveBeenCalledTimes(1);
+  });
+
+  it('settled sale number (RT-1322): nothing claimed while pending, then the number', async () => {
+    const main = await mountSurface(5_000, {
+      saleNumberAnswers: [
+        { kind: 'pending' },
+        {
+          kind: 'ok',
+          sale: { sale_number: 'TERM-01-2026-11-15-000047' } as SaleSummary,
+          short_number: '47',
+        },
+      ],
+    });
+    await click('tender-cash');
+    fireEvent.click(screen.getByTestId('quick-amount-exact'));
+    await click('cash-entry-confirm');
+    await click('payment-surface-confirm');
+    expect(stage()).toMatchSnapshot('1 settled, number pending');
+
+    // The next read is due after the 250 ms fast poll.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    await settle();
+    expect(stage()).toMatchSnapshot('2 settled, own sale number shown');
+    expect(main.calls).toMatchSnapshot('bridge calls');
   });
 });

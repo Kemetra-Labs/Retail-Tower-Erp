@@ -51,7 +51,7 @@ function ControlRoomApp() {
   const [demoAvailable] = useState(isDemo);
   const [demoOn, setDemoOn] = useState(false);
   // Gated inside by token, base URL, trust and visibility, so it is safe to call before the guards.
-  const { board, events, replayQueue, status: boardStatus, replaying, onReplayDone, asOf, labUpdatedAt, failed } = useBoard({
+  const { board, events, replayQueue, status: boardStatus, replaying, onReplayDone, asOf, labUpdatedAt, failed, unavailable } = useBoard({
     demo: demoOn,
   });
   const [paused, togglePause] = usePaused();
@@ -142,8 +142,8 @@ function ControlRoomApp() {
         controls={controls}
       />
       <main className="main">
-        <Verdict board={board} status={boardStatus} failed={failed} />
-        <Telemetry board={board} paused={paused} />
+        <Verdict board={board} status={boardStatus} failed={failed} unavailable={unavailable} />
+        {story && <Telemetry board={board} paused={paused} />}
         {board ? (
           <>
             <div className="stage">
@@ -172,12 +172,17 @@ function ControlRoomApp() {
                 fresh={fresh}
               />
             </div>
+            {/* Ops reads map first, then the day's telemetry, then the lower panels (RT-1408 B1). */}
+            {!story && <Telemetry board={board} paused={paused} />}
             {mode === "ops" && <LowerPanels board={board} fresh={fresh} />}
           </>
         ) : (
-          <section className="room" aria-busy={boardStatus === "loading"}>
-            <p className="muted">{t(boardStatus === "error" ? "stateErrorNote" : "stateLoadingNote")}</p>
-          </section>
+          <>
+            <section className="room" aria-busy={boardStatus === "loading"}>
+              <p className="muted">{t(boardStatus === "error" ? "stateErrorNote" : "stateLoadingNote")}</p>
+            </section>
+            {!story && <Telemetry board={board} paused={paused} />}
+          </>
         )}
       </main>
     </div>

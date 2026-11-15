@@ -70,11 +70,12 @@ function makeBridgeSpy(): SalesBridge {
           truncated: false,
         }) as never,
     ),
+    readForHandoff: vi.fn(() => Promise.resolve({ kind: 'pending' }) as never),
   };
 }
 
 describe('T094c — registerSalesHandlers', () => {
-  it('registers all six sales.* channels', () => {
+  it('registers all seven sales.* channels', () => {
     const fake = makeFakeIpcMain();
     registerSalesHandlers(fake.ipcMain, { salesBridge: makeBridgeSpy() });
     const channels = fake.channels();
@@ -86,7 +87,32 @@ describe('T094c — registerSalesHandlers', () => {
     expect(SALES_IPC_CHANNELS.LIST).toBe('sales:list');
     expect(channels).toContain(SALES_IPC_CHANNELS.LIST_RECENT);
     expect(SALES_IPC_CHANNELS.LIST_RECENT).toBe('sales:listRecent');
+    expect(channels).toContain(SALES_IPC_CHANNELS.READ_FOR_HANDOFF);
+    expect(SALES_IPC_CHANNELS.READ_FOR_HANDOFF).toBe('sales:readForHandoff');
   });
+
+  it('RT-1322: delegates sales.readForHandoff to the bridge with the request payload', async () => {
+    const fake = makeFakeIpcMain();
+    const bridge = makeBridgeSpy();
+    registerSalesHandlers(fake.ipcMain, { salesBridge: bridge });
+    const req = { handoff_action_id: 'hid-1', payment_attempt_id: 'pa-1' };
+    expect(await fake.invoke(SALES_IPC_CHANNELS.READ_FOR_HANDOFF, req)).toEqual({
+      kind: 'pending',
+    });
+    expect(bridge.readForHandoff).toHaveBeenCalledWith(req);
+  });
+
+  it.each([null, undefined, 42, 'x', [['hid-1', 'pa-1']]])(
+    'RT-1322: refuses a non-object sales.readForHandoff request (%j) as invalid_input without calling the bridge',
+    async (request) => {
+      const fake = makeFakeIpcMain();
+      const bridge = makeBridgeSpy();
+      registerSalesHandlers(fake.ipcMain, { salesBridge: bridge });
+      const res = await fake.invoke(SALES_IPC_CHANNELS.READ_FOR_HANDOFF, request);
+      expect(res).toEqual({ kind: 'refused', reason: 'invalid_input' });
+      expect(bridge.readForHandoff).not.toHaveBeenCalled();
+    },
+  );
 
   it('RT-1189: delegates sales.listRecent to the bridge with the request payload', async () => {
     const fake = makeFakeIpcMain();

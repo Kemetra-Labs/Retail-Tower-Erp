@@ -28,12 +28,12 @@ export function workloadServiceMap(workloads: WorkloadEntity[]): Map<string, str
   return map;
 }
 
-/** Only http(s) links are kept; anything else is dropped rather than rendered. */
+/** Only https links are kept (the trackers serve https); http, javascript: and data: are dropped rather than rendered. */
 function safeLink(value: string | null | undefined): string | null {
   if (typeof value !== "string") return null;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+    return url.protocol === "https:" ? url.toString() : null;
   } catch {
     return null;
   }

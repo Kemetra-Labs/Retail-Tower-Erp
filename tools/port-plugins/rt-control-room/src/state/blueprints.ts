@@ -18,8 +18,15 @@ export const BLUEPRINTS = {
 /** The Jira issue relation that points at a `service` entity. */
 export const JIRA_SERVICE_RELATION = "service";
 
+/** The collections that give the board its meaning: alarms, health and the map itself. */
+export const CORE_COLLECTIONS = ["services", "workloads", "sentryIssues", "monitors", "hosts"] as const;
+/** Collections whose blueprint may simply not be shared with the widget (a 403 or 404 reads "not available"). */
+export const OPTIONAL_COLLECTIONS = ["jira", "prs", "runs", "deployments"] as const;
+
 /** Poll cadence. */
 export const POLL_MS = 60_000;
+/** Back-off after a failed poll: the delay doubles from POLL_MS and stops here. */
+export const MAX_BACKOFF_MS = 5 * 60_000;
 /** Poll number n (1 = first load) is a full poll when n === 1 or n % FULL_EVERY === 0. */
 export const FULL_EVERY = 5;
 /** Window of the windowed blueprints: 13 completed Cairo days plus today fit inside 14 x 24 h. */

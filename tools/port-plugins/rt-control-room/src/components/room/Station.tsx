@@ -21,13 +21,15 @@ type Props = {
   onSelect: (sel: Selection, byKey?: boolean) => void;
 };
 
-type Cell = { label: StringKey; text: string; tone: "" | "bad" | "unk" | "nd" };
+type Cell = { label: StringKey; text: string; tone: "" | "bad" | "unk" | "nd" | "past" };
 
 /** A missing figure reads "no data" (never 0), an unread one "not read", an unwatched one "none". */
 function cells(view: StationView, unknown: boolean, t: (k: StringKey, v?: Record<string, string | number>) => string): [Cell[], Cell[]] {
   const r = view.readings;
-  const num = (v: number | null, label: StringKey, bad = false): Cell =>
-    v === null ? { label, text: t("noData"), tone: "nd" } : { label, text: String(v), tone: bad && v > 0 ? "bad" : "" };
+  // `past` marks a count of things that already happened (CI failures of the last 7 days): the muted
+  // history tone, never alarm red, which is for live alarms only (RT-1408 B4).
+  const num = (v: number | null, label: StringKey, past = false): Cell =>
+    v === null ? { label, text: t("noData"), tone: "nd" } : { label, text: String(v), tone: past && v > 0 ? "past" : "" };
   let checks: Cell;
   if (r.checks === "na") checks = { label: "rdChecks", text: t("na"), tone: "" };
   else if (r.checks === null) checks = { label: "rdChecks", text: unknown ? t("none") : t("noData"), tone: unknown ? "unk" : "nd" };

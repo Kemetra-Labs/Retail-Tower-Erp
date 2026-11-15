@@ -15,7 +15,9 @@ from support import REPO_ROOT, TempRepo, fake_oasdiff, real_oasdiff
 
 SHA = "a" * 40
 THIS_REPO = "Kemetra-Labs/Retail-Tower-Erp"
-HEADER = f"repo: {THIS_REPO}\ncommit: {SHA}\nsource: contracts\n"
+def header(commit):
+    """A PIN header naming this repository, the `contracts` root and `commit` (RT-1407: a real commit)."""
+    return f"repo: {THIS_REPO}\ncommit: {commit}\nsource: contracts\n"
 SPEC = """\
 openapi: 3.1.0
 info: {title: t, version: 1.0.0}
@@ -69,9 +71,11 @@ class ConsumerCase(unittest.TestCase):
         self.addCleanup(self.bin.cleanup)
         self.blob = self.repo.blob(SPEC)
         self.repo.write("contracts/pos-sales/sales.yaml", SPEC)
+        self.commit = self.repo.commit_all()
+        self.header = header(self.commit)
 
-    def pin(self, blob=None, path="pos-sales/sales.yaml", header=HEADER):
-        self.repo.write("app/PIN", f"{header}file: {path} {blob or self.blob}\n")
+    def pin(self, blob=None, path="pos-sales/sales.yaml", header=None):
+        self.repo.write("app/PIN", f"{header or self.header}file: {path} {blob or self.blob}\n")
 
     def run_check(self, oasdiff, vendored=None):
         consumer = {"name": "POS", "pin": "app/PIN"}
@@ -91,22 +95,23 @@ class ConsumerCase(unittest.TestCase):
         """RT-889: a PIN that names another repository fails before anything is compared."""
         for repo in ("Kemetra/Backend-Core", "Kemetra-Labs/Retail-Tower-Erp-fork", "x/y"):
             with self.subTest(repo=repo):
-                self.pin(header=HEADER.replace(f"repo: {THIS_REPO}", f"repo: {repo}"))
+                self.pin(header=self.header.replace(f"repo: {THIS_REPO}", f"repo: {repo}"))
                 [f] = self.run_check(self.fake())
                 self.assertEqual(f.status, FAIL)
                 self.assertIn(f"PIN names repo '{repo}', not this repository", f.message)
 
     def test_foreign_source_fails(self):
-        self.pin(header=HEADER.replace("source: contracts", "source: packages/contracts/openapi"))
+        self.pin(header=self.header.replace("source: contracts", "source: packages/contracts/openapi"))
         [f] = self.run_check(self.fake())
         self.assertEqual(f.status, FAIL)
         self.assertIn("PIN names source 'packages/contracts/openapi'", f.message)
 
     def test_bad_or_missing_header_fails(self):
-        for header in (HEADER.replace(SHA, "abc"), HEADER.replace(f"repo: {THIS_REPO}\n", ""),
-                       HEADER.replace("source: contracts\n", ""), HEADER + f"repo: {THIS_REPO}\n"):
-            with self.subTest(header=header):
-                self.pin(header=header)
+        h = self.header
+        for bad in (h.replace(self.commit, "abc"), h.replace(f"repo: {THIS_REPO}\n", ""),
+                    h.replace("source: contracts\n", ""), h + f"repo: {THIS_REPO}\n"):
+            with self.subTest(header=bad):
+                self.pin(header=bad)
                 [f] = self.run_check(self.fake())
                 self.assertEqual(f.status, FAIL)
 
@@ -184,6 +189,81 @@ class ConsumerCase(unittest.TestCase):
         self.assertEqual(f.status, DRIFT)
         self.assertIn("1 non-breaking change(s)", f.message)
 
+    # RT-1407: a PIN describes exactly one commit.
+
+    def test_commit_missing_from_object_store_fails(self):
+        self.pin(header=header("f" * 40))
+        [f] = self.run_check(self.fake())
+        self.assertEqual(f.status, FAIL)
+        self.assertIn(f"PIN commit {'f' * 40} is not a commit", f.message)
+
+    def test_partial_pin_fails_without_oasdiff(self):
+        """A file repinned alone to a newer commit, `commit:` left on the older one (the shape of the
+        RT-1398 stock-import pin): fails before oasdiff runs, so no oasdiff binary is needed."""
+        newer = SPEC + "# newer\n"
+        self.repo.write("contracts/pos-sales/sales.yaml", newer)
+        self.repo.commit_all()
+        self.pin(blob=self.repo.blob(newer))           # `commit:` is still the older commit
+        [f] = self.run_check("/nonexistent/oasdiff")
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("partial pin", f.message)
+        self.assertIn(f"at the PIN's commit {self.commit}", f.message)
+        self.assertIn(f"blob {self.blob}", f.message)
+
+    def test_mixed_pin_fails_only_the_mixed_file(self):
+        other = SPEC.replace("getSale", "getOther")
+        self.repo.write("contracts/other.yaml", other)
+        old = self.repo.commit_all()
+        self.repo.write("contracts/other.yaml", other + "# newer\n")
+        self.repo.commit_all()
+        self.repo.write("app/PIN", f"{header(old)}file: pos-sales/sales.yaml {self.blob}\n"
+                                   f"file: other.yaml {self.repo.blob(other + '# newer' + chr(10))}\n")
+        findings = {f.subject: f for f in self.run_check(self.fake())}
+        self.assertEqual(findings["POS other.yaml"].status, FAIL)
+        self.assertIn("partial pin", findings["POS other.yaml"].message)
+        self.assertEqual(findings["POS pos-sales/sales.yaml"].status, OK)
+
+    def test_file_absent_at_the_pin_commit_fails(self):
+        later = SPEC.replace("getSale", "getLater")
+        self.repo.write("contracts/later.yaml", later)
+        self.repo.commit_all()
+        self.pin(blob=self.repo.blob(later), path="later.yaml")   # `commit:` predates later.yaml
+        [f] = self.run_check(self.fake())
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("(no such file)", f.message)
+
+    def test_partial_pin_message_names_the_repin_command(self):
+        newer = SPEC + "# newer\n"
+        self.repo.write("contracts/pos-sales/sales.yaml", newer)
+        self.repo.commit_all()
+        self.pin(blob=self.repo.blob(newer))
+        consumer = {"name": "POS", "pin": "app/PIN", "repin": "make repin"}
+        [f] = pins.check_consumer(self.repo.root, consumer, "contracts", self.fake(), None,
+                                  repository=THIS_REPO)
+        self.assertIn("repin with `make repin`", f.message)
+
+    def test_stale_pin_is_drift_even_without_api_change(self):
+        """The pinned blob is consistent with `commit:` but the tree moved on (a description-only
+        edit, which oasdiff reports as no change): a DRIFT line, never a failure."""
+        self.pin()
+        self.repo.write("contracts/pos-sales/sales.yaml", SPEC + "# description-only edit\n")
+        findings = self.run_check(self.fake())
+        self.assertEqual(sorted(f.status for f in findings), [DRIFT, OK])
+        [stale] = [f for f in findings if f.status == DRIFT]
+        self.assertIn(f"stale pin: pinned blob {self.blob} differs", stale.message)
+        self.assertIn("reported, not failing", stale.message)
+
+    def test_crlf_checkout_is_not_stale(self):
+        """With core.autocrlf the working-tree file has CRLF endings; its clean form is the pinned blob."""
+        self.repo.git("config", "core.autocrlf", "true")
+        self.pin()
+        (self.repo.root / "contracts/pos-sales/sales.yaml").write_bytes(SPEC.replace("\n", "\r\n").encode())
+        self.assertEqual([f.status for f in self.run_check(self.fake())], [OK])
+
+    def test_current_pin_has_no_stale_line(self):
+        self.pin()
+        self.assertEqual([f.status for f in self.run_check(self.fake())], [OK])
+
 
 class RealPinHeaders(unittest.TestCase):
     """RT-889: config.yaml names this repository, and both real consumer PINs name it and the
@@ -197,6 +277,20 @@ class RealPinHeaders(unittest.TestCase):
                 header = pins.parse_header((REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8"))
                 self.assertIsNone(pins.check_header(header, THIS_REPO, config["contracts_root"]))
 
+    def test_every_real_pin_comes_from_one_commit(self):
+        """RT-1407: every `file:` blob of every real consumer PIN is the blob of that path at the PIN's
+        `commit:` (no oasdiff needed; needs full history, like the pinned-blob probes)."""
+        config = yaml.safe_load((REPO_ROOT / "tools/contracts-check/config.yaml").read_text(encoding="utf-8"))
+        root = config["contracts_root"]
+        for consumer in config["consumers"]:
+            text = (REPO_ROOT / consumer["pin"]).read_text(encoding="utf-8")
+            commit = pins.parse_header(text)["commit"]
+            if not pins.commit_exists(REPO_ROOT, commit):
+                self.fail(f"{consumer['name']} PIN commit {commit} missing: run with full history (fetch-depth 0)")
+            for path, blob in pins.parse_pin(text):
+                with self.subTest(consumer=consumer["name"], path=path):
+                    self.assertEqual(pins.blob_at(REPO_ROOT, commit, f"{root}/{path}"), blob)
+
 
 @unittest.skipUnless(real_oasdiff(), "set CONTRACTS_CHECK_OASDIFF to the pinned oasdiff binary")
 class RealOasdiff(unittest.TestCase):
@@ -205,7 +299,9 @@ class RealOasdiff(unittest.TestCase):
     def setUp(self):
         self.repo = TempRepo()
         self.addCleanup(self.repo.close)
-        self.repo.write("app/PIN", f"{HEADER}file: pos-sales/sales.yaml {self.repo.blob(SPEC)}\n")
+        self.repo.write("contracts/pos-sales/sales.yaml", SPEC)
+        commit = self.repo.commit_all()
+        self.repo.write("app/PIN", f"{header(commit)}file: pos-sales/sales.yaml {self.repo.blob(SPEC)}\n")
 
     def run_with(self, current):
         self.repo.write("contracts/pos-sales/sales.yaml", current)
@@ -216,19 +312,20 @@ class RealOasdiff(unittest.TestCase):
         self.assertEqual([f.status for f in self.run_with(SPEC)], [OK])
 
     def test_removed_response_field_fails(self):
-        [f] = self.run_with(SPEC.replace("required: [saleRef, total]", "required: [total]")
+        f, _stale = self.run_with(SPEC.replace("required: [saleRef, total]", "required: [total]")
                             .replace("                  saleRef: {type: string}\n", ""))
         self.assertEqual(f.status, FAIL)
         self.assertIn("saleRef", f.message)
 
     def test_additive_change_is_drift(self):
-        [f] = self.run_with(SPEC + "                  note: {type: string}\n")
-        self.assertEqual(f.status, DRIFT)
-        self.assertIn("note", f.message)
+        findings = self.run_with(SPEC + "                  note: {type: string}\n")
+        self.assertEqual([f.status for f in findings], [DRIFT, DRIFT])   # the change, then the stale line
+        self.assertIn("note", findings[0].message)
+        self.assertIn("stale pin", findings[1].message)
 
     def test_external_ref_is_not_followed(self):
         spec = SPEC.replace("total: {type: string}", "total: {$ref: 'https://example.invalid/x.yaml'}")
-        [f] = self.run_with(spec)
+        f = self.run_with(spec)[0]
         self.assertEqual(f.status, FAIL)
 
 

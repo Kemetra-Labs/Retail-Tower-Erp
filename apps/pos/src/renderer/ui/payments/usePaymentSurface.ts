@@ -19,6 +19,7 @@ import {
 import { followStoreOutcome } from './surface-follow.js';
 import { rereadOnResume } from './surface-settle.js';
 import { handleBackToSale } from './surface-start.js';
+import { useSettledSaleNumber, type SettledSaleNumber } from './useSettledSaleNumber.js';
 
 /**
  * RT-1226 — PaymentSurface's controller: the state hook, every effect (in the
@@ -33,6 +34,8 @@ export interface PaymentSurfaceController {
   readonly cancelOpen: boolean;
   /** RT-256 — M-P13: a card charge may stand on the terminal for this handoff. */
   readonly cardVoidRequired: boolean;
+  /** RT-1322 — the settled screen's own sale number (no call before the settle). */
+  readonly settledSaleNumber: SettledSaleNumber;
 }
 
 /**
@@ -147,6 +150,21 @@ export function usePaymentSurface(props: PaymentSurfaceProps): PaymentSurfaceCon
     if (entry !== null && 'scrollIntoView' in entry) entry.scrollIntoView({ block: 'nearest' });
   }, [phase]);
 
+  // RT-1322 — the settled screen's own sale number. `paymentAttemptId` comes
+  // from `paymentSlice`, which a settle leaves in place (a settled attempt is
+  // resumed as the settled screen) until a new sale resets it, so both ids of
+  // the key stay available until Completion unmounts (doc 20 §5.3). With the
+  // flag off, or before the settle, the hook makes no call.
+  const salesBridge = ctx.bridge?.sales;
+  const settledSaleNumber = useSettledSaleNumber({
+    enabled: phase === 'settled' && ctx.saleFinalizationFlag,
+    // A bridge built before RT-1322 (a test double) may lack the method: no call.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    read: salesBridge?.readForHandoff?.bind(salesBridge) ?? null,
+    handoffActionId: ctx.envelopeHandoffId,
+    paymentAttemptId: ctx.paymentAttemptId,
+  });
+
   useEffect(() => {
     resetForHandoff(ctx);
     // rereadOnResume reads the store and this render's attempt; the reset
@@ -162,8 +180,11 @@ export function usePaymentSurface(props: PaymentSurfaceProps): PaymentSurfaceCon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cancelHold]);
 
-  // EXTERNAL REVIEW P1 (round 3) — no recent-sale poll: the settled screen
-  // shows no sale number (see SettledStage).
+  // History: external review P1 (round 3) removed the earlier recent-sale poll,
+  // which matched on `finalized_at >= settled_at` and so could adopt a prior
+  // sale as this one's number. RT-1322 replaces it with
+  // `useSettledSaleNumber` (above), which reads the exact UNIQUE handoff key
+  // confirmed against this attempt, so it cannot return another sale.
 
   // RT-256 — M-P13 for this handoff: sticky for the rest of the Checkout,
   // including Completion after another tender settles (Codex P1, #572).
@@ -212,5 +233,5 @@ export function usePaymentSurface(props: PaymentSurfaceProps): PaymentSurfaceCon
     void handleBackToSale(ctx, back);
   });
 
-  return { ctx, back, cancelOpen, cardVoidRequired };
+  return { ctx, back, cancelOpen, cardVoidRequired, settledSaleNumber };
 }

@@ -1,5 +1,6 @@
 import { useLang } from "../i18n/LangContext";
 import { ARCH } from "../model/architecture";
+import { alarmsOfStation } from "../model/stations";
 import type { Alarm, Board, HostView, Lamp, StationView } from "../model/types";
 import { Since, WhereText } from "./AlarmList";
 import { KindIcon } from "./KindIcon";
@@ -104,9 +105,17 @@ function checksText(view: StationView, t: ReturnType<typeof useLang>["t"]): stri
 export function StationBody({ view, board, onOpen }: { view: StationView; board: Board; onOpen: Open }) {
   const { lang, t } = useLang();
   const num = (v: number | null, suffix = "") => (v === null ? t("noData") : `${v}${suffix}`);
-  const mine = board.alarms.filter((a) => a.station === view.id);
+  const mine = alarmsOfStation(board.alarms, view.id);
   const alarms = view.readings.alarms;
-  if (view.id === "erp") return <p>{t("hostLedgerNote")}</p>;
+  if (view.id === "erp") {
+    // The ledger is external, but a fault on its invoice cable counts here, so the panel lists it.
+    return (
+      <>
+        <p>{t("hostLedgerNote")}</p>
+        <AlarmButtons alarms={mine} onOpen={onOpen} />
+      </>
+    );
+  }
   return (
     <>
       <p className="psub">{view.role[lang]}</p>

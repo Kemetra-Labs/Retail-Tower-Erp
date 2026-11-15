@@ -18,6 +18,8 @@ export type VerdictInput = {
   monitorsRead?: boolean;
   /** POS's Sentry lamp: only "sending" is evidence that the cashier app reports errors at all. */
   posSentry: LinkState;
+  /** The Connector's Sentry lamp: "none" means no error tracker project is linked to it, so a quiet tracker proves nothing. */
+  connSentry: LinkState;
   /** The servers Backend-Core runs on, with Datadog's up-state (`null` = not known). */
   coreHosts: { id: HostId; up: boolean | null }[];
 };
@@ -59,7 +61,7 @@ const checksOf = (c: StationView["readings"]["checks"]): Checks => (c === "na" ?
 const notFresh = (v: VerdictInput, ids: SourceId[]) => ids.some((id) => v.sources[id].state !== "fresh");
 
 type Unknown = {
-  why: "unplaced" | "none" | "checks-unread" | "partial" | "stale" | "not-read" | "no-signal" | "host-unknown";
+  why: "unplaced" | "none" | "checks-unread" | "partial" | "stale" | "not-read" | "no-signal" | "host-unknown" | "unwatched";
   host?: HostId;
 };
 
@@ -97,6 +99,8 @@ function unknownText(reason: Unknown, checks: Checks, unplaced: number, cashier:
     }
     case "no-signal":
       return t("Not sure: no sign the cashier app reports errors", "مش متأكد: مفيش علامة إن تطبيق الكاشير بيبلّغ عن أخطاء");
+    case "unwatched":
+      return t("Not sure: no error tracker project on the bridge", "مش متأكد: مفيش مشروع لتتبع الأخطاء على الجسر");
     case "host-unknown":
       return t(`Not sure: server ${reason.host} state unknown`, `مش متأكد: حالة السيرفر ${reason.host} مش معروفة`);
     case "none":
@@ -144,10 +148,13 @@ function backendFault(mine: Alarm[], down: VerdictInput["coreHosts"]): Part {
     const ids = down.map((h) => h.id).join(", ");
     return {
       light: { tone: "fault", text: t(`Server ${ids} is down`, `السيرفر ${ids} واقع`) },
-      clause: t(`Server ${ids} of the backend is down.`, `السيرفر ${ids} بتاع الـ Backend واقع.`),
+      clause: t(
+        `${down.length === 1 ? `Server ${ids} of the backend is` : `Servers ${ids} of the backend are`} down.`,
+        `${down.length === 1 ? "السيرفر" : "السيرفرات"} ${ids} بتاع الـ Backend واقع${down.length === 1 ? "" : "ين"}.`,
+      ),
     };
   }
-  if (mine.length === 1 && mine[0].kind === "latency") {
+  if (mine.length === 1 && mine[0].kind === "latency" && down.length === 0) {
     const ex = mine[0].example === true;
     return {
       light: { tone: "fault", text: t(`Slow responses${ex ? " (example)" : ""}`, `ردود بطيئة${ex ? " (مثال)" : ""}`) },
@@ -155,9 +162,16 @@ function backendFault(mine: Alarm[], down: VerdictInput["coreHosts"]): Part {
     };
   }
   const a = alarmsOf(mine.length);
+  const ids = down.map((h) => h.id).join(", ");
+  // A server that is down is not hidden behind the alarm count (RT-1408 D).
+  const alsoEn = down.length > 0 ? ` ${down.length === 1 ? `Server ${ids} is` : `Servers ${ids} are`} also down.` : "";
+  const alsoAr = down.length > 0 ? ` والسيرفر ${ids} واقع كمان.` : "";
   return {
-    light: { tone: "fault", text: t(`${a.en} open`, `إنذارات شغالة: ${num(mine.length)}`) },
-    clause: t(`The backend has ${a.en} open.`, `الـ Backend عليه ${a.ar}.`),
+    light: {
+      tone: "fault",
+      text: t(`${a.en} open${down.length > 0 ? `, ${ids} down` : ""}`, `إنذارات شغالة: ${num(mine.length)}${down.length > 0 ? `، ${ids} واقع` : ""}`),
+    },
+    clause: t(`The backend has ${a.en} open.${alsoEn}`, `الـ Backend عليه ${a.ar}.${alsoAr}`),
   };
 }
 
@@ -191,9 +205,12 @@ function accountsPart(v: VerdictInput, mine: Alarm[], unplaced: number): Part {
     sources: checks ? ["sentry", "datadog"] : ["sentry"],
     unplaced,
   });
-  if (why) {
+  // Quiet is only evidence when the Connector has an error tracker project at all (the cashier's rule).
+  const unwatched: Unknown | null = !why && v.connSentry === "none" ? { why: "unwatched" } : null;
+  const reason = why ?? unwatched;
+  if (reason) {
     return {
-      light: { tone: "unknown", text: unknownText(why, checks, unplaced, false) },
+      light: { tone: "unknown", text: unknownText(reason, checks, unplaced, false) },
       clause: t(
         "The accounts side could not be confirmed in the test lab.",
         "مقدرناش نتأكد من جانب الحسابات في بيئة التجربة.",

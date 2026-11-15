@@ -2,7 +2,16 @@ import { PortApiError, type PortClient, type PortQuery, type PortRule } from "..
 import { firstRelation } from "../model/alarms";
 import { isDone, isOpenPr } from "../model/stations";
 import type { Collection, Integration, JiraIssue, PullRequest, Snapshot } from "../model/types";
-import { BLUEPRINTS, DAY_MS, JIRA_SERVICE_RELATION, WINDOW_DAYS } from "./blueprints";
+import { BLUEPRINTS, DAY_MS, JIRA_SERVICE_RELATION, OPTIONAL_COLLECTIONS, WINDOW_DAYS } from "./blueprints";
+
+/**
+ * Where a delta read starts. One time for every delta collection, or one per collection (the
+ * poller's way: each collection has its own last good read, so a failed one is covered again alone).
+ */
+export type Since = string | null | Partial<Record<Collection, string>>;
+
+const sinceOf = (since: Since, c: Collection): string | null =>
+  typeof since === "string" || since === null ? since : (since[c] ?? null);
 
 export type FetchOptions = {
   /** The instant this poll starts; the windows end here. Defaults to the clock. */
@@ -16,6 +25,8 @@ export type FetchResult = {
   data: Partial<Snapshot>;
   /** Collections whose fetch failed or came back incomplete: "unchanged", never "empty". */
   failed: Collection[];
+  /** Optional collections Port answered 403 or 404 for: "not available" to this widget, not a failure. */
+  unavailable: Collection[];
   /** Collections of `data` that a full fetch produced, so merging must REPLACE them. */
   replace: Collection[];
   /** Collections fetched as a delta (updated since `since`) this poll. */
@@ -71,13 +82,23 @@ const keepPr =
     return isOpenPr(pr) || (!Number.isNaN(merged) && merged >= windowStart);
   };
 
+/*
+ * No `include` narrowing (RT-1408 C, checked live 2026-11-15): Port's search `include` takes bare
+ * property names and then returns ONLY `properties`. `identifier` (the merge key), the `service`
+ * relation and the timestamps cannot be requested, and a `properties.x`, `relations.x` or `identifier`
+ * entry is a 422. The board needs all of them, so every read asks for the whole entity. The load is
+ * kept down by the windows, the deltas and the per-collection `since` instead.
+ */
+
 /** Fetch scope per blueprint (plan Task 7). Bodies are nested under `query`. */
-function plansFor(since: string | null, full: boolean, now: Date, neverRead?: ReadonlySet<Collection>): Plan[] {
+function plansFor(since: Since, full: boolean, now: Date, neverRead?: ReadonlySet<Collection>): Plan[] {
   const to = now.toISOString();
   const start = new Date(now.getTime() - WINDOW_DAYS * DAY_MS).toISOString();
-  const isDelta = (c: Collection): boolean => !full && since !== null && !(neverRead?.has(c) ?? false);
-  const updated = (c: Collection): PortRule[] =>
-    isDelta(c) && since !== null ? [between("$updatedAt", since, to)] : [];
+  const isDelta = (c: Collection): boolean => !full && sinceOf(since, c) !== null && !(neverRead?.has(c) ?? false);
+  const updated = (c: Collection): PortRule[] => {
+    const from = sinceOf(since, c);
+    return isDelta(c) && from !== null ? [between("$updatedAt", from, to)] : [];
+  };
 
   const tiny = (collection: Collection, blueprint: string): Plan => ({
     collection,
@@ -153,7 +174,7 @@ const statusOf = (reason: unknown): number | null =>
  */
 export async function fetchSnapshot(
   client: PortClient,
-  since: string | null,
+  since: Since,
   full: boolean,
   opts: FetchOptions = {},
 ): Promise<FetchResult> {
@@ -170,6 +191,7 @@ export async function fetchSnapshot(
   const data: Partial<Snapshot> = { fetchedAt: now.toISOString() };
   const store = data as Record<string, unknown>;
   const failed: Collection[] = [];
+  const unavailable: Collection[] = [];
   const replace: Collection[] = [];
   const delta: Collection[] = [];
   let errorStatus: number | null = null;
@@ -180,7 +202,14 @@ export async function fetchSnapshot(
 
   plans.forEach((plan, i) => {
     const res = searches[i];
-    if (res.status === "rejected") return fail(plan.collection, res.reason);
+    if (res.status === "rejected") {
+      // A blueprint the widget may not read (Port answers 403 or 404) is "not available", and the
+      // board must not stay stale forever for it. Core collections are never excused this way.
+      const status = statusOf(res.reason);
+      const optional = (OPTIONAL_COLLECTIONS as readonly Collection[]).includes(plan.collection);
+      if (optional && (status === 403 || status === 404)) return void unavailable.push(plan.collection);
+      return fail(plan.collection, res.reason);
+    }
     store[plan.collection] = plan.keep ? (res.value as never[]).filter(plan.keep) : res.value;
     if (plan.replace) replace.push(plan.collection);
     if (plan.delta) delta.push(plan.collection);
@@ -203,5 +232,5 @@ export async function fetchSnapshot(
       fail("integrations", null);
     }
   }
-  return { data, failed, replace, delta, errorStatus };
+  return { data, failed, unavailable, replace, delta, errorStatus };
 }

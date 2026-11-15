@@ -170,7 +170,7 @@ button[aria-pressed="true"] {
 }
 
 .pulse .spike-label {
-  color: var(--color-stale-ink);
+  color: var(--color-ink-2);
   font-weight: 500;
 }
 
@@ -235,7 +235,7 @@ svg.trace {
 }
 
 .trace .line.badline {
-  stroke: var(--color-bad);
+  stroke: var(--color-past);
 }
 
 .trace .now {
@@ -244,11 +244,11 @@ svg.trace {
 }
 
 .trace .spike {
-  fill: var(--color-stale);
+  fill: var(--color-ink-2);
 }
 
 .trace .badpt {
-  fill: var(--color-bad);
+  fill: var(--color-past);
 }
 
 .trace .axis {

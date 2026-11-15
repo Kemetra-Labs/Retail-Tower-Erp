@@ -15,16 +15,27 @@ import './completion.css';
  * - the receipt as NOT issued yet (info), or as never issued when sale
  *   finalization is off (warning).
  *
- * Left out on purpose, not shown as unknown: the sale number (D-N1), receipt
- * «sent» (M-C2) and sync. Nothing on the bridge ties a finalized sale or its
- * receipt to this attempt (`payments.confirm` returns only `settled_at`;
- * `SaleSummary` excludes `envelope_handoff_action_id`), so claiming either
- * would promote an unrelated record into proof. They return with that
- * correlating identifier, not before. No «اكتمل البيع» for the same reason.
+ * RT-1322 (RT-249 N-S2, doc 20 §5.3): when the caller proves the finalized sale
+ * is THIS payment's (`sales.readForHandoff`, the exact handoff key confirmed
+ * against the attempt), it passes `saleNumber`. The headline then becomes
+ * «اكتمل البيع» (M-C1) and the sale number is listed, with the exact number
+ * secondary. While the caller is still waiting it passes neither prop and no
+ * number line or claim shows; after the bound it passes `saleNumberUnavailable`
+ * and the neutral M-N5 line shows. That line never says the sale was saved.
+ *
+ * Still left out on purpose, not shown as unknown: receipt «sent» (M-C2) and
+ * sync. Nothing on the bridge proves either for this attempt.
  */
 
 /** A held or doubled Enter right after focus lands here is not a decision. */
 const NEW_SALE_ARM_MS = 400;
+
+/** M-C1 headline, only once the finalized sale is proven to be this payment's. */
+const COMPLETED_HEADLINE = 'اكتمل البيع';
+/** M-C1 sale number label. */
+const SALE_NUMBER_LABEL = 'رقم البيع';
+/** M-N5: the number was not ready at the bound. Neutral; never claims the sale was saved. */
+const SALE_NUMBER_UNAVAILABLE = 'رقم البيع غير متاح الآن.';
 
 const RECEIPT_COPY = {
   pending: 'لم يصدر إيصال بعد.',
@@ -45,6 +56,14 @@ export interface CompletionTestIds {
   readonly newSale?: string;
 }
 
+/** The sale number main proved belongs to this payment (`sales.readForHandoff`). */
+interface CompletionSaleNumber {
+  /** The sequence without leading zeros, or null when main could not parse it. */
+  readonly short: string | null;
+  /** The stored number as printed on the receipt. */
+  readonly exact: string;
+}
+
 export interface CompletionPanelProps {
   /** The amount taken, integer minor units (the envelope's amount due; 0 for a zero total). */
   readonly paidMinor: number;
@@ -52,6 +71,13 @@ export interface CompletionPanelProps {
   readonly changeDueMinor: number;
   /** False when sale finalization is off: no sale record or receipt will exist. */
   readonly saleFinalization: boolean;
+  /**
+   * This payment's own sale number, once proven. Absent while the caller is
+   * waiting (no line, no claim) and when it gave up (see below).
+   */
+  readonly saleNumber?: CompletionSaleNumber | undefined;
+  /** The bound passed without a number: the neutral M-N5 line, never a claim. */
+  readonly saleNumberUnavailable?: boolean | undefined;
   /** M-P13 copy when a card line was cancelled here and the terminal void is unproven. */
   readonly cardVoidCopy: string | null;
   /** The drawer notice slot (D-B1), only inside cash completion. */
@@ -66,6 +92,8 @@ export function CompletionPanel({
   paidMinor,
   changeDueMinor,
   saleFinalization,
+  saleNumber,
+  saleNumberUnavailable = false,
   cardVoidCopy,
   drawerNotice,
   operator,
@@ -118,7 +146,13 @@ export function CompletionPanel({
       tone: 'success',
       // RT-855 (OZ-1 = Z-A, D1 ZeroCompletion): a zero-total sale took no money,
       // so it never says «تم استلام المبلغ» (and has no change).
-      label: paidMinor === 0 ? DISCOUNT_COPY.noAmountDue : 'تم استلام المبلغ',
+      // RT-1322 (M-C1): «اكتمل البيع» only with this sale's own number proven.
+      label:
+        paidMinor === 0
+          ? DISCOUNT_COPY.noAmountDue
+          : saleNumber !== undefined
+            ? COMPLETED_HEADLINE
+            : 'تم استلام المبلغ',
       value: formatHumanMoney(paidMinor),
       // FR-16: the settled amount stays the dominant figure, change or not.
       emphasis: 'hero',
@@ -126,6 +160,27 @@ export function CompletionPanel({
       valueTestId: testIds.amount,
     },
   ];
+  if (saleNumber !== undefined) {
+    // A sale number is a reference, not a status: neutral, with no tone glyph.
+    // When main could not derive the short form, the exact number is the value.
+    items.push({
+      id: 'sale-number',
+      tone: 'neutral',
+      label: SALE_NUMBER_LABEL,
+      value: saleNumber.short ?? saleNumber.exact,
+      ...(saleNumber.short !== null ? { detail: saleNumber.exact } : {}),
+      testId: 'completion-proof-sale-number',
+      valueTestId: 'completion-sale-number-value',
+      detailTestId: 'completion-sale-number-exact',
+    });
+  } else if (saleNumberUnavailable) {
+    items.push({
+      id: 'sale-number-unavailable',
+      tone: 'info',
+      label: SALE_NUMBER_UNAVAILABLE,
+      testId: 'completion-proof-sale-number-unavailable',
+    });
+  }
   if (Number.isSafeInteger(changeDueMinor) && changeDueMinor > 0) {
     items.push({
       id: 'change',

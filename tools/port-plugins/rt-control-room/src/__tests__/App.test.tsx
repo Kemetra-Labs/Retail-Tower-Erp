@@ -125,6 +125,10 @@ describe("App with the board", () => {
     expect(await screen.findByText("3 alarms open", {}, { timeout: 4000 })).toBeTruthy();
     expect(screen.getByText("Test lab, not real stores")).toBeTruthy();
     expect(container.querySelectorAll("svg.trace")).toHaveLength(4);
+    // Ops reads map first, then the telemetry row, then the lower panels (RT-1408 B1).
+    const after = (a: Element | null, b: Element | null) => ((a as Node).compareDocumentPosition(b as Node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(after(container.querySelector(".stage"), container.querySelector(".pulse"))).toBe(true);
+    expect(after(container.querySelector(".pulse"), container.querySelector("[data-lower-panels]"))).toBe(true);
     // The control room: five stations and the alarm pins; it adds no status region (the announcer is the panel's).
     expect(container.querySelectorAll('[data-focus^="station:"]')).toHaveLength(5);
     expect(container.querySelectorAll(".pin")).toHaveLength(5);

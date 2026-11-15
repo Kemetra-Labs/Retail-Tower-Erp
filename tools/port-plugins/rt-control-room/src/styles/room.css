@@ -105,7 +105,8 @@ svg.grid .cc rect.frame {
   stroke: var(--color-bad);
   stroke-width: 4;
   stroke-dasharray: 10 6;
-  animation: faultpulse 1.6s ease-in-out infinite;
+  /* 4 x 1.5 s: the pulse draws the eye for 6 s, then the cable stays dashed red (RT-1408 B5). */
+  animation: faultpulse 1.5s ease-in-out 4;
 }
 /* Nothing could place a fault on it: static, dashed, amber. Never drawn as "no faults". */
 .cable.unwatched {
@@ -289,6 +290,9 @@ svg.grid .cc rect.frame {
 .sv.bad {
   fill: var(--color-bad);
 }
+.sv.past {
+  fill: var(--color-past);
+}
 .sv.unk {
   fill: var(--color-stale);
   font-size: 13px;
@@ -342,12 +346,14 @@ svg.grid .cc rect.frame {
 .lamp.live text {
   fill: var(--color-ok);
 }
+/* Linked is only a wiring fact, not a reading: muted dashed grey, never the accent colour (RT-1408 B2). */
 .lamp.linked rect {
-  fill: var(--color-paper-2);
-  stroke: var(--color-cool);
+  fill: none;
+  stroke: var(--color-rule-2);
+  stroke-dasharray: 3 3;
 }
 .lamp.linked text {
-  fill: var(--color-cool);
+  fill: var(--color-muted);
 }
 .lamp.na rect {
   stroke: var(--color-rule-2);

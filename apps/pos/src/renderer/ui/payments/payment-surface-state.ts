@@ -186,10 +186,13 @@ export function usePaymentSurfaceState(props: PaymentSurfaceProps): SurfaceConte
   // RT-256 — card facts for this handoff live in the payment store, so they
   // survive a Checkout remount and the attempt clear on cancel (Codex P1, #572).
   const cardSafety = usePaymentStore((s) => s.cardSafety);
-  // 022 US4a (T011) — the sale id is NOT retained, and neither is `settled_at`:
-  // the `recent` row cannot be tied to THIS payment, so an id or a time taken
-  // from it could belong to a prior sale. Both return together with a
-  // correlating identifier, not before (see SettledStage).
+  // 022 US4a (T011) — the sale id is not retained, and nothing here reads the
+  // terminal-wide `recent` row: it cannot be tied to THIS payment (external
+  // review rounds 2 and 3). RT-1322 (RT-249 N-S2) brings the sale number back
+  // on the exact key instead: `useSettledSaleNumber` (in `usePaymentSurface`)
+  // asks main for the sale of THIS handoff and attempt (`sales.readForHandoff`),
+  // and main confirms the attempt and the session's scope. The receipt (T017)
+  // stays with its own slice.
   // 008's finalize listener is gated on this flag. With it off no receipt is
   // ever written, so the completion surface must say so rather than imply a
   // document is on its way.

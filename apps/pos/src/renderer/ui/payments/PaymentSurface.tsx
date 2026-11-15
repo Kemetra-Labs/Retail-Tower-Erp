@@ -90,7 +90,7 @@ export function PaymentSurface(props: PaymentSurfaceProps = {}): JSX.Element | n
 }
 
 function PaymentSurfaceBody(props: PaymentSurfaceProps = {}): JSX.Element | null {
-  const { ctx, back, cancelOpen, cardVoidRequired } = usePaymentSurface(props);
+  const { ctx, back, cancelOpen, cardVoidRequired, settledSaleNumber } = usePaymentSurface(props);
   const { sessionState, envelope, bridge, phase } = ctx;
 
   if (sessionState.kind !== 'signedIn' || envelope === null) {
@@ -106,6 +106,7 @@ function PaymentSurfaceBody(props: PaymentSurfaceProps = {}): JSX.Element | null
         paidMinor={ctx.dueMinor}
         changeDueMinor={view.appliedChangeDueMinor}
         saleFinalization={ctx.saleFinalizationFlag}
+        settledSaleNumber={settledSaleNumber}
         cardVoidRequired={cardVoidRequired}
         hasAppliedCash={view.hasAppliedCash}
         displayName={display_name}

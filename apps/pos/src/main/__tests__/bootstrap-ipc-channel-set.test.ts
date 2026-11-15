@@ -292,6 +292,7 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'sales:unsubscribe',
   'sales:list',
   'sales:listRecent',
+  'sales:readForHandoff',
   'receipts:preview',
   'receipts:retryPrint',
   'receipts:reprint',

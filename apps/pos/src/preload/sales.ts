@@ -14,6 +14,8 @@ import type {
   SalesListResponse,
   SalesListRecentRequest,
   SalesListRecentResponse,
+  SalesReadForHandoffRequest,
+  SalesReadForHandoffResponse,
 } from '../shared/bridge-api.js';
 import { SALES_IPC_CHANNELS } from '../shared/sales/channels.js';
 
@@ -56,4 +58,10 @@ export const sales: SalesBridgeAPI = {
   // RT-1189: read-only; main derives scope, role filter and the Cairo day.
   listRecent: (req: SalesListRecentRequest) =>
     ipcRenderer.invoke(SALES_IPC_CHANNELS.LIST_RECENT, req) as Promise<SalesListRecentResponse>,
+  // RT-1322: read-only; main confirms the key against the session's scope.
+  readForHandoff: (req: SalesReadForHandoffRequest) =>
+    ipcRenderer.invoke(
+      SALES_IPC_CHANNELS.READ_FOR_HANDOFF,
+      req,
+    ) as Promise<SalesReadForHandoffResponse>,
 };
