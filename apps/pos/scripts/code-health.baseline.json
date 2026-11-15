@@ -8,8 +8,8 @@
   "knipDuplicateExports": 1,
   "jscpdClones": 113,
   "jscpdDuplicatedLines": 1397,
-  "eslintComplexity": 10,
-  "eslintMaxLinesPerFunction": 33,
-  "eslintMaxLines": 3,
+  "eslintComplexity": 9,
+  "eslintMaxLinesPerFunction": 32,
+  "eslintMaxLines": 2,
   "testsTypeErrors": 400
 }
