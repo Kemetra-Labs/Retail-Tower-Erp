@@ -214,10 +214,20 @@ test("AC 14: at 360px there is no sideways scroll and the primary and copy targe
   expect(overflow).toBeLessThanOrEqual(0);
   for (const target of [primary, page.getByRole("button", { name: t("devices.download.copy") })]) {
     const box = await target.boundingBox();
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
-    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+    expect(toLayoutUnits(box?.height ?? 0)).toBeGreaterThanOrEqual(44);
+    expect(toLayoutUnits(box?.width ?? 0)).toBeGreaterThanOrEqual(44);
   }
 });
+
+/**
+ * RT-1415: Chromium lays out in 1/64 px units but reports box quads as float32, so a 44 px
+ * button at a fractional y (the Arabic font metrics above it decide that) measured
+ * 43.999969482421875, which is 44 − 2⁻¹⁵, one float32 step. Rounding to the layout unit keeps
+ * that out and still fails a target that is really short, even by a single 1/64 px.
+ */
+function toLayoutUnits(px: number): number {
+  return Math.round(px * 64) / 64;
+}
 
 test("AC 15: in forced colours the focus outline and the banner boundary stay visible", async ({
   page,
