@@ -74,13 +74,15 @@ jobs:
           shellcheck --version | head -2 || echo "shellcheck not on PATH: actionlint skips run: scripts"
 
       # Report mode: every exit code is recorded and printed, and the step itself always succeeds.
+      # GitHub runs `run:` as `bash -e`, and `set -uo pipefail` does not turn -e off, so each tool's
+      # status is captured with `|| rc=$?` (a command on the left of || never trips -e).
       - name: actionlint (report only)
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/actionlint.txt"
+          rc=0
           "$RUNNER_TEMP/bin/actionlint" -no-color \
-            -ignore 'unexpected key "queue" for "concurrency" section' > "$out" 2>&1
-          rc=$?
+            -ignore 'unexpected key "queue" for "concurrency" section' > "$out" 2>&1 || rc=$?
           cat "$out"
           count="$(grep -cE '^[^:]+:[0-9]+:[0-9]+: ' "$out" || true)"
           {
@@ -97,8 +99,8 @@ jobs:
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/zizmor.txt"
-          "$RUNNER_TEMP/bin/zizmor" --offline --no-progress --format plain .github/workflows > "$out" 2>&1
-          rc=$?
+          rc=0
+          "$RUNNER_TEMP/bin/zizmor" --offline --no-progress --format plain .github/workflows > "$out" 2>&1 || rc=$?
           cat "$out"
           total="$(grep -E '^[0-9]+ findings?' "$out" | tail -n 1 || true)"
           {
