@@ -607,8 +607,9 @@ jobs:
               echo
               echo "- the resolver stops offering \`${OLD_VERSION:-unknown}\` at once and it is never approved again"
             else
-              echo "### Nothing to replace: no other release was current, nothing was withdrawn"
+              echo "### Nothing to replace: no other release was current at that moment, nothing was withdrawn"
               echo
+              echo "- check the Console release list before activating: a release activated there after this answer is not withdrawn by it"
             fi
             echo "- $TAG (release \`$RELEASE_ID\`) is registered and NOT active: a platform admin activates it in the Console"
           } >> "$GITHUB_STEP_SUMMARY"

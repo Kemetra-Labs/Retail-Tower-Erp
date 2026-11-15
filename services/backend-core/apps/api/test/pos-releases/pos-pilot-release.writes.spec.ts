@@ -539,6 +539,31 @@ describe("RT-1418 supersede-current: the run that registered a release withdraws
     expect(await currentId(admin)).toBe(keeper);
   });
 
+  it("races a Console activation of the keeper safely: the old release is withdrawn, the keeper never is, at most one is current", async () => {
+    if (h.skipped()) return;
+    const admin = h.env().admin;
+    const old = await register("1.4.0");
+    await activate(old);
+    const keeper = await register("1.5.0");
+    const [activation, supersede] = await Promise.all([
+      h.post(activatePath(keeper), PLATFORM_ADMIN.session, {}),
+      post(supersedePath(keeper), {}, { key: null }),
+    ]);
+    expect(supersede.status).toBe(200);
+    expect(supersede.body).toMatchObject({ keeper: { releaseId: keeper, approved: true }, withdrawn: { releaseId: old } });
+    // The activation either waited for the supersede (200) or ran first and was refused (409); never anything else.
+    expect([200, 409]).toContain(activation.status);
+    const rows = await admin.query<{ id: string; approved: boolean; activated_at: Date | null }>(
+      `SELECT id, approved, activated_at FROM pos_pilot_release_registry`,
+    );
+    const byId = new Map(rows.rows.map((row) => [row.id, row]));
+    expect(byId.get(old)?.approved).toBe(false);
+    expect(byId.get(keeper)?.approved).toBe(true);
+    expect(rows.rows.filter((row) => row.approved && row.activated_at !== null).length).toBeLessThanOrEqual(1);
+    expect(await currentId(admin)).toBe(activation.status === 200 ? keeper : null);
+    expect(await auditsOf(admin, "pos.pilot_release.withdrawn", keeper)).toHaveLength(0);
+  });
+
   it("answers 200 with `withdrawn: null` and writes nothing when no release is current", async () => {
     if (h.skipped()) return;
     const admin = h.env().admin;
