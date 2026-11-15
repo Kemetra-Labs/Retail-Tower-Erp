@@ -601,6 +601,8 @@ jobs:
             || fail "Backend-Core answered 200 but not with $TAG kept and another release withdrawn: do not trust this run, read the Console release list"
           OLD_ID="$(jq -r '.withdrawn.releaseId // empty' "$RESP" | tr -cd '0-9a-f-' | head -c 36 || true)"
           OLD_VERSION="$(jq -r '.withdrawn.version // empty' "$RESP" | tr -cd '0-9A-Za-z.+-' | head -c 40 || true)"
+          # An admin may have activated the keeper before this POST: the documented no-op answer then returns it active.
+          KEEPER_ACTIVE="$(jq -r 'if (.keeper.activatedAt | type) == "string" then "yes" else "no" end' "$RESP" 2>/dev/null || echo no)"
           {
             if [ -n "$OLD_ID" ]; then
               echo "### Replaced: withdrew version \`${OLD_VERSION:-unknown}\` (release \`$OLD_ID\`), kept $TAG"
@@ -611,7 +613,11 @@ jobs:
               echo
               echo "- check the Console release list before activating: a release activated there after this answer is not withdrawn by it"
             fi
-            echo "- $TAG (release \`$RELEASE_ID\`) is registered and NOT active: a platform admin activates it in the Console"
+            if [ "$KEEPER_ACTIVE" = yes ]; then
+              echo "- $TAG (release \`$RELEASE_ID\`) is registered and already active: nothing more to activate"
+            else
+              echo "- $TAG (release \`$RELEASE_ID\`) is registered and NOT active: a platform admin activates it in the Console"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   # RT-1363, withdraw mode, every run. No environment, no token, no credential and no checkout: it validates the

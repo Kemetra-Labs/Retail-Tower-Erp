@@ -350,8 +350,10 @@ admin activates the new release in the Console afterwards. A dry run with `repla
 changes nothing. A `withdraw` run refuses `replace_current`.
 
 - **No release current** (or the new one is already current): a 200 that withdraws nothing; the summary says so.
-- **The replace step failed** (and `register` succeeded): the new release is registered and inactive and the old one
-  is still current. Fix the cause, then use **Re-run failed jobs** on the same run: it repeats `register` (an equal
+- **The replace step failed** (and `register` succeeded): the new release is registered. If the request was not sent
+  or Backend-Core rejected it without a write (a 403, a 409, or a failed token), the new release is inactive and the old
+  one is still current. After a transport failure or an answer the job could not validate, the outcome is unknown: the
+  withdrawal may have been committed, so read the Console release list before you act. Fix the cause, then use **Re-run failed jobs** on the same run: it repeats `register` (an equal
   replay, a 200) and the replace step, which is safe to repeat. For `release_not_newer`, ship a higher version instead.
 - **A release that an earlier run registered without `replace_current`** cannot be replaced this way (a new promotion
   of that version stops at the one-shot upload): use a `withdraw` run for the current one, then activate.

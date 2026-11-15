@@ -308,7 +308,7 @@ describe("releases", () => {
   test.each([
     [
       "release_current_exists",
-      "Another release is current. The promotion workflow must withdraw it before 0.1.3 can be activated. Nothing changed.",
+      "Another release is current, and it is not withdrawn automatically. Withdraw it with a withdraw run of promote-pos-pilot, or promote a higher version with replace_current, then activate 0.1.3. Nothing changed.",
     ],
     ["release_withdrawn", "Version 0.1.3 is withdrawn and can't be activated. Nothing changed."],
   ])("409 %s gets its own message, sent once, then a refetch", async (code, message) => {
