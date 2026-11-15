@@ -12,7 +12,9 @@ import { ZeroDueTender } from './checkout-parts.js';
 /**
  * RT-1226 — the tender stage of PaymentSurface: the method tiles (or, at 0 due,
  * why none is needed) and the entry for the chosen tender. Moved out of the
- * surface body unchanged; it holds no state of its own.
+ * surface body unchanged; it holds no state of its own. It does write the
+ * RT-256 card facts to the payment store around a card apply, as the body did:
+ * a later cancel's M-P7 confirm and the M-P13 void notice depend on them.
  */
 export interface TenderEntryStageProps {
   readonly envelope: Readonly<PaymentIntentEnvelope>;

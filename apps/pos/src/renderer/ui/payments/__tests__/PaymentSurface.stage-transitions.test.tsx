@@ -1,6 +1,6 @@
 /**
- * RT-1226 AC2 — characterization of every PaymentSurface stage transition,
- * written BEFORE the surface was split into stage sub-components.
+ * RT-1226 AC2 — characterization of the PaymentSurface stage transitions AC2
+ * names, written BEFORE the surface was split into stage sub-components.
  *
  * Each walk drives the real surface against a fake main (a stateful bridge) and
  * pins, at every stage: the whole rendered DOM (markup, order, classes, ARIA,
@@ -10,9 +10,15 @@
  * change, not a refactor.
  *
  * Walks: cash exact, cash with change, card, split tender (cash then card),
- * cancel before settle, the cancel holds (unconfirmed and live tender), the
- * 0-due completion, and the settled screen with sale finalization off (the
- * fail-closed receipt warning) and on.
+ * cancel before settle, the card-cancel confirm (M-P7), the cancel holds
+ * (unconfirmed and live tender), a failed read-back, the 0-due completion, Esc
+ * then Back, and the settled screen with sale finalization off (the fail-closed
+ * receipt warning) and on.
+ *
+ * Not walked here (covered by their own suites, unchanged by the split):
+ * Slice-1 with no bridge, voucher entry, reversal pending, the session-refusal
+ * `blocked` read, remount resume (`PaymentSurface.remount`,
+ * `PaymentSurface.ledger-remount`), and a refused start.
  */
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -215,6 +221,7 @@ async function mountSurface(
   dueMinor: number,
   options: FakeMainOptions = {},
   onNewSale?: () => void,
+  onBackToSale: () => Promise<boolean> = () => Promise.resolve(false),
 ): Promise<FakeMain> {
   usePaymentStore.getState().mount(makeEnvelope(dueMinor));
   const main = makeFakeMain(dueMinor, options);
@@ -222,7 +229,7 @@ async function mountSurface(
     <PaymentSurface
       _testBridge={main.bridge}
       {...(onNewSale === undefined ? {} : { onNewSale })}
-      onBackToSale={() => Promise.resolve(false)}
+      onBackToSale={onBackToSale}
       backToSaleEligibility="returnable"
     />,
   );
@@ -344,13 +351,14 @@ describe('RT-1226 AC2 — PaymentSurface stage transitions (characterization)', 
     await click('tender-cash');
     typeCash('20.00');
     await click('cash-entry-confirm');
+    // A real card apply for the remainder: the entry records the RT-256 facts.
     await click('tender-external-card');
     fireEvent.change(screen.getByTestId('external-card-reference-input'), {
       target: { value: 'C3' },
     });
-    // A card line short of the due: back at the tiles, then the cash entry again.
-    usePaymentStore.getState().recordCardApplyAttempted();
-    await click('tender-cash');
+    await click('external-card-confirm');
+    expect(usePaymentStore.getState().cardSafety).toMatchSnapshot('card facts after the apply');
+
     await click('payment-surface-cancel');
     expect(stage()).toMatchSnapshot('1 card-cancel confirm shown');
 
@@ -362,6 +370,7 @@ describe('RT-1226 AC2 — PaymentSurface stage transitions (characterization)', 
     fireEvent.click(screen.getByRole('button', { name: 'تأكيد الإلغاء' }));
     await settle();
     expect(stage()).toMatchSnapshot('3 cancelled after confirm (terminal void notice)');
+    expect(usePaymentStore.getState().cardSafety).toMatchSnapshot('card facts after the cancel');
     expect(main.calls).toMatchSnapshot('bridge calls');
   });
 
@@ -413,11 +422,19 @@ describe('RT-1226 AC2 — PaymentSurface stage transitions (characterization)', 
   });
 
   it('Esc closes an open entry first, then Back is the separate action', async () => {
-    await mountSurface(5_000);
+    const onBackToSale = vi.fn(() => Promise.resolve(false));
+    await mountSurface(5_000, {}, undefined, onBackToSale);
     await click('tender-cash');
     fireEvent.keyDown(window, { key: 'Escape' });
     await settle();
     expect(stage()).toMatchSnapshot('1 entry closed by Esc');
+    expect(onBackToSale).not.toHaveBeenCalled();
+
+    // The second Esc is Back; main refuses here, so the cashier stays with the reason.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await settle();
+    expect(onBackToSale).toHaveBeenCalledTimes(1);
+    expect(stage()).toMatchSnapshot('2 Back refused');
   });
 
   it('finalization-off guard: the settled screen says no receipt will be issued', async () => {
