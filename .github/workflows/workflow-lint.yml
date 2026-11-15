@@ -100,7 +100,8 @@ jobs:
           set -uo pipefail
           out="$RUNNER_TEMP/zizmor.txt"
           rc=0
-          "$RUNNER_TEMP/bin/zizmor" --offline --no-progress --format plain .github/workflows > "$out" 2>&1 || rc=$?
+          "$RUNNER_TEMP/bin/zizmor" --offline --no-progress --color never --quiet --format plain \
+            .github/workflows > "$out" 2>&1 || rc=$?
           cat "$out"
           total="$(grep -E '^[0-9]+ findings?' "$out" | tail -n 1 || true)"
           {
