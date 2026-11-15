@@ -1,7 +1,7 @@
 # RT-711 scope item 2, `app.asar` file list and per-`.node` Electron ABI: manual, read-only parity
 # check of the POS Windows package.
 #
-# Builds the POS Windows `--dir` package twice on windows-latest with the same steps as
+# Builds the POS Windows `--dir` package twice on windows-2025-vs2026 with the same steps as
 # `pos/package-windows` (npm ci, electron-rebuild argon2, build, package:dir): once from this
 # repo's apps/pos and once from the public source repo Kemetra/POS at the SHA that
 # tools/history/frozen.tsv pins (after checking the two trees are equal apart from the pinned RT-710
@@ -40,7 +40,7 @@ concurrency:
 jobs:
   asar-parity:
     name: asar-parity
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     defaults:
       run:
@@ -73,12 +73,14 @@ jobs:
       # file the Shadow root adds later (.npmrc, tsconfig, package.json) and mask it in both builds.
       # Kemetra/POS is public, so an anonymous fetch of the one pinned commit needs no credential.
       - name: Fetch POS source at the pinned SHA
+        env:
+          POS_SHA: ${{ steps.src.outputs.sha }}
         run: |
           src="$RUNNER_TEMP/src-pos"
           git init -q "$src"
-          git -C "$src" fetch -q --depth 1 https://github.com/Kemetra/POS.git "${{ steps.src.outputs.sha }}"
+          git -C "$src" fetch -q --depth 1 https://github.com/Kemetra/POS.git "$POS_SHA"
           git -C "$src" checkout -q --detach FETCH_HEAD
-          test "$(git -C "$src" rev-parse HEAD)" = "${{ steps.src.outputs.sha }}"
+          test "$(git -C "$src" rev-parse HEAD)" = "$POS_SHA"
 
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -97,6 +99,8 @@ jobs:
       # of them is packed into app.asar: electron-builder `files` takes dist, package.json, node_modules
       # and migrations, and NOTICE ships next to the exe as NOTICE.txt (extraFiles).
       - name: Source tree equals apps/pos (pinned RT-710 license files excepted)
+        env:
+          POS_SHA: ${{ steps.src.outputs.sha }}
         run: |
           out="$RUNNER_TEMP/asar-parity"
           mkdir -p "$out"
@@ -107,7 +111,7 @@ jobs:
             --shadow-only .claude/skills/impeccable/NOTICE.md \
             --shadow-only .specify/LICENSE-spec-kit.txt \
             --shadow-modified NOTICE=83cb4d398003b07cdeea5acefbe04962f962aa55 \
-            || { echo "apps/pos is not Kemetra/POS@${{ steps.src.outputs.sha }} plus the pinned exceptions (see above); refusing to compare" >&2; exit 1; }
+            || { echo "apps/pos is not Kemetra/POS@$POS_SHA plus the pinned exceptions (see above); refusing to compare" >&2; exit 1; }
 
       - name: Setup Node 24
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -172,12 +176,14 @@ jobs:
       # better-sqlite3 ships test_extension.node, a SQLite loadable extension (no Node addon symbol),
       # unpacked next to the addon. It is the only allowed non-addon; any other one fails.
       - name: Every .node targets the Electron ABI (both packages)
+        env:
+          ELECTRON_ABI: ${{ steps.electron.outputs.abi }}
         run: |
           allow=node_modules/better-sqlite3/build/Release/test_extension.node
           out="$RUNNER_TEMP/asar-parity"
           set +e
           check() {
-            python .github/scripts/native_abi.py check --abi "${{ steps.electron.outputs.abi }}" \
+            python .github/scripts/native_abi.py check --abi "$ELECTRON_ABI" \
               --pe-arch x64 --allow-non-addon "$allow" "$1/dist-electron/win-unpacked/resources/app.asar"
           }
           check "$RUNNER_TEMP/src-pos" > "$out/native-abi.source.txt"

@@ -42,7 +42,7 @@ jobs:
     concurrency:
       group: admin-cross-browser-cloud
       cancel-in-progress: false
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     environment: browserstack
     timeout-minutes: 20
     permissions:

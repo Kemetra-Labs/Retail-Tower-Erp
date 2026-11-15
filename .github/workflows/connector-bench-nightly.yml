@@ -43,7 +43,7 @@ env:
 jobs:
   bench:
     name: Bench tests (Frappe v16, MariaDB)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A full run takes about 2-3 minutes. No dependency cache on purpose: bench 5.x already installs
     # with uv, and a measured uv+yarn cache (~0.9 GB) restored in 13 s for no net gain (RT-581).
     timeout-minutes: 30

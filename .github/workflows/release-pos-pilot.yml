@@ -119,7 +119,7 @@ jobs:
   build:
     name: pilot/build (Windows package, unsigned)
     needs: resolve
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     permissions:
       contents: read
@@ -218,7 +218,7 @@ jobs:
     name: pilot/sign (dry-run, ephemeral pilot certificate)
     needs: [resolve, build]
     if: needs.resolve.outputs.mode == 'dry-run'
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     # No environment: this path never reads the pilot signing material.
     permissions:
@@ -276,7 +276,7 @@ jobs:
     name: pilot/sign (pilot certificate, release-pos-pilot-sign environment)
     needs: [resolve, build]
     if: needs.resolve.outputs.mode == 'release'
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     environment: release-pos-pilot-sign
     # The only job that reads the pilot signing PFX; the environment admits pos-pilot/v* tags only and needs the

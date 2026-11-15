@@ -123,7 +123,7 @@ jobs:
   build:
     name: release/build (Windows package, unsigned)
     needs: resolve
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     permissions:
       contents: read
@@ -203,7 +203,7 @@ jobs:
     name: release/sign (dry-run, ephemeral lab certificate)
     needs: [resolve, build]
     if: needs.resolve.outputs.mode == 'dry-run'
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     # No environment: this path never reads the lab signing material.
     permissions:
@@ -258,7 +258,7 @@ jobs:
     name: release/sign (lab certificate, release-pos-sign environment)
     needs: [resolve, build]
     if: needs.resolve.outputs.mode == 'release'
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 30
     environment: release-pos-sign
     # The only job that reads the lab signing PFX; the environment admits pos/v* tags only.

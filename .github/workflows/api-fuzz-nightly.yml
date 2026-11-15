@@ -23,8 +23,8 @@
 #
 # RT-917 Depot Runners pilot (RT-917 comment 14423): a manual dispatch from main with
 # runner=depot runs this job on depot-ubuntu-24.04-4 (4 CPU / 16 GB, the size of a public-repo
-# ubuntu-latest). Every other run, the schedule and a default dispatch included, stays on
-# ubuntu-latest. Depot runners are reachable only when the org runner group allows this file at
+# ubuntu-24.04). Every other run, the schedule and a default dispatch included, stays on
+# ubuntu-24.04. Depot runners are reachable only when the org runner group allows this file at
 # refs/heads/main; nothing here grants a permission or a secret. The "Runner size" step prints the
 # CPU and memory of both arms for the A/B comparison.
 
@@ -36,7 +36,7 @@ name: API fuzz nightly (Schemathesis)
   workflow_dispatch:
     inputs:
       runner:
-        description: "Runner for this run: github (ubuntu-latest) or depot (depot-ubuntu-24.04-4, main only; RT-917 pilot)"
+        description: "Runner for this run: github (ubuntu-24.04) or depot (depot-ubuntu-24.04-4, main only; RT-917 pilot)"
         type: choice
         options:
           - github
@@ -57,8 +57,8 @@ jobs:
   schemathesis-nightly:
     name: schemathesis-nightly (cookieAuth surface, full)
     # Depot only for an explicit runner=depot dispatch on refs/heads/main; anything else (the
-    # schedule, a default dispatch, a dispatch from another ref) runs on ubuntu-latest.
-    runs-on: ${{ (github.event_name == 'workflow_dispatch' && inputs.runner == 'depot' && github.ref == 'refs/heads/main') && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
+    # schedule, a default dispatch, a dispatch from another ref) runs on ubuntu-24.04.
+    runs-on: ${{ (github.event_name == 'workflow_dispatch' && inputs.runner == 'depot' && github.ref == 'refs/heads/main') && 'depot-ubuntu-24.04-4' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     permissions:
       contents: read
