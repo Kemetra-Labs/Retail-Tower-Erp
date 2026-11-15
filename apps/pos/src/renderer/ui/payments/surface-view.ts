@@ -1,5 +1,6 @@
 import { cashDraft } from '../../v5/checkout/cash-draft.js';
 import type { PaymentAttemptRendererView } from '../../../shared/payments/types.js';
+import { appliedNetMinor } from './applied-sum.js';
 import type { SurfaceContext } from './payment-surface-state.js';
 
 /**
@@ -27,20 +28,17 @@ export interface SurfaceView {
  * Split-tender remaining-balance derivation (T154). Passed to entry components
  * so each successive line is scoped to what's still owed, not the full
  * subtotal.
- * CR-11: skip any line whose amount_applied_minor isn't a safe integer
- * (Constitution §II). The main-process projection should always emit safe
- * integers; this is the renderer-side belt to that braces.
+ * RT-1409: the applied sum is net of change, as main's is (`appliedNetMinor`,
+ * which also skips non-safe integers, CR-11 / Constitution §II). The
+ * main-process projection should always emit safe integers; this is the
+ * renderer-side belt to that braces.
  */
 function remainingBalance(
   dueMinor: number,
   appliedLines: PaymentAttemptRendererView['tender_lines'],
 ): number {
-  let sumAppliedMinor = 0;
-  for (const line of appliedLines) {
-    if (!Number.isSafeInteger(line.amount_applied_minor)) continue;
-    sumAppliedMinor += line.amount_applied_minor;
-  }
-  return Number.isSafeInteger(sumAppliedMinor) ? Math.max(dueMinor - sumAppliedMinor, 0) : 0;
+  const sumAppliedMinor = appliedNetMinor(appliedLines);
+  return sumAppliedMinor === null ? 0 : Math.max(dueMinor - sumAppliedMinor, 0);
 }
 
 /**

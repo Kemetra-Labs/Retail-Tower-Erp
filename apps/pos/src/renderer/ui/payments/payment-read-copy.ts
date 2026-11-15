@@ -1,5 +1,6 @@
 import type { PaymentAttemptRendererView, RefusalReason } from '../../../shared/payments/types.js';
 import { SHIFT_COPY } from '../../v5/shift/shift-copy.js';
+import { appliedNetMinor } from './applied-sum.js';
 
 /**
  * RT-340 / RT-341 — the payment lines Checkout shows after main has been read
@@ -44,15 +45,14 @@ export function confirmNeedsReadBack(reason: RefusalReason | null): boolean {
   return reason === null || !SESSION_REFUSALS.has(reason);
 }
 
-/** Main's read shows money still owed on the attempt (applied lines below its subtotal). */
+/**
+ * Main's read shows money still owed on the attempt (applied lines, net of change
+ * as main counts them, below its subtotal: RT-1409). A sum outside the safe range
+ * decides nothing, so it is not called due.
+ */
 export function moneyStillDue(attempt: PaymentAttemptRendererView): boolean {
-  let applied = 0;
-  for (const line of attempt.tender_lines) {
-    if (line.state === 'applied' && Number.isSafeInteger(line.amount_applied_minor)) {
-      applied += line.amount_applied_minor;
-    }
-  }
-  return applied < attempt.envelope_subtotal_minor;
+  const applied = appliedNetMinor(attempt.tender_lines);
+  return applied !== null && applied < attempt.envelope_subtotal_minor;
 }
 
 /**

@@ -980,6 +980,74 @@ describe('RT-298 — a late cancel answer never touches a newer attempt (Codex P
   });
 });
 
+describe('RT-1409 — a stale cancel read-back never replaces a newer force-failed snapshot', () => {
+  /**
+   * The cancel is refused and its read-back is still out when Checkout is left.
+   * The remounted surface then learns, from another read, that main force-failed
+   * the attempt with live tender (the store holds `live_tender`). The old surface
+   * is gone, so nothing marks its cancel as followed (RT-305): its late read-back
+   * is judged on ids alone, and the ids still match.
+   */
+  it.each([
+    ['a started snapshot read before the force-fail', 'answer'],
+    ['no answer at all', 'fail'],
+  ] as const)(
+    'keeps the force-failed snapshot and its live-tender hold against %s',
+    async (_label, lateStep) => {
+      const { bridge, script } = makeBridge();
+      await openWith(bridge, CASH_APPLIED);
+      let reads = 0;
+      let answer: (r: PaymentsReadResponse) => void = () => undefined;
+      let fail: (e: Error) => void = () => undefined;
+      script({
+        cancel: [() => Promise.resolve({ kind: 'refused', reason: 'internal_error' })],
+        read: () => {
+          reads += 1;
+          if (reads > 1) return Promise.reject(new Error('read failed'));
+          return new Promise<PaymentsReadResponse>((resolve, reject) => {
+            answer = resolve;
+            fail = reject;
+          });
+        },
+      });
+      pressCancel();
+      await settle();
+
+      await remount(bridge);
+      act(() => {
+        const store = usePaymentStore.getState();
+        store.applyAttemptSnapshot({
+          ...attempt('force_failed', CASH_APPLIED),
+          force_failed_at: '2026-10-07T10:00:00.000Z',
+        });
+        store.cancelKeyFor('pa-001');
+        store.setCancelHold('live_tender');
+      });
+      await settle();
+      expect(screen.getByTestId('payment-surface-bridge-refusal')).toHaveTextContent(
+        CANCEL_LIVE_TENDER,
+      );
+
+      await act(async () => {
+        if (lateStep === 'answer') {
+          answer({ kind: 'ok', payment_attempt: attempt('started', CASH_APPLIED) });
+        } else {
+          fail(new Error('read failed'));
+        }
+        await Promise.resolve();
+      });
+      await settle();
+
+      expect(usePaymentStore.getState().paymentSlice?.state).toBe('force_failed');
+      expect(usePaymentStore.getState().cancelRecovery?.hold).toBe('live_tender');
+      expect(screen.getByTestId('payment-surface-bridge-refusal')).toHaveTextContent(
+        CANCEL_LIVE_TENDER,
+      );
+      expect(screen.queryByTestId('payment-surface-entry')).not.toBeInTheDocument();
+    },
+  );
+});
+
 describe('RT-298 — the retry is refused as a payload mismatch (main today)', () => {
   it('a refused same-key retry still resolves the hold from the read-back', async () => {
     const { bridge, cancel, script } = makeBridge();
