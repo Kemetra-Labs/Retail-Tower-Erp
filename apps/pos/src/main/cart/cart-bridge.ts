@@ -1094,40 +1094,12 @@ export class CartBridgeHandlers {
   async cancelPostHandoff(
     req: CancelPostHandoffRequest,
   ): Promise<{ kind: 'ok' } | { kind: 'refused'; reason: CartRefusalReason }> {
-    const session = this.deps.getCurrentSession();
-    if (session === null) return refuse('no_session');
+    const gate = this.postHandoffCancelGate(req);
+    if (gate.kind === 'refused') return gate;
+    const { session, store, cart, isManager, paymentStatus } = gate;
 
-    if (this.deps.cartStore === undefined) return refuse('not_implemented');
-
-    const store = this.deps.cartStore;
-    const cart = store.getCart(req.cart_id);
-    if (cart === undefined) return refuse('wrong_owner');
-
-    const denied = ownershipRefusal(session, cart);
-    if (denied !== null) return refuse(denied);
-
-    // A manager / admin cancels directly (RT-114 C6); a cashier needs a
-    // main-verified manager approval (RT-443), consumed in the transaction.
-    const isManager = session.role === 'manager' || session.role === 'admin';
-    const approvals = this.deps.approvals;
-    const approvalId = req.approval_id;
-    if (!isManager && (approvals === undefined || approvalId === undefined)) {
-      return refuse('manager_attribution_required');
-    }
-    // Without the payments record main cannot tell a paid sale from an unpaid
-    // handoff, so refuse rather than guess.
-    const paymentStatus = this.deps.cartPaymentStatus;
-    if (paymentStatus === undefined) return refuse('not_implemented');
-
-    // Idempotency replay before the terminal-state guard, bound to the SAME
-    // cart and handoff: a key reused for another cart must never report a
-    // cancel that did not happen.
-    const replay = store.getOutboxRow(req.idempotency_key);
-    if (replay !== undefined) {
-      return isSameCancelReplay(replay, req)
-        ? { kind: 'ok' }
-        : refuse('idempotency_payload_mismatch');
-    }
+    const replay = this.postHandoffCancelReplay(store, req);
+    if (replay !== null) return replay;
 
     const precondition = postHandoffCancelRefusal(cart, req);
     if (precondition !== null) return refuse(precondition);
@@ -1174,6 +1146,63 @@ export class CartBridgeHandlers {
       throw err;
     }
     return cancelled ? { kind: 'ok' } : refuse('closed');
+  }
+
+  /**
+   * The post-handoff cancel gate checks, in their original order: a session,
+   * a cart store, the cart and its owner, manager attribution, and the
+   * payments record. Returns what the cancel needs, or the refusal.
+   */
+  private postHandoffCancelGate(req: CancelPostHandoffRequest):
+    | { kind: 'refused'; reason: CartRefusalReason }
+    | {
+        kind: 'ok';
+        session: OperatorSessionRecord;
+        store: CartStore;
+        cart: StoredCart;
+        isManager: boolean;
+        paymentStatus: (cart_id: string) => CartPaymentStatus;
+      } {
+    const session = this.deps.getCurrentSession();
+    if (session === null) return refuse('no_session');
+
+    if (this.deps.cartStore === undefined) return refuse('not_implemented');
+
+    const store = this.deps.cartStore;
+    const cart = store.getCart(req.cart_id);
+    if (cart === undefined) return refuse('wrong_owner');
+
+    const denied = ownershipRefusal(session, cart);
+    if (denied !== null) return refuse(denied);
+
+    // A manager / admin cancels directly (RT-114 C6); a cashier needs a
+    // main-verified manager approval (RT-443), consumed in the transaction.
+    const isManager = session.role === 'manager' || session.role === 'admin';
+    if (!isManager && (this.deps.approvals === undefined || req.approval_id === undefined)) {
+      return refuse('manager_attribution_required');
+    }
+    // Without the payments record main cannot tell a paid sale from an unpaid
+    // handoff, so refuse rather than guess.
+    const paymentStatus = this.deps.cartPaymentStatus;
+    if (paymentStatus === undefined) return refuse('not_implemented');
+
+    return { kind: 'ok', session, store, cart, isManager, paymentStatus };
+  }
+
+  /**
+   * Idempotency replay before the terminal-state guard, bound to the SAME
+   * cart and handoff: a key reused for another cart must never report a
+   * cancel that did not happen. Returns null when the key is new.
+   */
+  private postHandoffCancelReplay(
+    store: CartStore,
+    req: CancelPostHandoffRequest,
+  ): { kind: 'ok' } | { kind: 'refused'; reason: CartRefusalReason } | null {
+    const replay = store.getOutboxRow(req.idempotency_key);
+    if (replay === undefined) return null;
+    return isSameCancelReplay(replay, req)
+      ? { kind: 'ok' }
+      : refuse('idempotency_payload_mismatch');
   }
 
   /**
