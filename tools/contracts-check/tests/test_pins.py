@@ -253,6 +253,13 @@ class ConsumerCase(unittest.TestCase):
         self.assertIn(f"stale pin: pinned blob {self.blob} differs", stale.message)
         self.assertIn("reported, not failing", stale.message)
 
+    def test_crlf_checkout_is_not_stale(self):
+        """With core.autocrlf the working-tree file has CRLF endings; its clean form is the pinned blob."""
+        self.repo.git("config", "core.autocrlf", "true")
+        self.pin()
+        (self.repo.root / "contracts/pos-sales/sales.yaml").write_bytes(SPEC.replace("\n", "\r\n").encode())
+        self.assertEqual([f.status for f in self.run_check(self.fake())], [OK])
+
     def test_current_pin_has_no_stale_line(self):
         self.pin()
         self.assertEqual([f.status for f in self.run_check(self.fake())], [OK])

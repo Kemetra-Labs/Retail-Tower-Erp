@@ -107,6 +107,26 @@ class RepinScript(unittest.TestCase):
 				repin.repin(self.root, **kwargs)
 			self.assertEqual(self.pin.read_bytes(), before)
 
+	def test_branch_only_commit_is_refused(self):
+		"""A squash merge drops branch commits, so a PIN naming one would break after the merge."""
+		head = self.commit({"a.yaml": "a: 1\n"})
+		self.write_pin(head, [("a.yaml", self.blob(head, "a.yaml"))])
+		before = self.pin.read_bytes()
+		_git(self.root, "checkout", "-q", "-b", "feature")
+		branch = self.commit({"a.yaml": "a: 2\n"})
+		with self.assertRaisesRegex(repin.RepinError, "is not on main"):
+			repin.repin(self.root, ref=branch)
+		self.assertEqual(self.pin.read_bytes(), before)
+		self.assertFalse(self.pin.with_name("PIN.tmp").exists())
+
+	def test_origin_main_is_preferred_when_present(self):
+		head = self.commit({"a.yaml": "a: 1\n"})
+		self.write_pin(head, [("a.yaml", self.blob(head, "a.yaml"))])
+		_git(self.root, "update-ref", "refs/remotes/origin/main", head)
+		local = self.commit({"a.yaml": "a: 2\n"})  # on local main, not yet on origin/main
+		with self.assertRaisesRegex(repin.RepinError, "is not on origin/main"):
+			repin.repin(self.root, ref=local)
+
 	def test_cli_reports_failure_with_exit_1(self):
 		self.commit({"a.yaml": "a: 1\n"})
 		self.assertEqual(repin.main(["--repo", str(self.root), "--ref", "no-such-ref"]), 1)

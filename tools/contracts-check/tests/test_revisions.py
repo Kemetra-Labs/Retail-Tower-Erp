@@ -5,7 +5,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
 from contracts_check import cli, pins
-from contracts_check.findings import FAIL, OK
+from contracts_check.findings import DRIFT, FAIL, OK
 
 from support import TempRepo, fake_oasdiff
 
@@ -77,6 +77,32 @@ class RevisionCase(unittest.TestCase):
         [f] = self.check(pin_rev=old)
         self.assertEqual(f.status, FAIL)
         self.assertIn("unreadable PIN", f.message)
+
+    # RT-1407 in release-gate mode: the one-commit rule and the stale line hold for a PIN read at
+    # `pin_rev` against the contract at `backend_rev`, as the System release gate runs them.
+
+    def test_partial_pin_at_the_consumer_rev_fails(self):
+        newer = SPEC.replace("1.0.0", "1.1.0")
+        later = self.commit({"contracts/a.yaml": newer})
+        rev = self.commit({"app/PIN": f"{header(self.base)}file: a.yaml {self.repo.blob(newer)}\n"})
+        [f] = self.check(pin_rev=rev, backend_rev=later)
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("partial pin", f.message)
+
+    def test_missing_commit_at_the_consumer_rev_fails(self):
+        rev = self.commit({"contracts/a.yaml": SPEC, "app/PIN": f"{header('f' * 40)}file: a.yaml {self.blob}\n"})
+        [f] = self.check(pin_rev=rev, backend_rev=rev)
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("is not a commit", f.message)
+
+    def test_stale_line_names_the_backend_rev(self):
+        newer = SPEC.replace("1.0.0", "1.1.0")
+        rev = self.commit({"contracts/a.yaml": newer, "app/PIN": f"{header(self.base)}file: a.yaml {self.blob}\n"})
+        findings = self.check(pin_rev=rev, backend_rev=rev)
+        self.assertEqual(sorted(f.status for f in findings), [DRIFT, OK])
+        [stale] = [f for f in findings if f.status == DRIFT]
+        self.assertIn(f"stale pin: pinned blob {self.blob}", stale.message)
+        self.assertIn(f"at {rev}", stale.message)
 
 
 class RevisionCli(unittest.TestCase):

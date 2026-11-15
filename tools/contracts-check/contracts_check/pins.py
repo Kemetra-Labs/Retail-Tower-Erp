@@ -131,8 +131,11 @@ def _repin_hint(consumer):
     return f"repin with `{command}`" if command else "repin this consumer"
 
 
-def hash_object(repo, data):
-    proc = _git(repo, "hash-object", "--stdin", stdin=data)
+def hash_object(repo, data, path=None):
+    """The blob id of `data`; with `path`, after that path's clean filters (autocrlf, .gitattributes),
+    as `git add` would store it (RT-1407: no false stale line on a CRLF checkout)."""
+    args = ["hash-object", "--stdin"] + ([f"--path={path}"] if path else ["--no-filters"])
+    proc = _git(repo, *args, stdin=data)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip())
     return proc.stdout.decode().strip()
@@ -271,7 +274,8 @@ def check_consumer(repo, consumer, contracts_root, oasdiff, severity_levels, *, 
             base.parent.mkdir(parents=True, exist_ok=True)
             base.write_bytes(data)
             findings += compare_file(oasdiff, base, current, severity_levels, subject)
-            in_tree = hash_object(repo, current.read_bytes())
+            in_tree = hash_object(repo, current.read_bytes(),
+                                  None if backend_rev else f"{contracts_root}/{path}")
             if in_tree != blob:
                 where = backend_rev or "the checked-out tree"
                 findings.append(Finding("pins", subject, DRIFT,

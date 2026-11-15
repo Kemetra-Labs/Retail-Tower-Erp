@@ -24,7 +24,7 @@ Every consumer PIN describes one commit: each `file:` blob must be the blob of t
 | Admin-Console | `pnpm generate:client --repin <ref>` in `apps/admin-console` (also regenerates the client) |
 | ERPNext-Connector | `python integrations/erpnext-connector/scripts/contracts_repin.py [--ref <ref>] [--add <path>] [--remove <path>]` from the repository root (default ref `main`; the Connector vendors no copies) |
 
-Pin a commit that is on `main`: CI reads it from git, and a squash merge drops branch-only commits. Consumers lag `main` on purpose until they repin, so a pinned blob behind the in-tree file is a `stale pin` drift line in the job summary, not a failure.
+Pin a commit that is on `main`: CI reads it from git, and a squash merge drops branch-only commits (the Connector script refuses any other commit). The check also applies in the System release gate, to each consumer PIN at its release commit: a Connector commit from before the RT-1407 repin that still carries the RT-1398 partial `stock-import.yaml` pin (#593 up to that repin) fails it, so name a later commit in a release manifest. Consumers lag `main` on purpose until they repin, so a pinned blob behind the in-tree file is a `stale pin` drift line in the job summary, not a failure.
 
 ## Commands
 

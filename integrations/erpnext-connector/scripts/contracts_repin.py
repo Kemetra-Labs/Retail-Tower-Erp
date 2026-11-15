@@ -9,9 +9,11 @@ The same behaviour as the POS `npm run contracts:repin` (RT-889), without the ve
 Connector keeps no copy of the contracts, only `contracts/backend-core/PIN`. The ref is resolved to
 one full commit SHA with local `git`, and every pinned path is read AT THAT COMMIT
 (`git rev-parse <commit>:<source>/<path>`), so the PIN can never mix commits. No network and no
-GitHub API: pin a commit that is on `main`, and fetch it first if the clone is shallow. Nothing is
-written unless every path resolves to a blob at that commit. A second run on the same ref writes
-the same bytes.
+GitHub API. The commit must be on `main` (an ancestor of `origin/main`, or of `main` when there is
+no `origin/main`): CI reads it from git, and a squash merge drops branch-only commits, so a branch
+pin would turn `pins` red after the merge. Fetch first if the clone is shallow. Nothing is written
+unless every path resolves to a blob at that commit, and the PIN is replaced atomically. A second
+run on the same ref writes the same bytes.
 
 `tools/contracts-check` (`pins`) fails a PIN whose `file:` blob is not the blob of that path at
 its `commit:`, so a hand edit of one line does not pass CI. After a repin, run the Connector unit
@@ -19,6 +21,7 @@ tests and `tools/contracts-check`, then commit the PIN.
 """
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -77,6 +80,16 @@ def resolve_commit(repo, ref):
 	return sha
 
 
+def check_on_main(repo, commit):
+	"""Refuse a commit that is not on main: after a squash merge a branch commit is gone (RT-1407)."""
+	for base in ("origin/main", "main"):
+		if _git(repo, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"):
+			if _git(repo, "merge-base", "--is-ancestor", commit, base) is None:
+				raise RepinError(f"{commit} is not on {base}; pin a commit that is on main (fetch first)")
+			return base
+	raise RepinError("neither origin/main nor main exists in this clone; fetch main first")
+
+
 def blob_at(repo, commit, path):
 	spec = f"{commit}:{SOURCE}/{path}"
 	sha = _git(repo, "rev-parse", "--verify", "--quiet", spec) or ""
@@ -103,9 +116,12 @@ def repin(repo, ref="main", add=(), remove=()):
 	if not wanted:
 		raise RepinError("nothing to pin: pass --add <path>")
 	commit = resolve_commit(repo, ref)
+	check_on_main(repo, commit)
 	files = [(path, blob_at(repo, commit, path)) for path in wanted]
 	pin.parent.mkdir(parents=True, exist_ok=True)
-	pin.write_text(format_pin(commit, files), encoding="utf-8", newline="\n")
+	tmp = pin.with_name(pin.name + ".tmp")
+	tmp.write_text(format_pin(commit, files), encoding="utf-8", newline="\n")
+	os.replace(tmp, pin)
 	return commit, files
 
 
