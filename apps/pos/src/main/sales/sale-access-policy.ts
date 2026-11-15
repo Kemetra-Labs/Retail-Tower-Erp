@@ -52,6 +52,7 @@ export type SaleAccessAction =
   | 'sales.subscribe'
   | 'sales.list'
   | 'sales.listRecent'
+  | 'sales.readForHandoff'
   | 'receipts.preview'
   | 'receipts.retryPrint'
   | 'receipts.reprint'

@@ -24,6 +24,10 @@
  * RT-1189 `sales.listRecent` takes only an optional short form: anything but a
  * plain object refuses with `invalid_input` here, and the bridge validates the
  * keys and the digits (`sales-recent.ts`).
+ *
+ * RT-1322 `sales.readForHandoff` takes the handoff key pair: anything but a
+ * plain object refuses with `invalid_input` here, and the bridge validates the
+ * keys and both ids.
  */
 
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
@@ -42,6 +46,8 @@ import type {
   SalesListRequest,
   SalesListResponse,
   SalesListRecentResponse,
+  SalesReadForHandoffRequest,
+  SalesReadForHandoffResponse,
 } from '../../shared/bridge-api.js';
 
 export interface SalesIpcDeps {
@@ -107,6 +113,13 @@ export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): voi
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesListRecentResponse> => {
       if (!isPlainObject(request)) return { kind: 'refused', reason: 'invalid_input' };
       return salesBridge.listRecent(request);
+    },
+  );
+  ipcMain.handle(
+    SALES_IPC_CHANNELS.READ_FOR_HANDOFF,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesReadForHandoffResponse> => {
+      if (!isPlainObject(request)) return { kind: 'refused', reason: 'invalid_input' };
+      return salesBridge.readForHandoff(request as unknown as SalesReadForHandoffRequest);
     },
   );
 }

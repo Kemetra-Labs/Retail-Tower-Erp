@@ -25,6 +25,13 @@ export interface ProofItem {
    * dominant figure), `strong` for a figure the cashier acts on (M-P5).
    */
   readonly emphasis?: 'hero' | 'strong';
+  /**
+   * A secondary reference under the line, such as the exact sale number next to
+   * its short form (UX-10 "scan short, inspect exact"). An isolated LTR run the
+   * cashier can select and copy; it never carries a status.
+   */
+  readonly detail?: string;
+  readonly detailTestId?: string | undefined;
   readonly testId?: string | undefined;
   readonly valueTestId?: string | undefined;
 }
@@ -50,6 +57,11 @@ export function ProofList({ items, label }: ProofListProps): JSX.Element {
           {item.value !== undefined && (
             <bdi className="v5-proof-line__value" dir="ltr" data-testid={item.valueTestId}>
               {item.value}
+            </bdi>
+          )}
+          {item.detail !== undefined && (
+            <bdi className="v5-proof-line__detail" dir="ltr" data-testid={item.detailTestId}>
+              {item.detail}
             </bdi>
           )}
         </li>

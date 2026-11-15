@@ -19,6 +19,8 @@ export const SALES_IPC_CHANNELS = {
   LIST: 'sales:list',
   /** RT-1189: this terminal's sales on the current Cairo business day. */
   LIST_RECENT: 'sales:listRecent',
+  /** RT-1322: Completion's own sale, by the exact handoff key plus the payment attempt. */
+  READ_FOR_HANDOFF: 'sales:readForHandoff',
 } as const;
 
 export type SalesIpcChannel = (typeof SALES_IPC_CHANNELS)[keyof typeof SALES_IPC_CHANNELS];
