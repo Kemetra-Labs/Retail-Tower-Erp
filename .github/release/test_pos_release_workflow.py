@@ -217,7 +217,7 @@ class ReleasePos(unittest.TestCase):
     def test_sign_jobs_run_on_windows_from_the_prebuilt_package(self):
         for name, mode in (("sign-dry-run", "dry-run"), ("sign-release", "release")):
             sign = job(self.text, name)
-            self.assertRegex(sign, r"(?m)^    runs-on: windows-latest$")
+            self.assertRegex(sign, r"(?m)^    runs-on: windows-2025-vs2026$")
             self.assertIn("needs: [resolve, build]", sign)
             self.assertIn(f"name: pos-unpacked-{mode}-${{{{ github.run_id }}}}", sign)
             self.assertIn(f"name: pos-installer-{mode}-${{{{ github.run_id }}}}", sign)

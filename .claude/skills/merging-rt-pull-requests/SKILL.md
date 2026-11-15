@@ -84,6 +84,12 @@ The POS test `src/renderer/__tests__/source-scope-guard.test.ts` fails any branc
 `scripts/openapi-snapshot.json` or `.github/workflows/` (the prefixes are in
 `source-scope-guard.const.ts`). Only the full suite catches it: targeted vitest runs never load it.
 
+The prefixes are **POS-relative**: the guard diffs with `git diff --name-only --relative` from
+`apps/pos` (`source-scope-guard.git.ts`), so a change outside `apps/pos/` never counts. Only
+`apps/pos/.github/workflows/` trips the `.github/workflows/` prefix; the root `.github/workflows/`
+does not, and a root-only workflow PR needs no exemption (RT-1410, #610: 13 root workflows changed,
+the `remote_suite=pos` preflight was green, no exemption added).
+
 - **When the issue's scope needs one of those files**, add a narrow exemption in the same PR:
   - the exact file list on the exact PR branch name, with a `source-scope-guard-rt<n>.test.ts`
     narrowness test (pattern: RT-869, RT-1316);

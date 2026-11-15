@@ -40,7 +40,7 @@ describe('RT-803 lab update drill workflow (P0 spike)', () => {
   });
 
   it('runs on Windows with a bounded timeout and never uses the ci gate name', () => {
-    expect(wf).toMatch(/runs-on: windows-latest/);
+    expect(wf).toMatch(/runs-on: windows-2025-vs2026/);
     expect(wf).toMatch(/timeout-minutes: (?:[1-9]|[1-3]\d|45)\b/);
     expect(wf).not.toMatch(/^name: ci$/m);
   });
@@ -98,7 +98,7 @@ describe('RT-803 lab update drill workflow (P1 update N to N+1)', () => {
     expect(job).toContain('./scripts/lab/ci/run-lab-p1.ps1 -Evidence');
     expect(job).toMatch(/if: always\(\)\n {8}shell: pwsh\n {8}run: .*run-lab-p1\.ps1 -Cleanup/);
     expect(job).toMatch(/retention-days: 14/);
-    expect(job).toMatch(/runs-on: windows-latest/);
+    expect(job).toMatch(/runs-on: windows-2025-vs2026/);
   });
 
   it('refuses to run anywhere but a GitHub-hosted runner, before any change', () => {

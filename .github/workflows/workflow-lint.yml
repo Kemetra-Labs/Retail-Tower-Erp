@@ -1,0 +1,117 @@
+# RT-1410: lint the workflow files themselves, in REPORT MODE. Runs actionlint (syntax, expression
+# types, shellcheck on `run:` blocks; ubuntu-24.04 ships shellcheck) and zizmor (security audits:
+# template injection, cache poisoning, unpinned actions, excessive permissions, ...) over
+# .github/workflows and writes the findings to the job summary. Findings never fail it: both exit
+# codes are printed and each lint step exits 0. Only a failed download or a digest mismatch in the
+# install step fails the job, on purpose (fail closed on the tool supply chain); even then nothing
+# reaches `required`. Making the findings blocking is a later owner decision (RT-1410 out of scope).
+# The summary uses 4-backtick fences, so a workflow line that contains ``` cannot close them early.
+#
+# Not a graph.yaml job and not listed in gate.yml `workflow_run`, so `required` never reads it (same
+# as gitleaks, secrets.yml). Selected by path instead: `.github/**` is the part of the `policy` class
+# that holds workflows and this linter's own config (.github/zizmor.yml).
+#
+# Both tools are official release binaries, fetched anonymously over HTTPS and checked against the
+# pinned SHA-256 (the GitHub release-asset digests), the same way as osv-scanner and gitleaks. Bump a
+# version and its digest together. No SARIF upload: that needs `security-events: write`, which a
+# PR-reachable workflow may not hold (pgraph privileges). zizmor runs `--offline`, so no token reaches
+# it; the online-only audits (known-vulnerable-actions, impostor-commit, ref-confusion) do not run.
+#
+# Known false positive handled here: actionlint (1.7.12 and its main branch, 2026-11) does not know
+# the job-level `concurrency.queue` key that GitHub accepts (mirror-erpnext-connector.yml publish
+# job, `queue: max`). The `-ignore` regex below drops exactly that message and nothing else.
+name: workflow-lint
+
+on:
+  pull_request:
+    branches: [main]
+    paths: [".github/**"]
+  push:
+    branches: [main]
+    paths: [".github/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: workflow-lint/report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: "1.7.12"
+      ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+      ZIZMOR_VERSION: "1.32.0"
+      ZIZMOR_SHA256: "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint and zizmor (pinned, hash-verified)
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"
+          mkdir -p "$bin"
+          al="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/$al" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${al}"
+          echo "${ACTIONLINT_SHA256}  $RUNNER_TEMP/$al" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$al" -C "$bin" actionlint
+          zz="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/$zz" \
+            "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${zz}"
+          echo "${ZIZMOR_SHA256}  $RUNNER_TEMP/$zz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$zz" -C "$bin"
+          chmod +x "$bin/actionlint" "$bin/zizmor"
+          "$bin/actionlint" -version
+          "$bin/zizmor" --version
+          shellcheck --version | head -2 || echo "shellcheck not on PATH: actionlint skips run: scripts"
+
+      # Report mode: every exit code is recorded and printed, and the step itself always succeeds.
+      # GitHub runs `run:` as `bash -e`, and `set -uo pipefail` does not turn -e off, so each tool's
+      # status is captured with `|| rc=$?` (a command on the left of || never trips -e).
+      - name: actionlint (report only)
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/actionlint.txt"
+          rc=0
+          "$RUNNER_TEMP/bin/actionlint" -no-color \
+            -ignore 'unexpected key "queue" for "concurrency" section' > "$out" 2>&1 || rc=$?
+          cat "$out"
+          count="$(grep -cE '^[^:]+:[0-9]+:[0-9]+: ' "$out" || true)"
+          {
+            echo "### actionlint ${ACTIONLINT_VERSION}: ${count} finding(s), exit ${rc} (report only)"
+            echo
+            echo '````'
+            head -n 400 "$out"
+            [ "$(wc -l < "$out")" -le 400 ] || echo "... truncated; the full list is in the step log"
+            echo '````'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
+      - name: zizmor (report only, offline)
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/zizmor.txt"
+          rc=0
+          "$RUNNER_TEMP/bin/zizmor" --offline --no-progress --color never --quiet --format plain \
+            .github/workflows > "$out" 2>&1 || rc=$?
+          cat "$out"
+          total="$(grep -E '^[0-9]+ findings?' "$out" | tail -n 1 || true)"
+          {
+            echo "### zizmor ${ZIZMOR_VERSION} (offline): exit ${rc} (report only)"
+            echo
+            echo "${total:-no summary line; see the step log}"
+            echo
+            echo '````'
+            head -n 400 "$out"
+            [ "$(wc -l < "$out")" -le 400 ] || echo "... truncated; the full list is in the step log"
+            echo '````'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0

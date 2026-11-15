@@ -168,7 +168,7 @@ class PromotePosPilotStatic(unittest.TestCase):
 
     def test_verify_waits_for_resolve_and_runs_on_windows(self):
         self.assertEqual(needs_of(job(self.text, "verify")), ["resolve"])
-        self.assertRegex(job(self.text, "verify"), r"runs-on: windows-latest")
+        self.assertRegex(job(self.text, "verify"), r"runs-on: windows-2025-vs2026")
         self.assertRegex(job(self.text, "verify"), r"defaults:\n      run:\n        shell: bash")
 
     def test_the_attestation_is_bound_to_the_repository_the_signer_workflow_and_the_tags_commit(self):

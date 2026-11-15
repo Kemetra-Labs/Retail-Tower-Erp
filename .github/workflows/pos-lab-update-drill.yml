@@ -61,7 +61,7 @@ defaults:
 jobs:
   p0-spike:
     if: ${{ inputs.stage == 'p0' }}
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -110,7 +110,7 @@ jobs:
 
   p1-update:
     if: ${{ inputs.stage == 'p1' }}
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     steps:
       - name: Checkout

@@ -165,7 +165,7 @@ jobs:
     name: bc/fast
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/fast')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -233,7 +233,7 @@ jobs:
     name: bc/db-integration
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/db-integration')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 25 minutes (RT-845): api-only since the db + worker suites moved to bc/db-package. Measured
     # on this repo's 2-core runner on PR #14 (RT-841): setup about 1 minute + api 15.0 minutes.
     # The product keeps 40 until it has more measurements; this repo uses its own measurement.
@@ -526,7 +526,7 @@ jobs:
     name: bc/db-package
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/db-package')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 20 minutes, as in the product's db-package job (RT-816). Measured on this repo's 2-core
     # runner on PR #14 (RT-841): setup about 1 minute + db 10.8 + worker 2.5 minutes.
     timeout-minutes: 20
@@ -590,7 +590,7 @@ jobs:
     name: bc/oasdiff
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/oasdiff')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       OASDIFF_VERSION: "1.32.1"
@@ -668,7 +668,7 @@ jobs:
     name: bc/contracts-compat
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/contracts-compat')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       OASDIFF_VERSION: "1.32.1"
@@ -730,7 +730,7 @@ jobs:
     name: schemathesis shard ${{ matrix.shard }}
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       # Every shard reports, so a failed one does not hide the others' evidence.
@@ -835,7 +835,7 @@ jobs:
     name: bc/schemathesis
     needs: [plan, bc-schemathesis-shard]
     if: ${{ !cancelled() && needs.plan.result == 'success' && contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       SHARD_TOTAL: "4"
@@ -888,7 +888,7 @@ jobs:
     name: ${{ 'schemathesis operator (non-gating)' }}
     needs: plan
     if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     continue-on-error: true
     env:

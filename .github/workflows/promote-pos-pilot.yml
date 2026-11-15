@@ -135,7 +135,7 @@ jobs:
     name: promote/verify (dry-run, nothing is uploaded or registered)
     needs: resolve
     if: ${{ inputs.mode == 'promote' }}
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 20
     permissions:
       contents: read
