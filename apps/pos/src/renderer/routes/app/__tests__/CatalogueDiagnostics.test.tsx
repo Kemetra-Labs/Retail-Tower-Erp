@@ -398,6 +398,31 @@ describe('CatalogueDiagnostics — search', () => {
     expect(within(list).getByText('PARA-500')).toBeInTheDocument();
   });
 
+  it('a search that finishes after the query was cleared never brings its list back', async () => {
+    let finish: (r: CatalogueSearchResponse) => void = () => undefined;
+    const search = vi.fn(
+      () =>
+        new Promise<CatalogueSearchResponse>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderScreen(bridge({ search }));
+    const input = await screen.findByLabelText(SEARCH_LABEL);
+    await userEvent.type(input, 'با');
+    await waitFor(() => {
+      expect(search).toHaveBeenCalled();
+    });
+    await userEvent.clear(input);
+    finish({
+      kind: 'results',
+      items: [row('p-1', 'بنادول', 'PARA-500', 1500, null)] as never,
+      truncated: false,
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByRole('list', { name: 'نتائج البحث' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('diagnostics-search-results')).toBeEmptyDOMElement();
+  });
+
   it('never draws a barcode, even when a row carries one', async () => {
     const item = {
       ...row('p-1', 'بنادول', 'PARA-500', 1500, null),
