@@ -280,7 +280,9 @@ describe("owner / tenant_admin view", () => {
     putSetting.mockResolvedValue({ status: 404 });
     renderSection();
     fireEvent.click(await screen.findByRole("button", { name: "Switch batch selling on" }));
-    await screen.findByText("The batch selling setting is not available now. Nothing was recorded.");
+    await screen.findByText(
+      "The batch selling setting is not available now. Nothing was recorded.",
+    );
     await waitFor(() => expect(getSetting).toHaveBeenCalledTimes(2));
     await nextFrames(2);
     const heading = screen.getByRole("heading", { name: "Batch selling" });
