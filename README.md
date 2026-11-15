@@ -88,7 +88,7 @@ POS sells the resolved Backend-Core store catalog. Admin-Console operates on the
 | --- | --- |
 | Files inside one product | The risk tiers for those paths. A path that product does not classify counts as `high` and selects that product's full suite. |
 | `services/backend-core/packages/contracts/openapi` | The `contracts` tier: `contracts/check`, and the consumer jobs that tier names. |
-| A policy path, listed below | Every job. In `required` mode the check stays at `POLICY_APPROVAL_REQUIRED` until the approval line is on the head commit. In `observe` mode that result is printed and does not fail `required`. |
+| A policy path, listed below | Every job, except `.circleci/**`, `.depot/**` and `.github/release/**`, which select only `contracts/check`. In `required` mode the check stays at `POLICY_APPROVAL_REQUIRED` until the approval line is on the head commit. In `observe` mode that result is printed and does not fail `required`. |
 | A push to `main` | Every job. |
 
 1. **Classify.** Every changed path is a shared class (`policy`, `tooling`, `e2e`, `docs`, `root`) or a product risk tier (`contracts`, `money`, `sales`, and the rest). Each class or tier names the jobs it needs. A path a product does not classify counts as `high` and selects that product's full suite.
