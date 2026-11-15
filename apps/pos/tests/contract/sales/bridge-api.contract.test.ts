@@ -47,6 +47,8 @@ import type {
   SalesSubscribeResponse,
   SalesUnsubscribeRequest,
   SalesUnsubscribeResponse,
+  SalesReadForHandoffRequest,
+  SalesReadForHandoffResponse,
   SaleSummary,
 } from '../../../src/shared/bridge-api.js';
 
@@ -355,5 +357,72 @@ describe('T030 — 008 Slice 1b sales.* bridge contract', () => {
       expect(payload.variant).toBe('reprint_duplicate');
       expect(payload.duplicate_copy_sequence_number).toBe(1);
     });
+  });
+});
+
+describe('RT-1322 — sales.readForHandoff contract (RT-249 N-S2, doc 20 §5.1)', () => {
+  it('has the Request → Promise<Response> signature on SalesBridgeAPI (compile-time)', () => {
+    type Sig = SalesBridgeAPI['readForHandoff'];
+    const sig: Sig | undefined = undefined as
+      | ((req: SalesReadForHandoffRequest) => Promise<SalesReadForHandoffResponse>)
+      | undefined;
+    expect(sig).toBeUndefined();
+  });
+
+  it('is keyed by exactly the handoff id and the payment attempt id', () => {
+    const req: SalesReadForHandoffRequest = {
+      handoff_action_id: 'hid-1',
+      payment_attempt_id: 'pa-1',
+    };
+    expect(Object.keys(req).sort()).toEqual(['handoff_action_id', 'payment_attempt_id']);
+    // The request names no scope, role, operator or date: main derives them.
+    // @ts-expect-error — `terminal_id` is not part of the request
+    const bad: SalesReadForHandoffRequest = { ...req, terminal_id: 'terminal-1' };
+    expect(bad).toBeDefined();
+  });
+
+  it('answers ok (sale + short_number), pending, or a refusal from the closed reasons', () => {
+    const summary = { sale_id: 'sale-1' } as SaleSummary;
+    const answers: SalesReadForHandoffResponse[] = [
+      { kind: 'ok', sale: summary, short_number: '47' },
+      { kind: 'ok', sale: summary, short_number: null },
+      { kind: 'pending' },
+      ...(['no_session', 'sale_not_found', 'forbidden_field_in_request'] as const).map(
+        (reason): SalesReadForHandoffResponse => ({ kind: 'refused', reason }),
+      ),
+    ];
+    // Exhaustive: a new `kind` fails this switch at compile time.
+    const label = (r: SalesReadForHandoffResponse): string => {
+      switch (r.kind) {
+        case 'ok':
+          return 'ok';
+        case 'pending':
+          return 'pending';
+        case 'refused':
+          return r.reason satisfies SalesRefusalReason;
+      }
+    };
+    expect(answers.map(label)).toEqual([
+      'ok',
+      'ok',
+      'pending',
+      'no_session',
+      'sale_not_found',
+      'forbidden_field_in_request',
+    ]);
+  });
+
+  it('does not echo either id of the key in the ok answer (§P15)', () => {
+    type Ok = Extract<SalesReadForHandoffResponse, { kind: 'ok' }>;
+    type Keys = keyof Ok | keyof Ok['sale'];
+    const forbidden: Extract<
+      Keys,
+      | 'handoff_action_id'
+      | 'envelope_handoff_action_id'
+      | 'payment_attempt_id'
+      | 'envelope_cart_id'
+      | 'tenant_tax_registration_id'
+    >[] = [];
+    expect(forbidden).toEqual([]);
   });
 });

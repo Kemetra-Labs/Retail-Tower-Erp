@@ -2,7 +2,8 @@
  * RT-243 W1-C (freeze 15 S14, A4) — the completion panel lists only proven
  * facts: payment taken (success), main's change to hand back (M-P5), and the
  * receipt as not issued (info) or never issued (warning). It never claims a
- * print, a sale number, a completed sale or sync, and «بيع جديد» owns focus
+ * print, a sale number, a completed sale or sync unless the caller proves THIS
+ * payment's own sale number (RT-1322, doc 20 §5.3), and «بيع جديد» owns focus
  * without letting the Enter that settled the payment fall through onto it.
  */
 
@@ -86,12 +87,12 @@ describe('RT-243 completion — proof list shows only proven facts', () => {
     expect(receipt.textContent).not.toMatch(/جارٍ|يجري/u);
   });
 
-  it('claims no print, no receipt sent, no completed sale, no sale number and no sync', () => {
+  it('claims no print, no receipt sent, no completed sale, no sale number and no sync by default', () => {
     renderPanel({ changeDueMinor: 775 });
     const root = screen.getByTestId(IDS.root);
     // N-09 / M-C2: «طُبع» and «أُرسل الإيصال» need proof tied to this sale.
     expect(root.textContent).not.toMatch(/طُبع|طبع|أُرسل|أرسل/u);
-    // M-C1 «اكتمل البيع» and «رقم البيع» wait on D-N1 / a correlating id.
+    // M-C1 «اكتمل البيع» and «رقم البيع» need this payment's own number (RT-1322).
     expect(root.textContent).not.toMatch(/اكتمل البيع|رقم البيع/u);
     // Sync health is shown only from a real signal; there is none here.
     expect(root.textContent).not.toMatch(/مزامن|تمت المزامنة|متصل/u);
@@ -103,6 +104,163 @@ describe('RT-243 completion — proof list shows only proven facts', () => {
     const proofs = screen.getByTestId(IDS.proofs);
     expect(proofs).toHaveAttribute('role', 'status');
     expect(proofs).toHaveAttribute('aria-live', 'polite');
+  });
+});
+
+describe('RT-1322 completion — this payment’s own sale number (M-C1, M-N5)', () => {
+  const NUMBER = { short: '47', exact: 'TERM-01-2026-10-16-000047' } as const;
+
+  it('shows no number line and makes no claim while the caller is still waiting', () => {
+    renderPanel({ saleNumber: undefined });
+    const root = screen.getByTestId(IDS.root);
+    expect(root.textContent).not.toMatch(/اكتمل البيع|رقم البيع/u);
+    expect(screen.getByTestId('completion-proof-payment')).toHaveTextContent('تم استلام المبلغ');
+  });
+
+  it('turns the headline into «اكتمل البيع» and lists «رقم البيع» with the short form', () => {
+    renderPanel({ saleNumber: NUMBER });
+    const payment = screen.getByTestId('completion-proof-payment');
+    expect(payment).toHaveTextContent('اكتمل البيع');
+    expect(payment).not.toHaveTextContent('تم استلام المبلغ');
+    // The settled amount stays the one proven success and the hero figure.
+    expect(payment).toHaveAttribute('data-tone', 'success');
+    expect(payment).toHaveAttribute('data-emphasis', 'hero');
+    expect(screen.getByTestId(IDS.amount)).toHaveTextContent('992.25 EGP');
+
+    const line = screen.getByTestId('completion-proof-sale-number');
+    expect(line).toHaveTextContent('رقم البيع');
+    expect(line).toHaveAttribute('data-tone', 'neutral');
+    const value = screen.getByTestId('completion-sale-number-value');
+    expect(value).toHaveTextContent(/^47$/u);
+    expect(value.tagName).toBe('BDI');
+    expect(value).toHaveAttribute('dir', 'ltr');
+  });
+
+  it('shows the exact number secondary, as a selectable LTR run', () => {
+    renderPanel({ saleNumber: NUMBER });
+    const exact = screen.getByTestId('completion-sale-number-exact');
+    expect(exact).toHaveTextContent('TERM-01-2026-10-16-000047');
+    expect(exact.tagName).toBe('BDI');
+    expect(exact).toHaveAttribute('dir', 'ltr');
+    expect(exact).toHaveClass('v5-proof-line__detail');
+    // The short form is what the cashier scans first.
+    const line = screen.getByTestId('completion-proof-sale-number');
+    const order = within(line).getAllByText(/47/u);
+    expect(order[0]).toBe(screen.getByTestId('completion-sale-number-value'));
+  });
+
+  it('shows the exact number alone when main could not derive a short form', () => {
+    renderPanel({ saleNumber: { short: null, exact: 'FREE-TEXT-NUMBER' } });
+    expect(screen.getByTestId('completion-sale-number-value')).toHaveTextContent(
+      'FREE-TEXT-NUMBER',
+    );
+    expect(screen.queryByTestId('completion-sale-number-exact')).not.toBeInTheDocument();
+  });
+
+  it('lists the number right after the payment, before the change and the receipt', () => {
+    renderPanel({ saleNumber: NUMBER, changeDueMinor: 775 });
+    const ids = within(screen.getByTestId(IDS.proofs))
+      .getAllByRole('listitem')
+      .map((l) => l.getAttribute('data-testid'));
+    expect(ids).toEqual([
+      'completion-proof-payment',
+      'completion-proof-sale-number',
+      IDS.change,
+      'completion-proof-receipt',
+    ]);
+  });
+
+  it('keeps the zero-total headline («لا يوجد مبلغ مستحق») rather than a money claim, and still lists the number', () => {
+    renderPanel({ paidMinor: 0, saleNumber: NUMBER });
+    expect(screen.getByTestId('completion-proof-payment')).not.toHaveTextContent(
+      'تم استلام المبلغ',
+    );
+    expect(screen.getByTestId('completion-proof-sale-number')).toBeInTheDocument();
+  });
+
+  it('shows the neutral M-N5 line at the bound, and never claims the sale was saved', () => {
+    renderPanel({ saleNumberUnavailable: true });
+    const line = screen.getByTestId('completion-proof-sale-number-unavailable');
+    expect(line).toHaveTextContent('رقم البيع غير متاح الآن.');
+    expect(line).toHaveAttribute('data-tone', 'info');
+    const root = screen.getByTestId(IDS.root);
+    expect(root.textContent).not.toMatch(/اكتمل البيع|سُجِّل|تم حفظ|حُفظ/u);
+    expect(screen.getByTestId('completion-proof-payment')).toHaveTextContent('تم استلام المبلغ');
+    expect(screen.queryByTestId('completion-proof-sale-number')).not.toBeInTheDocument();
+  });
+
+  it('prefers a proven number over the neutral line', () => {
+    renderPanel({ saleNumber: NUMBER, saleNumberUnavailable: true });
+    expect(screen.getByTestId('completion-proof-sale-number')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('completion-proof-sale-number-unavailable'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps focus on «بيع جديد» when the number arrives after mount', () => {
+    const { rerender } = render(
+      <CompletionPanel
+        paidMinor={99_225}
+        changeDueMinor={0}
+        saleFinalization
+        cardVoidCopy={null}
+        drawerNotice={null}
+        operator={<span>أحمد</span>}
+        testIds={IDS}
+      />,
+    );
+    expect(screen.getByTestId(IDS.newSale)).toHaveFocus();
+    rerender(
+      <CompletionPanel
+        paidMinor={99_225}
+        changeDueMinor={0}
+        saleFinalization
+        saleNumber={NUMBER}
+        cardVoidCopy={null}
+        drawerNotice={null}
+        operator={<span>أحمد</span>}
+        testIds={IDS}
+      />,
+    );
+    expect(screen.getByTestId('completion-proof-sale-number')).toBeInTheDocument();
+    expect(screen.getByTestId(IDS.newSale)).toHaveFocus();
+  });
+
+  it('uses Western digits and neither «طُبع», «فاتورة» nor English on the new lines', () => {
+    for (const props of [{ saleNumber: NUMBER }, { saleNumberUnavailable: true }] as const) {
+      renderPanel(props);
+      const lines = ['completion-proof-sale-number', 'completion-proof-sale-number-unavailable']
+        .map((id) => screen.queryByTestId(id)?.textContent ?? '')
+        .join(' ');
+      // Arabic-Indic and Extended Arabic-Indic digits.
+      expect(lines).not.toMatch(/[٠-٩۰-۹]/u);
+      expect(lines).not.toMatch(/طُبع|طبع|فاتورة/u);
+      // Letters are only the exact number's own (an LTR run), never copy.
+      const copy = lines.replace(NUMBER.exact, '');
+      expect(copy).not.toMatch(/[A-Za-z]/u);
+      cleanup();
+    }
+  });
+
+  it('has no axe violations with the number, and with the neutral line', async () => {
+    for (const props of [{ saleNumber: NUMBER }, { saleNumberUnavailable: true }] as const) {
+      const { container, unmount } = render(
+        <main>
+          <CompletionPanel
+            paidMinor={99_225}
+            changeDueMinor={775}
+            saleFinalization
+            cardVoidCopy={null}
+            drawerNotice={null}
+            operator={<span>أحمد</span>}
+            testIds={IDS}
+            {...props}
+          />
+        </main>,
+      );
+      await expectNoAxeViolations(container);
+      unmount();
+    }
   });
 });
 

@@ -41,6 +41,10 @@
  *   • RT-1189 (RT-249 N-S1): `sales.listRecent` reads this terminal's sales on
  *     the current Cairo business day (`sales-recent.ts`), behind the same gate,
  *     with the same own-sales rule and an optional short-form filter.
+ *   • RT-1322 (RT-249 N-S2): `sales.readForHandoff` reads Completion's own sale
+ *     by the exact UNIQUE handoff key, confirmed against the payment attempt and
+ *     the session's scope (doc 20 §5.1). No row is `pending`; a row of another
+ *     scope or attempt is `sale_not_found`; neither id is echoed.
  */
 
 import { FORBIDDEN_PAYLOAD_KEYS } from '../../shared/audit/forbidden-keys.js';
@@ -67,6 +71,8 @@ import type {
   SalesListResponse,
   SalesListRecentRequest,
   SalesListRecentResponse,
+  SalesReadForHandoffRequest,
+  SalesReadForHandoffResponse,
   SaleSummary,
 } from '../../shared/bridge-api.js';
 import type {
@@ -81,6 +87,7 @@ import { SALE_OWNERSHIP_REFUSAL, createSaleAccessPolicy } from './sale-access-po
 import { projectSaleLines } from './sale-lines.js';
 import { planSalesList, runSalesList } from './sales-list.js';
 import { planRecentList, runRecentList } from './sales-recent.js';
+import { saleNumberDisplay } from '../../shared/sales/sale-number-display.js';
 
 // ─── Session shape (mirrors 006's OperatorSessionForPayments) ──────────────
 //
@@ -272,6 +279,32 @@ function projectSaleForRenderer(
   const latestDrawer = projectLatestDrawerEvent(drawerEvent);
   if (latestDrawer !== undefined) view.latest_drawer_event = latestDrawer;
   return view;
+}
+
+// ─── readForHandoff request check ───────────────────────────────────────────
+
+const HANDOFF_REQUEST_KEYS = new Set(['handoff_action_id', 'payment_attempt_id']);
+
+/** True for exactly the two key fields, each a non-empty string. */
+function isHandoffRequest(req: unknown): req is SalesReadForHandoffRequest {
+  if (req === null || typeof req !== 'object' || Array.isArray(req)) return false;
+  const keys = Object.keys(req);
+  if (
+    keys.length !== HANDOFF_REQUEST_KEYS.size ||
+    !keys.every((k) => HANDOFF_REQUEST_KEYS.has(k))
+  ) {
+    return false;
+  }
+  const { handoff_action_id: handoff, payment_attempt_id: attempt } = req as Record<
+    string,
+    unknown
+  >;
+  return (
+    typeof handoff === 'string' &&
+    handoff.length > 0 &&
+    typeof attempt === 'string' &&
+    attempt.length > 0
+  );
 }
 
 // ─── Factory ────────────────────────────────────────────────────────────────
@@ -471,6 +504,45 @@ export function createSalesBridge(deps: SalesBridgeDependencies): SalesBridge {
           },
         ),
       );
+    },
+
+    async readForHandoff(req: SalesReadForHandoffRequest): Promise<SalesReadForHandoffResponse> {
+      // Gate order (doc 20 §5.1): forbidden-key scan → session → request check.
+      if (findForbiddenKey(req) !== null) {
+        return await Promise.resolve({ kind: 'refused', reason: 'forbidden_field_in_request' });
+      }
+      const admitted = access.admitSession('sales.readForHandoff');
+      if (!admitted.ok) {
+        return await Promise.resolve({ kind: 'refused', reason: admitted.reason });
+      }
+      const { session } = admitted;
+      if (!isHandoffRequest(req)) {
+        return await Promise.resolve({ kind: 'refused', reason: 'invalid_input' });
+      }
+
+      // The exact UNIQUE key of this handoff. No row yet: not finalized.
+      const saleRow = salesRepo.findByHandoffActionId(req.handoff_action_id);
+      if (saleRow === null) return await Promise.resolve({ kind: 'pending' });
+
+      // Another scope, or the same handoff under another attempt, is "not
+      // found", never `tenant_isolation`, so existence does not leak (§A4 #6).
+      if (
+        saleRow.tenant_id !== session.tenant_id ||
+        saleRow.branch_id !== session.branch_id ||
+        saleRow.terminal_id !== session.terminal_id ||
+        saleRow.payment_attempt_id !== req.payment_attempt_id
+      ) {
+        return await Promise.resolve({ kind: 'refused', reason: 'sale_not_found' });
+      }
+      // OD-534-1: a cashier reads only their own sale (RT-741: role_denied).
+      if (!access.admitSale('sales.readForHandoff', session, saleRow)) {
+        return await Promise.resolve({ kind: 'refused', reason: SALE_OWNERSHIP_REFUSAL });
+      }
+
+      return await Promise.resolve({
+        ...okSale(saleRow),
+        short_number: saleNumberDisplay(saleRow).short,
+      });
     },
 
     async unsubscribe(req: SalesUnsubscribeRequest): Promise<SalesUnsubscribeResponse> {

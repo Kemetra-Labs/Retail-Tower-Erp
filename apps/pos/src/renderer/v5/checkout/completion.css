@@ -95,6 +95,27 @@
 }
 
 /*
+ * The exact sale number (RT-1322, doc 20 §2): secondary to the short form, on
+ * its own row under the line, selectable so the cashier can copy it.
+ */
+.v5-proof-line__detail {
+  flex: 1 0 100%;
+  order: 1;
+  color: var(--color-text-muted);
+  font-family: var(--font-family-money);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: start;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.v5-proof-line:has(> .v5-proof-line__detail) {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+
+/*
  * The settled amount (FR-16) is the dominant figure; the change to hand back
  * (M-P5) is large and neutral but one step below it.
  */
