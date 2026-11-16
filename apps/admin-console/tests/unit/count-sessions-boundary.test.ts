@@ -14,7 +14,7 @@ const feature = sourcesUnder("src/count-sessions");
 const all = [wrapperSrc, ...feature.map((f) => f.src)];
 
 describe("count sessions boundary (RT-1425)", () => {
-  test("exactly the eleven Count Session wrappers and the two self-approval setting wrappers are exported", () => {
+  test("exactly the eleven Count Session wrappers and the four setting wrappers are exported", () => {
     const functions = Object.entries(queries)
       .filter(([, value]) => typeof value === "function")
       .map(([name]) => name)
@@ -25,12 +25,14 @@ describe("count sessions boundary (RT-1425)", () => {
       "createCountSession",
       "getCountSelfApprovalSetting",
       "getCountSession",
+      "getCountSessionsSetting",
       "listCountLateEventFindings",
       "listCountSessions",
       "listCountVarianceLines",
       "recordCountObservations",
       "requestCountRecount",
       "setCountSelfApprovalSetting",
+      "setCountSessionsSetting",
       "submitCountSession",
       "takeCountCut",
     ]);
@@ -40,13 +42,14 @@ describe("count sessions boundary (RT-1425)", () => {
     const calls = [...wrapperSrc.matchAll(/apiClient\.(\w+)\(\s*([^,)]+)[,)]/g)].map(
       ([, method, path]) => `${method} ${path.trim()}`,
     );
-    expect(calls).toHaveLength(13);
+    expect(calls).toHaveLength(15);
     for (const call of calls) {
       expect(call).toMatch(
-        /^(GET|POST|PUT) (SESSIONS|SESSION|SELF_APPROVAL|`\$\{SESSION\}\/[a-z-]+`)$/,
+        /^(GET|POST|PUT) (SESSIONS|SESSION|SELF_APPROVAL|ACTIVATION|`\$\{SESSION\}\/[a-z-]+`)$/,
       );
     }
     expect(wrapperSrc).toContain('"/api/inventory/v1/settings/count-self-approval"');
+    expect(wrapperSrc).toContain('"/api/inventory/v1/settings/count-sessions"');
     expect(wrapperSrc).toContain('"/api/inventory/v1/stores/{storeId}/count-sessions"');
   });
 
@@ -80,9 +83,9 @@ describe("count sessions boundary (RT-1425)", () => {
     }
   });
 
-  test("no activation toggle and no manual-resolution action is shipped (no contract behind them)", () => {
+  test("no manual-resolution action is shipped (no contract behind it)", () => {
     for (const { file, src } of feature) {
-      expect(src, file).not.toMatch(/activation|erp_absorbed|resolveCount|breakGlass/i);
+      expect(src, file).not.toMatch(/erp_absorbed|resolveCount|breakGlass/i);
     }
   });
 

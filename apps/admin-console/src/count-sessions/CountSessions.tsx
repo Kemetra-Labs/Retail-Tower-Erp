@@ -17,6 +17,7 @@ import type { CountSession, CountSessionState } from "@/lib/count-session-querie
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
+import { ActivationSetting } from "./ActivationSetting";
 import { CountGate, StateBadge, usePersonLabel } from "./CountParts";
 import { OpenCountPanel } from "./OpenCountPanel";
 import { SelfApprovalSetting } from "./SelfApprovalSetting";
@@ -195,7 +196,10 @@ function StoreCounts({
         onOpened={(id) => navigate(`/inventory/stores/${storeId}/counts/${id}`)}
       />
       <SessionsPanel scope={scope} storeId={storeId} index={2} />
-      {scope.role === "owner" ? <SelfApprovalSetting scope={scope} index={3} /> : null}
+      {scope.role === "owner" || scope.role === "tenant_admin" || scope.role === "store_manager" ? (
+        <ActivationSetting scope={scope} index={3} />
+      ) : null}
+      {scope.role === "owner" ? <SelfApprovalSetting scope={scope} index={4} /> : null}
     </div>
   );
 }

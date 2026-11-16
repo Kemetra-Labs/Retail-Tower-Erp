@@ -270,4 +270,37 @@ export const counts: MessagesOf<typeof ar> = {
   },
   "counts.error.generic":
     "The request could not be completed. It is not known whether anything changed. Try again.",
+  "counts.error.readinessUnmet":
+    "Count Sessions were not switched on: something they depend on is not proven ready. Nothing changed. Fix the items listed, then try again.",
+  "counts.error.sessionsOpen":
+    "Count Sessions were not switched off: a count is still in progress. Nothing changed. Finish or cancel every open count first.",
+  "counts.error.legacyBlocked":
+    "This tenant counts through Count Sessions, so the immediate stock count is not accepted. Nothing changed.",
+  "counts.boundary.no_live_store": "The tenant has no live store to count.",
+  "counts.boundary.store_warehouse_unmapped":
+    "The store has no active stock warehouse mapping to ERPNext.",
+  "counts.boundary.store_barrier_unprovable":
+    "The store's Count Cut cannot be proven: a device has not reported, does not report its sale queue, or a warehouse has no completed stock import.",
+  "counts.boundary.connector_not_seen": "The ERPNext Connector has not reported recently.",
+  "counts.boundary.connector_version_unlisted":
+    "The Connector has not reported that it accepts count postings.",
+  "counts.boundary.erp_back_dated_role_unverified":
+    "The Connector has not freshly verified the ERP back-dated stock role.",
+  "counts.activation.title": "Count Sessions activation",
+  "counts.activation.sub":
+    "Switch the physical count journey on for this organization. While it is on, the immediate stock count is refused, so there is only one way to count. It is off until an owner or administrator turns it on.",
+  "counts.activation.on": "Count Sessions are on.",
+  "counts.activation.off": "Count Sessions are off.",
+  "counts.activation.changed": "Changed by {who} at {when}.",
+  "counts.activation.ready": "Everything Count Sessions depend on is ready.",
+  "counts.activation.notReady": "Not ready to switch on. These items are not proven:",
+  "counts.activation.storeScoped": "Store: {store}",
+  "counts.activation.turnOn": "Switch on Count Sessions",
+  "counts.activation.turnOff": "Switch off Count Sessions",
+  "counts.activation.readOnly": "Only an owner or administrator can change this.",
+  "counts.activation.saved": "Setting saved.",
+  "counts.activation.failed": "The setting was not changed",
+  "counts.activation.loadingNoun": "the activation setting",
+  "counts.activation.loadFailed": "The activation setting could not be loaded.",
+  "counts.activation.notAvailable": "This setting is not available.",
 };
