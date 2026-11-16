@@ -38,6 +38,8 @@ import {
 import { MOVEMENT_COLUMNS } from '../inventory.types';
 import { writeAudit } from '../position-events/position-event.writer';
 import { readBarrier } from './count-barrier';
+import { compensationBody } from './late-compensation.service';
+import { listCompensations } from './late-compensation.store';
 import { sessionOutcome } from './count-emission';
 import { emitCountChunks } from './count-emission.store';
 import {
@@ -55,6 +57,7 @@ import {
 } from './count-session.rules';
 import {
   LIVE_STATES,
+  assertCountSessionsEnabled,
   buildLine,
   counterIds,
   findingBody,
@@ -140,18 +143,8 @@ export class CountSessionsService {
   }
 
   /** Dark by default: until the tenant is switched on, every operation is the non-disclosing 404. */
-  private async assertEnabled(client: PoolClient, tenantId: string): Promise<void> {
-    // RT-1423: the SHARED settings lock conflicts with the exclusive one `setCountSessionsSetting` holds, so an
-    // operation that read the switch ON cannot commit after a concurrent switch-off has counted the open sessions.
-    await client.query(
-      `SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`,
-      [tenantId],
-    );
-    const r = await client.query<{ on: boolean }>(
-      `SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
-      [tenantId],
-    );
-    if (r.rows[0]?.on !== true) throw new NotFoundException('Not Found');
+  private assertEnabled(client: PoolClient, tenantId: string): Promise<void> {
+    return assertCountSessionsEnabled(client, tenantId);
   }
 
   private async lockedSession(
@@ -378,8 +371,12 @@ export class CountSessionsService {
       );
       const page = rows.rows.slice(0, limit);
       const last = page[page.length - 1];
+      const byLateEffect = new Map((await listCompensations(client, sessionId)).map((c) => [c.late_effect_id, c]));
       return {
-        items: page.map((r) => findingBody(r)),
+        items: page.map((r) => {
+          const c = byLateEffect.get(r.effect_id);
+          return { ...findingBody(r), compensation: c ? compensationBody(c, r.id) : null };
+        }),
         nextCursor:
           rows.rows.length > limit && last
             ? encodeCountCursor(binding, { a: last.detected_text, b: last.id })

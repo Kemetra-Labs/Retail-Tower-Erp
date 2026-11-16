@@ -90,7 +90,7 @@ describe("RT-426 — integration-state machine (pure)", () => {
   });
 
   it("no posting signal reaches an effect with no ERP intent", () => {
-    for (const state of ["not_posted", "external", "erp_neutral"] as const) {
+    for (const state of ["not_posted", "external", "erp_neutral", "erp_absorbed"] as const) {
       for (const signal of SIGNALS) {
         expect(decideTransition(state, signal)).toEqual(ILLEGAL);
       }

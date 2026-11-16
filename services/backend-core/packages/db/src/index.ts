@@ -65,6 +65,7 @@ export {
 export {
   activateSaleEffects,
   compareAnchorsToBin,
+  LATEST_BIN_CTES,
   type ActivateSaleEffectsInput,
   type ActivationOutcome,
   type ActivationRefusal,

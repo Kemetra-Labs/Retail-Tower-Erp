@@ -13,6 +13,7 @@
  *   - a confirmed effect is neither, and its erp_confirmed_at is reported (the
  *     stale-snapshot input);
  *   - an erp_neutral effect is neither;
+ *   - an erp_absorbed effect (RT-1424) is in the position and in neither term: Retail 5 / ERP 7 resolves to 7 / 7;
  *   - expected_erp_book = position − pending ERP − pending Retail, exactly;
  *   - a tenant that has not activated sale effects has no pending-aware
  *     position (the legacy 017 path applies);
@@ -88,7 +89,7 @@ function seedPosting(f: Fixture, { posted }: { posted: boolean }): Promise<strin
   return seedSalePosting(pg().admin, f, { saleId: uuid(), actorId: ACTOR, status: posted ? "posted" : "pending" });
 }
 
-type EffectState = "pending" | "rejected" | "reconciliation_required" | "confirmed" | "not_posted" | "erp_neutral";
+type EffectState = "pending" | "rejected" | "reconciliation_required" | "confirmed" | "not_posted" | "erp_neutral" | "erp_absorbed";
 
 /** One effect at the primary/sellable position, with its integration row. */
 interface EffectSeed {
@@ -99,7 +100,7 @@ interface EffectSeed {
 
 async function seedEffect(f: Fixture, { quantity, state, confirmedAt }: EffectSeed): Promise<void> {
   const effectId = uuid();
-  const sale = state !== "not_posted" && state !== "erp_neutral";
+  const sale = state !== "not_posted" && state !== "erp_neutral" && state !== "erp_absorbed";
   await pg().admin.query(
     `INSERT INTO stock_movements (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref,
                                   occurred_at, created_by, origin, event_type, event_ref_id, stock_location_id, inventory_status)
@@ -119,8 +120,12 @@ async function seedEffect(f: Fixture, { quantity, state, confirmedAt }: EffectSe
   );
   const postingId = sale ? await seedPosting(f, { posted: state === "confirmed" }) : null;
   await pg().admin.query(
-    `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, posting_status_id, erp_document_ref, erp_confirmed_at)
-     VALUES ($1, $2, $3, $4, CASE WHEN $3 IN ('confirmed', 'reconciliation_required') THEN '{"name":"SINV"}' END, $5)`,
+    `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, posting_status_id, erp_document_ref, erp_confirmed_at,
+                                               state_reason)
+     VALUES ($1, $2, $3, $4,
+             CASE WHEN $3 IN ('confirmed', 'reconciliation_required') THEN '{"name":"SINV"}'
+                  WHEN $3 = 'erp_absorbed' THEN '{"doctype":"Stock Reconciliation","name":"MAT-RECO"}' END, $5,
+             CASE WHEN $3 = 'erp_absorbed' THEN 'late_event_absorbed_by_count' END)`,
     [effectId, f.tenantId, state, postingId, state === "confirmed" ? (confirmedAt ?? new Date().toISOString()) : null],
   );
 }
@@ -202,6 +207,27 @@ describe("readPendingAwarePositions — DC-7 terms", () => {
     const p = await positionOf(f);
     expect(p).toMatchObject({ operationalPosition: "8.000000", pendingErp: "0", pendingRetail: "0", expectedErpBook: "8.000000" });
     expect(new Date(p.latestErpConfirmedAt!).toISOString()).toBe(confirmedAt);
+  });
+
+  it("an erp_absorbed compensation is in the position and in no term: Retail 5 / ERP 7 resolves to 7 / 7 (RT-1424)", async () => {
+    if (skip()) return;
+    const f = await activated();
+    // ERP held 10 (the anchor); the count's correction -3 and the late sale -2 are ERP book; Retail deducted the late sale again.
+    await seedEffect(f, { quantity: "-3", state: "confirmed" });
+    await seedEffect(f, { quantity: "-2", state: "confirmed" });
+    expect(await positionOf(f)).toMatchObject({ operationalPosition: "5.000000", expectedErpBook: "5.000000" });
+    await seedSnapshot(f, { quantity: "7", readAt: new Date(Date.now() + 60_000).toISOString() });
+    const divergent = await asTenant(f, (c) => buildCutoverEquivalenceReport(c));
+    expect(divergent.find((r) => r.tenantProductRef === f.productId)).toMatchObject({ pendingAwareDifference: "2.000000", equivalent: false });
+    await seedEffect(f, { quantity: "2", state: "erp_absorbed" });
+    expect(await positionOf(f)).toMatchObject({
+      operationalPosition: "7.000000",
+      pendingErp: "0",
+      pendingRetail: "0",
+      expectedErpBook: "7.000000",
+    });
+    const resolved = await asTenant(f, (c) => buildCutoverEquivalenceReport(c));
+    expect(resolved.find((r) => r.tenantProductRef === f.productId)).toMatchObject({ equivalent: true });
   });
 
   it("a tenant without activated sale effects has no pending-aware position (legacy path)", async () => {

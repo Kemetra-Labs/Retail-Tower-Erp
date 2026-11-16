@@ -5,7 +5,7 @@
  * wire projections (contract `CountSession`, `CountVarianceLine`,
  * `CountLateEventFinding`, `CountObservation`).
  */
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { newId } from '@data-pulse-2/shared';
 import type { PoolClient } from 'pg';
 
@@ -133,6 +133,22 @@ export interface VarianceLineBody {
   }>;
 }
 
+/** RT-1424: the compensation that resolved a finding (the wire shape of `CountLateEventCompensation`). */
+export interface FindingCompensation {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly findingId: string;
+  readonly lateEffectId: string;
+  readonly countEffectId: string;
+  readonly compensationEffectId: string;
+  readonly quantity: string;
+  readonly absorbingDocument: { readonly doctype: string; readonly name: string } | null;
+  readonly integrationState: 'erp_absorbed';
+  readonly reason: string;
+  readonly approvedBy: string;
+  readonly createdAt: string;
+}
+
 export interface FindingBody {
   readonly id: string;
   readonly sessionId: string;
@@ -148,8 +164,27 @@ export interface FindingBody {
   };
   readonly oversellRisk: boolean;
   readonly erpStamp: string;
+  /** RT-1424: the compensation that resolved the finding; null until resolved (set by the service). */
+  readonly compensation: FindingCompensation | null;
   readonly detectedAt: string;
   readonly detectedInState: CountSessionState;
+}
+
+/**
+ * Dark by default: until the tenant is switched on, every Count Session operation is the non-disclosing 404.
+ * RT-1423: the SHARED settings lock conflicts with the exclusive one `setCountSessionsSetting` holds, so an
+ * operation that read the switch ON cannot commit after a concurrent switch-off has counted the open sessions.
+ */
+export async function assertCountSessionsEnabled(client: PoolClient, tenantId: string): Promise<void> {
+  await client.query(
+    `SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`,
+    [tenantId],
+  );
+  const r = await client.query<{ on: boolean }>(
+    `SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
+    [tenantId],
+  );
+  if (r.rows[0]?.on !== true) throw new NotFoundException('Not Found');
 }
 
 const SESSION_COLUMNS = `id, tenant_id, store_id, state, scope_product_ids, note, opened_by, opened_at, cut_at,
@@ -577,6 +612,7 @@ export function findingBody(r: {
     },
     oversellRisk: r.oversell_risk,
     erpStamp: r.erp_stamp.toISOString(),
+    compensation: null,
     detectedAt: r.detected_at.toISOString(),
     detectedInState: r.detected_in_state,
   };

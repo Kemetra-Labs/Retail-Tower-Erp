@@ -39,6 +39,8 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { authorizeInventoryStore } from '../inventory.controller';
 import { COUNT_SESSION_STATES } from './count-session.rules';
+import { COMPENSATION_ROLES } from './late-compensation.rules';
+import { CountLateCompensationService, type CompensationBody } from './late-compensation.service';
 import {
   CountSessionsService,
   type CountCaller,
@@ -134,6 +136,9 @@ const ApproveSchema = z
 /** Contract `CancelCountSessionCommand`. */
 const CancelSchema = z.object({ reason: ReasonSchema }).strict();
 
+/** Contract `ResolveCountLateEventCommand` (RT-1424). */
+const ResolveLateEventSchema = z.object({ reason: ReasonSchema }).strict();
+
 /** The path ids, validated as UUIDs. */
 const StoreId = (): ParameterDecorator => Param('storeId', new ZodValidationPipe(UuidSchema));
 const SessionId = (): ParameterDecorator => Param('sessionId', new ZodValidationPipe(UuidSchema));
@@ -144,12 +149,16 @@ const SelfApprovalSchema = z
   .strict();
 
 const ROLES = ['owner', 'tenant_admin', 'store_manager'] as const;
+
 const BASE = 'api/inventory/v1/stores/:storeId/count-sessions';
 
 @Controller()
 @UseGuards(DashboardAuthGuard, TenantContextGuard, RolesGuard)
 export class CountSessionsController {
-  constructor(private readonly service: CountSessionsService) {}
+  constructor(
+    private readonly service: CountSessionsService,
+    private readonly compensation: CountLateCompensationService,
+  ) {}
 
   @Post(BASE)
   @HttpCode(HttpStatus.CREATED)
@@ -313,6 +322,21 @@ export class CountSessionsController {
       sessionId,
       body.reason,
     );
+  }
+
+  /** RT-1424 (G6-5): the explicit, authorized, Retail-only compensation of a late event the ERP count absorbed. */
+  @Post(`${BASE}/:sessionId/late-event-findings/:findingId/compensation`)
+  @HttpCode(HttpStatus.OK)
+  @Roles(...COMPENSATION_ROLES, { denyAs: 403 })
+  @Idempotent('required')
+  async resolveCountLateEvent(
+    @Req() request: TenantContextRequest,
+    @StoreId() storeId: string,
+    @SessionId() sessionId: string,
+    @Param('findingId', new ZodValidationPipe(UuidSchema)) findingId: string,
+    @Body(new ZodValidationPipe(ResolveLateEventSchema)) body: z.infer<typeof ResolveLateEventSchema>,
+  ): Promise<CompensationBody> {
+    return await this.compensation.resolve(this.caller(request, storeId), storeId, sessionId, findingId, body.reason);
   }
 
   @Get(`${BASE}/:sessionId/late-event-findings`)

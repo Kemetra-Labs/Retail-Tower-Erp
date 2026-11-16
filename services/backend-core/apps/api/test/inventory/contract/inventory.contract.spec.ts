@@ -109,6 +109,7 @@ const OPERATION_IDS = [
   "listCountVarianceLines",
   "recordCountObservations",
   "requestCountRecount",
+  "resolveCountLateEvent",
   "submitCountSession",
   "takeCountCut",
 ] as const;
@@ -160,6 +161,7 @@ const OPERATOR_OPERATION_IDS = [
   "listCountVarianceLines",
   "recordCountObservations",
   "requestCountRecount",
+  "resolveCountLateEvent",
   "submitCountSession",
   "takeCountCut",
 ];
@@ -181,6 +183,7 @@ const WRITE_OPERATION_IDS = [
   "createCountSession",
   "recordCountObservations",
   "requestCountRecount",
+  "resolveCountLateEvent",
   "submitCountSession",
   "takeCountCut",
 ];
@@ -625,7 +628,7 @@ describe("inventory/inventory.yaml — RT-425 effect projection", () => {
     expect(inventoryDoc.components?.schemas?.["StockMovement"]?.required).toContain("origin");
   });
 
-  it("projects the nullable integration state with exactly the RT-289 G2-3 states plus RT-435's erp_neutral", () => {
+  it("projects the nullable integration state with exactly the RT-289 G2-3 states plus RT-435's erp_neutral and RT-1424's erp_absorbed", () => {
     expect(props()["integrationState"]?.type).toEqual(["string", "null"]);
     expect(props()["integrationState"]?.enum).toEqual([
       "not_posted",
@@ -635,6 +638,7 @@ describe("inventory/inventory.yaml — RT-425 effect projection", () => {
       "reconciliation_required",
       "external",
       "erp_neutral",
+      "erp_absorbed",
       null,
     ]);
   });
@@ -1505,8 +1509,8 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
 });
 
 describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
-  it("keeps the 1.16.0 note (version moved on in RT-1423), a wording-only note citing the owner delegation", () => {
-    expect(inventoryDoc.info?.version).toBe("1.17.0-draft");
+  it("keeps the 1.16.0 note (version moved on in RT-1423 and RT-1424), a wording-only note citing the owner delegation", () => {
+    expect(inventoryDoc.info?.version).toBe("1.18.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
@@ -1540,8 +1544,8 @@ describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
 describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-draft)", () => {
   const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
 
-  it("is the 1.17.0 draft, with the activation note citing the owner authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.17.0-draft");
+  it("keeps the 1.17.0 note (version moved on in RT-1424), the activation note citing the owner authorization", () => {
+    expect(inventoryDoc.info?.version).toBe("1.18.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.17.0-draft (RT-1423, additive;");
     expect(description).toContain("`count_sessions_readiness_unmet`");
@@ -1574,5 +1578,47 @@ describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-
       "connector_version_unlisted",
       "erp_back_dated_role_unverified",
     ]);
+  });
+});
+
+describe("inventory/inventory.yaml — RT-1424 governed late-count compensation (1.18.0-draft)", () => {
+  const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
+  const PATH =
+    "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation";
+
+  it("is the 1.18.0 draft; the note cites the owner delegation and the oasdiff acknowledgement", () => {
+    expect(inventoryDoc.info?.version).toBe("1.18.0-draft");
+    const description = inventoryDoc.info?.description ?? "";
+    expect(description).toContain("**1.18.0-draft (RT-1424, additive;");
+    expect(description).toContain("`erp_absorbed`");
+    expect(description).toContain("`response-property-enum-value-added`");
+  });
+
+  it("declares one cookie-authenticated, idempotent POST with the typed 409 and no ERP field", () => {
+    const post = (inventoryDoc.paths?.[PATH] as Record<string, any> | undefined)?.["post"];
+    expect(post?.operationId).toBe("resolveCountLateEvent");
+    expect(post?.security).toEqual([{ cookieAuth: [] }]);
+    expect(post?.responses?.["409"]?.$ref).toBe("#/components/responses/CountSessionConflict");
+    expect(post?.responses?.["403"]).toBeDefined();
+    expect(JSON.stringify(post?.parameters)).toContain("IdempotencyKey");
+    expect(post?.["x-runtime-status"]).toBeUndefined();
+    expect(post?.description).toContain("No ERP intent, work item or document");
+  });
+
+  it("the command carries only the reason; the result is strict, signed and names the absorbing document", () => {
+    expect(schema("ResolveCountLateEventCommand").additionalProperties).toBe(false);
+    expect(Object.keys(schema("ResolveCountLateEventCommand").properties)).toEqual(["reason"]);
+    expect(schema("CountLateEventCompensation").additionalProperties).toBe(false);
+    expect(schema("CountLateEventCompensation").required).toEqual(
+      expect.arrayContaining(["lateEffectId", "countEffectId", "compensationEffectId", "quantity", "absorbingDocument", "integrationState"]),
+    );
+    expect(schema("CountLateEventCompensation").properties.integrationState.enum).toEqual(["erp_absorbed"]);
+    expect(Object.keys(schema("CountLateEventFinding").properties)).toContain("compensation");
+  });
+
+  it("keeps erp_neutral and adds erp_absorbed to the integration state enum", () => {
+    expect(schema("StockMovement").properties?.["integrationState"]?.enum).toEqual(
+      expect.arrayContaining(["erp_neutral", "erp_absorbed"]),
+    );
   });
 });

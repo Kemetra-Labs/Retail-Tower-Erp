@@ -77,6 +77,7 @@ const INTEGRATION_KEYS: Record<string, MessageKey> = {
   rejected: "inventory.integration.rejected",
   reconciliation_required: "inventory.integration.reconciliation_required",
   external: "inventory.integration.external",
+  erp_absorbed: "inventory.integration.erp_absorbed",
 };
 
 /** A missing state is "Not recorded" (the API's null); an unrecognised one is Unknown. */
@@ -100,7 +101,7 @@ const INTEGRATION_TONES: Record<string, string> = {
  */
 export function integrationTone(code: StockMovement["integrationState"]): string {
   if (code === null || code === undefined) return "";
-  if (code === "not_posted" || code === "external") return "";
+  if (code === "not_posted" || code === "external" || code === "erp_absorbed") return "";
   return INTEGRATION_TONES[code] ?? "badge--danger";
 }
 

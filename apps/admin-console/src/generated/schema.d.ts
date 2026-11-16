@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 3d6804b36daf319adce99e3855e4840cf309fde0
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 85408be4d6b5883064a28cb6333dfd5879f33951
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -12421,6 +12421,26 @@ export namespace InventorySchema {
             patch?: never;
             trace?: never;
         };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Compensate a late pre-cut event that an ERP count already absorbed (explicit, authorized).
+             * @description RT-1424 (RT-292 G6-5; Confluence "Inventory Gate 6", conditions A to I). The only way a compensating effect without an ERP intent is made. Never automatic: not a worker, an import, a posting outcome or a schedule. When every condition holds it appends ONE `count_correction` effect at the late event's position whose quantity is the late event's signed quantity negated, compensating the count's correction at that position, with integration state `erp_absorbed` naming the absorbing ERP document. No ERP intent, work item or document is created or changed, and no original effect is updated. Conditions: A immutable causal link (finding, late event, count correction; same tenant, store, product and position; learned after the cut and stamped at or before it); B the Connector read the count's and the late event's ledger rows back (Backend-Core state is never evidence); C the late event is ERP book (`confirmed` or `external`) and its ledger posting is earlier than the count's; D the projected expected ERP book equals the Bin read after both were confirmed (any other divergence refuses, deliberately: a second uncompensated late event or a pending effect on the same product also refuses, and the resolution is an authorized recount or the governed ERP break-glass path); E owner or tenant_admin, a mandatory `reason`, one audit event in the same transaction; F the absorbing document is named and shown with the finding; G one compensation per late event (a replay or a concurrent retry returns the existing record and writes nothing; a database UNIQUE key backs it); H the quantity is exact against the ledger quantity read; I the post-write invariants hold or everything rolls back. A refusal is a typed 409 (`compensation_link_invalid`, `compensation_erp_evidence_missing`, `compensation_erp_order_unproven`, `compensation_not_explainable`, `compensation_quantity_mismatch`, `compensation_book_inconsistent`, `compensation_already_exists`, `compensation_invariant_failed`) with the failed condition letter; nothing is written and the Health finding stays. A store_manager is refused (403). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["resolveCountLateEvent"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/inventory/v1/settings/count-self-approval": {
             parameters: {
                 query?: never;
@@ -12585,10 +12605,10 @@ export namespace InventorySchema {
                  */
                 origin: "retail" | "erp_external";
                 /**
-                 * @description RT-425 (RT-289 G2-3): the effect's ERP integration state. `not_posted` = no ERP posting intent represents the effect; `pending` / `confirmed` / `rejected` / `reconciliation_required` follow its ERP posting intent; `external` = an ERP-origin effect; `erp_neutral` (RT-435, RT-290 Q10) = an effect of a status move or relocation whose event nets to zero in its ERP mapping bucket, so it needs no ERP representation and never gets an intent. A confirmation never adds quantity (decision 771). Null only for a movement with no integration record.
+                 * @description RT-425 (RT-289 G2-3): the effect's ERP integration state. `not_posted` = no ERP posting intent represents the effect; `pending` / `confirmed` / `rejected` / `reconciliation_required` follow its ERP posting intent; `external` = an ERP-origin effect; `erp_neutral` (RT-435, RT-290 Q10) = an effect of a status move or relocation whose event nets to zero in its ERP mapping bucket, so it needs no ERP representation and never gets an intent. `erp_absorbed` (RT-1424, RT-292 G6-5) = a late-count compensation made only by `resolveCountLateEvent`: its quantity is already in ERP book through a named ERP document, so it has no intent and never changes state. A confirmation never adds quantity (decision 771). Null only for a movement with no integration record.
                  * @enum {string|null}
                  */
-                integrationState?: "not_posted" | "pending" | "confirmed" | "rejected" | "reconciliation_required" | "external" | "erp_neutral" | null;
+                integrationState?: "not_posted" | "pending" | "confirmed" | "rejected" | "reconciliation_required" | "external" | "erp_neutral" | "erp_absorbed" | null;
                 /**
                  * Format: date-time
                  * @description RT-425 (RT-289 G2-4): when ERPNext confirmed the effect (server time of the `posted` acknowledgement); null unless `integrationState` is `confirmed`.
@@ -13544,6 +13564,38 @@ export namespace InventorySchema {
                 /** Format: date-time */
                 detectedAt: string;
                 detectedInState: components["schemas"]["CountSessionState"];
+                /** @description RT-1424 - the compensation that resolved the finding; null until it is resolved. */
+                compensation?: components["schemas"]["CountLateEventCompensation"] | null;
+            };
+            ResolveCountLateEventCommand: {
+                reason: string;
+            };
+            /** @description RT-1424 (G6-5) - the compensation that resolved a late-event finding. `quantity` is signed and exact: the late event's quantity, negated. */
+            CountLateEventCompensation: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                sessionId: string;
+                /** Format: uuid */
+                findingId: string;
+                /** Format: uuid */
+                lateEffectId: string;
+                /** Format: uuid */
+                countEffectId: string;
+                /** Format: uuid */
+                compensationEffectId: string;
+                quantity: string;
+                absorbingDocument: {
+                    doctype: string;
+                    name: string;
+                } | null;
+                /** @enum {string} */
+                integrationState: "erp_absorbed";
+                reason: string;
+                /** Format: uuid */
+                approvedBy: string;
+                /** Format: date-time */
+                createdAt: string;
             };
             CountLateEventFindingList: {
                 items: components["schemas"]["CountLateEventFinding"][];
@@ -13771,7 +13823,7 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["CountSessionsSettingConflictError"];
                 };
             };
-            /** @description 409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the command is not allowed in the session's state. `count_tracked_product_refused`: a product is tracked (batch or serial); tracked counting is not available in V1 (G6-3). `count_scope_in_use`: a product is already in the scope of another live session of the store. `count_cut_barrier_not_met`: the Count Cut barrier does not hold yet (devices not drained, or the ERP import has not read past the cut). `count_approver_conflict`: the approver is a counter or the submitter and the tenant's audited small-merchant exception does not apply (G6-10). `count_flagged_line_not_acknowledged`: a flagged line needs an acknowledgement (G6-2). `count_line_version_stale`: an acknowledgement's `lineVersion` no longer matches the line, which changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. A count-up line without valuation history is not an error of the request: it is refused on its line (`CountVarianceLine.refusal`). */
+            /** @description 409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the command is not allowed in the session's state. `count_tracked_product_refused`: a product is tracked (batch or serial); tracked counting is not available in V1 (G6-3). `count_scope_in_use`: a product is already in the scope of another live session of the store. `count_cut_barrier_not_met`: the Count Cut barrier does not hold yet (devices not drained, or the ERP import has not read past the cut). `count_approver_conflict`: the approver is a counter or the submitter and the tenant's audited small-merchant exception does not apply (G6-10). `count_flagged_line_not_acknowledged`: a flagged line needs an acknowledgement (G6-2). `count_line_version_stale`: an acknowledgement's `lineVersion` no longer matches the line, which changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. `compensation_link_invalid`, `compensation_erp_evidence_missing`, `compensation_erp_order_unproven`, `compensation_not_explainable`, `compensation_quantity_mismatch`, `compensation_book_inconsistent`, `compensation_already_exists` and `compensation_invariant_failed` (RT-1424, `resolveCountLateEvent`, conditions A to I) leave no compensation. A count-up line without valuation history is not an error of the request: it is refused on its line (`CountVarianceLine.refusal`). */
             CountSessionConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -15354,6 +15406,52 @@ export namespace InventorySchema {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        resolveCountLateEvent: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                    /** @description A late-event finding of the path session, from `listCountLateEventFindings`. */
+                    findingId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "reason": "Late sale of 2 was already absorbed by the ERP count; verified in ERPNext."
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ResolveCountLateEventCommand"];
+                };
+            };
+            responses: {
+                /** @description The compensation (the existing one on a replay). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountLateEventCompensation"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };

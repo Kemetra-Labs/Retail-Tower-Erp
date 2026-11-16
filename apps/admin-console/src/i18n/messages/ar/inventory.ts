@@ -110,6 +110,7 @@ export const inventory = {
   "inventory.integration.rejected": "رفضه ERPNext",
   "inventory.integration.reconciliation_required": "تحتاج إلى مطابقة",
   "inventory.integration.external": "مصدره ERPNext",
+  "inventory.integration.erp_absorbed": "مشمول في جرد ERPNext",
 
   // --- One product at one store --------------------------------------------------
   "inventory.product.back": "سجل حركات المتجر",

@@ -39,6 +39,7 @@ recordCountObservations: write
 recordStockCount: write
 releaseTrackingHold: write
 requestCountRecount: write
+resolveCountLateEvent: write
 setCountSelfApprovalSetting: write
 setCountSessionsSetting: write
 setReturnLandingPolicy: write

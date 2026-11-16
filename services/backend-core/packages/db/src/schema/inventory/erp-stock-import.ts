@@ -16,7 +16,7 @@
  * §XIV: no personal data; ERPNext names, quantities and timestamps only, no
  * valuation.
  */
-import { boolean, integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, date, integer, jsonb, numeric, pgTable, text, time, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { tenants } from "../tenants";
 
@@ -100,6 +100,9 @@ export const erpStockImportRows = pgTable("erp_stock_import_rows", {
   erpnextItemRef: text("erpnext_item_ref").notNull(),
   erpnextBatchRef: text("erpnext_batch_ref"),
   creation: tz("creation").notNull(),
+  /** 0118 (RT-1424): the SLE posting stamp as read (site-local, preserved); null for rows imported before 0118. */
+  postingDate: date("posting_date"),
+  postingTime: time("posting_time"),
   isCancelled: boolean("is_cancelled").notNull(),
   actualQty: numeric("actual_qty", { precision: 21, scale: 6 }).notNull(),
   stockUom: text("stock_uom").notNull(),
