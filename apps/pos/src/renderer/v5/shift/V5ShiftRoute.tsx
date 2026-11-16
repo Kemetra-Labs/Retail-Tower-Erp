@@ -89,6 +89,11 @@ function CashierShift({ bridge }: Readonly<{ bridge: ShiftCashupBridgeAPI }>): J
     return (
       <div className="v5-shift-state v5-shift-state--open">
         {notice}
+        {state.status.managerClosed && outcome === null && (
+          <Notice tone="warning" testId="shift-manager-closed">
+            {SHIFT_COPY.managerClosed}
+          </Notice>
+        )}
         <OpenShiftPanel
           bridge={bridge}
           onOpened={() => {

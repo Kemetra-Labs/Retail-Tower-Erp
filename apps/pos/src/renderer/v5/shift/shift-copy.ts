@@ -79,6 +79,9 @@ const GENERAL_COPY = {
 const GATE_COPY = {
   gateBanner: 'لا توجد وردية مفتوحة على هذا الجهاز. لا يُقبل الدفع النقدي قبل فتح وردية.',
   gateAction: 'فتح الوردية',
+  // RT-1442 — the owner's wording (Jira RT-1442): the server closed the till's last
+  // shift without a count. Shown above the usual gate line while no newer shift is open.
+  managerClosed: 'أغلق مدير هذه الوردية دون عدّ.',
   manageShift: 'إدارة الوردية',
   managerLink: 'حالة الوردية',
   // Main refused a cash apply (`shift_not_open`): a cashier can open the shift.

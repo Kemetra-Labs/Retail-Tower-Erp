@@ -155,7 +155,7 @@ export class ForcedCloseHandler {
     req: ForceCloseShiftRequest;
     outcome: string;
   }): Promise<ForceCloseShiftResponse> {
-    const delivery = await this.deliver();
+    const delivery = await this.deliver(input.req.shift_id.toLowerCase());
     this.logOutcome(input.outcome, delivery);
     this.notifyDelivered();
     return { kind: 'forced_closed', audit_event_id: input.req.event_id, delivery };
@@ -169,13 +169,29 @@ export class ForcedCloseHandler {
     }
   }
 
-  /** `sent` only when the drain says Backend-Core has it; a failing drain is `queued`. */
-  private async deliver(): Promise<'sent' | 'queued'> {
+  /**
+   * `sent` only when the drain says Backend-Core has it; a failing drain is `queued`.
+   * RT-1442: a drain that ends idle also covers a close the server refused because a manager
+   * had already closed the shift (it is skipped from then on, not delivered), so that is
+   * `queued` too: the counted close is not at Backend-Core.
+   */
+  private async deliver(shiftId: string): Promise<'sent' | 'queued'> {
     try {
-      return (await this.deps.deliverNow?.()) === true ? 'sent' : 'queued';
+      const drained = (await this.deps.deliverNow?.()) === true;
+      return drained && !this.closedByManager(shiftId) ? 'sent' : 'queued';
     } catch {
       return 'queued';
     }
+  }
+
+  /** RT-1442: Backend-Core answered that a manager closed this shift without a count. */
+  private closedByManager(shiftId: string): boolean {
+    const row = (
+      this.deps.db.prepare(
+        `SELECT 1 FROM shift_manager_closures WHERE shift_id = ?`,
+      ) as PrepareGet<{ '1': number }>
+    ).get(shiftId);
+    return row !== undefined;
   }
 
   private async categoryOf(input: { err: unknown; shiftId: string }): Promise<RefusalCategory> {
@@ -194,7 +210,7 @@ export class ForcedCloseHandler {
   private async notOpenCategory(shiftId: string): Promise<RefusalCategory> {
     if (!this.closedHere(shiftId)) return 'not_closable_here';
     // The first answer may have been lost, or the drain not run yet: try once more.
-    await this.deliver();
+    await this.deliver(shiftId);
     return this.closeReachedServer(shiftId) ? 'state_invalid' : 'closed_here_unsent';
   }
 

@@ -162,6 +162,8 @@ export type ShiftSyncRetryCategory =
  */
 export type ShiftSyncDeadLetterReason =
   | 'cashier_claim_refused'
+  // RT-1442: a manager closed this shift on the server without a count (final).
+  | 'shift_force_closed'
   | 'shift_payload_conflict'
   | 'idempotency_key_conflict'
   | 'shift_already_open'
@@ -217,6 +219,16 @@ export interface RecordForcedCloseInput extends RecordCloseInput {
   within?: () => void;
 }
 
+/**
+ * RT-1442 — Backend-Core answered a fact with a final "a manager closed this
+ * shift without a count" (409 `shift_force_closed`, or a movement's 409
+ * `shift_closed`). `seq` is the answered outbox row.
+ */
+interface RecordManagerClosureInput extends ShiftSyncTransition {
+  shiftId: string;
+  factKind: ShiftFactKind;
+}
+
 export interface ShiftCashupRepo {
   recordOpen(input: RecordShiftFactInput<ShiftOpenFact>): RecordedShiftFact;
   recordMovement(input: RecordShiftFactInput<CashMovementFact>): RecordedShiftFact;
@@ -240,6 +252,21 @@ export interface ShiftCashupRepo {
    */
   recordForcedClose(input: RecordForcedCloseInput): RecordedShiftFact;
   findOpenShift(scope: ShiftScope): OpenShiftView | null;
+  /**
+   * RT-1442 — the shift is closed by a manager on the server: one append-only
+   * `shift_manager_closures` row (a repeat is a no-op) and the answered row
+   * dead-lettered `shift_force_closed`, in one transaction. The shift's other
+   * outbox rows stay as they are and are never sent again (the head query
+   * skips them); nothing local is deleted. False when the answered row was
+   * not pending (nothing changed).
+   */
+  recordManagerClosure(input: RecordManagerClosureInput): boolean;
+  /**
+   * RT-1442 — the terminal's LATEST shift was closed by a manager on the
+   * server: the cashier is told, and the till opens a new shift. False while
+   * there is no shift, or once a later shift was opened.
+   */
+  latestShiftManagerClosed(scope: ShiftScope): boolean;
   nextFact(input: { scope: ShiftDrainScope; now: string }): NextShiftFact;
   markSynced(input: ShiftSyncTransition): boolean;
   recordRetry(input: ShiftSyncRetry): boolean;
@@ -318,7 +345,23 @@ const OPEN_SHIFT_SQL = `
            WHERE m.shift_id = o.shift_id AND m.kind = 'pay_out') AS payOutTotalMinor
   FROM shift_cashup_opens o
   WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
-    AND NOT EXISTS (SELECT 1 FROM shift_cashup_closes c WHERE c.shift_id = o.shift_id)`;
+    AND NOT EXISTS (SELECT 1 FROM shift_cashup_closes c WHERE c.shift_id = o.shift_id)
+    AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)`;
+
+/** RT-1442: the terminal's latest shift (insertion order) has a manager closure. */
+const LATEST_SHIFT_MANAGER_CLOSED_SQL = `
+  SELECT EXISTS (
+    SELECT 1 FROM shift_manager_closures m
+    WHERE m.shift_id = (
+      SELECT o.shift_id FROM shift_cashup_opens o
+      WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
+      ORDER BY o.rowid DESC LIMIT 1
+    )
+  ) AS closed`;
+
+const INSERT_MANAGER_CLOSURE_SQL = `
+  INSERT OR IGNORE INTO shift_manager_closures (shift_id, source_fact_kind, recorded_at)
+  VALUES (?, ?, ?)`;
 
 /**
  * The head: the terminal's first unsettled fact in causal order. `CROSS JOIN`
@@ -332,6 +375,7 @@ export const SHIFT_SYNC_HEAD_SQL = `
   FROM shift_sync_state s CROSS JOIN shift_sync_outbox o ON o.seq = s.seq
   WHERE s.sync_status IN ('pending', 'dead_letter')
     AND o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
+    AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)
   ORDER BY COALESCE(o.origin_seq, o.seq) ASC
   LIMIT 1`;
 
@@ -694,6 +738,21 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     return transition({ kind: 'deadLetter', params: [input.reason], at: input });
   }
 
+  function recordManagerClosure(input: RecordManagerClosureInput): boolean {
+    const now = isoInstant({ field: 'now', value: input.now });
+    return db.transaction(() => {
+      // The answered row first: when it is not pending nothing is written at all.
+      if (!markDeadLetter({ seq: input.seq, now, reason: 'shift_force_closed' })) return false;
+      run(INSERT_MANAGER_CLOSURE_SQL, input.shiftId.toLowerCase(), input.factKind, now);
+      return true;
+    })();
+  }
+
+  function latestShiftManagerClosed(scope: ShiftScope): boolean {
+    const stmt = db.prepare(LATEST_SHIFT_MANAGER_CLOSED_SQL) as PrepareGet<{ closed: number }>;
+    return stmt.get(scope.tenantId, scope.branchId, scope.terminalId)?.closed === 1;
+  }
+
   /** The dead-lettered row `seq`, else `not_dead_lettered`. */
   function requireDeadLetter(seq: number): RepairTargetRow {
     const target = (db.prepare(REPAIR_TARGET_SQL) as PrepareGet<RepairTargetRow>).get(seq);
@@ -718,6 +777,8 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     recordAbandonedCount,
     recordForcedClose,
     findOpenShift,
+    recordManagerClosure,
+    latestShiftManagerClosed,
     nextFact,
     markSynced,
     recordRetry,
