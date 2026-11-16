@@ -12,14 +12,23 @@
  * back (`late-compensation.rules.ts`); write; re-read the books and verify the invariants of condition I. ANY failure
  * throws, so the transaction rolls back whole: no compensation, the Health finding stays.
  */
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
 import { PG_POOL } from '../../auth/auth.module';
+import { MembershipRepository } from '../../context/membership.repository';
 import { writeAudit } from '../position-events/position-event.writer';
 import { assertCountSessionsEnabled, loadSession, type FindingCompensation } from './count-session.store';
 import {
+  COMPENSATION_ROLES,
   compensationKey,
   dec,
   evaluateCompensation,
@@ -74,7 +83,10 @@ function refusal(code: CompensationRefusalCode, message: string, condition: stri
 
 @Injectable()
 export class CountLateCompensationService {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(PG_POOL) private readonly pool: Pool,
+    @Inject(MembershipRepository) private readonly memberships: MembershipRepository,
+  ) {}
 
   async resolve(
     caller: CountCaller,
@@ -93,6 +105,15 @@ export class CountLateCompensationService {
       { tenantId: caller.tenantId, isPlatformAdmin: false },
       async (client) => {
         await assertCountSessionsEnabled(client, caller.tenantId);
+        // E: the caller's OWN role in this tenant, so a platform admin (whom the route guard admits first) or a
+        // store_manager is refused; there is no platform override of this resolution.
+        const role = await this.memberships.findRoleCodeForUserInTenant(caller.userId, caller.tenantId, client);
+        if (role === null || !(COMPENSATION_ROLES as readonly string[]).includes(role)) {
+          throw new ForbiddenException({
+            code: 'count_compensation_role_forbidden',
+            message: 'Only the tenant owner or a tenant admin can resolve a late event.',
+          });
+        }
         return await this.resolveInTransaction(client, caller, storeId, sessionId, findingId, reason);
       },
     );

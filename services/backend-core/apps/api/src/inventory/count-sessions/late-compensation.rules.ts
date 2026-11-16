@@ -23,6 +23,13 @@
  */
 import { createHash } from 'node:crypto';
 
+/**
+ * Condition E: the roles that may resolve a late event, G6-10's "authorized operator". Checked by the route guard AND
+ * by the service against the caller's own membership in the tenant, because the route guard admits a platform admin
+ * before it looks at a tenant role and this resolution has no platform override.
+ */
+export const COMPENSATION_ROLES = ['owner', 'tenant_admin'] as const;
+
 export type CompensationRefusalCode =
   | 'compensation_link_invalid'
   | 'compensation_erp_evidence_missing'

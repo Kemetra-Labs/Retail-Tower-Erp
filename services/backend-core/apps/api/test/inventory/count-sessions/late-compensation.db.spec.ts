@@ -24,7 +24,7 @@ import { ErpnextPostingService } from '../../../src/catalog/erpnext-posting/erpn
 import type { MembershipRepository } from '../../../src/context/membership.repository';
 import { decideTransition } from '../../../src/inventory/effect-integration/integration-state-machine';
 import { CountSessionsService, type CountCaller } from '../../../src/inventory/count-sessions/count-sessions.service';
-import { COMPENSATION_ROLES } from '../../../src/inventory/count-sessions/count-sessions.controller';
+import { COMPENSATION_ROLES } from '../../../src/inventory/count-sessions/late-compensation.rules';
 import { CountLateCompensationService } from '../../../src/inventory/count-sessions/late-compensation.service';
 import * as compensationStore from '../../../src/inventory/count-sessions/late-compensation.store';
 import { startPgEnvOrSkip } from '../../_helpers/device-module-app';
@@ -52,6 +52,8 @@ let counts: CountSessionsService;
 let compensation: CountLateCompensationService;
 let posting: ErpnextPostingService;
 let primaryLocation = '';
+/** The role the stubbed membership lookup answers for every caller (null: no membership, e.g. a platform admin). */
+let role: string | null = 'owner';
 let anchorSourceRun = '';
 let pageSeq = 0;
 let uid = 0;
@@ -383,9 +385,9 @@ beforeAll(async () => {
        sale_effects_activated_by = $2`,
     [TENANT_A, COUNTER],
   );
-  const memberships = { findRoleCodeForUserInTenant: async () => 'owner' } as unknown as MembershipRepository;
+  const memberships = { findRoleCodeForUserInTenant: async () => role } as unknown as MembershipRepository;
   counts = new CountSessionsService(env.app as unknown as Pool, memberships);
-  compensation = new CountLateCompensationService(env.app as unknown as Pool);
+  compensation = new CountLateCompensationService(env.app as unknown as Pool, memberships);
   posting = new ErpnextPostingService(env.app as unknown as Pool);
 }, 240_000);
 
@@ -396,6 +398,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   jest.restoreAllMocks();
+  role = 'owner';
   if (!env) return;
   await admin.query(`DELETE FROM count_late_compensations`);
   await admin.query(`DELETE FROM erp_stock_import_rows`);
@@ -580,6 +583,17 @@ describe('every one of A to I refuses and writes nothing (AC1)', () => {
     await expectRefused(s, 'validation_error', () => resolve(s, '   '));
     await expectRefused(s, 'validation_error', () => resolve(s, 'x'.repeat(501)));
     expect(COMPENSATION_ROLES).toEqual(['owner', 'tenant_admin']);
+  });
+
+  it('E: a store_manager, and a caller with no membership (a platform admin), are refused 403 and write nothing', async () => {
+    if (skipped()) return;
+    const s = await scenario();
+    for (const r of ['store_manager', 'cashier', null]) {
+      role = r;
+      await expectRefused(s, 'count_compensation_role_forbidden');
+    }
+    role = 'tenant_admin';
+    expect((await resolve(s)).integrationState).toBe('erp_absorbed');
   });
 
   it('H: a ledger quantity that is only a part of the late event', async () => {

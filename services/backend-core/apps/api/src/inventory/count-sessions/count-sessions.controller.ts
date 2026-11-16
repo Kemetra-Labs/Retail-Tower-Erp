@@ -39,6 +39,7 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { authorizeInventoryStore } from '../inventory.controller';
 import { COUNT_SESSION_STATES } from './count-session.rules';
+import { COMPENSATION_ROLES } from './late-compensation.rules';
 import { CountLateCompensationService, type CompensationBody } from './late-compensation.service';
 import {
   CountSessionsService,
@@ -148,8 +149,7 @@ const SelfApprovalSchema = z
   .strict();
 
 const ROLES = ['owner', 'tenant_admin', 'store_manager'] as const;
-/** RT-1424 condition E: owner or tenant_admin, G6-10's authorized operator. A store_manager never resolves a late event. */
-export const COMPENSATION_ROLES = ['owner', 'tenant_admin'] as const;
+
 const BASE = 'api/inventory/v1/stores/:storeId/count-sessions';
 
 @Controller()
