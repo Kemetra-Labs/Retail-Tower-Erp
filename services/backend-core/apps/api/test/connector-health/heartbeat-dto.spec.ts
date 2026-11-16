@@ -46,6 +46,12 @@ describe("HeartbeatReportSchema count activation evidence (RT-1427)", () => {
     }
   });
 
+  it("rejects duplicate work-item kinds (contract uniqueItems)", () => {
+    expect(
+      HeartbeatReportSchema.safeParse({ acceptedWorkItemKinds: ["reversal", "reversal"] }).success,
+    ).toBe(false);
+  });
+
   it("rejects an unknown work-item kind", () => {
     expect(HeartbeatReportSchema.safeParse({ acceptedWorkItemKinds: ["refund"] }).success).toBe(
       false,

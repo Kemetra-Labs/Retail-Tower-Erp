@@ -32,6 +32,10 @@ export const HeartbeatReportSchema = z
     acceptedWorkItemKinds: z
       .array(z.enum(WORK_ITEM_KINDS))
       .max(16)
+      // The contract declares `uniqueItems: true`; enforce it, do not store duplicates.
+      .refine((kinds) => new Set(kinds).size === kinds.length, {
+        message: "acceptedWorkItemKinds must be unique",
+      })
       .optional(),
     backDatedRole: z
       .object({
