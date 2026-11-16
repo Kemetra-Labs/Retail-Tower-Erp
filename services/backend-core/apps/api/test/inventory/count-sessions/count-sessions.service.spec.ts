@@ -83,11 +83,12 @@ async function seedEffect(
       primaryLocation,
     ],
   );
-  if (opts.confirmed) {
+  // A confirmed Retail effect needs an ERP posting intent (a fixture of its own), so history is
+  // seeded only for an ERP-origin effect, which carries the `external` state and no intent.
+  if (opts.confirmed && opts.erpOrigin) {
     await admin.query(
-      `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, erp_confirmed_at, erp_document_ref)
-       VALUES ($1, $2, 'confirmed', COALESCE($3::timestamptz, now()), 'SLE-FIXTURE')`,
-      [id, TENANT_A, opts.occurredAt ?? null],
+      `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state) VALUES ($1, $2, 'external')`,
+      [id, TENANT_A],
     );
   }
   return id;
