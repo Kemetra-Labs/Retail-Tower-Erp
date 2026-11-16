@@ -10,12 +10,15 @@
  *                                       heartbeat, a device whose queue counters are unknown, or a mapped
  *                                       warehouse with no completed ERP stock import (RT-1420 barrier inputs);
  *   - `connector_not_seen`              no Connector heartbeat at all, or a stale one;
- *   - `connector_version_unlisted`      the Connector's reported release is not in the deploy-configured list
- *                                       of releases known to carry the count writer (empty by default);
- *   - `erp_back_dated_role_unverified`  the Connector's ERP user must hold the back-dated stock role (G6-6),
- *                                       and Backend-Core has NO evidence of it: the heartbeat carries no
- *                                       capability field. Unmet until a heartbeat capability exists (a
- *                                       separate gated change), never fabricated.
+ *   - `connector_version_unlisted`      the Connector has not reported that it accepts the `inventory_count`
+ *                                       work item (`connector_health.accepted_work_item_kinds`, RT-1427); a
+ *                                       Connector that never reported its kinds is refused. (The code keeps
+ *                                       the name it was agreed under; it no longer reads a release list.)
+ *   - `erp_back_dated_role_unverified`  the Connector's ERP user must hold the back-dated stock role (G6-6):
+ *                                       the Connector's own report (`back_dated_role_status`) must be
+ *                                       `verified` and fresh by the server clock (`back_dated_role_reported_at`,
+ *                                       the same window as the heartbeat). `missing`, `unknown`, no report and
+ *                                       a stale report are all unmet. Never assumed.
  */
 import type { BarrierDevice, BarrierWarehouse } from './count-barrier';
 
@@ -42,19 +45,20 @@ export interface StoreEvidence {
 }
 
 interface ConnectorEvidence {
-  /** The newest `connector_health` row of the tenant, or null when there is none. */
+  /** The newest `connector_health` row of the tenant: the server-clock heartbeat time, or null for no row. */
   readonly lastSeenAt: Date | null;
-  readonly version: string | null;
+  /** The work-item kinds the Connector reported accepting; null = never reported. */
+  readonly acceptedKinds: readonly string[] | null;
+  /** `verified`, `missing`, `unknown`, or null = no evidence. */
+  readonly backDatedRoleStatus: string | null;
+  /** SERVER clock of the last role report: freshness is judged by this, never by the Connector clock. */
+  readonly backDatedRoleReportedAt: Date | null;
 }
 
 export interface ReadinessEvidence {
   readonly now: Date;
   readonly stores: readonly StoreEvidence[];
   readonly connector: ConnectorEvidence;
-  /** Releases known to accept `inventory_count` (deploy configuration). */
-  readonly allowedConnectorReleases: readonly string[];
-  /** Always false until the heartbeat can report the ERP user's back-dated role. */
-  readonly backDatedRoleVerified: boolean;
 }
 
 /** A heartbeat older than this is not proof the Connector is running. */
@@ -87,17 +91,28 @@ function storeBoundaries(s: StoreEvidence): UnmetReadiness[] {
   return out;
 }
 
+function isFresh(at: Date | null, now: Date): boolean {
+  return at !== null && now.getTime() - at.getTime() <= CONNECTOR_HEARTBEAT_MAX_AGE_MS;
+}
+
 function connectorBoundaries(e: ReadinessEvidence): UnmetReadiness[] {
-  const seen = e.connector.lastSeenAt;
-  if (seen === null || e.now.getTime() - seen.getTime() > CONNECTOR_HEARTBEAT_MAX_AGE_MS) {
-    return [{ code: 'connector_not_seen', storeId: null, message: 'No recent Connector heartbeat.' }];
-  }
   const out: UnmetReadiness[] = [];
-  if (e.connector.version === null || !e.allowedConnectorReleases.includes(e.connector.version)) {
+  if (!isFresh(e.connector.lastSeenAt, e.now)) {
+    out.push({ code: 'connector_not_seen', storeId: null, message: 'No recent Connector heartbeat.' });
+  }
+  if (e.connector.acceptedKinds === null || !e.connector.acceptedKinds.includes('inventory_count')) {
     out.push({
       code: 'connector_version_unlisted',
       storeId: null,
-      message: 'The Connector release is not known to accept the count work item.',
+      message: 'The Connector has not reported that it accepts the count work item.',
+    });
+  }
+  const role = e.connector.backDatedRoleStatus === 'verified' && isFresh(e.connector.backDatedRoleReportedAt, e.now);
+  if (!role) {
+    out.push({
+      code: 'erp_back_dated_role_unverified',
+      storeId: null,
+      message: 'The Connector has not reported a fresh verification of the ERP back-dated stock role.',
     });
   }
   return out;
@@ -110,21 +125,6 @@ export function evaluateReadiness(e: ReadinessEvidence): UnmetReadiness[] {
     out.push({ code: 'no_live_store', storeId: null, message: 'The tenant has no live store.' });
   }
   out.push(...connectorBoundaries(e));
-  if (!e.backDatedRoleVerified) {
-    out.push({
-      code: 'erp_back_dated_role_unverified',
-      storeId: null,
-      message: 'There is no evidence that the Connector ERP user holds the back-dated stock role.',
-    });
-  }
   for (const s of e.stores) out.push(...storeBoundaries(s));
   return out;
-}
-
-/** The deploy-configured releases that carry the count writer: `COUNT_CONNECTOR_RELEASES=sha1,sha2`. */
-export function configuredReleases(raw: string | undefined): readonly string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((r) => r.trim())
-    .filter((r) => r.length > 0);
 }

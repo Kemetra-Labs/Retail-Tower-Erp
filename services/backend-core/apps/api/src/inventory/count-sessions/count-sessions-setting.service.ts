@@ -29,7 +29,6 @@ import { MembershipRepository } from '../../context/membership.repository';
 import { writeAudit } from '../position-events/position-event.writer';
 import { readBarrierInputs } from './count-barrier';
 import {
-  configuredReleases,
   evaluateReadiness,
   type ReadinessEvidence,
   type StoreEvidence,
@@ -101,7 +100,6 @@ async function gatherReadinessEvidence(
   client: PoolClient,
   tenantId: string,
   now: Date = new Date(),
-  releasesRaw: string | undefined = process.env.COUNT_CONNECTOR_RELEASES,
 ): Promise<ReadinessEvidence> {
   const stores = await client.query<{ id: string }>(
     `SELECT id FROM stores WHERE tenant_id = $1 AND deleted_at IS NULL AND is_active ORDER BY id`,
@@ -117,18 +115,28 @@ async function gatherReadinessEvidence(
       warehouses: inputs.warehouses,
     });
   }
-  const health = await client.query<{ last_seen_at: Date | null; connector_version: string | null }>(
-    `SELECT last_seen_at, connector_version FROM connector_health
+  // RT-1427: the Connector reports the work-item kinds it accepts and the ERP back-dated role itself.
+  const health = await client.query<{
+    last_seen_at: Date | null;
+    accepted_work_item_kinds: string[] | null;
+    back_dated_role_status: string | null;
+    back_dated_role_reported_at: Date | null;
+  }>(
+    `SELECT last_seen_at, accepted_work_item_kinds, back_dated_role_status, back_dated_role_reported_at
+       FROM connector_health
       WHERE tenant_id = $1 ORDER BY last_seen_at DESC NULLS LAST LIMIT 1`,
     [tenantId],
   );
+  const h = health.rows[0];
   return {
     now,
     stores: evidence,
-    connector: { lastSeenAt: health.rows[0]?.last_seen_at ?? null, version: health.rows[0]?.connector_version ?? null },
-    allowedConnectorReleases: configuredReleases(releasesRaw),
-    // No heartbeat field reports the ERP user's back-dated role: never assumed (see count-readiness.ts).
-    backDatedRoleVerified: false,
+    connector: {
+      lastSeenAt: h?.last_seen_at ?? null,
+      acceptedKinds: h?.accepted_work_item_kinds ?? null,
+      backDatedRoleStatus: h?.back_dated_role_status ?? null,
+      backDatedRoleReportedAt: h?.back_dated_role_reported_at ?? null,
+    },
   };
 }
 
