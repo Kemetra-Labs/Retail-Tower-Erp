@@ -541,6 +541,30 @@ paths:
         `platform_admin` are refused as on every write here.
 
 
+        **Evaluation order.** The password is the LAST thing checked, so no
+        caller who fails an earlier step can use this endpoint to test a
+        password:
+
+
+          1. The guards: authentication (401), `Origin` and the support-session
+             gate (403), the console rate limit (429 `rate_limited`).
+
+          2. Body validation (400 `validation_error`).
+
+          3. The store and the role: the store in the caller's tenant, not
+             deleted (404); a role outside owner and `tenant_admin` (404); a
+             `tenant_admin` (403 `store_deletion_owner_only`).
+
+          4. The failed-attempt budget (429 `reauth_rate_limited`), read before
+             any password is verified, so a user over budget is refused without
+             another guess being tested. Only failed attempts count.
+
+          5. The password verification (403 `reauth_failed`, 503
+             `identity_provider_unavailable`).
+
+          6. The grant (200).
+
+
         The response is never cached. The password and the token are never
         logged and never appear in an error, an audit row or a metric label.
       requestBody:
