@@ -27,6 +27,7 @@ import { SignInRoute } from "@/shell/SignInRoute";
  */
 import { accountRoutes } from "@/shell/accountRoutes";
 import { catalogRoutes } from "@/shell/catalogRoutes";
+import { countRoutes } from "@/shell/countRoutes";
 import { deviceRoutes } from "@/shell/deviceRoutes";
 import { DirtyGuardProvider } from "@/shell/dirty-guard";
 import { erpStatusRoutes } from "@/shell/erpStatusRoutes";
@@ -100,6 +101,7 @@ const router = createBrowserRouter(
           {offerRoutes}
           {stockDiscrepancyRoutes}
           {inventoryRoutes}
+          {countRoutes}
           {trackingRoutes}
           {shiftCloseRoutes}
           {erpStatusRoutes}

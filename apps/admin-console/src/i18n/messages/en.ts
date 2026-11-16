@@ -12,6 +12,7 @@ import { brands } from "./en/brands";
 import { cashPolicy } from "./en/cashPolicy";
 import { catalog } from "./en/catalog";
 import { common } from "./en/common";
+import { counts } from "./en/counts";
 import { devices } from "./en/devices";
 import { downloadPos } from "./en/downloadPos";
 import { erp } from "./en/erp";
@@ -60,6 +61,7 @@ export const EN_MODULES = {
   postingRepair,
   cashPolicy,
   inventory,
+  counts,
   aiPlan,
   branding,
   catalog,
@@ -95,6 +97,7 @@ export const en: MessagesOf<typeof ar> = {
   ...postingRepair,
   ...cashPolicy,
   ...inventory,
+  ...counts,
   ...aiPlan,
   ...branding,
   ...catalog,

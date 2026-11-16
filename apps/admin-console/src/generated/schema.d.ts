@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ e40825bdc6a1a0c8258a2ec4f414d2d05f79c8e9
+// Source: Kemetra-Labs/Retail-Tower-Erp @ a14571e789f3b2890905645418b10c6b548e66ef
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -11813,7 +11813,7 @@ export namespace InventorySchema {
             put?: never;
             /**
              * Record a physical count; append a correction movement for any variance.
-             * @description Record a physical stock count for a product at the path-scoped store. Any variance from the derived on-hand is appended as a `count_correction` movement (signed variance) linked to the count; the movement history is NEVER rewritten (FR-021/SC-005). After the count, the derived on-hand equals the counted quantity. A zero-variance count is deterministic (no correction, or an explicit zero-variance record). The `storeId` is the PATH-scoped selection target, authorized server-side; it is never taken from the body (§XII). Idempotent via the `Idempotency-Key` header.
+             * @description Record a physical stock count for a product at the path-scoped store. Any variance from the derived on-hand is appended as a `count_correction` movement (signed variance) linked to the count; the movement history is NEVER rewritten (FR-021/SC-005). After the count, the derived on-hand equals the counted quantity. A zero-variance count is deterministic (no correction, or an explicit zero-variance record). The `storeId` is the PATH-scoped selection target, authorized server-side; it is never taken from the body (§XII). Idempotent via the `Idempotency-Key` header. RT-1419: this legacy route is unchanged until the per-tenant Count Session activation (RT-292 G6-7); the Count Session operations (`createCountSession` and the rest) are contract-only until the Count Session domain issue RT-1420, and nothing here answers the typed 409 yet.
              */
             post: operations["recordStockCount"];
             delete?: never;
@@ -12180,6 +12180,234 @@ export namespace InventorySchema {
              * @description RT-451 scope item 4 (RT-50 DC-2; RT-455 TR-2): the governed, audited, high-sensitivity Tracking Resolution of one `tracking_unresolved` sale. One command binds an existing tracking identity to EVERY unresolved line of the sale: `lines` names each unresolved line exactly once and nothing else, or the command is a 400 and nothing is written. In one transaction it records the resolution and its audit record, then commits the sale's Inventory effects at the bound identities and its ERP posting intent together, with the ERP Batch ref frozen from the edge map as at capture. A bound identity with no ERP edge-map row still commits its effect, and the intent is held (G7-9 row 3): the bind records an `erp_intent_held` finding with cause `edge_map_missing` for that line. A bind records no other finding: it refuses a held or expired identity, and it is itself the governed check, so a bound line is never an `unvalidated_tracked_line`. The sale then leaves the unresolved queue. The same transaction also commits what the sale's voids and returns recorded before the bind were denied: their Inventory restores (a void compensates the exact identity position; a return lands at the bound identity in `return_inspection`, or `recall_hold` for an identity ever recalled), and the reversal posting intents they emitted, each one posted exactly once. A sale the server has not processed yet gets its effects and its intent when it is processed. Refusals, nothing written: a sale that is not of this tenant, is outside the caller's store scope or was never `tracking_unresolved`, and an identity that does not exist, is of another tenant or is not a batch identity, is a non-disclosing 404; a `saleLineId` that is not an unresolved line of the sale is a 400. 409 `tracking_resolution_identity_mismatch`: an identity is not of the line's product. 409 `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. 409 `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date (a lot is sellable through its expiry date, G7-5), or the identity has no expiry and the line's product requires one (fail closed). 409 `tracking_resolution_already_resolved`: the sale was already resolved by another command. The `reasonCode` and a non-blank `note` are required; the runtime trims the note, and a blank one is a 400. It does not step the Inventory Safety Revision. Owner only (high sensitivity, as `releaseTrackingHold`); any other role is a 403. Idempotent via the `Idempotency-Key` header: a replay with the same key and body returns the recorded resolution and writes nothing.
              */
             post: operations["bindTrackingResolution"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List a store's Count Sessions, newest first, in keyset pages.
+             * @description RT-1419 (G6-8). The store's Count Sessions, newest first (`openedAt DESC, id DESC`), optionally filtered by `state`. Keyset pagination as `listStockMovements` (RT-731): an opaque `cursor` bound to this operation, the tenant, the store and the filters; a value the server did not issue, or one reused with other filters, is 400 `validation_error`. Owner, tenant_admin or store_manager (a store_manager only in its store scope). The list never projects an expected quantity.
+             */
+            get: operations["listCountSessions"];
+            put?: never;
+            /**
+             * Open a Count Session for a store and scope.
+             * @description RT-1419 (RT-292 Gate 6; Confluence "Inventory Gate 6", G6-1, G6-3, G6-8). Opens a Count Session in state `open` for the path store. The scope is the set of whole products to count: a product is counted across every position (location and status) of the store, and observations are stored per position (G6-1). A tracked product (batch or serial) is refused with 409 `count_tracked_product_refused` and nothing is written (G6-3, V1). A product already in the scope of another live session of the store (`open`, `cut_taken`, `submitted`, `approved`, `posting`, `needs_attention`) is refused with 409 `count_scope_in_use`. Capture is blind by default: no read of an `open` or `cut_taken` session projects the expected quantity before the count is submitted. Owner, tenant_admin or store_manager (a store_manager only in its store scope); tenant, store and actor are resolved server-side and are never taken from the body. Idempotent via the `Idempotency-Key` header. This contract has no ERP field and does not activate Count Sessions: the legacy `recordStockCount` route is unchanged until the activation slice.
+             */
+            post: operations["createCountSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read one Count Session.
+             * @description RT-1419. One Count Session of the path store with its state, scope, cut watermark (null until `cut_taken`) and approval result (null until `approved`). A session of another store, tenant or outside the caller's store scope is the non-disclosing 404. Owner, tenant_admin or store_manager (a store_manager only in its store scope).
+             */
+            get: operations["getCountSession"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/observations": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Record counted quantities at position grain.
+             * @description RT-1419 (G6-1, decision 830). Records the counted quantity of products in the session's scope, one observation per position (stock location and inventory status) of the store. A later observation of the same `(productId, locationId, inventoryStatus)` replaces the earlier one; every observation keeps its counter and time. The session must be `open` or `cut_taken`, else 409 `count_session_not_in_state`. A product outside the session's scope or a location that is not an active location of the path store is 400; a tracked product is 409 `count_tracked_product_refused`. V1 counts a whole product, so a position that has no observation is read as 0 at `submitCountSession`, which refuses a product with no observation at all. Quantities are non-negative exact-decimal strings; a unit that differs from the product's stocking unit is recorded and shown on the line as the `uom_mismatch` flag at review, and the line cannot post. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header; a replay returns the recorded result and writes nothing.
+             */
+            post: operations["recordCountObservations"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/cut": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Take the Count Cut of a session.
+             * @description RT-1419 (decisions 824, 828; Count Cut and barrier). Moves the session from `open` to `cut_taken`: records the Count Cut, a frozen watermark (not a timestamp), and freezes the expected quantity per product at the cut. Expected counts only effects recorded before the cut. The cut is refused with 409 `count_cut_barrier_not_met` until the barrier holds: the store's POS devices are drained and the bucket's ERP import has read past the cut; nothing is written. The refusal lists what blocks in `error.details` (`CountCutBarrierDetails`: each device with a reason, each warehouse with a reason). A session not `open` is 409 `count_session_not_in_state`. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["takeCountCut"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/submit": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Submit the captured counts for review.
+             * @description RT-1419 (decisions 830, 831). Moves the session from `cut_taken` to `submitted`. Variance is counted minus expected at the cut, per product, computed from the observations (the sum of the product's positions). Every product in the scope must have at least one observation, else 400. A product whose counted total (the sum of its positions) or whose variance cannot be represented as a `NonNegativeDecimalQuantity` or `DecimalQuantity` (15 integer digits) is refused with 400 `validation_error` and nothing is written; no line is ever returned out of range. The submitter is recorded (`submittedBy`) and is barred from approving unless the tenant's audited small-merchant exception applies (G6-10). The review lines are read with `listCountVarianceLines`. A session not `cut_taken` is 409 `count_session_not_in_state`. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["submitCountSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/variance-lines": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the review lines of a submitted Count Session.
+             * @description RT-1419 (decisions 831, 832; G6-2). One line per product of the scope: expected at the cut, counted, variance, the flags that need an acknowledgement or block posting, and the line's per-position observations. Available once the session is `submitted` or later; before that, 409 `count_session_not_in_state` (blind capture). Filter `flagged=true` for lines with at least one flag. Keyset pagination as `listStockMovements` (RT-731), ordered by `productId`. Owner, tenant_admin or store_manager (a store_manager only in its store scope).
+             */
+            get: operations["listCountVarianceLines"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/recount": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Send listed products back for a recount.
+             * @description RT-1419 (decision 832). Moves a `submitted` session back to `cut_taken` and clears the observations of the listed products, which must be in the scope. The Count Cut, and the expected quantity frozen at it, are unchanged; the reviewer's `reason` is recorded and audited. Observations of the other products are kept. A session not `submitted` is 409 `count_session_not_in_state`. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["requestCountRecount"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/approve": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Approve a submitted Count Session under the approval policy.
+             * @description RT-1419 (decision 833; G6-2, G6-10). Moves a `submitted` session to `approved`. Approval policy: by default the approver differs from every counter and from the submitter; if the approver is one of them the approval is refused with 409 `count_approver_conflict`, unless the tenant owner has enabled the audited small-merchant exception, in which case the approval succeeds, `approval.policy` is `small_merchant_exception` and `approval.selfApproved` is true (the session is marked in review, audit and Health). There is no variance threshold and no Retail Tower or platform-admin override in V1. Every flagged line (`divergence`, `stale_snapshot`, `pending`) must be listed in `acknowledgements`, else 409 `count_flagged_line_not_acknowledged` and nothing is written. Each acknowledgement names the `lineVersion` the reviewer saw (`CountVarianceLine.lineVersion`); if the line changed since (a recount, or a late pre-cut event that invalidated it, G6-4) the approval is refused with 409 `count_line_version_stale` and nothing is written, so a stale acknowledgement never approves a changed line. A line with an `unmapped` or `uom_mismatch` flag cannot post and cannot be acknowledged into posting; a count-up line with no stock or valuation history is refused per line (`CountVarianceLine.refusal.code` `count_up_without_valuation_history`, with a visible Health finding) while the rest proceeds; Retail never supplies a valuation rate. Approval writes the Retail corrections as append-only `count_correction` effects at the explicit position and creates no ERP intent in this contract. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["approveCountSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/cancel": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Cancel a Count Session before approval.
+             * @description RT-1419. Moves a session in `open`, `cut_taken` or `submitted` to the terminal `cancelled` state with a recorded reason; the audit trail and the observations are kept and no quantity changes. From `approved` onward a session cannot be cancelled (409 `count_session_not_in_state`): its corrections are already effects. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["cancelCountSession"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the late pre-cut event findings of a Count Session.
+             * @description RT-1419 (decision 835; G6-4). A late pre-cut event is a POS sale or an ERP-origin voucher whose ERP stamp is at or before the Count Cut and which Backend-Core learned after the cut. Before approval it invalidates the affected lines and returns them to review; after approval it is recorded as a finding with an availability and selling-risk assessment and no automatic stock movement, and the session moves to `needs_attention`. This lists those findings, oldest first, in keyset pages ordered by `detectedAt, id`. Resolving a finding is not part of this contract. Owner, tenant_admin or store_manager (a store_manager only in its store scope).
+             */
+            get: operations["listCountLateEventFindings"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/settings/count-self-approval": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's small-merchant Count Session approval exception.
+             * @description RT-1420 (RT-292 G6-10). Whether the tenant owner has enabled the audited exception that lets a counter or the submitter approve their own Count Session (`approveCountSession` then answers `approval.policy` `small_merchant_exception` and `selfApproved: true`). Off for every tenant until the owner turns it on; `reason`, `changedAt` and `changedBy` are null while it was never enabled. Owner only: any other role, tenant_admin and store_manager included, is the typed 403 `count_self_approval_owner_only`. There is no Retail Tower or platform-admin override in V1.
+             */
+            get: operations["getCountSelfApprovalSetting"];
+            /**
+             * Enable or disable the small-merchant Count Session approval exception.
+             * @description RT-1420 (RT-292 G6-10). Owner only (typed 403 `count_self_approval_owner_only` for any other role). Enabling needs a `reason` of 1 to 500 characters (400 otherwise); disabling clears it. Every change is audited with the actor, the time, the value and the reason. It is a whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`. The activation of Count Sessions themselves is not this setting.
+             */
+            put: operations["setCountSelfApprovalSetting"];
+            post?: never;
             delete?: never;
             options?: never;
             head?: never;
@@ -13040,6 +13268,286 @@ export namespace InventorySchema {
                     request_id?: string;
                 };
             };
+            /**
+             * @description RT-1419 (Confluence "Inventory Gate 6", count journey and lifecycle). `open`: scope chosen; moves to `cut_taken` or `cancelled`. `cut_taken`: Count Cut recorded, expected frozen per product; moves to `submitted` (or `cancelled`). `submitted`: observations captured at position grain and variance computed; moves to `approved`, back to `cut_taken` for a recount, or `cancelled`. `approved`: approved under the approval policy; Retail corrections are written. `posting`, `confirmed`, `needs_attention` and `closed` follow approval and are set by the server only (the ERP slices and a late event after approval move a session there); this contract has no operation that sets them. `closed` and `cancelled` are terminal.
+             * @enum {string}
+             */
+            CountSessionState: "open" | "cut_taken" | "submitted" | "approved" | "posting" | "confirmed" | "needs_attention" | "closed" | "cancelled";
+            /** @description What a session counts (G6-1): whole products, each across every position of the store. */
+            CountScope: {
+                /** @enum {string} */
+                kind: "products";
+                /** @description Tenant Catalog products, resolved inside the caller's tenant only. */
+                productIds: string[];
+            };
+            /** @description Strict command. The store is the PATH parameter; tenant and actor are resolved server-side and are never accepted from the body. */
+            CreateCountSessionCommand: {
+                scope: components["schemas"]["CountScope"];
+                note?: string | null;
+            };
+            /** @description The Count Cut (decision 824): a frozen watermark over the recorded effects, not a timestamp. Expected quantity counts only effects recorded before it. */
+            CountCut: {
+                /** @description Opaque frozen watermark; compare for equality only. */
+                watermark: string;
+                /** Format: date-time */
+                cutAt: string;
+                /** Format: uuid */
+                takenBy: string;
+            };
+            /** @description The approval policy result (G6-10, decision 833). */
+            CountApproval: {
+                /** Format: uuid */
+                approvedBy: string;
+                /** Format: date-time */
+                approvedAt: string;
+                /**
+                 * @description `strict_separation`: the approver is none of the counters and not the submitter. `small_merchant_exception`: the tenant owner's audited exception applied.
+                 * @enum {string}
+                 */
+                policy: "strict_separation" | "small_merchant_exception";
+                /** @description True when the approver is a counter or the submitter (only under `small_merchant_exception`); marked in review, audit and Health. */
+                selfApproved: boolean;
+            };
+            CountCancellation: {
+                /** Format: uuid */
+                cancelledBy: string;
+                /** Format: date-time */
+                cancelledAt: string;
+                reason: string;
+            };
+            /** @description RT-1419 — a Count Session. It never projects an expected quantity while `open` or `cut_taken` (blind capture); expected appears on the variance lines from `submitted`. */
+            CountSession: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                storeId: string;
+                state: components["schemas"]["CountSessionState"];
+                scope: components["schemas"]["CountScope"];
+                note: string | null;
+                /** @description Null until the session is `cut_taken`. */
+                cut: components["schemas"]["CountCut"] | null;
+                /** Format: uuid */
+                openedBy: string;
+                /** Format: date-time */
+                openedAt: string;
+                /** @description Every actor that recorded an observation (G6-10 separation). */
+                counterIds: string[];
+                /** Format: uuid */
+                submittedBy: string | null;
+                /** Format: date-time */
+                submittedAt: string | null;
+                approval: components["schemas"]["CountApproval"] | null;
+                cancellation: components["schemas"]["CountCancellation"] | null;
+                /** @description Late pre-cut event findings recorded for the session (G6-4). */
+                lateEventFindingCount: number;
+                /** Format: date-time */
+                updatedAt: string;
+            };
+            CountSessionList: {
+                items: components["schemas"]["CountSession"][];
+                /** @description Opaque cursor for the next page; null when exhausted. */
+                nextCursor: string | null;
+            };
+            /** @description One counted quantity at one position (G6-1). */
+            CountObservationInput: {
+                /** Format: uuid */
+                productId: string;
+                /**
+                 * Format: uuid
+                 * @description An active stock location of the path store.
+                 */
+                locationId: string;
+                inventoryStatus: components["schemas"]["InventoryStatus"];
+                countedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                /** @description The unit the counter counted in. Unlike a stock movement, a unit that differs from the product's stocking unit is accepted, not rejected (no coercion): the line is flagged `uom_mismatch` at review and cannot post. */
+                stockingUnit: components["schemas"]["StockingUnit"];
+            };
+            RecordCountObservationsCommand: {
+                observations: components["schemas"]["CountObservationInput"][];
+            };
+            CountObservation: {
+                /** Format: uuid */
+                productId: string;
+                /** Format: uuid */
+                locationId: string;
+                inventoryStatus: components["schemas"]["InventoryStatus"];
+                countedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                /** @description The unit the counter counted in. Unlike a stock movement, a unit that differs from the product's stocking unit is accepted, not rejected (no coercion): the line is flagged `uom_mismatch` at review and cannot post. */
+                stockingUnit: components["schemas"]["StockingUnit"];
+                /** Format: uuid */
+                countedBy: string;
+                /** Format: date-time */
+                countedAt: string;
+            };
+            CountObservationsResult: {
+                /** Format: uuid */
+                sessionId: string;
+                observations: components["schemas"]["CountObservation"][];
+            };
+            /**
+             * @description G6-2. `divergence`, `stale_snapshot` and `pending` need an explicit acknowledgement before approval. `unmapped` and `uom_mismatch` cannot post and are refused on the line (`CountVarianceLine.refusal`).
+             * @enum {string}
+             */
+            CountVarianceFlag: "divergence" | "stale_snapshot" | "pending" | "unmapped" | "uom_mismatch";
+            /** @description A line that cannot post; the rest of the session proceeds (G6-2). The refusal is visible as a Health finding. */
+            CountLineRefusal: {
+                /**
+                 * @description `count_up_without_valuation_history`: counted above expected for an item with no stock or valuation history; Retail never supplies a valuation rate.
+                 * @enum {string}
+                 */
+                code: "count_up_without_valuation_history" | "count_line_unmapped" | "count_line_uom_mismatch";
+                message: string;
+            };
+            CountLineAcknowledgement: {
+                /** Format: uuid */
+                acknowledgedBy: string;
+                /** Format: date-time */
+                acknowledgedAt: string;
+                note: string | null;
+            };
+            CountLineObservation: {
+                /** Format: uuid */
+                locationId: string;
+                inventoryStatus: components["schemas"]["InventoryStatus"];
+                countedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+            };
+            /** @description RT-1419 (decision 831) — one product of the scope: counted (the sum of its observed positions, G6-1) minus expected at the cut. */
+            CountVarianceLine: {
+                /** Format: uuid */
+                productId: string;
+                /** @description Opaque version of the line's reviewed state (expected, observations and invalidation). It changes whenever any of them changes; compare for equality only. An approval acknowledgement carries it. */
+                lineVersion: string;
+                stockingUnit: components["schemas"]["StockingUnit"];
+                expectedQuantity: components["schemas"]["DecimalQuantity"];
+                countedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                varianceQuantity: components["schemas"]["DecimalQuantity"];
+                flags: components["schemas"]["CountVarianceFlag"][];
+                /** @description True when `flags` holds `divergence`, `stale_snapshot` or `pending`. */
+                acknowledgementRequired: boolean;
+                /** @description Null until the approval acknowledges the line. */
+                acknowledgement: components["schemas"]["CountLineAcknowledgement"] | null;
+                refusal: components["schemas"]["CountLineRefusal"] | null;
+                observations: components["schemas"]["CountLineObservation"][];
+            };
+            CountVarianceLineList: {
+                items: components["schemas"]["CountVarianceLine"][];
+                /** @description Opaque cursor for the next page; null when exhausted. */
+                nextCursor: string | null;
+            };
+            RequestCountRecountCommand: {
+                productIds: string[];
+                reason: string;
+            };
+            CountAcknowledgementInput: {
+                /** Format: uuid */
+                productId: string;
+                /** @description The `CountVarianceLine.lineVersion` the reviewer saw. */
+                lineVersion: string;
+                note?: string | null;
+            };
+            /** @description Must list every flagged line that needs an acknowledgement (G6-2); an empty list is valid only when no line needs one. */
+            ApproveCountSessionCommand: {
+                acknowledgements: components["schemas"]["CountAcknowledgementInput"][];
+            };
+            CancelCountSessionCommand: {
+                reason: string;
+            };
+            /** @description The immutable references of the late event (G6-4, G6-5 A). */
+            CountLateEventLink: {
+                eventType: string;
+                reference: string;
+                sourceSystem: string;
+                externalId: string;
+                /**
+                 * Format: uuid
+                 * @description The Retail effect of the event; null for an ERP-origin event.
+                 */
+                effectId: string | null;
+            };
+            /** @description RT-1419 (G6-4, decision 835) — a late pre-cut event found for a session. Never silently ignored; no automatic stock movement. */
+            CountLateEventFinding: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                sessionId: string;
+                /** Format: uuid */
+                productId: string;
+                /**
+                 * @description Whether the count understates or overstates availability because of the late event.
+                 * @enum {string}
+                 */
+                assessment: "understated" | "overstated";
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                linkedEvent: components["schemas"]["CountLateEventLink"];
+                /** @description True when the finding makes selling the product at risk of overselling. */
+                oversellRisk: boolean;
+                /**
+                 * Format: date-time
+                 * @description The ERP stamp the Connector produced for the event; at or before the cut.
+                 */
+                erpStamp: string;
+                /** Format: date-time */
+                detectedAt: string;
+                detectedInState: components["schemas"]["CountSessionState"];
+            };
+            CountLateEventFindingList: {
+                items: components["schemas"]["CountLateEventFinding"][];
+                /** @description Opaque cursor for the next page; null when exhausted. */
+                nextCursor: string | null;
+            };
+            /** @description RT-1420 (G6-10) — the tenant owner's small-merchant approval exception. */
+            CountSelfApprovalSetting: {
+                enabled: boolean;
+                /** @description The recorded reason; null while the exception is off. */
+                reason: string | null;
+                /** Format: date-time */
+                changedAt: string | null;
+                /** Format: uuid */
+                changedBy: string | null;
+            };
+            SetCountSelfApprovalCommand: {
+                enabled: boolean;
+                /** @description Required (1 to 500 characters) when `enabled` is true. */
+                reason?: string | null;
+            };
+            CountCutBarrierDevice: {
+                /** Format: uuid */
+                deviceId: string;
+                /**
+                 * @description `no_heartbeat`: no health report from the till. `stale_heartbeat`: its last report is before the cut request. `queue_unknown`: it did not report its sale queue. `queue_pending`: its sale queue holds a pending, dead-letter or held sale.
+                 * @enum {string}
+                 */
+                reason: "no_heartbeat" | "stale_heartbeat" | "queue_unknown" | "queue_pending";
+            };
+            CountCutBarrierWarehouse: {
+                /** @description The ERP warehouse of the store stock mapping. */
+                warehouseRef: string;
+                /**
+                 * @description No completed ERP stock import ended after the cut request.
+                 * @enum {string}
+                 */
+                reason: "import_not_past_cut";
+            };
+            /** @description RT-1420 — what blocks the Count Cut: the live devices and the mapped warehouses that are not ready. At least one list is non-empty on a refusal. */
+            CountCutBarrierDetails: {
+                devices: components["schemas"]["CountCutBarrierDevice"][];
+                warehouses: components["schemas"]["CountCutBarrierWarehouse"][];
+            };
+            /** @description The canonical error envelope (`Error`) of the Count Cut 409, with the envelope optional `details` carrying the blockers. `details` is present for `count_cut_barrier_not_met` and absent for the other 409 codes. */
+            CountCutConflictError: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                    details?: components["schemas"]["CountCutBarrierDetails"];
+                };
+            };
         };
         responses: {
             /** @description 400 — strict-schema validation failure: unknown keys, malformed values, a non-positive / zero transfer quantity, a same-store transfer, a cross-unit quantity (FR-022), or a missing `reason` on an adjustment. */
@@ -13141,6 +13649,72 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the command is not allowed in the session's state. `count_tracked_product_refused`: a product is tracked (batch or serial); tracked counting is not available in V1 (G6-3). `count_scope_in_use`: a product is already in the scope of another live session of the store. `count_cut_barrier_not_met`: the Count Cut barrier does not hold yet (devices not drained, or the ERP import has not read past the cut). `count_approver_conflict`: the approver is a counter or the submitter and the tenant's audited small-merchant exception does not apply (G6-10). `count_flagged_line_not_acknowledged`: a flagged line needs an acknowledgement (G6-2). `count_line_version_stale`: an acknowledgement's `lineVersion` no longer matches the line, which changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. A count-up line without valuation history is not an error of the request: it is refused on its line (`CountVarianceLine.refusal`). */
+            CountSessionConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "count_flagged_line_not_acknowledged",
+                     *         "message": "A flagged line needs an acknowledgement.",
+                     *         "request_id": "0198a0c5-0002-7000-8000-000000000002"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 `count_self_approval_owner_only` — RT-1420. Only the tenant owner reads or changes the Count Session approval exception. */
+            CountSelfApprovalOwnerOnly: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "count_self_approval_owner_only",
+                     *         "message": "Only the tenant owner can read or change the approval exception."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 — RT-1420. `count_cut_barrier_not_met` carries the blockers in `error.details` (`CountCutBarrierDetails`). The other codes are those of `CountSessionConflict` (`count_session_not_in_state`, `idempotency_key_conflict`) in the plain envelope. Nothing is written. */
+            CountCutConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "count_cut_barrier_not_met",
+                     *         "message": "The Count Cut cannot be taken yet: a device or an ERP stock import is not ready.",
+                     *         "details": {
+                     *           "devices": [
+                     *             {
+                     *               "deviceId": "0198a0c4-0000-7000-8000-0000000000d1",
+                     *               "reason": "queue_pending"
+                     *             }
+                     *           ],
+                     *           "warehouses": [
+                     *             {
+                     *               "warehouseRef": "Stores - RT",
+                     *               "reason": "import_not_past_cut"
+                     *             }
+                     *           ]
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CountCutConflictError"];
+                };
+            };
             /** @description 5xx — internal failure; the cause is recorded server-side under `request_id`. */
             SystemFailure: {
                 headers: {
@@ -13180,6 +13754,11 @@ export namespace InventorySchema {
             IdentityIdPath: string;
             /** @description A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only. */
             SaleIdPath: string;
+            /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+            CountSessionIdPath: string;
+            /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
+            CountCursor: string;
+            CountLimit: number;
         };
         requestBodies: never;
         headers: {
@@ -14133,6 +14712,593 @@ export namespace InventorySchema {
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 409: components["responses"]["TrackingResolutionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listCountSessions: {
+            parameters: {
+                query?: {
+                    state?: components["schemas"]["CountSessionState"];
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
+                    cursor?: components["parameters"]["CountCursor"];
+                    limit?: components["parameters"]["CountLimit"];
+                };
+                header?: never;
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of Count Sessions, newest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSessionList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        createCountSession: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "scope": {
+                     *         "kind": "products",
+                     *         "productIds": [
+                     *           "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"
+                     *         ]
+                     *       },
+                     *       "note": "Monthly shelf count, aisle 3"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CreateCountSessionCommand"];
+                };
+            };
+            responses: {
+                /** @description Count Session opened. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "id": "0198a0c5-0001-7000-8000-000000000001",
+                         *       "storeId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a99",
+                         *       "state": "open",
+                         *       "scope": {
+                         *         "kind": "products",
+                         *         "productIds": [
+                         *           "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"
+                         *         ]
+                         *       },
+                         *       "note": "Monthly shelf count, aisle 3",
+                         *       "cut": null,
+                         *       "openedBy": "0198a0c4-0000-7000-8000-0000000000a1",
+                         *       "openedAt": "2026-11-16T08:00:00Z",
+                         *       "submittedBy": null,
+                         *       "submittedAt": null,
+                         *       "approval": null,
+                         *       "counterIds": [],
+                         *       "cancellation": null,
+                         *       "lateEventFindingCount": 0,
+                         *       "updatedAt": "2026-11-16T08:00:00Z"
+                         *     }
+                         */
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getCountSession: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The Count Session. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        recordCountObservations: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "observations": [
+                     *         {
+                     *           "productId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01",
+                     *           "locationId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2b01",
+                     *           "inventoryStatus": "sellable",
+                     *           "countedQuantity": "7",
+                     *           "stockingUnit": "each"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["RecordCountObservationsCommand"];
+                };
+            };
+            responses: {
+                /** @description Observations recorded. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountObservationsResult"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        takeCountCut: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Count Cut taken; the session is `cut_taken`. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountCutConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        submitCountSession: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Session submitted; it is `submitted`. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listCountVarianceLines: {
+            parameters: {
+                query?: {
+                    flagged?: boolean;
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
+                    cursor?: components["parameters"]["CountCursor"];
+                    limit?: components["parameters"]["CountLimit"];
+                };
+                header?: never;
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of variance lines. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "items": [
+                         *         {
+                         *           "productId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01",
+                         *           "stockingUnit": "each",
+                         *           "expectedQuantity": "10",
+                         *           "countedQuantity": "7",
+                         *           "varianceQuantity": "-3",
+                         *           "lineVersion": "3",
+                         *           "flags": [
+                         *             "divergence"
+                         *           ],
+                         *           "acknowledgementRequired": true,
+                         *           "acknowledgement": null,
+                         *           "refusal": null,
+                         *           "observations": [
+                         *             {
+                         *               "locationId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2b01",
+                         *               "inventoryStatus": "sellable",
+                         *               "countedQuantity": "7"
+                         *             }
+                         *           ]
+                         *         }
+                         *       ],
+                         *       "nextCursor": null
+                         *     }
+                         */
+                        "application/json": components["schemas"]["CountVarianceLineList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        requestCountRecount: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RequestCountRecountCommand"];
+                };
+            };
+            responses: {
+                /** @description Recount requested; the session is `cut_taken`. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        approveCountSession: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "acknowledgements": [
+                     *         {
+                     *           "productId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01",
+                     *           "lineVersion": "3",
+                     *           "note": "Recounted twice, shelf is short"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ApproveCountSessionCommand"];
+                };
+            };
+            responses: {
+                /** @description Session approved. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "id": "0198a0c5-0001-7000-8000-000000000001",
+                         *       "storeId": "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a99",
+                         *       "state": "approved",
+                         *       "scope": {
+                         *         "kind": "products",
+                         *         "productIds": [
+                         *           "0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"
+                         *         ]
+                         *       },
+                         *       "note": "Monthly shelf count, aisle 3",
+                         *       "cut": {
+                         *         "watermark": "wm-0198a0c5-0003",
+                         *         "cutAt": "2026-11-16T08:15:00Z",
+                         *         "takenBy": "0198a0c4-0000-7000-8000-0000000000a1"
+                         *       },
+                         *       "openedBy": "0198a0c4-0000-7000-8000-0000000000a1",
+                         *       "openedAt": "2026-11-16T08:00:00Z",
+                         *       "counterIds": [
+                         *         "0198a0c4-0000-7000-8000-0000000000a1"
+                         *       ],
+                         *       "submittedBy": "0198a0c4-0000-7000-8000-0000000000a1",
+                         *       "submittedAt": "2026-11-16T09:00:00Z",
+                         *       "approval": {
+                         *         "approvedBy": "0198a0c4-0000-7000-8000-0000000000a2",
+                         *         "approvedAt": "2026-11-16T09:30:00Z",
+                         *         "policy": "strict_separation",
+                         *         "selfApproved": false
+                         *       },
+                         *       "cancellation": null,
+                         *       "lateEventFindingCount": 0,
+                         *       "updatedAt": "2026-11-16T09:30:00Z"
+                         *     }
+                         */
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        cancelCountSession: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CancelCountSessionCommand"];
+                };
+            };
+            responses: {
+                /** @description Session cancelled. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSession"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["CountSessionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listCountLateEventFindings: {
+            parameters: {
+                query?: {
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
+                    cursor?: components["parameters"]["CountCursor"];
+                    limit?: components["parameters"]["CountLimit"];
+                };
+                header?: never;
+                path: {
+                    /** @description Store the request is scoped to; access is authorized server-side. */
+                    storeId: components["parameters"]["StoreIdPath"];
+                    /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
+                    sessionId: components["parameters"]["CountSessionIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of late-event findings. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountLateEventFindingList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getCountSelfApprovalSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The exception setting. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "enabled": false,
+                         *       "reason": null,
+                         *       "changedAt": null,
+                         *       "changedBy": null
+                         *     }
+                         */
+                        "application/json": components["schemas"]["CountSelfApprovalSetting"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["CountSelfApprovalOwnerOnly"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setCountSelfApprovalSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true,
+                     *       "reason": "One person runs this shop"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SetCountSelfApprovalCommand"];
+                };
+            };
+            responses: {
+                /** @description The exception setting after the command. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSelfApprovalSetting"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["CountSelfApprovalOwnerOnly"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
@@ -18326,6 +19492,26 @@ export namespace PosPilotReleasesSchema {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/platform/pos-pilot-releases/{releaseId}/supersede-current": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Withdraw the current pilot POS release in favour of the one this run registered (promotion workflow only).
+             * @description RT-1418. The path id is the keeper: the release the calling run has just registered. In one transaction Backend-Core withdraws the release that is current at that moment (approved and activated), never the keeper, exactly as `platformWithdrawPilotRelease` does, so a platform admin can then activate the keeper. It never activates anything and never re-approves anything: replacing a release is roll-forward only. The keeper's `promotionRunUrl` must name the run that holds the token (its `run_id` claim, or one of its attempts): a keeper of another run is 403 `forbidden`. A withdrawn keeper is 409 `release_withdrawn`. A keeper whose version is not strictly greater than the current release's (both plain `X.Y.Z`; a pre-release is never greater) is 409 `release_not_newer`, because terminals refuse a downgrade. When no other release is current (none at all, or the keeper itself is current) the answer is a 200 with `withdrawn: null` that writes nothing, so a retry is safe. No body.
+             */
+            post: operations["platformSupersedeCurrentPilotRelease"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/v1/platform/pos-pilot-releases/{releaseId}/activate": {
             parameters: {
                 query?: never;
@@ -18452,6 +19638,11 @@ export namespace PosPilotReleasesSchema {
                 /** Format: uuid */
                 activatedByUserId: string | null;
             };
+            /** @description RT-1418. `keeper` is the release the run registered, as it stands (never withdrawn by this call). `withdrawn` is the release that was current and is now withdrawn, or null when no other release was current. */
+            PilotReleaseSupersession: {
+                keeper: components["schemas"]["PilotRelease"];
+                withdrawn: components["schemas"]["PilotRelease"] | null;
+            };
             /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */
             Error: {
                 error: {
@@ -18486,7 +19677,7 @@ export namespace PosPilotReleasesSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Unauthenticated (401): a missing or invalid session cookie, a non-cookie credential, or (console read) a session with no active tenant; on register and withdraw, a missing, malformed, expired, badly signed or wrong-issuer or wrong-audience promotion token, a key set that cannot be fetched, or any credential at all while the promotion pins are unset. Non-disclosing; nothing is presigned or written and no audit row is written. Owned by 028 (G10). */
+            /** @description Unauthenticated (401): a missing or invalid session cookie, a non-cookie credential, or (console read) a session with no active tenant; on register, withdraw and supersede-current, a missing, malformed, expired, badly signed or wrong-issuer or wrong-audience promotion token, a key set that cannot be fetched, or any credential at all while the promotion pins are unset. Non-disclosing; nothing is presigned or written and no audit row is written. Owned by 028 (G10). */
             Unauthorized: {
                 headers: {
                     [name: string]: unknown;
@@ -18513,7 +19704,7 @@ export namespace PosPilotReleasesSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 403, `error.code` one of: `forbidden` (a signed-in user who is not a platform admin; or, on register and withdraw, a genuine promotion token whose claims do not match the configured pins, or whose run is not the run the body names) or `origin_rejected` (RT-430: the `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`; cookie routes only). Nothing is written. */
+            /** @description 403, `error.code` one of: `forbidden` (a signed-in user who is not a platform admin; or, on register, withdraw and supersede-current, a genuine promotion token whose claims do not match the configured pins, or whose run is not the run the body names (register) or the run that registered the keeper (supersede-current)) or `origin_rejected` (RT-430: the `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`; cookie routes only). Nothing is written. */
             PlatformWriteForbidden: {
                 headers: {
                     [name: string]: unknown;
@@ -18569,6 +19760,15 @@ export namespace PosPilotReleasesSchema {
             };
             /** @description 409, `error.code` one of: `release_withdrawn` (the release was withdrawn, even if it was activated before) or `release_current_exists` (another release is current; withdraw it first). Nothing is written. */
             ReleaseActivationRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `release_withdrawn` (the keeper was withdrawn) or `release_not_newer` (the keeper's version is not strictly greater than the current release's). Nothing is written (RT-1418). */
+            ReleaseSupersedeRefused: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18831,6 +20031,36 @@ export namespace PosPilotReleasesSchema {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["PlatformWriteForbidden"];
                 404: components["responses"]["ReleaseNotFound"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        platformSupersedeCurrentPilotRelease: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The pilot registry row id. */
+                    releaseId: components["parameters"]["ReleaseIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The current release is withdrawn (`withdrawn`), or no other release was current (`withdrawn` null, nothing written). */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PilotReleaseSupersession"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["PlatformWriteForbidden"];
+                404: components["responses"]["ReleaseNotFound"];
+                409: components["responses"]["ReleaseSupersedeRefused"];
                 500: components["responses"]["SystemFailure"];
             };
         };

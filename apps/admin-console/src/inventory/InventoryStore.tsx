@@ -28,7 +28,6 @@ import { DateTime, type T, formatNumber, useT } from "@/i18n";
 import type { StockLocation, StockMovement } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
-import { useStoreList } from "@/stores/useStoreQueries";
 import { Link, useParams } from "react-router";
 import {
   canReadInventory,
@@ -50,6 +49,7 @@ import {
   useInventoryScope,
   useStockLocations,
   useStoreMovements,
+  useStoreName,
 } from "./useInventory";
 import "../shell/surface.css";
 import "./inventory.css";
@@ -318,11 +318,6 @@ function MovementsBody({
 
 // --- Page ------------------------------------------------------------------------
 
-function useStoreName(tenantId: string | null, storeId: string): string | undefined {
-  const { result } = useStoreList(tenantId);
-  return result?.kind === "rows" ? result.rows.find((s) => s.id === storeId)?.name : undefined;
-}
-
 /**
  * The served locations list, as the band's two facts; none until it answers,
  * and none while a re-read has failed (the panel keeps its rows and says so).
@@ -364,6 +359,9 @@ function StoreView({
       <div className="inventory__strip">
         <p className="inventory__note">{t("inventory.note.readOnly")}</p>
         <p className="inventory__note">{t("inventory.note.erpBook")}</p>
+        <Link className="inventory__note" to={`/inventory/stores/${storeId}/counts`}>
+          {t("inventory.counts.link")}
+        </Link>
       </div>
       <LocationsSection locations={locations} />
       <DetailPanel id="inventory-movements" index={2} title={t("inventory.movements.title")}>
