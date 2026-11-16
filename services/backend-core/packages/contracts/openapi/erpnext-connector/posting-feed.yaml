@@ -1399,6 +1399,11 @@ components:
             properties:
               documentRef:
                 type: "null"
+              lines:
+                items:
+                  properties:
+                    result:
+                      enum: [verified_noop, rejected]
 
     ErpnextDocumentRef:
       type: object

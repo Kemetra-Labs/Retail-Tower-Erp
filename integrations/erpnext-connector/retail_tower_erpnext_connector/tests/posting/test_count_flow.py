@@ -568,6 +568,31 @@ class TestWireModels:
 		with pytest.raises(ValueError, match="sale"):
 			c.PostingWorkItem.from_wire(wire)
 
+	@pytest.mark.parametrize("where", ["line", "body"])
+	@pytest.mark.parametrize(
+		"field", ["valuationRate", "valuation_rate", "rate", "erpnextBatchRef", "variance"]
+	)
+	def test_a_supplied_valuation_or_extra_field_is_refused_not_dropped(self, where, field):
+		wire = _wire([_line_wire(1, _PAIR, "7")])
+		target = wire["count"]["lines"][0] if where == "line" else wire["count"]
+		target[field] = "10"
+		with pytest.raises(ValueError, match="count contract forbids"):
+			c.PostingWorkItem.from_wire(wire)
+
+	def test_a_valuation_rate_is_named_with_its_typed_code(self):
+		wire = _wire([_line_wire(1, _PAIR, "7")])
+		wire["count"]["lines"][0]["valuationRate"] = "10"
+		with pytest.raises(ValueError, match="valuation_rate_forbidden"):
+			c.PostingWorkItem.from_wire(wire)
+
+	def test_an_adjusted_line_cannot_ride_a_verified_noop_ack(self):
+		with pytest.raises(ValueError, match="never adjusted"):
+			c.OutcomeAckRequest.verified_noop((c.CountLineOutcome(1, "adjusted", "7"),))
+		rejected = c.CountLineOutcome(
+			2, "rejected", None, c.CountRefusal("uom_mismatch", "validation", "unit", 2)
+		)
+		assert c.OutcomeAckRequest.verified_noop((c.CountLineOutcome(1, "verified_noop", "7"), rejected))
+
 	def test_an_ack_cannot_fake_a_document_for_a_noop(self):
 		line = c.CountLineOutcome(1, "verified_noop", "7")
 		with pytest.raises(ValueError, match="verified_noop"):

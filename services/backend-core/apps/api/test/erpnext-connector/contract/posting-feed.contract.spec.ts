@@ -1509,6 +1509,13 @@ describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_c
     expect(v({ outcome: "verified_noop", lines: [line] })).toBe(true);
     expect(v({ outcome: "verified_noop" })).toBe(false);
     expect(v({ outcome: "verified_noop", documentRef: doc, lines: [line] })).toBe(false);
+    expect(v({ outcome: "verified_noop", lines: [{ ...line, result: "adjusted" }] })).toBe(false);
+    expect(
+      v({
+        outcome: "verified_noop",
+        lines: [line, { lineSeq: 2, result: "rejected", verifiedQtyAfter: null, refusal: { code: "uom_mismatch", ackCategory: "validation", message: "m" } }],
+      }),
+    ).toBe(true);
     expect(v({ outcome: "posted", documentRef: doc, lines: [{ ...line, result: "adjusted" }] })).toBe(true);
     expect(v({ outcome: "posted", documentRef: doc })).toBe(true);
     expect(v({ outcome: "posted", documentRef: doc, lines: [] })).toBe(false);

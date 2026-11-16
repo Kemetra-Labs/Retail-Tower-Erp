@@ -602,6 +602,31 @@ def _assert_return_lines_point_at_sale_lines(reversal_of: ReversalRef, sale: Sal
 _COUNT_MAX_ROWS = 100
 
 
+# The keys the flat count schemas allow (additionalProperties: false). A supplied valuation rate, a Batch,
+# a serial or a Retail variance is not one of them: it is refused, never silently dropped (G6-2, G6-3).
+_COUNT_LINE_KEYS = ("lineSeq", "erpnextItemRef", "warehouseRef", "countedQuantity", "unit")
+_COUNT_BODY_KEYS = (
+	"countSessionRef",
+	"chunk",
+	"chunkCount",
+	"storeId",
+	"mappingBucketRef",
+	"postingDatetime",
+	"lines",
+)
+
+
+def _reject_unknown_keys(wire: Mapping[str, object], allowed: tuple[str, ...], name: str) -> None:
+	extra = sorted(set(wire) - set(allowed))
+	if extra:
+		code = (
+			"valuation_rate_forbidden"
+			if any("rate" in k.lower() or "valuation" in k.lower() for k in extra)
+			else "invalid_shape"
+		)
+		raise ValueError(f"{code}: {name} carries field(s) the count contract forbids: {', '.join(extra)}")
+
+
 @dataclass(frozen=True)
 class CountPostingLine:
 	"""012 ``CountPostingLine`` (RT-1421/RT-1422) — the ABSOLUTE counted quantity of one Item at one Warehouse."""
@@ -615,6 +640,7 @@ class CountPostingLine:
 	@classmethod
 	def from_wire(cls, wire: Mapping[str, object]) -> CountPostingLine:
 		wire = _require_object(wire, "CountPostingLine")
+		_reject_unknown_keys(wire, _COUNT_LINE_KEYS, "CountPostingLine")
 		line_seq = wire["lineSeq"]
 		if isinstance(line_seq, bool) or not isinstance(line_seq, int) or line_seq < 1:
 			raise ValueError(f"CountPostingLine.lineSeq must be a positive integer, got {line_seq!r}")
@@ -658,6 +684,7 @@ class CountPosting:
 	@classmethod
 	def from_wire(cls, wire: Mapping[str, object]) -> CountPosting:
 		wire = _require_object(wire, "CountPosting")
+		_reject_unknown_keys(wire, _COUNT_BODY_KEYS, "CountPosting")
 		chunk, chunk_count = wire["chunk"], wire["chunkCount"]
 		for name, value in (("chunk", chunk), ("chunkCount", chunk_count)):
 			if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -830,6 +857,10 @@ class OutcomeAckRequest:
 			raise ValueError(f"outcome must be one of {sorted(OUTCOMES)}, got {self.outcome!r}")
 		if self.outcome == "verified_noop" and (self.document_ref is not None or not self.lines):
 			raise ValueError("verified_noop carries no documentRef and requires per-line evidence")
+		if self.outcome == "verified_noop" and any(
+			line.result not in ("verified_noop", "rejected") for line in self.lines or ()
+		):
+			raise ValueError("verified_noop lines must be verified_noop or rejected, never adjusted")
 		if self.lines is not None and not 1 <= len(self.lines) <= _COUNT_MAX_ROWS:
 			raise ValueError(f"lines must hold 1..{_COUNT_MAX_ROWS} entries")
 		if self.outcome in ("posted", "reconciliation_required") and self.document_ref is None:
