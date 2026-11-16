@@ -157,6 +157,21 @@ Found in RT-1351, where the A1c rejection had to be explained from the host:
   would make the release `restore` class (RT-927), so the poller sets it.
 - Datadog EU holds no lab-03 logs (the agent covers lab-01), so an empty Datadog search proves nothing.
 
+## A refused Connector credential (401 from Backend-Core)
+
+Found in RT-1428: the lab Connector's bearer token (`auth_tokens`, issued by hand) expired and every
+poller was refused each minute until the owner re-issued it.
+- Telling the cases apart in Sentry (`erpnext-connector`): a **403** is the Cloudflare edge or a guard, a
+  **401** is the token (expired, revoked or wrong). Sentry groups both under one issue title, so list
+  the events, never read the title. The 401 `expires_at` is in `auth_tokens` on lab-02 (read-only).
+- Since RT-1429 the Connector opens an *auth circuit*: one Sentry event (`outcome=auth_failure`) and one
+  `connector.auth_circuit.opened` line, then one probe per 60 s to 15 min window. `connector.auth_circuit.closed`
+  marks recovery. A changed token (or credential id) is a new circuit key, so pasting the re-issued token
+  takes effect on the next tick; `bench execute ...auth_circuit_store.reset_auth_circuit` forces a probe.
+  Set `dp2_credential_expires_at` so the expiry warning fires first.
+- A silent Connector is still found by Backend-Core's stale rule (5 min without a heartbeat), not by the
+  Connector's own log.
+
 ## k6 against the lab
 
 - Run the harness in `services/backend-core/loadtests/k6` with `grafana/k6` in Docker under
