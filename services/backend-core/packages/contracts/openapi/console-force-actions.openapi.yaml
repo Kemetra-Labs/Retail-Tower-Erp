@@ -1,0 +1,1224 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Console Force Actions API (shifts and re-authentication)
+  version: "1.0.0-draft"
+  description: >
+    RT-1444 (C1 of RT-1437; `[GATED: contract]`, owner decisions D1 to D10
+    approved 2026-11-16, Confluence RETAIL page 80084994, RT-1437 comment
+    17318). The Console half of the owner's "force with impact preview"
+    capability for stuck shifts: a read of every open shift of a store with its
+    eligibility verdict, a per-shift impact preview, the Console force close
+    over the existing `ShiftForceCloseService`, and the re-authentication step
+    that the store deletion (`stores.openapi.yaml` 1.3.0-draft) needs.
+    **Contract only.** No runtime, migration, Console or POS change ships with
+    it; every operation carries `x-runtime-status: contract-only` until its
+    runtime slice lands (B1 = RT-1445, B2 = RT-1439).
+
+
+    **What "force" means here (decision record, principle 1 and 3).** The
+    Console close reaches the supported operation `forceCloseShift`
+    (`pos-shifts.openapi.yaml` 1.5.0-draft) from the owner's console when a POS
+    till cannot. It never weakens a rule: the same stuck predicate, the same
+    RT-811 admission rule, the same idempotency and the same NOT COUNTED
+    semantics. A live drawer stays unclosable from the Console, exactly as from
+    another till. The server never computes expected cash (Constitution §III);
+    every figure here is a recorded count or amount.
+
+
+    **Auth and scope (D1).** The HUMAN `cookieAuth` scheme (httpOnly
+    `dp2_session`) only, gated `SessionOnlyAdminGuard` → `TenantContextGuard` →
+    `RolesGuard`; a bearer, a POS `device` token and an operator envelope are
+    401. Roles: `owner` and `tenant_admin` whose membership has ALL-store
+    access. `store_manager` keeps only the POS force close. A `store_manager`,
+    a `store_staff`, a `tenant_admin` with specific-store access, another
+    tenant's shift and an unknown id are the same non-disclosing 404
+    (`RolesGuard` default `denyAs: 404`, FR-ISO-4). A `platform_admin` who is
+    not a tenant member is admitted only through a support session
+    (RT-414), and a support session never admits these operations: the writes
+    are refused 403 `support_session_read_only`, and no write of this surface
+    is a break-glass. The tenant comes from the session, never from the
+    request (§II, §XII). Every cookie write must carry a trusted `Origin`
+    (RT-430), else 403 `origin_rejected`.
+
+
+    **Preview, then confirm, then re-check (principle 2).** The preview is a
+    server read: advisory, writing nothing, taking no lock. The write
+    re-evaluates every rule in its own transaction and is authoritative. The
+    preview returns a `previewFingerprint`; the write must send it back and is
+    refused 409 `preview_stale` when the state it covers changed after the
+    preview, so the owner never confirms an effect that differs from the one
+    shown. The fingerprint is a server-computed SHA-256 digest, opaque to
+    clients. It covers exactly the facts the preview states as recorded (the
+    shift's lifecycle state and open time, its three eligibility predicates,
+    the cash movement count and last received time, the sale and refund counts
+    on the opening terminal since the shift opened, the opening float and
+    currency, and the opening terminal's identity and trust state), together
+    with the shift id and the tenant. It does not cover `evaluatedAt` or
+    `ageMinutes`. It is not a secret and carries no authority: it proves only
+    that two reads saw the same state, and every rule is checked again either
+    way.
+
+
+    **Typed reason (D2a).** Closing a shift requires `forcedReason`, 1 to 200
+    characters, no PII. It is stored on the immutable fact and never logged
+    and never copied into audit metadata (D5a). No password re-entry is
+    required for a shift close (D2a: reason only).
+
+
+    **Where the fact records a Console origin (D5, second part).** The
+    existing `shift_forced_closes` row requires a closing terminal
+    (`closed_from_device_id` is NOT NULL, a composite foreign key to
+    `devices`), and `closedFromTerminalLabel: null` already means "that
+    terminal has no label", so neither can say "Console". This contract
+    therefore adds the explicit `closedVia` (`pos` or `console`) to the
+    Console projection `ConsoleForcedCloseRecord`: a Console close has
+    `closedVia: console` and `closedFromTerminalLabel: null`. **Storing it
+    needs an additive `[GATED: migration]` in B1 (RT-1445):
+    `closed_from_device_id` becomes nullable, a `closed_via` column is added
+    with default `pos`, and a CHECK ties them together
+    (`closed_via = 'console'` exactly when the device is null).** This PR
+    contains no migration. The POS `ForcedCloseRecord` and its
+    `forceCloseShift` response are unchanged.
+
+
+    **Evaluation order of `consoleForceCloseShift`.**
+
+
+      1. The guards: authentication (401), `Origin` and the support-session
+         gate (403), role and all-store scope (404), the console rate limit
+         (429 `rate_limited`).
+
+      2. `Idempotency-Key` presence and shape (400
+         `idempotency_key_required`, `idempotency_key_malformed`); a same-key
+         replay is answered here from the stored response with
+         `Idempotent-Replayed: true`, before the steps below; a key still being
+         processed is 425; the same key with a different body is 409
+         `idempotency_key_conflict`.
+
+      3. Body validation (400 `validation_error`).
+
+      4. The shift in the caller's tenant (404 `shift_not_found`).
+
+      5. The natural-key replay: the shift is already force-closed with the
+         same `forcedReason` is a 200 replay of the recorded fact (also from
+         another actor, another key and another channel, and it never checks
+         the fingerprint, the cap or the stuck rule); a different
+         `forcedReason` is 409 `shift_force_closed`.
+
+      6. 409 `shift_closed` (closed with a cash-up).
+
+      7. The stuck rule, 409 `shift_not_stuck` with `error.details.blockers`.
+
+      8. 409 `preview_stale` (the fingerprint no longer matches).
+
+      9. 429 `force_action_rate_limited` (D9).
+
+      10. Record (201).
+
+
+    The replay (5) sits before the fingerprint (8) and the cap (9) on purpose:
+    the close itself changes the state the fingerprint covers, so a retry of a
+    successful close under a new key must replay, not answer 409 stale or 429.
+    `previewFingerprint` is NOT part of the natural-key payload hash; the key is
+    the shift and the hash of `forcedReason`, as on the POS operation.
+
+
+    **Rate cap (D9).** At most 10 force actions per tenant per rolling hour,
+    across this surface's `consoleForceCloseShift` and the store deletion
+    `consoleDeleteStore` together. Only first-time successful writes count:
+    replays, refusals and previews never do. The 11th attempt is 429
+    `force_action_rate_limited` with `Retry-After` (seconds until the oldest
+    counted action leaves the window). It is distinct from the per-user
+    console limit (429 `rate_limited`, RT-574), so a client can tell them
+    apart. The count is read in the same transaction as the write.
+
+
+    **Audit.** The existing `shift.force_closed` event gains these metadata
+    keys (additive). `channel`: `console` for this surface (`pos` on the POS
+    path, which the B1 runtime also starts to write). `actor_role`: the
+    closing user's role. `preview_fingerprint`: the fingerprint the request
+    carried (null on the POS path). `lifecycle_state_before`: `open`.
+    `lifecycle_state_after`: `closed_forced`. `opened_on_device_id`,
+    `opening_user_id` and `shift_age_minutes`. `closed_from_device_id` is null
+    for a Console close. The existing `shift_id` and `replayed` keys are
+    unchanged. The reason is never in the metadata. The closing user is the
+    audit actor. The re-authentication writes `auth.reauth.granted` and
+    `auth.reauth.refused`, whose metadata is `purpose` and `store_id` only: no
+    password and no token, ever.
+
+
+    **PII.** User references are `users.id` values; the opening cashier's
+    `displayName` is returned only to the authorised owner or tenant_admin,
+    as the POS stuck list returns it to a manager, and is null when the user
+    has none. No e-mail, phone, PIN or credential appears anywhere.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id,
+    details? } }`. 429 `rate_limited` is the console limit (RT-574, RT-619,
+    RT-620): honour `Retry-After`, never auto-retry a write.
+servers:
+  - url: https://api.example.com
+tags:
+  - name: console-force-actions
+    description: >
+      Console owner force actions with an impact preview (RT-1437): open
+      shifts, force close, and the re-authentication step.
+security:
+  - cookieAuth: []
+paths:
+  /api/v1/stores/{store_id}/open-shifts:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+    get:
+      summary: List every open shift of a store with its eligibility verdict.
+      operationId: consoleListOpenShifts
+      tags: [console-force-actions]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1444 contract. The runtime ships in RT-1445 (B1, RT-1437 slice B1).
+      description: >
+        RT-1437 A1, D6. Every shift of the store whose lifecycle state is
+        `open`, newest first, each with its verdict: stale, a live operator
+        session, a live cashier admission, and the resulting blockers. Unlike
+        the POS `GET /api/pos/v1/shifts/stuck` (which does not change), it lists
+        shifts that are not eligible and the shift of a manager who is
+        signed in elsewhere. The Console reader has no POS envelope, so the
+        live-operator-session predicate counts every active `pos_operator`
+        session of the opening cashier on the store, with no exception. The
+        verdict is the same one `consoleForceCloseShift` evaluates, judged at
+        `evaluatedAt`. A shift whose opening cashier has no display name is
+        listed (RT-1438), with `displayName: null`.
+
+
+        Owner or `tenant_admin` with all-store access; every other caller is
+        the non-disclosing 404. A store of another tenant, a deleted store and
+        an unknown id are the same 404. At most one shift is open per device,
+        so the list is short; it carries no cursor and is capped at 200.
+      responses:
+        "200":
+          description: The store's open shifts, possibly none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShiftList"
+              examples:
+                oneBlocked:
+                  summary: One stale shift that can be closed, one that is live.
+                  value:
+                    storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                    evaluatedAt: "2026-11-16T22:40:00Z"
+                    staleThresholdMinutes: 15
+                    items:
+                      - shiftId: "0198a0c4-0000-7000-8000-000000000b01"
+                        storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                        source: cash_up
+                        lifecycleState: open
+                        openedAt: "2026-11-16T08:00:00Z"
+                        ageMinutes: 880
+                        cashier:
+                          userId: "0198a0c4-0000-7000-8000-000000000c01"
+                          displayName: null
+                        terminal:
+                          deviceId: "0198a0c4-0000-7000-8000-000000000d01"
+                          label: till-A
+                          lastSeenAt: "2026-11-16T08:20:00Z"
+                          trustState: active
+                        verdict:
+                          eligible: true
+                          stale: true
+                          liveOperatorSession: false
+                          liveCashierAdmission: false
+                          blockers: []
+                      - shiftId: "0198a0c4-0000-7000-8000-000000000b02"
+                        storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                        source: cash_up
+                        lifecycleState: open
+                        openedAt: "2026-11-16T22:00:00Z"
+                        ageMinutes: 40
+                        cashier:
+                          userId: "0198a0c4-0000-7000-8000-000000000c02"
+                          displayName: Jane Smith
+                        terminal:
+                          deviceId: "0198a0c4-0000-7000-8000-000000000d02"
+                          label: till-B
+                          lastSeenAt: "2026-11-16T22:39:00Z"
+                          trustState: active
+                        verdict:
+                          eligible: false
+                          stale: true
+                          liveOperatorSession: false
+                          liveCashierAdmission: true
+                          blockers: [live_cashier_admission]
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "5XX":
+          $ref: "#/components/responses/SystemFailure"
+  /api/v1/shifts/{shift_id}/force-close-preview:
+    parameters:
+      - $ref: "#/components/parameters/ShiftId"
+    get:
+      summary: Preview what force-closing one shift would change. Read-only.
+      operationId: consoleGetForceClosePreview
+      tags: [console-force-actions]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1444 contract. The runtime ships in RT-1445 (B1, RT-1437 slice B1).
+      description: >
+        RT-1437 A1. Reports, as recorded counts only, what a force close of
+        this shift would do now: the shift and its verdict, the cash movements
+        received and the last received time, the sales and refund executions
+        recorded for the opening terminal since the shift opened, and the
+        opening float as recorded. Never expected cash and never a variance
+        (Constitution §III). It states what changes and what does not as
+        closed code lists (the Console renders them in Arabic with no English
+        fallback, UX-12), that the close is irreversible, and returns the
+        `previewFingerprint` the write requires.
+
+
+        **A snapshot, not a reservation.** The write decides again in its own
+        transaction. **Server-received view.** A fact the till has not synced
+        cannot be seen, so the preview never claims everything has synced
+        (`caveats`). A legacy shift (opened before the cash-up facts) has no
+        received cash facts: `cashMovementCount` and
+        `lastCashMovementReceivedAt` are null (unknown, never zero), as on the
+        device impact preview (RT-366).
+
+
+        A shift that is no longer open is previewed too, with
+        `shift.lifecycleState` `closed` or `closed_forced` and the blocker
+        `shift_not_open`, so a stale Console tab learns the outcome. Another
+        tenant's shift, a shift outside the caller's scope and an unknown id
+        are the non-disclosing 404. Same roles as `consoleListOpenShifts`.
+      responses:
+        "200":
+          description: The impact preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForceClosePreview"
+              examples:
+                eligible:
+                  value:
+                    shift:
+                      shiftId: "0198a0c4-0000-7000-8000-000000000b01"
+                      storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                      source: cash_up
+                      lifecycleState: open
+                      openedAt: "2026-11-16T08:00:00Z"
+                      ageMinutes: 880
+                      cashier:
+                        userId: "0198a0c4-0000-7000-8000-000000000c01"
+                        displayName: null
+                      terminal:
+                        deviceId: "0198a0c4-0000-7000-8000-000000000d01"
+                        label: till-A
+                        lastSeenAt: "2026-11-16T08:20:00Z"
+                        trustState: active
+                      verdict:
+                        eligible: true
+                        stale: true
+                        liveOperatorSession: false
+                        liveCashierAdmission: false
+                        blockers: []
+                    recorded:
+                      currencyCode: EGP
+                      openingFloat: "500.00"
+                      cashMovementCount: 3
+                      lastCashMovementReceivedAt: "2026-11-16T09:12:00Z"
+                      saleCount: 41
+                      refundExecutionCount: 1
+                    effects:
+                      willChange:
+                        - shift_closed_not_counted
+                        - no_cash_up_recorded
+                        - terminal_may_open_new_shift
+                        - device_retire_replace_move_unblocked
+                        - timezone_change_unblocked
+                      willNotChange:
+                        - sales_unchanged
+                        - refunds_unchanged
+                        - cash_movements_unchanged
+                        - stock_unchanged
+                        - erp_documents_unchanged
+                    reversible: false
+                    drawerCashUnaccounted: true
+                    caveats: [offline_facts_not_visible, terminal_not_notified]
+                    previewFingerprint: "3f0c8a5e1b7d4c2a9e6f0b1d8c7a5e4f2b3d9c6a1e8f7b0d5c4a3e2f1b9d8c7a"
+                    evaluatedAt: "2026-11-16T22:40:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "5XX":
+          $ref: "#/components/responses/SystemFailure"
+  /api/v1/shifts/{shift_id}/force-close:
+    parameters:
+      - $ref: "#/components/parameters/ShiftId"
+    post:
+      summary: Force-close a stuck shift from the Console, as not counted.
+      operationId: consoleForceCloseShift
+      tags: [console-force-actions]
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1444 contract. The runtime, and the additive [GATED: migration]
+        that lets the fact record a Console origin, ship in RT-1445 (B1).
+      description: >
+        RT-1437 A1, D1, D2a, D5, D9. The Console equivalent of
+        `forceCloseShift` (`pos-shifts.openapi.yaml`): the same
+        `ShiftForceCloseService`, the same stuck rule, the same RT-811 admission
+        rule, the same idempotency, and the same result, a shift closed as NOT
+        COUNTED (`cashCount: not_counted`) with no counted cash, no variance and
+        no `ShiftClose`. The preview's "what changes" and "what does not"
+        lists apply unchanged.
+
+
+        **Eligibility** is the POS predicate evaluated at the call: the shift
+        is open, older than the staleness threshold, its opening cashier has no
+        active `pos_operator` session on the store (no caller exception: the
+        Console reader has no envelope session), and its opening terminal holds
+        no live cashier admission. Otherwise 409 `shift_not_stuck`, whose
+        `error.details.blockers` lists every predicate that failed, so a live
+        drawer is never closed from the Console.
+
+
+        **Roles (D1).** Owner or `tenant_admin` with all-store access.
+        Every other caller, including a `store_manager`, is the non-disclosing
+        404; no caller reaches this operation as `platform_admin` or inside a
+        support session. **Re-authentication (D2a):** none, the typed reason
+        only.
+
+
+        **Idempotency.** `Idempotency-Key` is REQUIRED (the shared
+        interceptor, keyed on the verified user). The natural key is the shift
+        with the hash of `forcedReason`, never the actor, the channel or the
+        fingerprint: the same close sent again under another key, by another
+        user, from the Console or a POS, is a `200` replay of the recorded
+        fact. The evaluation order is in the contract description.
+
+
+        **Effect and the till that comes back.** Nothing already recorded is
+        edited or deleted. The opening terminal does not know yet: its later
+        `closeShift` is 409 `shift_force_closed` (`pos-shifts.openapi.yaml`);
+        the POS treats that as final (RT-1442, merged).
+
+
+        **Audit.** One `shift.force_closed` event with the metadata listed in
+        the contract description; the reason is never in it.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsoleForceCloseRequest"
+            examples:
+              forced:
+                value:
+                  forcedReason: Till A died with the shift open; the cashier left
+                  previewFingerprint: "3f0c8a5e1b7d4c2a9e6f0b1d8c7a5e4f2b3d9c6a1e8f7b0d5c4a3e2f1b9d8c7a"
+      responses:
+        "200":
+          description: >
+            Replay. The same `Idempotency-Key` again (the stored response with
+            its stored status), or the same close re-delivered under another
+            key or by another channel (`200` with the recorded projection).
+            Both carry `Idempotent-Replayed: true`.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleForceClosedShift"
+        "201":
+          description: >
+            Shift force-closed for the first time. A retry with the same
+            `Idempotency-Key` replays this stored `201` with
+            `Idempotent-Replayed: true`.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleForceClosedShift"
+              examples:
+                console:
+                  value:
+                    shiftId: "0198a0c4-0000-7000-8000-000000000b01"
+                    status: force_closed
+                    currencyCode: EGP
+                    openingFloat: "500.00"
+                    openedAt: "2026-11-16T08:00:00Z"
+                    openingUserId: "0198a0c4-0000-7000-8000-000000000c01"
+                    receivedAt: "2026-11-16T08:00:02Z"
+                    forcedClose:
+                      closedByUserId: "0198a0c4-0000-7000-8000-000000000e01"
+                      closedAt: "2026-11-16T22:41:00Z"
+                      closedVia: console
+                      closedFromTerminalLabel: null
+                      openedOnTerminalLabel: till-A
+                      forcedReason: Till A died with the shift open; the cashier left
+                      cashCount: not_counted
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenForce"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ForceCloseConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/ForceActionTooManyRequests"
+        "5XX":
+          $ref: "#/components/responses/SystemFailure"
+  /api/v1/auth/reauth:
+    post:
+      summary: Re-enter the password to obtain a short-lived, single-use grant for one sensitive action.
+      operationId: consoleReauthenticate
+      tags: [console-force-actions]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1444 contract. The runtime ships in RT-1439 (B2, the first action
+        that needs it, the store deletion).
+      description: >
+        RT-1437 D2b (owner decision: re-enter the password and give a reason,
+        for the store deletion only). **Mechanism, verified against main and
+        the vendor docs.** The current user's password is verified server-side
+        by the same path as sign-in: for a user with an ACTIVE external identity
+        link, the provider's password sign-in (Descope `POST
+        /v1/auth/password/signin`, the backend SDK's `password.signIn`,
+        https://docs.descope.com/auth-methods/passwords/with-sdks/backend),
+        whose returned session JWT is verified against the provider's keys and
+        whose `sub` must equal the link's subject; for any other user, the
+        native Argon2 hash that sign-in verifies. The provider's session is
+        discarded and nothing from it is kept. Provider step-up
+        (https://docs.descope.com/mfa-and-step-up/step-up) was considered and
+        rejected: it needs the user's provider refresh token and flow or SDK
+        interaction in the browser and issues a token with an `su` claim, but
+        the Console holds only the native `dp2_session` and the password never
+        reaches a browser SDK (RT-937). No re-authentication endpoint existed
+        before this contract; the RT-414 break-glass decision (password
+        re-entry plus reason) had no contract, so this operation defines it.
+
+
+        **The grant.** On success the response carries an opaque
+        `reauthToken`, valid for 5 minutes (`expiresAt`), single use, and bound
+        to the calling session, the user, the `purpose` and the `storeId`. The
+        password is never part of the destructive request: the deletion
+        carries only the token, so the password is never in an idempotency
+        fingerprint or a replay record (the shared `IdempotencyInterceptor`
+        hashes and stores the whole request body for 72 hours). The grant is
+        consumed by the write that succeeds; a deletion refused for another
+        reason (a guard, a stale preview) leaves it valid until it expires. A
+        same-key replay never needs it.
+
+
+        **Refusals.** A wrong password, an unverifiable provider answer, a
+        token that fails verification and a subject mismatch are ONE generic
+        403 `reauth_failed`; they cannot be told apart, so the response cannot
+        be used to probe the password. It is never 401, because the Console
+        treats a 401 as session loss. Failed attempts are counted per user, 5
+        per 15 minutes, as `changePassword` counts them (a success does not
+        count); past that the answer is 429 `reauth_rate_limited` with
+        `Retry-After`. A provider outage is 503 `identity_provider_unavailable`
+        (an outage is not a wrong password). For `store_deletion` only the
+        tenant `owner` may obtain a grant: a `tenant_admin` is 403
+        `store_deletion_owner_only`, and any other role, another tenant's store
+        and an unknown store are the non-disclosing 404. Support sessions and
+        `platform_admin` are refused as on every write here.
+
+
+        **Evaluation order.** The password is the LAST thing checked, so no
+        caller who fails an earlier step can use this endpoint to test a
+        password:
+
+
+          1. The guards: authentication (401), `Origin` and the support-session
+             gate (403), the console rate limit (429 `rate_limited`).
+
+          2. Body validation (400 `validation_error`).
+
+          3. The store and the role: the store in the caller's tenant, not
+             deleted (404); a role outside owner and `tenant_admin` (404); a
+             `tenant_admin` (403 `store_deletion_owner_only`).
+
+          4. The failed-attempt budget (429 `reauth_rate_limited`), read before
+             any password is verified, so a user over budget is refused without
+             another guess being tested. Only failed attempts count.
+
+          5. The password verification (403 `reauth_failed`, 503
+             `identity_provider_unavailable`).
+
+          6. The grant (200).
+
+
+        The response is never cached. The password and the token are never
+        logged and never appear in an error, an audit row or a metric label.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReauthRequest"
+            examples:
+              storeDeletion:
+                value:
+                  purpose: store_deletion
+                  storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                  password: correct horse battery staple
+      responses:
+        "200":
+          description: The grant.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReauthGrant"
+              examples:
+                granted:
+                  value:
+                    reauthToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                    purpose: store_deletion
+                    storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                    expiresAt: "2026-11-16T22:50:00Z"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >
+            `reauth_failed` (the generic refusal), `store_deletion_owner_only`,
+            `origin_rejected` (RT-430), or a support-session refusal
+            (`support_session_required`, `support_session_expired`,
+            `support_session_read_only`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/ForceActionTooManyRequests"
+        "503":
+          description: >
+            `identity_provider_unavailable`: the provider (or the limiter) is
+            unavailable. Nothing was granted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "5XX":
+          $ref: "#/components/responses/SystemFailure"
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified by
+        `SessionOnlyAdminGuard`. The only accepted credential on this surface: a
+        machine bearer, a POS `device` token or an `operatorAuthorization`
+        envelope is rejected (401). Roles are named per operation.
+  parameters:
+    StoreId:
+      in: path
+      name: store_id
+      required: true
+      schema: { type: string, format: uuid }
+    ShiftId:
+      in: path
+      name: shift_id
+      required: true
+      schema: { type: string, format: uuid }
+      description: >
+        The `shiftId` of a shift of the caller's tenant (the id the list
+        returns). Another tenant's shift, a shift outside the caller's scope and
+        an unknown id are the non-disclosing 404.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as the
+        shared `IdempotencyInterceptor` enforces. Keyed on the method, the route,
+        the path parameters, the verified user and the key. An identical retry
+        replays the stored response with `Idempotent-Replayed: true`; reuse with a
+        different body is 409 `idempotency_key_conflict`; a key whose first
+        request is still being processed is 425 `idempotency_in_progress`. A
+        missing key is 400 `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`. No new idempotency primitive.
+  headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on every idempotent-replay response. Clients MUST
+        detect a replay by this header, not by the status code. Absent on a
+        first-time record.
+      schema:
+        type: boolean
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      description: Canonical error envelope, with the optional `details`.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: >
+                Stable machine-readable error code. This contract adds
+                `shift_not_found`, `shift_not_stuck`, `shift_closed`,
+                `shift_force_closed`, `preview_stale`,
+                `force_action_rate_limited`, `reauth_failed`,
+                `reauth_rate_limited`, `store_deletion_owner_only` and
+                `identity_provider_unavailable`.
+            message: { type: string }
+            request_id: { type: string, format: uuid }
+            details:
+              type: object
+              description: >
+                Present on 409 `shift_not_stuck` (`blockers`). Absent on every
+                other code.
+              properties:
+                blockers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ShiftBlocker"
+    FingerprintString:
+      type: string
+      minLength: 16
+      maxLength: 128
+      pattern: "^[0-9a-f]{16,128}$"
+      description: >
+        Opaque server-computed digest of the previewed state (a SHA-256 hex
+        string today). Clients store and echo it, never interpret it.
+    ShiftBlocker:
+      type: string
+      enum: [shift_not_open, not_stale, live_operator_session, live_cashier_admission]
+      description: >
+        Why the shift cannot be force-closed now. `shift_not_open`: it is
+        already closed or force-closed. `not_stale`: it was opened less than the
+        staleness threshold ago. `live_operator_session`: its opening cashier
+        has an active `pos_operator` session on the store.
+        `live_cashier_admission`: its opening terminal holds a live cashier
+        admission (RT-811).
+    ShiftVerdict:
+      type: object
+      additionalProperties: false
+      required: [eligible, stale, liveOperatorSession, liveCashierAdmission, blockers]
+      description: >
+        The stuck rule evaluated at `evaluatedAt`. `eligible` is true exactly
+        when `blockers` is empty.
+      properties:
+        eligible: { type: boolean }
+        stale:
+          type: boolean
+          description: Opened longer ago than the staleness threshold.
+        liveOperatorSession: { type: boolean }
+        liveCashierAdmission: { type: boolean }
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShiftBlocker"
+    ShiftCashier:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName:
+          type: [string, "null"]
+          description: The opening cashier's display name; null when the user has none.
+    ShiftTerminal:
+      type: object
+      additionalProperties: false
+      required: [deviceId, label, lastSeenAt, trustState]
+      properties:
+        deviceId: { type: string, format: uuid }
+        label:
+          type: [string, "null"]
+          description: The terminal's label; null when it has none.
+        lastSeenAt:
+          type: [string, "null"]
+          format: date-time
+          description: The terminal's last heartbeat; null when it never reported.
+        trustState:
+          type: string
+          enum: [active, revoked, retired]
+          description: The device trust state (`devices.openapi.yaml`).
+    OpenShiftSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - shiftId
+        - storeId
+        - source
+        - lifecycleState
+        - openedAt
+        - ageMinutes
+        - cashier
+        - terminal
+        - verdict
+      properties:
+        shiftId: { type: string, format: uuid }
+        storeId: { type: string, format: uuid }
+        source:
+          type: string
+          enum: [cash_up, legacy]
+          description: How the shift was opened (`shifts.source`).
+        lifecycleState:
+          type: string
+          enum: [open, closed, closed_forced]
+          description: Always `open` in a list; the preview of a finished shift reports its state.
+        openedAt: { type: string, format: date-time }
+        ageMinutes:
+          type: integer
+          minimum: 0
+          description: Minutes since `openedAt` at `evaluatedAt`. Not covered by the fingerprint.
+        cashier:
+          $ref: "#/components/schemas/ShiftCashier"
+        terminal:
+          $ref: "#/components/schemas/ShiftTerminal"
+        verdict:
+          $ref: "#/components/schemas/ShiftVerdict"
+    OpenShiftList:
+      type: object
+      additionalProperties: false
+      required: [storeId, evaluatedAt, staleThresholdMinutes, items]
+      properties:
+        storeId: { type: string, format: uuid }
+        evaluatedAt:
+          type: string
+          format: date-time
+          description: Server time the verdicts were computed at.
+        staleThresholdMinutes:
+          type: integer
+          minimum: 1
+          description: The staleness threshold the verdicts used (the stuck-list threshold).
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/OpenShiftSummary"
+    RecordedFacts:
+      type: object
+      additionalProperties: false
+      required:
+        - currencyCode
+        - openingFloat
+        - cashMovementCount
+        - lastCashMovementReceivedAt
+        - saleCount
+        - refundExecutionCount
+      description: >
+        Recorded counts and amounts only, as the server received them. Never an
+        expected-cash or variance figure.
+      properties:
+        currencyCode:
+          type: [string, "null"]
+          pattern: "^[A-Z]{3}$"
+          description: The shift's ISO-4217 currency; null for a legacy shift.
+        openingFloat:
+          type: [string, "null"]
+          pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+          description: The opening float as recorded, an exact-decimal string; null for a legacy shift.
+        cashMovementCount:
+          type: [integer, "null"]
+          minimum: 0
+          description: Cash movements received for the shift; null for a legacy shift (unknown, never zero).
+        lastCashMovementReceivedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the server last received a movement; null when none, and for a legacy shift.
+        saleCount:
+          type: integer
+          minimum: 0
+          description: >
+            Sales captured from the opening terminal with a sale time at or after
+            the shift opened, as the server recorded them.
+        refundExecutionCount:
+          type: integer
+          minimum: 0
+          description: >
+            Refund executions recorded from the opening terminal since the shift
+            opened.
+    ForceClosePreview:
+      type: object
+      additionalProperties: false
+      required:
+        - shift
+        - recorded
+        - effects
+        - reversible
+        - drawerCashUnaccounted
+        - caveats
+        - previewFingerprint
+        - evaluatedAt
+      properties:
+        shift:
+          $ref: "#/components/schemas/OpenShiftSummary"
+        recorded:
+          $ref: "#/components/schemas/RecordedFacts"
+        effects:
+          type: object
+          additionalProperties: false
+          required: [willChange, willNotChange]
+          properties:
+            willChange:
+              type: array
+              items:
+                type: string
+                enum:
+                  - shift_closed_not_counted
+                  - no_cash_up_recorded
+                  - terminal_may_open_new_shift
+                  - device_retire_replace_move_unblocked
+                  - timezone_change_unblocked
+            willNotChange:
+              type: array
+              items:
+                type: string
+                enum:
+                  - sales_unchanged
+                  - refunds_unchanged
+                  - cash_movements_unchanged
+                  - stock_unchanged
+                  - erp_documents_unchanged
+        reversible:
+          type: boolean
+          const: false
+          description: There is no reopen operation. A later close from the till is refused 409 `shift_force_closed`.
+        drawerCashUnaccounted:
+          type: boolean
+          const: true
+          description: The drawer's real cash stays unaccounted in Retail Tower.
+        caveats:
+          type: array
+          description: >
+            Limits of what the server can see, always returned.
+            `offline_facts_not_visible`: a shift, sale or movement the till has
+            not synced is not counted. `terminal_not_notified`: the till is not
+            told and learns only when its next close is refused.
+          items:
+            type: string
+            enum: [offline_facts_not_visible, terminal_not_notified]
+        previewFingerprint:
+          $ref: "#/components/schemas/FingerprintString"
+        evaluatedAt: { type: string, format: date-time }
+    ConsoleForceCloseRequest:
+      type: object
+      additionalProperties: false
+      required: [forcedReason, previewFingerprint]
+      description: >
+        The actor is the cookie session user, the time is the server clock, and
+        tenant and store come from the session and the shift; the body carries
+        none of them and no cash-up total (a force close records none).
+      properties:
+        forcedReason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            Why the shift is closed from the Console. 1 to 200 characters. No PII.
+            Stored with the fact; never logged, never in audit metadata. Part of
+            the natural-key payload hash.
+        previewFingerprint:
+          $ref: "#/components/schemas/FingerprintString"
+    ConsoleForcedCloseRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - closedByUserId
+        - closedAt
+        - closedVia
+        - closedFromTerminalLabel
+        - openedOnTerminalLabel
+        - forcedReason
+        - cashCount
+      description: >
+        The recorded force close, as the Console reads it. No total of any kind
+        exists on it. No internal id (tenant, store, device) is returned.
+      properties:
+        closedByUserId: { type: string, format: uuid }
+        closedAt: { type: string, format: date-time }
+        closedVia:
+          type: string
+          enum: [pos, console]
+          description: >
+            Where the close came from: a POS terminal (`pos`) or this surface
+            (`console`). The fact records it explicitly (D5), because a null
+            terminal label already means "the terminal has no label".
+        closedFromTerminalLabel:
+          type: [string, "null"]
+          description: >
+            Label of the terminal the request came from. Always null for a
+            `console` close; null for a `pos` close from a terminal with no label.
+        openedOnTerminalLabel:
+          type: [string, "null"]
+        forcedReason:
+          type: string
+          minLength: 1
+          maxLength: 200
+        cashCount:
+          type: string
+          const: not_counted
+    ConsoleForceClosedShift:
+      type: object
+      additionalProperties: false
+      required:
+        - shiftId
+        - status
+        - currencyCode
+        - openingFloat
+        - openedAt
+        - openingUserId
+        - receivedAt
+        - forcedClose
+      description: >
+        A shift closed as not counted. It is NOT a `Shift`: `status` is
+        `force_closed`, never `closed`. The same fields as the POS
+        `ForceClosedShift`, with the Console record; null `currencyCode`,
+        `openingFloat` and `receivedAt` for a legacy shift.
+      properties:
+        shiftId: { type: string, format: uuid }
+        status:
+          type: string
+          const: force_closed
+        currencyCode:
+          type: [string, "null"]
+          pattern: "^[A-Z]{3}$"
+        openingFloat:
+          type: [string, "null"]
+          pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+        openedAt: { type: string, format: date-time }
+        openingUserId: { type: string, format: uuid }
+        receivedAt: { type: [string, "null"], format: date-time }
+        forcedClose:
+          $ref: "#/components/schemas/ConsoleForcedCloseRecord"
+    ReauthRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose, storeId, password]
+      properties:
+        purpose:
+          type: string
+          enum: [store_deletion]
+          description: The one action this grant is for. More purposes need their own owner decision.
+        storeId:
+          type: string
+          format: uuid
+          description: The store the grant is bound to.
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+          description: The current user's password. Never logged, stored or echoed.
+    ReauthGrant:
+      type: object
+      additionalProperties: false
+      required: [reauthToken, purpose, storeId, expiresAt]
+      properties:
+        reauthToken:
+          type: string
+          minLength: 43
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_-]{43,128}$"
+          description: >
+            Opaque, single-use, bound to the session, user, purpose and store.
+            A credential: never logged.
+        purpose:
+          type: string
+          enum: [store_deletion]
+        storeId: { type: string, format: uuid }
+        expiresAt:
+          type: string
+          format: date-time
+          description: 5 minutes after the grant was issued.
+  responses:
+    Unauthorized:
+      description: 401 — no valid session, or a non-session credential.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 — the non-disclosing refusal: a role or scope outside the contract's
+        list, another tenant's resource, or an unknown id. One body for every cause.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationFailure:
+      description: >
+        400 — `validation_error` (a malformed body, path or unknown key),
+        `idempotency_key_required` or `idempotency_key_malformed`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ForbiddenForce:
+      description: >
+        403 — `origin_rejected` (RT-430: the request is authenticated by the
+        `dp2_session` cookie and its `Origin` header is missing, or is neither the
+        API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session
+        refusal (`support_session_required`, `support_session_expired`,
+        `support_session_read_only`): no write on this surface is admitted in a
+        support session.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ForceCloseConflict:
+      description: >
+        409 on `consoleForceCloseShift`. `error.code` is one of:
+        `idempotency_key_conflict` (the same key reused with a different body);
+        `shift_force_closed` (already force-closed with a different
+        `forcedReason`); `shift_closed` (already closed with a cash-up);
+        `shift_not_stuck` (open but not eligible now, with
+        `error.details.blockers`); `preview_stale` (the previewed state changed:
+        read the preview again). Deterministic; nothing is recorded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            notStuck:
+              value:
+                error:
+                  code: shift_not_stuck
+                  message: The shift is not stuck.
+                  details:
+                    blockers: [live_cashier_admission]
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first request with this key is still
+        being processed. Nothing is recorded by this request. Retry with the same
+        key and body after `Retry-After`. The body is the interceptor's own
+        shape, `{ error: "idempotency_in_progress", retryAfterSec }`, not the
+        `Error` envelope.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying (currently always 2).
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, retryAfterSec]
+            properties:
+              error:
+                type: string
+                const: idempotency_in_progress
+              retryAfterSec:
+                type: integer
+                minimum: 1
+    SystemFailure:
+      description: 5xx — internal failure; the cause is recorded server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it
+        never means the session ended. The console limit is
+        server-configured and may not be enforced, so a client must handle a
+        429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ForceActionTooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574, the per-user console limit; see the shared
+        429 on the reads) or `force_action_rate_limited` (D9: the tenant's
+        hourly cap of force actions is spent, or, on `consoleReauthenticate`,
+        `reauth_rate_limited`: the user's failed-attempt budget is spent). The
+        body is the canonical error envelope with a non-disclosing message (no
+        budget, class or window); its `request_id` equals the `X-Request-Id`
+        response header. Honour `Retry-After`; never auto-retry a mutation. A 429
+        is not a 401: it never means the session ended.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
