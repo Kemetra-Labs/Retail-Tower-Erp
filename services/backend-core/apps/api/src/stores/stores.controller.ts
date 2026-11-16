@@ -9,6 +9,7 @@
  *     GET    /api/v1/stores/{store_id}   readStore         (per access policy)
  *     PATCH  /api/v1/stores/{store_id}   updateStore       [owner|tenant_admin]
  *     DELETE /api/v1/stores/{store_id}   softDeleteStore   [owner|tenant_admin]
+ *                                        (RT-1439: the four deletion guards and the `store.deleted` audit row)
  *     GET    /api/v1/stores/{store_id}/timezone-change-preview
  *                                         previewStoreTimezoneChange [owner|tenant_admin]
  *
@@ -261,6 +262,6 @@ export class StoresController {
   ): Promise<void> {
     const ctx = request.context;
     if (!ctx) throw new UnauthorizedException("Unauthorized");
-    await this.storesService.softDelete(ctx, storeId);
+    await this.storesService.softDelete(ctx, storeId, { requestId: request.requestId ?? null });
   }
 }

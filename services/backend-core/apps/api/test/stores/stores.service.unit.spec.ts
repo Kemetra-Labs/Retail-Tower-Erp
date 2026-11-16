@@ -65,13 +65,29 @@ import type {
 import type { ResolvedContext } from "../../src/context/types";
 
 import { newId } from "@data-pulse-2/shared";
+import {
+  readStoreDeletionFacts,
+  type StoreDeletionFacts,
+} from "../../src/stores/deletion/store-deletion.facts";
+import { deleteStoreWithAudit } from "../../src/stores/deletion/store-deletion.write";
 
 // RT-1337: store create / delete refresh the offer Pack; these unit specs run on a bare fake client.
+// RT-1439: the deletion evaluator and writer have their own real-database specs
+// (stores.deletion.http.integration.spec.ts); here only the orchestration of softDelete is pinned.
+jest.mock("../../src/stores/deletion/store-deletion.facts", () => ({
+  ...jest.requireActual("../../src/stores/deletion/store-deletion.facts"),
+  readStoreDeletionFacts: jest.fn(),
+}));
+jest.mock("../../src/stores/deletion/store-deletion.write", () => ({
+  deleteStoreWithAudit: jest.fn(async () => new Date("2026-11-16T22:45:00Z")),
+}));
+
 jest.mock("../../src/offers/offer-pack.rebuild", () => ({
   rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
 }));
 
 const mockNewId = newId as jest.MockedFunction<typeof newId>;
+const mockFacts = readStoreDeletionFacts as jest.MockedFunction<typeof readStoreDeletionFacts>;
 
 // ---------------------------------------------------------------------------
 // Fixed test constants
@@ -136,6 +152,8 @@ function makeFakeStoresRepo(): jest.Mocked<StoresRepository> {
     update:          jest.fn(),
     softDelete:      jest.fn(),
     existsInTenant:  jest.fn(),
+    findByIdForUpdate: jest.fn(),
+    markDeleted:     jest.fn(),
   } as unknown as jest.Mocked<StoresRepository>;
 }
 
@@ -555,34 +573,85 @@ describe("StoresService.update", () => {
 // ===========================================================================
 
 describe("StoresService.softDelete", () => {
-  it("SD1: stores.existsInTenant returns false → NotFoundException; softDelete NOT called", async () => {
+  const facts = (over: Partial<StoreDeletionFacts> = {}): StoreDeletionFacts => ({
+    store: { storeId: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true },
+    openShifts: [],
+    devices: [],
+    openCountSessions: [],
+    warehouseMappings: [],
+    singleStoreMembers: [],
+    offersRebuiltCount: 0,
+    ...over,
+  });
+  const liveStore = { id: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true } as StoreRecord;
+
+  it("SD1: the store row cannot be locked (invisible or already deleted) → NotFoundException; nothing is deleted", async () => {
     const { service, storesRepo } = buildService();
-    storesRepo.existsInTenant.mockResolvedValue(false);
+    storesRepo.findByIdForUpdate.mockResolvedValue(null);
     const ctx = makeCtx();
 
-    await expect(service.softDelete(ctx, STORE_ID)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.softDelete(ctx, STORE_ID)).rejects.toBeInstanceOf(NotFoundException);
 
-    expect(storesRepo.existsInTenant).toHaveBeenCalledWith(fakeClient, STORE_ID);
-    expect(storesRepo.softDelete).not.toHaveBeenCalled();
+    expect(storesRepo.findByIdForUpdate).toHaveBeenCalledWith(fakeClient, STORE_ID);
+    expect(deleteStoreWithAudit).not.toHaveBeenCalled();
   });
 
-  it("SD2: happy path — softDelete called after existence check; resolves void", async () => {
-    const { service, storesRepo } = buildService();
-    storesRepo.existsInTenant.mockResolvedValue(true);
-    storesRepo.softDelete.mockResolvedValue(true);
+  it("SD2: happy path — locks the store, evaluates the guards, then deletes with an api audit; resolves void", async () => {
+    const { service, storesRepo, membershipsRepo } = buildService();
+    storesRepo.findByIdForUpdate.mockResolvedValue(liveStore);
+    mockFacts.mockResolvedValue(facts());
+    membershipsRepo.findRoleCodeForUserInTenant.mockResolvedValue("tenant_admin");
     const ctx = makeCtx();
 
-    const result = await service.softDelete(ctx, STORE_ID);
+    const result = await service.softDelete(ctx, STORE_ID, { requestId: "req-1" });
 
     expect(result).toBeUndefined();
-    expect(storesRepo.existsInTenant).toHaveBeenCalledWith(fakeClient, STORE_ID);
-    expect(storesRepo.softDelete).toHaveBeenCalledWith(fakeClient, STORE_ID);
+    expect(deleteStoreWithAudit).toHaveBeenCalledWith(
+      fakeClient,
+      storesRepo,
+      ctx.tenantId,
+      expect.objectContaining({ store: expect.objectContaining({ storeId: STORE_ID }) }),
+      { channel: "api", actorUserId: ctx.userId, actorRole: "tenant_admin", requestId: "req-1", reason: null, previewFingerprint: null },
+    );
+    expect(storesRepo.findByIdForUpdate.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockFacts.mock.invocationCallOrder[0]!,
+    );
+    expect(mockFacts.mock.invocationCallOrder[0]!).toBeLessThan(
+      (deleteStoreWithAudit as jest.Mock).mock.invocationCallOrder[0]!,
+    );
+  });
 
-    // existsInTenant ran before softDelete
-    const existsOrder = storesRepo.existsInTenant.mock.invocationCallOrder[0]!;
-    const softDeleteOrder = storesRepo.softDelete.mock.invocationCallOrder[0]!;
-    expect(existsOrder).toBeLessThan(softDeleteOrder);
+  it("SD3: a guard holds → 409 with the first blocker as the code and every blocker in details; nothing is deleted", async () => {
+    const { service, storesRepo } = buildService();
+    storesRepo.findByIdForUpdate.mockResolvedValue(liveStore);
+    mockFacts.mockResolvedValue(
+      facts({ openShifts: [{ shiftId: "s1", openedAt: new Date(), terminalLabel: null, forceCloseEligible: true }] }),
+    );
+
+    const err = await service.softDelete(makeCtx(), STORE_ID).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: "store_has_open_shift",
+      details: { blockers: [{ code: "store_has_open_shift", count: 1 }] },
+    });
+    expect(deleteStoreWithAudit).not.toHaveBeenCalled();
+  });
+
+  it("SD4: a platform admin without a membership is audited as platform_admin", async () => {
+    const { service, storesRepo, membershipsRepo } = buildService();
+    storesRepo.findByIdForUpdate.mockResolvedValue(liveStore);
+    mockFacts.mockResolvedValue(facts());
+    membershipsRepo.findRoleCodeForUserInTenant.mockResolvedValue(null);
+
+    await service.softDelete({ ...makeCtx(), isPlatformAdmin: true }, STORE_ID);
+
+    expect(deleteStoreWithAudit).toHaveBeenCalledWith(
+      fakeClient,
+      storesRepo,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ actorRole: "platform_admin" }),
+    );
   });
 });

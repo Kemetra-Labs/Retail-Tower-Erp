@@ -547,6 +547,60 @@ export class AuthService {
   }
 
   // ---------------------------------------------------------------------
+  // Re-authentication (RT-1439)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Check the signed-in user's CURRENT password for a re-authentication, by the same
+   * authority sign-in uses: the provider's password sign-in for a user with an ACTIVE
+   * external identity link (its token is verified and its subject must be the link's),
+   * the native Argon2 hash for anyone else. Nothing is changed and no Backend-Core
+   * session is minted.
+   *
+   * The provider session the check creates is ended again (best effort, that one session
+   * only, never `logoutAll`), so a re-authentication leaves no usable provider session.
+   * A failed discard does not fail the check; the log names the result kind only.
+   *
+   * Returns `ok` or `refused` (a wrong password, an unusable answer, a subject mismatch and
+   * a user with no password all look the same); an outage is a 503, never a refusal.
+   */
+  async verifyCurrentPassword(userId: string, password: string): Promise<"ok" | "refused"> {
+    const user = await this.findActiveUserById(userId);
+    if (!user) return "refused";
+    const external = this.external;
+    const linkSubject = await this.externalLinkSubject(user.id);
+    if (external && linkSubject !== null) {
+      const result = await external.port.verifyPassword(user.email, password);
+      if (result.kind === "unavailable") {
+        throw new ServiceUnavailableException("Identity provider unavailable");
+      }
+      if (result.kind !== "ok") return "refused";
+      const forThisUser = await this.tokenIsForLink(external, result.sessionJwt, linkSubject);
+      await this.discardProviderSession(external, result.refreshJwt);
+      return forThisUser ? "ok" : "refused";
+    }
+    if (user.passwordHash === null) return "refused";
+    return (await verifyPassword(user.passwordHash, password)) ? "ok" : "refused";
+  }
+
+  /** Best-effort end of the one provider session a password check created. */
+  private async discardProviderSession(external: ExternalCredentials, refreshJwt: string | null): Promise<void> {
+    if (refreshJwt === null) {
+      log().warn({ result: "no_refresh_token" }, "provider session of a re-authentication could not be ended");
+      return;
+    }
+    let ended: LogoutAllResult["kind"];
+    try {
+      ended = (await external.port.endSession(refreshJwt)).kind;
+    } catch {
+      ended = "unavailable";
+    }
+    if (ended !== "ok") {
+      log().warn({ result: ended }, "provider session of a re-authentication was not ended");
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Password reset
   // ---------------------------------------------------------------------
 

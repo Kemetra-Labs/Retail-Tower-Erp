@@ -55,6 +55,13 @@
  *   - persisted business dates are never rewritten (215).
  */
 import { rebuildOfferPackForStoreChange } from "../offers/offer-pack.rebuild";
+import { storeDeletionBlocked } from "./deletion/store-deletion.errors";
+import {
+  evaluateStoreDeletionBlockers,
+  factsStoreOf,
+  readStoreDeletionFacts,
+} from "./deletion/store-deletion.facts";
+import { deleteStoreWithAudit } from "./deletion/store-deletion.write";
 import {
   BadRequestException,
   ConflictException,
@@ -464,40 +471,43 @@ export class StoresService {
   // ===== DELETE =====================================================
 
   /**
-   * `DELETE /api/v1/stores/:store_id`. RolesGuard already verified
-   * `owner`/`tenant_admin`. Soft-delete is idempotent — a second call
-   * on the same id is also 204. Cross-tenant ids would normally be
-   * silently filtered by RLS (0 rows updated → still 204), but the
-   * contract specifies 404 for "not found / no access". We probe
-   * existence inside the same RLS context to distinguish:
+   * `DELETE /api/v1/stores/:store_id`. RolesGuard already verified `owner`/`tenant_admin`.
    *
-   *   - Store visible in active tenant → soft-delete (or no-op if
-   *                                       already deleted) → 204.
-   *   - Store NOT visible (cross-tenant or never existed) → 404.
+   * RT-1439 (RT-1437 B2, D3): the same four guards as `consoleDeleteStore` apply here, on the
+   * same evaluator (`deletion/store-deletion.facts.ts`), so this route is no bypass of them:
+   * 409 `store_has_open_shift`, `store_has_unretired_device`, `store_device_queue_unsynced` or
+   * `store_has_open_count_session` (every guard that holds in `error.details.blockers`); and the
+   * deletion writes one `store.deleted` audit row (`channel: "api"`) in its own transaction.
+   * The store row is locked `FOR UPDATE` first, so the checks still hold when the write lands.
    *
-   * The probe runs inside the same `runWithTenantContext` transaction
-   * as the soft-delete, so the existence check and the UPDATE see a
-   * consistent snapshot.
+   * Not idempotent: a second call on the same id is 404 (the contract's 204/404 split: 204 for
+   * "I deleted it now"; 404 for "you can't see it"). Cross-tenant ids are filtered by RLS and
+   * are the same 404. The route still has no reason, preview or re-authentication, and still
+   * admits `tenant_admin`: closing that is a contract decision (see RT-1439).
    */
   async softDelete(
     ctx: ResolvedContext,
     storeId: string,
+    meta: StoreWriteMeta = NO_REQUEST_META,
   ): Promise<void> {
     await this.tx(this.pool, txCtx(ctx), async (client) => {
-      const exists = await this.stores.existsInTenant(client, storeId);
-      if (!exists) {
-        // Either cross-tenant (RLS filtered) or already soft-deleted.
-        // For idempotency on already-soft-deleted, we can't easily
-        // distinguish from "never existed in this tenant" without a
-        // separate query, so we 404 here. The integration spec asserts
-        // that a SECOND DELETE call right after a successful first
-        // call returns 404, which matches the contract's 204/404 split
-        // (204 for "I deleted it now"; 404 for "you can't see it").
-        throw notFound();
-      }
-      await this.stores.softDelete(client, storeId);
-      // RT-1337: a deleted store leaves every offer's Pack.
-      await rebuildOfferPackForStoreChange(client, ctx.tenantId as string);
+      const store = await this.stores.findByIdForUpdate(client, storeId);
+      if (!store) throw notFound();
+      const facts = await readStoreDeletionFacts(client, factsStoreOf(store));
+      const blockers = evaluateStoreDeletionBlockers(facts);
+      if (blockers.length > 0) throw storeDeletionBlocked(blockers);
+      const role =
+        ctx.userId !== null && ctx.tenantId !== null
+          ? await this.memberships.findRoleCodeForUserInTenant(ctx.userId, ctx.tenantId, client)
+          : null;
+      await deleteStoreWithAudit(client, this.stores, ctx.tenantId as string, facts, {
+        channel: "api",
+        actorUserId: ctx.userId,
+        actorRole: role ?? (ctx.isPlatformAdmin ? "platform_admin" : null),
+        requestId: meta.requestId,
+        reason: null,
+        previewFingerprint: null,
+      });
     });
   }
 }

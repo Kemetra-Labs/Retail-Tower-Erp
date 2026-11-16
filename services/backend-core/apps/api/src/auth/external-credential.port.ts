@@ -26,6 +26,17 @@ export type PasswordSignInResult =
 
 export type ReplacePasswordResult = PasswordSignInResult;
 
+/**
+ * RT-1439: a password check that must not leave a usable provider session
+ * behind. `refreshJwt` is the one-time handle `endSession` needs; it stays in
+ * memory (never stored, logged or returned to a client). Null when the provider
+ * did not return one, in which case the session cannot be ended from here.
+ */
+export type VerifyPasswordResult =
+  | { readonly kind: "ok"; readonly sessionJwt: string; readonly refreshJwt: string | null }
+  | { readonly kind: "refused" }
+  | { readonly kind: "unavailable" };
+
 export interface CreateUserInput {
   readonly loginId: string;
   readonly email: string;
@@ -97,6 +108,17 @@ export interface ExternalCredentialPort {
   readonly identity: { readonly providerKey: string; readonly issuer: string };
   /** Verify a loginId + password. */
   passwordSignIn(loginId: string, password: string): Promise<PasswordSignInResult>;
+  /**
+   * Verify a loginId + password for a re-authentication (RT-1439). Same provider
+   * call as `passwordSignIn`; it additionally returns the refresh token so the
+   * caller can end the session the check created (`endSession`).
+   */
+  verifyPassword(loginId: string, password: string): Promise<VerifyPasswordResult>;
+  /**
+   * End ONE provider session, the one `refreshJwt` belongs to (RT-1439). Unlike
+   * `logoutAllSessions` it never touches the user's other provider sessions.
+   */
+  endSession(refreshJwt: string): Promise<LogoutAllResult>;
   /** Replace a password the user knows (old + new), revoking their other provider sessions. */
   replacePassword(loginId: string, oldPassword: string, newPassword: string): Promise<ReplacePasswordResult>;
   /** Ask the provider to email the user a recovery link (RT-1327). Never reveals whether the user exists. */

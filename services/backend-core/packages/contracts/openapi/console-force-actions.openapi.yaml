@@ -489,10 +489,6 @@ paths:
       summary: Re-enter the password to obtain a short-lived, single-use grant for one sensitive action.
       operationId: consoleReauthenticate
       tags: [console-force-actions]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1444 contract. The runtime ships in RT-1439 (B2, the first action
-        that needs it, the store deletion).
       description: >
         RT-1437 D2b (owner decision: re-enter the password and give a reason,
         for the store deletion only). **Mechanism, verified against main and

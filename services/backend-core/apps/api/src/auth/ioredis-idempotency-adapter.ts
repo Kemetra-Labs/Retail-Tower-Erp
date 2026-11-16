@@ -44,6 +44,17 @@ end
 return {count, ttl}
 `;
 
+/**
+ * RT-1439: delete a key only when its value is the expected one, in one atomic step (the
+ * re-authentication grant's single-use consume). Returns 1 when it deleted, else 0.
+ */
+const COMPARE_AND_DELETE_SCRIPT = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`;
+
 function isInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value);
 }
@@ -82,6 +93,12 @@ export class IoredisIdempotencyAdapter {
 
   del(key: string): Promise<number> {
     return this.client.del(key);
+  }
+
+  /** RT-1439: atomic delete-if-equal (see {@link COMPARE_AND_DELETE_SCRIPT}). */
+  async compareAndDelete(key: string, expected: string): Promise<boolean> {
+    const reply: unknown = await this.client.eval(COMPARE_AND_DELETE_SCRIPT, 1, key, expected);
+    return reply === 1;
   }
 
   // ---------------------------------------------------------------------------

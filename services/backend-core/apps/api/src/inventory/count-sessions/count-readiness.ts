@@ -30,11 +30,22 @@ type ReadinessCode =
   | 'connector_version_unlisted'
   | 'erp_back_dated_role_unverified';
 
+/**
+ * RT-1439 (RT-1437 A3; `inventory.yaml` 1.19.0-draft): the ONE device or ERP warehouse a boundary
+ * is about, as a structured id so a client can link to the screen that clears it instead of
+ * parsing `message`. Exactly one member is set.
+ */
+export type ReadinessSubject =
+  | { readonly deviceId: string; readonly warehouseRef?: never }
+  | { readonly warehouseRef: string; readonly deviceId?: never };
+
 export interface UnmetReadiness {
   readonly code: ReadinessCode;
   /** The store the boundary is about; null for a tenant-wide boundary. */
   readonly storeId: string | null;
   readonly message: string;
+  /** Present only on `store_barrier_unprovable`: the device or warehouse that cannot be proven. */
+  readonly subject?: ReadinessSubject;
 }
 
 export interface StoreEvidence {
@@ -64,14 +75,36 @@ export interface ReadinessEvidence {
 /** A heartbeat older than this is not proof the Connector is running. */
 export const CONNECTOR_HEARTBEAT_MAX_AGE_MS = 15 * 60 * 1000;
 
-function barrierProblem(s: StoreEvidence): string | null {
-  const blind = s.devices.find((d) => !d.hasHealthRow || d.lastSeenAt === null);
-  if (blind) return `device ${blind.deviceId} has never reported a heartbeat`;
-  const unknown = s.devices.find((d) => d.pending === null || d.deadLetter === null || d.held === null);
-  if (unknown) return `device ${unknown.deviceId} does not report its sale queue`;
-  const noImport = s.warehouses.find((w) => w.lastCompletedEndedAt === null);
-  if (noImport) return `warehouse ${noImport.erpnextWarehouseRef} has no completed ERP stock import`;
-  return null;
+/** One barrier problem: what is wrong, and the one device or warehouse it is about. */
+interface BarrierProblem {
+  readonly message: string;
+  readonly subject: ReadinessSubject;
+}
+
+/**
+ * EVERY problem of the store's barrier, one per offending device or warehouse (RT-1439), in the
+ * order devices (no heartbeat, then unknown queue, for each device by its first problem), then
+ * warehouses with no completed ERP stock import. A device with two problems is one entry (its
+ * first): the subject is the device, and clearing it clears both.
+ */
+function barrierProblems(s: StoreEvidence): BarrierProblem[] {
+  const out: BarrierProblem[] = [];
+  for (const d of s.devices) {
+    if (!d.hasHealthRow || d.lastSeenAt === null) {
+      out.push({ message: `device ${d.deviceId} has never reported a heartbeat`, subject: { deviceId: d.deviceId } });
+    } else if (d.pending === null || d.deadLetter === null || d.held === null) {
+      out.push({ message: `device ${d.deviceId} does not report its sale queue`, subject: { deviceId: d.deviceId } });
+    }
+  }
+  for (const w of s.warehouses) {
+    if (w.lastCompletedEndedAt === null) {
+      out.push({
+        message: `warehouse ${w.erpnextWarehouseRef} has no completed ERP stock import`,
+        subject: { warehouseRef: w.erpnextWarehouseRef },
+      });
+    }
+  }
+  return out;
 }
 
 function storeBoundaries(s: StoreEvidence): UnmetReadiness[] {
@@ -84,9 +117,13 @@ function storeBoundaries(s: StoreEvidence): UnmetReadiness[] {
     });
     return out;
   }
-  const problem = barrierProblem(s);
-  if (problem !== null) {
-    out.push({ code: 'store_barrier_unprovable', storeId: s.storeId, message: `The Count Cut barrier cannot be proven: ${problem}.` });
+  for (const problem of barrierProblems(s)) {
+    out.push({
+      code: 'store_barrier_unprovable',
+      storeId: s.storeId,
+      message: `The Count Cut barrier cannot be proven: ${problem.message}.`,
+      subject: problem.subject,
+    });
   }
   return out;
 }

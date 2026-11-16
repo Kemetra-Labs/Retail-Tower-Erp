@@ -17,8 +17,8 @@
  *              null repo → 404; platform admin / kind='all' / token
  *              skip the access check
  *   - update → null repo → 404 (race with concurrent delete)
- *   - softDelete → existsInTenant → 404 if invisible; otherwise repo
- *                  softDelete called
+ *   - softDelete → lock the store FOR UPDATE → 404 if invisible; otherwise the shared deletion writer
+ *                  (guards and audit are covered by stores.deletion.http.integration.spec.ts)
  *
  * Style: hand-rolled `*Like` fakes, mirroring the established repo
  * idiom from `tenants.service.spec.ts`.
@@ -38,6 +38,25 @@ import type {
   StoresRepository,
 } from "../../src/stores/stores.repository";
 import { StoresService } from "../../src/stores/stores.service";
+import { deleteStoreWithAudit } from "../../src/stores/deletion/store-deletion.write";
+
+// RT-1439: the deletion evaluator and writer have their own real-database specs
+// (stores.deletion.http.integration.spec.ts); here only the orchestration of softDelete is pinned.
+jest.mock("../../src/stores/deletion/store-deletion.facts", () => ({
+  ...jest.requireActual("../../src/stores/deletion/store-deletion.facts"),
+  readStoreDeletionFacts: jest.fn(async (_client: unknown, s: { storeId: string; code: string; name: string; isActive: boolean }) => ({
+    store: s,
+    openShifts: [],
+    devices: [],
+    openCountSessions: [],
+    warehouseMappings: [],
+    singleStoreMembers: [],
+    offersRebuiltCount: 0,
+  })),
+}));
+jest.mock("../../src/stores/deletion/store-deletion.write", () => ({
+  deleteStoreWithAudit: jest.fn(async () => new Date("2026-11-16T22:45:00Z")),
+}));
 
 // RT-1337: store create / delete refresh the offer Pack; these unit specs run on a bare fake client.
 jest.mock("../../src/offers/offer-pack.rebuild", () => ({
@@ -73,6 +92,9 @@ class FakeStoresRepository {
   updateResult: StoreRecord | null = null;
   softDeleteResult = true;
   existsInTenantResult = true;
+  /** RT-1439: the row the deletion locks `FOR UPDATE` (null = invisible or already deleted). */
+  findByIdForUpdateResult: StoreRecord | null = null;
+  findByIdForUpdateCalls: Array<{ storeId: string }> = [];
 
   listInTenantCalls = 0;
   findByIdCalls: Array<{ storeId: string }> = [];
@@ -137,6 +159,13 @@ class FakeStoresRepository {
     this.existsInTenantCalls.push({ storeId });
     return this.existsInTenantResult;
   }
+  async findByIdForUpdate(
+    _client: PoolClient,
+    storeId: string,
+  ): Promise<StoreRecord | null> {
+    this.findByIdForUpdateCalls.push({ storeId });
+    return this.findByIdForUpdateResult;
+  }
 }
 
 class FakeMembershipRepository {
@@ -169,6 +198,10 @@ class FakeMembershipRepository {
   ): Promise<boolean> {
     this.canAccessStoreCalls.push({ membershipId, tenantId, storeId, kind });
     return this.canAccess;
+  }
+  /** RT-1439: the deleting caller's role, recorded in the `store.deleted` audit row. */
+  async findRoleCodeForUserInTenant(): Promise<string | null> {
+    return "owner";
   }
 }
 
@@ -430,20 +463,27 @@ describe("StoresService.update", () => {
 // --- softDelete -------------------------------------------------------
 
 describe("StoresService.softDelete", () => {
-  it("happy path: probes existence then calls repo.softDelete", async () => {
-    repo.existsInTenantResult = true;
+  it("happy path: locks the store, then deletes it through the shared writer (api audit)", async () => {
+    repo.findByIdForUpdateResult = store();
     await expect(
       service.softDelete(SESSION_CTX, STORE_ID),
     ).resolves.toBeUndefined();
-    expect(repo.existsInTenantCalls).toEqual([{ storeId: STORE_ID }]);
-    expect(repo.softDeleteCalls).toEqual([{ storeId: STORE_ID }]);
+    expect(repo.findByIdForUpdateCalls).toEqual([{ storeId: STORE_ID }]);
+    expect(deleteStoreWithAudit).toHaveBeenCalledTimes(1);
+    expect(deleteStoreWithAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      repo,
+      TENANT_ID,
+      expect.objectContaining({ store: expect.objectContaining({ storeId: STORE_ID }) }),
+      expect.objectContaining({ channel: "api", reason: null, previewFingerprint: null }),
+    );
   });
 
-  it("invisible store (cross-tenant or already-deleted): 404, no softDelete", async () => {
-    repo.existsInTenantResult = false;
+  it("invisible store (cross-tenant or already-deleted): 404, nothing deleted", async () => {
+    repo.findByIdForUpdateResult = null;
     await expect(
       service.softDelete(SESSION_CTX, STORE_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(repo.softDeleteCalls).toHaveLength(0);
+    expect(deleteStoreWithAudit).not.toHaveBeenCalled();
   });
 });

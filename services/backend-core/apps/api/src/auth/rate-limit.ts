@@ -105,6 +105,9 @@ export const RATE_LIMIT_BUCKETS = {
   // only (the hit is released on success), so a stolen session cannot be used
   // to guess the current password faster than the provider's own lockout.
   passwordChangePerUser: { limit: 5, windowMs: 15 * 60 * 1000 },
+  // RT-1439: failed re-authentication password attempts per signed-in user, counted as
+  // `passwordChangePerUser` is (a success gives its hit back), read BEFORE any password is checked.
+  reauthPerUser: { limit: 5, windowMs: 15 * 60 * 1000 },
   // RT-141: verification-email requests per user. Over the limit the request
   // is still answered 202 (contract) but no further email is sent.
   emailVerifyRequestPerUser: { limit: 3, windowMs: 60 * 60 * 1000 },

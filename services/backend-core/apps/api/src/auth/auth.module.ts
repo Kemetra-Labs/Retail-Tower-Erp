@@ -206,6 +206,10 @@ export class AlwaysAllowRedis implements RedisLike {
   del(_key: string): Promise<number> {
     return Promise.resolve(0);
   }
+  /** RT-1439: nothing is ever stored, so no re-authentication grant is ever valid (fail closed). */
+  compareAndDelete(_key: string, _expected: string): Promise<boolean> {
+    return Promise.resolve(false);
+  }
 }
 
 @Module({
