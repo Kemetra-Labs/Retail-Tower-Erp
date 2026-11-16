@@ -181,7 +181,8 @@ describe("GET /shifts/stuck — RT-1438 an opener with no display name is still 
       "a live session of the opener on the store",
       async () => {
         const id = await openOn(DEV_A1);
-        await seedOperatorSession(CASHIER, DEV_A1_SECOND);
+        // On the opening terminal: a device holds one live session, and the manager signs in on DEV_A1_SECOND.
+        await seedOperatorSession(CASHIER, DEV_A1);
         return id;
       },
       false,
