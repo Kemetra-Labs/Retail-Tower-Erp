@@ -17,10 +17,15 @@ import {
   DEV_A1_SECOND,
   MANAGER,
   STORE_A1,
+  admin,
   expectSchema,
+  forcedClosePath,
   getStuck,
+  managerEnvelope,
   minutesAgo,
+  newKey,
   openOn,
+  post,
   resetState,
   seedAdmission,
   seedLegacyShift,
@@ -106,4 +111,90 @@ describe("GET /shifts/stuck — RT-811 a live cashier admission on the opening t
     await seedLiveAdmission(CASHIER, DEV_A1_SECOND);
     expect(await listedOnA1()).toEqual([shiftId]);
   });
+});
+
+describe("GET /shifts/stuck — RT-1438 an opener with no display name is still listed", () => {
+  const FALLBACK = "cashier@rt17-s2b.example";
+
+  /** Runs `fn` with CASHIER's display_name set to `value`, restoring it after. */
+  async function withDisplayName<T>(value: string | null, fn: () => Promise<T>): Promise<T> {
+    await admin().query(`UPDATE users SET display_name = $2 WHERE id = $1`, [CASHIER.id, value]);
+    try {
+      return await fn();
+    } finally {
+      await admin().query(`UPDATE users SET display_name = 'cashier' WHERE id = $1`, [CASHIER.id]);
+    }
+  }
+
+  /** Force close of `shiftId` by the manager from another terminal of the store. */
+  async function forceCloseStatus(shiftId: string): Promise<number> {
+    const res = await post({
+      path: forcedClosePath(shiftId),
+      bearer: await managerEnvelope(DEV_A1_SECOND),
+      body: { forcedReason: "RT-1438 eligibility agreement" },
+      key: newKey(),
+    });
+    return res.status;
+  }
+
+  it.each([
+    ["NULL", null],
+    ["empty", ""],
+    ["blank", "   "],
+  ] as const)("lists a stuck shift whose opener's display_name is %s, under the email", async (_label, value) => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    await withDisplayName(value, async () => {
+      const res = await getStuck(STORE_A1);
+      expect(res.status).toBe(200);
+      expectSchema("StuckShiftsResponse", res.body);
+      expect(res.body.shifts).toEqual([
+        expect.objectContaining({ shift_id: shiftId, cashier_display_name: FALLBACK, terminal_label: "till-0001" }),
+      ]);
+    });
+  });
+
+  it("a real display name is still shown, not the email", async () => {
+    if (skipped()) return;
+    const shiftId = await openOn(DEV_A1);
+    await withDisplayName("Jane Smith", async () => {
+      const res = await getStuck(STORE_A1);
+      expect(res.body.shifts).toEqual([expect.objectContaining({ shift_id: shiftId, cashier_display_name: "Jane Smith" })]);
+    });
+  });
+
+  it.each([
+    ["stuck", async () => openOn(DEV_A1), true],
+    ["stuck legacy", async () => seedLegacyShift(DEV_A1), true],
+    ["younger than the threshold", async () => openOn(DEV_A1, { openedAt: minutesAgo(5) }), false],
+    [
+      "a live admission on the opening terminal",
+      async () => {
+        const id = await openOn(DEV_A1);
+        await seedLiveAdmission(CASHIER_UNADMITTED, DEV_A1);
+        return id;
+      },
+      false,
+    ],
+    [
+      "a live session of the opener on the store",
+      async () => {
+        const id = await openOn(DEV_A1);
+        await seedOperatorSession(CASHIER, DEV_A1_SECOND);
+        return id;
+      },
+      false,
+    ],
+  ] as const)(
+    "a NULL-name opener's %s shift: the list and the force close agree (eligible = %s)",
+    async (_label, seed, eligible) => {
+      if (skipped()) return;
+      await withDisplayName(null, async () => {
+        const shiftId = await seed();
+        const listed = (await listedOnA1()).includes(shiftId);
+        const forceClosed = (await forceCloseStatus(shiftId)) === 201;
+        expect({ listed, forceClosed }).toEqual({ listed: eligible, forceClosed: eligible });
+      });
+    },
+  );
 });
