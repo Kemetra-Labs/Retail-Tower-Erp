@@ -36,10 +36,29 @@ export interface BarrierWarehouse {
   readonly lastCompletedEndedAt: Date | null;
 }
 
+type DeviceBlockReason =
+  'no_heartbeat' | 'stale_heartbeat' | 'queue_unknown' | 'queue_pending';
+type WarehouseBlockReason = 'import_not_past_cut';
+
 export interface BarrierVerdict {
   readonly allowed: boolean;
-  readonly blockingDeviceIds: readonly string[];
-  readonly blockingWarehouses: readonly string[];
+  readonly devices: ReadonlyArray<{
+    readonly deviceId: string;
+    readonly reason: DeviceBlockReason;
+  }>;
+  readonly warehouses: ReadonlyArray<{
+    readonly warehouseRef: string;
+    readonly reason: WarehouseBlockReason;
+  }>;
+}
+
+/** The first reason a device blocks the cut, or null when it is drained and current. */
+function deviceReason(cutRequestedAt: Date, d: BarrierDevice): DeviceBlockReason | null {
+  if (!d.hasHealthRow || d.lastSeenAt === null) return 'no_heartbeat';
+  if (d.lastSeenAt.getTime() < cutRequestedAt.getTime()) return 'stale_heartbeat';
+  if (d.pending === null || d.deadLetter === null || d.held === null) return 'queue_unknown';
+  if (d.pending !== 0 || d.deadLetter !== 0 || d.held !== 0) return 'queue_pending';
+  return null;
 }
 
 /** PURE: decide the barrier from what the database reported. */
@@ -48,28 +67,21 @@ export function evaluateBarrier(
   devices: readonly BarrierDevice[],
   warehouses: readonly BarrierWarehouse[],
 ): BarrierVerdict {
-  const blockingDeviceIds = devices
-    .filter(
-      (d) =>
-        !d.hasHealthRow ||
-        d.lastSeenAt === null ||
-        d.lastSeenAt.getTime() < cutRequestedAt.getTime() ||
-        d.pending !== 0 ||
-        d.deadLetter !== 0 ||
-        d.held !== 0,
-    )
-    .map((d) => d.deviceId);
-  const blockingWarehouses = warehouses
+  const blockedDevices = devices.flatMap((d) => {
+    const reason = deviceReason(cutRequestedAt, d);
+    return reason === null ? [] : [{ deviceId: d.deviceId, reason }];
+  });
+  const blockedWarehouses = warehouses
     .filter(
       (w) =>
         w.lastCompletedEndedAt === null ||
         w.lastCompletedEndedAt.getTime() < cutRequestedAt.getTime(),
     )
-    .map((w) => w.erpnextWarehouseRef);
+    .map((w) => ({ warehouseRef: w.erpnextWarehouseRef, reason: 'import_not_past_cut' as const }));
   return {
-    allowed: blockingDeviceIds.length === 0 && blockingWarehouses.length === 0,
-    blockingDeviceIds,
-    blockingWarehouses,
+    allowed: blockedDevices.length === 0 && blockedWarehouses.length === 0,
+    devices: blockedDevices,
+    warehouses: blockedWarehouses,
   };
 }
 

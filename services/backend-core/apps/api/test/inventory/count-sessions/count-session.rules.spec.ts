@@ -195,8 +195,8 @@ describe('Count Cut barrier', () => {
   it('allows the cut when every device is drained and every warehouse imported past the cut', () => {
     expect(evaluateBarrier(cutAt, [healthy('d1')], [wh('W1', '2026-11-16T10:00:05Z')])).toEqual({
       allowed: true,
-      blockingDeviceIds: [],
-      blockingWarehouses: [],
+      devices: [],
+      warehouses: [],
     });
   });
   it('blocks a device with no health row, a stale beat, a pending, dead-letter or held sale, or a NULL count', () => {
@@ -214,7 +214,14 @@ describe('Count Cut barrier', () => {
       [],
     );
     expect(verdict.allowed).toBe(false);
-    expect(verdict.blockingDeviceIds).toEqual(['no-health', 'stale', 'pending', 'dead', 'held', 'null-counts']);
+    expect(verdict.devices).toEqual([
+      { deviceId: 'no-health', reason: 'no_heartbeat' },
+      { deviceId: 'stale', reason: 'stale_heartbeat' },
+      { deviceId: 'pending', reason: 'queue_pending' },
+      { deviceId: 'dead', reason: 'queue_pending' },
+      { deviceId: 'held', reason: 'queue_pending' },
+      { deviceId: 'null-counts', reason: 'queue_unknown' },
+    ]);
   });
   it('blocks a warehouse with no completed run or one that ended before the cut request', () => {
     const verdict = evaluateBarrier(
@@ -223,7 +230,10 @@ describe('Count Cut barrier', () => {
       [wh('never', null), wh('old', '2026-11-16T09:59:59Z'), wh('fresh', '2026-11-16T10:00:00Z')],
     );
     expect(verdict.allowed).toBe(false);
-    expect(verdict.blockingWarehouses).toEqual(['never', 'old']);
+    expect(verdict.warehouses).toEqual([
+      { warehouseRef: 'never', reason: 'import_not_past_cut' },
+      { warehouseRef: 'old', reason: 'import_not_past_cut' },
+    ]);
   });
   it('allows a store with no live device and no mapped warehouse (nothing to wait for)', () => {
     expect(evaluateBarrier(cutAt, [], []).allowed).toBe(true);

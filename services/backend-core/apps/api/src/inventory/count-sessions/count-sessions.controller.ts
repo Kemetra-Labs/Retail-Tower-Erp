@@ -20,6 +20,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UnauthorizedException,
@@ -38,7 +39,11 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { authorizeInventoryStore } from '../inventory.controller';
 import { COUNT_SESSION_STATES } from './count-session.rules';
-import { CountSessionsService, type CountCaller } from './count-sessions.service';
+import {
+  CountSessionsService,
+  type CountCaller,
+  type SelfApprovalBody,
+} from './count-sessions.service';
 import type {
   CountSessionBody,
   FindingBody,
@@ -132,6 +137,11 @@ const CancelSchema = z.object({ reason: ReasonSchema }).strict();
 /** The path ids, validated as UUIDs. */
 const StoreId = (): ParameterDecorator => Param('storeId', new ZodValidationPipe(UuidSchema));
 const SessionId = (): ParameterDecorator => Param('sessionId', new ZodValidationPipe(UuidSchema));
+
+/** Contract `SetCountSelfApprovalCommand`. */
+const SelfApprovalSchema = z
+  .object({ enabled: z.boolean(), reason: z.string().max(500).nullable().optional() })
+  .strict();
 
 const ROLES = ['owner', 'tenant_admin', 'store_manager'] as const;
 const BASE = 'api/inventory/v1/stores/:storeId/count-sessions';
@@ -321,6 +331,35 @@ export class CountSessionsController {
       cursor ?? null,
       limit,
     );
+  }
+
+  /** The owner-only small-merchant approval exception (G6-10). The service gives any other role the typed 403. */
+  @Get('api/inventory/v1/settings/count-self-approval')
+  @Roles(...ROLES, { denyAs: 403 })
+  async getCountSelfApprovalSetting(
+    @Req() request: TenantContextRequest,
+  ): Promise<SelfApprovalBody> {
+    return await this.service.getSelfApprovalException(this.tenantCaller(request));
+  }
+
+  @Put('api/inventory/v1/settings/count-self-approval')
+  @Roles(...ROLES, { denyAs: 403 })
+  async setCountSelfApprovalSetting(
+    @Req() request: TenantContextRequest,
+    @Body(new ZodValidationPipe(SelfApprovalSchema)) body: z.infer<typeof SelfApprovalSchema>,
+  ): Promise<SelfApprovalBody> {
+    return await this.service.setSelfApprovalException(
+      this.tenantCaller(request),
+      body.enabled,
+      body.reason ?? null,
+    );
+  }
+
+  private tenantCaller(request: TenantContextRequest): CountCaller {
+    const ctx: ResolvedContext | undefined = request.context;
+    if (!ctx || ctx.tenantId === null || ctx.userId === null)
+      throw new UnauthorizedException('Unauthorized');
+    return { tenantId: ctx.tenantId, userId: ctx.userId };
   }
 
   /** The tenant-bound principal, with the path store authorized (404 outside its scope). */

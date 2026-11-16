@@ -101,6 +101,8 @@ const OPERATION_IDS = [
   "createCountSession",
   "getCountSession",
   "listCountLateEventFindings",
+  "getCountSelfApprovalSetting",
+  "setCountSelfApprovalSetting",
   "listCountSessions",
   "listCountVarianceLines",
   "recordCountObservations",
@@ -148,6 +150,8 @@ const OPERATOR_OPERATION_IDS = [
   "createCountSession",
   "getCountSession",
   "listCountLateEventFindings",
+  "getCountSelfApprovalSetting",
+  "setCountSelfApprovalSetting",
   "listCountSessions",
   "listCountVarianceLines",
   "recordCountObservations",
@@ -205,6 +209,7 @@ const READ_OPERATION_IDS = [
 
 // RT-1419: the Count Session reads (the commands are in WRITE_OPERATION_IDS).
 const COUNT_SESSION_READ_IDS = [
+  "getCountSelfApprovalSetting",
   "listCountSessions",
   "getCountSession",
   "listCountVarianceLines",
@@ -1497,7 +1502,31 @@ describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
   it("is the 1.16.0 draft, with a wording-only version note citing the owner delegation", () => {
     expect(inventoryDoc.info?.version).toBe("1.16.0-draft");
     const description = inventoryDoc.info?.description ?? "";
-    expect(description).toContain("**1.16.0-draft (RT-1420, wording only, no shape change;");
+    expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
+  });
+
+  it("carries the barrier blockers in the 409 error details", () => {
+    const text = JSON.stringify([
+      inventoryDoc.components?.schemas?.["CountCutBarrierDevice"],
+      inventoryDoc.components?.schemas?.["CountCutBarrierWarehouse"],
+    ]);
+    for (const reason of ["no_heartbeat", "stale_heartbeat", "queue_unknown", "queue_pending", "import_not_past_cut"]) {
+      expect(text).toContain(reason);
+    }
+    const cut = inventoryDoc.paths?.["/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/cut"]?.["post"] as
+      | { responses?: Record<string, unknown> }
+      | undefined;
+    expect(JSON.stringify(cut?.responses?.["409"])).toContain("CountCutConflict");
+  });
+
+  it("exposes the owner-only approval exception as a get and a put, with the typed 403", () => {
+    const path = inventoryDoc.paths?.["/api/inventory/v1/settings/count-self-approval"];
+    expect(path?.["get"]?.operationId).toBe("getCountSelfApprovalSetting");
+    expect(path?.["put"]?.operationId).toBe("setCountSelfApprovalSetting");
+    expect(JSON.stringify(path?.["put"])).toContain("CountSelfApprovalOwnerOnly");
+    expect(JSON.stringify(inventoryDoc.components?.responses?.["CountSelfApprovalOwnerOnly"])).toContain(
+      "count_self_approval_owner_only",
+    );
   });
 });

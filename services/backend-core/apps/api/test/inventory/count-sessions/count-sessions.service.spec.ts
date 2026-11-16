@@ -342,10 +342,16 @@ describe('approval policy (AC5)', () => {
     expect(await code(service.approve(as(COUNTER), STORE_A_X, id, await acks(id)))).toBe('count_approver_conflict');
 
     role = 'tenant_admin';
-    expect(await code(service.setSelfApprovalException(as(COUNTER), true, 'small shop'))).toBe('ForbiddenException');
+    expect(await code(service.setSelfApprovalException(as(COUNTER), true, 'small shop'))).toBe('count_self_approval_owner_only');
+    expect(await code(service.getSelfApprovalException(as(COUNTER)))).toBe('count_self_approval_owner_only');
     role = 'owner';
     expect(await code(service.setSelfApprovalException(as(COUNTER), true, '   '))).toBe('BadRequestException');
-    await service.setSelfApprovalException(as(COUNTER), true, 'one person runs this shop');
+    expect(await service.setSelfApprovalException(as(COUNTER), true, 'one person runs this shop')).toMatchObject({
+      enabled: true,
+      reason: 'one person runs this shop',
+      changedBy: COUNTER,
+    });
+    expect((await service.getSelfApprovalException(as(COUNTER))).enabled).toBe(true);
 
     const approved = await service.approve(as(COUNTER), STORE_A_X, id, await acks(id));
     expect(approved.approval).toMatchObject({ policy: 'small_merchant_exception', selfApproved: true, approvedBy: COUNTER });
@@ -417,7 +423,10 @@ describe('Count Cut barrier (AC7)', () => {
     const id = await openSession();
     const refused = await service.takeCut(as(COUNTER), STORE_A_X, id).catch((e: ConflictException) => e);
     expect(refused).toBeInstanceOf(ConflictException);
-    expect(JSON.stringify((refused as ConflictException).getResponse())).toContain(device);
+    expect((refused as ConflictException).getResponse()).toMatchObject({
+      code: 'count_cut_barrier_not_met',
+      details: { devices: [{ deviceId: device, reason: 'queue_pending' }], warehouses: [] },
+    });
     expect((await service.getSession(as(COUNTER), STORE_A_X, id)).state).toBe('open');
     await admin.query(`UPDATE device_health SET sale_queue_pending = 0 WHERE device_id = $1`, [device]);
     expect((await service.takeCut(as(COUNTER), STORE_A_X, id)).state).toBe('cut_taken');

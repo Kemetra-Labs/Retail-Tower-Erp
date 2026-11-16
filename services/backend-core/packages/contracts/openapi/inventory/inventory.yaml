@@ -24,7 +24,7 @@ info:
     binding supplies `tenant_id` and `store_id`; body-supplied tenant / store / actor / derived-balance fields
     are NEVER accepted (Constitution §III/§XII, FR-052).
 
-    Forty-one operations (the thirty listed here; 1.15.0-draft adds eleven, named in its note):
+    Forty-three operations (the thirty listed here; 1.15.0-draft adds eleven, named in its note, and 1.16.0-draft two more):
 
       1. `createStockMovement` — append an inbound / outbound / adjustment
          movement (write-off = a reason-coded outbound). Exact-decimal quantity
@@ -355,16 +355,21 @@ info:
     `listCountVarianceLines` and `listCountLateEventFindings`.
     `requestCountRecount` returns a `submitted` session to `cut_taken`.
 
-    **1.16.0-draft (RT-1420, wording only, no shape change; [GATED: contract]
-    owner delegation in chat 2026-11-16, same as RT-1419).** The Count Session
-    domain ships dark: the eleven 1.15.0 operations drop their
-    `x-runtime-status: contract-only` markers. Each answers the non-disclosing
-    404 until the tenant's Count Sessions are activated (the activation slice
-    owns that switch). The Count Cut is refused with 409
-    `count_cut_barrier_not_met` unless every live device of the store shows an
-    empty sale queue and a heartbeat after the request, and every mapped
-    warehouse has a completed ERP stock import that ended after it. No
-    operation, field, status code or enum changes.
+    **1.16.0-draft (RT-1420, additive; [GATED: contract] owner delegation in
+    chat 2026-11-16, same as RT-1419; captain decision for the two additions).**
+    The Count Session domain ships dark: the eleven 1.15.0 operations drop
+    their `x-runtime-status: contract-only` markers. Each answers the
+    non-disclosing 404 until the tenant Count Sessions are activated (the
+    activation slice owns that switch). Two additive changes: (1)
+    `takeCountCut` 409 `count_cut_barrier_not_met` now carries the blockers in
+    the envelope optional `error.details` (`CountCutBarrierDetails`: devices
+    with `no_heartbeat`, `stale_heartbeat`, `queue_unknown` or `queue_pending`,
+    warehouses with `import_not_past_cut`), described by
+    `CountCutConflictError` in the new `CountCutConflict` response; (2)
+    `getCountSelfApprovalSetting` and `setCountSelfApprovalSetting` read and set
+    the owner-only small-merchant approval exception of G6-10 (enabled plus a
+    recorded reason), with the typed 403 `count_self_approval_owner_only` for
+    any other role.
 
 servers:
   - url: https://api.datapulse.example
@@ -1887,7 +1892,9 @@ paths:
         cut. Expected counts only effects recorded before the cut. The cut is
         refused with 409 `count_cut_barrier_not_met` until the barrier holds:
         the store's POS devices are drained and the bucket's ERP import has read
-        past the cut; nothing is written. A session not `open` is 409
+        past the cut; nothing is written. The refusal lists what blocks in
+        `error.details` (`CountCutBarrierDetails`: each device with a reason,
+        each warehouse with a reason). A session not `open` is 409
         `count_session_not_in_state`. Owner, tenant_admin or store_manager (a
         store_manager only in its store scope). Idempotent via the
         `Idempotency-Key` header.
@@ -1907,7 +1914,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
-        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "409": { $ref: "#/components/responses/CountCutConflict" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
@@ -2211,6 +2218,69 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/settings/count-self-approval:
+    get:
+      operationId: getCountSelfApprovalSetting
+      tags: [inventory]
+      summary: Read the tenant's small-merchant Count Session approval exception.
+      description: >
+        RT-1420 (RT-292 G6-10). Whether the tenant owner has enabled the audited
+        exception that lets a counter or the submitter approve their own Count
+        Session (`approveCountSession` then answers `approval.policy`
+        `small_merchant_exception` and `selfApproved: true`). Off for every
+        tenant until the owner turns it on; `reason`, `changedAt` and
+        `changedBy` are null while it was never enabled. Owner only: any other
+        role, tenant_admin and store_manager included, is the typed 403
+        `count_self_approval_owner_only`. There is no Retail Tower or
+        platform-admin override in V1.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The exception setting.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSelfApprovalSetting"
+              example: { enabled: false, reason: null, changedAt: null, changedBy: null }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/CountSelfApprovalOwnerOnly" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    put:
+      operationId: setCountSelfApprovalSetting
+      tags: [inventory]
+      summary: Enable or disable the small-merchant Count Session approval exception.
+      description: >
+        RT-1420 (RT-292 G6-10). Owner only (typed 403
+        `count_self_approval_owner_only` for any other role). Enabling needs a
+        `reason` of 1 to 500 characters (400 otherwise); disabling clears it.
+        Every change is audited with the actor, the time, the value and the
+        reason. It is a whole-value PUT, naturally idempotent, so it carries no
+        `Idempotency-Key`. The activation of Count Sessions themselves is not
+        this setting.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCountSelfApprovalCommand"
+            example: { enabled: true, reason: One person runs this shop }
+      responses:
+        "200":
+          description: The exception setting after the command.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSelfApprovalSetting"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/CountSelfApprovalOwnerOnly" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
@@ -4045,6 +4115,101 @@ components:
           type: [string, "null"]
           description: Opaque cursor for the next page; null when exhausted.
 
+    CountSelfApprovalSetting:
+      type: object
+      additionalProperties: false
+      required: [enabled, reason, changedAt, changedBy]
+      description: RT-1420 (G6-10) — the tenant owner's small-merchant approval exception.
+      properties:
+        enabled: { type: boolean }
+        reason:
+          type: [string, "null"]
+          maxLength: 500
+          description: The recorded reason; null while the exception is off.
+        changedAt:
+          type: [string, "null"]
+          format: date-time
+        changedBy:
+          type: [string, "null"]
+          format: uuid
+    SetCountSelfApprovalCommand:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        reason:
+          type: [string, "null"]
+          maxLength: 500
+          description: Required (1 to 500 characters) when `enabled` is true.
+    CountCutBarrierDevice:
+      type: object
+      additionalProperties: false
+      required: [deviceId, reason]
+      properties:
+        deviceId: { type: string, format: uuid }
+        reason:
+          type: string
+          enum: [no_heartbeat, stale_heartbeat, queue_unknown, queue_pending]
+          description: >
+            `no_heartbeat`: no health report from the till. `stale_heartbeat`:
+            its last report is before the cut request. `queue_unknown`: it did
+            not report its sale queue. `queue_pending`: its sale queue holds a
+            pending, dead-letter or held sale.
+    CountCutBarrierWarehouse:
+      type: object
+      additionalProperties: false
+      required: [warehouseRef, reason]
+      properties:
+        warehouseRef:
+          type: string
+          description: The ERP warehouse of the store stock mapping.
+        reason:
+          type: string
+          enum: [import_not_past_cut]
+          description: No completed ERP stock import ended after the cut request.
+    CountCutBarrierDetails:
+      type: object
+      additionalProperties: false
+      required: [devices, warehouses]
+      description: >
+        RT-1420 — what blocks the Count Cut: the live devices and the mapped
+        warehouses that are not ready. At least one list is non-empty on a
+        refusal.
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountCutBarrierDevice"
+        warehouses:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountCutBarrierWarehouse"
+    CountCutConflictError:
+      type: object
+      required: [error]
+      description: >
+        The canonical error envelope (`Error`) of the Count Cut 409, with the
+        envelope optional `details` carrying the blockers. `details` is present
+        for `count_cut_barrier_not_met` and absent for the other 409 codes.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+            details:
+              $ref: "#/components/schemas/CountCutBarrierDetails"
+
   responses:
     ValidationFailure:
       description: >
@@ -4178,6 +4343,35 @@ components:
               code: count_flagged_line_not_acknowledged
               message: A flagged line needs an acknowledgement.
               request_id: 0198a0c5-0002-7000-8000-000000000002
+    CountSelfApprovalOwnerOnly:
+      description: >
+        403 `count_self_approval_owner_only` — RT-1420. Only the tenant owner
+        reads or changes the Count Session approval exception.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: count_self_approval_owner_only
+              message: Only the tenant owner can read or change the approval exception.
+    CountCutConflict:
+      description: >
+        409 — RT-1420. `count_cut_barrier_not_met` carries the blockers in
+        `error.details` (`CountCutBarrierDetails`). The other codes are those of
+        `CountSessionConflict` (`count_session_not_in_state`,
+        `idempotency_key_conflict`) in the plain envelope. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CountCutConflictError"
+          example:
+            error:
+              code: count_cut_barrier_not_met
+              message: "The Count Cut cannot be taken yet: a device or an ERP stock import is not ready."
+              details:
+                devices: [{ deviceId: 0198a0c4-0000-7000-8000-0000000000d1, reason: queue_pending }]
+                warehouses: [{ warehouseRef: Stores - RT, reason: import_not_past_cut }]
     SystemFailure:
       description: 5xx — internal failure; the cause is recorded server-side under `request_id`.
       content:

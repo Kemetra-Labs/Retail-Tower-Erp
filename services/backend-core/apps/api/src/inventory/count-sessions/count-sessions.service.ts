@@ -447,8 +447,8 @@ export class CountSessionsService {
         throw new ConflictException({
           code: 'count_cut_barrier_not_met',
           message:
-            `The Count Cut cannot be taken yet. Blocking devices: ${verdict.blockingDeviceIds.join(', ') || 'none'}. ` +
-            `Blocking warehouses: ${verdict.blockingWarehouses.join(', ') || 'none'}.`,
+            'The Count Cut cannot be taken yet: a device or an ERP stock import is not ready.',
+          details: { devices: verdict.devices, warehouses: verdict.warehouses },
         });
       }
       const effects = await client.query<{ n: string; last_id: string | null }>(
@@ -739,19 +739,62 @@ export class CountSessionsService {
     });
   }
 
-  // ---- G6-10 exception (owner only; no route in this contract) -----------------------
+  // ---- G6-10 exception (owner only) ---------------------------------------------------
+
+  /** The tenant owner's audited small-merchant exception; any other role is the typed 403. */
+  getSelfApprovalException(caller: CountCaller): Promise<SelfApprovalBody> {
+    return this.ownerOnly(
+      caller,
+      async (client) => await readSelfApproval(client, caller.tenantId),
+    );
+  }
 
   /**
-   * The tenant owner's audited small-merchant exception. Owner only (a
-   * tenant_admin, a platform admin and Retail Tower staff cannot), with a
-   * recorded reason. There is no route for it in the RT-1419 contract; the
-   * activation slice exposes it.
+   * Enable or disable the exception. Owner only (a tenant_admin, a platform
+   * admin and Retail Tower staff cannot), with a recorded reason when enabling;
+   * audited. Repeating the current value writes nothing.
    */
-  async setSelfApprovalException(
+  setSelfApprovalException(
     caller: CountCaller,
     enabled: boolean,
     reason: string | null,
-  ): Promise<{ enabled: boolean }> {
+  ): Promise<SelfApprovalBody> {
+    return this.ownerOnly(caller, async (client) => {
+      const text = reason?.trim() ?? '';
+      if (enabled && (text.length === 0 || text.length > 500)) {
+        throw new BadRequestException(
+          'Enabling the exception needs a reason of 1 to 500 characters.',
+        );
+      }
+      await client.query(
+        `INSERT INTO tenant_inventory_settings
+           (tenant_id, count_self_approval_enabled, count_self_approval_reason, count_self_approval_changed_at,
+            count_self_approval_changed_by, updated_by)
+         VALUES ($1, $2, $3, now(), $4, $4)
+         ON CONFLICT (tenant_id) DO UPDATE
+           SET count_self_approval_enabled = EXCLUDED.count_self_approval_enabled,
+               count_self_approval_reason = EXCLUDED.count_self_approval_reason,
+               count_self_approval_changed_at = EXCLUDED.count_self_approval_changed_at,
+               count_self_approval_changed_by = EXCLUDED.count_self_approval_changed_by,
+               updated_by = EXCLUDED.updated_by`,
+        [caller.tenantId, enabled, enabled ? text : null, caller.userId],
+      );
+      await writeAudit(client, {
+        tenantId: caller.tenantId,
+        userId: caller.userId,
+        action: 'inventory.count_self_approval.update',
+        targetType: 'tenant_inventory_settings',
+        targetId: caller.tenantId,
+        metadata: { enabled, reason: enabled ? text : null },
+      });
+      return await readSelfApproval(client, caller.tenantId);
+    });
+  }
+
+  private async ownerOnly<T>(
+    caller: CountCaller,
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
     try {
       return await runWithTenantContext(
         this.pool,
@@ -762,42 +805,45 @@ export class CountSessionsService {
             caller.tenantId,
             client,
           );
-          if (role !== 'owner')
-            throw new ForbiddenException(
-              'Only the tenant owner can change the approval exception.',
-            );
-          const text = reason?.trim() ?? '';
-          if (enabled && (text.length === 0 || text.length > 500)) {
-            throw new BadRequestException(
-              'Enabling the exception needs a reason of 1 to 500 characters.',
-            );
+          if (role !== 'owner') {
+            throw new ForbiddenException({
+              code: 'count_self_approval_owner_only',
+              message: 'Only the tenant owner can read or change the approval exception.',
+            });
           }
-          await client.query(
-            `INSERT INTO tenant_inventory_settings
-             (tenant_id, count_self_approval_enabled, count_self_approval_reason, count_self_approval_changed_at,
-              count_self_approval_changed_by, updated_by)
-           VALUES ($1, $2, $3, now(), $4, $4)
-           ON CONFLICT (tenant_id) DO UPDATE
-             SET count_self_approval_enabled = EXCLUDED.count_self_approval_enabled,
-                 count_self_approval_reason = EXCLUDED.count_self_approval_reason,
-                 count_self_approval_changed_at = EXCLUDED.count_self_approval_changed_at,
-                 count_self_approval_changed_by = EXCLUDED.count_self_approval_changed_by,
-                 updated_by = EXCLUDED.updated_by`,
-            [caller.tenantId, enabled, enabled ? text : null, caller.userId],
-          );
-          await writeAudit(client, {
-            tenantId: caller.tenantId,
-            userId: caller.userId,
-            action: 'inventory.count_self_approval.update',
-            targetType: 'tenant_inventory_settings',
-            targetId: caller.tenantId,
-            metadata: { enabled, reason: enabled ? text : null },
-          });
-          return { enabled };
+          return await fn(client);
         },
       );
     } catch (err) {
       throw toHttp(err);
     }
   }
+}
+
+export interface SelfApprovalBody {
+  readonly enabled: boolean;
+  readonly reason: string | null;
+  readonly changedAt: string | null;
+  readonly changedBy: string | null;
+}
+
+async function readSelfApproval(client: PoolClient, tenantId: string): Promise<SelfApprovalBody> {
+  const r = await client.query<{
+    enabled: boolean;
+    reason: string | null;
+    at: Date | null;
+    by: string | null;
+  }>(
+    `SELECT count_self_approval_enabled AS enabled, count_self_approval_reason AS reason,
+            count_self_approval_changed_at AS at, count_self_approval_changed_by AS by
+       FROM tenant_inventory_settings WHERE tenant_id = $1`,
+    [tenantId],
+  );
+  const row = r.rows[0];
+  return {
+    enabled: row?.enabled ?? false,
+    reason: row?.reason ?? null,
+    changedAt: row?.at ? row.at.toISOString() : null,
+    changedBy: row?.by ?? null,
+  };
 }
