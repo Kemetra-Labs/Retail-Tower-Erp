@@ -97,7 +97,7 @@ function onOffBody(row: SwitchRow | undefined): CountSessionsSettingBody {
 }
 
 /** Gather the evidence of every live store and of the Connector from what Backend-Core really holds. */
-export async function gatherReadinessEvidence(
+async function gatherReadinessEvidence(
   client: PoolClient,
   tenantId: string,
   now: Date = new Date(),

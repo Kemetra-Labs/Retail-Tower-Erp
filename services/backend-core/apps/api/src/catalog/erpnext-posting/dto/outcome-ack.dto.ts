@@ -87,14 +87,15 @@ const CountLineOutcomeSchema = z
     if (line.result === "rejected" && !line.refusal) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["refusal"], message: "a rejected line carries its refusal" });
     }
-    if (line.result !== "rejected" && (line.refusal || line.verifiedQtyAfter == null)) {
+    const noQuantity = line.verifiedQtyAfter === undefined || line.verifiedQtyAfter === null;
+    if (line.result !== "rejected" && (line.refusal || noQuantity)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["verifiedQtyAfter"],
         message: "an adjusted or no-op line carries verifiedQtyAfter and no refusal",
       });
     }
-    if (line.result === "rejected" && line.verifiedQtyAfter != null) {
+    if (line.result === "rejected" && !noQuantity) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["verifiedQtyAfter"], message: "a rejected line has no verifiedQtyAfter" });
     }
   });

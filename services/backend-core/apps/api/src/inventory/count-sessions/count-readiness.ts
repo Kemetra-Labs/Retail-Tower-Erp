@@ -19,7 +19,7 @@
  */
 import type { BarrierDevice, BarrierWarehouse } from './count-barrier';
 
-export type ReadinessCode =
+type ReadinessCode =
   | 'no_live_store'
   | 'store_warehouse_unmapped'
   | 'store_barrier_unprovable'
@@ -41,7 +41,7 @@ export interface StoreEvidence {
   readonly warehouses: readonly BarrierWarehouse[];
 }
 
-export interface ConnectorEvidence {
+interface ConnectorEvidence {
   /** The newest `connector_health` row of the tenant, or null when there is none. */
   readonly lastSeenAt: Date | null;
   readonly version: string | null;

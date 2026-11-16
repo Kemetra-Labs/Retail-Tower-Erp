@@ -21,7 +21,7 @@ export const COUNT_CHUNK_MAX = 100;
 
 export const COUNT_SOURCE_SYSTEM = 'retail-tower';
 
-export type SkipReason = 'zero_variance' | 'refused' | 'unmapped';
+type SkipReason = 'zero_variance' | 'refused' | 'unmapped';
 
 export interface EmissionCandidate {
   readonly productId: string;
@@ -38,7 +38,7 @@ export interface EmissionCandidate {
   readonly correctionEffectIds: readonly string[];
 }
 
-export interface EmissionLine {
+interface EmissionLine {
   readonly productId: string;
   readonly erpnextItemRef: string;
   readonly warehouseRef: string;
@@ -47,7 +47,7 @@ export interface EmissionLine {
   readonly correctionEffectIds: readonly string[];
 }
 
-export interface SkippedLine {
+interface SkippedLine {
   readonly productId: string;
   readonly reason: SkipReason;
 }
