@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.15.0-draft"
+  version: "1.16.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -354,6 +354,17 @@ info:
     the late-event findings cannot be read without them:
     `listCountVarianceLines` and `listCountLateEventFindings`.
     `requestCountRecount` returns a `submitted` session to `cut_taken`.
+
+    **1.16.0-draft (RT-1420, wording only, no shape change; [GATED: contract]
+    owner delegation in chat 2026-11-16, same as RT-1419).** The Count Session
+    domain ships dark: the eleven 1.15.0 operations drop their
+    `x-runtime-status: contract-only` markers. Each answers the non-disclosing
+    404 until the tenant's Count Sessions are activated (the activation slice
+    owns that switch). The Count Cut is refused with 409
+    `count_cut_barrier_not_met` unless every live device of the store shows an
+    empty sale queue and a heartbeat after the request, and every mapped
+    warehouse has a completed ERP stock import that ended after it. No
+    operation, field, status code or enum changes.
 
 servers:
   - url: https://api.datapulse.example
@@ -1677,11 +1688,6 @@ paths:
     post:
       operationId: createCountSession
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Open a Count Session for a store and scope.
       description: >
         RT-1419 (RT-292 Gate 6; Confluence "Inventory Gate 6", G6-1, G6-3,
@@ -1748,11 +1754,6 @@ paths:
     get:
       operationId: listCountSessions
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: List a store's Count Sessions, newest first, in keyset pages.
       description: >
         RT-1419 (G6-8). The store's Count Sessions, newest first
@@ -1792,11 +1793,6 @@ paths:
     get:
       operationId: getCountSession
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Read one Count Session.
       description: >
         RT-1419. One Count Session of the path store with its state, scope, cut
@@ -1826,11 +1822,6 @@ paths:
     post:
       operationId: recordCountObservations
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Record counted quantities at position grain.
       description: >
         RT-1419 (G6-1, decision 830). Records the counted quantity of products
@@ -1888,11 +1879,6 @@ paths:
     post:
       operationId: takeCountCut
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Take the Count Cut of a session.
       description: >
         RT-1419 (decisions 824, 828; Count Cut and barrier). Moves the session
@@ -1929,11 +1915,6 @@ paths:
     post:
       operationId: submitCountSession
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Submit the captured counts for review.
       description: >
         RT-1419 (decisions 830, 831). Moves the session from `cut_taken` to
@@ -1975,11 +1956,6 @@ paths:
     get:
       operationId: listCountVarianceLines
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: List the review lines of a submitted Count Session.
       description: >
         RT-1419 (decisions 831, 832; G6-2). One line per product of the scope:
@@ -2038,11 +2014,6 @@ paths:
     post:
       operationId: requestCountRecount
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Send listed products back for a recount.
       description: >
         RT-1419 (decision 832). Moves a `submitted` session back to
@@ -2084,11 +2055,6 @@ paths:
     post:
       operationId: approveCountSession
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Approve a submitted Count Session under the approval policy.
       description: >
         RT-1419 (decision 833; G6-2, G6-10). Moves a `submitted` session to
@@ -2175,11 +2141,6 @@ paths:
     post:
       operationId: cancelCountSession
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: Cancel a Count Session before approval.
       description: >
         RT-1419. Moves a session in `open`, `cut_taken` or `submitted` to the
@@ -2220,11 +2181,6 @@ paths:
     get:
       operationId: listCountLateEventFindings
       tags: [inventory]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1419 publishes the contract only. There is no controller, service,
-        table or migration for this route until the Count Session domain issue
-        RT-1420.
       summary: List the late pre-cut event findings of a Count Session.
       description: >
         RT-1419 (decision 835; G6-4). A late pre-cut event is a POS sale or an

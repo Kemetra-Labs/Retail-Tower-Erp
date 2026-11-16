@@ -1429,18 +1429,17 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
   ];
   const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
 
-  it("is the 1.15.0 draft, with a version note citing the owner authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.15.0-draft");
+  it("keeps the 1.15.0 version note citing the owner authorization (version moved on in RT-1420)", () => {
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.15.0-draft (RT-1419, additive, contract-only;");
     expect(description).toContain("RT-292 comments");
   });
 
-  it.each(OPS)("maps %s %s to %s as a cookieAuth, contract-only operation with a note", (path, method, operationId) => {
+  it.each(OPS)("maps %s %s to %s as a cookieAuth operation served by the RT-1420 runtime (no contract-only marker)", (path, method, operationId) => {
     const o = (inventoryDoc.paths?.[path]?.[method] ?? {}) as Op;
     expect(o.operationId).toBe(operationId);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toContain("RT-1420");
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(JSON.stringify(o.security)).toContain("cookieAuth");
     const refs = JSON.stringify(o.responses ?? {});
     for (const status of ["401", "403", "429", "5XX"]) expect(o.responses).toHaveProperty(status);
@@ -1491,5 +1490,14 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
     const o = (inventoryDoc.paths?.[COUNTS_PATH]?.["post"] ?? {}) as Op & { description?: string };
     expect(o.description).toContain("unchanged until");
     expect(o["x-runtime-status"]).toBeUndefined();
+  });
+});
+
+describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
+  it("is the 1.16.0 draft, with a wording-only version note citing the owner delegation", () => {
+    expect(inventoryDoc.info?.version).toBe("1.16.0-draft");
+    const description = inventoryDoc.info?.description ?? "";
+    expect(description).toContain("**1.16.0-draft (RT-1420, wording only, no shape change;");
+    expect(description).toContain("`count_cut_barrier_not_met`");
   });
 });
