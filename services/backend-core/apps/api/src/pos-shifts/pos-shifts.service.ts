@@ -15,6 +15,10 @@
  *   AND (RT-811) no live cashier admission of the tenant on the opening
  *       terminal: any user, ended_at IS NULL and expires_at > now().
  *
+ * (RT-1438) The opening cashier's display name is a label, not a condition: a
+ * NULL or blank one falls back to the email, so the list shows every shift
+ * `forceCloseShift` (IS_STUCK_SQL) would accept.
+ *
  * Membership and access checks use a transaction-local bootstrap RLS
  * context; the shifts query uses the resolved tenant context.
  * users/devices have no RLS, so the JOIN works without extra context.
@@ -123,7 +127,12 @@ export class PosShiftsService {
       { tenantId: membership.tenant_id, isPlatformAdmin: false },
       async (client) => {
         const r = await client.query<ShiftRow>(
-          `SELECT s.shift_id, u.display_name, d.label, s.opened_at
+          // RT-1438: the cashier's label never gates the row. A user with no
+          // (or a blank) display_name is listed under their email, which is
+          // NOT NULL, so every shift the force close accepts is findable.
+          `SELECT s.shift_id,
+                  COALESCE(NULLIF(btrim(u.display_name, E' \\t\\r\\n\\f'), ''), u.email::text) AS display_name,
+                  d.label, s.opened_at
              FROM shifts s
              JOIN users u ON u.id = s.opening_cashier_user_id
              JOIN devices d ON d.id = s.opening_device_id
@@ -144,7 +153,6 @@ export class PosShiftsService {
                    AND a.device_id  = s.opening_device_id
                    AND a.ended_at   IS NULL
                    AND a.expires_at > now())
-              AND u.display_name IS NOT NULL
             ORDER BY s.opened_at`,
           [membership.tenant_id, branchId, this.stuckThresholdMinutes],
         );
