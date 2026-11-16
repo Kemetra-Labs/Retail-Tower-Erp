@@ -239,6 +239,16 @@ describe('what stays as it was', () => {
 });
 
 describe('recordManagerClosure', () => {
+  it('writes nothing when the answered row is not pending', () => {
+    recordWholeShift({ repo });
+    repo.markSynced({ seq: 1, now: NOW });
+    expect(repo.recordManagerClosure({ seq: 1, now: NOW, shiftId: S1, factKind: 'open' })).toBe(
+      false,
+    );
+    expect(closures()).toEqual([]);
+    expect(repo.latestShiftManagerClosed(SCOPE)).toBe(false);
+  });
+
   it('records the closure once and settles only a pending answered row', () => {
     recordWholeShift({ repo });
     const input = { seq: 1, now: NOW, shiftId: S1, factKind: 'open' as const };

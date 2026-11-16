@@ -32,6 +32,8 @@ function build(
     deliverNow?: () => Promise<boolean>;
     forceCloseShift?: () => unknown;
     recorded?: boolean;
+    /** RT-1442: the server refused the close because a manager had closed the shift. */
+    managerClosed?: boolean;
     session?: unknown;
   } = {},
 ) {
@@ -41,7 +43,14 @@ function build(
   });
   const deps = {
     db: {
-      prepare: () => ({ get: () => (overrides.recorded === true ? { '1': 1 } : undefined) }),
+      prepare: (sql: string) => ({
+        get: () => {
+          const hit = sql.includes('shift_manager_closures')
+            ? overrides.managerClosed === true
+            : overrides.recorded === true;
+          return hit ? { '1': 1 } : undefined;
+        },
+      }),
     },
     sessionManager: { getCurrent: () => ('session' in overrides ? overrides.session : MANAGER) },
     pairingStore: { getStatus: () => Promise.resolve({ kind: 'paired', terminal_id: 'term-1' }) },
@@ -80,6 +89,18 @@ describe('onCloseDelivered', () => {
     await expect(pending).resolves.toMatchObject({ kind: 'forced_closed', delivery: 'sent' });
     expect(onCloseDelivered).toHaveBeenCalledTimes(1);
     expect(order).toEqual(['closed', 'drain-started', 'delivered-hook']);
+  });
+
+  it('is queued, not sent, when the drain ended idle only because the server had the shift closed by a manager (RT-1442)', async () => {
+    const { handler, onCloseDelivered } = build({
+      deliverNow: () => Promise.resolve(true),
+      managerClosed: true,
+    });
+    await expect(handler.forceCloseShift(REQUEST)).resolves.toMatchObject({
+      kind: 'forced_closed',
+      delivery: 'queued',
+    });
+    expect(onCloseDelivered).toHaveBeenCalledTimes(1);
   });
 
   it('fires when the drain fails (the close is durable and queued)', async () => {

@@ -741,8 +741,10 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
   function recordManagerClosure(input: RecordManagerClosureInput): boolean {
     const now = isoInstant({ field: 'now', value: input.now });
     return db.transaction(() => {
+      // The answered row first: when it is not pending nothing is written at all.
+      if (!markDeadLetter({ seq: input.seq, now, reason: 'shift_force_closed' })) return false;
       run(INSERT_MANAGER_CLOSURE_SQL, input.shiftId.toLowerCase(), input.factKind, now);
-      return markDeadLetter({ seq: input.seq, now, reason: 'shift_force_closed' });
+      return true;
     })();
   }
 
