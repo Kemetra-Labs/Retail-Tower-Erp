@@ -1509,8 +1509,8 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
 });
 
 describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
-  it("keeps the 1.16.0 note (version moved on in RT-1423 and RT-1424), a wording-only note citing the owner delegation", () => {
-    expect(inventoryDoc.info?.version).toBe("1.18.0-draft");
+  it("keeps the 1.16.0 note (version moved on in RT-1423, RT-1424 and RT-1444), a wording-only note citing the owner delegation", () => {
+    expect(inventoryDoc.info?.version).toBe("1.19.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
@@ -1544,8 +1544,8 @@ describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
 describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-draft)", () => {
   const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
 
-  it("keeps the 1.17.0 note (version moved on in RT-1424), the activation note citing the owner authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.18.0-draft");
+  it("keeps the 1.17.0 note (version moved on in RT-1424 and RT-1444), the activation note citing the owner authorization", () => {
+    expect(inventoryDoc.info?.version).toBe("1.19.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.17.0-draft (RT-1423, additive;");
     expect(description).toContain("`count_sessions_readiness_unmet`");
@@ -1586,8 +1586,8 @@ describe("inventory/inventory.yaml — RT-1424 governed late-count compensation 
   const PATH =
     "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation";
 
-  it("is the 1.18.0 draft; the note cites the owner delegation and the oasdiff acknowledgement", () => {
-    expect(inventoryDoc.info?.version).toBe("1.18.0-draft");
+  it("keeps the 1.18.0 note (version moved on in RT-1444); the note cites the owner delegation and the oasdiff acknowledgement", () => {
+    expect(inventoryDoc.info?.version).toBe("1.19.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.18.0-draft (RT-1424, additive;");
     expect(description).toContain("`erp_absorbed`");
