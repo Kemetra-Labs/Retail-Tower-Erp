@@ -209,6 +209,30 @@ export function buildObservation(draft: ObservationDraft): CountObservationInput
   };
 }
 
+/** One observation as echoed by the server, at one position of a product. */
+export interface PositionObservation {
+  productId: string;
+  locationId: string;
+  inventoryStatus: string;
+}
+
+const positionOf = (o: PositionObservation) =>
+  `${o.productId}|${o.locationId}|${o.inventoryStatus}`;
+
+/**
+ * A later observation of a position replaces the earlier one (the contract's rule), so
+ * recounting a position never shows a second row: the new entry takes the old one's place.
+ */
+export function mergeObservations<T extends PositionObservation>(
+  current: readonly T[],
+  incoming: readonly T[],
+): T[] {
+  const latest = new Map(incoming.map((o) => [positionOf(o), o]));
+  const kept = current.map((o) => latest.get(positionOf(o)) ?? o);
+  const known = new Set(current.map(positionOf));
+  return [...kept, ...[...latest.values()].filter((o) => !known.has(positionOf(o)))];
+}
+
 // --- Write outcome ------------------------------------------------------------
 
 const CONFLICT_KEYS: Record<string, MessageKey> = {

@@ -35,7 +35,6 @@ export const counts = {
   "counts.list.col.products": "المنتجات",
   "counts.list.col.openedBy": "فتحها",
   "counts.list.col.findings": "ملاحظات متأخرة",
-  "counts.list.open": "افتح جلسة الجرد التي بدأت في {when}",
   "counts.list.filter": "تصفية بالحالة",
   "counts.list.filter.all": "كل الحالات",
   "counts.list.loadingNoun": "جلسات الجرد",

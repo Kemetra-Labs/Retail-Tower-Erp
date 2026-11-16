@@ -11,6 +11,7 @@ import { InlineError } from "@/components/InlineError";
 import { ListState } from "@/components/ListState";
 import { useT } from "@/i18n";
 import { Machine } from "@/inventory/parts";
+import { useInventoryScope } from "@/inventory/useInventory";
 import { type CatalogProduct, consoleListCatalogProducts } from "@/lib/catalog-queries";
 import { createCountSession } from "@/lib/count-session-queries";
 import { KeyedAttempt } from "@/lib/write-outcome";
@@ -30,10 +31,11 @@ function ProductSearch({
   onToggle,
 }: Readonly<{ picked: Picked; onToggle: (p: CatalogProduct) => void }>) {
   const t = useT();
+  const scope = useInventoryScope();
   const [draft, setDraft] = useState("");
   const [term, setTerm] = useState("");
   const results = useQuery({
-    queryKey: ["count-products", "search", term],
+    queryKey: ["count-products", scope.tenantId, "search", term],
     retry: false,
     queryFn: async () => {
       const res = await consoleListCatalogProducts({

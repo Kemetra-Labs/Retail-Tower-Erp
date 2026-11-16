@@ -64,10 +64,7 @@ function SessionsTable({
             {rows.map((s) => (
               <tr key={s.id} className="data-table__row data-table__row--static">
                 <th scope="row">
-                  <Link
-                    to={`/inventory/stores/${storeId}/counts/${s.id}`}
-                    aria-label={t("counts.list.open", { when: s.openedAt })}
-                  >
+                  <Link to={`/inventory/stores/${storeId}/counts/${s.id}`}>
                     <DateTime value={s.openedAt} />
                   </Link>
                 </th>

@@ -362,6 +362,36 @@ describe("blind capture, Count Cut and submit (RT-1425)", () => {
     expect(document.body.textContent).not.toMatch(/Expected at the cut/);
   });
 
+  test("counting the same position again replaces its row instead of adding a second", async () => {
+    const echo = (q: string) =>
+      ok({
+        sessionId: SESSION,
+        observations: [
+          {
+            productId: P1,
+            locationId: LOC,
+            inventoryStatus: "sellable",
+            countedQuantity: q,
+            stockingUnit: "kg",
+            countedBy: ME,
+            countedAt: "2026-11-16T08:05:00Z",
+          },
+        ],
+      });
+    count.recordCountObservations.mockResolvedValueOnce(echo("5")).mockResolvedValueOnce(echo("8"));
+    renderDetail();
+    await capture("5");
+    await waitFor(() => expect(screen.getByTestId("count-recorded").textContent).toContain("5"));
+    fireEvent.change(screen.getByLabelText("Counted quantity"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record count" }));
+    await waitFor(() => expect(count.recordCountObservations).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(within(screen.getByTestId("count-recorded")).getAllByRole("listitem")).toHaveLength(1),
+    );
+    expect(screen.getByTestId("count-recorded").textContent).toContain("8");
+    expect(screen.getByTestId("count-recorded").textContent).not.toMatch(/\b5\b/);
+  });
+
   test("an invalid quantity is refused before any request, with a field error", async () => {
     renderDetail();
     await capture("-1");

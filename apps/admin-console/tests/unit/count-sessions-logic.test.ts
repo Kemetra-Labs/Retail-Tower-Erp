@@ -13,6 +13,7 @@ import {
   isErpState,
   isSelfApproved,
   isStaleLine,
+  mergeObservations,
   needsAcknowledgement,
   pendingAcknowledgements,
   refusalKey,
@@ -313,5 +314,28 @@ describe("Count Cut blockers and owner-only refusal", () => {
     expect(classifyCountResult({ status: 403 })).toMatchObject({
       messageKey: "counts.error.forbidden",
     });
+  });
+});
+
+describe("a later observation replaces the same position", () => {
+  const obs = (productId: string, locationId: string, inventoryStatus: string, q: string) => ({
+    productId,
+    locationId,
+    inventoryStatus,
+    countedQuantity: q,
+  });
+
+  test("recounting a position takes the old row's place, never a second row", () => {
+    const first = [obs(P1, "L1", "sellable", "5"), obs(P2, "L1", "sellable", "2")];
+    const merged = mergeObservations(first, [obs(P1, "L1", "sellable", "7")]);
+    expect(merged).toEqual([obs(P1, "L1", "sellable", "7"), obs(P2, "L1", "sellable", "2")]);
+  });
+
+  test("a new position (another location or status) is appended", () => {
+    const merged = mergeObservations(
+      [obs(P1, "L1", "sellable", "5")],
+      [obs(P1, "L2", "sellable", "1"), obs(P1, "L1", "damaged", "1")],
+    );
+    expect(merged).toHaveLength(3);
   });
 });

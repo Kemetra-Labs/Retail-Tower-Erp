@@ -26,7 +26,6 @@ export const counts: MessagesOf<typeof ar> = {
   "counts.list.col.products": "Products",
   "counts.list.col.openedBy": "Opened by",
   "counts.list.col.findings": "Late findings",
-  "counts.list.open": "Open the count session started at {when}",
   "counts.list.filter": "Filter by status",
   "counts.list.filter.all": "All statuses",
   "counts.list.loadingNoun": "count sessions",

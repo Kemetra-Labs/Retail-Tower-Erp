@@ -13,7 +13,7 @@ import { DetailPanel } from "@/components/DetailPanel";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
 import { ListState } from "@/components/ListState";
-import { useT } from "@/i18n";
+import { type MessageKey, useT } from "@/i18n";
 import { inventoryStatusKey, locationKindKey } from "@/inventory/inventoryLogic";
 import { Machine, Quantity } from "@/inventory/parts";
 import { type CountSession, recordCountObservations } from "@/lib/count-session-queries";
@@ -27,6 +27,7 @@ import {
   type ObservationDraft,
   type ObservationErrors,
   buildObservation,
+  mergeObservations,
   settlesAttempt,
   validateObservation,
 } from "./countLogic";
@@ -39,6 +40,44 @@ type Recorded = Readonly<{
   countedQuantity: string;
   stockingUnit: string;
 }>;
+
+/** A left-to-right text field for a quantity or a unit, with its inline error. */
+function MonoField({
+  id,
+  label,
+  value,
+  error,
+  inputMode,
+  maxLength,
+  onChange,
+}: Readonly<{
+  id: string;
+  label: string;
+  value: string;
+  error: MessageKey | undefined;
+  inputMode?: "decimal";
+  maxLength?: number;
+  onChange: (value: string) => void;
+}>) {
+  const t = useT();
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        className="input input--mono"
+        dir="ltr"
+        autoComplete="off"
+        inputMode={inputMode}
+        maxLength={maxLength}
+        value={value}
+        aria-invalid={error ? true : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <InlineError message={error ? t(error) : undefined} />
+    </div>
+  );
+}
 
 function RecordedList({
   recorded,
@@ -120,6 +159,10 @@ export function CaptureSection({
   const [recorded, setRecorded] = useState<readonly Recorded[]>([]);
   const [outcome, setOutcome] = useState<CountOutcome | null>(null);
 
+  const statusChoices = COUNT_STATUSES.map((value) => ({
+    value,
+    label: t(inventoryStatusKey(value)),
+  }));
   const locationNames = new Map(locations.map((l) => [l.id, l.name || l.code]));
   const set = (patch: Partial<ObservationDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -141,7 +184,7 @@ export function CaptureSection({
     if (result.kind !== "ok") return;
     setUnits((u) => ({ ...u, [draft.productId]: observation.stockingUnit }));
     const echoed = result.data?.observations ?? [observation];
-    setRecorded((cur) => [...cur, ...echoed]);
+    setRecorded((cur) => mergeObservations(cur, echoed));
     set({ quantity: "" });
   };
 
@@ -195,41 +238,29 @@ export function CaptureSection({
                 value={draft.inventoryStatus}
                 onChange={(e) => set({ inventoryStatus: e.target.value })}
               >
-                {COUNT_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {t(inventoryStatusKey(s))}
+                {statusChoices.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
                   </option>
                 ))}
               </select>
             </div>
-            <div className="field">
-              <label htmlFor="count-quantity">{t("counts.capture.quantity")}</label>
-              <input
-                id="count-quantity"
-                className="input input--mono"
-                dir="ltr"
-                inputMode="decimal"
-                autoComplete="off"
-                value={draft.quantity}
-                aria-invalid={errors.quantity ? true : undefined}
-                onChange={(e) => set({ quantity: e.target.value })}
-              />
-              <InlineError message={errors.quantity ? t(errors.quantity) : undefined} />
-            </div>
-            <div className="field">
-              <label htmlFor="count-unit">{t("counts.capture.unit")}</label>
-              <input
-                id="count-unit"
-                className="input input--mono"
-                dir="ltr"
-                autoComplete="off"
-                maxLength={32}
-                value={draft.unit}
-                aria-invalid={errors.unit ? true : undefined}
-                onChange={(e) => set({ unit: e.target.value })}
-              />
-              <InlineError message={errors.unit ? t(errors.unit) : undefined} />
-            </div>
+            <MonoField
+              id="count-quantity"
+              label={t("counts.capture.quantity")}
+              value={draft.quantity}
+              error={errors.quantity}
+              inputMode="decimal"
+              onChange={(quantity) => set({ quantity })}
+            />
+            <MonoField
+              id="count-unit"
+              label={t("counts.capture.unit")}
+              value={draft.unit}
+              error={errors.unit}
+              maxLength={32}
+              onChange={(unit) => set({ unit })}
+            />
           </div>
           {locationsFailed ? (
             <p role="alert" className="counts__note">
