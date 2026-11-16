@@ -141,6 +141,7 @@ describe("GET /shifts/stuck — RT-1438 an opener with no display name is still 
     ["NULL", null],
     ["empty", ""],
     ["blank", "   "],
+    ["tab and newline only", "\t\n"],
   ] as const)("lists a stuck shift whose opener's display_name is %s, under the email", async (_label, value) => {
     if (skipped()) return;
     const shiftId = await openOn(DEV_A1);

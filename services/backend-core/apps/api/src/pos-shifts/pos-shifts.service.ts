@@ -131,7 +131,7 @@ export class PosShiftsService {
           // (or a blank) display_name is listed under their email, which is
           // NOT NULL, so every shift the force close accepts is findable.
           `SELECT s.shift_id,
-                  COALESCE(NULLIF(btrim(u.display_name), ''), u.email::text) AS display_name,
+                  COALESCE(NULLIF(btrim(u.display_name, E' \\t\\r\\n\\f'), ''), u.email::text) AS display_name,
                   d.label, s.opened_at
              FROM shifts s
              JOIN users u ON u.id = s.opening_cashier_user_id
