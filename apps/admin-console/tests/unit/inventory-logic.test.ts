@@ -42,6 +42,8 @@ describe("inventory logic (RT-728)", () => {
     expect(integrationStateKey(null)).toBe("inventory.value.notRecorded");
     expect(integrationStateKey(undefined)).toBe("inventory.value.notRecorded");
     expect(integrationStateKey("confirmed")).toBe("inventory.integration.confirmed");
+    // RT-1424: the late-count compensation state reads as a label, never as Unknown.
+    expect(integrationStateKey("erp_absorbed")).toBe("inventory.integration.erp_absorbed");
     expect(integrationStateKey("weird" as never)).toBe("inventory.value.unknown");
   });
 
@@ -52,6 +54,7 @@ describe("inventory logic (RT-728)", () => {
     expect(integrationTone("reconciliation_required")).toBe("badge--warning");
     expect(integrationTone("not_posted")).toBe("");
     expect(integrationTone("external")).toBe("");
+    expect(integrationTone("erp_absorbed")).toBe("");
     expect(integrationTone(null)).toBe("");
     expect(integrationTone("weird" as never)).toBe("badge--danger");
   });

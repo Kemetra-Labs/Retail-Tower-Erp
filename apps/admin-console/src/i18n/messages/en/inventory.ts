@@ -98,6 +98,7 @@ export const inventory: MessagesOf<typeof ar> = {
   "inventory.integration.rejected": "Rejected by ERPNext",
   "inventory.integration.reconciliation_required": "Needs reconciliation",
   "inventory.integration.external": "From ERPNext",
+  "inventory.integration.erp_absorbed": "Already in the ERPNext count",
 
   // --- One product at one store --------------------------------------------------
   "inventory.product.back": "Store movement ledger",
