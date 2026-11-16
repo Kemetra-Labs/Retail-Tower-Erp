@@ -757,17 +757,7 @@ export class ErpnextPostingService {
     row: { retry_count: number; current_resolution_version: number | null; kind: string },
   ): Promise<RecordedOutcome> {
     const isCount = row.kind === "inventory_count";
-    if ((input.outcome === "verified_noop" || input.lines !== undefined) && !isCount) {
-      throw new AckValidationError("verified_noop and lines are only valid for an inventory_count work item");
-    }
-    // The contract documents `lines` only with verified_noop, posted and permanently_rejected; accepting them
-    // on another outcome would drop evidence the Connector believes was recorded.
-    if (
-      input.lines !== undefined &&
-      (input.outcome === "failed_transient" || input.outcome === "reconciliation_required")
-    ) {
-      throw new AckValidationError(`lines is not valid when outcome is '${input.outcome}'`);
-    }
+    assertCountAckShape(input, isCount);
     switch (input.outcome) {
       case "verified_noop":
         return await this.applyCountPosted(client, input);
@@ -781,12 +771,7 @@ export class ErpnextPostingService {
       case "reconciliation_required":
         return await this.applyReconciliation(client, input);
       case "permanently_rejected":
-        if (isCount && input.lines) await this.recordRejectedCountLines(client, input);
-        return await this.applyRejected(client, {
-          workItemRef: input.workItemRef,
-          category: input.reason?.category ?? "other",
-          message: sanitizeRejectionMessage(input.reason?.message),
-        });
+        return await this.applyPermanentRejection(client, input);
       case "failed_transient":
         return await this.applyTransient(client, input.workItemRef, row.retry_count);
     }
@@ -854,17 +839,27 @@ export class ErpnextPostingService {
    * effects of each line (the generic confirm-every-effect signal would confirm lines the Connector rejected);
    * the chunk row records the document (`posted`) or none (`verified_noop`: never a fabricated document).
    */
+  private async applyPermanentRejection(client: PoolClient, input: AckOutcomeInput): Promise<RecordedOutcome> {
+    await this.recordRejectedCountLines(client, input);
+    return await this.applyRejected(client, {
+      workItemRef: input.workItemRef,
+      category: input.reason?.category ?? "other",
+      message: sanitizeRejectionMessage(input.reason?.message),
+    });
+  }
+
   /**
    * A dead-lettered count chunk may carry its per-line refusals. They are validated against the frozen lines
    * and stored (so a replay is compared with them) BEFORE the chunk goes terminal. Every line must be rejected:
    * a chunk the Connector refused cannot have adjusted anything.
    */
   private async recordRejectedCountLines(client: PoolClient, input: AckOutcomeInput): Promise<void> {
-    if (input.lines!.some((l) => l.result !== "rejected")) {
+    if (!input.lines) return;
+    if (input.lines.some((l) => l.result !== "rejected")) {
       throw new AckValidationError("a permanently_rejected ack carries only rejected lines");
     }
     try {
-      await applyCountLineResults(client, input.workItemRef, input.lines!, null);
+      await applyCountLineResults(client, input.workItemRef, input.lines, null);
     } catch (err) {
       if (err instanceof CountAckLinesError) throw new AckValidationError(err.message);
       throw err;
@@ -1013,6 +1008,20 @@ export class ErpnextPostingService {
 }
 
 /** RT-332: the status a reported outcome is recorded with. */
+/**
+ * `verified_noop` and `lines` belong to an inventory_count work item only. The contract documents `lines` only
+ * with verified_noop, posted and permanently_rejected; accepting them on another outcome would drop evidence the
+ * Connector believes was recorded.
+ */
+function assertCountAckShape(input: AckOutcomeInput, isCount: boolean): void {
+  if ((input.outcome === "verified_noop" || input.lines !== undefined) && !isCount) {
+    throw new AckValidationError("verified_noop and lines are only valid for an inventory_count work item");
+  }
+  if (input.lines !== undefined && (input.outcome === "failed_transient" || input.outcome === "reconciliation_required")) {
+    throw new AckValidationError(`lines is not valid when outcome is '${input.outcome}'`);
+  }
+}
+
 function recordedKindOf(outcome: AckOutcomeKind): RecordedOutcomeKind {
   return outcome === "reconciliation_required" ? "permanently_rejected" : outcome;
 }
