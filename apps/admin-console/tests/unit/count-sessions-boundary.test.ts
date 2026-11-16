@@ -14,7 +14,7 @@ const feature = sourcesUnder("src/count-sessions");
 const all = [wrapperSrc, ...feature.map((f) => f.src)];
 
 describe("count sessions boundary (RT-1425)", () => {
-  test("exactly the eleven Count Session wrappers are exported", () => {
+  test("exactly the eleven Count Session wrappers and the two self-approval setting wrappers are exported", () => {
     const functions = Object.entries(queries)
       .filter(([, value]) => typeof value === "function")
       .map(([name]) => name)
@@ -23,25 +23,30 @@ describe("count sessions boundary (RT-1425)", () => {
       "approveCountSession",
       "cancelCountSession",
       "createCountSession",
+      "getCountSelfApprovalSetting",
       "getCountSession",
       "listCountLateEventFindings",
       "listCountSessions",
       "listCountVarianceLines",
       "recordCountObservations",
       "requestCountRecount",
+      "setCountSelfApprovalSetting",
       "submitCountSession",
       "takeCountCut",
     ]);
   });
 
-  test("every call targets a count-sessions path of the store, and only those", () => {
-    const calls = [...wrapperSrc.matchAll(/apiClient\.(\w+)\(\s*([^,]+),/g)].map(
+  test("every call targets a count-sessions path of the store or the self-approval setting, and only those", () => {
+    const calls = [...wrapperSrc.matchAll(/apiClient\.(\w+)\(\s*([^,)]+)[,)]/g)].map(
       ([, method, path]) => `${method} ${path.trim()}`,
     );
-    expect(calls).toHaveLength(11);
+    expect(calls).toHaveLength(13);
     for (const call of calls) {
-      expect(call).toMatch(/^(GET|POST) (SESSIONS|SESSION|`\$\{SESSION\}\/[a-z-]+`)$/);
+      expect(call).toMatch(
+        /^(GET|POST|PUT) (SESSIONS|SESSION|SELF_APPROVAL|`\$\{SESSION\}\/[a-z-]+`)$/,
+      );
     }
+    expect(wrapperSrc).toContain('"/api/inventory/v1/settings/count-self-approval"');
     expect(wrapperSrc).toContain('"/api/inventory/v1/stores/{storeId}/count-sessions"');
   });
 

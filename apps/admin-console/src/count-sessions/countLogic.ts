@@ -13,6 +13,7 @@
  */
 import type { MessageKey } from "@/i18n";
 import type {
+  CountCutBarrierDetails,
   CountObservationInput,
   CountSession,
   CountSessionState,
@@ -219,7 +220,35 @@ const CONFLICT_KEYS: Record<string, MessageKey> = {
   count_flagged_line_not_acknowledged: "counts.error.notAcknowledged",
   count_line_version_stale: "counts.error.lineStale",
   idempotency_key_conflict: "counts.error.keyConflict",
+  count_self_approval_owner_only: "counts.error.ownerOnly",
 };
+
+const DEVICE_REASON_KEYS: Record<string, MessageKey> = {
+  no_heartbeat: "counts.cut.device.no_heartbeat",
+  stale_heartbeat: "counts.cut.device.stale_heartbeat",
+  queue_unknown: "counts.cut.device.queue_unknown",
+  queue_pending: "counts.cut.device.queue_pending",
+};
+
+export function deviceReasonKey(reason: string): MessageKey {
+  return keyOf(DEVICE_REASON_KEYS, reason, "counts.value.unknown");
+}
+
+export function warehouseReasonKey(reason: string): MessageKey {
+  return reason === "import_not_past_cut"
+    ? "counts.cut.warehouse.import_not_past_cut"
+    : "counts.value.unknown";
+}
+
+/** The Count Cut blockers of a 409 `count_cut_barrier_not_met`, only when they are well formed. */
+function barrierDetailsOf(error: unknown): CountCutBarrierDetails | undefined {
+  const details = (error as { error?: { details?: Partial<CountCutBarrierDetails> } } | undefined)
+    ?.error?.details;
+  if (!details || !Array.isArray(details.devices) || !Array.isArray(details.warehouses)) {
+    return undefined;
+  }
+  return { devices: details.devices, warehouses: details.warehouses };
+}
 
 export type CountOutcome<D = unknown> =
   | { kind: "ok"; data: D | undefined }
@@ -232,6 +261,8 @@ export type CountOutcome<D = unknown> =
       messageKey: MessageKey;
       /** The server's machine code, shown beside the message. */
       code?: string;
+      /** The Count Cut blockers (devices and warehouses), when the server named them. */
+      blockers?: CountCutBarrierDetails;
       requestId?: string;
       retryAfter?: number;
     };
@@ -252,15 +283,20 @@ export function classifyCountResult<D>(result: {
 }): CountOutcome<D> {
   if (result.status === 200 || result.status === 201) return { kind: "ok", data: result.data };
   const code = errorCodeOf(result.error);
-  const messageKey =
-    result.status === 409 && code
-      ? keyOf(CONFLICT_KEYS, code, "counts.error.conflict")
-      : (STATUS_KEYS[result.status] ?? "counts.error.generic");
+  const typed = (result.status === 409 || result.status === 403) && code;
+  const messageKey = typed
+    ? keyOf(
+        CONFLICT_KEYS,
+        code,
+        result.status === 409 ? "counts.error.conflict" : "counts.error.forbidden",
+      )
+    : (STATUS_KEYS[result.status] ?? "counts.error.generic");
   return {
     kind: "rejected",
     status: result.status,
     messageKey,
     code,
+    blockers: code === "count_cut_barrier_not_met" ? barrierDetailsOf(result.error) : undefined,
     requestId: errorRequestIdOf(result.error),
     retryAfter: result.retryAfter,
   };

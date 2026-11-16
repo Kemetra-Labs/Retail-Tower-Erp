@@ -22,7 +22,7 @@ export const counts = {
   "counts.title": "جرد المخزون",
   "counts.back": "مخزون المتجر",
   "counts.store.sub": "جلسات الجرد في هذا المتجر.",
-  "counts.store.notFound": "هذا المتجر غير متاح.",
+  "counts.store.notFound": "جرد المخزون غير مفعّل لهذه المؤسسة، أو أن هذا المتجر غير متاح لك.",
   "counts.note.blind": "العدّ أعمى: لا تظهر الكميات المتوقعة إلا بعد إرسال الجرد للمراجعة.",
   "counts.note.deskGuard":
     "سجّل الجرد هنا فقط. لا تُعدّل المخزون بنفسك في ERPNext أثناء جلسة جرد مفتوحة.",
@@ -72,7 +72,7 @@ export const counts = {
   "counts.session.back": "كل جلسات الجرد",
   "counts.session.loadingNoun": "جلسة الجرد",
   "counts.session.loadFailed": "تعذّر تحميل جلسة الجرد.",
-  "counts.session.notFound": "جلسة الجرد هذه غير متاحة.",
+  "counts.session.notFound": "جرد المخزون غير مفعّل لهذه المؤسسة، أو أن جلسة الجرد هذه غير متاحة.",
 
   "counts.state.open": "مفتوحة",
   "counts.state.cut_taken": "تم القطع",
@@ -228,6 +228,31 @@ export const counts = {
   "counts.late.loadFailed": "تعذّر تحميل ملاحظات الأحداث المتأخرة.",
   "counts.late.empty": "لا توجد ملاحظات.",
   "counts.late.loadMore": "تحميل ملاحظات أخرى",
+
+  "counts.cut.devices": "أجهزة نقاط البيع التي تمنع القطع",
+  "counts.cut.warehouses": "مستودعات ERPNext التي تمنع القطع",
+  "counts.cut.device.no_heartbeat": "لم يرسل الجهاز أي تقرير صحة",
+  "counts.cut.device.stale_heartbeat": "آخر تقرير للجهاز أقدم من طلب القطع",
+  "counts.cut.device.queue_unknown": "لم يُبلغ الجهاز عن طابور مبيعاته",
+  "counts.cut.device.queue_pending": "في طابور الجهاز مبيع معلّق أو متعثر أو محتجز",
+  "counts.cut.warehouse.import_not_past_cut": "لم يكتمل استيراد مخزون بعد طلب القطع",
+  "counts.error.ownerOnly": "صاحب المؤسسة وحده يقرأ هذا الإعداد أو يغيّره.",
+
+  "counts.selfSetting.title": "الاعتماد الذاتي للمتجر الصغير",
+  "counts.selfSetting.sub":
+    "افتراضيًا يعتمد الجرد شخص غير من عدّه أو أرسله. إذا كنت وحدك أو معك قلة، يمكنك السماح بالاعتماد الذاتي مع تسجيل السبب. يُسجَّل كل تغيير في التدقيق، وتُوسَم الجلسات المعتمدة ذاتيًا في المراجعة. لا يوجد حد للفرق ولا تجاوز من خارج المؤسسة.",
+  "counts.selfSetting.on": "الاعتماد الذاتي مسموح.",
+  "counts.selfSetting.off": "الاعتماد الذاتي غير مسموح.",
+  "counts.selfSetting.changed": "غيّره {who} في {when}.",
+  "counts.selfSetting.enable": "السماح بالاعتماد الذاتي للجرد",
+  "counts.selfSetting.reason": "سبب السماح",
+  "counts.selfSetting.error.reason": "اكتب سبب السماح بالاعتماد الذاتي.",
+  "counts.selfSetting.save": "حفظ الإعداد",
+  "counts.selfSetting.saved": "حُفظ الإعداد.",
+  "counts.selfSetting.failed": "لم يُحفظ الإعداد",
+  "counts.selfSetting.loadingNoun": "الإعداد",
+  "counts.selfSetting.loadFailed": "تعذّر تحميل الإعداد.",
+  "counts.selfSetting.notAvailable": "هذا الإعداد غير متاح.",
 
   // --- Refusals (a typed code selects the message; the code stays visible) -----------------
   "counts.error.code": "الرمز: {code}",

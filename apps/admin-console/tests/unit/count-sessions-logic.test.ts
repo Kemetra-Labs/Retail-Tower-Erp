@@ -7,6 +7,7 @@ import {
   canCapture,
   classifyCountResult,
   countStateKey,
+  deviceReasonKey,
   flagKey,
   hasReview,
   isErpState,
@@ -18,6 +19,7 @@ import {
   settlesAttempt,
   tookPart,
   validateObservation,
+  warehouseReasonKey,
 } from "@/count-sessions/countLogic";
 import type { CountVarianceLine } from "@/lib/count-session-queries";
 import { describe, expect, test } from "vitest";
@@ -252,5 +254,64 @@ describe("write outcome", () => {
     expect(settlesAttempt({ kind: "failed" })).toBe(false);
     expect(settlesAttempt(classifyCountResult({ status: 429 }))).toBe(false);
     expect(settlesAttempt(classifyCountResult({ status: 503 }))).toBe(false);
+  });
+});
+
+describe("Count Cut blockers and owner-only refusal", () => {
+  test("a cut refusal keeps the server's devices and warehouses, only when well formed", () => {
+    const details = {
+      devices: [{ deviceId: "d1", reason: "queue_pending" }],
+      warehouses: [{ warehouseRef: "Stores - RT", reason: "import_not_past_cut" }],
+    };
+    const out = classifyCountResult({
+      status: 409,
+      error: { error: { code: "count_cut_barrier_not_met", message: "m", details } },
+    });
+    expect(out).toMatchObject({ blockers: details });
+    const bare = classifyCountResult({
+      status: 409,
+      error: { error: { code: "count_cut_barrier_not_met", message: "m" } },
+    });
+    expect(bare).toMatchObject({ blockers: undefined });
+    const malformed = classifyCountResult({
+      status: 409,
+      error: {
+        error: { code: "count_cut_barrier_not_met", message: "m", details: { devices: 1 } },
+      },
+    });
+    expect(malformed).toMatchObject({ blockers: undefined });
+    // Other 409 codes never carry blockers.
+    expect(
+      classifyCountResult({
+        status: 409,
+        error: { error: { code: "count_scope_in_use", details } },
+      }),
+    ).toMatchObject({ blockers: undefined });
+  });
+
+  test("every blocker reason has catalog copy; an unknown one reads as Unknown", () => {
+    for (const r of ["no_heartbeat", "stale_heartbeat", "queue_unknown", "queue_pending"]) {
+      expect(deviceReasonKey(r)).toBe(`counts.cut.device.${r}`);
+    }
+    expect(deviceReasonKey("new")).toBe("counts.value.unknown");
+    expect(warehouseReasonKey("import_not_past_cut")).toBe(
+      "counts.cut.warehouse.import_not_past_cut",
+    );
+    expect(warehouseReasonKey("new")).toBe("counts.value.unknown");
+  });
+
+  test("the typed owner-only 403 selects its own message", () => {
+    expect(
+      classifyCountResult({
+        status: 403,
+        error: { error: { code: "count_self_approval_owner_only", message: "m" } },
+      }),
+    ).toMatchObject({
+      messageKey: "counts.error.ownerOnly",
+      code: "count_self_approval_owner_only",
+    });
+    expect(classifyCountResult({ status: 403 })).toMatchObject({
+      messageKey: "counts.error.forbidden",
+    });
   });
 });

@@ -15,6 +15,8 @@ const count = vi.hoisted(() => ({
   approveCountSession: vi.fn(),
   cancelCountSession: vi.fn(),
   listCountLateEventFindings: vi.fn(),
+  getCountSelfApprovalSetting: vi.fn(),
+  setCountSelfApprovalSetting: vi.fn(),
 }));
 vi.mock("@/lib/count-session-queries", () => count);
 const inv = {
@@ -204,6 +206,9 @@ beforeEach(() => {
   count.getCountSession.mockResolvedValue(ok(session()));
   count.listCountVarianceLines.mockResolvedValue(page([]));
   count.listCountLateEventFindings.mockResolvedValue(page([]));
+  count.getCountSelfApprovalSetting.mockResolvedValue(
+    ok({ enabled: false, reason: null, changedAt: null, changedBy: null }),
+  );
 });
 afterEach(cleanup);
 
@@ -434,6 +439,104 @@ describe("blind capture, Count Cut and submit (RT-1425)", () => {
       SESSION,
       "Wrong aisle",
     ]);
+  });
+});
+
+describe("Count Cut blockers, not-enabled state and the owner setting (RT-1425)", () => {
+  const DEVICE = "0190f000-0000-7000-8000-0000000000d1";
+
+  test("a cut refusal lists the blocking devices and warehouses with their reasons", async () => {
+    count.takeCountCut.mockResolvedValue({
+      status: 409,
+      error: {
+        error: {
+          code: "count_cut_barrier_not_met",
+          message: "server words",
+          request_id: REQUEST_ID,
+          details: {
+            devices: [{ deviceId: DEVICE, reason: "queue_pending" }],
+            warehouses: [{ warehouseRef: "Stores - RT", reason: "import_not_past_cut" }],
+          },
+        },
+      },
+    });
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "Take the Count Cut" }));
+    const blockers = await screen.findByTestId("count-blockers");
+    expect(blockers.textContent).toContain(DEVICE);
+    expect(blockers.textContent).toContain("holds a pending, failed or held sale");
+    expect(blockers.textContent).toContain("Stores - RT");
+    expect(blockers.textContent).toContain("No stock import has completed since the cut request");
+    expect(screen.getByTestId("count-outcome").textContent).toContain("No cut was recorded");
+  });
+
+  test("a cut refusal without details still shows the typed refusal and no blocker list", async () => {
+    count.takeCountCut.mockResolvedValue(conflict("count_cut_barrier_not_met"));
+    renderDetail();
+    fireEvent.click(await screen.findByRole("button", { name: "Take the Count Cut" }));
+    await screen.findByTestId("count-outcome");
+    expect(screen.queryByTestId("count-blockers")).toBeNull();
+  });
+
+  test("the 404 of a tenant without Count Sessions reads as not enabled, not as a failure", async () => {
+    count.listCountSessions.mockResolvedValue({ status: 404 });
+    renderList();
+    expect(
+      await screen.findByText(/Stock counts are not enabled for this tenant, or this store/),
+    ).toBeDefined();
+  });
+
+  test("only the owner is offered the self-approval setting", async () => {
+    activeContext.mockReturnValue(ctx("store_manager"));
+    renderList();
+    await screen.findByRole("heading", { name: "Open a count session" });
+    expect(screen.queryByRole("heading", { name: "Small-shop self-approval" })).toBeNull();
+    expect(count.getCountSelfApprovalSetting).not.toHaveBeenCalled();
+  });
+
+  test("the owner enables self-approval with a reason; the reason is required first", async () => {
+    count.setCountSelfApprovalSetting.mockResolvedValue(
+      ok({
+        enabled: true,
+        reason: "One person runs this shop",
+        changedAt: "2026-11-16T10:00:00Z",
+        changedBy: ME,
+      }),
+    );
+    renderList();
+    expect(await screen.findByText("Self-approval is not allowed.")).toBeDefined();
+    fireEvent.click(screen.getByLabelText("Allow self-approval of counts"));
+    fireEvent.click(screen.getByRole("button", { name: "Save setting" }));
+    expect(await screen.findByText("Write the reason for allowing self-approval.")).toBeDefined();
+    expect(count.setCountSelfApprovalSetting).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Reason for allowing it"), {
+      target: { value: " One person runs this shop " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save setting" }));
+    await waitFor(() => expect(count.setCountSelfApprovalSetting).toHaveBeenCalledTimes(1));
+    expect(count.setCountSelfApprovalSetting.mock.calls[0][0]).toEqual({
+      enabled: true,
+      reason: "One person runs this shop",
+    });
+  });
+
+  test("disabling sends no reason, and the server's owner-only refusal is shown by its code", async () => {
+    count.getCountSelfApprovalSetting.mockResolvedValue(
+      ok({ enabled: true, reason: "x", changedAt: "2026-11-16T10:00:00Z", changedBy: ME }),
+    );
+    count.setCountSelfApprovalSetting.mockResolvedValue({
+      status: 403,
+      error: {
+        error: { code: "count_self_approval_owner_only", message: "w", request_id: REQUEST_ID },
+      },
+    });
+    renderList();
+    fireEvent.click(await screen.findByLabelText("Allow self-approval of counts"));
+    fireEvent.click(screen.getByRole("button", { name: "Save setting" }));
+    const outcome = await screen.findByTestId("count-outcome");
+    expect(outcome.textContent).toContain("Only the tenant owner can read or change this setting");
+    expect(outcome.textContent).toContain("count_self_approval_owner_only");
+    expect(count.setCountSelfApprovalSetting.mock.calls[0][0]).toEqual({ enabled: false });
   });
 });
 
@@ -685,7 +788,7 @@ describe("approval marker, ERP status and late events (RT-1425)", () => {
       error: { error: { code: "not_found", message: "x", request_id: REQUEST_ID } },
     });
     renderDetail();
-    expect(await screen.findByText("This count session is not available.")).toBeDefined();
+    expect(await screen.findByText(/Stock counts are not enabled for this tenant/)).toBeDefined();
   });
 });
 

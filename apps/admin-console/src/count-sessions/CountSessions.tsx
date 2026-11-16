@@ -19,6 +19,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { CountGate, StateBadge, usePersonLabel } from "./CountParts";
 import { OpenCountPanel } from "./OpenCountPanel";
+import { SelfApprovalSetting } from "./SelfApprovalSetting";
 import { countStateKey } from "./countLogic";
 import { useCountSessions } from "./useCounts";
 import "../shell/surface.css";
@@ -197,6 +198,7 @@ function StoreCounts({
         onOpened={(id) => navigate(`/inventory/stores/${storeId}/counts/${id}`)}
       />
       <SessionsPanel scope={scope} storeId={storeId} index={2} />
+      {scope.role === "owner" ? <SelfApprovalSetting scope={scope} index={3} /> : null}
     </div>
   );
 }

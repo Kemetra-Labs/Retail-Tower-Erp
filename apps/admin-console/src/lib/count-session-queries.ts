@@ -29,6 +29,9 @@ export type CountLateEventFindingList = Schemas["CountLateEventFindingList"];
 export type RequestCountRecountCommand = Schemas["RequestCountRecountCommand"];
 export type ApproveCountSessionCommand = Schemas["ApproveCountSessionCommand"];
 export type InventoryStatus = Schemas["InventoryStatus"];
+export type CountCutBarrierDetails = Schemas["CountCutBarrierDetails"];
+export type CountSelfApprovalSetting = Schemas["CountSelfApprovalSetting"];
+export type SetCountSelfApprovalCommand = Schemas["SetCountSelfApprovalCommand"];
 
 export interface CountPageQuery {
   cursor?: string;
@@ -184,4 +187,16 @@ export async function listCountLateEventFindings(
       params: { path: { storeId, sessionId }, query },
     }),
   );
+}
+
+const SELF_APPROVAL = "/api/inventory/v1/settings/count-self-approval" as const;
+
+/** GET .../settings/count-self-approval: the owner's small-shop exception (owner only). */
+export async function getCountSelfApprovalSetting() {
+  return resultOf(await apiClient.GET(SELF_APPROVAL));
+}
+
+/** PUT .../settings/count-self-approval: whole-value, owner only, a reason when enabling. */
+export async function setCountSelfApprovalSetting(command: SetCountSelfApprovalCommand) {
+  return resultOf(await apiClient.PUT(SELF_APPROVAL, { body: command }));
 }

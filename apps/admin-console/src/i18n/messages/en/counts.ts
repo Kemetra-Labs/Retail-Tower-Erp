@@ -11,7 +11,8 @@ export const counts: MessagesOf<typeof ar> = {
   "counts.title": "Stock counts",
   "counts.back": "Store inventory",
   "counts.store.sub": "Count sessions of this store.",
-  "counts.store.notFound": "This store is not available.",
+  "counts.store.notFound":
+    "Stock counts are not enabled for this tenant, or this store is not available to you.",
   "counts.note.blind":
     "Counting is blind: expected quantities appear only after the count is submitted for review.",
   "counts.note.deskGuard":
@@ -59,7 +60,8 @@ export const counts: MessagesOf<typeof ar> = {
   "counts.session.back": "All count sessions",
   "counts.session.loadingNoun": "the count session",
   "counts.session.loadFailed": "The count session could not be loaded.",
-  "counts.session.notFound": "This count session is not available.",
+  "counts.session.notFound":
+    "Stock counts are not enabled for this tenant, or this count session is not available.",
 
   "counts.state.open": "Open",
   "counts.state.cut_taken": "Cut taken",
@@ -211,6 +213,31 @@ export const counts: MessagesOf<typeof ar> = {
   "counts.late.loadFailed": "Late event findings could not be loaded.",
   "counts.late.empty": "No findings.",
   "counts.late.loadMore": "Load more findings",
+
+  "counts.cut.devices": "POS devices blocking the cut",
+  "counts.cut.warehouses": "ERPNext warehouses blocking the cut",
+  "counts.cut.device.no_heartbeat": "The device has sent no health report",
+  "counts.cut.device.stale_heartbeat": "The device's last report is older than the cut request",
+  "counts.cut.device.queue_unknown": "The device did not report its sale queue",
+  "counts.cut.device.queue_pending": "The device's queue holds a pending, failed or held sale",
+  "counts.cut.warehouse.import_not_past_cut": "No stock import has completed since the cut request",
+  "counts.error.ownerOnly": "Only the tenant owner can read or change this setting.",
+
+  "counts.selfSetting.title": "Small-shop self-approval",
+  "counts.selfSetting.sub":
+    "By default someone other than the counters and the submitter approves a count. If you run the shop alone or with very few people, you can allow self-approval with a recorded reason. Every change is audited and self-approved sessions are marked in review. There is no variance threshold and no override from outside the tenant.",
+  "counts.selfSetting.on": "Self-approval is allowed.",
+  "counts.selfSetting.off": "Self-approval is not allowed.",
+  "counts.selfSetting.changed": "Changed by {who} at {when}.",
+  "counts.selfSetting.enable": "Allow self-approval of counts",
+  "counts.selfSetting.reason": "Reason for allowing it",
+  "counts.selfSetting.error.reason": "Write the reason for allowing self-approval.",
+  "counts.selfSetting.save": "Save setting",
+  "counts.selfSetting.saved": "Setting saved.",
+  "counts.selfSetting.failed": "The setting was not saved",
+  "counts.selfSetting.loadingNoun": "the setting",
+  "counts.selfSetting.loadFailed": "The setting could not be loaded.",
+  "counts.selfSetting.notAvailable": "This setting is not available.",
 
   // --- Refusals (a typed code selects the message; the code stays visible) -----------------
   "counts.error.code": "Code: {code}",

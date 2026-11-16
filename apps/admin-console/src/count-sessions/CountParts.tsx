@@ -12,7 +12,13 @@ import { type InventoryScope, useInventoryScope } from "@/inventory/useInventory
 import { usePeopleNames } from "@/people/usePeopleNames";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
-import { type CountOutcome, countStateKey, countStateTone } from "./countLogic";
+import {
+  type CountOutcome,
+  countStateKey,
+  countStateTone,
+  deviceReasonKey,
+  warehouseReasonKey,
+} from "./countLogic";
 
 /** A rejected or unanswered write, in place: What -> Safety -> Action -> Evidence. */
 export function OutcomeBanner({
@@ -40,6 +46,42 @@ export function OutcomeBanner({
         <p className="counts__note">
           {t.rich("counts.error.code", { code: <Machine value={outcome.code} /> })}
         </p>
+      ) : null}
+      {outcome.blockers ? <Blockers details={outcome.blockers} /> : null}
+    </div>
+  );
+}
+
+/** What blocks the Count Cut, as the server named it: devices and mapped warehouses. */
+function Blockers({
+  details,
+}: Readonly<{ details: NonNullable<Extract<CountOutcome, { kind: "rejected" }>["blockers"]> }>) {
+  const t = useT();
+  return (
+    <div className="counts__blockers" data-testid="count-blockers">
+      {details.devices.length > 0 ? (
+        <>
+          <h3 className="counts__subtitle">{t("counts.cut.devices")}</h3>
+          <ul className="counts__list">
+            {details.devices.map((d) => (
+              <li key={d.deviceId}>
+                <Machine value={d.deviceId} /> · {t(deviceReasonKey(d.reason))}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {details.warehouses.length > 0 ? (
+        <>
+          <h3 className="counts__subtitle">{t("counts.cut.warehouses")}</h3>
+          <ul className="counts__list">
+            {details.warehouses.map((w) => (
+              <li key={w.warehouseRef}>
+                <Machine value={w.warehouseRef} /> · {t(warehouseReasonKey(w.reason))}
+              </li>
+            ))}
+          </ul>
+        </>
       ) : null}
     </div>
   );

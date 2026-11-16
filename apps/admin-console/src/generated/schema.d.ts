@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 8352ecda203ef9b8a0d98a27bd16c57110038aff
+// Source: Kemetra-Labs/Retail-Tower-Erp @ a14571e789f3b2890905645418b10c6b548e66ef
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -12261,7 +12261,7 @@ export namespace InventorySchema {
             put?: never;
             /**
              * Take the Count Cut of a session.
-             * @description RT-1419 (decisions 824, 828; Count Cut and barrier). Moves the session from `open` to `cut_taken`: records the Count Cut, a frozen watermark (not a timestamp), and freezes the expected quantity per product at the cut. Expected counts only effects recorded before the cut. The cut is refused with 409 `count_cut_barrier_not_met` until the barrier holds: the store's POS devices are drained and the bucket's ERP import has read past the cut; nothing is written. A session not `open` is 409 `count_session_not_in_state`. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
+             * @description RT-1419 (decisions 824, 828; Count Cut and barrier). Moves the session from `open` to `cut_taken`: records the Count Cut, a frozen watermark (not a timestamp), and freezes the expected quantity per product at the cut. Expected counts only effects recorded before the cut. The cut is refused with 409 `count_cut_barrier_not_met` until the barrier holds: the store's POS devices are drained and the bucket's ERP import has read past the cut; nothing is written. The refusal lists what blocks in `error.details` (`CountCutBarrierDetails`: each device with a reason, each warehouse with a reason). A session not `open` is 409 `count_session_not_in_state`. Owner, tenant_admin or store_manager (a store_manager only in its store scope). Idempotent via the `Idempotency-Key` header.
              */
             post: operations["takeCountCut"];
             delete?: never;
@@ -12383,6 +12383,30 @@ export namespace InventorySchema {
              */
             get: operations["listCountLateEventFindings"];
             put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/settings/count-self-approval": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's small-merchant Count Session approval exception.
+             * @description RT-1420 (RT-292 G6-10). Whether the tenant owner has enabled the audited exception that lets a counter or the submitter approve their own Count Session (`approveCountSession` then answers `approval.policy` `small_merchant_exception` and `selfApproved: true`). Off for every tenant until the owner turns it on; `reason`, `changedAt` and `changedBy` are null while it was never enabled. Owner only: any other role, tenant_admin and store_manager included, is the typed 403 `count_self_approval_owner_only`. There is no Retail Tower or platform-admin override in V1.
+             */
+            get: operations["getCountSelfApprovalSetting"];
+            /**
+             * Enable or disable the small-merchant Count Session approval exception.
+             * @description RT-1420 (RT-292 G6-10). Owner only (typed 403 `count_self_approval_owner_only` for any other role). Enabling needs a `reason` of 1 to 500 characters (400 otherwise); disabling clears it. Every change is audited with the actor, the time, the value and the reason. It is a whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`. The activation of Count Sessions themselves is not this setting.
+             */
+            put: operations["setCountSelfApprovalSetting"];
             post?: never;
             delete?: never;
             options?: never;
@@ -13471,6 +13495,59 @@ export namespace InventorySchema {
                 /** @description Opaque cursor for the next page; null when exhausted. */
                 nextCursor: string | null;
             };
+            /** @description RT-1420 (G6-10) — the tenant owner's small-merchant approval exception. */
+            CountSelfApprovalSetting: {
+                enabled: boolean;
+                /** @description The recorded reason; null while the exception is off. */
+                reason: string | null;
+                /** Format: date-time */
+                changedAt: string | null;
+                /** Format: uuid */
+                changedBy: string | null;
+            };
+            SetCountSelfApprovalCommand: {
+                enabled: boolean;
+                /** @description Required (1 to 500 characters) when `enabled` is true. */
+                reason?: string | null;
+            };
+            CountCutBarrierDevice: {
+                /** Format: uuid */
+                deviceId: string;
+                /**
+                 * @description `no_heartbeat`: no health report from the till. `stale_heartbeat`: its last report is before the cut request. `queue_unknown`: it did not report its sale queue. `queue_pending`: its sale queue holds a pending, dead-letter or held sale.
+                 * @enum {string}
+                 */
+                reason: "no_heartbeat" | "stale_heartbeat" | "queue_unknown" | "queue_pending";
+            };
+            CountCutBarrierWarehouse: {
+                /** @description The ERP warehouse of the store stock mapping. */
+                warehouseRef: string;
+                /**
+                 * @description No completed ERP stock import ended after the cut request.
+                 * @enum {string}
+                 */
+                reason: "import_not_past_cut";
+            };
+            /** @description RT-1420 — what blocks the Count Cut: the live devices and the mapped warehouses that are not ready. At least one list is non-empty on a refusal. */
+            CountCutBarrierDetails: {
+                devices: components["schemas"]["CountCutBarrierDevice"][];
+                warehouses: components["schemas"]["CountCutBarrierWarehouse"][];
+            };
+            /** @description The canonical error envelope (`Error`) of the Count Cut 409, with the envelope optional `details` carrying the blockers. `details` is present for `count_cut_barrier_not_met` and absent for the other 409 codes. */
+            CountCutConflictError: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                    details?: components["schemas"]["CountCutBarrierDetails"];
+                };
+            };
         };
         responses: {
             /** @description 400 — strict-schema validation failure: unknown keys, malformed values, a non-positive / zero transfer quantity, a same-store transfer, a cross-unit quantity (FR-022), or a missing `reason` on an adjustment. */
@@ -13588,6 +13665,54 @@ export namespace InventorySchema {
                      *     }
                      */
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 `count_self_approval_owner_only` — RT-1420. Only the tenant owner reads or changes the Count Session approval exception. */
+            CountSelfApprovalOwnerOnly: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "count_self_approval_owner_only",
+                     *         "message": "Only the tenant owner can read or change the approval exception."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 — RT-1420. `count_cut_barrier_not_met` carries the blockers in `error.details` (`CountCutBarrierDetails`). The other codes are those of `CountSessionConflict` (`count_session_not_in_state`, `idempotency_key_conflict`) in the plain envelope. Nothing is written. */
+            CountCutConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "count_cut_barrier_not_met",
+                     *         "message": "The Count Cut cannot be taken yet: a device or an ERP stock import is not ready.",
+                     *         "details": {
+                     *           "devices": [
+                     *             {
+                     *               "deviceId": "0198a0c4-0000-7000-8000-0000000000d1",
+                     *               "reason": "queue_pending"
+                     *             }
+                     *           ],
+                     *           "warehouses": [
+                     *             {
+                     *               "warehouseRef": "Stores - RT",
+                     *               "reason": "import_not_past_cut"
+                     *             }
+                     *           ]
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CountCutConflictError"];
                 };
             };
             /** @description 5xx — internal failure; the cause is recorded server-side under `request_id`. */
@@ -14808,7 +14933,7 @@ export namespace InventorySchema {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
-                409: components["responses"]["CountSessionConflict"];
+                409: components["responses"]["CountCutConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
@@ -15107,6 +15232,73 @@ export namespace InventorySchema {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getCountSelfApprovalSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The exception setting. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "enabled": false,
+                         *       "reason": null,
+                         *       "changedAt": null,
+                         *       "changedBy": null
+                         *     }
+                         */
+                        "application/json": components["schemas"]["CountSelfApprovalSetting"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["CountSelfApprovalOwnerOnly"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setCountSelfApprovalSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true,
+                     *       "reason": "One person runs this shop"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SetCountSelfApprovalCommand"];
+                };
+            };
+            responses: {
+                /** @description The exception setting after the command. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSelfApprovalSetting"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["CountSelfApprovalOwnerOnly"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
