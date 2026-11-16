@@ -74,7 +74,11 @@ class TestFieldsAndIndex:
 			("Stock Reconciliation-rt_external_id", 200),
 		):
 			field = by_name[name]
-			assert (field["dt"], field["fieldtype"], field["length"]) == ("Stock Reconciliation", "Data", length)
+			assert (field["dt"], field["fieldtype"], field["length"]) == (
+				"Stock Reconciliation",
+				"Data",
+				length,
+			)
 			assert (field["read_only"], field["no_copy"]) == (1, 1)
 		(fixture,) = [f for f in hooks.fixtures if f["dt"] == "Custom Field"]
 		(name_filter,) = [f for f in fixture["filters"] if f[0] == "name"]
@@ -93,7 +97,9 @@ class TestFieldsAndIndex:
 			{"Seq_in_index": 2, "Column_name": "rt_external_id", "Non_unique": 0, "Sub_part": None},
 		]
 		assert ig.index_matches(rows, ("rt_source_system", "rt_external_id"))
-		assert not ig.index_matches([{**r, "Non_unique": 1} for r in rows], ("rt_source_system", "rt_external_id"))
+		assert not ig.index_matches(
+			[{**r, "Non_unique": 1} for r in rows], ("rt_source_system", "rt_external_id")
+		)
 		assert not ig.index_matches(rows[:1], ("rt_source_system", "rt_external_id"))
 
 

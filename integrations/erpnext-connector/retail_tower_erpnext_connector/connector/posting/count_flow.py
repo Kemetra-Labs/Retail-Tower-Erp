@@ -476,7 +476,7 @@ def _decide(
 	docs = port.existing_documents(work_item.source_system, work_item.external_id)
 	decision = classify_existing(docs, stamp, accepted)
 	if decision.action != "proceed":
-		return _existing(work_item, acker, store, decision, plan)
+		return _existing(work_item, acker, store, port, decision, plan)
 	if not accepted:
 		return _all_refused(acker, plan)
 	if not plan.to_post:
@@ -485,7 +485,12 @@ def _decide(
 
 
 def _existing(
-	work_item: PostingWorkItem, acker: _Acker, store: IdempotencyStore, decision: Decision, plan: _Plan
+	work_item: PostingWorkItem,
+	acker: _Acker,
+	store: IdempotencyStore,
+	port: CountErpPort,
+	decision: Decision,
+	plan: _Plan,
 ) -> str:
 	doc = decision.document
 	assert doc is not None or decision.action == "proceed"
@@ -494,8 +499,31 @@ def _existing(
 	ref = ErpnextDocumentRef(doctype=STOCK_RECONCILIATION, name=doc.name)  # type: ignore[union-attr]
 	if decision.action == "reconcile":
 		return acker.reconcile(ref, decision.message)
+	return _echo(work_item, acker, store, port, ref, doc, plan)  # type: ignore[arg-type]
+
+
+def _echo(
+	work_item: PostingWorkItem,
+	acker: _Acker,
+	store: IdempotencyStore,
+	port: CountErpPort,
+	ref: ErpnextDocumentRef,
+	doc: ExistingCount,
+	plan: _Plan,
+) -> str:
+	"""A matching submitted document is confirmed ONLY after the ledger is read back again.
+
+	The first run may have died after the submit and before its verification or ack (a crash window),
+	or its `reconciliation_required` ack may have been lost: an echo must never turn either into a
+	`posted`. The body is unchanged when the read-back passes, so the Idempotency-Key never meets a
+	different body.
+	"""
+	posted_keys = {(r[0], r[1]) for r in doc.rows}
+	in_doc = [line for line in [*plan.to_post, *plan.noop] if (line.item_code, line.warehouse) in posted_keys]
+	problem = verification_problem(in_doc, port.read_back(doc.name, sorted(posted_keys)))
+	if problem:
+		return acker.reconcile(ref, f"verification failed on the existing document: {problem}")
 	_record(store, work_item, ref)
-	posted_keys = {(r[0], r[1]) for r in doc.rows}  # type: ignore[union-attr]
 	return acker.posted(ref, _echo_outcomes(plan, posted_keys))
 
 
@@ -541,7 +569,7 @@ def _create(
 		decision = classify_existing(docs, stamp, [*plan.to_post, *plan.noop])
 		if decision.action == "proceed":
 			return acker.transient()  # the index fired but the lookup sees nothing yet: retry later
-		return _existing(work_item, acker, store, decision, plan)
+		return _existing(work_item, acker, store, port, decision, plan)
 	ref = ErpnextDocumentRef(doctype=STOCK_RECONCILIATION, name=name)
 	read_back = port.read_back(name, [(line.item_code, line.warehouse) for line in plan.to_post])
 	problem = verification_problem(plan.to_post, read_back)

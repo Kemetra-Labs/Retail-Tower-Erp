@@ -1515,6 +1515,15 @@ describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_c
     expect(v({ outcome: "posted", documentRef: doc, lines: [{ ...line, result: "bogus" }] })).toBe(false);
   });
 
+  it("the recorded-outcome response can confirm a verified_noop, with no document", () => {
+    const outcome = ((schema("RecordedOutcome")?.properties ?? {})["outcome"] as { enum?: string[] }).enum;
+    expect(outcome).toContain("verified_noop");
+    const v = validator("RecordedOutcome");
+    const base = { workItemRef: "00000000-0000-7000-8000-00000000c001", recordedAt: "2026-11-16T09:31:00.000Z" };
+    expect(v({ ...base, outcome: "verified_noop", documentRef: null })).toBe(true);
+    expect(v({ ...base, outcome: "bogus" })).toBe(false);
+  });
+
   it("a sale ack stays valid exactly as before (no lines, same outcomes)", () => {
     const v = validator("OutcomeAckRequest");
     const doc = { doctype: "Sales Invoice", name: "ACC-SINV-1" };

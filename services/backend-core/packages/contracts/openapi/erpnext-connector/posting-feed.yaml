@@ -1540,7 +1540,10 @@ components:
           format: uuid
         outcome:
           type: string
-          enum: [posted, failed_transient, permanently_rejected]
+          enum: [posted, failed_transient, permanently_rejected, verified_noop]
+          description: >
+            `verified_noop` (RT-1422, `inventory_count` only) confirms a recorded `verified_noop` ack;
+            its `documentRef` is null.
         documentRef:
           anyOf:
             - $ref: "#/components/schemas/ErpnextDocumentRef"

@@ -136,6 +136,9 @@ class _Port:
 	def read_back(self, name, rows):
 		if self.read_back_override is not None:
 			return self.read_back_override
+		if not self.submitted:  # an echo reads back a document that already exists on the site
+			qty = {(i, w): q for d in self.docs for i, w, q in d.rows}
+			return [cf.LineReadBack(i, w, qty[(i, w)], qty[(i, w)], "0") for i, w in rows]
 		qty = {line["item_code"]: line["qty"] for line in self.submitted[-1]["items"]}
 		return [cf.LineReadBack(i, w, qty[i], qty[i], "0") for i, w in rows]
 
@@ -351,6 +354,28 @@ class TestDraftAwareIdempotency:
 		_, client2, _, _ = _run(port=port)
 		assert first == "posted" and _ack(client1) == _ack(client2)
 		assert client1.acks[0][2] == client2.acks[0][2]  # one Idempotency-Key, so no 409 at Backend-Core
+
+	def test_an_echo_reads_the_ledger_back_and_never_confirms_a_document_that_does_not_verify(self):
+		# A crash after the submit, or a lost reconciliation ack, then a re-offer: the matching submitted
+		# document is re-verified before `posted`, never echoed blind.
+		port = _Port()
+		port.docs = [_doc()]
+		port.read_back_override = [
+			cf.LineReadBack(_PAIR, _WH, "6", "6", "0"),
+			cf.LineReadBack(_ITEM2, _WH, "0", "0", "0"),
+		]
+		outcome, client, port, store = _run(port=port)
+		assert outcome == "reconciliation_required" and port.submitted == [] and store.recorded == {}
+		ack = _ack(client)
+		assert ack["documentRef"]["name"] == "MAT-RECO-2026-00017"
+		assert "verification failed on the existing document" in ack["reason"]["message"]
+
+	def test_a_lost_race_whose_winner_does_not_verify_is_reconciliation_required_too(self):
+		port = _Port()
+		port.submit_races = True
+		port.read_back_override = [cf.LineReadBack(_PAIR, _WH, "7", "99", "0")]
+		outcome, _, port, _ = _run(port=port)
+		assert outcome == "reconciliation_required" and port.submitted == []
 
 	def test_a_draft_that_is_in_flight_is_never_resubmitted(self):
 		port = _Port()
