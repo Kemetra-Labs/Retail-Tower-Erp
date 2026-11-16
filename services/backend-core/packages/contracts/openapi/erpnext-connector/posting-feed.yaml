@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.14.0-draft"
+  version: "1.15.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -488,6 +488,21 @@ info:
     `posted` requires a `documentRef`, so `verified_noop` cannot ride `posted`
     as it stands; its ack mapping is decided with RT-1422.
 
+    RT-1422 (1.15.0-draft; [GATED: contract pin] owner authorization 2026-11-16, chat:
+    "i delegate and auhtrize you ... you are delegated for all until mission setteled"):
+    the Connector ADOPTS `inventory_count`, the flat adoption planned in the RT-1421 note.
+    `PostingWorkItem.kind` gains `inventory_count`; `sale` is the ONLY field that
+    becomes conditional (required for `sale_post` and `reversal`, forbidden for
+    `inventory_count`); a new optional `count` property carries `CountPosting` (required
+    for, and only for, `inventory_count`); `payloadHash` and `businessDate` stay required.
+    The ack gains the outcome `verified_noop` and an optional `lines` array of
+    `CountLineOutcome`, both valid ONLY for an `inventory_count` work item: a verified
+    no-op has no new document, and `posted` requires one, so the ack never fakes a
+    `documentRef`. DEPLOY ORDER: the Connector carrying this change is deployed first;
+    Backend-Core must not emit `inventory_count` (RT-1423) and must not expect
+    `verified_noop` or `lines` until it has deployed the Connector that sends them, and
+    RT-1423 must accept both on the ack route before it enables a tenant.
+
 servers:
   - url: https://api.example.com
 
@@ -733,7 +748,6 @@ components:
         - externalId
         - payloadHash
         - businessDate
-        - sale
         - itemCursor
       description: >
         One pending posting the connector must post to ERPNext. `kind`
@@ -749,8 +763,10 @@ components:
             outcome ack to identify which posting this outcome resolves.
         kind:
           type: string
-          enum: [sale_post, reversal]
+          enum: [sale_post, reversal, inventory_count]
           description: >
+            `inventory_count` (RT-1422) — post one chunk of a physical count as ONE native
+            ERPNext Stock Reconciliation, carried in `count`; there is no `sale`.
             `sale_post` — post the sale as a submitted ERPNext Sales Invoice,
             settled by its `sale.tenders` when present (RT-10 D3(b)). `reversal` — post a NEW reversing document (credit
             note / return invoice) for the referenced original sale (O-4);
@@ -795,6 +811,8 @@ components:
             - type: "null"
         sale:
           $ref: "#/components/schemas/Sale"
+        count:
+          $ref: "#/components/schemas/CountPosting"
         itemCursor:
           type: string
           minLength: 1
@@ -808,6 +826,25 @@ components:
             RT-332 — the frozen resolution version this work item was built from
             (RT-330). Echo it as `OutcomeAckRequest.resolutionVersion`. Omitted
             for an intent created before the freeze.
+      allOf:
+        - if:
+            properties:
+              kind:
+                enum: [sale_post, reversal]
+          then:
+            required: [sale]
+            not:
+              required: [count]
+        - if:
+            properties:
+              kind:
+                const: inventory_count
+          then:
+            required: [count]
+            not:
+              anyOf:
+                - required: [sale]
+                - required: [reversalOf]
 
     ReversalRef:
       type: object
@@ -1286,8 +1323,13 @@ components:
       properties:
         outcome:
           type: string
-          enum: [posted, failed_transient, permanently_rejected, reconciliation_required]
+          enum: [posted, failed_transient, permanently_rejected, reconciliation_required, verified_noop]
           description: >
+            `verified_noop` (RT-1422, `inventory_count` only) — every counted line was
+            already at its target in ERPNext, which refuses a Stock Reconciliation with no
+            change; the Connector read the Bin and verified it. No document exists, so
+            `documentRef` is null and `lines` carries the per-line evidence. It is NOT a
+            rejection and NOT a `posted`.
             `posted` — submitted to ERPNext (carries `documentRef`).
             `failed_transient` — a retryable failure; DP2 re-offers the work-item
             on the next pull (bounded by a retry budget).
@@ -1336,6 +1378,27 @@ components:
             state and is answered with an idempotent echo (`failed_transient` while
             it is still pending and re-offered). Echo it on every outcome; omit it
             when the work item carried none.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CountLineOutcome"
+          description: >
+            RT-1422, `inventory_count` only: what the Connector verified for each counted
+            line (`adjusted`, `verified_noop`, or `rejected` with its typed refusal).
+            Required with `verified_noop`; optional with `posted` and
+            `permanently_rejected`; never sent for a `sale_post` or `reversal`.
+      allOf:
+        - if:
+            properties:
+              outcome:
+                const: verified_noop
+          then:
+            required: [lines]
+            properties:
+              documentRef:
+                type: "null"
 
     ErpnextDocumentRef:
       type: object
