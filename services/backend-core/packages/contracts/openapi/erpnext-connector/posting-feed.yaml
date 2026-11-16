@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.13.0-draft"
+  version: "1.14.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -427,6 +427,66 @@ info:
     (d) any ack change.
     The per-line ERP provenance key of planning §3 (c) is `(sourceSystem,
     'disposition:' + dispositionRef + ':' + lineSeq)`.
+
+    RT-1421 (1.14.0-draft; [GATED: OpenAPI] owner authorization 2026-11-16,
+    chat: "i delegate and auhtrize you ... choose recomnded if need to choose
+    no stop until mission setteled"; Inventory Gate 6 / RT-292 record,
+    Confluence page 78938114, G6-6 and G6-9; RT-292 comments 17219, 17223,
+    17224): the work-item kind `inventory_count` is RESERVED, with no wire
+    change. A physical Count Session posts through this same feed (never a
+    second feed) as ONE ERPNext Stock Reconciliation per chunk of at most 100
+    rows. Its shape is `CountWorkItem` with `CountPosting` and
+    `CountPostingLine`; `CountRefusal`, `CountLineOutcome` and
+    `CountPostingOutcome` describe the typed refusals and the verified
+    outcomes. These schemas are referenced by no operation in this version.
+    `PostingWorkItem.kind` keeps `sale_post | reversal`, and Backend-Core MUST
+    NOT emit `inventory_count`. G6-9 FEASIBILITY RESULT (typed `oneOf` is NOT
+    taken): (1) `contracts/check` pins the Connector constant
+    `WORK_ITEM_KINDS` to `PostingWorkItem/properties/kind`, so a `oneOf` over
+    `PostingWorkItem` removes that pointer and widening the enum breaks the
+    equality; (2) the deployed Connector reads `wire["sale"]` by bare
+    subscript and rejects an unknown kind, so a count item on the feed would
+    crash or be dead-lettered; (3) nothing changes for client generation
+    because no operation references the schemas. The owner-approved fallback
+    applies: ONE FLAT count work-item schema, strict and kind-specific
+    (`additionalProperties: false`, `kind` const, `sale`, `reversalOf` and
+    every valuation field are absent and forbidden), reserved first. The
+    count intent is the ABSOLUTE counted quantity per ERP bucket line in the
+    base stock UOM, never the Retail variance and never a valuation rate. The
+    provenance key is `count:<sessionId>[:<chunk>]`; the posting datetime is
+    the frozen Count Cut plus one microsecond, mandatory, never the current
+    time.
+    ROLLOUT ORDER (Connector first, as for 1.10.0-draft and 1.11.0-draft):
+    (1) RT-1422 adds `inventory_count` to the Connector constant
+    `WORK_ITEM_KINDS`, makes the Connector accept and post it, and repins
+    (`python integrations/erpnext-connector/scripts/contracts_repin.py`);
+    (2) in the SAME gated change the feed adopts the kind: `kind` gains the
+    value, `sale` becomes conditional (required only when `kind` is
+    `sale_post` or `reversal`), and the optional `count` property carries
+    `CountPosting` (the flat adoption). `payloadHash` and `businessDate` stay
+    required, because `CountWorkItem` carries both; `sale` is the ONLY field
+    that becomes conditional. The Connector `PostingWorkItem.from_wire` reads
+    `wire["sale"]` by bare subscript, and `contracts/check` fails a field read
+    by bare subscript that the schema does not require, so that same change
+    MUST make the Connector branch on `kind` before it reads `sale` (or read
+    it with `.get`). `config.yaml` is unchanged, because the enum pointer stays
+    `PostingWorkItem/properties/kind`;
+    (3) only then does RT-1423 emit it, behind per-tenant default-off
+    activation.
+    SERVER-SIDE RULES JSON Schema cannot express (RT-1423 enforces them when
+    it builds the intent, RT-1422 refuses a violation, with the typed code):
+    `externalId` equals `count:` + `countSessionRef` and, above one chunk, ends
+    in `:` + `chunk` (`invalid_shape`); `chunk` is at most `chunkCount`
+    (`invalid_shape`); `lineSeq` is unique within a chunk (`invalid_shape`);
+    `postingDatetime` is identical in every chunk of a session and equals the
+    value frozen for the provenance key (`frozen_datetime_mismatch`); one
+    chunk holds one mapping bucket (`invalid_shape`); every `unit` is the
+    Item's base stock UOM (`uom_mismatch`). Everything else is enforced by the
+    schemas.
+    Not decided here, and added additively before the kind is emitted: any
+    change of `OutcomeAckRequest`. A verified no-op has no new document, but
+    `posted` requires a `documentRef`, so `verified_noop` cannot ride `posted`
+    as it stands; its ack mapping is decided with RT-1422.
 
 servers:
   - url: https://api.example.com
@@ -1550,6 +1610,373 @@ components:
           description: The unit `quantity` is in (as `SaleLine.unit`).
         warehouseRef:
           $ref: "#/components/schemas/ErpnextWarehouseRef"
+
+    # -----------------------------------------------------------------------
+    # RT-1421 (1.14.0-draft) — RESERVED `inventory_count` kind. Referenced by no
+    # operation; never emitted in this version (see the info note).
+    # -----------------------------------------------------------------------
+    CountWorkItem:
+      type: object
+      additionalProperties: false
+      required: [workItemRef, kind, sourceSystem, externalId, payloadHash, businessDate, count, itemCursor]
+      description: >
+        RT-1421, RESERVED (not on the feed in this version). One chunk of a
+        physical count the Connector will post as ONE native ERPNext Stock
+        Reconciliation. FLAT and kind-specific: `kind` is the constant
+        `inventory_count`, and there is no `sale`, no `reversalOf` and no
+        valuation field. It DOES carry `payloadHash` and `businessDate`, so a
+        flat adoption keeps those two required on the feed item. Self-contained like
+        `PostingWorkItem`: no `tenant_id`, no credentials.
+      properties:
+        workItemRef:
+          type: string
+          format: uuid
+          description: Stable, opaque, scope-bound work-item reference (as on `PostingWorkItem`).
+        kind:
+          type: string
+          const: inventory_count
+          description: The reserved work-item kind.
+        sourceSystem:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Provenance + dedup key (as on `PostingWorkItem`).
+        externalId:
+          type: string
+          pattern: '^count:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(:[1-9][0-9]{0,5})?$'
+          maxLength: 200
+          description: >
+            `count:<sessionId>` for a one-chunk count or `count:<sessionId>:<chunk>`
+            (chunk 1-based), the deterministic provenance key of G6-6. It MUST
+            equal `count.countSessionRef` and, when `count.chunkCount` is above 1,
+            end in `count.chunk`. With `sourceSystem` it is the idempotency anchor:
+            the lookup finds Draft as well as submitted documents, and a cancelled
+            document found by the key is an unknown outcome, never re-posted
+            silently.
+        count:
+          $ref: "#/components/schemas/CountPosting"
+        itemCursor:
+          type: string
+          minLength: 1
+          description: Opaque advanced cursor after this work-item (as on `PostingWorkItem`).
+        payloadHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: >
+            SHA-256 of the canonical `count` payload (as on `PostingWorkItem`), so
+            the Connector and Backend-Core reconcile a posting to its exact source.
+        businessDate:
+          type: string
+          format: date
+          description: >
+            The Count Cut's business date in the store timezone. Informational
+            only: the ERP posting datetime is `count.postingDatetime`, never this
+            date and never the current time.
+    CountPosting:
+      type: object
+      additionalProperties: false
+      required:
+        - countSessionRef
+        - chunk
+        - chunkCount
+        - storeId
+        - mappingBucketRef
+        - postingDatetime
+        - lines
+      description: >
+        RT-1421, RESERVED. The Retail-origin count intent of one chunk, created
+        after approval in one transaction with its effects (DC-2). The Connector
+        posts it as given and never resolves an Item, a warehouse or a UOM itself.
+        Absolute target, not a delta: each line says what the ERP bucket holds
+        after the count. Never the Retail variance, never a valuation rate
+        (a valuation rate revalues all stock).
+      properties:
+        countSessionRef:
+          type: string
+          format: uuid
+          description: The Backend-Core Count Session id.
+        chunk:
+          type: integer
+          minimum: 1
+          description: This chunk's 1-based position. Chunks post in ascending order.
+        chunkCount:
+          type: integer
+          minimum: 1
+          description: How many chunks the session has. `chunk` is at most `chunkCount`.
+        storeId:
+          type: string
+          format: uuid
+          description: DP2 store id — lineage only; the warehouse is per line.
+        mappingBucketRef:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >
+            Opaque identifier of the mapping bucket (the store `stock` Warehouse
+            bucket of 925) every line of this chunk belongs to. Lineage and
+            tenant/store context; one chunk never mixes buckets.
+        postingDatetime:
+          type: string
+          pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z$'
+          description: >
+            The FROZEN Count Cut posting datetime plus one microsecond, in UTC
+            with exactly six fractional digits (G6-6). Mandatory, identical in
+            every chunk of the session, and never defaulted to the current time.
+            A replay carrying a different value for the same provenance key is
+            refused with `frozen_datetime_mismatch`.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CountPostingLine"
+          description: At most 100 rows per Stock Reconciliation (G6-6).
+    CountPostingLine:
+      type: object
+      additionalProperties: false
+      required: [lineSeq, erpnextItemRef, warehouseRef, countedQuantity, unit]
+      description: >
+        RT-1421, RESERVED. The absolute counted quantity of one Item in one ERP
+        bucket Warehouse, every reference resolved by Backend-Core and frozen at
+        intent creation. There is no valuation rate and no Batch or serial
+        field: tracked products are refused in V1 (G6-3). Post-write
+        verification (RT-1422): the line's own `qty_after` at `warehouseRef`
+        equals `countedQuantity`.
+      properties:
+        lineSeq:
+          type: integer
+          minimum: 1
+          description: The line's 1-based position, unique within the chunk.
+        erpnextItemRef:
+          $ref: "#/components/schemas/ErpnextItemRef"
+        warehouseRef:
+          $ref: "#/components/schemas/ErpnextWarehouseRef"
+        countedQuantity:
+          type: string
+          pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$'
+          description: >
+            The ABSOLUTE counted quantity, summed over the observed positions
+            (G6-1), a non-negative exact decimal in the base stock UOM (never a
+            float; at most 13 integer and 6 fractional digits). Zero is a valid
+            count.
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: >
+            The Item's BASE STOCK UOM that `countedQuantity` is in. A line in any
+            other unit is refused with `uom_mismatch`.
+    CountRefusal:
+      type: object
+      additionalProperties: false
+      required: [code, ackCategory, message]
+      description: >
+        RT-1421, RESERVED. The typed refusal of a count chunk or line. It rides
+        the EXISTING ack: `ackCategory` is the `RejectionReason.category` the
+        refusal is reported as, so no ack enum widens. Freeze errors map to
+        `closed_period`; a back-dated permission refusal maps to `other` with
+        the ERP message (G6-6).
+      properties:
+        code:
+          type: string
+          enum:
+            - wrong_kind
+            - invalid_shape
+            - chunk_too_large
+            - frozen_datetime_mismatch
+            - unmapped_item
+            - unmapped_bucket
+            - uom_mismatch
+            - tracked_item_unsupported
+            - no_valuation_history
+            - valuation_rate_forbidden
+            - closed_period
+            - back_dated_permission
+            - provenance_conflict
+          description: >
+            `wrong_kind` / `invalid_shape` — the item is not a flat count item.
+            `chunk_too_large` — more than 100 rows. `frozen_datetime_mismatch` —
+            the posting datetime differs from the one frozen for this key.
+            `unmapped_item` / `unmapped_bucket` — an Item or bucket reference does
+            not resolve. `uom_mismatch` — the unit is not the base stock UOM.
+            `tracked_item_unsupported` — a Batch or serial product (V1).
+            `no_valuation_history` — a count-up of an Item with no stock or
+            valuation history (G6-2). `valuation_rate_forbidden` — any valuation
+            field was supplied. `closed_period` — a stock or accounts freeze.
+            `back_dated_permission` — the ERP user may not back-date.
+            `provenance_conflict` — an existing document for the key does not
+            match, or is cancelled (unknown outcome, never re-posted).
+        ackCategory:
+          type: string
+          enum: [validation, closed_period, unmapped_item, unmapped_account, other]
+          description: >
+            The existing `RejectionReason.category` this refusal is reported as:
+            `closed_period` for a freeze, `unmapped_item` for `unmapped_item`,
+            `other` for `back_dated_permission` and `provenance_conflict`,
+            `validation` for the rest.
+        lineSeq:
+          type: integer
+          minimum: 1
+          description: The refused line, when the refusal is line-specific; absent for a whole-chunk refusal.
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Human-readable detail. No credentials, no sensitive ERPNext internals.
+      allOf:
+        - if:
+            properties:
+              code:
+                const: closed_period
+          then:
+            properties:
+              ackCategory:
+                const: closed_period
+        - if:
+            properties:
+              code:
+                const: unmapped_item
+          then:
+            properties:
+              ackCategory:
+                const: unmapped_item
+        - if:
+            properties:
+              code:
+                enum: [back_dated_permission, provenance_conflict]
+          then:
+            properties:
+              ackCategory:
+                const: other
+        - if:
+            properties:
+              code:
+                enum: [closed_period, unmapped_item, back_dated_permission, provenance_conflict]
+          else:
+            properties:
+              ackCategory:
+                const: validation
+    CountLineOutcome:
+      type: object
+      additionalProperties: false
+      required: [lineSeq, result]
+      description: >
+        RT-1421, RESERVED. What the Connector verified for one line after the
+        write: the count's own `qty_after` and Bin quantity, immediately; any
+        value or GL check waits for the repost job (G6-6).
+      properties:
+        lineSeq:
+          type: integer
+          minimum: 1
+        result:
+          type: string
+          enum: [adjusted, verified_noop, rejected]
+          description: >
+            `adjusted` — the document set the target and `qty_after` equals
+            `countedQuantity`. `verified_noop` — ERP was already at the target,
+            which ERPNext refuses as no change; the Connector read the Bin and
+            confirmed it. It is NOT a rejection. `rejected` — carries `refusal`.
+        verifiedQtyAfter:
+          description: The `qty_after` the Connector read back. Required unless `rejected`.
+          anyOf:
+            - type: string
+              pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$'
+            - type: "null"
+        refusal:
+          description: Required when `result` is `rejected`; null otherwise.
+          anyOf:
+            - $ref: "#/components/schemas/CountRefusal"
+            - type: "null"
+      allOf:
+        - if:
+            properties:
+              result:
+                const: rejected
+          then:
+            required: [refusal, verifiedQtyAfter]
+            properties:
+              refusal:
+                type: object
+              verifiedQtyAfter:
+                type: "null"
+          else:
+            required: [verifiedQtyAfter]
+            properties:
+              verifiedQtyAfter:
+                type: string
+              refusal:
+                type: "null"
+    CountPostingOutcome:
+      type: object
+      additionalProperties: false
+      required: [workItemRef, outcome, lines]
+      description: >
+        RT-1421, RESERVED. The Connector's verified result for one count chunk.
+        How it maps onto `OutcomeAckRequest` (in particular a verified no-op,
+        which has no new document) is decided with RT-1422 and is not a change
+        made here.
+      properties:
+        workItemRef:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [posted, duplicate, verified_noop, rejected]
+          description: >
+            `posted` — a new Stock Reconciliation was submitted and verified.
+            `duplicate` — the provenance key already has a matching submitted
+            document; it is echoed unchanged, nothing is written (O-3).
+            `verified_noop` — every non-rejected line was already at target, no
+            document. `rejected` — the whole chunk was refused.
+        documentRef:
+          description: >
+            The Stock Reconciliation (`posted`, `duplicate`). Null for
+            `verified_noop` and `rejected`.
+          anyOf:
+            - $ref: "#/components/schemas/ErpnextDocumentRef"
+            - type: "null"
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CountLineOutcome"
+      allOf:
+        - if:
+            properties:
+              outcome:
+                enum: [posted, duplicate]
+          then:
+            required: [documentRef]
+            properties:
+              documentRef:
+                type: object
+          else:
+            properties:
+              documentRef:
+                type: "null"
+        - if:
+            properties:
+              outcome:
+                const: rejected
+          then:
+            properties:
+              lines:
+                items:
+                  properties:
+                    result:
+                      const: rejected
+        - if:
+            properties:
+              outcome:
+                const: verified_noop
+          then:
+            properties:
+              lines:
+                items:
+                  properties:
+                    result:
+                      enum: [verified_noop, rejected]
 
     # -----------------------------------------------------------------------
     # Canonical Error envelope (mirrors auth/outbox/pos-sales — verbatim shape)

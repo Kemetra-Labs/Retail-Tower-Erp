@@ -1,0 +1,85 @@
+{
+  "_comment": "RT-1421 wire examples for the RESERVED inventory_count work item (posting-feed.yaml 1.14.0-draft). Validated against the contract by posting-feed.contract.spec.ts. Not emitted by any runtime in this version.",
+  "workItem": {
+    "normal": {
+      "workItemRef": "00000000-0000-7000-8000-00000000c001",
+      "kind": "inventory_count",
+      "sourceSystem": "retail-tower",
+      "externalId": "count:00000000-0000-7000-8000-00000000c0e1:1",
+      "count": {
+        "countSessionRef": "00000000-0000-7000-8000-00000000c0e1",
+        "chunk": 1,
+        "chunkCount": 2,
+        "storeId": "00000000-0000-7000-8000-00000000570e",
+        "mappingBucketRef": "bucket:store-570e:stock",
+        "postingDatetime": "2026-11-16T09:30:00.000001Z",
+        "lines": [
+          {
+            "lineSeq": 1,
+            "erpnextItemRef": { "doctype": "Item", "name": "PANADOL-24" },
+            "warehouseRef": { "doctype": "Warehouse", "name": "Stores - RT" },
+            "countedQuantity": "7",
+            "unit": "Box"
+          },
+          {
+            "lineSeq": 2,
+            "erpnextItemRef": { "doctype": "Item", "name": "AMOXIL-12" },
+            "warehouseRef": { "doctype": "Warehouse", "name": "Stores - RT" },
+            "countedQuantity": "0",
+            "unit": "Strip"
+          }
+        ]
+      },
+      "payloadHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "businessDate": "2026-11-16",
+      "itemCursor": "c1"
+    }
+  },
+  "outcome": {
+    "posted": {
+      "workItemRef": "00000000-0000-7000-8000-00000000c001",
+      "outcome": "posted",
+      "documentRef": { "doctype": "Stock Reconciliation", "name": "MAT-RECO-2026-00017" },
+      "lines": [
+        { "lineSeq": 1, "result": "adjusted", "verifiedQtyAfter": "7", "refusal": null },
+        { "lineSeq": 2, "result": "adjusted", "verifiedQtyAfter": "0", "refusal": null }
+      ]
+    },
+    "duplicate": {
+      "workItemRef": "00000000-0000-7000-8000-00000000c001",
+      "outcome": "duplicate",
+      "documentRef": { "doctype": "Stock Reconciliation", "name": "MAT-RECO-2026-00017" },
+      "lines": [
+        { "lineSeq": 1, "result": "adjusted", "verifiedQtyAfter": "7", "refusal": null },
+        { "lineSeq": 2, "result": "adjusted", "verifiedQtyAfter": "0", "refusal": null }
+      ]
+    },
+    "rejected": {
+      "workItemRef": "00000000-0000-7000-8000-00000000c001",
+      "outcome": "rejected",
+      "documentRef": null,
+      "lines": [
+        {
+          "lineSeq": 1,
+          "result": "rejected",
+          "verifiedQtyAfter": null,
+          "refusal": {
+            "code": "no_valuation_history",
+            "ackCategory": "validation",
+            "lineSeq": 1,
+            "message": "Count-up of an Item with no stock or valuation history cannot be posted."
+          }
+        }
+      ]
+    },
+    "verifiedNoop": {
+      "workItemRef": "00000000-0000-7000-8000-00000000c001",
+      "outcome": "verified_noop",
+      "documentRef": null,
+      "lines": [
+        { "lineSeq": 1, "result": "verified_noop", "verifiedQtyAfter": "7", "refusal": null },
+        { "lineSeq": 2, "result": "verified_noop", "verifiedQtyAfter": "0", "refusal": null }
+      ]
+    }
+  }
+}

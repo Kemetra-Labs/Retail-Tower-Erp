@@ -39,6 +39,7 @@
  */
 import "reflect-metadata";
 
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import Ajv2020 from "ajv/dist/2020";
@@ -986,8 +987,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
   const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
   const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
 
-  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.13.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.13.0-draft");
+  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.14.0-draft)", () => {
+    expect(feedDoc.info?.version).toBe("1.14.0-draft");
     expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
@@ -1062,8 +1063,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0
       | { type?: string; format?: string; enum?: string[]; description?: string }
       | undefined;
 
-  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.13.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.13.0-draft");
+  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.14.0-draft)", () => {
+    expect(feedDoc.info?.version).toBe("1.14.0-draft");
     expect(info()).toContain("RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info()).toContain("RT-1098 decision 4A");
     expect(info()).toContain("ROLLOUT ORDER (Connector first, RT-10 comments 10409 and 10413)");
@@ -1095,7 +1096,7 @@ describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give
   const base = { lineRef: "00000000-0000-7000-8000-0000000000a1", quantity: "1", lineAmount: "300.0000", taxAmount: null };
 
   it("bumps to 1.13.0-draft with the note, the owner decision and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.13.0-draft");
+    expect(feedDoc.info?.version).toBe("1.14.0-draft");
     expect(info()).toContain("OD-11 return clawback and give-back (1.13.0-draft; [GATED: contract]");
     expect(info()).toContain('owner decision 2026-11-12, "Hybrid"');
     expect(info()).toContain("`promotionClawbackAmount` and `promotionGiveBackAmount`");
@@ -1123,5 +1124,310 @@ describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give
     expect(validateLine({ ...base, promotionClawbackAmount: "-1.0000" })).toBe(false);
     expect(validateLine({ ...base, promotionGiveBackAmount: "1e3" })).toBe(false);
     expect(validateLine({ ...base, promotionClawback: "1.0000" })).toBe(false);
+  });
+});
+
+// ===========================================================================
+// RT-1421 (Inventory Gate 6) — reserved `inventory_count` kind (1.14.0-draft)
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_count kind (1.14.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
+  const RESERVED = [
+    "CountWorkItem",
+    "CountPosting",
+    "CountPostingLine",
+    "CountRefusal",
+    "CountLineOutcome",
+    "CountPostingOutcome",
+  ];
+  const examples = JSON.parse(
+    readFileSync(
+      resolve(openapiSubDir(".."), "fixtures", "count-posting-feed", "examples.json"),
+      "utf8",
+    ),
+  ) as {
+    workItem: { normal: Record<string, any> };
+    outcome: Record<"posted" | "duplicate" | "rejected" | "verifiedNoop", Record<string, any>>;
+  };
+
+  const validator = (name: string) => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(feedDoc as object), $id: "posting-feed" });
+    return ajv.compile({ $ref: `posting-feed#/components/schemas/${name}` });
+  };
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const normal = () => clone(examples.workItem.normal);
+  const line = (n: number) => ({
+    lineSeq: n,
+    erpnextItemRef: { doctype: "Item", name: `ITEM-${n}` },
+    warehouseRef: { doctype: "Warehouse", name: "Stores - RT" },
+    countedQuantity: "1",
+    unit: "Nos",
+  });
+
+  it("bumps to 1.14.0-draft with the note, the authorization, the feasibility result and the Connector-first order", () => {
+    expect(feedDoc.info?.version).toBe("1.14.0-draft");
+    expect(info()).toContain("RT-1421 (1.14.0-draft; [GATED: OpenAPI] owner authorization 2026-11-16");
+    expect(info()).toContain("the work-item kind `inventory_count` is RESERVED, with no wire change");
+    expect(info()).toContain("Backend-Core MUST NOT emit `inventory_count`");
+    expect(info()).toContain("typed `oneOf` is NOT taken");
+    expect(info()).toContain("ROLLOUT ORDER (Connector first, as for 1.10.0-draft and 1.11.0-draft)");
+  });
+
+  it("leaves the wire unchanged: kind stays sale_post | reversal, sale stays required, no new operation", () => {
+    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
+    expect(kind?.enum?.slice().sort()).toEqual(["reversal", "sale_post"]);
+    expect(schema("PostingWorkItem")?.required).toContain("sale");
+    expect(Object.keys(feedDoc.paths ?? {}).sort()).toEqual([PULL_PATH, ACK_PATH].sort());
+  });
+
+  it("references the reserved schemas from no operation and from no sale/reversal/disposition schema", () => {
+    const pathsText = JSON.stringify(feedDoc.paths);
+    const outside = JSON.stringify(
+      Object.fromEntries(
+        Object.entries(feedDoc.components?.schemas ?? {}).filter(([n]) => !RESERVED.includes(n)),
+      ),
+    );
+    for (const name of RESERVED) {
+      expect(pathsText).not.toContain(`"#/components/schemas/${name}"`);
+      expect(outside).not.toContain(`"#/components/schemas/${name}"`);
+    }
+  });
+
+  it("the reserved schemas are strict and the line carries no valuation, batch or serial field", () => {
+    for (const name of RESERVED) expect(schema(name)?.additionalProperties).toBe(false);
+    expect(schema("CountPostingLine")?.required?.slice().sort()).toEqual(
+      ["countedQuantity", "erpnextItemRef", "lineSeq", "unit", "warehouseRef"],
+    );
+    const props = Object.keys(schema("CountPostingLine")?.properties ?? {});
+    expect(props.filter((p) => /valuation|rate|batch|serial/i.test(p))).toEqual([]);
+  });
+
+  it("the normal work item validates", () => {
+    expect(validator("CountWorkItem")(normal())).toBe(true);
+  });
+
+  it("refuses a wrong kind or shape (sale kind, sale/reversalOf present, flat count fields on the item)", () => {
+    const v = validator("CountWorkItem");
+    expect(v({ ...normal(), kind: "sale_post" })).toBe(false);
+    expect(v({ ...normal(), kind: "inventory_disposition" })).toBe(false);
+    expect(v({ ...normal(), sale: {} })).toBe(false);
+    expect(v({ ...normal(), reversalOf: null })).toBe(false);
+    expect(v({ ...normal(), disposition: {} })).toBe(false);
+    const { count: _c, ...noCount } = normal();
+    expect(v(noCount)).toBe(false);
+  });
+
+  it("refuses missing required fields at every level", () => {
+    const v = validator("CountWorkItem");
+    for (const f of ["workItemRef", "kind", "sourceSystem", "externalId", "payloadHash", "businessDate", "count", "itemCursor"]) {
+      const item = normal();
+      delete item[f];
+      expect(v(item)).toBe(false);
+    }
+    for (const f of ["countSessionRef", "chunk", "chunkCount", "storeId", "mappingBucketRef", "postingDatetime", "lines"]) {
+      const item = normal();
+      delete item.count[f];
+      expect(v(item)).toBe(false);
+    }
+    for (const f of ["lineSeq", "erpnextItemRef", "warehouseRef", "countedQuantity", "unit"]) {
+      const item = normal();
+      delete item.count.lines[0][f];
+      expect(v(item)).toBe(false);
+    }
+  });
+
+  it("requires a frozen posting datetime in UTC with exactly six fractional digits, never a date or a missing value", () => {
+    const v = validator("CountWorkItem");
+    for (const bad of [
+      "2026-11-16T09:30:00Z",
+      "2026-11-16T09:30:00.000Z",
+      "2026-11-16T09:30:00.0000010Z",
+      "2026-11-16T11:30:00.000001+02:00",
+      "2026-11-16",
+      "",
+    ]) {
+      const item = normal();
+      item.count.postingDatetime = bad;
+      expect(v(item)).toBe(false);
+    }
+    const ok = normal();
+    ok.count.postingDatetime = "2026-11-16T09:30:00.999999Z";
+    expect(v(ok)).toBe(true);
+  });
+
+  it("caps a chunk at 100 rows and refuses an empty chunk", () => {
+    const v = validator("CountWorkItem");
+    const at100 = normal();
+    at100.count.lines = Array.from({ length: 100 }, (_, i) => line(i + 1));
+    expect(v(at100)).toBe(true);
+    const over = normal();
+    over.count.lines = Array.from({ length: 101 }, (_, i) => line(i + 1));
+    expect(v(over)).toBe(false);
+    const empty = normal();
+    empty.count.lines = [];
+    expect(v(empty)).toBe(false);
+  });
+
+  it("refuses invalid item, warehouse and unit references and malformed quantities", () => {
+    const v = validator("CountWorkItem");
+    const mutate = (fn: (l: Record<string, any>) => void) => {
+      const item = normal();
+      fn(item.count.lines[0]);
+      return item;
+    };
+    expect(v(mutate((l) => (l.erpnextItemRef = { doctype: "Batch", name: "X" })))).toBe(false);
+    expect(v(mutate((l) => (l.erpnextItemRef = { doctype: "Item", name: "" })))).toBe(false);
+    expect(v(mutate((l) => (l.erpnextItemRef = "PANADOL-24")))).toBe(false);
+    expect(v(mutate((l) => (l.warehouseRef = { doctype: "Item", name: "Stores - RT" })))).toBe(false);
+    expect(v(mutate((l) => (l.warehouseRef = { doctype: "Warehouse", name: "" })))).toBe(false);
+    expect(v(mutate((l) => (l.unit = "")))).toBe(false);
+    for (const q of ["-1", "1e3", "1.1234567", "", "abc", 7]) {
+      expect(v(mutate((l) => (l.countedQuantity = q)))).toBe(false);
+    }
+    expect(v(mutate((l) => (l.countedQuantity = "0")))).toBe(true);
+    const badBucket = normal();
+    badBucket.count.mappingBucketRef = "";
+    expect(v(badBucket)).toBe(false);
+  });
+
+  it("carries no valuation rate: any valuation field, Batch or serial on a line or the chunk is refused", () => {
+    const v = validator("CountWorkItem");
+    for (const extra of [
+      { valuationRate: "10.0000" },
+      { valuation_rate: "10.0000" },
+      { rate: "10" },
+      { erpnextBatchRef: { doctype: "Batch", name: "B1" } },
+      { serialNumbers: ["S1"] },
+      { varianceQuantity: "-3" },
+    ]) {
+      const onLine = normal();
+      Object.assign(onLine.count.lines[0], extra);
+      expect(v(onLine)).toBe(false);
+      const onChunk = normal();
+      Object.assign(onChunk.count, extra);
+      expect(v(onChunk)).toBe(false);
+      expect(v({ ...normal(), ...extra })).toBe(false);
+    }
+  });
+
+  it("the provenance key is count:<sessionId>[:<chunk>] and nothing else", () => {
+    const v = validator("CountWorkItem");
+    const withKey = (key: string) => ({ ...normal(), externalId: key });
+    const sid = "00000000-0000-7000-8000-00000000c0e1";
+    expect(v(withKey(`count:${sid}`))).toBe(true);
+    expect(v(withKey(`count:${sid}:12`))).toBe(true);
+    for (const bad of [sid, `count:${sid}:0`, `count:${sid}:`, `count:${sid}:1:2`, `disposition:${sid}`, "count:not-a-uuid"]) {
+      expect(v(withKey(bad))).toBe(false);
+    }
+  });
+
+  it("the examples for a posted, duplicate, rejected and verified no-op outcome validate", () => {
+    const v = validator("CountPostingOutcome");
+    for (const key of ["posted", "duplicate", "rejected", "verifiedNoop"] as const) {
+      expect(v(examples.outcome[key])).toBe(true);
+    }
+    expect(examples.outcome.duplicate.documentRef).toEqual(examples.outcome.posted.documentRef);
+    expect(examples.outcome.verifiedNoop.documentRef).toBeNull();
+  });
+
+  it("typed refusals ride the existing ack categories and never widen them", () => {
+    const refusal = (schema("CountRefusal")?.properties ?? {}) as Record<string, { enum?: string[] }>;
+    const ackCategories = (
+      (schema("RejectionReason")?.properties ?? {}) as Record<string, { enum?: string[] }>
+    )["category"]?.enum;
+    expect(refusal["ackCategory"]?.enum).toEqual(ackCategories);
+    expect(refusal["code"]?.enum).toEqual(
+      expect.arrayContaining([
+        "wrong_kind",
+        "chunk_too_large",
+        "frozen_datetime_mismatch",
+        "unmapped_item",
+        "uom_mismatch",
+        "no_valuation_history",
+        "closed_period",
+        "back_dated_permission",
+        "provenance_conflict",
+      ]),
+    );
+    const v = validator("CountRefusal");
+    const base = { code: "closed_period", ackCategory: "closed_period", message: "Stock frozen" };
+    expect(v(base)).toBe(true);
+    expect(v({ ...base, ackCategory: "frozen" })).toBe(false);
+    expect(v({ ...base, code: "made_up" })).toBe(false);
+  });
+
+  it("a changed frozen datetime has its own typed refusal code and a bad line result is refused", () => {
+    const v = validator("CountLineOutcome");
+    expect(
+      v({
+        lineSeq: 1,
+        result: "rejected",
+        verifiedQtyAfter: null,
+        refusal: {
+          code: "frozen_datetime_mismatch",
+          ackCategory: "validation",
+          message: "postingDatetime differs from the frozen one for this provenance key",
+        },
+      }),
+    ).toBe(true);
+    expect(v({ lineSeq: 1, result: "unknown" })).toBe(false);
+    expect(v({ lineSeq: 1, result: "adjusted", verifiedQtyAfter: "1e3" })).toBe(false);
+  });
+
+  it("refuses ambiguous outcome combinations (result/refusal, posted/documentRef, verified_noop/documentRef)", () => {
+    const line = validator("CountLineOutcome");
+    const refusal = { code: "uom_mismatch", ackCategory: "validation", message: "unit is not the base UOM" };
+    expect(line({ lineSeq: 1, result: "rejected" })).toBe(false);
+    expect(line({ lineSeq: 1, result: "rejected", verifiedQtyAfter: null, refusal: null })).toBe(false);
+    expect(line({ lineSeq: 1, result: "rejected", verifiedQtyAfter: null, refusal })).toBe(true);
+    expect(line({ lineSeq: 1, result: "adjusted", refusal: null })).toBe(false);
+    expect(line({ lineSeq: 1, result: "adjusted", verifiedQtyAfter: null, refusal: null })).toBe(false);
+    expect(line({ lineSeq: 1, result: "adjusted", verifiedQtyAfter: "3", refusal })).toBe(false);
+    expect(line({ lineSeq: 1, result: "verified_noop", verifiedQtyAfter: "3", refusal: null })).toBe(true);
+    expect(line({ lineSeq: 1, result: "verified_noop", refusal: null })).toBe(false);
+
+    const out = validator("CountPostingOutcome");
+    const doc = { doctype: "Stock Reconciliation", name: "MAT-RECO-2026-00017" };
+    const lines = [{ lineSeq: 1, result: "adjusted", verifiedQtyAfter: "7", refusal: null }];
+    expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "posted", documentRef: null, lines })).toBe(false);
+    expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "posted", lines })).toBe(false);
+    expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "duplicate", documentRef: null, lines })).toBe(false);
+    expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "verified_noop", documentRef: doc, lines })).toBe(false);
+    expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "rejected", documentRef: doc, lines })).toBe(false);
+    expect(out({ workItemRef: "00000000-0000-7000-8000-00000000c001", outcome: "posted", documentRef: doc, lines })).toBe(true);
+  });
+
+  it("enforces the code to ackCategory mapping, rejects a rejected line with a read-back quantity, and ties line results to the outcome", () => {
+    const refusal = validator("CountRefusal");
+    const r = (code: string, ackCategory: string) => refusal({ code, ackCategory, message: "m" });
+    expect(r("closed_period", "closed_period")).toBe(true);
+    expect(r("closed_period", "validation")).toBe(false);
+    expect(r("unmapped_item", "unmapped_item")).toBe(true);
+    expect(r("unmapped_item", "validation")).toBe(false);
+    expect(r("back_dated_permission", "other")).toBe(true);
+    expect(r("back_dated_permission", "closed_period")).toBe(false);
+    expect(r("provenance_conflict", "other")).toBe(true);
+    expect(r("provenance_conflict", "validation")).toBe(false);
+    for (const code of ["wrong_kind", "invalid_shape", "chunk_too_large", "frozen_datetime_mismatch", "unmapped_bucket", "uom_mismatch", "tracked_item_unsupported", "no_valuation_history", "valuation_rate_forbidden"]) {
+      expect(r(code, "validation")).toBe(true);
+      expect(r(code, "other")).toBe(false);
+    }
+
+    const ref = { code: "uom_mismatch", ackCategory: "validation", message: "m" };
+    expect(validator("CountLineOutcome")({ lineSeq: 1, result: "rejected", verifiedQtyAfter: "7", refusal: ref })).toBe(false);
+
+    const out = validator("CountPostingOutcome");
+    const ok = { lineSeq: 1, result: "adjusted", verifiedQtyAfter: "7", refusal: null };
+    const noop = { lineSeq: 1, result: "verified_noop", verifiedQtyAfter: "7", refusal: null };
+    const rej = { lineSeq: 1, result: "rejected", verifiedQtyAfter: null, refusal: ref };
+    const wi = "00000000-0000-7000-8000-00000000c001";
+    expect(out({ workItemRef: wi, outcome: "rejected", documentRef: null, lines: [ok] })).toBe(false);
+    expect(out({ workItemRef: wi, outcome: "rejected", documentRef: null, lines: [rej] })).toBe(true);
+    expect(out({ workItemRef: wi, outcome: "verified_noop", documentRef: null, lines: [ok] })).toBe(false);
+    expect(out({ workItemRef: wi, outcome: "verified_noop", documentRef: null, lines: [noop, rej] })).toBe(true);
   });
 });
