@@ -10,9 +10,12 @@ info:
     eligibility verdict, a per-shift impact preview, the Console force close
     over the existing `ShiftForceCloseService`, and the re-authentication step
     that the store deletion (`stores.openapi.yaml` 1.3.0-draft) needs.
-    **Contract only.** No runtime, migration, Console or POS change ships with
-    it; every operation carries `x-runtime-status: contract-only` until its
-    runtime slice lands (B1 = RT-1445, B2 = RT-1439).
+    **Runtime status.** The three shift operations (`consoleListOpenShifts`,
+    `consoleGetForceClosePreview`, `consoleForceCloseShift`) are runtime since
+    B1 (RT-1445, with the additive `[GATED: migration]` 0119 that stores
+    `closedVia`). `consoleReauthenticate` still carries
+    `x-runtime-status: contract-only` until B2 (RT-1439) ships it. No wire change
+    in this edit: only the markers of the shipped operations are dropped.
 
 
     **What "force" means here (decision record, principle 1 and 3).** The
@@ -173,9 +176,6 @@ paths:
       summary: List every open shift of a store with its eligibility verdict.
       operationId: consoleListOpenShifts
       tags: [console-force-actions]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1444 contract. The runtime ships in RT-1445 (B1, RT-1437 slice B1).
       description: >
         RT-1437 A1, D6. Every shift of the store whose lifecycle state is
         `open`, newest first, each with its verdict: stale, a live operator
@@ -264,9 +264,6 @@ paths:
       summary: Preview what force-closing one shift would change. Read-only.
       operationId: consoleGetForceClosePreview
       tags: [console-force-actions]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1444 contract. The runtime ships in RT-1445 (B1, RT-1437 slice B1).
       description: >
         RT-1437 A1. Reports, as recorded counts only, what a force close of
         this shift would do now: the shift and its verdict, the cash movements
@@ -365,10 +362,6 @@ paths:
       operationId: consoleForceCloseShift
       tags: [console-force-actions]
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1444 contract. The runtime, and the additive [GATED: migration]
-        that lets the fact record a Console origin, ship in RT-1445 (B1).
       description: >
         RT-1437 A1, D1, D2a, D5, D9. The Console equivalent of
         `forceCloseShift` (`pos-shifts.openapi.yaml`): the same

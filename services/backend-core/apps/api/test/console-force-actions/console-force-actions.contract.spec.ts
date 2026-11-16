@@ -75,11 +75,17 @@ describe("console force actions contract (RT-1444)", () => {
     expect(stores["info"].version).toBe("1.3.0-draft");
   });
 
-  it.each(NEW_OPS)("%#: is a contract-only cookieAuth operation naming its runtime slice", (doc, path, method, id, slice) => {
+  it.each(NEW_OPS)("%#: is a cookieAuth operation; contract-only only until its runtime slice ships", (doc, path, method, id, slice) => {
     const o = op(doc, path, method);
     expect(o["operationId"]).toBe(id);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toContain(slice);
+    if (slice === "RT-1445") {
+      // B1 shipped the runtime: the markers are dropped, nothing else changes (RT-805).
+      expect(o["x-runtime-status"]).toBeUndefined();
+      expect(o["x-runtime-note"]).toBeUndefined();
+    } else {
+      expect(o["x-runtime-status"]).toBe("contract-only");
+      expect(o["x-runtime-note"]).toContain(slice);
+    }
     expect(o["security"] ?? doc["security"]).toEqual([{ cookieAuth: [] }]);
   });
 

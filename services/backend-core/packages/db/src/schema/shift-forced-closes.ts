@@ -8,6 +8,10 @@
  * not a `shift_closes` row (Constitution §III). The shift moves to the
  * existing `closed_forced` state; this row is what says "not counted".
  *
+ * 0119 (RT-1445): `closed_from_device_id` is nullable and `closed_via` records
+ * the origin: a Console close has no terminal (`console` exactly when the
+ * device is null, both CHECK-enforced); every older row is a POS close.
+ *
  * Composite FKs pin the shift to the same tenant, store and opening terminal
  * (legacy shifts included) and the calling terminal to the same tenant and
  * store. Append-only for every role; tenant-RLS-forced with SELECT and INSERT
@@ -39,7 +43,10 @@ export const shiftForcedCloses = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: "restrict" }),
     openingDeviceId: uuid("opening_device_id").notNull(),
-    closedFromDeviceId: uuid("closed_from_device_id").notNull(),
+    /** The calling terminal; null for a Console close (0119, RT-1445: `closed_via = 'console'`). */
+    closedFromDeviceId: uuid("closed_from_device_id"),
+    /** Where the close came from, recorded explicitly (0119): `pos` or `console`. */
+    closedVia: text("closed_via").notNull().default("pos"),
     closedByUserId: uuid("closed_by_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -60,6 +67,11 @@ export const shiftForcedCloses = pgTable(
     }).onDelete("restrict"),
     check("shift_forced_closes_reason_length", sql`char_length(${t.forcedReason}) BETWEEN 1 AND 200`),
     check("shift_forced_closes_payload_hash_len", sql`octet_length(${t.payloadHash}) = 32`),
+    check("shift_forced_closes_closed_via_values", sql`${t.closedVia} IN ('pos', 'console')`),
+    check(
+      "shift_forced_closes_closed_via_device",
+      sql`(${t.closedVia} = 'console') = (${t.closedFromDeviceId} IS NULL)`,
+    ),
     index("idx_shift_forced_closes_tenant_store").on(t.tenantId, t.storeId),
   ],
 );

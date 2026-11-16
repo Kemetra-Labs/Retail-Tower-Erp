@@ -23,6 +23,11 @@
  * the stuck rule (409 `shift_not_stuck`) → record (201). The natural key is
  * the shift and the hash of `forcedReason`, never the actor: the same force
  * close from another manager or terminal is a replay of the recorded fact.
+ *
+ * RT-1445: the Console enters here too (`forceCloseFromConsole`), over the same
+ * rows, the same stuck rule and the same natural key; it adds the preview
+ * fingerprint and the D9 cap between the stuck rule and the record, and records
+ * `closed_via = 'console'` with no terminal (0119). See that method.
  */
 import { createHash } from "node:crypto";
 
@@ -32,12 +37,17 @@ import type { Pool, PoolClient } from "pg";
 import { canonicalJson } from "../idempotency/canonical-json";
 import { ShiftCashUpError } from "./shift-cash-up.errors";
 import type { ShiftWriteResult } from "./shift-cash-up.service";
+import { buildForceCloseAudit, readActorRole, type ForceCloseAudit } from "./shift-force-close.audit";
+import { previewFingerprint, readForceCloseFacts } from "./shift-force-close.facts";
 import {
   ShiftForceCloseRepository,
+  stuckBlockers,
   type ForcedCloseRow,
   type StoreShiftRow,
 } from "./shift-force-close.repository";
 import { formatMoney } from "./shift-money";
+
+export type { ForceCloseAudit } from "./shift-force-close.audit";
 
 /** What the envelope guard published: scope, actor, calling terminal and session. */
 export interface ForceCloseContext {
@@ -78,18 +88,6 @@ export interface ForceClosedShiftProjection {
   readonly forcedClose: ForcedCloseProjection;
 }
 
-/**
- * The `shift.force_closed` audit metadata (contract, Audit): the shift, the
- * terminal the request came from and the terminal that opened it; the
- * closing manager is the audit actor. Never the reason.
- */
-export interface ForceCloseAudit {
-  readonly shift_id: string;
-  readonly closed_from_device_id: string;
-  readonly opened_on_device_id: string;
-  readonly replayed: boolean;
-}
-
 export interface ForceCloseResult extends ShiftWriteResult<ForceClosedShiftProjection> {
   readonly audit: ForceCloseAudit;
 }
@@ -125,12 +123,89 @@ export function toForceClosedShiftProjection(shift: StoreShiftRow, close: Forced
   };
 }
 
+/** What the Console session published: the tenant, the closing user and their role. */
+export interface ConsoleForceCloseContext {
+  readonly tenantId: string;
+  readonly actorUserId: string;
+  /** `owner` or `tenant_admin` (the role gate ran before the service). */
+  readonly actorRole: string;
+}
+
+/** The `ConsoleForceCloseRequest` body. */
+export interface ConsoleForceCloseRequest {
+  readonly forcedReason: string;
+  readonly previewFingerprint: string;
+}
+
+/** The `ConsoleForcedCloseRecord` projection: the POS record plus where the close came from. */
+export interface ConsoleForcedCloseProjection {
+  readonly closedByUserId: string;
+  readonly closedAt: string;
+  readonly closedVia: "pos" | "console";
+  readonly closedFromTerminalLabel: string | null;
+  readonly openedOnTerminalLabel: string | null;
+  readonly forcedReason: string;
+  readonly cashCount: "not_counted";
+}
+
+/** The `ConsoleForceClosedShift` projection. */
+export interface ConsoleForceClosedShiftProjection extends Omit<ForceClosedShiftProjection, "forcedClose"> {
+  readonly forcedClose: ConsoleForcedCloseProjection;
+}
+
+/** What the record step hands the audit hook (the row is written in the close's transaction). */
+export interface ConsoleCloseEvent {
+  readonly audit: ForceCloseAudit;
+  readonly shiftId: string;
+  readonly storeId: string;
+}
+
+/**
+ * The two steps the Console owns inside the close's transaction (the shared
+ * D9 cap and the audit row), so they commit or roll back with the record.
+ */
+export interface ConsoleCloseHooks {
+  /** After the fingerprint matched, before the record: the D9 cap (throws the 429). */
+  readonly beforeRecord: (client: PoolClient) => Promise<void>;
+  /** After the record, in the same transaction: the `shift.force_closed` audit row. */
+  readonly afterRecord: (client: PoolClient, event: ConsoleCloseEvent) => Promise<void>;
+}
+
+/** The wire projection of a force-closed shift for the Console. No internal id is returned. */
+export function toConsoleForceClosedShiftProjection(
+  shift: StoreShiftRow,
+  close: ForcedCloseRow,
+): ConsoleForceClosedShiftProjection {
+  const { forcedClose: _pos, ...rest } = toForceClosedShiftProjection(shift, close);
+  return {
+    ...rest,
+    forcedClose: {
+      closedByUserId: close.closedByUserId,
+      closedAt: close.closedAt.toISOString(),
+      closedVia: close.closedVia,
+      closedFromTerminalLabel: close.closedFromTerminalLabel,
+      openedOnTerminalLabel: close.openedOnTerminalLabel,
+      forcedReason: close.forcedReason,
+      cashCount: "not_counted",
+    },
+  };
+}
+
 /** One force close as the controller hands it over, with its natural-key hash. */
 interface ForceCloseRequest {
   readonly ctx: ForceCloseContext;
   readonly shiftId: string;
   readonly fact: ForceCloseFact;
   readonly hash: Buffer;
+}
+
+/** One Console force close, with its natural-key hash and the Console's two steps. */
+interface ConsoleCloseRequest {
+  readonly ctx: ConsoleForceCloseContext;
+  readonly shiftId: string;
+  readonly request: ConsoleForceCloseRequest;
+  readonly hash: Buffer;
+  readonly hooks: ConsoleCloseHooks;
 }
 
 export class ShiftForceCloseService {
@@ -147,18 +222,103 @@ export class ShiftForceCloseService {
     fact: ForceCloseFact,
   ): Promise<ForceCloseResult> {
     const hash = forceCloseHash(shiftId, fact);
-    const [shift, result] = await runWithTenantContext(
+    const [shift, result, actorRole] = await runWithTenantContext(
       this.pool,
       { tenantId: ctx.tenantId, isPlatformAdmin: false },
-      (client) => this.forceCloseInTenant(client, { ctx, shiftId, fact, hash }),
+      async (client) => {
+        const [found, written] = await this.forceCloseInTenant(client, { ctx, shiftId, fact, hash });
+        return [found, written, await readActorRole(client, ctx.tenantId, ctx.actorUserId)] as const;
+      },
     );
-    const audit: ForceCloseAudit = {
-      shift_id: shift.shiftId,
-      closed_from_device_id: ctx.callerDeviceId,
-      opened_on_device_id: shift.openingDeviceId,
+    const audit = buildForceCloseAudit({
+      shift,
+      channel: "pos",
+      actorRole,
+      previewFingerprint: null,
+      closedFromDeviceId: ctx.callerDeviceId,
       replayed: !result.created,
-    };
+      nowMs: Date.now(),
+    });
     return { ...result, audit };
+  }
+
+  /**
+   * RT-1445: the Console force close (`consoleForceCloseShift`). One
+   * transaction under the session's tenant. The caller's role and all-store
+   * scope are decided before this is called; the shift is named without a
+   * store, and the tenant is the session's.
+   *
+   * Order (contract, Evaluation order, steps 4 to 10), after the shift row is
+   * locked: the shift in the tenant (404 `shift_not_found`) → the natural-key
+   * replay (200: also from another actor, key or channel; it never checks the
+   * fingerprint, the cap or the stuck rule) or, for a different
+   * `forcedReason`, 409 `shift_force_closed` → 409 `shift_closed` → the stuck
+   * rule with its blockers (409 `shift_not_stuck`) → the fingerprint (409
+   * `preview_stale`) → the D9 cap (`beforeRecord`, 429) → record (201). The
+   * replay sits before the fingerprint and the cap on purpose: the close itself
+   * changes the state the fingerprint covers.
+   *
+   * The Console has no envelope session, so the stuck rule excludes none
+   * (`callerTokenId: null`): a signed-in cashier is a live drawer. The close
+   * records `closed_via = 'console'` and no terminal (0119).
+   */
+  async forceCloseFromConsole(
+    ctx: ConsoleForceCloseContext,
+    shiftId: string,
+    request: ConsoleForceCloseRequest,
+    hooks: ConsoleCloseHooks,
+  ): Promise<ShiftWriteResult<ConsoleForceClosedShiftProjection>> {
+    const hash = forceCloseHash(shiftId, { forcedReason: request.forcedReason });
+    return runWithTenantContext(this.pool, { tenantId: ctx.tenantId, isPlatformAdmin: false }, (client) =>
+      this.consoleCloseInTenant(client, { ctx, shiftId, request, hash, hooks }),
+    );
+  }
+
+  private async consoleCloseInTenant(
+    client: PoolClient,
+    input: ConsoleCloseRequest,
+  ): Promise<ShiftWriteResult<ConsoleForceClosedShiftProjection>> {
+    const { ctx, shiftId, request, hash, hooks } = input;
+    const shift = await this.repo.findShiftInTenant(client, ctx.tenantId, shiftId, true);
+    if (shift === null) throw new ShiftCashUpError("shift_not_found");
+    if (shift.notCounted) {
+      const close = await this.repo.findForcedClose(client, shift);
+      if (!close?.payloadHash.equals(hash)) throw new ShiftCashUpError("shift_force_closed");
+      return { created: false, projection: toConsoleForceClosedShiftProjection(shift, close) };
+    }
+    if (shift.lifecycleState !== "open") throw new ShiftCashUpError("shift_closed");
+    const verdict = await this.repo.readVerdict(client, shift, {
+      callerTokenId: null,
+      thresholdMinutes: this.thresholdMinutes,
+    });
+    const blockers = stuckBlockers(verdict);
+    if (blockers.length > 0) throw new ShiftCashUpError("shift_not_stuck", { blockers });
+    const facts = await readForceCloseFacts(client, shift);
+    if (facts === null) throw new ShiftCashUpError("shift_not_found");
+    const fingerprint = previewFingerprint(shift, verdict, facts);
+    if (fingerprint !== request.previewFingerprint) throw new ShiftCashUpError("preview_stale");
+    await hooks.beforeRecord(client);
+    const recorded = await this.repo.insertForcedClose(client, shift, {
+      closedByUserId: ctx.actorUserId,
+      closedFromDeviceId: null,
+      closedVia: "console",
+      forcedReason: request.forcedReason,
+      payloadHash: hash,
+    });
+    await hooks.afterRecord(client, {
+      audit: buildForceCloseAudit({
+        shift,
+        channel: "console",
+        actorRole: ctx.actorRole,
+        previewFingerprint: fingerprint,
+        closedFromDeviceId: null,
+        replayed: false,
+        nowMs: facts.evaluatedAt.getTime(),
+      }),
+      storeId: shift.storeId,
+      shiftId: shift.shiftId,
+    });
+    return { created: true, projection: toConsoleForceClosedShiftProjection(shift, recorded) };
   }
 
   private async forceCloseInTenant(
@@ -187,6 +347,7 @@ export class ShiftForceCloseService {
     const recorded = await this.repo.insertForcedClose(client, shift, {
       closedByUserId: ctx.actorUserId,
       closedFromDeviceId: ctx.callerDeviceId,
+      closedVia: "pos",
       forcedReason: fact.forcedReason,
       payloadHash: hash,
     });
