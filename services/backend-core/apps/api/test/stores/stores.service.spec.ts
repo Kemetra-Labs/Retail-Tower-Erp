@@ -45,6 +45,7 @@ import { deleteStoreWithAudit } from "../../src/stores/deletion/store-deletion.w
 jest.mock("../../src/stores/deletion/store-deletion.facts", () => ({
   ...jest.requireActual("../../src/stores/deletion/store-deletion.facts"),
   readStoreDeletionFacts: jest.fn(async (_client: unknown, s: { storeId: string; code: string; name: string; isActive: boolean }) => ({
+    counts: { openShifts: 0, unretiredDevices: 0, unsyncedDevices: 0, openCountSessions: 0 },
     store: s,
     openShifts: [],
     devices: [],

@@ -46,6 +46,7 @@ const STORE = {
   noGrant: sid(14),
   unblock: sid(15),
   preview: sid(16),
+  manyDevices: sid(17),
   globex: "20000000-bbbb-4bbb-8bbb-000000000001",
 };
 const DEVICE = {
@@ -121,6 +122,16 @@ async function seed(pg: import("pg").Pool): Promise<void> {
   await device(DEVICE.retiredFrozen, STORE.retiredFrozen, "retired", { pending: 5, deadLetter: 1, held: 0 });
   await device(DEVICE.revoked, STORE.deviceRevoked, "revoked", zero);
   await device(DEVICE.unblock, STORE.unblock, "active", zero);
+
+  // More devices than the preview's cap (500): 500 retired ones that sort first, then ONE active till past the cap.
+  await pg.query(
+    `INSERT INTO devices (id, tenant_id, store_id, token_hash, revoked_at, retired_at, retire_reason)
+     SELECT ('31000000-aaaa-4aaa-8aaa-' || lpad(g::text, 12, '0'))::uuid, $1, $2,
+            decode(md5(g::text) || md5(g::text), 'hex'), now(), now(), 'closed'
+       FROM generate_series(1, 500) g`,
+    [ACME_ID, STORE.manyDevices],
+  );
+  await device("31000000-aaaa-4aaa-8aaa-000000000900", STORE.manyDevices, "active", zero);
 
   for (const storeId of [STORE.allBlockers, STORE.countOnly]) {
     await pg.query(
@@ -354,6 +365,21 @@ describe("the four guards refuse with the named 409, on both paths (AC1)", () =>
     expect(errorOf(res).details?.blockers.map((b) => b.code)).toEqual(all);
     expect(await deletedAt(storeId)).toBeNull();
     expect(await auditRows(storeId)).toHaveLength(0);
+  });
+
+  it("an active till PAST the preview's 500-device cap still blocks (the guards count, they do not read the capped list)", async () => {
+    if (skip()) return;
+    const owner = await h.signIn("owner");
+    const p = await preview(owner, STORE.manyDevices).expect(200);
+    const body = p.body as { devices: unknown[]; blockers: Array<{ code: string; count: number }>; canDelete: boolean };
+    expect(body.devices).toHaveLength(500); // the list is capped, and the active till is not in it
+    expect(body.canDelete).toBe(false);
+    expect(body.blockers).toEqual([{ code: "store_has_unretired_device", count: 1 }]);
+    const admin = await h.signIn("admin");
+    const res = await h.http().delete(`/api/v1/stores/${STORE.manyDevices}`).set("Cookie", admin).set(SAME_ORIGIN);
+    expect(res.status).toBe(409);
+    expect(errorOf(res).code).toBe("store_has_unretired_device");
+    expect(await deletedAt(STORE.manyDevices)).toBeNull();
   });
 
   it("a retired device's frozen queue does not block (the legacy path deletes, and audits channel api)", async () => {

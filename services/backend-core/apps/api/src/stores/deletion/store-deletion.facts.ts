@@ -56,7 +56,22 @@ export interface StoreDeletionQueue {
   readonly held: number;
 }
 
+/**
+ * What the guards decide on: exact counts from their own aggregate queries, with NO row limit.
+ * The lists below are capped for the preview (the contract's `maxItems`), so a store with more
+ * rows than a cap must never be judged from a list: a retired till is cheap to accumulate, and an
+ * active or unsynced one past the cap would otherwise be deleted with no 409.
+ */
+export interface StoreDeletionCounts {
+  readonly openShifts: number;
+  readonly unretiredDevices: number;
+  /** Non-retired devices with a non-zero or unknown (no heartbeat row, or a NULL counter) sale queue. */
+  readonly unsyncedDevices: number;
+  readonly openCountSessions: number;
+}
+
 export interface StoreDeletionFacts {
+  readonly counts: StoreDeletionCounts;
   readonly store: { readonly storeId: string; readonly code: string; readonly name: string; readonly isActive: boolean };
   readonly openShifts: ReadonlyArray<{
     readonly shiftId: string;
@@ -155,6 +170,19 @@ const DEVICES_SQL = `
    ORDER BY d.id
    LIMIT $2`;
 
+/** $1 store, $2 the open Count Session states. One row; every count is exact. */
+const COUNTS_SQL = `
+  SELECT (SELECT count(*) FROM shifts WHERE store_id = $1 AND lifecycle_state = 'open')::int AS open_shifts,
+         (SELECT count(*) FROM devices d WHERE d.store_id = $1 AND d.retired_at IS NULL)::int AS unretired_devices,
+         (SELECT count(*)
+            FROM devices d
+            LEFT JOIN device_health h ON h.device_id = d.id AND h.tenant_id = d.tenant_id
+           WHERE d.store_id = $1 AND d.retired_at IS NULL
+             AND (h.device_id IS NULL
+                  OR h.sale_queue_pending IS NULL OR h.sale_queue_dead_letter IS NULL OR h.sale_queue_held IS NULL
+                  OR h.sale_queue_pending + h.sale_queue_dead_letter + h.sale_queue_held > 0))::int AS unsynced_devices,
+         (SELECT count(*) FROM count_sessions WHERE store_id = $1 AND state = ANY($2::text[]))::int AS open_count_sessions`;
+
 function trustStateOf(row: DeviceRow): DeviceTrustState {
   if (row.retired_at !== null) return "retired";
   return row.revoked_at !== null ? "revoked" : "active";
@@ -171,6 +199,19 @@ export async function readStoreDeletionFacts(
   store: StoreDeletionFacts["store"],
 ): Promise<StoreDeletionFacts> {
   const storeId = store.storeId;
+  const counted = await client.query<{
+    open_shifts: number;
+    unretired_devices: number;
+    unsynced_devices: number;
+    open_count_sessions: number;
+  }>(COUNTS_SQL, [storeId, OPEN_COUNT_SESSION_STATES]);
+  const c = counted.rows[0];
+  const counts: StoreDeletionCounts = {
+    openShifts: c?.open_shifts ?? 0,
+    unretiredDevices: c?.unretired_devices ?? 0,
+    unsyncedDevices: c?.unsynced_devices ?? 0,
+    openCountSessions: c?.open_count_sessions ?? 0,
+  };
   const shifts = await client.query<ShiftRow>(OPEN_SHIFTS_SQL, [storeId, STUCK_THRESHOLD_MINUTES, MAX_SHIFTS]);
   const devices = await client.query<DeviceRow>(DEVICES_SQL, [storeId, MAX_DEVICES]);
   const sessions = await client.query<{ id: string; state: string }>(
@@ -201,6 +242,7 @@ export async function readStoreDeletionFacts(
     [storeId],
   );
   return {
+    counts,
     store,
     openShifts: shifts.rows.map((r) => ({
       shiftId: r.shift_id,
@@ -224,13 +266,12 @@ export async function readStoreDeletionFacts(
 
 /** The blockers that refuse the delete now, in the contract's order; empty means it may proceed. */
 export function evaluateStoreDeletionBlockers(facts: StoreDeletionFacts): StoreDeletionBlocker[] {
-  const unretired = facts.devices.filter((d) => d.trustState !== "retired");
-  const unsynced = unretired.filter((d) => d.queue === null || d.queue.pending + d.queue.deadLetter + d.queue.held > 0);
+  const c = facts.counts;
   const candidates: StoreDeletionBlocker[] = [
-    { code: STORE_HAS_OPEN_SHIFT, count: facts.openShifts.length },
-    { code: STORE_HAS_UNRETIRED_DEVICE, count: unretired.length },
-    { code: STORE_DEVICE_QUEUE_UNSYNCED, count: unsynced.length },
-    { code: STORE_HAS_OPEN_COUNT_SESSION, count: facts.openCountSessions.length },
+    { code: STORE_HAS_OPEN_SHIFT, count: c.openShifts },
+    { code: STORE_HAS_UNRETIRED_DEVICE, count: c.unretiredDevices },
+    { code: STORE_DEVICE_QUEUE_UNSYNCED, count: c.unsyncedDevices },
+    { code: STORE_HAS_OPEN_COUNT_SESSION, count: c.openCountSessions },
   ];
   return candidates.filter((b) => b.count > 0);
 }
@@ -244,6 +285,7 @@ export function evaluateStoreDeletionBlockers(facts: StoreDeletionFacts): StoreD
 export function storeDeletionFingerprint(tenantId: string, facts: StoreDeletionFacts): string {
   const state = {
     tenantId,
+    counts: facts.counts,
     store: facts.store,
     openShifts: facts.openShifts.map((s) => ({ shiftId: s.shiftId, state: "open" })),
     devices: facts.devices.map((d) => ({ deviceId: d.deviceId, trustState: d.trustState, queue: d.queue })),

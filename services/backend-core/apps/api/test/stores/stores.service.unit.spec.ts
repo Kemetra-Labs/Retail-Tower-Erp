@@ -573,16 +573,22 @@ describe("StoresService.update", () => {
 // ===========================================================================
 
 describe("StoresService.softDelete", () => {
-  const facts = (over: Partial<StoreDeletionFacts> = {}): StoreDeletionFacts => ({
-    store: { storeId: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true },
-    openShifts: [],
-    devices: [],
-    openCountSessions: [],
-    warehouseMappings: [],
-    singleStoreMembers: [],
-    offersRebuiltCount: 0,
-    ...over,
-  });
+  const facts = (over: Partial<StoreDeletionFacts> = {}): StoreDeletionFacts => {
+    const base = {
+      store: { storeId: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true },
+      openShifts: [],
+      devices: [],
+      openCountSessions: [],
+      warehouseMappings: [],
+      singleStoreMembers: [],
+      offersRebuiltCount: 0,
+      ...over,
+    };
+    return {
+      ...base,
+      counts: { openShifts: base.openShifts.length, unretiredDevices: 0, unsyncedDevices: 0, openCountSessions: base.openCountSessions.length },
+    };
+  };
   const liveStore = { id: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true } as StoreRecord;
 
   it("SD1: the store row cannot be locked (invisible or already deleted) → NotFoundException; nothing is deleted", async () => {

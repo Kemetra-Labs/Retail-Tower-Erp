@@ -40,8 +40,9 @@ import { StoresService } from "./stores.service";
 /**
  * RT-1439: the guarded store deletion (`StoreDeletionController`: the preview, the owner-only
  * deletion and the re-authentication that deletion needs) shares this module's repository and
- * pool. The interceptor `consoleDeleteStore` is `@Idempotent` on is the global one
- * (`IdempotencyModule`, registered once in `AppModule`).
+ * pool. The interceptor `consoleDeleteStore` is `@Idempotent` on is the global `APP_INTERCEPTOR`
+ * of `IdempotencyModule` (imported by other modules such as `DevicesModule`); this module does not
+ * import it, so the existing StoresModule specs do not need its providers.
  */
 @Module({
   imports: [AuthModule, ContextModule],
