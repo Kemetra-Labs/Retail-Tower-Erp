@@ -68,6 +68,43 @@ export function checkLinesMatch(stored: readonly number[], lines: readonly AckLi
   }
 }
 
+function sameQuantity(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return a === b;
+  return Number(a) === Number(b);
+}
+
+/**
+ * True when an incoming ack's line evidence CONTRADICTS what is stored for the chunk (a replay with another
+ * result, quantity or refusal). An ack without lines never contradicts: lines are optional on a replay.
+ */
+export async function countLinesContradict(
+  client: PoolClient,
+  intentId: string,
+  lines: readonly AckLine[] | undefined,
+): Promise<boolean> {
+  if (lines === undefined) return false;
+  const stored = await client.query<{
+    line_seq: number;
+    result: string | null;
+    verified_qty_after: string | null;
+    refusal_code: string | null;
+  }>(
+    `SELECT line_seq, result, verified_qty_after, refusal_code FROM count_posting_lines WHERE intent_id = $1`,
+    [intentId],
+  );
+  const bySeq = new Map(stored.rows.map((r) => [r.line_seq, r]));
+  if (bySeq.size !== lines.length) return true;
+  return lines.some((l) => {
+    const s = bySeq.get(l.lineSeq);
+    return (
+      s === undefined ||
+      s.result !== l.result ||
+      !sameQuantity(s.verified_qty_after, l.verifiedQtyAfter) ||
+      (s.refusal_code ?? null) !== (l.refusal?.code ?? null)
+    );
+  });
+}
+
 /** Record the per-line results of a chunk and move its lines' effects. Returns the number of effects moved. */
 export async function applyCountLineResults(
   client: PoolClient,

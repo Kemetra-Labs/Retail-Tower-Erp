@@ -74,6 +74,15 @@ async function candidatesOf(
 ): Promise<EmissionCandidate[]> {
   const ids = built.map((b) => b.body.productId);
   const refs = await itemRefs(client, ids);
+  // A line that was built as postable but has no confirmed ERP item now lost its mapping while the approval ran:
+  // fail the approval (it rolls back and can be retried) instead of silently skipping a correction.
+  const lost = built.filter((b) => b.body.refusal === null && !refs.has(b.body.productId));
+  if (lost.length > 0) {
+    throw new CountRuleError(
+      'count_line_unmapped',
+      'A counted product lost its confirmed ERP item mapping during approval. Retry the approval.',
+    );
+  }
   const effects = await client.query<{ tenant_product_ref: string; correction_effect_ids: string[] | null }>(
     `SELECT tenant_product_ref, correction_effect_ids FROM count_session_lines WHERE session_id = $1`,
     [sessionId],

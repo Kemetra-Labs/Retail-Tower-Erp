@@ -26,6 +26,7 @@ import { lockPostingFeedSequence, runWithTenantContext } from "@data-pulse-2/db"
 import {
   applyCountLineResults,
   CountAckLinesError,
+  countLinesContradict,
   recomputeCountSession,
   type AckLine,
 } from "../../inventory/count-sessions/count-posting-ack";
@@ -300,6 +301,7 @@ interface TerminalRow {
   readonly updated_at: Date;
   readonly current_resolution_version: number | null;
   readonly reconciliation_document_ref: string | null;
+  readonly kind?: string;
 }
 
 @Injectable()
@@ -686,6 +688,11 @@ export class ErpnextPostingService {
     if (reportsReconciliation(input, row) && row.status === "permanently_rejected") {
       return await this.reconcileTerminal(client, input, row);
     }
+    // RT-1423: a count chunk's replay must agree with the line evidence already stored: a fresh-key ack that
+    // turns a recorded line into another result is a contradiction (409), never an echo.
+    if (row.kind === "inventory_count" && (await countLinesContradict(client, input.workItemRef, input.lines))) {
+      throw new AckConflictError();
+    }
     // A post from a superseded resolution is never confirmed as posted — not
     // even on a row a current-version post already completed.
     if (!isStaleResolution(input, row) && this.sameLogicalOutcome(row, input)) {
@@ -752,6 +759,14 @@ export class ErpnextPostingService {
     const isCount = row.kind === "inventory_count";
     if ((input.outcome === "verified_noop" || input.lines !== undefined) && !isCount) {
       throw new AckValidationError("verified_noop and lines are only valid for an inventory_count work item");
+    }
+    // The contract documents `lines` only with verified_noop, posted and permanently_rejected; accepting them
+    // on another outcome would drop evidence the Connector believes was recorded.
+    if (
+      input.lines !== undefined &&
+      (input.outcome === "failed_transient" || input.outcome === "reconciliation_required")
+    ) {
+      throw new AckValidationError(`lines is not valid when outcome is '${input.outcome}'`);
     }
     switch (input.outcome) {
       case "verified_noop":

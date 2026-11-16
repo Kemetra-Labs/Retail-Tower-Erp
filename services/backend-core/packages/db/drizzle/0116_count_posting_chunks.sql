@@ -20,9 +20,9 @@
 --      no-op (`count_verified_noop`): a count correction whose ERP target was already reached is
 --      confirmed without a new ERP document, and never with a fabricated one.
 --
--- Locking: ACCESS EXCLUSIVE only for the nullable/DROP NOT NULL changes (metadata, instant) and the
--- constraint swaps; new CHECKs and the FK are added NOT VALID and validated afterwards (SHARE UPDATE
--- EXCLUSIVE). Every existing row has sale_id set and the new columns NULL, so validation always passes.
+-- Locking: a first transaction holds ACCESS EXCLUSIVE only for the nullable/DROP NOT NULL changes (metadata,
+-- instant) and the constraint swaps; new CHECKs and the FK are added NOT VALID there. A SECOND transaction
+-- validates them (SHARE UPDATE EXCLUSIVE) and builds the unique index, after the exclusive locks are released. Every existing row has sale_id set and the new columns NULL, so validation always passes.
 -- Rollback: 0116_count_posting_chunks.down.sql (refuses while any chunk exists).
 
 BEGIN;
@@ -38,7 +38,12 @@ ALTER TABLE erpnext_posting_status
 
 ALTER TABLE erpnext_posting_status
   DROP CONSTRAINT IF EXISTS erpnext_posting_status_kind_valid,
-  DROP CONSTRAINT IF EXISTS erpnext_posting_status_status_valid;
+  DROP CONSTRAINT IF EXISTS erpnext_posting_status_status_valid,
+  DROP CONSTRAINT IF EXISTS erpnext_posting_status_count_shape,
+  DROP CONSTRAINT IF EXISTS erpnext_posting_status_count_chunk_bounds,
+  DROP CONSTRAINT IF EXISTS erpnext_posting_status_count_datetime_format,
+  DROP CONSTRAINT IF EXISTS erpnext_posting_status_noop_only_count,
+  DROP CONSTRAINT IF EXISTS fk_erpnext_posting_status_count_session;
 
 ALTER TABLE erpnext_posting_status
   ADD CONSTRAINT erpnext_posting_status_kind_valid
@@ -64,18 +69,6 @@ ALTER TABLE erpnext_posting_status
   ADD CONSTRAINT fk_erpnext_posting_status_count_session
     FOREIGN KEY (count_session_id, tenant_id, store_id)
     REFERENCES count_sessions (id, tenant_id, store_id) ON DELETE RESTRICT NOT VALID;
-
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_kind_valid;
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_status_valid;
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_shape;
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_chunk_bounds;
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_datetime_format;
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_noop_only_count;
-ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT fk_erpnext_posting_status_count_session;
-
-CREATE UNIQUE INDEX IF NOT EXISTS "UQ_idx_erpnext_posting_status_count_chunk"
-  ON erpnext_posting_status (tenant_id, count_session_id, count_chunk)
-  WHERE count_session_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS count_posting_lines (
   intent_id          UUID          NOT NULL,
@@ -138,16 +131,42 @@ ALTER TABLE inventory_effect_integration
 
 ALTER TABLE inventory_effect_integration
   ADD CONSTRAINT inventory_effect_integration_confirmed_document
-    CHECK (state <> 'confirmed' OR erp_document_ref IS NOT NULL OR state_reason = 'count_verified_noop') NOT VALID;
-
-ALTER TABLE inventory_effect_integration VALIDATE CONSTRAINT inventory_effect_integration_confirmed_document;
+    CHECK (state <> 'confirmed' OR erp_document_ref IS NOT NULL
+        OR state_reason IS NOT DISTINCT FROM 'count_verified_noop') NOT VALID;
 
 ALTER TABLE tenant_inventory_settings
   ADD COLUMN IF NOT EXISTS count_sessions_changed_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS count_sessions_changed_by UUID;
 
 ALTER TABLE tenant_inventory_settings
+  DROP CONSTRAINT IF EXISTS tenant_inventory_settings_count_sessions_change_pair;
+ALTER TABLE tenant_inventory_settings
   ADD CONSTRAINT tenant_inventory_settings_count_sessions_change_pair
     CHECK ((count_sessions_changed_at IS NULL) = (count_sessions_changed_by IS NULL));
+
+COMMIT;
+
+-- Second transaction: validation and the unique index. The first transaction's exclusive locks are released
+-- at its COMMIT, so these scans hold only SHARE UPDATE EXCLUSIVE (validation, readers and writers go on) and a
+-- short SHARE lock for the index build; they never extend the schema-change window. Every existing row is a
+-- sale row with the chunk columns NULL, so validation always passes. A failed validation leaves the
+-- constraints NOT VALID and the migration re-runnable (each ADD is preceded by its own DROP IF EXISTS).
+BEGIN;
+
+SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_kind_valid;
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_status_valid;
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_shape;
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_chunk_bounds;
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_datetime_format;
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_noop_only_count;
+ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT fk_erpnext_posting_status_count_session;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "UQ_idx_erpnext_posting_status_count_chunk"
+  ON erpnext_posting_status (tenant_id, count_session_id, count_chunk)
+  WHERE count_session_id IS NOT NULL;
+
+ALTER TABLE inventory_effect_integration VALIDATE CONSTRAINT inventory_effect_integration_confirmed_document;
 
 COMMIT;

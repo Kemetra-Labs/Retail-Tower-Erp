@@ -4451,8 +4451,8 @@ components:
     CountSessionsSettingConflict:
       description: >
         409 — RT-1423. `count_sessions_readiness_unmet`: switching Count Sessions on was refused because a
-        readiness boundary does not hold; the body names the first (`boundary`, `storeId`) and lists all
-        (`unmet`). `count_sessions_open`: switching off was refused because a session is open. Nothing is
+        readiness boundary does not hold; `error.details` names the first (`boundary`, `storeId`) and lists
+        all (`unmet`). `count_sessions_open`: switching off was refused because a session is open. Nothing is
         written.
       content:
         application/json:

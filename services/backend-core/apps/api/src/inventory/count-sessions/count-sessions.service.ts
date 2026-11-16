@@ -141,6 +141,12 @@ export class CountSessionsService {
 
   /** Dark by default: until the tenant is switched on, every operation is the non-disclosing 404. */
   private async assertEnabled(client: PoolClient, tenantId: string): Promise<void> {
+    // RT-1423: the SHARED settings lock conflicts with the exclusive one `setCountSessionsSetting` holds, so an
+    // operation that read the switch ON cannot commit after a concurrent switch-off has counted the open sessions.
+    await client.query(
+      `SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`,
+      [tenantId],
+    );
     const r = await client.query<{ on: boolean }>(
       `SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
       [tenantId],
@@ -643,7 +649,9 @@ export class CountSessionsService {
       );
       const emission = await emitCountChunks(client, { ...session, state: 'approved' }, built);
       const refusedLines = built.filter((b) => b.body.refusal !== null).length;
-      const finalState = emission.chunks > 0 ? 'posting' : sessionOutcome([], refusedLines > 0);
+      // A refused line needs attention at once (sessionOutcome), whether or not other lines posted; the chunks
+      // that exist stay pending and are acknowledged normally.
+      const finalState = emission.chunks > 0 && refusedLines === 0 ? 'posting' : sessionOutcome([], refusedLines > 0);
       await client.query(`UPDATE count_sessions SET state = $2, updated_at = now() WHERE id = $1`, [sessionId, finalState]);
       await writeAudit(client, {
         tenantId: caller.tenantId,

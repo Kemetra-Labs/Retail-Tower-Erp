@@ -304,6 +304,24 @@ describe('acknowledgement changes state, never quantity (AC4)', () => {
     await expect(ack(c.id, { outcome: 'permanently_rejected', reason: { category: 'other', message: 'x' } })).rejects.toThrow();
   });
 
+  it('a replay that contradicts the stored line evidence conflicts instead of echoing', async () => {
+    if (skipped()) return;
+    const id = await approvedSession();
+    const c = await chunk(id);
+    await ack(c.id, { outcome: 'verified_noop', lines: [line(1, 'verified_noop')] });
+    const refusal = { code: 'uom_mismatch', message: 'unit' };
+    await expect(ack(c.id, { outcome: 'verified_noop', lines: [line(1, 'rejected', { refusal })] })).rejects.toThrow();
+    expect((await ack(c.id, { outcome: 'verified_noop', lines: [line(1, 'verified_noop')] })).replayed).toBe(true);
+  });
+
+  it('refuses lines on a failed_transient ack and keeps the chunk pending', async () => {
+    if (skipped()) return;
+    const id = await approvedSession();
+    const c = await chunk(id);
+    await expect(ack(c.id, { outcome: 'failed_transient', lines: [line(1, 'adjusted')] })).rejects.toThrow();
+    expect((await chunk(id)).status).toBe('pending');
+  });
+
   it('refuses a line set that is not exactly the chunk lines', async () => {
     if (skipped()) return;
     const id = await approvedSession();
@@ -320,8 +338,8 @@ describe('activation and the legacy route (AC1)', () => {
     await admin.query(`UPDATE tenant_inventory_settings SET count_sessions_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
     expect((await setting.getSetting({ tenantId: TENANT_A, userId: COUNTER, isPlatformAdmin: false })).enabled).toBe(false);
     const legacy = new StockCountService(env!.app as unknown as Pool);
-    const input = { tenantId: TENANT_A, storeId: STORE_A_X, tenantProductRef: PRODUCT_A_ACTIVE, countedQuantity: '1', stockingUnit: 'each', actorId: COUNTER } as never;
-    expect(await code(legacy.recordStockCount(input))).not.toBe('count_sessions_active');
+    const input = { tenantId: TENANT_A, storeId: STORE_A_X, tenantProductRef: PRODUCT_A_ACTIVE, countedQuantity: '1', stockingUnit: 'each', userId: COUNTER } as never;
+    expect(await code(legacy.recordStockCount(input))).toBe('ok');
     await admin.query(`UPDATE tenant_inventory_settings SET count_sessions_enabled = true WHERE tenant_id = $1`, [TENANT_A]);
     expect(await code(legacy.recordStockCount(input))).toBe('count_sessions_active');
   });

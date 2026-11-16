@@ -204,9 +204,7 @@ export class CountSessionsSettingService {
     throw new ConflictException({
       code: 'count_sessions_readiness_unmet',
       message: `Count Sessions cannot be switched on: ${first.message}`,
-      boundary: first.code,
-      storeId: first.storeId,
-      unmet: unmetBody(unmet),
+      details: { boundary: first.code, storeId: first.storeId, unmet: unmetBody(unmet) },
     });
   }
 
