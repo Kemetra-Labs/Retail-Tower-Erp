@@ -23,6 +23,12 @@ import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../auth/auth.module";
 import { lockPostingFeedSequence, runWithTenantContext } from "@data-pulse-2/db";
+import {
+  applyCountLineResults,
+  CountAckLinesError,
+  recomputeCountSession,
+  type AckLine,
+} from "../../inventory/count-sessions/count-posting-ack";
 import { applyPostingSignalToEffects } from "../../inventory/effect-integration/effect-integration.transitions";
 import { recordErpnextPostingReconciliation } from "../../observability/metrics/api.metrics";
 import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
@@ -32,6 +38,8 @@ import {
   SaleTendersNotVisibleError,
   TrackedLineNotPostableError,
   buildWorkItem,
+  buildCountWorkItem,
+  type FeedWorkItem,
   type PostingWorkItem,
 } from "./posting-work-item.projection";
 import { PostingFeedReporter } from "./posting-feed-reporter";
@@ -85,7 +93,8 @@ export interface AckRejectionReason {
 export type RecordedOutcomeKind =
   | "posted"
   | "failed_transient"
-  | "permanently_rejected";
+  | "permanently_rejected"
+  | "verified_noop";
 
 /**
  * The outcome a connector may REPORT (012 OutcomeAckRequest.outcome). RT-332:
@@ -106,6 +115,8 @@ export interface AckOutcomeInput {
   readonly reason?: AckRejectionReason;
   /** RT-332: the frozen resolution version the connector posted with, when it echoes one. */
   readonly resolutionVersion?: number;
+  /** RT-1423, `inventory_count` only: the per-line results the Connector verified. */
+  readonly lines?: readonly AckLine[];
 }
 
 /** The 012 RecordedOutcome wire projection (DP2 → connector). */
@@ -192,8 +203,13 @@ export interface PullPostingsInput {
   readonly limit: number;
 }
 
-export interface PullPostingsResult {
-  readonly items: readonly PostingWorkItem[];
+/**
+ * The generic keeps every sale-only caller as it was: the default is the sale/reversal item. A caller that
+ * serves the whole feed (the connector controller) asks for `FeedWorkItem`, which adds the RT-1423
+ * `inventory_count` chunk. A page holds a count chunk only for a tenant that approved a Count Session.
+ */
+export interface PullPostingsResult<T extends FeedWorkItem = PostingWorkItem> {
+  readonly items: readonly T[];
   /** The advanced opaque cursor (the last item's sequence), as a string. */
   readonly cursor: string | null;
   /** Next-page token (the same advanced cursor) when the page was full. */
@@ -257,8 +273,8 @@ interface FeedRowReport {
 /** A feed row as the pull query returns it. */
 interface FeedRow {
   readonly id: string;
-  readonly kind: "sale_post" | "reversal";
-  readonly sale_id: string;
+  readonly kind: "sale_post" | "reversal" | "inventory_count";
+  readonly sale_id: string | null;
   readonly source_ref_id: string;
   readonly source_system: string;
   readonly external_id: string;
@@ -303,7 +319,9 @@ export class ErpnextPostingService {
    * transaction. Offered items never change, so a re-pull of the same `since`
    * still offers the same set (012 idempotent replay).
    */
-  async pullPostings(input: PullPostingsInput): Promise<PullPostingsResult> {
+  async pullPostings<T extends FeedWorkItem = PostingWorkItem>(
+    input: PullPostingsInput,
+  ): Promise<PullPostingsResult<T>> {
     const limit = Math.min(Math.max(1, input.limit), POSTING_FEED_MAX_PAGE);
 
     const { page, reports } = await runWithTenantContext(
@@ -456,7 +474,7 @@ export class ErpnextPostingService {
     );
     // Reported only once committed: a rolled-back pull re-offered nothing.
     for (const report of reports) this.report(report);
-    return page;
+    return page as unknown as PullPostingsResult<T>;
   }
 
   private report(r: FeedRowReport): void {
@@ -476,13 +494,27 @@ export class ErpnextPostingService {
     client: PoolClient,
     rows: readonly FeedRow[],
     emitTracking: boolean,
-  ): Promise<{ items: PostingWorkItem[]; unbuildable: UnbuildableRow[]; omitted: FeedRowReport[] }> {
-    const items: PostingWorkItem[] = [];
+  ): Promise<{ items: FeedWorkItem[]; unbuildable: UnbuildableRow[]; omitted: FeedRowReport[] }> {
+    const items: FeedWorkItem[] = [];
     const unbuildable: UnbuildableRow[] = [];
     const omitted: FeedRowReport[] = [];
     // sequential: work items are built on one PoolClient (pg runs its queries one at a time); the output keeps feed order.
     for (const row of rows) {
       try {
+        if (row.kind === "inventory_count") {
+          // RT-1423: a count chunk is built from its frozen rows only, never from a sale.
+          const counted = await buildCountWorkItem(client, {
+            id: row.id,
+            sourceSystem: row.source_system,
+            externalId: row.external_id,
+            payloadHash: row.payload_hash,
+            sequence: row.sequence,
+          });
+          if (counted) items.push(counted);
+          else omitted.push({ kind: "omitted", id: row.id, detail: row.kind, retryCount: 0 });
+          continue;
+        }
+        if (row.sale_id === null) throw new Error("a sale or reversal posting row without a sale");
         const item = await buildWorkItem(client, {
           id: row.id,
           kind: row.kind,
@@ -597,9 +629,10 @@ export class ErpnextPostingService {
           updated_at: Date;
           current_resolution_version: number | null;
           reconciliation_document_ref: string | null;
+          kind: string;
         }>(
           `SELECT status, document_ref, rejection_category, retry_count, updated_at,
-                  current_resolution_version, reconciliation_document_ref
+                  current_resolution_version, reconciliation_document_ref, kind
              FROM erpnext_posting_status
             WHERE id = $1
             FOR UPDATE`,
@@ -617,14 +650,21 @@ export class ErpnextPostingService {
         // --- Already-TERMINAL row (posted / permanently_rejected): O-3 echo or
         // conflict, NO re-transition. `recordedAt` echoes the STORED updated_at
         // so an idempotent re-ack returns a STABLE body (does not drift). ------
-        if (row.status === "posted" || row.status === "permanently_rejected") {
+        if (
+          row.status === "posted" ||
+          row.status === "permanently_rejected" ||
+          row.status === "verified_noop"
+        ) {
           return this.terminalAck(client, input, row);
         }
 
         // --- Re-offerable row (status = 'pending'; a stored 'failed_transient'
         // is never produced by 015 — applyTransient always resets to 'pending' —
         // but is treated as re-offerable too for forward-compat). -------------
-        return { replayed: false, outcome: await this.transition(client, input, row) };
+        const recorded = await this.transition(client, input, row);
+        // RT-1423: a count chunk ack also moves its session (posting to confirmed or needs_attention).
+        if (row.kind === "inventory_count") await recomputeCountSession(client, input.workItemRef);
+        return { replayed: false, outcome: recorded };
       },
     );
   }
@@ -707,10 +747,17 @@ export class ErpnextPostingService {
   private async transition(
     client: PoolClient,
     input: AckOutcomeInput,
-    row: { retry_count: number; current_resolution_version: number | null },
+    row: { retry_count: number; current_resolution_version: number | null; kind: string },
   ): Promise<RecordedOutcome> {
+    const isCount = row.kind === "inventory_count";
+    if ((input.outcome === "verified_noop" || input.lines !== undefined) && !isCount) {
+      throw new AckValidationError("verified_noop and lines are only valid for an inventory_count work item");
+    }
     switch (input.outcome) {
+      case "verified_noop":
+        return await this.applyCountPosted(client, input);
       case "posted":
+        if (isCount) return await this.applyCountPosted(client, input);
         // RT-332: a post made from a superseded resolution version is not the
         // intent's current one — record it for reconciliation, never as posted.
         return await (isStaleResolution(input, row)
@@ -781,6 +828,44 @@ export class ErpnextPostingService {
       workItemRef: input.workItemRef,
       outcome: "posted",
       documentRef: input.documentRef,
+      recordedAt: r.rows[0]!.updated_at.toISOString(),
+      dlqueued: false,
+    };
+  }
+
+  /**
+   * RT-1423: a `posted` or `verified_noop` ack of an `inventory_count` chunk. The per-line results decide the
+   * effects of each line (the generic confirm-every-effect signal would confirm lines the Connector rejected);
+   * the chunk row records the document (`posted`) or none (`verified_noop`: never a fabricated document).
+   */
+  private async applyCountPosted(client: PoolClient, input: AckOutcomeInput): Promise<RecordedOutcome> {
+    const noop = input.outcome === "verified_noop";
+    if (!input.lines) throw new AckValidationError("lines is required for an inventory_count ack");
+    if (!noop && !input.documentRef) {
+      throw new AckValidationError("documentRef is required when outcome is 'posted'");
+    }
+    if (noop && input.lines.some((l) => l.result === "adjusted")) {
+      throw new AckValidationError("a verified_noop ack carries no adjusted line");
+    }
+    const documentRef = input.documentRef ? serializeDocRef(input.documentRef) : null;
+    try {
+      await applyCountLineResults(client, input.workItemRef, input.lines, documentRef);
+    } catch (err) {
+      if (err instanceof CountAckLinesError) throw new AckValidationError(err.message);
+      throw err;
+    }
+    const r = await client.query<{ updated_at: Date }>(
+      noop
+        ? `UPDATE erpnext_posting_status SET status='verified_noop', updated_at=now() WHERE id=$1 RETURNING updated_at`
+        : `UPDATE erpnext_posting_status
+              SET status='posted', document_ref=$2, updated_at=now(), posted_at=COALESCE(posted_at, now())
+            WHERE id=$1 RETURNING updated_at`,
+      noop ? [input.workItemRef] : [input.workItemRef, documentRef],
+    );
+    return {
+      workItemRef: input.workItemRef,
+      outcome: noop ? "verified_noop" : "posted",
+      documentRef: noop ? null : (input.documentRef ?? null),
       recordedAt: r.rows[0]!.updated_at.toISOString(),
       dlqueued: false,
     };

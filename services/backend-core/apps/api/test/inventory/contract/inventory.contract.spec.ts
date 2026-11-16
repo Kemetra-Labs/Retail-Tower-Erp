@@ -103,6 +103,8 @@ const OPERATION_IDS = [
   "listCountLateEventFindings",
   "getCountSelfApprovalSetting",
   "setCountSelfApprovalSetting",
+  "getCountSessionsSetting",
+  "setCountSessionsSetting",
   "listCountSessions",
   "listCountVarianceLines",
   "recordCountObservations",
@@ -152,6 +154,8 @@ const OPERATOR_OPERATION_IDS = [
   "listCountLateEventFindings",
   "getCountSelfApprovalSetting",
   "setCountSelfApprovalSetting",
+  "getCountSessionsSetting",
+  "setCountSessionsSetting",
   "listCountSessions",
   "listCountVarianceLines",
   "recordCountObservations",
@@ -1493,14 +1497,16 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
 
   it("keeps recordStockCount's legacy route unchanged and says so", () => {
     const o = (inventoryDoc.paths?.[COUNTS_PATH]?.["post"] ?? {}) as Op & { description?: string };
-    expect(o.description).toContain("unchanged until");
+    // RT-1423: unchanged while the tenant has not activated Count Sessions, then the typed 409.
+    expect(o.description).toContain("unchanged while the tenant has NOT activated Count Sessions");
+    expect(o.description).toContain("`count_sessions_active`");
     expect(o["x-runtime-status"]).toBeUndefined();
   });
 });
 
 describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
-  it("is the 1.16.0 draft, with a wording-only version note citing the owner delegation", () => {
-    expect(inventoryDoc.info?.version).toBe("1.16.0-draft");
+  it("keeps the 1.16.0 note (version moved on in RT-1423), a wording-only note citing the owner delegation", () => {
+    expect(inventoryDoc.info?.version).toBe("1.17.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
@@ -1528,5 +1534,45 @@ describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
     expect(JSON.stringify(inventoryDoc.components?.responses?.["CountSelfApprovalOwnerOnly"])).toContain(
       "count_self_approval_owner_only",
     );
+  });
+});
+
+describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-draft)", () => {
+  const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
+
+  it("is the 1.17.0 draft, with the activation note citing the owner authorization", () => {
+    expect(inventoryDoc.info?.version).toBe("1.17.0-draft");
+    const description = inventoryDoc.info?.description ?? "";
+    expect(description).toContain("**1.17.0-draft (RT-1423, additive;");
+    expect(description).toContain("`count_sessions_readiness_unmet`");
+    expect(description).toContain("`count_sessions_active`");
+  });
+
+  it("declares the read and the PUT of the switch on one path, cookie-authenticated, with the typed 409", () => {
+    const path = inventoryDoc.paths?.["/api/inventory/v1/settings/count-sessions"] as Record<string, any> | undefined;
+    expect(path?.["get"]?.operationId).toBe("getCountSessionsSetting");
+    expect(path?.["put"]?.operationId).toBe("setCountSessionsSetting");
+    expect(path?.["get"]?.security).toEqual([{ cookieAuth: [] }]);
+    expect(path?.["put"]?.security).toEqual([{ cookieAuth: [] }]);
+    expect(path?.["put"]?.responses?.["409"]?.$ref).toBe("#/components/responses/CountSessionsSettingConflict");
+    expect(path?.["put"]?.responses?.["403"]).toBeDefined();
+    expect(path?.["put"]?.parameters).toBeUndefined();
+  });
+
+  it("the setting body is strict, the command carries only enabled, and every readiness code is typed", () => {
+    expect(schema("CountSessionsSetting").additionalProperties).toBe(false);
+    expect(schema("CountSessionsSetting").required).toEqual(
+      ["enabled", "changedAt", "changedBy", "readinessMet", "unmetReadiness"],
+    );
+    expect(schema("SetCountSessionsSettingCommand").additionalProperties).toBe(false);
+    expect(Object.keys(schema("SetCountSessionsSettingCommand").properties)).toEqual(["enabled"]);
+    expect(schema("CountSessionsReadinessBoundary").properties.code.enum).toEqual([
+      "no_live_store",
+      "store_warehouse_unmapped",
+      "store_barrier_unprovable",
+      "connector_not_seen",
+      "connector_version_unlisted",
+      "erp_back_dated_role_unverified",
+    ]);
   });
 });

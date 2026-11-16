@@ -21,7 +21,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { runWithTenantContext } from '@data-pulse-2/db';
+import { lockPostingFeedSequence, runWithTenantContext } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
 import type { Pool, PoolClient } from 'pg';
 
@@ -38,6 +38,8 @@ import {
 import { MOVEMENT_COLUMNS } from '../inventory.types';
 import { writeAudit } from '../position-events/position-event.writer';
 import { readBarrier } from './count-barrier';
+import { sessionOutcome } from './count-emission';
+import { emitCountChunks } from './count-emission.store';
 import {
   decodeCountCursor,
   encodeCountCursor,
@@ -197,11 +199,16 @@ export class CountSessionsService {
     storeId: string,
     sessionId: string,
     fn: (client: PoolClient, session: SessionRow) => Promise<T>,
+    opts: { readonly lockFeed?: boolean } = {},
   ): Promise<T> {
     return this.scanCommitted(caller, storeId, sessionId).then(() =>
-      this.tx(caller, async (client) =>
-        fn(client, await this.lockedAndScanned(client, storeId, sessionId)),
-      ),
+      this.tx(caller, async (client) => {
+        // RT-1423: a command that inserts posting rows takes the tenant's feed sequence lock BEFORE the
+        // session row lock, the order `ackOutcome` uses (sequence, posting row, session), so the two
+        // cannot deadlock and new chunks commit in sequence order (the connector cursor never skips one).
+        if (opts.lockFeed) await lockPostingFeedSequence(client, caller.tenantId);
+        return fn(client, await this.lockedAndScanned(client, storeId, sessionId));
+      }),
     );
   }
 
@@ -624,6 +631,9 @@ export class CountSessionsService {
         if (b.body.refusal !== null) continue; // a refused line writes no correction; the rest proceeds
         correctionCount += await this.writeCorrections(client, session, b, caller.userId);
       }
+      // RT-1423: the approved lines become ERP intents in this same transaction (DC-2). The session is
+      // `posting` once a chunk exists; with none (every line zero variance or refused) it needs no ERP
+      // document, so it is `confirmed`, or `needs_attention` when a line was refused (it could not post).
       await client.query(
         `UPDATE count_sessions
             SET state = 'approved', approved_by = $2, approved_at = now(), approval_policy = $3, self_approved = $4,
@@ -631,6 +641,10 @@ export class CountSessionsService {
           WHERE id = $1`,
         [sessionId, caller.userId, outcome.policy, outcome.selfApproved, reason],
       );
+      const emission = await emitCountChunks(client, { ...session, state: 'approved' }, built);
+      const refusedLines = built.filter((b) => b.body.refusal !== null).length;
+      const finalState = emission.chunks > 0 ? 'posting' : sessionOutcome([], refusedLines > 0);
+      await client.query(`UPDATE count_sessions SET state = $2, updated_at = now() WHERE id = $1`, [sessionId, finalState]);
       await writeAudit(client, {
         tenantId: caller.tenantId,
         userId: caller.userId,
@@ -643,10 +657,13 @@ export class CountSessionsService {
           selfApproved: outcome.selfApproved,
           reason,
           corrections: correctionCount,
+          chunks: emission.chunks,
+          postedLines: emission.lines,
+          skippedLines: emission.skipped.length,
         },
       });
       return await this.bodyOf(client, storeId, sessionId);
-    });
+    }, { lockFeed: true });
   }
 
   /** Append the line's per-position `count_correction` effects, once (the line row guards a replay). */

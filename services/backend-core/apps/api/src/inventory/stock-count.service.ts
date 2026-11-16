@@ -5,7 +5,7 @@
  * context, the single transaction, the audit row and the outbox event are
  * unchanged. Not a Nest provider: the module wiring is unchanged.
  */
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { runWithTenantContext } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
 import type { Pool } from 'pg';
@@ -66,6 +66,18 @@ export class StockCountService {
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StockCountResultBody> => {
+        // RT-1423 (G6-7): once the tenant has activated Count Sessions the legacy immediate count is refused,
+        // so there is exactly one count writer. Before activation (the default) it works as it always did.
+        const active = await client.query<{ on: boolean }>(
+          `SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
+          [input.tenantId],
+        );
+        if (active.rows[0]?.on === true) {
+          throw new ConflictException({
+            code: 'count_sessions_active',
+            message: 'This tenant counts through Count Sessions; the immediate stock count is no longer accepted.',
+          });
+        }
         await assertReferencesInTenant(client, {
           storeIds: [input.storeId],
           tenantProductRef: input.tenantProductRef,

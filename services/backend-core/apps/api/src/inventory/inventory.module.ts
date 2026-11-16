@@ -33,6 +33,8 @@ import { ContextModule } from "../context/context.module";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
 import { DeviceRepository } from "../pos-operators/device.repository";
 import { CountSessionsController } from "./count-sessions/count-sessions.controller";
+import { CountSessionsSettingController } from "./count-sessions/count-sessions-setting.controller";
+import { CountSessionsSettingService } from "./count-sessions/count-sessions-setting.service";
 import { CountSessionsService } from "./count-sessions/count-sessions.service";
 import { InventoryController } from "./inventory.controller";
 import { InventoryService } from "./inventory.service";
@@ -100,6 +102,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // RT-1420: the Count Session domain (cookieAuth, RolesGuard; dark until the
     // tenant's count_sessions_enabled is on).
     CountSessionsController,
+    CountSessionsSettingController,
   ],
   providers: [
     InventoryService,
@@ -119,6 +122,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     TrackedSellingSettingService,
     TrackedSellingPreconditions,
     CountSessionsService,
+    CountSessionsSettingService,
     RolesGuard,
     // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device
     // row: the device on the pre-tenant lookup pool, its tenant's status on

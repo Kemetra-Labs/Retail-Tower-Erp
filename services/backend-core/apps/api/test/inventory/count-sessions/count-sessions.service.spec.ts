@@ -143,6 +143,12 @@ beforeAll(async () => {
       [TENANT_A, p, `ITEM-CS-${i}`, COUNTER],
     );
   }
+  // RT-1423: an approved line with a variance becomes an ERP intent, which needs the store's stock warehouse.
+  await admin.query(
+    `INSERT INTO erpnext_warehouse_map (id, tenant_id, store_id, purpose, erpnext_warehouse_ref)
+     VALUES (gen_random_uuid(), $1, $2, 'stock', 'Stores - CS') ON CONFLICT DO NOTHING`,
+    [TENANT_A, STORE_A_X],
+  );
   const memberships = { findRoleCodeForUserInTenant: async () => role } as unknown as MembershipRepository;
   service = new CountSessionsService(env.app as unknown as Pool, memberships);
 }, 240_000);
@@ -155,6 +161,14 @@ afterAll(async () => {
 beforeEach(async () => {
   role = 'owner';
   if (!env) return;
+  // RT-1423: an approval now writes chunks (posting rows, frozen lines, effect links); they reference the
+  // session and the effects, so they go first.
+  await admin.query(`DELETE FROM count_posting_lines`);
+  await admin.query(
+    `DELETE FROM inventory_effect_integration WHERE posting_status_id IN
+       (SELECT id FROM erpnext_posting_status WHERE kind = 'inventory_count')`,
+  );
+  await admin.query(`DELETE FROM erpnext_posting_status WHERE kind = 'inventory_count'`);
   await admin.query(`DELETE FROM count_late_event_findings`);
   await admin.query(`DELETE FROM count_observations`);
   await admin.query(`DELETE FROM count_session_expected`);
@@ -227,7 +241,8 @@ describe('lifecycle (AC2)', () => {
     const ackLine = lines.items[0]!;
     const approved = await service.approve(as(APPROVER), STORE_A_X, id, ackLine.acknowledgementRequired
       ? [{ productId: ackLine.productId, lineVersion: ackLine.lineVersion, note: null }] : []);
-    expect(approved.state).toBe('approved');
+    // RT-1423: the approved lines were emitted as chunks in the same transaction, so the session is posting.
+    expect(approved.state).toBe('posting');
     expect(approved.approval).toMatchObject({ policy: 'strict_separation', selfApproved: false });
     expect(await code(service.cancel(as(COUNTER), STORE_A_X, id, 'too late'))).toBe('count_session_not_in_state');
   });
@@ -315,7 +330,7 @@ describe('late pre-cut events (AC4)', () => {
     const session = await service.getSession(as(COUNTER), STORE_A_X, id);
     expect(session.state).toBe('needs_attention');
     const f = (await service.listLateEventFindings(as(COUNTER), STORE_A_X, id, null, 50)).items[0]!;
-    expect(f).toMatchObject({ assessment: 'overstated', quantity: '3.0000', oversellRisk: true, detectedInState: 'approved' });
+    expect(f).toMatchObject({ assessment: 'overstated', quantity: '3.0000', oversellRisk: true, detectedInState: 'posting' });
     const movementsNow = (await admin.query(`SELECT count(*)::int AS n FROM stock_movements WHERE store_id = $1`, [STORE_A_X])).rows[0].n;
     expect(movementsNow).toBe(movementsAfterSeed); // the finding added no movement
   });
@@ -366,7 +381,7 @@ describe('approval policy (AC5)', () => {
 });
 
 describe('approval writes the corrections once (AC6)', () => {
-  it('appends not_posted count_correction effects, no posting artefact, and a replay writes nothing', async () => {
+  it('appends count_correction effects, links them to ONE chunk (pending), and a replay writes nothing', async () => {
     if (skipped()) return;
     await seedEffect(PRODUCT_A_ACTIVE, '10', { confirmed: true });
     const id = await submitted();
@@ -377,8 +392,10 @@ describe('approval writes the corrections once (AC6)', () => {
       `SELECT m.quantity::text AS q, m.movement_type, ei.state FROM stock_movements m
          JOIN inventory_effect_integration ei ON ei.effect_id = m.id
          JOIN count_session_lines l ON m.id = ANY(l.correction_effect_ids) WHERE l.session_id = $1`, [id]);
-    expect(eff.rows).toEqual([{ q: '-3.0000', movement_type: 'count_correction', state: 'not_posted' }]);
-    expect((await admin.query(`SELECT count(*)::int AS n FROM erpnext_posting_status`)).rows[0].n).toBe(postingBefore);
+    // RT-1423: the effect is linked to its chunk in the same transaction, so it is pending, and exactly one
+    // chunk was written.
+    expect(eff.rows).toEqual([{ q: '-3.0000', movement_type: 'count_correction', state: 'pending' }]);
+    expect((await admin.query(`SELECT count(*)::int AS n FROM erpnext_posting_status`)).rows[0].n).toBe(postingBefore + 1);
     expect(await code(service.approve(as(APPROVER), STORE_A_X, id, []))).toBe('count_session_not_in_state');
     expect(await corrections(id)).toBe(1);
   });
@@ -402,7 +419,8 @@ describe('approval writes the corrections once (AC6)', () => {
     const line = (await service.listVarianceLines(as(COUNTER), STORE_A_X, id, null, null, 50)).items[0]!;
     expect(line.refusal?.code).toBe('count_up_without_valuation_history');
     const approved = await service.approve(as(APPROVER), STORE_A_X, id, await acks(id));
-    expect(approved.state).toBe('approved');
+    // RT-1423: the only line was refused, so no chunk exists and the session needs attention (it could not post).
+    expect(approved.state).toBe('needs_attention');
     expect(await corrections(id)).toBe(0);
   });
 });
