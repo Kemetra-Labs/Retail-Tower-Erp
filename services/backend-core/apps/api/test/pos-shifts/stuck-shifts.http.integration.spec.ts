@@ -189,8 +189,9 @@ describe("GET /shifts/stuck — RT-1438 an opener with no display name is still 
     "a NULL-name opener's %s shift: the list and the force close agree (eligible = %s)",
     async (_label, seed, eligible) => {
       if (skipped()) return;
+      // Seeded first: the device-path open refuses (403) an opener with no display name.
+      const shiftId = await seed();
       await withDisplayName(null, async () => {
-        const shiftId = await seed();
         const listed = (await listedOnA1()).includes(shiftId);
         const forceClosed = (await forceCloseStatus(shiftId)) === 201;
         expect({ listed, forceClosed }).toEqual({ listed: eligible, forceClosed: eligible });
