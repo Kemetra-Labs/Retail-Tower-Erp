@@ -49,6 +49,57 @@ const EtaStatusSchema = z
   })
   .strict();
 
+/** RT-1423 (posting-feed.yaml 1.15.0-draft): what the Connector verified for one counted line. */
+const CountRefusalSchema = z
+  .object({
+    code: z.enum([
+      "wrong_kind",
+      "invalid_shape",
+      "chunk_too_large",
+      "frozen_datetime_mismatch",
+      "unmapped_item",
+      "unmapped_bucket",
+      "uom_mismatch",
+      "tracked_item_unsupported",
+      "no_valuation_history",
+      "valuation_rate_forbidden",
+      "closed_period",
+      "back_dated_permission",
+      "provenance_conflict",
+    ]),
+    ackCategory: z.enum(["validation", "closed_period", "unmapped_item", "unmapped_account", "other"]),
+    lineSeq: z.number().int().positive().optional(),
+    message: z.string().min(1).max(1000),
+  })
+  .strict();
+
+const QuantityTextSchema = z.string().regex(/^[0-9]{1,13}(\.[0-9]{1,6})?$/);
+
+const CountLineOutcomeSchema = z
+  .object({
+    lineSeq: z.number().int().positive(),
+    result: z.enum(["adjusted", "verified_noop", "rejected"]),
+    verifiedQtyAfter: QuantityTextSchema.nullish(),
+    refusal: CountRefusalSchema.nullish(),
+  })
+  .strict()
+  .superRefine((line, ctx) => {
+    if (line.result === "rejected" && !line.refusal) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["refusal"], message: "a rejected line carries its refusal" });
+    }
+    const noQuantity = line.verifiedQtyAfter === undefined || line.verifiedQtyAfter === null;
+    if (line.result !== "rejected" && (line.refusal || noQuantity)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["verifiedQtyAfter"],
+        message: "an adjusted or no-op line carries verifiedQtyAfter and no refusal",
+      });
+    }
+    if (line.result === "rejected" && !noQuantity) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["verifiedQtyAfter"], message: "a rejected line has no verifiedQtyAfter" });
+    }
+  });
+
 export const OutcomeAckBodySchema = z
   .object({
     outcome: z.enum([
@@ -56,14 +107,24 @@ export const OutcomeAckBodySchema = z
       "failed_transient",
       "permanently_rejected",
       "reconciliation_required",
+      "verified_noop",
     ]),
     documentRef: DocumentRefSchema.nullish(),
     reason: RejectionReasonSchema.nullish(),
     etaStatus: EtaStatusSchema.nullish(),
     resolutionVersion: z.number().int().positive().optional(),
+    /** RT-1423, `inventory_count` only: per-line evidence (1..100). Required with `verified_noop`. */
+    lines: z.array(CountLineOutcomeSchema).min(1).max(100).optional(),
   })
   .strict()
   .superRefine((val, ctx) => {
+    if (val.outcome === "verified_noop") {
+      if (!val.lines) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines"], message: "lines is required when outcome is 'verified_noop'" });
+      } else if (val.lines.some((l) => l.result === "adjusted")) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lines"], message: "a verified_noop ack carries no adjusted line" });
+      }
+    }
     const needsDocument =
       val.outcome === "posted" || val.outcome === "reconciliation_required";
     const needsReason =

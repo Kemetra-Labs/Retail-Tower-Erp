@@ -13,6 +13,7 @@ createStockMovement: write
 createStockTransfer: write
 getCountSelfApprovalSetting: cheapRead
 getCountSession: cheapRead
+getCountSessionsSetting: cheapRead
 getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
@@ -39,6 +40,7 @@ recordStockCount: write
 releaseTrackingHold: write
 requestCountRecount: write
 setCountSelfApprovalSetting: write
+setCountSessionsSetting: write
 setReturnLandingPolicy: write
 setSafetyTtlSetting: write
 setTrackedSellingSetting: write

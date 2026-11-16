@@ -94,12 +94,23 @@ interface DeviceRow {
   held: number | null;
 }
 
+export interface BarrierInputs {
+  readonly devices: readonly BarrierDevice[];
+  readonly warehouses: readonly BarrierWarehouse[];
+}
+
 /** Read the barrier's inputs for one store on the tenant-context client. */
 export async function readBarrier(
   client: PoolClient,
   storeId: string,
   cutRequestedAt: Date,
 ): Promise<BarrierVerdict> {
+  const inputs = await readBarrierInputs(client, storeId);
+  return evaluateBarrier(cutRequestedAt, inputs.devices, inputs.warehouses);
+}
+
+/** The devices and mapped warehouses a store's barrier is decided from (RT-1423 readiness reads them too). */
+export async function readBarrierInputs(client: PoolClient, storeId: string): Promise<BarrierInputs> {
   const devices = await client.query<DeviceRow>(
     `SELECT d.id AS device_id,
             (h.device_id IS NOT NULL) AS has_health,
@@ -127,9 +138,8 @@ export async function readBarrier(
       ORDER BY m.id`,
     [storeId],
   );
-  return evaluateBarrier(
-    cutRequestedAt,
-    devices.rows.map((r) => ({
+  return {
+    devices: devices.rows.map((r) => ({
       deviceId: r.device_id,
       hasHealthRow: r.has_health,
       lastSeenAt: r.last_seen_at,
@@ -137,10 +147,10 @@ export async function readBarrier(
       deadLetter: r.dead_letter,
       held: r.held,
     })),
-    warehouses.rows.map((r) => ({
+    warehouses: warehouses.rows.map((r) => ({
       warehouseMapId: r.id,
       erpnextWarehouseRef: r.ref,
       lastCompletedEndedAt: r.ended_at,
     })),
-  );
+  };
 }

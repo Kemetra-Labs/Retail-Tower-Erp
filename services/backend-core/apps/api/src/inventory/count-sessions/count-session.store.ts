@@ -448,11 +448,15 @@ export interface ScanOutcome {
  * submitted session returns to `cut_taken`; after approval the session becomes
  * `needs_attention`. Never moves stock.
  */
+/** Sessions with a cut whose frozen expected quantity a late pre-cut event can still contradict. */
+const AFTER_APPROVAL_STATES: readonly CountSessionState[] = ['approved', 'posting', 'confirmed', 'needs_attention'];
+const SCANNED_STATES: readonly CountSessionState[] = ['cut_taken', 'submitted', ...AFTER_APPROVAL_STATES];
+
 export async function scanLateEvents(
   client: PoolClient,
   session: SessionRow,
 ): Promise<ScanOutcome> {
-  if (!session.cut_at || !['cut_taken', 'submitted', 'approved'].includes(session.state)) {
+  if (!session.cut_at || !SCANNED_STATES.includes(session.state)) {
     return { inserted: 0, session };
   }
   const found = await client.query<{
@@ -510,11 +514,15 @@ export async function scanLateEvents(
     affected.add(e.tenant_product_ref);
   }
 
-  if (session.state === 'approved') {
-    await client.query(
-      `UPDATE count_sessions SET state = 'needs_attention', updated_at = now() WHERE id = $1`,
-      [session.id],
-    );
+  if (AFTER_APPROVAL_STATES.includes(session.state)) {
+    // G6-4: after approval the finding is a Health finding with its availability and selling-risk assessment;
+    // the session needs attention (a `posting` or `confirmed` one too: its chunks keep their own acks).
+    if (session.state !== 'needs_attention') {
+      await client.query(
+        `UPDATE count_sessions SET state = 'needs_attention', updated_at = now() WHERE id = $1`,
+        [session.id],
+      );
+    }
   } else {
     // Before approval: set the affected lines' observations aside and return them to review.
     await client.query(

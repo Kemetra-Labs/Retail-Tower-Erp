@@ -133,6 +133,18 @@ exports[`RT-1221 characterization — count a count below on-hand appends a nega
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_A_X",
         ],
@@ -371,6 +383,18 @@ exports[`RT-1221 characterization — count a count with variance records the co
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_A_X",
         ],
@@ -535,6 +559,18 @@ exports[`RT-1221 characterization — count a zero-variance count records the co
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_A_X",
         ],
@@ -646,6 +682,18 @@ exports[`RT-1221 characterization — count rejects: cross-tenant store 1`] = `
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_B_X",
         ],
@@ -690,6 +738,18 @@ exports[`RT-1221 characterization — count rejects: cross-unit 1`] = `
         "false",
       ],
       "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
     },
     {
       "params": [

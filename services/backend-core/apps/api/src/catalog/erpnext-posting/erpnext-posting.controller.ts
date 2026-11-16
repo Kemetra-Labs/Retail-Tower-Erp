@@ -58,11 +58,11 @@ import {
   ErpnextPostingService,
   type RecordedOutcome,
 } from "./erpnext-posting.service";
-import type { PostingWorkItem } from "./posting-work-item.projection";
+import type { FeedWorkItem } from "./posting-work-item.projection";
 
 /** The 012 PostingFeedPage wire envelope (snake_case per the contract). */
 interface PostingFeedPageResponse {
-  readonly items: readonly PostingWorkItem[];
+  readonly items: readonly FeedWorkItem[];
   readonly cursor: string;
   readonly next_page_token: string | null;
 }
@@ -86,7 +86,7 @@ export class ErpnextPostingController {
       throw new UnauthorizedException("Unauthorized");
     }
 
-    const result = await this.service.pullPostings({
+    const result = await this.service.pullPostings<FeedWorkItem>({
       tenantId: principal.tenantId,
       since:
         query.since !== null && query.since !== undefined
@@ -155,6 +155,16 @@ export class ErpnextPostingController {
         ...(body.reason ? { reason: body.reason } : {}),
         ...(body.resolutionVersion !== undefined
           ? { resolutionVersion: body.resolutionVersion }
+          : {}),
+        ...(body.lines
+          ? {
+              lines: body.lines.map((l) => ({
+                lineSeq: l.lineSeq,
+                result: l.result,
+                verifiedQtyAfter: l.verifiedQtyAfter ?? null,
+                refusal: l.refusal ? { code: l.refusal.code, message: l.refusal.message } : null,
+              })),
+            }
           : {}),
       });
       if (result.replayed) {

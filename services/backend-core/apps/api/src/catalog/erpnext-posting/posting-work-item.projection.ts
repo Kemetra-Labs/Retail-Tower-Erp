@@ -638,3 +638,108 @@ async function loadRefundTenders(
   if (rt.rows.length === 0) throw new ReturnTendersNotVisibleError(returnId);
   return rt.rows.map((t) => ({ method: t.method, amount: t.amount }));
 }
+
+/**
+ * RT-1423 (posting-feed.yaml 1.15.0-draft): one `inventory_count` work item. The Connector posts it as ONE
+ * native ERPNext Stock Reconciliation. Flat and kind-specific: no `sale`, no `reversalOf`.
+ */
+export interface CountWorkItem {
+  readonly workItemRef: string;
+  readonly kind: "inventory_count";
+  readonly sourceSystem: string;
+  readonly externalId: string;
+  readonly payloadHash: string;
+  /** The Count Cut's UTC calendar day. Informational: the ERP posting datetime is `count.postingDatetime`. */
+  readonly businessDate: string;
+  readonly count: {
+    readonly countSessionRef: string;
+    readonly chunk: number;
+    readonly chunkCount: number;
+    readonly storeId: string;
+    readonly mappingBucketRef: string;
+    readonly postingDatetime: string;
+    readonly lines: ReadonlyArray<{
+      readonly lineSeq: number;
+      readonly erpnextItemRef: { readonly doctype: "Item"; readonly name: string };
+      readonly warehouseRef: { readonly doctype: "Warehouse"; readonly name: string };
+      readonly countedQuantity: string;
+      readonly unit: string;
+    }>;
+  };
+  readonly itemCursor: string;
+}
+
+/** What the feed offers: a sale/reversal item or a count chunk. */
+export type FeedWorkItem = PostingWorkItem | CountWorkItem;
+
+/**
+ * Build the work item of a count chunk from its FROZEN rows only (`count_posting_lines`): the live item and
+ * warehouse maps are never read, so a later re-map can neither retarget nor omit a chunk (RT-330 style).
+ * Returns null when the chunk or its lines are not visible under the current tenant (the feed keeps its
+ * historical omission-with-report for that).
+ */
+export async function buildCountWorkItem(
+  client: PoolClient,
+  row: {
+    readonly id: string;
+    readonly sourceSystem: string;
+    readonly externalId: string;
+    readonly payloadHash: string;
+    readonly sequence: string;
+  },
+): Promise<CountWorkItem | null> {
+  const head = await client.query<{
+    session_id: string;
+    store_id: string;
+    chunk: number;
+    chunk_total: number;
+    posting_datetime: string;
+    business_date: string;
+  }>(
+    `SELECT p.count_session_id AS session_id, p.store_id, p.count_chunk AS chunk,
+            p.count_chunk_total AS chunk_total, p.count_posting_datetime AS posting_datetime,
+            to_char(s.cut_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS business_date
+       FROM erpnext_posting_status p
+       JOIN count_sessions s ON s.id = p.count_session_id AND s.tenant_id = p.tenant_id
+      WHERE p.id = $1 AND p.kind = 'inventory_count'`,
+    [row.id],
+  );
+  const h = head.rows[0];
+  if (!h) return null;
+  const lines = await client.query<{
+    line_seq: number;
+    erpnext_item_ref: string;
+    warehouse_ref: string;
+    counted_quantity: string;
+    unit: string;
+  }>(
+    `SELECT line_seq, erpnext_item_ref, warehouse_ref, counted_quantity::text AS counted_quantity, unit
+       FROM count_posting_lines WHERE intent_id = $1 ORDER BY line_seq`,
+    [row.id],
+  );
+  if (lines.rows.length === 0) return null;
+  return {
+    workItemRef: row.id,
+    kind: "inventory_count",
+    sourceSystem: row.sourceSystem,
+    externalId: row.externalId,
+    payloadHash: row.payloadHash,
+    businessDate: h.business_date,
+    count: {
+      countSessionRef: h.session_id,
+      chunk: h.chunk,
+      chunkCount: h.chunk_total,
+      storeId: h.store_id,
+      mappingBucketRef: `${h.store_id}:stock`,
+      postingDatetime: h.posting_datetime,
+      lines: lines.rows.map((l) => ({
+        lineSeq: l.line_seq,
+        erpnextItemRef: { doctype: "Item" as const, name: l.erpnext_item_ref },
+        warehouseRef: { doctype: "Warehouse" as const, name: l.warehouse_ref },
+        countedQuantity: l.counted_quantity,
+        unit: l.unit,
+      })),
+    },
+    itemCursor: row.sequence,
+  };
+}
