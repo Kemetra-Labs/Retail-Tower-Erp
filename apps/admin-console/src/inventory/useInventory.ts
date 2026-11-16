@@ -171,6 +171,8 @@ export interface PagedState<T> {
   retry: () => void;
   hasMore: boolean;
   isFetchingNextPage: boolean;
+  /** Any fetch in flight: the first page, a re-read or a later page. */
+  isFetching: boolean;
   loadMore: () => void;
 }
 
@@ -181,6 +183,7 @@ interface InfiniteLike<P> {
   isFetchNextPageError: boolean;
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
+  isFetching: boolean;
   fetchNextPage: () => Promise<unknown>;
   refetch: () => Promise<unknown>;
 }
@@ -199,6 +202,7 @@ function pagedState<T, P extends { items: T[] }>(result: InfiniteLike<P>): Paged
     retry: () => (result.isFetchNextPageError ? loadMore() : void result.refetch()),
     hasMore: result.hasNextPage,
     isFetchingNextPage: result.isFetchingNextPage,
+    isFetching: result.isFetching,
     loadMore,
   };
 }

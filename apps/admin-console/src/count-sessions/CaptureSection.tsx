@@ -134,6 +134,7 @@ export function CaptureSection({
   names,
   locations,
   locationsFailed,
+  onBusyChange,
   index,
 }: Readonly<{
   storeId: string;
@@ -142,6 +143,8 @@ export function CaptureSection({
   /** The store's active stock locations. */
   locations: readonly StockLocation[];
   locationsFailed: boolean;
+  /** Tells the page a capture write is in flight, so the cut and submit wait for it. */
+  onBusyChange: (busy: boolean) => void;
   index: number;
 }>) {
   const t = useT();
@@ -174,18 +177,21 @@ export function CaptureSection({
     const found = validateObservation(draft);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
-    const observation = buildObservation(draft);
+    const submitted = draft;
+    const observation = buildObservation(submitted);
     const key = attempt.current.keyFor(JSON.stringify(observation));
-    const result = await command.run(() =>
-      recordCountObservations(storeId, session.id, [observation], key),
-    );
+    onBusyChange(true);
+    const result = await command
+      .run(() => recordCountObservations(storeId, session.id, [observation], key))
+      .finally(() => onBusyChange(false));
     setOutcome(result);
     if (settlesAttempt(result)) attempt.current.settle();
     if (result.kind !== "ok") return;
-    setUnits((u) => ({ ...u, [draft.productId]: observation.stockingUnit }));
+    setUnits((u) => ({ ...u, [submitted.productId]: observation.stockingUnit }));
     const echoed = result.data?.observations ?? [observation];
     setRecorded((cur) => mergeObservations(cur, echoed));
-    set({ quantity: "" });
+    // Clear the quantity only when the counter has not typed a newer one meanwhile.
+    setDraft((d) => (d.quantity === submitted.quantity ? { ...d, quantity: "" } : d));
   };
 
   return (
@@ -231,9 +237,9 @@ export function CaptureSection({
               <InlineError message={errors.location ? t(errors.location) : undefined} />
             </div>
             <div className="field">
-              <label htmlFor="count-status">{t("counts.capture.status")}</label>
+              <label htmlFor="count-inventory-status">{t("counts.capture.status")}</label>
               <select
-                id="count-status"
+                id="count-inventory-status"
                 className="input"
                 value={draft.inventoryStatus}
                 onChange={(e) => set({ inventoryStatus: e.target.value })}

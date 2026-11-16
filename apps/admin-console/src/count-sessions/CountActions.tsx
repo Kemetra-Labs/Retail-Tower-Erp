@@ -40,7 +40,10 @@ function useKeyedRun() {
   return { go, outcome, isPending: command.isPending };
 }
 
-function CutAndSubmit({ session }: Readonly<{ session: CountSession }>) {
+function CutAndSubmit({
+  session,
+  captureBusy,
+}: Readonly<{ session: CountSession; captureBusy: boolean }>) {
   const t = useT();
   const cut = useKeyedRun();
   const submit = useKeyedRun();
@@ -56,6 +59,7 @@ function CutAndSubmit({ session }: Readonly<{ session: CountSession }>) {
             type="button"
             className="btn-primary"
             busy={cut.isPending}
+            disabled={captureBusy}
             onClick={() => cut.go("cut", (key) => takeCountCut(storeId, session.id, key))}
           >
             {cut.isPending ? t("common.loading") : t("counts.cut.action")}
@@ -71,6 +75,7 @@ function CutAndSubmit({ session }: Readonly<{ session: CountSession }>) {
             type="button"
             className="btn-primary"
             busy={submit.isPending}
+            disabled={captureBusy}
             onClick={() =>
               submit.go("submit", (key) => submitCountSession(storeId, session.id, key))
             }
@@ -144,14 +149,19 @@ function CancelCount({ session }: Readonly<{ session: CountSession }>) {
 
 export function CountActions({
   session,
+  captureBusy,
   index,
-}: Readonly<{ session: CountSession; index: number }>): React.JSX.Element | null {
+}: Readonly<{
+  session: CountSession;
+  captureBusy: boolean;
+  index: number;
+}>): React.JSX.Element | null {
   const t = useT();
   if (!canCancel(session.state)) return null;
   return (
     <DetailPanel id="count-actions" index={index} title={t("counts.actions.title")}>
       <div className="counts__body">
-        <CutAndSubmit session={session} />
+        <CutAndSubmit session={session} captureBusy={captureBusy} />
         {canCancel(session.state) ? <CancelCount session={session} /> : null}
       </div>
     </DetailPanel>

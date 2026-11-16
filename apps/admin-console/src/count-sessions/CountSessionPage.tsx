@@ -16,6 +16,7 @@ import { BackLink, ReadError } from "@/inventory/parts";
 import { type InventoryScope, useStockLocations } from "@/inventory/useInventory";
 import type { CountSession } from "@/lib/count-session-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
+import { useState } from "react";
 import { useParams } from "react-router";
 import { CaptureSection } from "./CaptureSection";
 import { CountActions } from "./CountActions";
@@ -81,6 +82,7 @@ function SessionView({ target, session }: Readonly<{ target: Target; session: Co
   const t = useT();
   const { scope, storeId } = target;
   const locations = useStockLocations({ scope, storeId });
+  const [capturing, setCapturing] = useState(false);
   const names = useProductNames(scope, session.scope.productIds.slice(0, NAME_LOOKUP_LIMIT));
   const active = (locations.data?.items ?? []).filter((l) => l.isActive);
   const locationNames = new Map((locations.data?.items ?? []).map((l) => [l.id, l.name || l.code]));
@@ -104,10 +106,11 @@ function SessionView({ target, session }: Readonly<{ target: Target; session: Co
           names={names}
           locations={active}
           locationsFailed={Boolean(locations.error)}
+          onBusyChange={setCapturing}
           index={next()}
         />
       ) : null}
-      <CountActions session={session} index={next()} />
+      <CountActions session={session} captureBusy={capturing} index={next()} />
       {review ? (
         <Review
           target={target}
@@ -137,7 +140,14 @@ function SessionPage({ target }: Readonly<{ target: Target }>): React.JSX.Elemen
         onRetry={session.retry}
       />
     );
-  } else body = <SessionView target={target} session={session.data} />;
+  } else
+    body = (
+      <SessionView
+        key={`${target.scope.tenantId}:${target.storeId}:${target.sessionId}`}
+        target={target}
+        session={session.data}
+      />
+    );
   return (
     <div className="surface inventory--v4 counts">
       <BackLink

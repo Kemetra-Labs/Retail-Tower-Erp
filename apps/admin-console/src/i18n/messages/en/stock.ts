@@ -97,7 +97,7 @@ export const stock: MessagesOf<typeof ar> = {
   "stock.desk.noBlindEntry":
     "Do not post a balancing entry blindly; find the missing document first.",
   "stock.desk.note":
-    "Retail Tower creates no stock documents. A row clears only when a later ERPNext snapshot shows the item at zero or above.",
+    "This read-only page creates no stock documents. A row clears only when a later ERPNext snapshot shows the item at zero or above.",
 
   // --- Unknown items review queue (RF-4a) -----------------------------------
   "unknownItems.title": "Unknown items",

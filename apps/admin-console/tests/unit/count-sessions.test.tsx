@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const count = vi.hoisted(() => ({
@@ -275,6 +275,14 @@ describe("count sessions list and open (RT-1425)", () => {
     );
   });
 
+  test("searching the same term again is a retry that re-reads the catalog", async () => {
+    renderList();
+    await screen.findByLabelText(/Olive oil/);
+    expect(catalog.consoleListCatalogProducts).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await waitFor(() => expect(catalog.consoleListCatalogProducts).toHaveBeenCalledTimes(2));
+  });
+
   test("opening with no product is refused before any request", async () => {
     renderList();
     fireEvent.click(await screen.findByRole("button", { name: "Open count session" }));
@@ -390,6 +398,108 @@ describe("blind capture, Count Cut and submit (RT-1425)", () => {
     );
     expect(screen.getByTestId("count-recorded").textContent).toContain("8");
     expect(screen.getByTestId("count-recorded").textContent).not.toMatch(/\b5\b/);
+  });
+
+  const echoOne = (q: string) =>
+    ok({
+      sessionId: SESSION,
+      observations: [
+        {
+          productId: P1,
+          locationId: LOC,
+          inventoryStatus: "sellable",
+          countedQuantity: q,
+          stockingUnit: "kg",
+          countedBy: ME,
+          countedAt: "2026-11-16T08:05:00Z",
+        },
+      ],
+    });
+
+  test("a pending capture never clears a newer quantity the counter typed meanwhile", async () => {
+    let release: (v: unknown) => void = () => {};
+    count.recordCountObservations.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    renderDetail();
+    await capture("5");
+    await waitFor(() => expect(count.recordCountObservations).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByLabelText("Counted quantity"), { target: { value: "9" } });
+    release(echoOne("5"));
+    await screen.findByText("Count recorded.");
+    expect((screen.getByLabelText("Counted quantity") as HTMLInputElement).value).toBe("9");
+  });
+
+  test("an unchanged quantity is cleared once the count is recorded", async () => {
+    count.recordCountObservations.mockResolvedValue(echoOne("5"));
+    renderDetail();
+    await capture("5");
+    await screen.findByText("Count recorded.");
+    expect((screen.getByLabelText("Counted quantity") as HTMLInputElement).value).toBe("");
+  });
+
+  test("submit waits for an in-flight capture write", async () => {
+    count.getCountSession.mockResolvedValue(ok(session({ state: "cut_taken", cut: CUT })));
+    let release: (v: unknown) => void = () => {};
+    count.recordCountObservations.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    renderDetail();
+    const submit = await screen.findByRole("button", { name: "Submit for review" });
+    expect(submit.hasAttribute("disabled")).toBe(false);
+    await capture("5");
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(true));
+    release(echoOne("5"));
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false));
+  });
+
+  test("the capture controls have unique ids", async () => {
+    renderDetail();
+    await screen.findByRole("heading", { name: "Counting" });
+    const ids = [...document.querySelectorAll("[id]")].map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(screen.getByLabelText("Status", { selector: "select" })).toBeDefined();
+  });
+
+  test("another session starts clean: nothing recorded in the last one is carried over", async () => {
+    const OTHER = "0190f000-0000-7000-8000-0000000008b9";
+    count.getCountSession.mockImplementation(async (_s: string, id: string) => ok(session({ id })));
+    count.recordCountObservations.mockResolvedValue(echoOne("5"));
+    function GoOther() {
+      const navigate = useNavigate();
+      return (
+        <button
+          type="button"
+          onClick={() => navigate(`/inventory/stores/${STORE}/counts/${OTHER}`)}
+        >
+          go other
+        </button>
+      );
+    }
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <MemoryRouter initialEntries={[`/inventory/stores/${STORE}/counts/${SESSION}`]}>
+          <GoOther />
+          <Routes>
+            <Route
+              path="/inventory/stores/:storeId/counts/:sessionId"
+              element={<CountSessionDetail />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await capture("5");
+    expect((await screen.findByTestId("count-recorded")).textContent).toContain("5");
+    fireEvent.click(screen.getByRole("button", { name: "go other" }));
+    await waitFor(() => expect(count.getCountSession.mock.calls.at(-1)?.[1]).toBe(OTHER));
+    await waitFor(() =>
+      expect(screen.getByText("Nothing recorded in this visit yet.")).toBeDefined(),
+    );
   });
 
   test("an invalid quantity is refused before any request, with a field error", async () => {
@@ -624,6 +734,18 @@ describe("variance review and approval (RT-1425)", () => {
     expect(approve.getAttribute("disabled")).not.toBeNull();
   });
 
+  test("the page walk asks for each cursor once, in order, with no overlapping fetch", async () => {
+    count.getCountSession.mockResolvedValue(ok(submitted()));
+    count.listCountVarianceLines
+      .mockResolvedValueOnce(page([line(P1)], "a"))
+      .mockResolvedValueOnce(page([line(P2)], "b"))
+      .mockResolvedValueOnce(page([line(P3)]));
+    renderDetail();
+    await waitFor(() => expect(screen.getAllByTestId("count-line")).toHaveLength(3));
+    const queries = count.listCountVarianceLines.mock.calls.map((c) => c[2]);
+    expect(queries).toEqual([{}, { cursor: "a" }, { cursor: "b" }]);
+  });
+
   test("a line the server refuses cannot be acknowledged into posting and shows why", async () => {
     count.getCountSession.mockResolvedValue(ok(submitted()));
     count.listCountVarianceLines.mockResolvedValue(
@@ -851,7 +973,7 @@ describe("Arabic, keyboard and screen-reader support (RT-1425)", () => {
       "Counted quantity",
       "Counted unit",
     ]) {
-      expect(screen.getByLabelText(label)).toBeDefined();
+      expect(screen.getByLabelText(label, { selector: "input, select" })).toBeDefined();
     }
     fireEvent.click(screen.getByRole("button", { name: "Take the Count Cut" }));
     expect(await screen.findByRole("alert")).toBeDefined();

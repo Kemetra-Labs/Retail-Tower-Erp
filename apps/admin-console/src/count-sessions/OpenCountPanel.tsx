@@ -47,6 +47,12 @@ function ProductSearch({
       return res.data.items;
     },
   });
+  // The same term again is a retry: a new term changes the key, the same one re-reads.
+  const search = () => {
+    const next = draft.trim();
+    if (next === term) void results.refetch();
+    else setTerm(next);
+  };
   return (
     <div className="counts__picker">
       <div className="counts__search">
@@ -62,12 +68,12 @@ function ProductSearch({
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                setTerm(draft.trim());
+                search();
               }
             }}
           />
         </div>
-        <button type="button" className="btn-secondary" onClick={() => setTerm(draft.trim())}>
+        <button type="button" className="btn-secondary" onClick={search}>
           {t("counts.open.searchAction")}
         </button>
       </div>

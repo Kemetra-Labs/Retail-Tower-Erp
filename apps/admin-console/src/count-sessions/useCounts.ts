@@ -87,10 +87,10 @@ export function useAllVarianceLines(target: SessionTarget): AllLines {
     scope: target.scope,
     fetchPage: (query) => listCountVarianceLines(target.storeId, target.sessionId, query),
   });
-  const { hasMore, isFetchingNextPage, loadMore, error, inlineError } = lines;
+  const { hasMore, isFetching, loadMore, error, inlineError } = lines;
   useEffect(() => {
-    if (hasMore && !isFetchingNextPage && !error && !inlineError) loadMore();
-  }, [hasMore, isFetchingNextPage, error, inlineError, loadMore]);
+    if (hasMore && !isFetching && !error && !inlineError) loadMore();
+  }, [hasMore, isFetching, error, inlineError, loadMore]);
   const complete = !lines.isLoading && !error && !inlineError && !hasMore;
   return { ...lines, complete };
 }
