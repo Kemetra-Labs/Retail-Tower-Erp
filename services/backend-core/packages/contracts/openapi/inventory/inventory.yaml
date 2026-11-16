@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.18.0-draft"
+  version: "1.19.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -354,6 +354,21 @@ info:
     the late-event findings cannot be read without them:
     `listCountVarianceLines` and `listCountLateEventFindings`.
     `requestCountRecount` returns a `submitted` session to `cut_taken`.
+
+    **1.19.0-draft (RT-1444, additive; [GATED: contract], owner decisions D1
+    to D10 of RT-1437 approved 2026-11-16, RT-1437 A3).** A structured
+    `subject` (`deviceId` or `warehouseRef`) on the readiness boundary
+    `CountSessionsReadinessBoundary`, which is the shape of
+    `getCountSessionsSetting`'s `unmetReadiness` and of the 409
+    `count_sessions_readiness_unmet` `details.unmet`; it replaces the uuid that
+    was only inside `message`. Optional, so a client that ignores it is
+    unaffected, and `message` is unchanged. From the RT-1439 runtime a
+    `store_barrier_unprovable` boundary is emitted once per offending device or
+    warehouse (today it names only the first), so every blocker carries exactly
+    one subject. The `count_cut_barrier_not_met` details are NOT changed:
+    `CountCutBarrierDevice.deviceId` and `CountCutBarrierWarehouse.warehouseRef`
+    (RT-1420) already are the structured subject, and a second copy would only
+    duplicate them. No operation changes.
 
     **1.18.0-draft (RT-1424, additive; [GATED: migration, OpenAPI] owner
     delegation in chat 2026-11-16, same delegation).** The governed
@@ -4377,6 +4392,31 @@ components:
           format: uuid
           description: The store the boundary is about; null for a tenant-wide boundary.
         message: { type: string, maxLength: 500 }
+        subject:
+          $ref: "#/components/schemas/CountSessionsReadinessSubject"
+          description: >
+            RT-1444 (RT-1437 A3). The one device or ERP warehouse the boundary
+            is about, as a structured id so a client can link to the screen that
+            clears it instead of parsing `message`. Optional: absent for a
+            boundary that is not about one device or warehouse
+            (`no_live_store`, `store_warehouse_unmapped` (the store has none),
+            `connector_not_seen`, `connector_version_unlisted`,
+            `erp_back_dated_role_unverified`). Present on
+            `store_barrier_unprovable`. `message` is unchanged.
+    CountSessionsReadinessSubject:
+      type: object
+      additionalProperties: false
+      description: >
+        RT-1444. Exactly one of `deviceId` and `warehouseRef`. `deviceId` is the
+        device whose heartbeat or sale queue cannot be trusted. `warehouseRef`
+        is the ERP warehouse of the store stock mapping that has no completed
+        ERP stock import.
+      properties:
+        deviceId: { type: string, format: uuid }
+        warehouseRef: { type: string, minLength: 1, maxLength: 200 }
+      oneOf:
+        - required: [deviceId]
+        - required: [warehouseRef]
     CountSessionsSetting:
       type: object
       additionalProperties: false

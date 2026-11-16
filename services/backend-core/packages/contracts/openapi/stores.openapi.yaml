@@ -4,10 +4,115 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Stores API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     Store administration within the active tenant. Active tenant must be
     set on the session/token; otherwise endpoints return 401.
+
+
+    **1.3.0-draft (RT-1444, C1 of RT-1437; `[GATED: contract]`, owner decisions
+    D1 to D10 approved 2026-11-16, Confluence RETAIL page 80084994).** Two new
+    operations and one behaviour change. `previewStoreDeletion` and
+    `consoleDeleteStore` (a POST, so the destructive request carries a body
+    without relying on a DELETE body that proxies and clients may drop) give
+    the owner a guarded, audited, previewed store deletion, with the
+    re-authentication of `console-force-actions.openapi.yaml`
+    (`consoleReauthenticate`). **The behaviour change:** the existing
+    `softDeleteStore` gets the same four guards and the `store.deleted` audit
+    row, from the RT-1439 runtime, because an unguarded `DELETE` would
+    otherwise stay a bypass of them. Its roles (owner and `tenant_admin`),
+    its lack of a reason, a preview and re-authentication, and its 404 on a
+    second call are unchanged; tightening them is not decided in D1 to D10.
+    Both new operations carry `x-runtime-status: contract-only` until RT-1439
+    ships them. No other wire change. The stores contract's operations before
+    this version are unchanged.
+
+
+    **Store deletion (D1, D2b, D3, D4a, D7a, D9).** Soft delete (sets
+    `deleted_at`, rebuilds the offers' packs). It is IRREVERSIBLE: no
+    supported operation restores a store (D7a), and the preview says so. The
+    reversible alternative is suspending the store (`is_active: false`). A
+    deleted store is refused by every device at once (`pos-device-auth.guard`),
+    so unsynced sales, movements and closes on its tills can no longer sync.
+    The guards below exist to prevent exactly that. There is NO force past
+    them: each one clears by its own supported step.
+
+
+      1. `store_has_open_shift`: a shift of the store is open. Clear it with
+         `consoleForceCloseShift` (`console-force-actions.openapi.yaml`) or
+         the till's own close.
+
+      2. `store_has_unretired_device`: a device of the store is not retired
+         (active or revoked). Retire it first (D4a, `consoleRetireDevice`).
+
+      3. `store_device_queue_unsynced`: a device that is not retired has a
+         non-zero or unknown sale queue (`pending`, `dead_letter` or `held`
+         above zero, or the till never reported its queue). The RT-1420
+         barrier inputs. With D4a this can only hold together with guard 2; it
+         is listed separately so the preview explains each cause, and a
+         retired device's frozen counters are shown but do not block (owner to
+         confirm).
+
+      4. `store_has_open_count_session`: a Count Session of the store is open
+         (open, cut taken, submitted, approved, posting or needing attention).
+
+
+    When several hold, the 409 carries the first in this order as `error.code`
+    and every one as `error.details.blockers`.
+
+
+    **Evaluation order of `consoleDeleteStore`.**
+
+
+      1. The guards: authentication (401), `Origin` and the support-session
+         gate (403), role (owner; a `tenant_admin` is 403
+         `store_deletion_owner_only`, any other role is the non-disclosing
+         404), the console rate limit (429 `rate_limited`).
+
+      2. `Idempotency-Key` (400 codes), the same-key replay with
+         `Idempotent-Replayed: true`, 425, 409 `idempotency_key_conflict`.
+
+      3. Body validation (400 `validation_error`).
+
+      4. The store in the caller's tenant, not deleted (404). A second request
+         for an already deleted store under a NEW key is this 404, as for the
+         existing `DELETE`; the same key replays the stored 200.
+
+      5. The re-authentication grant (403 `reauth_required`: missing, expired,
+         used, for another session, store or purpose, all one answer).
+
+      6. The guards above (409), in that order.
+
+      7. 409 `preview_stale` (the fingerprint no longer matches).
+
+      8. 429 `force_action_rate_limited` (D9, 10 per tenant per rolling hour,
+         shared with `consoleForceCloseShift`; first-time successful writes
+         only; the count is read in the write's transaction).
+
+      9. Delete and audit (200). The grant is consumed here, not before.
+
+
+    The replay sits before the fingerprint and the cap on purpose: the delete
+    itself changes the state they cover. `previewFingerprint`, `reauthToken`
+    and `reason` are all part of the request body the interceptor fingerprints;
+    the token is random and single use, and the password is never in the
+    body (see `consoleReauthenticate`).
+
+
+    **Audit.** A new `store.deleted` event on every deletion path, in the
+    delete's transaction. Metadata: `channel` (`console` for
+    `consoleDeleteStore`, `api` for `softDeleteStore`), `actor_role`, `reason`
+    (the typed reason; null on the `api` path), `preview_fingerprint` (null on
+    the `api` path), `before` (`name`, `code`, `is_active`, `device_count`,
+    `open_shift_count`) and `after` (`deleted_at`). The actor is the audit
+    actor. The reason is stored here, in the audit row, because a store
+    deletion has no fact table (D5a keeps the shift reason on its fact only);
+    it is never written to an application log.
+
+
+    **Rate cap and the 429 of `consoleDeleteStore`.** Both `rate_limited`
+    (per-user console limit) and `force_action_rate_limited` (D9) use the
+    console 429 shape with `Retry-After`.
 
 
     **1.2.0-draft (RT-620, additive).** Every cookieAuth operation may
@@ -142,6 +247,17 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
     delete:
       summary: Soft-delete the store.
+      description: >
+        Tenant-admin or owner. **From the RT-1439 runtime (RT-1444, a behaviour
+        change): the four deletion guards of the contract description apply
+        here too** (409 `store_has_open_shift`, `store_has_unretired_device`,
+        `store_device_queue_unsynced`, `store_has_open_count_session`, with
+        `error.details.blockers`), and the delete writes one `store.deleted`
+        audit event with `channel: api`. Before that runtime this operation
+        behaves as before: no guard and no audit row. There is still no
+        preview, reason or re-authentication here; the Console uses
+        `consoleDeleteStore`. Irreversible. A second call on the same store is
+        404.
       operationId: softDeleteStore
       responses:
         "204":
@@ -153,6 +269,8 @@ paths:
             neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
         "404":
           description: Not found / no access.
+        "409":
+          $ref: "#/components/responses/StoreDeletionConflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /api/v1/stores/{store_id}/timezone-change-preview:
@@ -191,6 +309,214 @@ paths:
           description: Not found / no access.
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /api/v1/stores/{store_id}/deletion-preview:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+    get:
+      summary: Preview what deleting the store would change. Read-only.
+      operationId: previewStoreDeletion
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1444 contract. The runtime ships in RT-1439 (B2, RT-1437 slice B2).
+      description: >
+        RT-1437 A2. Reports, in one database snapshot, the store (name, code,
+        active flag), every open shift (each with whether
+        `consoleForceCloseShift` could close it now), every device with its
+        trust state, last heartbeat and sale queue counters, the open Count
+        Sessions, the ERP warehouse mappings (kept), the members whose only
+        store this is, the number of offers whose pack is rebuilt, and the
+        blockers that would refuse the delete now. It states what changes and
+        what does not as closed code lists (the Console renders them in Arabic
+        with no English fallback), that the delete is irreversible (D7a), and
+        that suspending the store is the reversible alternative, and returns the
+        `previewFingerprint` the delete requires. Writes nothing and takes no
+        lock.
+
+
+        **A snapshot, not a reservation.** The delete decides again in its own
+        transaction. A device's counters are as of its last stored heartbeat,
+        not live, and a fact a till has not synced cannot be seen
+        (`caveats`). The fingerprint is the opaque server digest described in
+        `console-force-actions.openapi.yaml`; here it covers the store's name,
+        code and active flag, the open shifts (ids and states), every device
+        (id, trust state, queue counters; not the heartbeat time), the open
+        Count Session ids, the warehouse mappings, the single-store members, and
+        the tenant.
+
+
+        Owner only (D1): a `tenant_admin` is 403 `store_deletion_owner_only`;
+        any other role, another tenant's store, a deleted store and an unknown
+        id are the non-disclosing 404.
+      responses:
+        "200":
+          description: The impact preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreDeletionPreview"
+              examples:
+                blocked:
+                  value:
+                    store:
+                      storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                      code: OF-2
+                      name: Office 2
+                      isActive: true
+                    openShifts:
+                      - shiftId: "0198a0c4-0000-7000-8000-000000000b01"
+                        openedAt: "2026-11-16T08:00:00Z"
+                        terminalLabel: till-A
+                        forceCloseEligible: true
+                    devices:
+                      - deviceId: "0198a0c4-0000-7000-8000-000000000d01"
+                        label: till-A
+                        trustState: active
+                        lastSeenAt: "2026-11-16T08:20:00Z"
+                        queue: { pending: 2, deadLetter: 0, held: 0 }
+                    openCountSessions: []
+                    warehouseMappings: [{ warehouseRef: Stores - RT }]
+                    singleStoreMembers:
+                      - userId: "0198a0c4-0000-7000-8000-000000000c02"
+                        roleCode: store_manager
+                    offersRebuiltCount: 4
+                    effects:
+                      willChange:
+                        - store_hidden_from_lists
+                        - devices_refused_immediately
+                        - offer_packs_rebuilt
+                        - single_store_members_lose_access
+                        - count_readiness_excludes_store
+                        - inventory_activation_excludes_store
+                      willNotChange:
+                        - sales_unchanged
+                        - shifts_unchanged
+                        - stock_movements_unchanged
+                        - erp_documents_unchanged
+                        - warehouse_mapping_kept
+                    blockers:
+                      - { code: store_has_open_shift, count: 1 }
+                      - { code: store_has_unretired_device, count: 1 }
+                      - { code: store_device_queue_unsynced, count: 1 }
+                    canDelete: false
+                    reversible: false
+                    reversibleAlternative: suspend_store
+                    caveats: [offline_facts_not_visible, queue_as_of_last_heartbeat]
+                    previewFingerprint: "9a1e7c3b5d2f4a8e0c6b1d9f3a7e5c2b4d8f0a6c1e9b7d3f5a2c4e8b0d6f1a3c"
+                    evaluatedAt: "2026-11-16T22:40:00Z"
+        "401":
+          description: No active tenant.
+        "403":
+          description: "`store_deletion_owner_only` (a `tenant_admin`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreDeletionError"
+        "404":
+          description: Not found / no access.
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /api/v1/stores/{store_id}/deletion:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+    post:
+      summary: Delete the store, after the impact preview and a re-authentication. Owner only.
+      operationId: consoleDeleteStore
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1444 contract. The runtime ships in RT-1439 (B2, RT-1437 slice B2).
+      description: >
+        RT-1437 A2, D1, D2b, D3, D4a, D7a. Soft-deletes the store: the same
+        effect as `softDeleteStore`, with the guards, the typed reason, the
+        preview fingerprint, the re-authentication grant and the audit row. The
+        evaluation order, the four guards and the audit metadata are in the
+        contract description.
+
+
+        **Owner only.** The request needs a `reauthToken` from
+        `consoleReauthenticate` (purpose `store_deletion`, this store, 5
+        minutes, single use, bound to this session). `reason` is required, 1 to
+        200 characters, no PII; it is recorded in the `store.deleted` audit
+        event and never logged. The 409 `error.details.blockers` lists every
+        guard that holds. Irreversible (D7a): nothing restores the store.
+
+        **Idempotency.** `Idempotency-Key` is REQUIRED. A same-key retry replays
+        the stored 200 with `Idempotent-Replayed: true`, before the grant, the
+        fingerprint and the cap are looked at. A new key after a successful
+        delete is 404.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StoreDeletionRequest"
+            examples:
+              delete:
+                value:
+                  reason: Closed branch; all tills retired
+                  previewFingerprint: "9a1e7c3b5d2f4a8e0c6b1d9f3a7e5c2b4d8f0a6c1e9b7d3f5a2c4e8b0d6f1a3c"
+                  reauthToken: "q3V0kT1mZc8sYb2LrN7xWd4HgJfP6eAoUiKtMvC5nXE"
+      responses:
+        "200":
+          description: >
+            Deleted (first time), or the same `Idempotency-Key` replayed (with
+            `Idempotent-Replayed: true`).
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreDeleted"
+              examples:
+                deleted:
+                  value:
+                    storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                    deletedAt: "2026-11-16T22:45:00Z"
+        "400":
+          description: >
+            `validation_error` (malformed body or path, unknown key),
+            `idempotency_key_required` or `idempotency_key_malformed`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreDeletionError"
+        "401":
+          description: No active tenant.
+        "403":
+          description: >
+            `reauth_required` (the grant is missing, expired, used, or for
+            another session, store or purpose; one answer for every cause),
+            `store_deletion_owner_only` (a `tenant_admin`), `origin_rejected`
+            (RT-430), or a support-session refusal
+            (`support_session_required`, `support_session_expired`,
+            `support_session_read_only`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreDeletionError"
+        "404":
+          description: >
+            Not found / no access (a role outside the owner, another tenant's
+            store, an unknown or already deleted store).
+        "409":
+          $ref: "#/components/responses/StoreDeletionConflict"
+        "425":
+          description: >
+            `idempotency_in_progress`: the first request with this key is still
+            being processed. Retry with the same key and body after
+            `Retry-After`. The body is the interceptor's own shape
+            (`{ error: "idempotency_in_progress", retryAfterSec }`).
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying (currently always 2).
+              schema:
+                type: integer
+                minimum: 1
+        "429":
+          $ref: "#/components/responses/ForceActionTooManyRequests"
 components:
   parameters:
     StoreId:
@@ -198,7 +524,265 @@ components:
       name: store_id
       required: true
       schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as the
+        shared `IdempotencyInterceptor` enforces. An identical retry replays the
+        stored response with `Idempotent-Replayed: true`; reuse with a different
+        body is 409 `idempotency_key_conflict`; a key whose first request is
+        still being processed is 425. A missing key is 400
+        `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`.
   schemas:
+    StoreDeletionFingerprint:
+      type: string
+      minLength: 16
+      maxLength: 128
+      pattern: "^[0-9a-f]{16,128}$"
+      description: >
+        Opaque server-computed digest of the previewed state. Clients store and
+        echo it, never interpret it.
+    StoreDeletionBlocker:
+      type: object
+      additionalProperties: false
+      required: [code, count]
+      properties:
+        code:
+          type: string
+          enum:
+            - store_has_open_shift
+            - store_has_unretired_device
+            - store_device_queue_unsynced
+            - store_has_open_count_session
+          description: In the order the 409 reports them.
+        count: { type: integer, minimum: 1 }
+    StoreDeletionQueue:
+      type: object
+      additionalProperties: false
+      required: [pending, deadLetter, held]
+      description: >
+        The till's unsent sales as of its last stored heartbeat (RT-1312), in
+        the `pos-device-health` counters: `pending`, `dead_letter` and
+        `held_previous_pairing`.
+      properties:
+        pending: { type: integer, minimum: 0 }
+        deadLetter: { type: integer, minimum: 0 }
+        held: { type: integer, minimum: 0 }
+    StoreDeletionPreview:
+      type: object
+      additionalProperties: false
+      required:
+        - store
+        - openShifts
+        - devices
+        - openCountSessions
+        - warehouseMappings
+        - singleStoreMembers
+        - offersRebuiltCount
+        - effects
+        - blockers
+        - canDelete
+        - reversible
+        - reversibleAlternative
+        - caveats
+        - previewFingerprint
+        - evaluatedAt
+      properties:
+        store:
+          type: object
+          additionalProperties: false
+          required: [storeId, code, name, isActive]
+          properties:
+            storeId: { type: string, format: uuid }
+            code: { type: string }
+            name: { type: string }
+            isActive: { type: boolean }
+        openShifts:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [shiftId, openedAt, terminalLabel, forceCloseEligible]
+            properties:
+              shiftId: { type: string, format: uuid }
+              openedAt: { type: string, format: date-time }
+              terminalLabel: { type: [string, "null"] }
+              forceCloseEligible:
+                type: boolean
+                description: >
+                  Whether `consoleForceCloseShift` would pass its stuck rule now
+                  (the link from the preview to that action).
+        devices:
+          type: array
+          maxItems: 500
+          items:
+            type: object
+            additionalProperties: false
+            required: [deviceId, label, trustState, lastSeenAt, queue]
+            properties:
+              deviceId: { type: string, format: uuid }
+              label: { type: [string, "null"] }
+              trustState:
+                type: string
+                enum: [active, revoked, retired]
+              lastSeenAt:
+                type: [string, "null"]
+                format: date-time
+                description: The last heartbeat; null when the till never reported.
+              queue:
+                description: The sale queue counters; null when the till never reported them (unknown, never zero).
+                oneOf:
+                  - $ref: "#/components/schemas/StoreDeletionQueue"
+                  - type: "null"
+        openCountSessions:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [sessionId, status]
+            properties:
+              sessionId: { type: string, format: uuid }
+              status:
+                type: string
+                description: The Count Session status (`inventory/inventory.yaml`).
+        warehouseMappings:
+          type: array
+          maxItems: 50
+          description: The store's ERP warehouse mappings. They are kept.
+          items:
+            type: object
+            additionalProperties: false
+            required: [warehouseRef]
+            properties:
+              warehouseRef: { type: string }
+        singleStoreMembers:
+          type: array
+          maxItems: 500
+          description: Members whose only store access is this store; they lose all store access.
+          items:
+            type: object
+            additionalProperties: false
+            required: [userId, roleCode]
+            properties:
+              userId: { type: string, format: uuid }
+              roleCode: { type: string }
+        offersRebuiltCount:
+          type: integer
+          minimum: 0
+          description: Offers whose pack is rebuilt because the store leaves it.
+        effects:
+          type: object
+          additionalProperties: false
+          required: [willChange, willNotChange]
+          properties:
+            willChange:
+              type: array
+              items:
+                type: string
+                enum:
+                  - store_hidden_from_lists
+                  - devices_refused_immediately
+                  - offer_packs_rebuilt
+                  - single_store_members_lose_access
+                  - count_readiness_excludes_store
+                  - inventory_activation_excludes_store
+            willNotChange:
+              type: array
+              items:
+                type: string
+                enum:
+                  - sales_unchanged
+                  - shifts_unchanged
+                  - stock_movements_unchanged
+                  - erp_documents_unchanged
+                  - warehouse_mapping_kept
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoreDeletionBlocker"
+        canDelete:
+          type: boolean
+          description: True exactly when `blockers` is empty.
+        reversible:
+          type: boolean
+          const: false
+          description: D7a. No supported operation restores a deleted store.
+        reversibleAlternative:
+          type: string
+          const: suspend_store
+          description: "Suspending the store (`is_active: false`) is reversible."
+        caveats:
+          type: array
+          items:
+            type: string
+            enum: [offline_facts_not_visible, queue_as_of_last_heartbeat]
+        previewFingerprint:
+          $ref: "#/components/schemas/StoreDeletionFingerprint"
+        evaluatedAt: { type: string, format: date-time }
+    StoreDeletionRequest:
+      type: object
+      additionalProperties: false
+      required: [reason, previewFingerprint, reauthToken]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Why the store is deleted. No PII. Recorded in the audit event; never logged.
+        previewFingerprint:
+          $ref: "#/components/schemas/StoreDeletionFingerprint"
+        reauthToken:
+          type: string
+          minLength: 43
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_-]{43,128}$"
+          description: >
+            The grant from `consoleReauthenticate` (purpose `store_deletion`,
+            this store). A credential: never logged.
+    StoreDeleted:
+      type: object
+      additionalProperties: false
+      required: [storeId, deletedAt]
+      properties:
+        storeId: { type: string, format: uuid }
+        deletedAt: { type: string, format: date-time }
+    StoreDeletionError:
+      type: object
+      required: [error]
+      description: Canonical error envelope, with the optional `details`.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: >
+                Stable machine-readable error code. This contract adds
+                `store_has_open_shift`, `store_has_unretired_device`,
+                `store_device_queue_unsynced`, `store_has_open_count_session`,
+                `preview_stale`, `reauth_required`, `store_deletion_owner_only`
+                and `force_action_rate_limited`.
+            message: { type: string }
+            request_id: { type: string, format: uuid }
+            details:
+              type: object
+              description: Present on the four guard codes (`blockers`); absent otherwise.
+              properties:
+                blockers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/StoreDeletionBlocker"
     IanaTimezone:
       type: string
       description: >
@@ -358,6 +942,13 @@ components:
             message: { type: string }
             request_id: { type: string, format: uuid }
   headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on every idempotent-replay response. Clients MUST
+        detect a replay by this header, not by the status code. Absent on a
+        first-time delete.
+      schema:
+        type: boolean
     ConsoleRetryAfter:
       description: >
         Whole seconds the caller should wait before retrying, sent on every
@@ -369,6 +960,62 @@ components:
         minimum: 1
         maximum: 3600
   responses:
+    StoreDeletionConflict:
+      description: >
+        409 on `softDeleteStore` (from the RT-1439 runtime) and
+        `consoleDeleteStore`. `error.code` is one of, in this order of
+        precedence: `store_has_open_shift`, `store_has_unretired_device`,
+        `store_device_queue_unsynced`, `store_has_open_count_session` (each
+        with `error.details.blockers` listing every guard that holds), then, on
+        `consoleDeleteStore` only, `idempotency_key_conflict` (the key reused
+        with a different body, answered at the idempotency step) and
+        `preview_stale` (the previewed state changed: read the preview again).
+        Deterministic; nothing is deleted and no grant is consumed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/StoreDeletionError"
+          examples:
+            blocked:
+              value:
+                error:
+                  code: store_has_open_shift
+                  message: The store has an open shift.
+                  details:
+                    blockers:
+                      - { code: store_has_open_shift, count: 1 }
+                      - { code: store_has_unretired_device, count: 1 }
+    ForceActionTooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574, the per-user console limit) or
+        `force_action_rate_limited` (D9: the tenant's hourly cap of force
+        actions is spent). The body is the canonical error envelope with a
+        non-disclosing message (no budget, class or window); its `request_id`
+        equals the `X-Request-Id` response header. Honour `Retry-After`; never
+        auto-retry a mutation. A 429 is not a 401: it never means the session
+        ended.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     TooManyRequests:
       description: >
         429 `rate_limited` (RT-574): the caller's per-user budget for this
