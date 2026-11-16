@@ -149,13 +149,10 @@ describe("0116: the chunk shape on erpnext_posting_status", () => {
     expect(await tryRun([CHUNK_INSERT({ kind: "sale_post" })])).toBe("23514");
   });
 
-  it("refuses a second chunk with the same (tenant, session, chunk): the idempotency backstop (23505)", async () => {
+  it("two chunks of one session with different numbers are allowed (the unique chunk key is migration 0117)", async () => {
     if (skip()) return;
-    const second = CHUNK_INSERT({ id: id("0a062") });
-    expect(await tryRun([CHUNK_INSERT(), second])).toBe("23505");
     const other = CHUNK_INSERT({ id: id("0a063"), chunk: 2, total: 2 });
-    const first = CHUNK_INSERT({ total: 2 });
-    expect(await tryRun([first, other])).toBeNull();
+    expect(await tryRun([CHUNK_INSERT({ total: 2 }), other])).toBeNull();
   });
 
   it("refuses a session of another tenant (23503)", async () => {
@@ -230,6 +227,19 @@ describe("0116: the effect integration no-op and the switch columns", () => {
     );
     expect(defs.rows[0]!.def).toContain("count_verified_noop");
     expect(defs.rows[0]!.def).toContain("erp_document_ref IS NOT NULL");
+  });
+});
+
+describe("0116: the file is safe to run again (retry after a failed second transaction)", () => {
+  it("re-running the whole up file on an applied schema changes nothing and does not fail", async () => {
+    if (skip()) return;
+    const a = guard().admin;
+    await a.query(upSql);
+    const policies = await a.query(`SELECT count(*)::int AS n FROM pg_policies WHERE tablename = 'count_posting_lines'`);
+    expect(policies.rows[0].n).toBe(3);
+    const [sql, params] = CHUNK_INSERT();
+    await a.query(sql, params);
+    await a.query(`DELETE FROM erpnext_posting_status WHERE id = $1`, [CHUNK]);
   });
 });
 

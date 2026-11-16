@@ -10,7 +10,8 @@
 --      'inventory_count'; `status` gains the terminal 'verified_noop' (ERP already held every target:
 --      no document exists, so it can never be 'posted'); four chunk columns; a shape CHECK that ties the
 --      chunk columns to the kind in both directions; a UNIQUE (tenant, session, chunk) key, which is the
---      database backstop of idempotent emission; a composite FK to count_sessions.
+--      database backstop of idempotent emission (the index itself is migration 0117, built CONCURRENTLY); a
+--      composite FK to count_sessions.
 --   2. count_posting_lines: the frozen body of a chunk (item and warehouse references, the ABSOLUTE
 --      counted target, the unit) plus the per-line result the Connector reported. Immutable body: the feed
 --      reads only these rows, never the live maps, so a later re-map cannot retarget a posted count.
@@ -114,6 +115,10 @@ CREATE INDEX IF NOT EXISTS idx_count_posting_lines_tenant ON count_posting_lines
 ALTER TABLE count_posting_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE count_posting_lines FORCE  ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS count_posting_lines_tenant_read ON count_posting_lines;
+DROP POLICY IF EXISTS count_posting_lines_tenant_insert ON count_posting_lines;
+DROP POLICY IF EXISTS count_posting_lines_tenant_update ON count_posting_lines;
+
 CREATE POLICY count_posting_lines_tenant_read ON count_posting_lines FOR SELECT
   USING (tenant_id = CASE WHEN current_setting('app.current_tenant', true) = '' THEN NULL
                           ELSE current_setting('app.current_tenant', true)::uuid END);
@@ -146,9 +151,9 @@ ALTER TABLE tenant_inventory_settings
 
 COMMIT;
 
--- Second transaction: validation and the unique index. The first transaction's exclusive locks are released
--- at its COMMIT, so these scans hold only SHARE UPDATE EXCLUSIVE (validation, readers and writers go on) and a
--- short SHARE lock for the index build; they never extend the schema-change window. Every existing row is a
+-- Second transaction: validation. The first transaction's exclusive locks are released at its COMMIT, so
+-- these scans hold only SHARE UPDATE EXCLUSIVE (readers and writers go on); they never extend the
+-- schema-change window. The unique chunk index is its own CONCURRENTLY migration (0117, single statement). Every existing row is a
 -- sale row with the chunk columns NULL, so validation always passes. A failed validation leaves the
 -- constraints NOT VALID and the migration re-runnable (each ADD is preceded by its own DROP IF EXISTS).
 BEGIN;
@@ -162,10 +167,6 @@ ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_co
 ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_count_datetime_format;
 ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT erpnext_posting_status_noop_only_count;
 ALTER TABLE erpnext_posting_status VALIDATE CONSTRAINT fk_erpnext_posting_status_count_session;
-
-CREATE UNIQUE INDEX IF NOT EXISTS "UQ_idx_erpnext_posting_status_count_chunk"
-  ON erpnext_posting_status (tenant_id, count_session_id, count_chunk)
-  WHERE count_session_id IS NOT NULL;
 
 ALTER TABLE inventory_effect_integration VALIDATE CONSTRAINT inventory_effect_integration_confirmed_document;
 
