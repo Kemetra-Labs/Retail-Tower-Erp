@@ -87,6 +87,23 @@ describe("0117: file shape", () => {
   });
 });
 
+describe("0117: an interrupted build fails closed", () => {
+  it("a build that leaves an invalid index makes the retry fail instead of passing silently", async () => {
+    if (skip()) return;
+    const a = guard().admin;
+    const [s1, p1] = CHUNK(1, id("0a071"));
+    const [s2, p2] = CHUNK(1, id("0a072"));
+    await a.query(s1, p1);
+    await a.query(s2, p2);
+    await expect(a.query(upSql)).rejects.toMatchObject({ code: "23505" });
+    expect((await indexState(a, INDEX))?.valid).toBe(false);
+    await expect(a.query(upSql)).rejects.toMatchObject({ code: "42P07" });
+    await a.query(downSql);
+    await a.query(`DELETE FROM erpnext_posting_status WHERE count_session_id = $1`, [SESSION]);
+    expect(await indexState(a, INDEX)).toBeNull();
+  });
+});
+
 describe("0117: the unique chunk key", () => {
   it("is absent before the up and valid, unique and partial after it", async () => {
     if (skip()) return;

@@ -314,6 +314,19 @@ describe('acknowledgement changes state, never quantity (AC4)', () => {
     expect((await ack(c.id, { outcome: 'verified_noop', lines: [line(1, 'verified_noop')] })).replayed).toBe(true);
   });
 
+  it('an identical permanently_rejected replay that carries the rejected lines echoes', async () => {
+    if (skipped()) return;
+    const id = await approvedSession();
+    const c = await chunk(id);
+    const body = {
+      outcome: 'permanently_rejected',
+      reason: { category: 'closed_period', message: 'Stock frozen' },
+      lines: [line(1, 'rejected', { refusal: { code: 'uom_mismatch', message: 'unit' } })],
+    };
+    expect((await ack(c.id, body)).replayed).toBe(false);
+    expect((await ack(c.id, body)).replayed).toBe(true);
+  });
+
   it('refuses lines on a failed_transient ack and keeps the chunk pending', async () => {
     if (skipped()) return;
     const id = await approvedSession();

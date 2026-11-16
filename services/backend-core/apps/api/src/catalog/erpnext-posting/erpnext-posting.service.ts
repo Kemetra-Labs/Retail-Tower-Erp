@@ -689,8 +689,13 @@ export class ErpnextPostingService {
       return await this.reconcileTerminal(client, input, row);
     }
     // RT-1423: a count chunk's replay must agree with the line evidence already stored: a fresh-key ack that
-    // turns a recorded line into another result is a contradiction (409), never an echo.
-    if (row.kind === "inventory_count" && (await countLinesContradict(client, input.workItemRef, input.lines))) {
+    // turns a recorded line into another result is a contradiction (409), never an echo. Only a posted or
+    // verified_noop chunk stores line evidence; a dead-lettered one stores none, so its replay is not compared.
+    if (
+      row.kind === "inventory_count" &&
+      (row.status === "posted" || row.status === "verified_noop") &&
+      (await countLinesContradict(client, input.workItemRef, input.lines))
+    ) {
       throw new AckConflictError();
     }
     // A post from a superseded resolution is never confirmed as posted — not

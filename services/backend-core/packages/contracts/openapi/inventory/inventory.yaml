@@ -4341,6 +4341,43 @@ components:
               description: Server-side correlation id.
             details:
               $ref: "#/components/schemas/CountCutBarrierDetails"
+    CountSessionsSettingConflictError:
+      type: object
+      required: [error]
+      description: >
+        The canonical error envelope (`Error`) of the Count Sessions setting 409, with the optional `details`.
+        `details` is present for `count_sessions_readiness_unmet` and absent for `count_sessions_open`.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+            details:
+              type: object
+              required: [boundary, unmet]
+              properties:
+                boundary:
+                  type: string
+                  description: The code of the first readiness boundary that does not hold.
+                storeId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: The store of the first boundary, or null for a tenant-wide one.
+                unmet:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CountSessionsReadinessBoundary"
 
   responses:
     ValidationFailure:
@@ -4457,7 +4494,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: "#/components/schemas/CountSessionsSettingConflictError"
           example:
             error:
               code: count_sessions_readiness_unmet

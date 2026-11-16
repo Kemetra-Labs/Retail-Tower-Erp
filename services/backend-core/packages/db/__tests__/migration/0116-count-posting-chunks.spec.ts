@@ -243,6 +243,27 @@ describe("0116: the file is safe to run again (retry after a failed second trans
   });
 });
 
+describe("0116: a retry completes after the first transaction committed and the second did not", () => {
+  it("leaves the constraints NOT VALID after the first transaction alone, and the retry validates them all", async () => {
+    if (skip()) return;
+    const a = guard().admin;
+    const end = /\r?\nCOMMIT;\r?\n/.exec(upSql);
+    expect(end).not.toBeNull();
+    const firstTransaction = upSql.slice(0, end!.index + end![0].length);
+    const unvalidated = `SELECT count(*)::int AS n FROM pg_constraint
+       WHERE NOT convalidated AND conrelid IN ('erpnext_posting_status'::regclass, 'inventory_effect_integration'::regclass)
+         AND conname IN ('erpnext_posting_status_kind_valid', 'erpnext_posting_status_status_valid',
+           'erpnext_posting_status_count_shape', 'erpnext_posting_status_count_chunk_bounds',
+           'erpnext_posting_status_count_datetime_format', 'erpnext_posting_status_noop_only_count',
+           'fk_erpnext_posting_status_count_session', 'inventory_effect_integration_confirmed_document')`;
+    await a.query(downSql);
+    await a.query(firstTransaction);
+    expect((await a.query(unvalidated)).rows[0].n).toBe(8);
+    await a.query(upSql);
+    expect((await a.query(unvalidated)).rows[0].n).toBe(0);
+  });
+});
+
 describe("0116: down refuses while a chunk exists, and round-trips once none does", () => {
   it("refuses with a chunk, then UP -> DOWN -> UP leaves the schema applied", async () => {
     if (skip()) return;
