@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.14.0-draft"
+  version: "1.15.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -24,7 +24,7 @@ info:
     binding supplies `tenant_id` and `store_id`; body-supplied tenant / store / actor / derived-balance fields
     are NEVER accepted (Constitution §III/§XII, FR-052).
 
-    Thirty operations:
+    Forty-one operations (the thirty listed here; 1.15.0-draft adds eleven, named in its note):
 
       1. `createStockMovement` — append an inbound / outbound / adjustment
          movement (write-off = a reason-coded outbound). Exact-decimal quantity
@@ -328,6 +328,33 @@ info:
     `tracking_grain_reconciliation` are now confirmed from the server's own
     data. No operation, field, status code or enum changes.
 
+    **1.15.0-draft (RT-1419, additive, contract-only; [GATED: OpenAPI] owner
+    authorization in chat 2026-11-16, delegating the RT-292 Gate 6 chain; design
+    source Confluence "Inventory Gate 6" page 78938114 and RT-292 comments
+    17219, 17223 and 17224).** The Count Session surface, as eleven operations
+    under `/api/inventory/v1/stores/{storeId}/count-sessions`:
+    `createCountSession`, `listCountSessions`, `getCountSession`,
+    `recordCountObservations` (position grain, G6-1), `takeCountCut`,
+    `submitCountSession`, `listCountVarianceLines`, `requestCountRecount`,
+    `approveCountSession` (approval policy result and the `selfApproved`
+    marker, G6-10), `cancelCountSession` and `listCountLateEventFindings`
+    (G6-4). The session states are `open`, `cut_taken`, `submitted`,
+    `approved`, `posting`, `confirmed`, `needs_attention`, `closed` and
+    `cancelled`; a command here reaches only `open`, `cut_taken`, `submitted`,
+    `approved` and `cancelled`, the others are server-set by later slices. Each
+    operation is `x-runtime-status: contract-only` until the Count Session
+    domain issue RT-1420. There is no ERP field and no activation: the legacy
+    `recordStockCount` route is unchanged, and the per-tenant activation
+    setting with its typed 409 on the legacy route belongs to the activation
+    slice (G6-7). Typed refusals are 409 codes of the existing error envelope
+    (`CountSessionConflict`); a count-up line with no valuation history is
+    refused on its line, not as a request error (G6-2). The `integrationState`
+    enum, the G6-5 resolution operation and `posting-feed.yaml` are not
+    changed here. Two reads go beyond the issue's list because the review and
+    the late-event findings cannot be read without them:
+    `listCountVarianceLines` and `listCountLateEventFindings`.
+    `requestCountRecount` returns a `submitted` session to `cut_taken`.
+
 servers:
   - url: https://api.datapulse.example
     description: Placeholder; the dashboard/back-office surface is same-origin.
@@ -625,7 +652,11 @@ paths:
         is deterministic (no correction, or an explicit zero-variance record).
         The `storeId` is the PATH-scoped selection target, authorized
         server-side; it is never taken from the body (§XII). Idempotent via the
-        `Idempotency-Key` header.
+        `Idempotency-Key` header. RT-1419: this legacy route is unchanged until
+        the per-tenant Count Session activation (RT-292 G6-7); the Count Session
+        operations (`createCountSession` and the rest) are contract-only until
+        the Count Session domain issue RT-1420, and nothing here answers the
+        typed 409 yet.
       security:
         - cookieAuth: []
       parameters:
@@ -1642,6 +1673,591 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
+  /api/inventory/v1/stores/{storeId}/count-sessions:
+    post:
+      operationId: createCountSession
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Open a Count Session for a store and scope.
+      description: >
+        RT-1419 (RT-292 Gate 6; Confluence "Inventory Gate 6", G6-1, G6-3,
+        G6-8). Opens a Count Session in state `open` for the path store. The
+        scope is the set of whole products to count: a product is counted
+        across every position (location and status) of the store, and
+        observations are stored per position (G6-1). A tracked product (batch
+        or serial) is refused with 409 `count_tracked_product_refused` and
+        nothing is written (G6-3, V1). A product already in the scope of
+        another live session of the store (`open`, `cut_taken`, `submitted`,
+        `approved`, `posting`, `needs_attention`) is refused with 409
+        `count_scope_in_use`. Capture is blind by default: no read of an
+        `open` or `cut_taken` session projects the expected quantity before the
+        count is submitted. Owner, tenant_admin or store_manager (a
+        store_manager only in its store scope); tenant, store and actor are
+        resolved server-side and are never taken from the body. Idempotent via
+        the `Idempotency-Key` header. This contract has no ERP field and does
+        not activate Count Sessions: the legacy `recordStockCount` route is
+        unchanged until the activation slice.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCountSessionCommand"
+            example:
+              scope: { kind: products, productIds: ["0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"] }
+              note: Monthly shelf count, aisle 3
+      responses:
+        "201":
+          description: Count Session opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+              example:
+                id: 0198a0c5-0001-7000-8000-000000000001
+                storeId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a99
+                state: open
+                scope: { kind: products, productIds: ["0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"] }
+                note: Monthly shelf count, aisle 3
+                cut: null
+                openedBy: 0198a0c4-0000-7000-8000-0000000000a1
+                openedAt: "2026-11-16T08:00:00Z"
+                submittedBy: null
+                submittedAt: null
+                approval: null
+                counterIds: []
+                cancellation: null
+                lateEventFindingCount: 0
+                updatedAt: "2026-11-16T08:00:00Z"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    get:
+      operationId: listCountSessions
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: List a store's Count Sessions, newest first, in keyset pages.
+      description: >
+        RT-1419 (G6-8). The store's Count Sessions, newest first
+        (`openedAt DESC, id DESC`), optionally filtered by `state`. Keyset
+        pagination as `listStockMovements` (RT-731): an opaque `cursor` bound to
+        this operation, the tenant, the store and the filters; a value the
+        server did not issue, or one reused with other filters, is 400
+        `validation_error`. Owner, tenant_admin or store_manager (a
+        store_manager only in its store scope). The list never projects an
+        expected quantity.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CountSessionState"
+        - $ref: "#/components/parameters/CountCursor"
+        - $ref: "#/components/parameters/CountLimit"
+      responses:
+        "200":
+          description: A page of Count Sessions, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSessionList"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}:
+    get:
+      operationId: getCountSession
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Read one Count Session.
+      description: >
+        RT-1419. One Count Session of the path store with its state, scope, cut
+        watermark (null until `cut_taken`) and approval result (null until
+        `approved`). A session of another store, tenant or outside the caller's
+        store scope is the non-disclosing 404. Owner, tenant_admin or
+        store_manager (a store_manager only in its store scope).
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+      responses:
+        "200":
+          description: The Count Session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/observations:
+    post:
+      operationId: recordCountObservations
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Record counted quantities at position grain.
+      description: >
+        RT-1419 (G6-1, decision 830). Records the counted quantity of products
+        in the session's scope, one observation per position (stock location and
+        inventory status) of the store. A later observation of the same
+        `(productId, locationId, inventoryStatus)` replaces the earlier one;
+        every observation keeps its counter and time. The session must be
+        `open` or `cut_taken`, else 409 `count_session_not_in_state`. A product
+        outside the session's scope or a location that is not an active
+        location of the path store is 400; a tracked product is 409
+        `count_tracked_product_refused`. V1 counts a whole product, so a
+        position that has no observation is read as 0 at
+        `submitCountSession`, which refuses a product with no observation at
+        all. Quantities are non-negative exact-decimal strings; a unit that
+        differs from the product's stocking unit is recorded and shown on the
+        line as the `uom_mismatch` flag at review, and the line cannot post.
+        Owner, tenant_admin or store_manager (a store_manager only in its store
+        scope). Idempotent via the `Idempotency-Key` header; a replay returns
+        the recorded result and writes nothing.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordCountObservationsCommand"
+            example:
+              observations:
+                - productId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01
+                  locationId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2b01
+                  inventoryStatus: sellable
+                  countedQuantity: "7"
+                  stockingUnit: each
+      responses:
+        "200":
+          description: Observations recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountObservationsResult"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/cut:
+    post:
+      operationId: takeCountCut
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Take the Count Cut of a session.
+      description: >
+        RT-1419 (decisions 824, 828; Count Cut and barrier). Moves the session
+        from `open` to `cut_taken`: records the Count Cut, a frozen watermark
+        (not a timestamp), and freezes the expected quantity per product at the
+        cut. Expected counts only effects recorded before the cut. The cut is
+        refused with 409 `count_cut_barrier_not_met` until the barrier holds:
+        the store's POS devices are drained and the bucket's ERP import has read
+        past the cut; nothing is written. A session not `open` is 409
+        `count_session_not_in_state`. Owner, tenant_admin or store_manager (a
+        store_manager only in its store scope). Idempotent via the
+        `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Count Cut taken; the session is `cut_taken`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/submit:
+    post:
+      operationId: submitCountSession
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Submit the captured counts for review.
+      description: >
+        RT-1419 (decisions 830, 831). Moves the session from `cut_taken` to
+        `submitted`. Variance is counted minus expected at the cut, per product,
+        computed from the observations (the sum of the product's positions).
+        Every product in the scope must have at least one observation, else
+        400. A product whose counted total (the sum of its positions) or whose
+        variance cannot be represented as a `NonNegativeDecimalQuantity` or
+        `DecimalQuantity` (15 integer digits) is refused with 400
+        `validation_error` and nothing is written; no line is ever returned
+        out of range. The submitter is recorded (`submittedBy`) and is barred from
+        approving unless the tenant's audited small-merchant exception applies
+        (G6-10). The review lines are read with `listCountVarianceLines`. A
+        session not `cut_taken` is 409 `count_session_not_in_state`. Owner,
+        tenant_admin or store_manager (a store_manager only in its store
+        scope). Idempotent via the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Session submitted; it is `submitted`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/variance-lines:
+    get:
+      operationId: listCountVarianceLines
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: List the review lines of a submitted Count Session.
+      description: >
+        RT-1419 (decisions 831, 832; G6-2). One line per product of the scope:
+        expected at the cut, counted, variance, the flags that need an
+        acknowledgement or block posting, and the line's per-position
+        observations. Available once the session is `submitted` or later;
+        before that, 409 `count_session_not_in_state` (blind capture). Filter
+        `flagged=true` for lines with at least one flag. Keyset pagination as
+        `listStockMovements` (RT-731), ordered by `productId`. Owner,
+        tenant_admin or store_manager (a store_manager only in its store
+        scope).
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - name: flagged
+          in: query
+          required: false
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/CountCursor"
+        - $ref: "#/components/parameters/CountLimit"
+      responses:
+        "200":
+          description: A page of variance lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountVarianceLineList"
+              example:
+                items:
+                  - productId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01
+                    stockingUnit: each
+                    expectedQuantity: "10"
+                    countedQuantity: "7"
+                    varianceQuantity: "-3"
+                    lineVersion: "3"
+                    flags: [divergence]
+                    acknowledgementRequired: true
+                    acknowledgement: null
+                    refusal: null
+                    observations:
+                      - locationId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2b01
+                        inventoryStatus: sellable
+                        countedQuantity: "7"
+                nextCursor: null
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/recount:
+    post:
+      operationId: requestCountRecount
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Send listed products back for a recount.
+      description: >
+        RT-1419 (decision 832). Moves a `submitted` session back to
+        `cut_taken` and clears the observations of the listed products, which
+        must be in the scope. The Count Cut, and the expected quantity frozen at
+        it, are unchanged; the reviewer's `reason` is recorded and audited.
+        Observations of the other products are kept. A session not `submitted`
+        is 409 `count_session_not_in_state`. Owner, tenant_admin or
+        store_manager (a store_manager only in its store scope). Idempotent via
+        the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestCountRecountCommand"
+      responses:
+        "200":
+          description: Recount requested; the session is `cut_taken`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/approve:
+    post:
+      operationId: approveCountSession
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Approve a submitted Count Session under the approval policy.
+      description: >
+        RT-1419 (decision 833; G6-2, G6-10). Moves a `submitted` session to
+        `approved`. Approval policy: by default the approver differs from every
+        counter and from the submitter; if the approver is one of them the
+        approval is refused with 409 `count_approver_conflict`, unless the
+        tenant owner has enabled the audited small-merchant exception, in which
+        case the approval succeeds, `approval.policy` is
+        `small_merchant_exception` and `approval.selfApproved` is true (the
+        session is marked in review, audit and Health). There is no variance
+        threshold and no Retail Tower or platform-admin override in V1. Every
+        flagged line (`divergence`, `stale_snapshot`, `pending`) must be listed
+        in `acknowledgements`, else 409 `count_flagged_line_not_acknowledged`
+        and nothing is written. Each acknowledgement names the `lineVersion` the
+        reviewer saw (`CountVarianceLine.lineVersion`); if the line changed
+        since (a recount, or a late pre-cut event that invalidated it, G6-4)
+        the approval is refused with 409 `count_line_version_stale` and nothing
+        is written, so a stale acknowledgement never approves a changed line. A line with an `unmapped` or `uom_mismatch` flag
+        cannot post and cannot be acknowledged into posting; a count-up line
+        with no stock or valuation history is refused per line
+        (`CountVarianceLine.refusal.code` `count_up_without_valuation_history`,
+        with a visible Health finding) while the rest proceeds; Retail never
+        supplies a valuation rate. Approval writes the Retail corrections as
+        append-only `count_correction` effects at the explicit position and
+        creates no ERP intent in this contract. Owner, tenant_admin or
+        store_manager (a store_manager only in its store scope). Idempotent via
+        the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveCountSessionCommand"
+            example:
+              acknowledgements:
+                - productId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01
+                  lineVersion: "3"
+                  note: Recounted twice, shelf is short
+      responses:
+        "200":
+          description: Session approved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+              example:
+                id: 0198a0c5-0001-7000-8000-000000000001
+                storeId: 0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a99
+                state: approved
+                scope: { kind: products, productIds: ["0198a0c4-7b5e-7c11-9d52-3f1b6a9e2a01"] }
+                note: Monthly shelf count, aisle 3
+                cut:
+                  watermark: wm-0198a0c5-0003
+                  cutAt: "2026-11-16T08:15:00Z"
+                  takenBy: 0198a0c4-0000-7000-8000-0000000000a1
+                openedBy: 0198a0c4-0000-7000-8000-0000000000a1
+                openedAt: "2026-11-16T08:00:00Z"
+                counterIds: ["0198a0c4-0000-7000-8000-0000000000a1"]
+                submittedBy: 0198a0c4-0000-7000-8000-0000000000a1
+                submittedAt: "2026-11-16T09:00:00Z"
+                approval:
+                  approvedBy: 0198a0c4-0000-7000-8000-0000000000a2
+                  approvedAt: "2026-11-16T09:30:00Z"
+                  policy: strict_separation
+                  selfApproved: false
+                cancellation: null
+                lateEventFindingCount: 0
+                updatedAt: "2026-11-16T09:30:00Z"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/cancel:
+    post:
+      operationId: cancelCountSession
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: Cancel a Count Session before approval.
+      description: >
+        RT-1419. Moves a session in `open`, `cut_taken` or `submitted` to the
+        terminal `cancelled` state with a recorded reason; the audit trail and
+        the observations are kept and no quantity changes. From `approved`
+        onward a session cannot be cancelled (409 `count_session_not_in_state`):
+        its corrections are already effects. Owner, tenant_admin or
+        store_manager (a store_manager only in its store scope). Idempotent via
+        the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelCountSessionCommand"
+      responses:
+        "200":
+          description: Session cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountSession"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings:
+    get:
+      operationId: listCountLateEventFindings
+      tags: [inventory]
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1419 publishes the contract only. There is no controller, service,
+        table or migration for this route until the Count Session domain issue
+        RT-1420.
+      summary: List the late pre-cut event findings of a Count Session.
+      description: >
+        RT-1419 (decision 835; G6-4). A late pre-cut event is a POS sale or an
+        ERP-origin voucher whose ERP stamp is at or before the Count Cut and
+        which Backend-Core learned after the cut. Before approval it
+        invalidates the affected lines and returns them to review; after
+        approval it is recorded as a finding with an availability and
+        selling-risk assessment and no automatic stock movement, and the
+        session moves to `needs_attention`. This lists those findings, oldest
+        first, in keyset pages ordered by `detectedAt, id`. Resolving a finding
+        is not part of this contract. Owner, tenant_admin or store_manager (a
+        store_manager only in its store scope).
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - $ref: "#/components/parameters/CountCursor"
+        - $ref: "#/components/parameters/CountLimit"
+      responses:
+        "200":
+          description: A page of late-event findings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountLateEventFindingList"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1701,6 +2317,30 @@ components:
       required: true
       description: A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only.
       schema: { type: string, format: uuid }
+
+    CountSessionIdPath:
+      name: sessionId
+      in: path
+      required: true
+      description: A Count Session of the path store; resolved inside the caller's tenant and store scope only.
+      schema: { type: string, format: uuid }
+    CountCursor:
+      name: cursor
+      in: query
+      required: false
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+        operation, the tenant, the store, the session (when the path has one)
+        and the filters. A value
+        the server did not issue, or one reused with other filters, is 400
+        `validation_error`. The role and store scope are checked on every
+        request and are never carried by the cursor.
+      schema: { type: string, minLength: 1, maxLength: 1024 }
+    CountLimit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
 
   schemas:
     # ----- Commands (request bodies) — strict; server-owned fields are NOT accepted (FR-052)
@@ -3023,6 +3663,432 @@ components:
               format: uuid
               description: Server-side correlation id; the actual cause is recorded server-side.
 
+    # ----- RT-1419 Count Session (contract-only; RT-292 Gate 6) -----
+    CountSessionState:
+      type: string
+      enum: [open, cut_taken, submitted, approved, posting, confirmed, needs_attention, closed, cancelled]
+      description: >
+        RT-1419 (Confluence "Inventory Gate 6", count journey and lifecycle).
+        `open`: scope chosen; moves to `cut_taken` or `cancelled`.
+        `cut_taken`: Count Cut recorded, expected frozen per product; moves to
+        `submitted` (or `cancelled`). `submitted`: observations captured at
+        position grain and variance computed; moves to `approved`, back to
+        `cut_taken` for a recount, or `cancelled`. `approved`: approved under
+        the approval policy; Retail corrections are written. `posting`,
+        `confirmed`, `needs_attention` and `closed` follow approval and are set
+        by the server only (the ERP slices and a late event after approval move
+        a session there); this contract has no operation that sets them.
+        `closed` and `cancelled` are terminal.
+    CountScope:
+      type: object
+      additionalProperties: false
+      required: [kind, productIds]
+      description: >
+        What a session counts (G6-1): whole products, each across every
+        position of the store.
+      properties:
+        kind:
+          type: string
+          enum: [products]
+        productIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+          description: Tenant Catalog products, resolved inside the caller's tenant only.
+    CreateCountSessionCommand:
+      type: object
+      additionalProperties: false
+      required: [scope]
+      description: >
+        Strict command. The store is the PATH parameter; tenant and actor are
+        resolved server-side and are never accepted from the body.
+      properties:
+        scope:
+          $ref: "#/components/schemas/CountScope"
+        note:
+          type: [string, "null"]
+          maxLength: 500
+    CountCut:
+      type: object
+      additionalProperties: false
+      required: [watermark, cutAt, takenBy]
+      description: >
+        The Count Cut (decision 824): a frozen watermark over the recorded
+        effects, not a timestamp. Expected quantity counts only effects
+        recorded before it.
+      properties:
+        watermark:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Opaque frozen watermark; compare for equality only.
+        cutAt: { type: string, format: date-time }
+        takenBy: { type: string, format: uuid }
+    CountApproval:
+      type: object
+      additionalProperties: false
+      required: [approvedBy, approvedAt, policy, selfApproved]
+      description: The approval policy result (G6-10, decision 833).
+      properties:
+        approvedBy: { type: string, format: uuid }
+        approvedAt: { type: string, format: date-time }
+        policy:
+          type: string
+          enum: [strict_separation, small_merchant_exception]
+          description: >
+            `strict_separation`: the approver is none of the counters and not
+            the submitter. `small_merchant_exception`: the tenant owner's
+            audited exception applied.
+        selfApproved:
+          type: boolean
+          description: >
+            True when the approver is a counter or the submitter (only under
+            `small_merchant_exception`); marked in review, audit and Health.
+    CountCancellation:
+      type: object
+      additionalProperties: false
+      required: [cancelledBy, cancelledAt, reason]
+      properties:
+        cancelledBy: { type: string, format: uuid }
+        cancelledAt: { type: string, format: date-time }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    CountSession:
+      type: object
+      additionalProperties: false
+      required:
+        [id, storeId, state, scope, note, cut, openedBy, openedAt, counterIds, submittedBy, submittedAt, approval,
+         cancellation, lateEventFindingCount, updatedAt]
+      description: >
+        RT-1419 — a Count Session. It never projects an expected quantity while
+        `open` or `cut_taken` (blind capture); expected appears on the variance
+        lines from `submitted`.
+      properties:
+        id: { type: string, format: uuid }
+        storeId: { type: string, format: uuid }
+        state:
+          $ref: "#/components/schemas/CountSessionState"
+        scope:
+          $ref: "#/components/schemas/CountScope"
+        note: { type: [string, "null"] }
+        cut:
+          oneOf:
+            - $ref: "#/components/schemas/CountCut"
+            - type: "null"
+          description: Null until the session is `cut_taken`.
+        openedBy: { type: string, format: uuid }
+        openedAt: { type: string, format: date-time }
+        counterIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: Every actor that recorded an observation (G6-10 separation).
+        submittedBy:
+          type: [string, "null"]
+          format: uuid
+        submittedAt:
+          type: [string, "null"]
+          format: date-time
+        approval:
+          oneOf:
+            - $ref: "#/components/schemas/CountApproval"
+            - type: "null"
+        cancellation:
+          oneOf:
+            - $ref: "#/components/schemas/CountCancellation"
+            - type: "null"
+        lateEventFindingCount:
+          type: integer
+          minimum: 0
+          description: Late pre-cut event findings recorded for the session (G6-4).
+        updatedAt: { type: string, format: date-time }
+    CountSessionList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CountSession"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted.
+    CountObservationInput:
+      type: object
+      additionalProperties: false
+      required: [productId, locationId, inventoryStatus, countedQuantity, stockingUnit]
+      description: One counted quantity at one position (G6-1).
+      properties:
+        productId: { type: string, format: uuid }
+        locationId:
+          type: string
+          format: uuid
+          description: An active stock location of the path store.
+        inventoryStatus:
+          $ref: "#/components/schemas/InventoryStatus"
+        countedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        stockingUnit:
+          allOf:
+            - $ref: "#/components/schemas/StockingUnit"
+          description: >
+            The unit the counter counted in. Unlike a stock movement, a unit
+            that differs from the product's stocking unit is accepted, not
+            rejected (no coercion): the line is flagged `uom_mismatch` at
+            review and cannot post.
+    RecordCountObservationsCommand:
+      type: object
+      additionalProperties: false
+      required: [observations]
+      properties:
+        observations:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CountObservationInput"
+    CountObservation:
+      type: object
+      additionalProperties: false
+      required: [productId, locationId, inventoryStatus, countedQuantity, stockingUnit, countedBy, countedAt]
+      properties:
+        productId: { type: string, format: uuid }
+        locationId: { type: string, format: uuid }
+        inventoryStatus:
+          $ref: "#/components/schemas/InventoryStatus"
+        countedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        stockingUnit:
+          allOf:
+            - $ref: "#/components/schemas/StockingUnit"
+          description: >
+            The unit the counter counted in. Unlike a stock movement, a unit
+            that differs from the product's stocking unit is accepted, not
+            rejected (no coercion): the line is flagged `uom_mismatch` at
+            review and cannot post.
+        countedBy: { type: string, format: uuid }
+        countedAt: { type: string, format: date-time }
+    CountObservationsResult:
+      type: object
+      additionalProperties: false
+      required: [sessionId, observations]
+      properties:
+        sessionId: { type: string, format: uuid }
+        observations:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CountObservation"
+    CountVarianceFlag:
+      type: string
+      enum: [divergence, stale_snapshot, pending, unmapped, uom_mismatch]
+      description: >
+        G6-2. `divergence`, `stale_snapshot` and `pending` need an explicit
+        acknowledgement before approval. `unmapped` and `uom_mismatch` cannot
+        post and are refused on the line (`CountVarianceLine.refusal`).
+    CountLineRefusal:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      description: >
+        A line that cannot post; the rest of the session proceeds (G6-2). The
+        refusal is visible as a Health finding.
+      properties:
+        code:
+          type: string
+          enum: [count_up_without_valuation_history, count_line_unmapped, count_line_uom_mismatch]
+          description: >
+            `count_up_without_valuation_history`: counted above expected for an
+            item with no stock or valuation history; Retail never supplies a
+            valuation rate.
+        message: { type: string }
+    CountLineAcknowledgement:
+      type: object
+      additionalProperties: false
+      required: [acknowledgedBy, acknowledgedAt, note]
+      properties:
+        acknowledgedBy: { type: string, format: uuid }
+        acknowledgedAt: { type: string, format: date-time }
+        note: { type: [string, "null"] }
+    CountLineObservation:
+      type: object
+      additionalProperties: false
+      required: [locationId, inventoryStatus, countedQuantity]
+      properties:
+        locationId: { type: string, format: uuid }
+        inventoryStatus:
+          $ref: "#/components/schemas/InventoryStatus"
+        countedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+    CountVarianceLine:
+      type: object
+      additionalProperties: false
+      required:
+        [productId, lineVersion, stockingUnit, expectedQuantity, countedQuantity, varianceQuantity, flags, acknowledgementRequired,
+         acknowledgement, refusal, observations]
+      description: >
+        RT-1419 (decision 831) — one product of the scope: counted (the sum of
+        its observed positions, G6-1) minus expected at the cut.
+      properties:
+        productId: { type: string, format: uuid }
+        lineVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >
+            Opaque version of the line's reviewed state (expected, observations
+            and invalidation). It changes whenever any of them changes;
+            compare for equality only. An approval acknowledgement carries it.
+        stockingUnit:
+          $ref: "#/components/schemas/StockingUnit"
+        expectedQuantity:
+          $ref: "#/components/schemas/DecimalQuantity"
+        countedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        varianceQuantity:
+          $ref: "#/components/schemas/DecimalQuantity"
+        flags:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/CountVarianceFlag"
+        acknowledgementRequired:
+          type: boolean
+          description: True when `flags` holds `divergence`, `stale_snapshot` or `pending`.
+        acknowledgement:
+          oneOf:
+            - $ref: "#/components/schemas/CountLineAcknowledgement"
+            - type: "null"
+          description: Null until the approval acknowledges the line.
+        refusal:
+          oneOf:
+            - $ref: "#/components/schemas/CountLineRefusal"
+            - type: "null"
+        observations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountLineObservation"
+    CountVarianceLineList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CountVarianceLine"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted.
+    RequestCountRecountCommand:
+      type: object
+      additionalProperties: false
+      required: [productIds, reason]
+      properties:
+        productIds:
+          type: array
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    CountAcknowledgementInput:
+      type: object
+      additionalProperties: false
+      required: [productId, lineVersion]
+      properties:
+        productId: { type: string, format: uuid }
+        lineVersion:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The `CountVarianceLine.lineVersion` the reviewer saw.
+        note:
+          type: [string, "null"]
+          maxLength: 500
+    ApproveCountSessionCommand:
+      type: object
+      additionalProperties: false
+      required: [acknowledgements]
+      description: >
+        Must list every flagged line that needs an acknowledgement (G6-2); an
+        empty list is valid only when no line needs one.
+      properties:
+        acknowledgements:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CountAcknowledgementInput"
+    CancelCountSessionCommand:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    CountLateEventLink:
+      type: object
+      additionalProperties: false
+      required: [eventType, reference, sourceSystem, externalId, effectId]
+      description: The immutable references of the late event (G6-4, G6-5 A).
+      properties:
+        eventType: { type: string, minLength: 1, maxLength: 64 }
+        reference: { type: string, minLength: 1, maxLength: 128 }
+        sourceSystem: { type: string, minLength: 1, maxLength: 64 }
+        externalId: { type: string, minLength: 1, maxLength: 128 }
+        effectId:
+          type: [string, "null"]
+          format: uuid
+          description: The Retail effect of the event; null for an ERP-origin event.
+    CountLateEventFinding:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sessionId, productId, assessment, quantity, linkedEvent, oversellRisk, erpStamp, detectedAt,
+         detectedInState]
+      description: >
+        RT-1419 (G6-4, decision 835) — a late pre-cut event found for a
+        session. Never silently ignored; no automatic stock movement.
+      properties:
+        id: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        productId: { type: string, format: uuid }
+        assessment:
+          type: string
+          enum: [understated, overstated]
+          description: >
+            Whether the count understates or overstates availability because
+            of the late event.
+        quantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+        linkedEvent:
+          $ref: "#/components/schemas/CountLateEventLink"
+        oversellRisk:
+          type: boolean
+          description: True when the finding makes selling the product at risk of overselling.
+        erpStamp:
+          type: string
+          format: date-time
+          description: The ERP stamp the Connector produced for the event; at or before the cut.
+        detectedAt: { type: string, format: date-time }
+        detectedInState:
+          $ref: "#/components/schemas/CountSessionState"
+    CountLateEventFindingList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CountLateEventFinding"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted.
+
   responses:
     ValidationFailure:
       description: >
@@ -3129,6 +4195,33 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    CountSessionConflict:
+      description: >
+        409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the
+        command is not allowed in the session's state. `count_tracked_product_refused`:
+        a product is tracked (batch or serial); tracked counting is not
+        available in V1 (G6-3). `count_scope_in_use`: a product is already in
+        the scope of another live session of the store. `count_cut_barrier_not_met`:
+        the Count Cut barrier does not hold yet (devices not drained, or the
+        ERP import has not read past the cut). `count_approver_conflict`: the
+        approver is a counter or the submitter and the tenant's audited
+        small-merchant exception does not apply (G6-10).
+        `count_flagged_line_not_acknowledged`: a flagged line needs an
+        acknowledgement (G6-2). `count_line_version_stale`: an
+        acknowledgement's `lineVersion` no longer matches the line, which
+        changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the
+        `Idempotency-Key` was already used for a different command. Nothing is
+        written. A count-up line without valuation history is not an error of
+        the request: it is refused on its line (`CountVarianceLine.refusal`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: count_flagged_line_not_acknowledged
+              message: A flagged line needs an acknowledgement.
+              request_id: 0198a0c5-0002-7000-8000-000000000002
     SystemFailure:
       description: 5xx — internal failure; the cause is recorded server-side under `request_id`.
       content:
