@@ -17,6 +17,8 @@ const count = vi.hoisted(() => ({
   listCountLateEventFindings: vi.fn(),
   getCountSelfApprovalSetting: vi.fn(),
   setCountSelfApprovalSetting: vi.fn(),
+  getCountSessionsSetting: vi.fn(),
+  setCountSessionsSetting: vi.fn(),
 }));
 vi.mock("@/lib/count-session-queries", () => count);
 const inv = {
@@ -208,6 +210,15 @@ beforeEach(() => {
   count.listCountLateEventFindings.mockResolvedValue(page([]));
   count.getCountSelfApprovalSetting.mockResolvedValue(
     ok({ enabled: false, reason: null, changedAt: null, changedBy: null }),
+  );
+  count.getCountSessionsSetting.mockResolvedValue(
+    ok({
+      enabled: false,
+      changedAt: null,
+      changedBy: null,
+      readinessMet: true,
+      unmetReadiness: [],
+    }),
   );
 });
 afterEach(cleanup);
@@ -677,6 +688,145 @@ describe("Count Cut blockers, not-enabled state and the owner setting (RT-1425)"
     expect(outcome.textContent).toContain("Only the tenant owner can read or change this setting");
     expect(outcome.textContent).toContain("count_self_approval_owner_only");
     expect(count.setCountSelfApprovalSetting.mock.calls[0][0]).toEqual({ enabled: false });
+  });
+});
+
+// --- Activation (RT-1423) ---------------------------------------------------------------------
+
+describe("count session activation (RT-1425 part 2)", () => {
+  const OTHER_STORE = "0190f000-0000-7000-8000-0000000007a9";
+  const off = (extra: Record<string, unknown> = {}) =>
+    ok({
+      enabled: false,
+      changedAt: null,
+      changedBy: null,
+      readinessMet: false,
+      unmetReadiness: [
+        { code: "connector_not_seen", storeId: null, message: "server words" },
+        { code: "store_warehouse_unmapped", storeId: OTHER_STORE, message: "server words" },
+      ],
+      ...extra,
+    });
+  const on = () =>
+    ok({
+      enabled: true,
+      changedAt: "2026-11-16T10:00:00Z",
+      changedBy: ME,
+      readinessMet: true,
+      unmetReadiness: [],
+    });
+
+  test("off by default: the state, the unmet boundaries by code copy, and a switch-on control", async () => {
+    count.getCountSessionsSetting.mockResolvedValue(off());
+    renderList();
+    expect((await screen.findByTestId("count-activation-state")).textContent).toContain(
+      "Count Sessions are off.",
+    );
+    const unmet = screen.getByTestId("count-activation-unmet");
+    expect(unmet.textContent).toContain("The ERPNext Connector has not reported recently.");
+    expect(unmet.textContent).toContain("no active stock warehouse mapping");
+    expect(unmet.textContent).not.toContain("server words");
+    expect(screen.getByRole("button", { name: "Switch on Count Sessions" })).toBeDefined();
+  });
+
+  test("a readiness refusal lists the boundaries and the state stays off", async () => {
+    count.getCountSessionsSetting.mockResolvedValue(off());
+    count.setCountSessionsSetting.mockResolvedValue({
+      status: 409,
+      error: {
+        error: {
+          code: "count_sessions_readiness_unmet",
+          message: "server words",
+          request_id: REQUEST_ID,
+          details: {
+            boundary: "connector_not_seen",
+            storeId: null,
+            unmet: [{ code: "erp_back_dated_role_unverified", storeId: null, message: "w" }],
+          },
+        },
+      },
+    });
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch on Count Sessions" }));
+    const outcome = await screen.findByTestId("count-outcome");
+    expect(count.setCountSessionsSetting).toHaveBeenCalledWith({ enabled: true });
+    expect(outcome.textContent).toContain("count_sessions_readiness_unmet");
+    expect(outcome.textContent).toContain("back-dated stock role");
+    expect(outcome.textContent).not.toContain("server words");
+    expect(screen.getByTestId("count-activation-state").textContent).toContain(
+      "Count Sessions are off.",
+    );
+  });
+
+  test("a recorded switch-on is re-read from the server: the panel then reads on", async () => {
+    count.getCountSessionsSetting
+      .mockResolvedValueOnce(off({ readinessMet: true, unmetReadiness: [] }))
+      .mockResolvedValue(on());
+    count.setCountSessionsSetting.mockResolvedValue(on());
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch on Count Sessions" }));
+    expect(await screen.findByRole("button", { name: "Switch off Count Sessions" })).toBeDefined();
+    expect(screen.getByTestId("count-activation-state").textContent).toContain(
+      "Count Sessions are on.",
+    );
+  });
+
+  test("an open session refuses the switch-off and the panel still reads on", async () => {
+    count.getCountSessionsSetting.mockResolvedValue(on());
+    count.setCountSessionsSetting.mockResolvedValue({
+      status: 409,
+      error: { error: { code: "count_sessions_open", message: "w", request_id: REQUEST_ID } },
+    });
+    renderList();
+    fireEvent.click(await screen.findByRole("button", { name: "Switch off Count Sessions" }));
+    const outcome = await screen.findByTestId("count-outcome");
+    expect(count.setCountSessionsSetting).toHaveBeenCalledWith({ enabled: false });
+    expect(outcome.textContent).toContain("a count is still in progress");
+    expect(screen.getByTestId("count-activation-state").textContent).toContain(
+      "Count Sessions are on.",
+    );
+  });
+
+  test("a store manager sees the state but has no switch, and never sends a write", async () => {
+    activeContext.mockReturnValue(ctx("store_manager"));
+    count.getCountSessionsSetting.mockResolvedValue(
+      ok({
+        enabled: true,
+        changedAt: null,
+        changedBy: null,
+        readinessMet: null,
+        unmetReadiness: null,
+      }),
+    );
+    renderList();
+    expect((await screen.findByTestId("count-activation-state")).textContent).toContain(
+      "Count Sessions are on.",
+    );
+    expect(screen.queryByRole("button", { name: /Switch (on|off) Count Sessions/ })).toBeNull();
+    expect(screen.getByText("Only an owner or administrator can change this.")).toBeDefined();
+    expect(count.setCountSessionsSetting).not.toHaveBeenCalled();
+  });
+
+  test("a tenant administrator gets the switch", async () => {
+    activeContext.mockReturnValue(ctx("tenant_admin"));
+    renderList();
+    expect(await screen.findByRole("button", { name: "Switch on Count Sessions" })).toBeDefined();
+  });
+
+  test("an unreadable setting says so and offers a retry, never a switch", async () => {
+    count.getCountSessionsSetting.mockResolvedValue({ status: 500 });
+    renderList();
+    expect(await screen.findByText("The activation setting could not be loaded.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Switch (on|off) Count Sessions/ })).toBeNull();
+  });
+
+  test("Arabic copy is shown for the refusals", async () => {
+    setLocale("ar");
+    count.getCountSessionsSetting.mockResolvedValue(off());
+    renderList();
+    const unmet = await screen.findByTestId("count-activation-unmet");
+    expect(unmet.textContent).toContain("لم يُبلّغ موصّل ERPNext مؤخرًا.");
+    setLocale("en");
   });
 });
 

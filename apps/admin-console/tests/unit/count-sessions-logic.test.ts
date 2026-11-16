@@ -1,5 +1,6 @@
 import {
   type ObservationDraft,
+  boundaryKey,
   buildApproveCommand,
   buildObservation,
   canApprove,
@@ -337,5 +338,71 @@ describe("a later observation replaces the same position", () => {
       [obs(P1, "L2", "sellable", "1"), obs(P1, "L1", "damaged", "1")],
     );
     expect(merged).toHaveLength(3);
+  });
+});
+
+describe("activation refusals (RT-1423)", () => {
+  const STORE = "0190f000-0000-7000-8000-0000000007a1";
+  const unmet = [
+    { code: "connector_not_seen", storeId: null, message: "server words" },
+    { code: "store_warehouse_unmapped", storeId: STORE, message: "server words" },
+  ];
+  const body = (code: string, details?: unknown) => ({
+    error: { code, message: "words", request_id: "r1", details },
+  });
+
+  test("readiness_unmet keeps every unmet entry", () => {
+    const out = classifyCountResult({
+      status: 409,
+      error: body("count_sessions_readiness_unmet", {
+        boundary: "connector_not_seen",
+        storeId: null,
+        unmet,
+      }),
+    });
+    expect(out).toMatchObject({
+      kind: "rejected",
+      messageKey: "counts.error.readinessUnmet",
+      code: "count_sessions_readiness_unmet",
+      unmet,
+    });
+  });
+
+  test("malformed readiness details are dropped, never half-shown", () => {
+    for (const details of [
+      undefined,
+      { unmet: "x" },
+      { unmet: [{ code: 3, storeId: null }] },
+      { unmet: [{ code: "no_live_store", storeId: 7 }] },
+    ]) {
+      const out = classifyCountResult({
+        status: 409,
+        error: body("count_sessions_readiness_unmet", details),
+      });
+      expect(out).toMatchObject({ messageKey: "counts.error.readinessUnmet", unmet: undefined });
+    }
+  });
+
+  test("the open refusal and the legacy-writer refusal have their own messages", () => {
+    expect(classifyCountResult({ status: 409, error: body("count_sessions_open") })).toMatchObject({
+      messageKey: "counts.error.sessionsOpen",
+    });
+    expect(
+      classifyCountResult({ status: 409, error: body("count_sessions_active") }),
+    ).toMatchObject({
+      messageKey: "counts.error.legacyBlocked",
+    });
+  });
+
+  test.each([
+    ["no_live_store", "counts.boundary.no_live_store"],
+    ["store_warehouse_unmapped", "counts.boundary.store_warehouse_unmapped"],
+    ["store_barrier_unprovable", "counts.boundary.store_barrier_unprovable"],
+    ["connector_not_seen", "counts.boundary.connector_not_seen"],
+    ["connector_version_unlisted", "counts.boundary.connector_version_unlisted"],
+    ["erp_back_dated_role_unverified", "counts.boundary.erp_back_dated_role_unverified"],
+    ["a_future_boundary", "counts.value.unknown"],
+  ])("boundary %s reads as %s", (code, key) => {
+    expect(boundaryKey(code)).toBe(key);
   });
 });

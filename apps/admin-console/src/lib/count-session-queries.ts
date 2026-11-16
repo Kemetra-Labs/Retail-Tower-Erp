@@ -32,6 +32,9 @@ export type InventoryStatus = Schemas["InventoryStatus"];
 export type CountCutBarrierDetails = Schemas["CountCutBarrierDetails"];
 export type CountSelfApprovalSetting = Schemas["CountSelfApprovalSetting"];
 export type SetCountSelfApprovalCommand = Schemas["SetCountSelfApprovalCommand"];
+export type CountSessionsSetting = Schemas["CountSessionsSetting"];
+export type CountSessionsReadinessBoundary = Schemas["CountSessionsReadinessBoundary"];
+export type SetCountSessionsSettingCommand = Schemas["SetCountSessionsSettingCommand"];
 
 export interface CountPageQuery {
   cursor?: string;
@@ -199,4 +202,16 @@ export async function getCountSelfApprovalSetting() {
 /** PUT .../settings/count-self-approval: whole-value, owner only, a reason when enabling. */
 export async function setCountSelfApprovalSetting(command: SetCountSelfApprovalCommand) {
   return resultOf(await apiClient.PUT(SELF_APPROVAL, { body: command }));
+}
+
+const ACTIVATION = "/api/inventory/v1/settings/count-sessions" as const;
+
+/** GET .../settings/count-sessions: the tenant's activation switch and its readiness (RT-1423). */
+export async function getCountSessionsSetting() {
+  return resultOf(await apiClient.GET(ACTIVATION));
+}
+
+/** PUT .../settings/count-sessions: whole-value on or off; the server refuses with a typed 409. */
+export async function setCountSessionsSetting(command: SetCountSessionsSettingCommand) {
+  return resultOf(await apiClient.PUT(ACTIVATION, { body: command }));
 }
