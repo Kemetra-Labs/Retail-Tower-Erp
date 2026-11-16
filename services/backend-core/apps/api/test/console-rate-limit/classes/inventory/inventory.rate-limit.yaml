@@ -11,6 +11,7 @@ createRelocation: write
 createStatusMove: write
 createStockMovement: write
 createStockTransfer: write
+getCountSelfApprovalSetting: cheapRead
 getCountSession: cheapRead
 getInventoryRecall: cheapRead
 getOnHand: cheapRead
@@ -37,6 +38,7 @@ recordCountObservations: write
 recordStockCount: write
 releaseTrackingHold: write
 requestCountRecount: write
+setCountSelfApprovalSetting: write
 setReturnLandingPolicy: write
 setSafetyTtlSetting: write
 setTrackedSellingSetting: write
