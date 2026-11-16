@@ -25,6 +25,9 @@ from .observability.sentry_client import capture_auth_circuit_open
 
 CACHE_KEY = "rt_connector_auth_circuit"
 _LOGGER = "retail_tower_connector_auth"
+# A fixed, non-secret salt: the fingerprint only has to differ when the token differs.
+_FINGERPRINT_SALT = b"rt-connector-auth-circuit-v1"
+_FINGERPRINT_ROUNDS = 100_000
 
 
 class FrappeCircuitStore:
@@ -52,16 +55,23 @@ def credential_key(settings) -> str:
 	The circuit is bound to this key, so replacing the token (pasting a re-issued one, a bench edit, the
 	provisioner) is a different key: the next tick sees no refusal on record and calls Backend-Core at once,
 	with no hook on Connector Settings (a DocType controller change would make the ERP release ``restore``
-	class, RT-927). The fingerprint is the first 12 hex characters of a SHA-256 of a high-entropy bearer
-	token: it cannot be reversed to the token, and it is never logged or sent anywhere.
+	class, RT-927). The fingerprint is the first 12 hex characters of a PBKDF2-HMAC-SHA256 of the bearer
+	token (a change marker, not a stored password hash; PBKDF2 is the computationally expensive kind that
+	code scanning accepts for sensitive data, about 20 ms once per tick). It cannot be reversed to the
+	token, and it is never logged or sent anywhere.
 	"""
 	credential_id = str(getattr(settings, "dp2_credential_id", "") or "")
 	try:
 		token = settings.get_password("dp2_token") or ""
 	except Exception:  # an unreadable token is the same as none: the transport builder refuses it anyway
 		token = ""
-	fingerprint = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12] if token else ""
+	fingerprint = _fingerprint(token) if token else ""
 	return f"{credential_id}:{fingerprint}"
+
+
+def _fingerprint(token: str) -> str:
+	digest = hashlib.pbkdf2_hmac("sha256", token.encode("utf-8"), _FINGERPRINT_SALT, _FINGERPRINT_ROUNDS)
+	return digest.hex()[:12]
 
 
 def build_auth_circuit(settings) -> AuthCircuit:
