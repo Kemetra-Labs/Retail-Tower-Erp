@@ -36,8 +36,6 @@ import {
   supportSessionReadOnly,
 } from "./store-deletion.errors";
 
-const NIL_UUID = "00000000-0000-0000-0000-000000000000";
-
 export type StoreDeletionRequestWithRole = TenantContextRequest & { storeDeletionRole?: string | null };
 
 @Injectable()
@@ -56,9 +54,10 @@ export class StoreDeletionOwnerGuard implements CanActivate {
     if (!ctx || ctx.tenantId === null || ctx.userId === null) throw new UnauthorizedException("Unauthorized");
     const tenantId = ctx.tenantId;
     const userId = ctx.userId;
-    // The same bootstrap context RolesGuard reads memberships in (RLS on memberships and roles).
+    // The caller's OWN tenant context (RLS on memberships and roles, as the services read them): no
+    // platform-admin context is needed, and a platform admin with no membership simply has no role.
     const role = this.pool
-      ? await runWithTenantContext(this.pool, { tenantId: NIL_UUID, isPlatformAdmin: true }, (client) =>
+      ? await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, (client) =>
           this.memberships.findRoleCodeForUserInTenant(userId, tenantId, client),
         )
       : await this.memberships.findRoleCodeForUserInTenant(userId, tenantId);
