@@ -188,19 +188,22 @@ export async function activateSaleEffects(
   const refusal = preconditionRefusal(stores);
   if (refusal !== null) return refusal;
 
+  // Only the reported string comes from this JS Date (millisecond precision). The stored cut
+  // is the database transaction timestamp itself (below): a JS Date truncates to the
+  // millisecond, which let an effect committed just before activation count again (RT-1447).
   const now = (await client.query<{ now: Date }>(`SELECT now() AS now`)).rows[0]!.now;
   const anchored: AnchoredStore[] = [];
   // sequential: anchors are written on the activation transaction's one pg client (it runs its queries one at a time).
-  for (const store of stores) anchored.push(await writeAnchor(client, input, store, now));
+  for (const store of stores) anchored.push(await writeAnchor(client, input, store));
   await client.query(
     `INSERT INTO tenant_inventory_settings
        (tenant_id, updated_by, sale_effects_activated_at, sale_effects_activated_by)
-     VALUES ($1, $2, $3, $2)
+     VALUES ($1, $2, transaction_timestamp(), $2)
      ON CONFLICT (tenant_id) DO UPDATE
        SET sale_effects_activated_at = EXCLUDED.sale_effects_activated_at,
            sale_effects_activated_by = EXCLUDED.sale_effects_activated_by,
            updated_by = EXCLUDED.updated_by`,
-    [input.tenantId, input.actorId, now],
+    [input.tenantId, input.actorId],
   );
   return { kind: "activated", activatedAt: now.toISOString(), stores: anchored };
 }
@@ -240,7 +243,6 @@ async function writeAnchor(
   client: Pick<PoolClient, "query">,
   input: ActivateSaleEffectsInput,
   store: StoreFactsRow,
-  activatedAt: Date,
 ): Promise<AnchoredStore> {
   const c = await readAnchorCoverage(client, store);
   const anchorId = randomUUID();
@@ -253,7 +255,7 @@ async function writeAnchor(
     `INSERT INTO inventory_anchors
        (id, tenant_id, store_id, stock_location_id, inventory_status, generation, source_run_id,
         snapshot_read_at, snapshot_recorded_at, erpnext_warehouse_ref, activated_at, coverage, created_by)
-     VALUES ($1, $2, $3, $4, 'sellable', $5, $6, $7, $8, $9, $10, $11::jsonb, $12)`,
+     VALUES ($1, $2, $3, $4, 'sellable', $5, $6, $7, $8, $9, transaction_timestamp(), $10::jsonb, $11)`,
     [
       anchorId,
       input.tenantId,
@@ -264,7 +266,6 @@ async function writeAnchor(
       store.read_at,
       store.recorded_at,
       store.snap_ref,
-      activatedAt,
       JSON.stringify(coverage),
       input.actorId,
     ],

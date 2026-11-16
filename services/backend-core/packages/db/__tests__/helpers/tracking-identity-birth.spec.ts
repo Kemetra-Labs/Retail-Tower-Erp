@@ -572,6 +572,35 @@ describe("anchorTrackedIdentities while tracked selling is on", () => {
   });
 });
 
+describe("the identity anchor cut (RT-1447)", () => {
+  it("stores the database transaction timestamp as the cut, not a millisecond-truncated copy", async () => {
+    if (skip()) return;
+    // A JS Date holds milliseconds. The stored cut must keep the database's microseconds, or an
+    // effect committed just before the anchor counts again (the flake of "identity positions
+    // since the anchor"). Five tenants: one timestamp can have a zero sub-millisecond part by chance.
+    for (let i = 0; i < 5; i += 1) {
+      const f = await seedTenant();
+      await activate(f);
+      await master(f, await seedRun(f, EVIDENCE));
+      const seen = await asTenant(f, async (c) => {
+        const txNow = (await c.query<{ t: string }>(`SELECT now()::text AS t`)).rows[0]!.t;
+        const outcome = await anchorTrackedIdentities(c, { tenantId: f.tenantId, actorId: ACTOR });
+        const stored = (
+          await c.query<{ t: string; at: Date }>(
+            `SELECT activated_at::text AS t, activated_at AS at FROM inventory_identity_anchors WHERE store_id = $1`,
+            [f.storeId],
+          )
+        ).rows[0]!;
+        return { txNow, outcome, stored };
+      });
+      expect(seen.outcome.kind).toBe("anchored");
+      expect(seen.stored.t).toBe(seen.txNow);
+      // The reported string is unchanged: millisecond ISO of the same instant.
+      if (seen.outcome.kind === "anchored") expect(seen.outcome.activatedAt).toBe(seen.stored.at.toISOString());
+    }
+  });
+});
+
 describe("identity positions since the anchor", () => {
   async function effect(
     f: Fixture,

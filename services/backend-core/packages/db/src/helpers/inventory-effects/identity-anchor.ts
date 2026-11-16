@@ -247,10 +247,13 @@ export async function anchorTrackedIdentities(
   const tracking = trackingRefusal(tracked);
   if (tracking !== null) return refused(tracking);
 
+  // Only the reported string comes from this JS Date (millisecond precision). The stored cut
+  // is the database transaction timestamp itself (below): a JS Date truncates to the
+  // millisecond, which let an effect committed just before the anchor count again (RT-1447).
   const now = (await client.query<{ now: Date }>(`SELECT now() AS now`)).rows[0]!.now;
   const anchored: AnchoredIdentityStore[] = [];
   // sequential: anchors are written on the transaction's one client.
-  for (const s of tracked) anchored.push(await writeIdentityAnchor(client, input, s, now));
+  for (const s of tracked) anchored.push(await writeIdentityAnchor(client, input, s));
   return { kind: "anchored", activatedAt: now.toISOString(), stores: anchored };
 }
 
@@ -258,7 +261,6 @@ async function writeIdentityAnchor(
   client: Client,
   input: AnchorTrackedIdentitiesInput,
   s: StoreTracked,
-  activatedAt: Date,
 ): Promise<AnchoredIdentityStore> {
   const facts = await client.query<{ n: number; last_received_at: Date | null; g: number }>(
     `SELECT (SELECT count(*)::int FROM stock_movements
@@ -286,7 +288,7 @@ async function writeIdentityAnchor(
     `INSERT INTO inventory_identity_anchors
        (id, tenant_id, store_id, generation, base_anchor_id, source_run_id, snapshot_read_at,
         snapshot_recorded_at, erpnext_warehouse_ref, activated_at, coverage, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, transaction_timestamp(), $10::jsonb, $11)`,
     [
       identityAnchorId,
       input.tenantId,
@@ -297,7 +299,6 @@ async function writeIdentityAnchor(
       s.store.read_at,
       s.store.recorded_at,
       s.store.snap_ref,
-      activatedAt,
       JSON.stringify(coverage),
       input.actorId,
     ],

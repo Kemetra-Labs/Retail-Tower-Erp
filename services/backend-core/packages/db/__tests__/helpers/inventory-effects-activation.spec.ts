@@ -291,6 +291,34 @@ describe("activation", () => {
     expect(again).toEqual({ kind: "refused", refusal: { code: "already_active", storeIds: [] } });
   });
 
+  it("stores the database transaction timestamp as the cut, not a millisecond-truncated copy (RT-1447)", async () => {
+    if (skip()) return;
+    // A JS Date holds milliseconds. The stored cut must keep the database's microseconds, or an
+    // effect committed just before activation counts again. Five tenants: one timestamp can have
+    // a zero sub-millisecond part by chance.
+    for (let i = 0; i < 5; i += 1) {
+      const f = await seedTenant([{}]);
+      const seen = await asTenant(f, async (c) => {
+        const txNow = (await c.query<{ t: string }>(`SELECT now()::text AS t`)).rows[0]!.t;
+        const outcome = await activateSaleEffects(c, { tenantId: f.tenantId, actorId: ACTOR });
+        const stored = (
+          await c.query<{ anchor: string; flag: string }>(
+            `SELECT a.activated_at::text AS anchor, s.sale_effects_activated_at::text AS flag
+               FROM inventory_anchors a, tenant_inventory_settings s
+              WHERE a.store_id = $1 AND s.tenant_id = $2`,
+            [f.storeIds[0], f.tenantId],
+          )
+        ).rows[0]!;
+        return { txNow, outcome, stored };
+      });
+      expect(seen.outcome.kind).toBe("activated");
+      expect(seen.stored.anchor).toBe(seen.txNow);
+      expect(seen.stored.flag).toBe(seen.txNow);
+      // The reported string is unchanged: millisecond ISO of the same instant.
+      if (seen.outcome.kind === "activated") expect(seen.outcome.activatedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    }
+  });
+
   it("compares anchor + effects since activation with the latest Bin", async () => {
     if (skip()) return;
     const f = await seedTenant([{}]);
