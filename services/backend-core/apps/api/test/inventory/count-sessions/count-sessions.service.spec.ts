@@ -230,6 +230,86 @@ describe('dark by default, scope and isolation (AC1)', () => {
   });
 });
 
+describe('tracked products are refused (AC1)', () => {
+  const P_BATCH = '0a000000-0000-7000-8000-0000000c7001';
+  const P_SERIAL = '0a000000-0000-7000-8000-0000000c7002';
+  const P_PLAIN = '0a000000-0000-7000-8000-0000000c7003';
+  const FIXTURE = [P_BATCH, P_SERIAL, P_PLAIN];
+
+  beforeEach(async () => {
+    if (!env) return;
+    await admin.query(`DELETE FROM tenant_products WHERE id = ANY($1::uuid[])`, [FIXTURE]);
+    await admin.query(
+      `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by, tracking_mode)
+       VALUES ($1, $4, 'CS Batch', 'standard', $5, $5, 'batch'),
+              ($2, $4, 'CS Serial', 'standard', $5, $5, 'serial'),
+              ($3, $4, 'CS Plain', 'standard', $5, $5, 'none')`,
+      [P_BATCH, P_SERIAL, P_PLAIN, TENANT_A, COUNTER],
+    );
+  });
+
+  afterAll(async () => {
+    if (!env) return;
+    await admin.query(`DELETE FROM count_session_lines`);
+    await admin.query(`DELETE FROM count_sessions`);
+    await admin.query(`DELETE FROM tenant_products WHERE id = ANY($1::uuid[])`, [FIXTURE]);
+  });
+
+  async function writes(): Promise<{ sessions: number; lines: number; audits: number }> {
+    const r = await admin.query(
+      `SELECT (SELECT count(*)::int FROM count_sessions) AS sessions,
+              (SELECT count(*)::int FROM count_session_lines) AS lines,
+              (SELECT count(*)::int FROM audit_events WHERE action = 'inventory.count_session.open') AS audits`,
+    );
+    return r.rows[0] as { sessions: number; lines: number; audits: number };
+  }
+
+  async function refusal(products: string[]): Promise<unknown> {
+    try {
+      await service.createSession(as(COUNTER), STORE_A_X, products, null);
+    } catch (e) {
+      return e;
+    }
+    return null;
+  }
+
+  it.each([
+    ['batch', P_BATCH],
+    ['serial', P_SERIAL],
+  ])('refuses a %s-tracked product with 409 count_tracked_product_refused and writes nothing', async (_mode, product) => {
+    if (skipped()) return;
+    const before = await writes();
+    const error = await refusal([product]);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).getStatus()).toBe(409);
+    expect(((error as ConflictException).getResponse() as { code?: string }).code).toBe('count_tracked_product_refused');
+    expect(await writes()).toEqual(before);
+  });
+
+  it.each([
+    ['batch', P_BATCH],
+    ['serial', P_SERIAL],
+  ])('refuses the whole scope when a %s-tracked product is included with an untracked one', async (_mode, tracked) => {
+    if (skipped()) return;
+    const before = await writes();
+    const error = await refusal([PRODUCT_A_ACTIVE, tracked]);
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(((error as ConflictException).getResponse() as { code?: string }).code).toBe('count_tracked_product_refused');
+    // No partial session: the untracked product is still free to open on its own.
+    expect(await writes()).toEqual(before);
+    expect(await code(service.createSession(as(COUNTER), STORE_A_X, [PRODUCT_A_ACTIVE], null))).toBe('ok');
+  });
+
+  it('still accepts an untracked product', async () => {
+    if (skipped()) return;
+    const session = await service.createSession(as(COUNTER), STORE_A_X, [P_PLAIN], null);
+    expect(session.state).toBe('open');
+    const after = await writes();
+    expect(after.sessions).toBe(1);
+    expect(after.lines).toBe(1);
+  });
+});
+
 describe('lifecycle (AC2)', () => {
   it('open -> cut -> submit -> approve, with illegal transitions refused', async () => {
     if (skipped()) return;
