@@ -4370,9 +4370,8 @@ components:
                   type: string
                   description: The code of the first readiness boundary that does not hold.
                 storeId:
-                  type: string
+                  type: [string, "null"]
                   format: uuid
-                  nullable: true
                   description: The store of the first boundary, or null for a tenant-wide one.
                 unmet:
                   type: array
