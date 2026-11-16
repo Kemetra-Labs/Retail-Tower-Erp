@@ -34,6 +34,10 @@ export interface HeartbeatFields {
   readonly backlogIndicator?: number | undefined;
   readonly erpnextReachable?: boolean | undefined;
   readonly sourceClockAt?: string | undefined;
+  readonly acceptedWorkItemKinds?: readonly string[] | undefined;
+  readonly backDatedRole?:
+    | { readonly status: string; readonly checkedAt: string }
+    | undefined;
 }
 
 /** Guard-attached connector identity (018 ConnectorAuthGuard `request.connector`). */
@@ -54,6 +58,10 @@ interface JoinDbRow {
   backlog_indicator: number | null;
   erpnext_reachable: boolean | null;
   reported_fields_at: Date | null;
+  accepted_work_item_kinds: string[] | null;
+  back_dated_role_status: string | null;
+  back_dated_role_checked_at: Date | null;
+  back_dated_role_reported_at: Date | null;
 }
 
 const JOIN_SELECT = `
@@ -66,7 +74,11 @@ const JOIN_SELECT = `
          h.connector_version       AS connector_version,
          h.backlog_indicator       AS backlog_indicator,
          h.erpnext_reachable       AS erpnext_reachable,
-         h.reported_fields_at      AS reported_fields_at
+         h.reported_fields_at      AS reported_fields_at,
+         h.accepted_work_item_kinds     AS accepted_work_item_kinds,
+         h.back_dated_role_status       AS back_dated_role_status,
+         h.back_dated_role_checked_at   AS back_dated_role_checked_at,
+         h.back_dated_role_reported_at  AS back_dated_role_reported_at
     FROM connector_registration r
     LEFT JOIN connector_health h
       ON h.connector_registration_id = r.id
@@ -84,7 +96,23 @@ function toJoin(row: JoinDbRow): ConnectorHealthJoinRow {
     backlogIndicator: row.backlog_indicator,
     erpnextReachable: row.erpnext_reachable,
     reportedFieldsAt: row.reported_fields_at,
+    acceptedWorkItemKinds: row.accepted_work_item_kinds,
+    backDatedRoleStatus: row.back_dated_role_status,
+    backDatedRoleCheckedAt: row.back_dated_role_checked_at,
+    backDatedRoleReportedAt: row.back_dated_role_reported_at,
   };
+}
+
+/** True when the beat carries any self-reported field (a bare beat is liveness only). */
+function hasReportedFields(fields: HeartbeatFields): boolean {
+  return [
+    fields.connectorVersion,
+    fields.backlogIndicator,
+    fields.erpnextReachable,
+    fields.sourceClockAt,
+    fields.acceptedWorkItemKinds,
+    fields.backDatedRole,
+  ].some((value) => value !== null && value !== undefined);
 }
 
 @Injectable()
@@ -158,21 +186,22 @@ export class ConnectorHealthService {
         //   UPDATE → now() when fields present, else PRESERVE the existing
         //            value via the target-table qualifier `connector_health.…`
         //            (NOT EXCLUDED, which is the rejected insert row = NULL here).
-        const hasFields =
-          (fields.connectorVersion !== null &&
-            fields.connectorVersion !== undefined) ||
-          (fields.backlogIndicator !== null &&
-            fields.backlogIndicator !== undefined) ||
-          (fields.erpnextReachable !== null &&
-            fields.erpnextReachable !== undefined) ||
-          (fields.sourceClockAt !== null && fields.sourceClockAt !== undefined);
+        const hasFields = hasReportedFields(fields);
+        // RT-1427: the evidence columns are last-write-wins like the rest: a beat
+        // that omits them stores NULL, so stale evidence never outlives the
+        // Connector that stopped reporting it. The role stamp is the SERVER clock.
+        const role = fields.backDatedRole;
         const res = await client.query<{ last_seen_at: Date }>(
           `INSERT INTO connector_health
              (id, tenant_id, connector_registration_id, last_seen_at,
               connector_version, backlog_indicator, erpnext_reachable,
-              source_clock_at, reported_fields_at, updated_at)
+              source_clock_at, reported_fields_at, updated_at,
+              accepted_work_item_kinds, back_dated_role_status,
+              back_dated_role_checked_at, back_dated_role_reported_at)
            VALUES ($1, $2, $3, now(), $4, $5, $6, $7,
-                   CASE WHEN $8 THEN now() ELSE NULL END, now())
+                   CASE WHEN $8 THEN now() ELSE NULL END, now(),
+                   $9::text[], $10::text, $11::timestamptz,
+                   CASE WHEN $10::text IS NULL THEN NULL ELSE now() END)
            ON CONFLICT (connector_registration_id) DO UPDATE SET
              last_seen_at       = now(),
              connector_version  = EXCLUDED.connector_version,
@@ -181,7 +210,11 @@ export class ConnectorHealthService {
              source_clock_at    = EXCLUDED.source_clock_at,
              reported_fields_at = CASE WHEN $8 THEN now()
                                        ELSE connector_health.reported_fields_at END,
-             updated_at         = now()
+             updated_at         = now(),
+             accepted_work_item_kinds    = EXCLUDED.accepted_work_item_kinds,
+             back_dated_role_status      = EXCLUDED.back_dated_role_status,
+             back_dated_role_checked_at  = EXCLUDED.back_dated_role_checked_at,
+             back_dated_role_reported_at = EXCLUDED.back_dated_role_reported_at
            RETURNING last_seen_at`,
           [
             newId(),
@@ -192,6 +225,11 @@ export class ConnectorHealthService {
             fields.erpnextReachable ?? null,
             fields.sourceClockAt ?? null,
             hasFields,
+            fields.acceptedWorkItemKinds
+              ? [...fields.acceptedWorkItemKinds]
+              : null,
+            role?.status ?? null,
+            role?.checkedAt ?? null,
           ],
         );
         const row = res.rows[0];

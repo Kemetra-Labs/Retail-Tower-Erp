@@ -26,6 +26,12 @@ export interface ConnectorHealthViewBody {
   backlogIndicator: number | null;
   erpnextReachable: boolean | null;
   reportedFieldsAt: string | null;
+  acceptedWorkItemKinds: string[] | null;
+  backDatedRole: {
+    status: string;
+    checkedAt: string | null;
+    reportedAt: string;
+  } | null;
 }
 
 /** The joined registration + health shape the read query produces (camelCase). */
@@ -41,6 +47,10 @@ export interface ConnectorHealthJoinRow {
   backlogIndicator: number | null;
   erpnextReachable: boolean | null;
   reportedFieldsAt: Date | null;
+  acceptedWorkItemKinds: string[] | null;
+  backDatedRoleStatus: string | null;
+  backDatedRoleCheckedAt: Date | null;
+  backDatedRoleReportedAt: Date | null;
 }
 
 /**
@@ -67,5 +77,16 @@ export function toConnectorHealthView(
     reportedFieldsAt: row.reportedFieldsAt
       ? row.reportedFieldsAt.toISOString()
       : null,
+    acceptedWorkItemKinds: row.acceptedWorkItemKinds,
+    backDatedRole:
+      row.backDatedRoleStatus !== null && row.backDatedRoleReportedAt !== null
+        ? {
+            status: row.backDatedRoleStatus,
+            checkedAt: row.backDatedRoleCheckedAt
+              ? row.backDatedRoleCheckedAt.toISOString()
+              : null,
+            reportedAt: row.backDatedRoleReportedAt.toISOString(),
+          }
+        : null,
   };
 }

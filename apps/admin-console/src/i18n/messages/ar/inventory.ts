@@ -13,6 +13,7 @@ import type { Messages } from "../types";
 export const inventory = {
   // --- Navigation (under the Inventory section) ----------------------------------
   "inventory.nav.label": "حركات المخزون",
+  "inventory.counts.link": "جرد المخزون في هذا المتجر",
 
   // --- Shared states ----------------------------------------------------------
   "inventory.scopePrompt": "اختر مستأجرًا من شريط النطاق لعرض المخزون.",

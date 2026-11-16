@@ -92,11 +92,12 @@ export const stock: MessagesOf<typeof ar> = {
   "stock.desk.title": "Resolving a negative quantity in ERPNext Desk",
   "stock.desk.receipt":
     "Post the missing Purchase Receipt, or a Stock Entry (Material Receipt or Material Transfer), for the item and warehouse.",
-  "stock.desk.count": "Or record a physical count with a Stock Reconciliation.",
+  "stock.desk.count":
+    "Do not adjust stock yourself with a Stock Reconciliation in ERPNext Desk: an independent adjustment bypasses Retail Tower and can leave the two systems disagreeing. Record physical counts in Retail Tower.",
   "stock.desk.noBlindEntry":
     "Do not post a balancing entry blindly; find the missing document first.",
   "stock.desk.note":
-    "Retail Tower creates no stock documents. A row clears only when a later ERPNext snapshot shows the item at zero or above.",
+    "This read-only page creates no stock documents. A row clears only when a later ERPNext snapshot shows the item at zero or above.",
 
   // --- Unknown items review queue (RF-4a) -----------------------------------
   "unknownItems.title": "Unknown items",

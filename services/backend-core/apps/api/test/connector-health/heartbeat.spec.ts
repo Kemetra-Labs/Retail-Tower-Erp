@@ -117,6 +117,85 @@ async function rowCount(registrationId: string): Promise<number> {
   return Number(r.rows[0]?.n ?? "0");
 }
 
+describe("RT-1427 — count activation evidence", () => {
+  const checkedAt = "2020-01-01T10:00:00.000Z";
+
+  async function evidence(registrationId: string) {
+    const r = await guard().admin.query<{
+      accepted_work_item_kinds: string[] | null;
+      back_dated_role_status: string | null;
+      back_dated_role_checked_at: Date | null;
+      back_dated_role_reported_at: Date | null;
+    }>(
+      `SELECT accepted_work_item_kinds, back_dated_role_status,
+              back_dated_role_checked_at, back_dated_role_reported_at
+         FROM connector_health WHERE connector_registration_id = $1`,
+      [registrationId],
+    );
+    return r.rows[0];
+  }
+
+  it("stores the kinds and the role, stamping the role with the SERVER clock", async () => {
+    if (maybeSkip()) return;
+    await service.recordHeartbeat(
+      { registrationId: REG_A_NEVER, tenantId: TENANT_A },
+      {
+        acceptedWorkItemKinds: ["sale_post", "inventory_count"],
+        backDatedRole: { status: "verified", checkedAt },
+      },
+    );
+    const row = await evidence(REG_A_NEVER);
+    expect(row?.accepted_work_item_kinds).toEqual(["sale_post", "inventory_count"]);
+    expect(row?.back_dated_role_status).toBe("verified");
+    expect(row?.back_dated_role_checked_at?.toISOString()).toBe(checkedAt);
+    // The freshness stamp is the DP2 clock (about now), not the Connector's checkedAt.
+    const reportedAt = row?.back_dated_role_reported_at?.getTime() ?? 0;
+    expect(reportedAt).not.toBe(new Date(checkedAt).getTime());
+    expect(Math.abs(Date.now() - reportedAt)).toBeLessThan(5 * 60_000);
+  });
+
+  it("a later beat that omits the evidence clears it (no stale verified)", async () => {
+    if (maybeSkip()) return;
+    const identity = { registrationId: REG_A_NEVER, tenantId: TENANT_A };
+    await service.recordHeartbeat(identity, {
+      acceptedWorkItemKinds: ["inventory_count"],
+      backDatedRole: { status: "verified", checkedAt },
+    });
+    await service.recordHeartbeat(identity, { connectorVersion: "2.0.1" });
+    const row = await evidence(REG_A_NEVER);
+    expect(row?.accepted_work_item_kinds).toBeNull();
+    expect(row?.back_dated_role_status).toBeNull();
+    expect(row?.back_dated_role_reported_at).toBeNull();
+  });
+
+  it("a missing and an unknown role are stored as reported, never promoted", async () => {
+    if (maybeSkip()) return;
+    const identity = { registrationId: REG_A_NEVER, tenantId: TENANT_A };
+    for (const status of ["missing", "unknown"]) {
+      await service.recordHeartbeat(identity, { backDatedRole: { status, checkedAt } });
+      expect((await evidence(REG_A_NEVER))?.back_dated_role_status).toBe(status);
+    }
+  });
+
+  it("the operator read returns the evidence, null before any report", async () => {
+    if (maybeSkip()) return;
+    const before = await service.getHealth({ tenantId: TENANT_A, registrationId: REG_A_NEVER });
+    expect(before?.acceptedWorkItemKinds).toBeNull();
+    expect(before?.backDatedRole).toBeNull();
+    await service.recordHeartbeat(
+      { registrationId: REG_A_NEVER, tenantId: TENANT_A },
+      {
+        acceptedWorkItemKinds: ["inventory_count"],
+        backDatedRole: { status: "missing", checkedAt },
+      },
+    );
+    const after = await service.getHealth({ tenantId: TENANT_A, registrationId: REG_A_NEVER });
+    expect(after?.acceptedWorkItemKinds).toEqual(["inventory_count"]);
+    expect(after?.backDatedRole).toMatchObject({ status: "missing", checkedAt });
+    expect(after?.backDatedRole?.reportedAt).toEqual(expect.any(String));
+  });
+});
+
 describe("020-US2 — recordHeartbeat", () => {
   it("first beat lazily CREATES the health row with server-clock last_seen_at + self-reported fields", async () => {
     if (maybeSkip()) return;
