@@ -325,6 +325,19 @@ describe('acknowledgement changes state, never quantity (AC4)', () => {
     };
     expect((await ack(c.id, body)).replayed).toBe(false);
     expect((await ack(c.id, body)).replayed).toBe(true);
+    const other = { ...body, lines: [line(1, 'rejected', { refusal: { code: 'unmapped_item', message: 'item' } })] };
+    await expect(ack(c.id, other)).rejects.toThrow();
+    expect((await effects(id))[0]!.state).toBe('rejected');
+  });
+
+  it('refuses an adjusted line on a permanently_rejected ack', async () => {
+    if (skipped()) return;
+    const id = await approvedSession();
+    const c = await chunk(id);
+    await expect(
+      ack(c.id, { outcome: 'permanently_rejected', reason: { category: 'other', message: 'x' }, lines: [line(1, 'adjusted')] }),
+    ).rejects.toThrow();
+    expect((await chunk(id)).status).toBe('pending');
   });
 
   it('refuses lines on a failed_transient ack and keeps the chunk pending', async () => {

@@ -689,13 +689,8 @@ export class ErpnextPostingService {
       return await this.reconcileTerminal(client, input, row);
     }
     // RT-1423: a count chunk's replay must agree with the line evidence already stored: a fresh-key ack that
-    // turns a recorded line into another result is a contradiction (409), never an echo. Only a posted or
-    // verified_noop chunk stores line evidence; a dead-lettered one stores none, so its replay is not compared.
-    if (
-      row.kind === "inventory_count" &&
-      (row.status === "posted" || row.status === "verified_noop") &&
-      (await countLinesContradict(client, input.workItemRef, input.lines))
-    ) {
+    // turns a recorded line into another result is a contradiction (409), never an echo.
+    if (row.kind === "inventory_count" && (await countLinesContradict(client, input.workItemRef, input.lines))) {
       throw new AckConflictError();
     }
     // A post from a superseded resolution is never confirmed as posted — not
@@ -786,6 +781,7 @@ export class ErpnextPostingService {
       case "reconciliation_required":
         return await this.applyReconciliation(client, input);
       case "permanently_rejected":
+        if (isCount && input.lines) await this.recordRejectedCountLines(client, input);
         return await this.applyRejected(client, {
           workItemRef: input.workItemRef,
           category: input.reason?.category ?? "other",
@@ -858,6 +854,23 @@ export class ErpnextPostingService {
    * effects of each line (the generic confirm-every-effect signal would confirm lines the Connector rejected);
    * the chunk row records the document (`posted`) or none (`verified_noop`: never a fabricated document).
    */
+  /**
+   * A dead-lettered count chunk may carry its per-line refusals. They are validated against the frozen lines
+   * and stored (so a replay is compared with them) BEFORE the chunk goes terminal. Every line must be rejected:
+   * a chunk the Connector refused cannot have adjusted anything.
+   */
+  private async recordRejectedCountLines(client: PoolClient, input: AckOutcomeInput): Promise<void> {
+    if (input.lines!.some((l) => l.result !== "rejected")) {
+      throw new AckValidationError("a permanently_rejected ack carries only rejected lines");
+    }
+    try {
+      await applyCountLineResults(client, input.workItemRef, input.lines!, null);
+    } catch (err) {
+      if (err instanceof CountAckLinesError) throw new AckValidationError(err.message);
+      throw err;
+    }
+  }
+
   private async applyCountPosted(client: PoolClient, input: AckOutcomeInput): Promise<RecordedOutcome> {
     const noop = input.outcome === "verified_noop";
     if (!input.lines) throw new AckValidationError("lines is required for an inventory_count ack");
