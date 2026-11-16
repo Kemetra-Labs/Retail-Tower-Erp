@@ -16,7 +16,9 @@
  *   - pending Retail: a Retail effect with no ERP intent yet — `not_posted`
  *     (an effect without an integration row is treated the same);
  *   - `confirmed` and `external` are ERP book already; `erp_neutral` nets to
- *     zero per bucket (Gate 4 Q10). None is a term.
+ *     zero per bucket (Gate 4 Q10); `erp_absorbed` (RT-1424, a late-count
+ *     compensation whose quantity a named ERP document already holds) is in
+ *     operational position and in no term. None is a term.
  *
  * Only tenants with activated sale effects have an anchor-based position. For
  * every other tenant (and a store created after activation, which has no

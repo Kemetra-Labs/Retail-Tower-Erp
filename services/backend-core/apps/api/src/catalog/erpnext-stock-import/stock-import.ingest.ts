@@ -759,9 +759,9 @@ async function recordRow(
        (id, tenant_id, store_id, page_id, erpnext_warehouse_ref, ledger_entry_ref, entry_index,
         voucher_type, voucher_no, voucher_detail_no, erpnext_item_ref, erpnext_batch_ref, creation,
         is_cancelled, actual_qty, stock_uom, outcome, effect_key, tenant_product_ref,
-        tracking_identity_id, effect_id, event_type)
+        tracking_identity_id, effect_id, event_type, posting_date, posting_time)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::timestamptz,
-             $14, $15::numeric, $16, $17, $18, $19, $20, $21, $22)`,
+             $14, $15::numeric, $16, $17, $18, $19, $20, $21, $22, $23::date, $24::time)`,
     [
       rowId,
       ctx.tenantId,
@@ -785,6 +785,8 @@ async function recordRow(
       d.identityId,
       effectId,
       d.eventType ?? null,
+      row.postingDate,
+      row.postingTime,
     ],
   );
 }

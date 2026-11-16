@@ -479,6 +479,19 @@ describe("stockImportReportRows — DC-4 import", () => {
     expect((e.erp_confirmed_at as Date).getTime()).toBe(new Date(r["creation"] as string).getTime());
   });
 
+  it("stores the ledger row's posting stamp as read, microseconds kept (RT-1424, condition C)", async () => {
+    if (skip) return;
+    const r = row({ voucherNo: "MAT-PRE-STAMP", detail: "stamp-1" });
+    r["postingDate"] = "2026-11-12";
+    r["postingTime"] = "09:59:30.25";
+    await importA([r]);
+    const stored = await env!.admin.query(
+      `SELECT posting_date::text AS d, posting_time::text AS t, outcome FROM erp_stock_import_rows WHERE ledger_entry_ref = $1`,
+      [r["ledgerEntryRef"]],
+    );
+    expect(stored.rows).toEqual([{ d: "2026-11-12", t: "09:59:30.25", outcome: "imported" }]);
+  });
+
   it("imports exactly once across a replay, a re-report and the overlap re-read", async () => {
     if (skip) return;
     const r = row({ voucherNo: "MAT-PRE-ONCE", detail: "once-1" });

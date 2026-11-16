@@ -32,6 +32,7 @@ import { RolesGuard } from "../auth/roles.guard";
 import { ContextModule } from "../context/context.module";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
 import { DeviceRepository } from "../pos-operators/device.repository";
+import { CountLateCompensationService } from "./count-sessions/late-compensation.service";
 import { CountSessionsController } from "./count-sessions/count-sessions.controller";
 import { CountSessionsSettingController } from "./count-sessions/count-sessions-setting.controller";
 import { CountSessionsSettingService } from "./count-sessions/count-sessions-setting.service";
@@ -122,6 +123,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     TrackedSellingSettingService,
     TrackedSellingPreconditions,
     CountSessionsService,
+    CountLateCompensationService,
     CountSessionsSettingService,
     RolesGuard,
     // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device

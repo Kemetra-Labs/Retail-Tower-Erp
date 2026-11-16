@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.17.0-draft"
+  version: "1.18.0-draft"
   description: >
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
@@ -354,6 +354,19 @@ info:
     the late-event findings cannot be read without them:
     `listCountVarianceLines` and `listCountLateEventFindings`.
     `requestCountRecount` returns a `submitted` session to `cut_taken`.
+
+    **1.18.0-draft (RT-1424, additive; [GATED: migration, OpenAPI] owner
+    delegation in chat 2026-11-16, same delegation).** The governed
+    resolution of a late pre-cut event that an ERPNext count already absorbed
+    (RT-292 G6-5, conditions A to I): `resolveCountLateEvent` writes a
+    Retail-only, append-only `count_correction` effect, never automatically
+    and never an ERP document. The effect's integration state is the new
+    `erp_absorbed`, added to the `StockMovement.integrationState` response
+    enum (the movement projection shared by counts, movements, transfers, relocations and status moves; oasdiff reports `response-property-enum-value-added`,
+    acknowledged in `tools/oasdiff/breaking-ignore.txt` as RT-435 did for
+    `erp_neutral`; no response carries the value until a compensation exists
+    and only `listStockMovements` can return it). `erp_neutral` keeps its meaning. `CountLateEventFinding`
+    gains `compensation`, null until the finding is resolved.
 
     **1.17.0-draft (RT-1423, additive; [GATED: migration, contract] owner
     authorization in chat 2026-11-16, same delegation).** The activation of
@@ -2234,6 +2247,78 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
+  /api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation:
+    post:
+      operationId: resolveCountLateEvent
+      tags: [inventory]
+      summary: Compensate a late pre-cut event that an ERP count already absorbed (explicit, authorized).
+      description: >
+        RT-1424 (RT-292 G6-5; Confluence "Inventory Gate 6", conditions A to I).
+        The only way a compensating effect without an ERP intent is made. Never
+        automatic: not a worker, an import, a posting outcome or a schedule.
+        When every condition holds it appends ONE `count_correction` effect at
+        the late event's position whose quantity is the late event's signed
+        quantity negated, compensating the count's correction at that
+        position, with integration state `erp_absorbed` naming the absorbing ERP
+        document. No ERP intent, work item or document is created or changed,
+        and no original effect is updated. Conditions: A immutable causal link
+        (finding, late event, count correction; same tenant, store, product and
+        position; learned after the cut and stamped at or before it); B the
+        Connector read the count's and the late event's ledger rows back
+        (Backend-Core state is never evidence); C the late event is ERP book
+        (`confirmed` or `external`) and its ledger posting is earlier than the
+        count's; D the projected expected ERP book equals the Bin read after
+        both were confirmed (any other divergence refuses, deliberately: a
+        second uncompensated late event or a pending effect on the same product
+        also refuses, and the resolution is an authorized recount or the
+        governed ERP break-glass path); E owner or
+        tenant_admin, a mandatory `reason`, one audit event in the same
+        transaction; F the absorbing document is named and shown with the
+        finding; G one compensation per late event (a replay or a concurrent
+        retry returns the existing record and writes nothing; a database
+        UNIQUE key backs it); H the quantity is exact against the ledger
+        quantity read; I the post-write invariants hold or everything rolls
+        back. A refusal is a typed 409 (`compensation_link_invalid`,
+        `compensation_erp_evidence_missing`, `compensation_erp_order_unproven`,
+        `compensation_not_explainable`, `compensation_quantity_mismatch`,
+        `compensation_book_inconsistent`, `compensation_already_exists`,
+        `compensation_invariant_failed`) with the failed condition letter;
+        nothing is written and the Health finding stays. A store_manager is
+        refused (403). Idempotent via the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StoreIdPath"
+        - $ref: "#/components/parameters/CountSessionIdPath"
+        - name: findingId
+          in: path
+          required: true
+          description: A late-event finding of the path session, from `listCountLateEventFindings`.
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveCountLateEventCommand"
+            example:
+              reason: Late sale of 2 was already absorbed by the ERP count; verified in ERPNext.
+      responses:
+        "200":
+          description: The compensation (the existing one on a replay).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountLateEventCompensation"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/CountSessionConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
   /api/inventory/v1/settings/count-self-approval:
     get:
       operationId: getCountSelfApprovalSetting
@@ -2602,7 +2687,7 @@ components:
             Every movement written by this API is `retail`.
         integrationState:
           type: [string, "null"]
-          enum: [not_posted, pending, confirmed, rejected, reconciliation_required, external, erp_neutral, null]
+          enum: [not_posted, pending, confirmed, rejected, reconciliation_required, external, erp_neutral, erp_absorbed, null]
           description: >
             RT-425 (RT-289 G2-3): the effect's ERP integration state.
             `not_posted` = no ERP posting intent represents the effect;
@@ -2611,6 +2696,10 @@ components:
             `erp_neutral` (RT-435, RT-290 Q10) = an effect of a status move or
             relocation whose event nets to zero in its ERP mapping bucket, so
             it needs no ERP representation and never gets an intent.
+            `erp_absorbed` (RT-1424, RT-292 G6-5) = a late-count compensation
+            made only by `resolveCountLateEvent`: its quantity is already in
+            ERP book through a named ERP document, so it has no intent and
+            never changes state.
             A confirmation never adds quantity (decision 771). Null only for a
             movement with no integration record.
         erpConfirmedAt:
@@ -4186,6 +4275,47 @@ components:
         detectedAt: { type: string, format: date-time }
         detectedInState:
           $ref: "#/components/schemas/CountSessionState"
+        compensation:
+          description: RT-1424 - the compensation that resolved the finding; null until it is resolved.
+          oneOf:
+            - $ref: "#/components/schemas/CountLateEventCompensation"
+            - type: "null"
+    ResolveCountLateEventCommand:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    CountLateEventCompensation:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sessionId, findingId, lateEffectId, countEffectId, compensationEffectId, quantity, absorbingDocument,
+         integrationState, reason, approvedBy, createdAt]
+      description: >
+        RT-1424 (G6-5) - the compensation that resolved a late-event finding.
+        `quantity` is signed and exact: the late event's quantity, negated.
+      properties:
+        id: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        findingId: { type: string, format: uuid }
+        lateEffectId: { type: string, format: uuid }
+        countEffectId: { type: string, format: uuid }
+        compensationEffectId: { type: string, format: uuid }
+        quantity:
+          type: string
+          pattern: '^-?[0-9]+(\.[0-9]+)?$'
+        absorbingDocument:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [doctype, name]
+          properties:
+            doctype: { type: string, minLength: 1, maxLength: 100 }
+            name: { type: string, minLength: 1, maxLength: 200 }
+        integrationState: { type: string, enum: [erp_absorbed] }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        approvedBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
     CountLateEventFindingList:
       type: object
       additionalProperties: false
@@ -4514,7 +4644,12 @@ components:
         acknowledgement's `lineVersion` no longer matches the line, which
         changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the
         `Idempotency-Key` was already used for a different command. Nothing is
-        written. A count-up line without valuation history is not an error of
+        written. `compensation_link_invalid`, `compensation_erp_evidence_missing`,
+        `compensation_erp_order_unproven`, `compensation_not_explainable`,
+        `compensation_quantity_mismatch`, `compensation_book_inconsistent`,
+        `compensation_already_exists` and `compensation_invariant_failed`
+        (RT-1424, `resolveCountLateEvent`, conditions A to I) leave no
+        compensation. A count-up line without valuation history is not an error of
         the request: it is refused on its line (`CountVarianceLine.refusal`).
       content:
         application/json:

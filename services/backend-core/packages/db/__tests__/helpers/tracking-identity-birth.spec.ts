@@ -640,6 +640,32 @@ describe("identity positions since the anchor", () => {
     ]);
   });
 
+  it("an erp_absorbed compensation (RT-1424) is in the identity position and in no pending term", async () => {
+    if (skip()) return;
+    const f = await seedTenant();
+    await activate(f);
+    const run = await seedRun(f, EVIDENCE, { readAt: new Date(Date.now() - 5_000).toISOString() });
+    await master(f, run);
+    const b1 = await identityId(f, "B-1");
+    expect((await anchor(f)).kind).toBe("anchored");
+    const before = (await asTenant(f, (c) => readIdentityPositions(c, f.storeId))).find((p) => p.trackingIdentityId === b1)!;
+    const id = await effect(f, { identity: b1, product: f.products.EXP, quantity: "2", origin: "retail", occurredAt: new Date().toISOString(), eventType: "adjustment" });
+    // Without an integration row the effect is a pending-Retail term (the baseline the compensation must leave alone).
+    const pending = (await asTenant(f, (c) => readIdentityPositions(c, f.storeId))).find((p) => p.trackingIdentityId === b1)!;
+    expect(Number(pending.pendingRetail)).toBe(2);
+    await pg().admin.query(
+      `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, erp_document_ref, state_reason)
+       VALUES ($1, $2, 'erp_absorbed', '{"doctype":"Stock Reconciliation","name":"MAT-RECO-1"}', 'late_event_absorbed_by_count')`,
+      [id, f.tenantId],
+    );
+    const after = (await asTenant(f, (c) => readIdentityPositions(c, f.storeId))).find((p) => p.trackingIdentityId === b1)!;
+    // In the operational position, in neither pending term; expected ERP book follows the position.
+    expect(Number(after.operationalPosition) - Number(before.operationalPosition)).toBe(2);
+    expect(Number(after.pendingRetail)).toBe(Number(before.pendingRetail));
+    expect(Number(after.pendingErp)).toBe(Number(before.pendingErp));
+    expect(Number(after.expectedErpBook) - Number(before.expectedErpBook)).toBe(2);
+  });
+
   it("reads nothing for a store without an identity anchor, and nothing of another tenant", async () => {
     if (skip()) return;
     const f = await seedTenant();

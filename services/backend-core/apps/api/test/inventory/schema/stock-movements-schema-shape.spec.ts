@@ -280,18 +280,18 @@ describe("inventory schema shape — RT-425 effect columns", () => {
   });
 
   it("the integration state CHECK lists exactly INVENTORY_INTEGRATION_STATES", () => {
-    // 0044 (RT-432) replaced 0042's CHECK to add `erp_neutral` (RT-290 Q10);
-    // the latest definition is the one in force.
-    const sql0044 = fs.readFileSync(
+    // 0044 (RT-432) replaced 0042's CHECK to add `erp_neutral` (RT-290 Q10); 0118 (RT-1424) replaced it again to
+    // add `erp_absorbed`. The latest definition is the one in force.
+    const sql0118 = fs.readFileSync(
       path.resolve(
         __dirname,
-        "../../../../../packages/db/drizzle/0044_stock_locations_position_grain.sql",
+        "../../../../../packages/db/drizzle/0118_count_late_compensation.sql",
       ),
       "utf8",
     );
-    const start = sql0044.indexOf("ADD CONSTRAINT inventory_effect_integration_state_allowed");
+    const start = sql0118.indexOf("ADD CONSTRAINT inventory_effect_integration_state_allowed");
     expect(start).toBeGreaterThan(-1);
-    const body = sql0044.slice(start, sql0044.indexOf(";", start));
+    const body = sql0118.slice(start, sql0118.indexOf("NOT VALID", start));
     expect([...body.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual([
       ...INVENTORY_INTEGRATION_STATES,
     ]);

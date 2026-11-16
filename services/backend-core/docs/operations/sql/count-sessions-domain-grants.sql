@@ -34,6 +34,8 @@
 
 GRANT SELECT, INSERT, UPDATE ON count_sessions, count_session_lines TO :"domain_role";
 GRANT SELECT, INSERT ON count_session_expected, count_observations, count_late_event_findings TO :"domain_role";
+-- RT-1424 (0118): append-only late-event compensations.
+GRANT SELECT, INSERT ON count_late_compensations TO :"domain_role";
 
 -- Verify the domain role: every row must read `t`.
 SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS granted
@@ -48,7 +50,9 @@ SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS gran
                ('count_observations', 'SELECT'),
                ('count_observations', 'INSERT'),
                ('count_late_event_findings', 'SELECT'),
-               ('count_late_event_findings', 'INSERT')) AS t(tbl, priv);
+               ('count_late_event_findings', 'INSERT'),
+               ('count_late_compensations', 'SELECT'),
+               ('count_late_compensations', 'INSERT')) AS t(tbl, priv);
 
 SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv)) AS domain_ok
   FROM (VALUES ('count_sessions', 'SELECT'),
@@ -62,7 +66,9 @@ SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv)) AS domain_ok
                ('count_observations', 'SELECT'),
                ('count_observations', 'INSERT'),
                ('count_late_event_findings', 'SELECT'),
-               ('count_late_event_findings', 'INSERT')) AS t(tbl, priv) \gset
+               ('count_late_event_findings', 'INSERT'),
+               ('count_late_compensations', 'SELECT'),
+               ('count_late_compensations', 'INSERT')) AS t(tbl, priv) \gset
 
 \if :domain_ok
   \echo 'OK: domain role holds every required Count Session grant.'

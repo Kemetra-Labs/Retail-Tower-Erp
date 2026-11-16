@@ -394,7 +394,9 @@ moves AS (
   SELECT anchor.store_id, mv.tenant_product_ref AS product,
          sum(mv.quantity) AS total,
          sum(mv.quantity) FILTER (WHERE i.state IS DISTINCT FROM 'confirmed'
-                                    AND i.state IS DISTINCT FROM 'erp_neutral') AS unconfirmed,
+                                    AND i.state IS DISTINCT FROM 'erp_neutral'
+                                    -- RT-1424: ERP book already holds it (named absorbing document).
+                                    AND i.state IS DISTINCT FROM 'erp_absorbed') AS unconfirmed,
          min(mv.stocking_unit) AS unit
     FROM anchor
     -- SINCE_ANCHOR: every sale / void / return effect, other movements from the watermark.
