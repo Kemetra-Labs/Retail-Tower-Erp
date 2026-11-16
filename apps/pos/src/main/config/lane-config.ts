@@ -156,12 +156,22 @@ export function validateLaneConfig(raw: unknown): LaneConfigVerdict {
     if (looksLikeSecret(value)) return refuse('looks_like_secret', field);
     if (!FIELD_SHAPES[field](value)) return refuse('invalid_value', field);
   }
-  // The channel drives the telemetry class and the heartbeat channel (`lab` is the lab
-  // class), so a pilot or production build must not claim it.
-  if (raw['updateChannel'] === 'lab' && raw['lane'] !== 'lab') {
-    return refuse('invalid_value', 'updateChannel');
-  }
+  if (bakesForbiddenChannel(raw)) return refuse('invalid_value', 'updateChannel');
   return { ok: true, config: pickValidated(raw) };
+}
+
+/**
+ * True when the file bakes an update channel its lane may not carry:
+ *   - any channel on the production lane (RT-322 / RT-1345 D1 amendment, RT-1390 O-3): each
+ *     device takes it from the Machine-scope `POS_PULSE_UPDATE_CHANNEL` (unset means `stable`),
+ *     so a baked value would pin every production terminal to one channel;
+ *   - the `lab` channel outside the lab lane: it drives the telemetry class and the heartbeat
+ *     channel, so a pilot or production build must not claim it.
+ */
+function bakesForbiddenChannel(raw: Record<string, unknown>): boolean {
+  if (!('updateChannel' in raw)) return false;
+  if (raw['lane'] === 'production') return true;
+  return raw['updateChannel'] === 'lab' && raw['lane'] !== 'lab';
 }
 
 /** A fresh object holding only the allowed, already validated fields. */

@@ -48,6 +48,39 @@ describe('validateLaneConfig', () => {
     expect(validateLaneConfig({ lane: 'lab', updateChannel: 'lab' }).ok).toBe(true);
   });
 
+  // RT-322 / RT-1345 D1 amendment (RT-1390 O-3): a production build never bakes its update channel.
+  // The channel comes per device from the Machine-scope variable and defaults to `stable`.
+  it.each(['canary', 'stable', 'lab'])(
+    'refuses a baked %s update channel on the production lane',
+    (updateChannel) => {
+      expect(validateLaneConfig({ lane: 'production', updateChannel })).toEqual({
+        ok: false,
+        reason: 'invalid_value',
+        field: 'updateChannel',
+      });
+    },
+  );
+
+  it('refuses a production file holding a channel even when every other field is valid', () => {
+    expect(validateLaneConfig({ ...FULL, lane: 'production' }).ok).toBe(false);
+  });
+
+  it('accepts the production lane with every field except the update channel', () => {
+    const raw = {
+      lane: 'production',
+      apiBaseUrl: API,
+      descopeProjectId: PROJECT_ID,
+      updateOrigin: FULL.updateOrigin,
+    };
+    expect(validateLaneConfig(raw)).toEqual({ ok: true, config: raw });
+  });
+
+  it('still accepts a baked canary or stable channel on the pilot lane', () => {
+    for (const updateChannel of ['canary', 'stable']) {
+      expect(validateLaneConfig({ lane: 'pilot', updateChannel }).ok).toBe(true);
+    }
+  });
+
   it('refuses a field name from the file that does not look like a name', () => {
     const verdict = validateLaneConfig({ lane: 'lab', 'a b\nc': 'x' });
     expect(verdict).toEqual({ ok: false, reason: 'unknown_field', field: '(invalid name)' });
