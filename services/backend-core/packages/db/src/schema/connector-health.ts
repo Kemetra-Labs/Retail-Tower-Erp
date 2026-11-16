@@ -72,6 +72,19 @@ export const connectorHealth = pgTable(
     sourceClockAt: timestamp("source_clock_at", { withTimezone: true }),
     // Server clock when the self-reported fields were last updated.
     reportedFieldsAt: timestamp("reported_fields_at", { withTimezone: true }),
+    // RT-1427 — Count activation evidence (migration 0115). NULL = never reported.
+    // Self-reported posting work-item kinds the Connector accepts.
+    acceptedWorkItemKinds: text("accepted_work_item_kinds").array(),
+    // Self-reported back-dated stock role result: verified | missing | unknown.
+    backDatedRoleStatus: text("back_dated_role_status"),
+    // Connector clock of that check; provenance only (§X).
+    backDatedRoleCheckedAt: timestamp("back_dated_role_checked_at", {
+      withTimezone: true,
+    }),
+    // DP2 SERVER clock when the status last arrived; the only freshness clock.
+    backDatedRoleReportedAt: timestamp("back_dated_role_reported_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

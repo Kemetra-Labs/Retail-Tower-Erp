@@ -17,3 +17,44 @@ describe("HeartbeatReportSchema backlogIndicator int4 bound", () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe("HeartbeatReportSchema count activation evidence (RT-1427)", () => {
+  const checkedAt = "2026-11-16T10:00:00.000Z";
+
+  it("accepts the kinds and a back-dated role report", () => {
+    const parsed = HeartbeatReportSchema.parse({
+      acceptedWorkItemKinds: ["sale_post", "reversal", "inventory_count"],
+      backDatedRole: { status: "verified", checkedAt },
+    });
+    expect(parsed.acceptedWorkItemKinds).toContain("inventory_count");
+    expect(parsed.backDatedRole?.status).toBe("verified");
+  });
+
+  it.each(["verified", "missing", "unknown"])("accepts role status %s", (status) => {
+    expect(
+      HeartbeatReportSchema.safeParse({ backDatedRole: { status, checkedAt } }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an unknown role status, a missing checkedAt and extra role keys", () => {
+    for (const backDatedRole of [
+      { status: "granted", checkedAt },
+      { status: "verified" },
+      { status: "verified", checkedAt, reportedAt: checkedAt },
+    ]) {
+      expect(HeartbeatReportSchema.safeParse({ backDatedRole }).success).toBe(false);
+    }
+  });
+
+  it("rejects duplicate work-item kinds (contract uniqueItems)", () => {
+    expect(
+      HeartbeatReportSchema.safeParse({ acceptedWorkItemKinds: ["reversal", "reversal"] }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown work-item kind", () => {
+    expect(HeartbeatReportSchema.safeParse({ acceptedWorkItemKinds: ["refund"] }).success).toBe(
+      false,
+    );
+  });
+});

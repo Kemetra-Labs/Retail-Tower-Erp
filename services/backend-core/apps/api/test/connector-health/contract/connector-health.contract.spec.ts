@@ -227,6 +227,24 @@ describe("connector-health.yaml — heartbeat body is strict + identity-free (§
     }
   });
 
+  it("carries the RT-1427 count evidence additively and optionally (heartbeat and read)", () => {
+    const report = doc.components?.schemas?.["HeartbeatReport"];
+    expect(report?.properties).toHaveProperty("acceptedWorkItemKinds");
+    expect(report?.properties).toHaveProperty("backDatedRole");
+    expect(report?.required ?? []).not.toContain("acceptedWorkItemKinds");
+    expect(report?.required ?? []).not.toContain("backDatedRole");
+    const role = doc.components?.schemas?.["HeartbeatBackDatedRole"] as {
+      properties: { status: { enum: string[] } };
+    };
+    expect(role.properties.status.enum).toEqual(["verified", "missing", "unknown"]);
+    const view = doc.components?.schemas?.["ConnectorHealthView"];
+    expect(view?.properties).toHaveProperty("acceptedWorkItemKinds");
+    expect(view?.properties).toHaveProperty("backDatedRole");
+    expect(view?.required ?? []).not.toContain("backDatedRole");
+    const read = doc.components?.schemas?.["ConnectorHealthBackDatedRole"];
+    expect(read?.properties).toHaveProperty("reportedAt");
+  });
+
   it("bounds the heartbeat backlogIndicator to a non-negative int4", () => {
     const field = schemaProps("HeartbeatReport")["backlogIndicator"] as {
       type: string;
