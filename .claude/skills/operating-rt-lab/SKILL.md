@@ -172,9 +172,11 @@ poller was refused each minute until the owner re-issued it.
 - A silent Connector is still found by Backend-Core's stale rule (5 min without a heartbeat), not by the
   Connector's own log.
 - **Fixing it (RT-1434):** follow "Post-cutover: operating the credential" in
-  `integrations/erpnext-connector/docs/runbooks/connector-credential-cutover.md`. A managed credential
-  rotates itself; an emergency is a forced rotation by the provisioner; a human rotation is the last
-  resort, with the secret moved only by clipboard into the Connector Settings form over an SSM
+  `integrations/erpnext-connector/docs/runbooks/connector-credential-cutover.md`. Automatic and forced
+  rotation are **not live yet** (RT-1360, RT-1362, RT-1433, rehearsal RT-1435): until they are, the human
+  rotation is the only working path, and a managed registration needs a platform admin. Once live, a
+  managed credential rotates itself and an emergency is a forced rotation by the provisioner. The human
+  rotation stays the last resort, with the secret moved only by clipboard into the Connector Settings form over an SSM
   port-forward to lab-03 `127.0.0.1:18000`. Never move the secret by command line, environment
   variable, file or log (RT-1352 PD7). The RT-1428 recovery on 2026-11-16 broke that rule and is not a
   procedure to copy.

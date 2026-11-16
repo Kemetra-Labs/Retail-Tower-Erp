@@ -98,8 +98,8 @@ Watch these signals; none of them asks for an action while it stays green:
 | Signal | Where | Means |
 |---|---|---|
 | Expiry gauge | Backend-Core metrics (RT-1400 S2) | Days left on the active credential. It is measured on the server, so a hand-typed date cannot mislead it. |
-| `connector.auth_circuit.opened` + Sentry `outcome=auth_failure` | Connector log; Sentry project `erpnext-connector`, alert 1502909 | Backend-Core refused the credential (401/403). Go to path 2. |
-| `posting.credential.expiring` | Connector log, `dp2_credential_warn_days` ahead | Automatic rotation has not happened in time. Go to path 2. |
+| `connector.auth_circuit.opened` + Sentry `outcome=auth_failure` | Connector log; Sentry project `erpnext-connector`, alert 1502909 | The Connector received a 401 or 403 on its credential. A 401 means Backend-Core refused the credential. A 403 can also come from an edge or origin rule, so confirm it came from Backend-Core first (see `403 origin_rejected` below). Then go to path 2. |
+| `posting.credential.expiring` | Connector log, `dp2_credential_warn_days` ahead | The warning fires on every tick from the same 14-day point at which automatic rotation starts, and it does not check rotation status. Check whether a rotation is pending or running first. Go to path 2 only if it has not completed. |
 | Connector stale rule | Backend-Core, 5 min without a heartbeat | The Connector is silent. Check the circuit before anything else. |
 
 ### 2. Emergency: forced rotation (credential refused, leaked or about to expire)
@@ -108,9 +108,12 @@ Watch these signals; none of them asks for an action while it stays green:
    allowed only for a managed registration, and protected against repeats.
 2. The provisioner rotates and writes the new secret into Connector Settings. Nobody copies anything.
 3. Confirm the recovery, in this order:
-   - the next tick logs `connector.auth_circuit.closed`. A new token is a new circuit key, so the
-     probe runs on the next tick; `bench execute retail_tower_erpnext_connector.connector.auth_circuit_store.reset_auth_circuit`
-     forces it;
+   - the next tick calls Backend-Core at once. A new token is a new circuit key, so no refusal is on
+     record for it. `connector.auth_circuit.closed` is **not** logged on this path: it appears only when
+     a probe succeeds under the same key after a refusal. Do not wait for it or repeat steps because
+     it is missing. If the old token's record is still holding ticks back,
+     `bench execute retail_tower_erpnext_connector.connector.auth_circuit_store.reset_auth_circuit`
+     clears it;
    - the heartbeat is accepted and the stale rule clears;
    - Sentry gets no new `outcome=auth_failure` event.
 4. For a **leak**, also confirm in the audit log that the old credential is revoked. Rotation revokes it
@@ -124,8 +127,10 @@ into the Connector Settings password field.
 
 **Prerequisites**
 
-- A platform or tenant admin who is signed in to the Admin Console. The connector-admin operations take
-  only a human cookie session; a machine bearer is refused.
+- An admin who is signed in to the Admin Console. The connector-admin operations take only a human
+  cookie session; a machine bearer is refused. For a **managed** registration (`managed_by` set,
+  RT-1358) the admin must be a **platform admin**; an owner or tenant admin is refused with a 404.
+  A tenant admin is enough only for a registration that is not yet managed.
 - The AWS Session Manager plugin, installed locally, and the `rt-readonly` AWS profile. The browser
   console of Session Manager cannot forward ports.
 - The registration id (`dp2_connector_registration_id` in Connector Settings).
@@ -145,6 +150,7 @@ into the Connector Settings password field.
    same-origin and carries the session cookie. Keep the response in a page variable, never print it:
 
    ```js
+   const REGISTRATION_ID = "<registration id>"; // replace the placeholder with the id, keep the quotes
    const r = await fetch(`/api/v1/connector/instances/${REGISTRATION_ID}/credentials/rotate`, {
      method: "POST", credentials: "include",
      headers: { "Idempotency-Key": crypto.randomUUID() },
@@ -153,7 +159,7 @@ into the Connector Settings password field.
    console.log(r.status, window.__s && window.__s.credential_id, window.__s && window.__s.expires_at);
    ```
 
-   Replace `REGISTRATION_ID` with the id. A 201 returns the secret **once** and revokes the old
+   A 201 returns the secret **once** and revokes the old
    credential at the same moment, so the Connector is refused from now until step 4 is done.
 3. **Copy the secret to the clipboard.** Run this at the top level of the console, never inside
    `.then`, because `copy()` is not defined there and the secret would be lost:
@@ -176,7 +182,8 @@ into the Connector Settings password field.
   retry with the same key returns `409 idempotency_key_conflict` and no secret. The lost credential is
   revoked by the new rotation.
 - **401 or 404 on the rotate call:** the session is not a human admin session, or the id is wrong or
-  out of scope. Both answers are non-disclosing.
+  out of scope, or the registration is managed and the signed-in admin is not a platform admin. All of
+  these answers are non-disclosing, so check the admin role before assuming the id is wrong.
 - **403 `origin_rejected`:** the call did not come from an allowed origin. Run it from the Admin
   Console tab, not from another site.
 
