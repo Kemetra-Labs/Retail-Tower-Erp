@@ -159,6 +159,17 @@ def test_the_count_port_imports_and_exposes_the_leg_protocol(glue):
 		assert callable(getattr(port, name))
 
 
+def test_a_transient_site_error_in_a_read_becomes_count_transient(glue):
+	port_module = importlib.import_module(f"{_PKG}.frappe_count_port")
+	count_flow = importlib.import_module(f"{_PKG}.count_flow")
+	glue.fake_frappe.QueryDeadlockError = type("QueryDeadlockError", (Exception,), {})
+	glue.fake_frappe.get_all = lambda *a, **k: (_ for _ in ()).throw(
+		glue.fake_frappe.QueryDeadlockError("deadlock")
+	)
+	with pytest.raises(count_flow.CountTransient):
+		port_module.FrappeCountPort().item_facts(["X"])
+
+
 @pytest.mark.parametrize(
 	("make", "code", "category_code"),
 	[

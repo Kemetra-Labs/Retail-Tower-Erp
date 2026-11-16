@@ -336,6 +336,7 @@ class _Acker:
 
 	def __init__(self, client: PostingFeedClient, work_item: PostingWorkItem, port: CountErpPort) -> None:
 		self._client, self._item, self._port = client, work_item, port
+		self.created: ErpnextDocumentRef | None = None  # set once this run has submitted a document
 
 	def _send(self, ack: OutcomeAckRequest, outcome: str, *, commit: bool = False) -> str:
 		if commit:
@@ -407,10 +408,11 @@ def _plan_lines(count: CountPosting, port: CountErpPort, stamp: SiteStamp, compa
 	to_post: list[CountPostingLine] = []
 	noop: list[CountPostingLine] = []
 	refused: dict[int, CountRefusal] = {}
+	warehouse_problems = {
+		w: port.warehouse_problem(w, company) for w in sorted({x.warehouse for x in count.lines})
+	}
 	for line in count.lines:
-		problem = line_refusal(
-			line, facts.get(line.item_code), port.warehouse_problem(line.warehouse, company)
-		)
+		problem = line_refusal(line, facts.get(line.item_code), warehouse_problems[line.warehouse])
 		if problem is None:
 			balance = port.balance_at(line.item_code, line.warehouse, stamp)
 			problem = history_refusal(line, facts[line.item_code], balance)
@@ -443,6 +445,15 @@ def post_count_work_item(
 		return acker.transient()
 	except CountRefused as exc:
 		return acker.rejected(_ACK_CATEGORY.get(exc.code, "validation"), f"{exc.code}: {exc.message}")
+	except Exception as exc:
+		# Terminal-outcome invariant (as the sale leg): an unclassified failure never escapes to abort the
+		# page. After a successful submit the document exists, so it is reconciled; before, it is rejected.
+		message = f"{type(exc).__name__}: {exc}"
+		if acker.created is not None:
+			return acker.reconcile(
+				acker.created, f"unexpected failure after the document was submitted: {message}"
+			)
+		return acker.rejected("other", f"unexpected failure before anything was posted: {message}")
 
 
 def _post(
@@ -571,6 +582,7 @@ def _create(
 			return acker.transient()  # the index fired but the lookup sees nothing yet: retry later
 		return _existing(work_item, acker, store, port, decision, plan)
 	ref = ErpnextDocumentRef(doctype=STOCK_RECONCILIATION, name=name)
+	acker.created = ref
 	read_back = port.read_back(name, [(line.item_code, line.warehouse) for line in plan.to_post])
 	problem = verification_problem(plan.to_post, read_back)
 	if problem:

@@ -486,6 +486,53 @@ class TestErpRefusalsAndVerification:
 		assert outcome == "posted"
 
 
+class TestTerminalOutcomeInvariant:
+	"""An unclassified failure never escapes to abort the page: it reaches a terminal ack."""
+
+	def test_an_unexpected_read_failure_before_anything_is_posted_is_rejected_as_other(self):
+		port = _Port()
+
+		def boom(*_):
+			raise RuntimeError("db exploded")
+
+		port.balance_at = boom
+		outcome, client, port, _ = _run(port=port)
+		assert outcome == "permanently_rejected" and port.submitted == []
+		assert (
+			_ack(client)["reason"]["category"] == "other"
+			and "db exploded" in _ack(client)["reason"]["message"]
+		)
+
+	def test_an_unexpected_failure_after_the_submit_is_reconciliation_required_with_the_document(self):
+		port = _Port()
+
+		def boom(*_):
+			raise RuntimeError("read back exploded")
+
+		port.read_back = boom
+		outcome, client, _, store = _run(port=port)
+		assert outcome == "reconciliation_required" and store.recorded == {}
+		assert _ack(client)["documentRef"]["name"] == "MAT-RECO-2026-00017"
+
+	def test_a_transient_read_failure_is_failed_transient(self):
+		port = _Port()
+
+		def slow(*_):
+			raise cf.CountTransient("lock wait")
+
+		port.item_facts = slow
+		outcome, _, _, _ = _run(port=port)
+		assert outcome == "failed_transient"
+
+	def test_each_distinct_warehouse_is_looked_up_once_per_chunk(self):
+		port = _Port()
+		calls = []
+		original = port.warehouse_problem
+		port.warehouse_problem = lambda w, company: calls.append(w) or original(w, company)
+		_run(port=port)
+		assert calls == [_WH]
+
+
 class TestWireModels:
 	def test_a_count_work_item_parses_without_a_sale(self):
 		item = _item()

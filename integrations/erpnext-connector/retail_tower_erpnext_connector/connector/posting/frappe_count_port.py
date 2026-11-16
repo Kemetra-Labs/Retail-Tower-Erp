@@ -19,6 +19,7 @@ flight is locked, one that failed is not and carries an ``Action Failed`` commen
 
 from __future__ import annotations
 
+import functools
 from decimal import Decimal
 
 import frappe
@@ -55,6 +56,19 @@ def _duplicate_types() -> tuple[type[BaseException], ...]:
 	return _dup_provenance_exceptions()
 
 
+def _reads(method):
+	"""A read that fails transiently (lock, timeout, deadlock) is ``CountTransient``, never an escape."""
+
+	@functools.wraps(method)
+	def wrapper(self, *args, **kwargs):
+		try:
+			return method(self, *args, **kwargs)
+		except _transient_types() as exc:
+			raise CountTransient(f"{type(exc).__name__}: {exc}") from exc
+
+	return wrapper
+
+
 def classify_submit_failure(exc: BaseException) -> Exception:
 	"""Map an ERPNext submit failure onto the leg's typed errors (freeze, permission, validation)."""
 	text = f"{type(exc).__name__}: {exc}"
@@ -78,15 +92,18 @@ def _order(entry: dict) -> tuple[str, str, str]:
 class FrappeCountPort:
 	"""``CountErpPort`` over the live site."""
 
+	@_reads
 	def indexes_ready(self) -> bool:
 		return all(index_present(dt, name, cols) for dt, name, cols in COUNT_INDEXES)
 
+	@_reads
 	def company(self) -> str:
 		company = frappe.db.get_single_value("Global Defaults", "default_company")
 		if not company:
 			raise CountRefused("invalid_shape", "the site default company is not configured")
 		return company
 
+	@_reads
 	def item_facts(self, item_codes: list[str]) -> dict[str, ItemFacts]:
 		rows = frappe.get_all(
 			"Item",
@@ -112,6 +129,7 @@ class FrappeCountPort:
 			for r in rows
 		}
 
+	@_reads
 	def warehouse_problem(self, warehouse: str, company: str) -> str | None:
 		row = frappe.db.get_value("Warehouse", warehouse, ["company", "is_group"], as_dict=True)
 		try:
@@ -120,6 +138,7 @@ class FrappeCountPort:
 			return str(exc)
 		return None
 
+	@_reads
 	def existing_documents(self, source_system: str, external_id: str) -> list[ExistingCount]:
 		"""Draft, submitted AND cancelled documents carrying the provenance key (never submitted only)."""
 		heads = frappe.get_all(
@@ -165,6 +184,7 @@ class FrappeCountPort:
 		)
 		return rows[0]["content"] if rows else None
 
+	@_reads
 	def balance_at(self, item_code: str, warehouse: str, stamp: SiteStamp) -> Decimal:
 		from erpnext.stock.stock_ledger import get_previous_sle
 
@@ -205,6 +225,7 @@ class FrappeCountPort:
 			return classify_submit_failure(exc)
 		return exc
 
+	@_reads
 	def read_back(self, name: str, rows: list[tuple[str, str]]) -> list[LineReadBack]:
 		ledger = frappe.get_all(
 			"Stock Ledger Entry",
