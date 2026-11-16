@@ -143,13 +143,17 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
   `node scripts/check-index-size.mjs` and `node scripts/check-code-health.mjs` (the latter needs knip from
   `npm ci`; `npx knip` fetches a different version and is only a hint). Never lower a jscpd baseline from a
   Windows run (see `troubleshooting-windows-dev`).
-- **The CircleCI trigger tool returned "Route Not Found" for the POS project slugs tried on 2026-11-12.** Do
-  not loop over more slugs, and do not read it as a failed suite: nothing ran, so no preflight evidence
-  exists and nothing counts against the 30-per-day cap that you can see. Say so on the issue (which slugs,
-  the exact message) and either get the right project slug from the owner or get an owner-approved exception
-  for this change. GitHub `required` and the local light checks never replace the CircleCI preflight (repo
-  `CLAUDE.md` section 11, step 5): without a preflight, do not push the change to the PR branch as if it had
-  one, and do not merge on the strength of GitHub CI alone.
+- **CircleCI project slug (verified 2026-11-16, RT-1425/RT-1423).** Retail-Tower-Erp is a CircleCI **GitHub App**
+  project, so the trigger tool's `trigger_run` needs the slug
+  `circleci/XUuruzngh1JYidtrRaWDLy/5VLFtkZC7SB3XYRpJiZZt4`. The VCS forms `gh/Kemetra-Labs/Retail-Tower-Erp` and
+  the lowercase `gh/kemetra-labs/retail-tower-erp` return "project not found" (the "Route Not Found" seen on the POS
+  slugs tried on 2026-11-12 most likely had the same cause). `list_runs` also accepts the project UUID
+  `24593f62-d5aa-45ea-834a-f4f8f78af101`. If the connector says it "requires authentication", the owner
+  reconnects it in the connector settings; do not loop over more slugs and do not read a refusal as a failed
+  suite: nothing ran, so no preflight evidence exists. Say so on the issue (which slug, the exact message).
+  GitHub `required` and the local light checks never replace the CircleCI preflight (repo `CLAUDE.md`
+  section 11, step 5): without a preflight, do not push the change to the PR branch as if it had one, and do
+  not merge on the strength of GitHub CI alone.
 
 ## Red checks from GitHub release downloads
 
