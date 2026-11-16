@@ -118,7 +118,7 @@ async function rowCount(registrationId: string): Promise<number> {
 }
 
 describe("RT-1427 — count activation evidence", () => {
-  const checkedAt = "2026-11-16T10:00:00.000Z";
+  const checkedAt = "2020-01-01T10:00:00.000Z";
 
   async function evidence(registrationId: string) {
     const r = await guard().admin.query<{
@@ -148,10 +148,10 @@ describe("RT-1427 — count activation evidence", () => {
     expect(row?.accepted_work_item_kinds).toEqual(["sale_post", "inventory_count"]);
     expect(row?.back_dated_role_status).toBe("verified");
     expect(row?.back_dated_role_checked_at?.toISOString()).toBe(checkedAt);
-    // The freshness stamp is the DP2 clock, not the Connector's (2026-11-16T10:00Z).
-    expect(row?.back_dated_role_reported_at?.getTime()).toBeGreaterThan(
-      new Date(checkedAt).getTime(),
-    );
+    // The freshness stamp is the DP2 clock (about now), not the Connector's checkedAt.
+    const reportedAt = row?.back_dated_role_reported_at?.getTime() ?? 0;
+    expect(reportedAt).not.toBe(new Date(checkedAt).getTime());
+    expect(Math.abs(Date.now() - reportedAt)).toBeLessThan(5 * 60_000);
   });
 
   it("a later beat that omits the evidence clears it (no stale verified)", async () => {
