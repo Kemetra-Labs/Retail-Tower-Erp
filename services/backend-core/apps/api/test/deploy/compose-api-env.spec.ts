@@ -53,6 +53,8 @@ const EXCLUDED: Readonly<Record<string, string>> = {
     "RT-336 single origin: CORS and extra trusted origins stay off by construction (caddy-same-origin.spec.ts)",
   ERPNEXT_FEED_RESPONSIBILITIES_ENABLED:
     "unmapped until the RT-419 hold lift, which must re-head the held rows in the same release step",
+  COUNT_CONNECTOR_RELEASES:
+    "RT-1423: unmapped, so production keeps the count activation refused (connector_version_unlisted) until RT-1427's heartbeat field (the Connector's accepted work-item kinds) replaces this allowlist; mapping it is the owner's production decision",
   POS_SALE_VOUCHER_TENDER_ENABLED:
     "RT-1114: unmapped, so production stays off (acceptance 2), until RT-1330 (R-4b, the Connector voucher Mode of Payment) is deployed and the owner turns voucher tenders on",
   TRUST_PROXY_DIRECT_DEPLOYMENT:

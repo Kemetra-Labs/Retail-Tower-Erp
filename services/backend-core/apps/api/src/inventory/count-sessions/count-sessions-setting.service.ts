@@ -101,7 +101,7 @@ export async function gatherReadinessEvidence(
   client: PoolClient,
   tenantId: string,
   now: Date = new Date(),
-  releasesRaw: string | undefined = process.env['COUNT_CONNECTOR_RELEASES'],
+  releasesRaw: string | undefined = process.env.COUNT_CONNECTOR_RELEASES,
 ): Promise<ReadinessEvidence> {
   const stores = await client.query<{ id: string }>(
     `SELECT id FROM stores WHERE tenant_id = $1 AND deleted_at IS NULL AND is_active ORDER BY id`,

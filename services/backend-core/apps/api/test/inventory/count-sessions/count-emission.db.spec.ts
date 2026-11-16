@@ -150,6 +150,13 @@ beforeAll(async () => {
      VALUES (gen_random_uuid(), $1, $2, 'stock', 'Stores - CE') ON CONFLICT DO NOTHING`,
     [TENANT_A, STORE_A_X],
   );
+  await admin.query(
+    `INSERT INTO erp_stock_import_runs
+       (id, tenant_id, store_id, warehouse_map_id, erpnext_warehouse_ref, status, settle_seconds, overlap_seconds, ended_at)
+     SELECT gen_random_uuid(), tenant_id, store_id, id, erpnext_warehouse_ref, 'completed', 0, 0, now() + interval '10 years'
+       FROM erpnext_warehouse_map WHERE store_id = $1 AND purpose = 'stock' AND retired_at IS NULL`,
+    [STORE_A_X],
+  );
   const memberships = { findRoleCodeForUserInTenant: async () => role } as unknown as MembershipRepository;
   counts = new CountSessionsService(env.app as unknown as Pool, memberships);
   setting = new CountSessionsSettingService(env.app as unknown as Pool, memberships);

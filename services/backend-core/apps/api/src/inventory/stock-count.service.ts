@@ -68,6 +68,12 @@ export class StockCountService {
       async (client): Promise<StockCountResultBody> => {
         // RT-1423 (G6-7): once the tenant has activated Count Sessions the legacy immediate count is refused,
         // so there is exactly one count writer. Before activation (the default) it works as it always did.
+        // The SHARED settings advisory lock conflicts with the exclusive one `setCountSessionsSetting` holds, so a
+        // legacy count that read OFF cannot commit after an activation commits: one writer, never two.
+        await client.query(
+          `SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`,
+          [input.tenantId],
+        );
         const active = await client.query<{ on: boolean }>(
           `SELECT count_sessions_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
           [input.tenantId],
