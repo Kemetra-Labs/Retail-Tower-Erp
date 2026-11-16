@@ -87,8 +87,9 @@ async function seedEffect(
   // seeded only for an ERP-origin effect, which carries the `external` state and no intent.
   if (opts.confirmed && opts.erpOrigin) {
     await admin.query(
-      `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state) VALUES ($1, $2, 'external')`,
-      [id, TENANT_A],
+      `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, erp_confirmed_at)
+       VALUES ($1, $2, 'external', COALESCE($3::timestamptz, now()))`,
+      [id, TENANT_A, opts.occurredAt ?? null],
     );
   }
   return id;
