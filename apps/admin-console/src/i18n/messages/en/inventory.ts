@@ -4,6 +4,7 @@ import type { MessagesOf } from "../types";
 export const inventory: MessagesOf<typeof ar> = {
   // --- Navigation (under the Inventory section) ----------------------------------
   "inventory.nav.label": "Stock movements",
+  "inventory.counts.link": "Stock counts for this store",
 
   // --- Shared states ----------------------------------------------------------
   "inventory.scopePrompt": "Choose a tenant from the scope bar to see inventory.",

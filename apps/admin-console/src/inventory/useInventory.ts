@@ -23,6 +23,7 @@ import {
   listStoreMovements,
   listTrackingIdentities,
 } from "@/lib/inventory-queries";
+import { useStoreList } from "@/stores/useStoreQueries";
 import { type UseQueryResult, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type ReadErrorKind, nextCursorOf, readErrorKind, requestIdOf } from "./inventoryLogic";
 
@@ -42,6 +43,12 @@ export function useInventoryScope(): InventoryScope {
     activeStoreId: context?.active_store?.id ?? null,
     role: context?.active_role_code ?? null,
   };
+}
+
+/** The store's display name from the tenant's store list, once it has loaded. */
+export function useStoreName(tenantId: string | null, storeId: string): string | undefined {
+  const { result } = useStoreList(tenantId);
+  return result?.kind === "rows" ? result.rows.find((s) => s.id === storeId)?.name : undefined;
 }
 
 /** One store's inventory, read within the active scope. */
