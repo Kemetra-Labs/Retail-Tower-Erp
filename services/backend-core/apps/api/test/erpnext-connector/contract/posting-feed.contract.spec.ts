@@ -306,15 +306,16 @@ describe("erpnext-connector/posting-feed.yaml — work-item payload (O-1/O-4)", 
         "externalId",
         "payloadHash",
         "businessDate",
-        "sale",
       ]),
     );
+    // RT-1422: `sale` is conditional (required for sale_post and reversal through the allOf), not required.
+    expect(item?.required).not.toContain("sale");
   });
 
-  it("kind enumerates sale_post | reversal (O-4 reversal as a work-item)", () => {
+  it("kind enumerates sale_post | reversal (O-4 reversal as a work-item) | inventory_count (RT-1422)", () => {
     const kind = (feedDoc.components?.schemas?.["PostingWorkItem"]?.properties ??
       {})["kind"] as { enum?: string[] } | undefined;
-    expect(kind?.enum?.sort()).toEqual(["reversal", "sale_post"].sort());
+    expect(kind?.enum?.sort()).toEqual(["inventory_count", "reversal", "sale_post"].sort());
   });
 
   it("mirrors the 008 Sale projection with decimal money (no float)", () => {
@@ -467,7 +468,7 @@ describe("erpnext-connector/posting-feed.yaml — outcome ack (O-2/O-3)", () => 
     const outcome = (feedDoc.components?.schemas?.["OutcomeAckRequest"]
       ?.properties ?? {})["outcome"] as { enum?: string[] } | undefined;
     expect(outcome?.enum?.sort()).toEqual(
-      ["failed_transient", "permanently_rejected", "posted", "reconciliation_required"].sort(),
+      ["failed_transient", "permanently_rejected", "posted", "reconciliation_required", "verified_noop"].sort(),
     );
   });
 
@@ -682,10 +683,10 @@ describe("erpnext-connector/posting-feed.yaml — RT-76 settlement", () => {
 
   it("the ack is unchanged — one documentRef per work item (D4)", () => {
     const kind = prop<{ enum?: string[] }>("PostingWorkItem", "kind");
-    expect(kind?.enum?.slice().sort()).toEqual(["reversal", "sale_post"]);
-    // RT-332 adds only the optional resolutionVersion echo; still one documentRef.
+    expect(kind?.enum?.slice().sort()).toEqual(["inventory_count", "reversal", "sale_post"]);
+    // RT-332 adds only the optional resolutionVersion echo; RT-1422 the optional count `lines`; still one documentRef.
     expect(Object.keys(schema("OutcomeAckRequest")?.properties ?? {}).sort()).toEqual(
-      ["documentRef", "etaStatus", "outcome", "reason", "resolutionVersion"],
+      ["documentRef", "etaStatus", "lines", "outcome", "reason", "resolutionVersion"],
     );
   });
 
@@ -987,8 +988,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
   const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
   const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
 
-  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.14.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.14.0-draft");
+  it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.15.0-draft)", () => {
+    expect(feedDoc.info?.version).toBe("1.15.0-draft");
     expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
@@ -996,10 +997,9 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
     expect(info()).toContain("ROLLOUT ORDER (Connector first, as for 1.10.0-draft)");
   });
 
-  it("leaves the wire unchanged: kind stays sale_post | reversal and sale stays required", () => {
+  it("never offers the reserved kind: inventory_disposition is not in the PostingWorkItem kind enum", () => {
     const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
-    expect(kind?.enum?.slice().sort()).toEqual(["reversal", "sale_post"]);
-    expect(schema("PostingWorkItem")?.required).toContain("sale");
+    expect(kind?.enum).not.toContain("inventory_disposition");
   });
 
   it("references the reserved schemas from no operation and no other schema", () => {
@@ -1063,8 +1063,8 @@ describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0
       | { type?: string; format?: string; enum?: string[]; description?: string }
       | undefined;
 
-  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.14.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.14.0-draft");
+  it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.15.0-draft)", () => {
+    expect(feedDoc.info?.version).toBe("1.15.0-draft");
     expect(info()).toContain("RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info()).toContain("RT-1098 decision 4A");
     expect(info()).toContain("ROLLOUT ORDER (Connector first, RT-10 comments 10409 and 10413)");
@@ -1096,7 +1096,7 @@ describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give
   const base = { lineRef: "00000000-0000-7000-8000-0000000000a1", quantity: "1", lineAmount: "300.0000", taxAmount: null };
 
   it("bumps to 1.13.0-draft with the note, the owner decision and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.14.0-draft");
+    expect(feedDoc.info?.version).toBe("1.15.0-draft");
     expect(info()).toContain("OD-11 return clawback and give-back (1.13.0-draft; [GATED: contract]");
     expect(info()).toContain('owner decision 2026-11-12, "Hybrid"');
     expect(info()).toContain("`promotionClawbackAmount` and `promotionGiveBackAmount`");
@@ -1130,7 +1130,7 @@ describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give
 // ===========================================================================
 // RT-1421 (Inventory Gate 6) — reserved `inventory_count` kind (1.14.0-draft)
 // ===========================================================================
-describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_count kind (1.14.0-draft)", () => {
+describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_count schemas (1.14.0-draft; adopted in 1.15.0-draft)", () => {
   const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
   const info = (): string => flat(feedDoc.info?.description);
   const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
@@ -1169,7 +1169,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_cou
   });
 
   it("bumps to 1.14.0-draft with the note, the authorization, the feasibility result and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.14.0-draft");
+    expect(feedDoc.info?.version).toBe("1.15.0-draft");
     expect(info()).toContain("RT-1421 (1.14.0-draft; [GATED: OpenAPI] owner authorization 2026-11-16");
     expect(info()).toContain("the work-item kind `inventory_count` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_count`");
@@ -1177,22 +1177,15 @@ describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_cou
     expect(info()).toContain("ROLLOUT ORDER (Connector first, as for 1.10.0-draft and 1.11.0-draft)");
   });
 
-  it("leaves the wire unchanged: kind stays sale_post | reversal, sale stays required, no new operation", () => {
-    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
-    expect(kind?.enum?.slice().sort()).toEqual(["reversal", "sale_post"]);
-    expect(schema("PostingWorkItem")?.required).toContain("sale");
+  it("adds no operation, and no operation references a count schema directly", () => {
     expect(Object.keys(feedDoc.paths ?? {}).sort()).toEqual([PULL_PATH, ACK_PATH].sort());
+    const pathsText = JSON.stringify(feedDoc.paths);
+    for (const name of RESERVED) expect(pathsText).not.toContain(`"#/components/schemas/${name}"`);
   });
 
-  it("references the reserved schemas from no operation and from no sale/reversal/disposition schema", () => {
-    const pathsText = JSON.stringify(feedDoc.paths);
-    const outside = JSON.stringify(
-      Object.fromEntries(
-        Object.entries(feedDoc.components?.schemas ?? {}).filter(([n]) => !RESERVED.includes(n)),
-      ),
-    );
-    for (const name of RESERVED) {
-      expect(pathsText).not.toContain(`"#/components/schemas/${name}"`);
+  it("keeps CountWorkItem and CountPostingOutcome as standalone shapes no other schema references", () => {
+    const outside = JSON.stringify(feedDoc.components?.schemas);
+    for (const name of ["CountWorkItem", "CountPostingOutcome"]) {
       expect(outside).not.toContain(`"#/components/schemas/${name}"`);
     }
   });
@@ -1429,5 +1422,120 @@ describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_cou
     expect(out({ workItemRef: wi, outcome: "rejected", documentRef: null, lines: [rej] })).toBe(true);
     expect(out({ workItemRef: wi, outcome: "verified_noop", documentRef: null, lines: [ok] })).toBe(false);
     expect(out({ workItemRef: wi, outcome: "verified_noop", documentRef: null, lines: [noop, rej] })).toBe(true);
+  });
+});
+
+// ===========================================================================
+// RT-1422 (Inventory Gate 6) — the Connector adopts `inventory_count` (1.15.0-draft)
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_count kind (1.15.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
+  const examples = JSON.parse(
+    readFileSync(
+      resolve(openapiSubDir(".."), "fixtures", "count-posting-feed", "examples.json"),
+      "utf8",
+    ),
+  ) as { workItem: { normal: Record<string, any> }; outcome: Record<string, Record<string, any>> };
+  const validator = (name: string) => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(feedDoc as object), $id: "posting-feed" });
+    return ajv.compile({ $ref: `posting-feed#/components/schemas/${name}` });
+  };
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const countItem = () => clone(examples.workItem.normal);
+  const saleItem = () => ({
+    workItemRef: "00000000-0000-7000-8000-00000000a001",
+    kind: "sale_post",
+    sourceSystem: "retail-tower",
+    externalId: "POS-1",
+    payloadHash: "a".repeat(64),
+    businessDate: "2026-11-16",
+    itemCursor: "c1",
+    sale: { __placeholder: true },
+  });
+
+  it("bumps to 1.15.0-draft with the note, the authorization, the deploy order and the no-fake-document rule", () => {
+    expect(feedDoc.info?.version).toBe("1.15.0-draft");
+    expect(info()).toContain("RT-1422 (1.15.0-draft; [GATED: contract pin] owner authorization 2026-11-16");
+    expect(info()).toContain("`sale` is the ONLY field that becomes conditional");
+    expect(info()).toContain("the ack never fakes a `documentRef`");
+    expect(info()).toContain("DEPLOY ORDER");
+  });
+
+  it("widens the kind enum by exactly inventory_count and makes sale conditional, never payloadHash or businessDate", () => {
+    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
+    expect(kind?.enum?.slice().sort()).toEqual(["inventory_count", "reversal", "sale_post"]);
+    const required = schema("PostingWorkItem")?.required ?? [];
+    expect(required).not.toContain("sale");
+    for (const f of ["workItemRef", "kind", "sourceSystem", "externalId", "payloadHash", "businessDate", "itemCursor"]) {
+      expect(required).toContain(f);
+    }
+    expect(Object.keys(schema("PostingWorkItem")?.properties ?? {})).toContain("count");
+  });
+
+  it("the count example validates as a PostingWorkItem (the adopted shape) and as the standalone CountWorkItem", () => {
+    expect(validator("PostingWorkItem")(countItem())).toBe(true);
+    expect(validator("CountWorkItem")(countItem())).toBe(true);
+  });
+
+  it("an inventory_count item must carry count and may not carry sale or reversalOf", () => {
+    const v = validator("PostingWorkItem");
+    const { count: _c, ...noCount } = countItem();
+    expect(v(noCount)).toBe(false);
+    expect(v({ ...countItem(), sale: {} })).toBe(false);
+    expect(v({ ...countItem(), reversalOf: null })).toBe(false);
+    expect(v({ ...countItem(), kind: "inventory_disposition" })).toBe(false);
+  });
+
+  it("a sale_post or reversal item still requires sale and may not carry count", () => {
+    const v = validator("PostingWorkItem");
+    const { sale: _s, ...noSale } = saleItem();
+    expect(v(noSale)).toBe(false);
+    expect(v({ ...noSale, count: countItem().count })).toBe(false);
+    expect(v({ ...noSale, kind: "reversal" })).toBe(false);
+  });
+
+  it("the ack gains verified_noop and lines, and a verified_noop carries lines and no document", () => {
+    const outcome = ((schema("OutcomeAckRequest")?.properties ?? {})["outcome"] as { enum?: string[] }).enum;
+    expect(outcome?.slice().sort()).toEqual(
+      ["failed_transient", "permanently_rejected", "posted", "reconciliation_required", "verified_noop"],
+    );
+    const v = validator("OutcomeAckRequest");
+    const line = { lineSeq: 1, result: "verified_noop", verifiedQtyAfter: "7", refusal: null };
+    const doc = { doctype: "Stock Reconciliation", name: "MAT-RECO-2026-00017" };
+    expect(v({ outcome: "verified_noop", lines: [line] })).toBe(true);
+    expect(v({ outcome: "verified_noop" })).toBe(false);
+    expect(v({ outcome: "verified_noop", documentRef: doc, lines: [line] })).toBe(false);
+    expect(v({ outcome: "verified_noop", lines: [{ ...line, result: "adjusted" }] })).toBe(false);
+    expect(
+      v({
+        outcome: "verified_noop",
+        lines: [line, { lineSeq: 2, result: "rejected", verifiedQtyAfter: null, refusal: { code: "uom_mismatch", ackCategory: "validation", message: "m" } }],
+      }),
+    ).toBe(true);
+    expect(v({ outcome: "posted", documentRef: doc, lines: [{ ...line, result: "adjusted" }] })).toBe(true);
+    expect(v({ outcome: "posted", documentRef: doc })).toBe(true);
+    expect(v({ outcome: "posted", documentRef: doc, lines: [] })).toBe(false);
+    expect(v({ outcome: "posted", documentRef: doc, lines: [{ ...line, result: "bogus" }] })).toBe(false);
+  });
+
+  it("the recorded-outcome response can confirm a verified_noop, with no document", () => {
+    const outcome = ((schema("RecordedOutcome")?.properties ?? {})["outcome"] as { enum?: string[] }).enum;
+    expect(outcome).toContain("verified_noop");
+    const v = validator("RecordedOutcome");
+    const base = { workItemRef: "00000000-0000-7000-8000-00000000c001", recordedAt: "2026-11-16T09:31:00.000Z" };
+    expect(v({ ...base, outcome: "verified_noop", documentRef: null })).toBe(true);
+    expect(v({ ...base, outcome: "bogus" })).toBe(false);
+  });
+
+  it("a sale ack stays valid exactly as before (no lines, same outcomes)", () => {
+    const v = validator("OutcomeAckRequest");
+    const doc = { doctype: "Sales Invoice", name: "ACC-SINV-1" };
+    expect(v({ outcome: "posted", documentRef: doc })).toBe(true);
+    expect(v({ outcome: "failed_transient" })).toBe(true);
+    expect(v({ outcome: "permanently_rejected", reason: { category: "validation", message: "m" } })).toBe(true);
   });
 });
