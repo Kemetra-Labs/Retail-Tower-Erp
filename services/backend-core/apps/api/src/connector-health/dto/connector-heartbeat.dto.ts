@@ -15,6 +15,11 @@
  */
 import { z } from "zod";
 
+/** Posting work-item kinds a Connector can report (contract `PostingWorkItem.kind`). */
+const WORK_ITEM_KINDS = ["sale_post", "reversal", "inventory_count"] as const;
+/** Back-dated stock role readiness a Connector can report (RT-1427). */
+const BACK_DATED_ROLE_STATUSES = ["verified", "missing", "unknown"] as const;
+
 export const HeartbeatReportSchema = z
   .object({
     connectorVersion: z.string().min(1).max(64).optional(),
@@ -23,6 +28,19 @@ export const HeartbeatReportSchema = z
     erpnextReachable: z.boolean().optional(),
     // Connector-reported clock; provenance only, never used for the verdict (§X).
     sourceClockAt: z.string().datetime().optional(),
+    // RT-1427 — Count activation evidence, self-reported on the same beat.
+    acceptedWorkItemKinds: z
+      .array(z.enum(WORK_ITEM_KINDS))
+      .max(16)
+      .optional(),
+    backDatedRole: z
+      .object({
+        status: z.enum(BACK_DATED_ROLE_STATUSES),
+        // Connector clock of the check; provenance only, never a freshness clock.
+        checkedAt: z.string().datetime(),
+      })
+      .strict()
+      .optional(),
   })
   // `.strict()` rejects unknown keys (incl. smuggled identity fields, §XII).
   // `.default({})` coerces a truly bodyless POST (`undefined`) to an empty,

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Connector Health and Connection-Status API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Spec 020 connector health / connection-status contract. Two principals, two
     schemes, one shared read-model (`connector_health`, keyed to the 018
@@ -59,6 +59,17 @@ info:
     **1.1.0-draft (RT-620, additive).** Every cookieAuth operation may
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
+
+    **1.2.0-draft (RT-1427, additive; [GATED: contract] owner delegation in chat
+    2026-11-16).** The heartbeat carries the evidence Count activation needs, on the
+    same channel and the same strict body: `acceptedWorkItemKinds` (the posting
+    work-item kinds the Connector accepts) and `backDatedRole` (`status` verified |
+    missing | unknown, plus the Connector `checkedAt`). The operator read adds the
+    same two fields; `backDatedRole.reportedAt` is the DP2 SERVER clock of the
+    last report and is the only clock freshness is judged by (§X). Both are
+    optional and null until reported; a beat that omits them clears them, so no
+    stale evidence survives. A failed role check is reported as `unknown`, never
+    `verified`. No new endpoint, no existing field or status changes.
 
 servers:
   - url: https://api.example.com
@@ -253,6 +264,53 @@ components:
             Connector-reported clock at heartbeat time. PRESERVED as provenance
             only; NEVER used for the liveness verdict (§X). Distinct from DP2's
             server-clock `last_seen_at`.
+        acceptedWorkItemKinds:
+          type: array
+          maxItems: 16
+          uniqueItems: true
+          items:
+            type: string
+            enum: [sale_post, reversal, inventory_count]
+          description: >
+            RT-1427. The posting work-item kinds the deployed Connector accepts
+            (its own `WORK_ITEM_KINDS`). Self-report; stored verbatim.
+        backDatedRole:
+          $ref: "#/components/schemas/HeartbeatBackDatedRole"
+
+    HeartbeatBackDatedRole:
+      type: object
+      additionalProperties: false
+      required: [status, checkedAt]
+      description: >
+        RT-1427. Whether the Connector's ERP user may create and edit back-dated
+        stock documents (read-only permission check; the Connector never changes
+        ERP data to find out). `unknown` when the check itself could not run;
+        a failed check is never reported as `verified`.
+      properties:
+        status:
+          type: string
+          enum: [verified, missing, unknown]
+        checkedAt:
+          type: string
+          format: date-time
+          description: Connector clock of the check. Provenance only, never a freshness clock (§X).
+
+    ConnectorHealthBackDatedRole:
+      type: object
+      additionalProperties: false
+      required: [status, checkedAt, reportedAt]
+      properties:
+        status:
+          type: string
+          enum: [verified, missing, unknown]
+        checkedAt:
+          type: [string, "null"]
+          format: date-time
+          description: Connector clock of the check. Provenance only.
+        reportedAt:
+          type: string
+          format: date-time
+          description: DP2 server clock when the status last arrived. Freshness is judged by this alone (§X).
 
     # -----------------------------------------------------------------------
     # HeartbeatAck — DP2 -> connector response. Minimal; server clock.
@@ -345,6 +403,21 @@ components:
           description: >
             Server-clock time the self-reported fields above were last updated
             (null until the first beat with self-reported fields).
+        acceptedWorkItemKinds:
+          type: [array, "null"]
+          items:
+            type: string
+            enum: [sale_post, reversal, inventory_count]
+          description: >
+            RT-1427. The posting work-item kinds the Connector last reported
+            accepting; null until reported (no evidence).
+        backDatedRole:
+          oneOf:
+            - $ref: "#/components/schemas/ConnectorHealthBackDatedRole"
+            - type: "null"
+          description: >
+            RT-1427. The last reported back-dated stock role readiness; null
+            until reported (no evidence).
 
     ConnectorHealthList:
       type: object
