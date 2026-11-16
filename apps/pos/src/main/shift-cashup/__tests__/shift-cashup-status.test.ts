@@ -82,6 +82,7 @@ describe('readStatus — the current terminal', () => {
   it('is empty with no shift and no queued fact', async () => {
     await expect(status()).resolves.toEqual({
       openShift: null,
+      managerClosed: false,
       queue: EMPTY_QUEUE,
       stranded: NOT_STRANDED,
       pendingDrawerActivity: NO_DRAWER_ACTIVITY,
@@ -191,6 +192,7 @@ describe('readStatus — stranded outside the current pairing (carried item b)',
     const reader = createShiftCashupStatusReader(handleFor(db));
     expect(reader.read({ scope: null, now: NOW })).toEqual({
       openShift: null,
+      managerClosed: false,
       queue: EMPTY_QUEUE,
       stranded: { unsyncedFacts: 1, openShifts: 1 },
       pendingDrawerActivity: NO_DRAWER_ACTIVITY,

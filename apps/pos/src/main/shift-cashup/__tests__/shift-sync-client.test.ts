@@ -222,6 +222,8 @@ describe('createShiftSyncClient — outcome mapping', () => {
     [409, 'shift_payload_conflict', 'shift_payload_conflict'],
     [409, 'shift_already_open', 'shift_already_open'],
     [409, 'shift_closed', 'shift_closed'],
+    [409, 'shift_force_closed', 'shift_force_closed'],
+    [404, 'shift_force_closed', 'rejected'],
     [422, 'shift_cashup_inconsistent', 'shift_cashup_inconsistent'],
     [422, 'currency_mismatch', 'currency_mismatch'],
     [422, 'refund_ref_invalid', 'refund_ref_invalid'],

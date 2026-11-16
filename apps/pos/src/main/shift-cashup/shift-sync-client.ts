@@ -33,7 +33,9 @@
  *     revocation; the body is not read);
  *   400 / 404 / 409 / 422 → `rejected` with the contract's `error.code` when
  *     it is one the contract documents for that status, else `rejected`
- *     (any other 4xx too).
+ *     (any other 4xx too). RT-1442: 409 `shift_force_closed` is one of them;
+ *     the engine treats it (and a movement's `shift_closed`) as final for the
+ *     shift, not as a dead letter that blocks the terminal.
  *
  * RT-215: every answer is reported to the device-401 detector through
  * `withDeviceCallObservation`, tagged `sale_sync` (`SHIFT_SYNC_DEVICE_SOURCE`).
@@ -144,6 +146,8 @@ const CONTRACT_CODES: ReadonlyMap<number, ReadonlySet<string>> = new Map([
       'shift_payload_conflict',
       'shift_already_open',
       'shift_closed',
+      // RT-1442 (RT-742 Late facts): a manager closed the shift without a count.
+      'shift_force_closed',
     ]),
   ],
   [422, new Set(['shift_cashup_inconsistent', 'currency_mismatch', 'refund_ref_invalid'])],

@@ -152,6 +152,8 @@ export interface ShiftOpenShiftView {
 
 export interface ShiftStatusView {
   openShift: ShiftOpenShiftView | null;
+  /** RT-1442: the latest shift was closed by a manager without a count (server answer). */
+  managerClosed: boolean;
   /** The current terminal's unsettled shift facts, by sync state. */
   queue: { pending: number; waiting: number; blocked: number; envelopePending: number };
   /** Unsettled facts and open shifts outside the current pairing. */

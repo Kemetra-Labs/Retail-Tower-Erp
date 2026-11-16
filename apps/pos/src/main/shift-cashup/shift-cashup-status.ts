@@ -46,6 +46,12 @@ export interface ShiftStrandedCounts {
 
 export interface ShiftCashupStatus {
   openShift: OpenShiftView | null;
+  /**
+   * RT-1442: the terminal's latest shift was closed by a manager on the server
+   * without a count (a 409 told the till). Its facts are not in `queue` or
+   * `stranded`: they are never sent. False once a newer shift is opened.
+   */
+  managerClosed: boolean;
   queue: ShiftQueueCounts;
   stranded: ShiftStrandedCounts;
   pendingDrawerActivity: PendingDrawerActivity;
@@ -89,11 +95,13 @@ const UNSETTLED_SQL = `
   SELECT o.auth_path AS authPath, s.sync_status AS syncStatus, s.next_retry_at AS nextRetryAt,
          ${inScope('o')} AS inScope
   FROM shift_sync_state s CROSS JOIN shift_sync_outbox o ON o.seq = s.seq
-  WHERE s.sync_status IN ('pending', 'dead_letter')`;
+  WHERE s.sync_status IN ('pending', 'dead_letter')
+    AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)`;
 
 const FOREIGN_OPEN_SHIFTS_SQL = `
   SELECT COUNT(*) AS n FROM shift_cashup_opens o
   WHERE NOT EXISTS (SELECT 1 FROM shift_cashup_closes c WHERE c.shift_id = o.shift_id)
+    AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)
     AND NOT ${inScope('o')}`;
 
 const NO_DRAWER_ACTIVITY: PendingDrawerActivity = Object.freeze({
@@ -132,6 +140,7 @@ export function createShiftCashupStatusReader(db: DatabaseHandle): ShiftCashupSt
       const foreignOpen = (db.prepare(FOREIGN_OPEN_SHIFTS_SQL) as PrepareCount).get(...params);
       return {
         openShift: scope === null ? null : repo.findOpenShift(scope),
+        managerClosed: scope !== null && repo.latestShiftManagerClosed(scope),
         queue: countQueue(
           rows.filter((row) => row.inScope === 1),
           now,

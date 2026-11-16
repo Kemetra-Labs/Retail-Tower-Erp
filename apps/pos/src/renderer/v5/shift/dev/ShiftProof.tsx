@@ -86,6 +86,7 @@ const UNAVAILABLE: ReadonlySet<ShiftProofState> = new Set(['Unavailable', 'MgrUn
 
 function counts(state: ShiftProofState): Omit<ShiftStatusView, 'openShift'> {
   const quiet = {
+    managerClosed: false,
     queue: { pending: 0, waiting: 0, blocked: 0, envelopePending: 0 },
     stranded: { unsyncedFacts: 0, openShifts: 0 },
     pendingDrawerActivity: { refundPayouts: 0, unfinalizedSales: 0 },

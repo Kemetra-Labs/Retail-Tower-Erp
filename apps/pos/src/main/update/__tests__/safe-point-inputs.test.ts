@@ -139,6 +139,21 @@ describe('SafePointInputs on the real schema', () => {
       expect(createSafePointInputs(handle(), noPrint).hasOpenShift()).toBe(open);
     });
 
+    it('cash-up shift: closed by a manager on the server (RT-1442) is not open', () => {
+      insert('shift_cashup_opens', {
+        shift_id: uid(1),
+        currency_code: 'EGP',
+        terminal_id: uid(101),
+      });
+      expect(createSafePointInputs(handle(), noPrint).hasOpenShift()).toBe(true);
+      insert('shift_manager_closures', {
+        shift_id: uid(1),
+        source_fact_kind: 'open',
+        recorded_at: '2026-11-16T10:00:00.000Z',
+      });
+      expect(createSafePointInputs(handle(), noPrint).hasOpenShift()).toBe(false);
+    });
+
     it('also counts a legacy shifts row that is still open', () => {
       insert('shifts', { id: 'legacy-1', lifecycle_state: 'open', closed_at: null });
       expect(createSafePointInputs(handle(), noPrint).hasOpenShift()).toBe(true);

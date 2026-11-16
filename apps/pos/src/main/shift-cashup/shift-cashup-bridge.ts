@@ -177,6 +177,7 @@ function statusView(status: ShiftCashupServiceStatus): ShiftStatusView {
   const { queue, stranded, pendingDrawerActivity, probeRefusals } = status;
   return {
     openShift: openShiftView(status.openShift),
+    managerClosed: status.managerClosed,
     queue: { ...queue },
     stranded: { ...stranded },
     pendingDrawerActivity: { ...pendingDrawerActivity },

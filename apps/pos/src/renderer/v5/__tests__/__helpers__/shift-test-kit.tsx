@@ -32,6 +32,7 @@ export function openShiftView(): NonNullable<ShiftStatusView['openShift']> {
 export function statusView(overrides: Partial<ShiftStatusView> = {}): ShiftStatusView {
   return {
     openShift: null,
+    managerClosed: false,
     queue: { pending: 0, waiting: 0, blocked: 0, envelopePending: 0 },
     stranded: { unsyncedFacts: 0, openShifts: 0 },
     pendingDrawerActivity: { refundPayouts: 0, unfinalizedSales: 0 },

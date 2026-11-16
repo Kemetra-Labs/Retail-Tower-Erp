@@ -70,7 +70,13 @@ function RoutedShiftNotice(
   );
 }
 
-type Gate = 'unknown' | 'none' | 'open';
+/** `manager_closed` (RT-1442): no open shift, and the last one was closed by a manager. */
+type Gate = 'unknown' | 'none' | 'manager_closed' | 'open';
+
+function gateOf(answer: Awaited<ReturnType<ShiftCashupBridgeAPI['status']>>): Gate {
+  if (answer.kind !== 'status' || answer.status.openShift !== null) return 'open';
+  return answer.status.managerClosed ? 'manager_closed' : 'none';
+}
 
 function ShiftGateNotice(
   props: Readonly<{
@@ -86,8 +92,7 @@ function ShiftGateNotice(
     let live = true;
     void callShift(() => bridge.status()).then((answer) => {
       if (!live) return;
-      const none = answer.kind === 'status' && answer.status.openShift === null;
-      setGate(none ? 'none' : 'open');
+      setGate(gateOf(answer));
     });
     return () => {
       live = false;
@@ -104,6 +109,9 @@ function ShiftGateNotice(
   }
   return (
     <div className="v5-shift-banner" role="status" data-testid="shift-gate-banner">
+      {gate === 'manager_closed' && (
+        <p data-testid="shift-manager-closed">{SHIFT_COPY.managerClosed}</p>
+      )}
       <p>{SHIFT_COPY.gateBanner}</p>
       <Link className="v5-shift-btn v5-shift-btn--primary v5-btn v5-btn--primary" to={SHIFT_PATH}>
         {SHIFT_COPY.gateAction}

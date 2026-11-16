@@ -25,6 +25,7 @@ type Get = { get(...params: unknown[]): unknown };
 const OPEN_SHIFT = `
   SELECT 1 FROM shift_cashup_opens o
    WHERE NOT EXISTS (SELECT 1 FROM shift_cashup_closes c WHERE c.shift_id = o.shift_id)
+     AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)
    LIMIT 1`;
 
 const OPEN_LEGACY_SHIFT = `SELECT 1 FROM shifts WHERE lifecycle_state = 'open' LIMIT 1`;

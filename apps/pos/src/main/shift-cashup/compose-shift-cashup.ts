@@ -70,6 +70,8 @@ export const SHIFT_SYNC_DRAIN_TIMEOUT_MS = SHIFT_SYNC_REQUEST_TIMEOUT_MS + DRAIN
 export type ShiftSyncStop = () => Promise<void>;
 
 export const SHIFT_SYNC_DEAD_LETTER_LOG = 'shift_sync:dead_letter';
+/** RT-1442: a manager closed a shift on the server (closed-set log line, no ids). */
+const SHIFT_SYNC_MANAGER_CLOSED_LOG = 'shift_sync:manager_closed';
 export const SHIFT_SYNC_DEVICE_UNAUTHORIZED_LOG = 'shift_sync:device_unauthorized';
 export const SHIFT_SYNC_DEPENDENCY_FAILURE_LOG = 'shift_sync:dependency_failure';
 
@@ -234,6 +236,9 @@ export function startShiftSync(deps: StartShiftSyncDeps): ShiftSyncStop {
     now: () => new Date().toISOString(),
     onDeadLetter: ({ seq, factKind, reason }) => {
       logger.warn({ seq, fact_kind: factKind, reason }, SHIFT_SYNC_DEAD_LETTER_LOG);
+    },
+    onManagerClosed: ({ seq, factKind }) => {
+      logger.warn({ seq, fact_kind: factKind }, SHIFT_SYNC_MANAGER_CLOSED_LOG);
     },
     onDeviceUnauthorized: () => {
       logger.warn({}, SHIFT_SYNC_DEVICE_UNAUTHORIZED_LOG);

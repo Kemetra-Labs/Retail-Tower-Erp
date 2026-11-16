@@ -23,7 +23,11 @@
  *          A device 401 is a retry, never a dead letter (revoking the device
  *          is the RT-215 detector's call; the client reports it there);
  *        rejected → `markDeadLetter` with the closed-set reason. The head
- *          then blocks;
+ *          then blocks. EXCEPT (RT-1442) a shift a manager closed on the
+ *          server (409 `shift_force_closed`, or a movement's 409
+ *          `shift_closed`): final for that shift, so `recordManagerClosure`
+ *          records it and the shift's facts are skipped from then on; the
+ *          terminal's other facts are never blocked;
  *        not_sent (no device token, a re-pair, no manager envelope) → no state
  *          change, the tick stops (`held`).
  * A throwing dependency (pairing read, store, clock, client) ends the tick
@@ -70,7 +74,10 @@ export interface ShiftDeadLetterInfo {
 
 export interface ShiftSyncEngineDeps {
   client: ShiftSyncClient;
-  repo: Pick<ShiftCashupRepo, 'nextFact' | 'markSynced' | 'recordRetry' | 'markDeadLetter'>;
+  repo: Pick<
+    ShiftCashupRepo,
+    'nextFact' | 'markSynced' | 'recordRetry' | 'markDeadLetter' | 'recordManagerClosure'
+  >;
   tenantId: string;
   branchId: string;
   /** RT-221: the CURRENT pairing's `terminal_id`, read every tick; null when unpaired. */
@@ -81,6 +88,8 @@ export interface ShiftSyncEngineDeps {
   backoff?: BackoffPolicy;
   /** A fact was dead-lettered. */
   onDeadLetter?: (info: ShiftDeadLetterInfo) => void;
+  /** RT-1442: a manager closed a shift on the server; its facts are not sent any more. */
+  onManagerClosed?: (info: { seq: number; factKind: ShiftFactKind }) => void;
   /** A device 401, once per episode (re-armed by any other server answer). */
   onDeviceUnauthorized?: () => void;
   /** A dependency threw, once per episode (re-armed by a tick without a failure). */
@@ -201,10 +210,40 @@ export function createShiftSyncEngine(deps: ShiftSyncEngineDeps): ShiftSyncEngin
     return true;
   }
 
+  /**
+   * RT-1442: the shift is closed by a manager on the server, so none of its
+   * facts is sent again. The contract (RT-742, Late facts): 409
+   * `shift_force_closed` on a close or an open re-delivery; a NEW movement keeps
+   * 409 `shift_closed`. Causal order sends a shift's movements before its close,
+   * so a movement's `shift_closed` cannot come from this till's own close.
+   */
+  function closedByManager(fact: QueuedShiftFact, result: SentResult): boolean {
+    if (result.kind !== 'rejected') return false;
+    if (result.reason === 'shift_force_closed') return true;
+    return result.reason === 'shift_closed' && fact.factKind === 'movement';
+  }
+
+  function managerClosure(input: { fact: QueuedShiftFact; now: string }): boolean {
+    const { fact, now } = input;
+    if (
+      !repo.recordManagerClosure({
+        seq: fact.seq,
+        now,
+        shiftId: fact.shiftId,
+        factKind: fact.factKind,
+      })
+    ) {
+      return false;
+    }
+    notify(() => deps.onManagerClosed?.({ seq: fact.seq, factKind: fact.factKind }));
+    return true;
+  }
+
   /** Persist one outcome; false when the transition did not apply. */
   function record(fact: QueuedShiftFact, result: SentResult): boolean {
     const now = deps.now();
     if (result.kind === 'ok') return repo.markSynced({ seq: fact.seq, now });
+    if (closedByManager(fact, result)) return managerClosure({ fact, now });
     if (result.kind === 'rejected') return deadLetter({ fact, reason: result.reason, now });
     return retry({ fact, result, now });
   }
