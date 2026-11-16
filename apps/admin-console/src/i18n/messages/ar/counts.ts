@@ -287,4 +287,35 @@ export const counts = {
     other: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد {count} ثانية.",
   },
   "counts.error.generic": "تعذّر تنفيذ الطلب. لم يتأكد حدوث أي تغيير. حاول مرة أخرى.",
+  "counts.error.readinessUnmet":
+    "لم يُفعَّل الجرد بالجلسات: ما يعتمد عليه غير مثبت الجاهزية. لم يتغير شيء. عالج البنود المعروضة ثم أعد المحاولة.",
+  "counts.error.sessionsOpen":
+    "لم يُعطَّل الجرد بالجلسات: ما زال هناك جرد قيد التنفيذ. لم يتغير شيء. أنهِ كل جرد مفتوح أو ألغِه أولًا.",
+  "counts.error.legacyBlocked":
+    "هذه المؤسسة تجرد عبر جلسات الجرد، لذلك لا يُقبل الجرد الفوري للمخزون. لم يتغير شيء.",
+  "counts.boundary.no_live_store": "لا يوجد لدى المؤسسة متجر فعّال للجرد.",
+  "counts.boundary.store_warehouse_unmapped": "المتجر بلا ربط فعّال بمستودع مخزون في ERPNext.",
+  "counts.boundary.store_barrier_unprovable":
+    "تعذّر إثبات قطع الجرد للمتجر: جهاز لم يُبلّغ، أو لا يُبلّغ عن طابور البيع، أو مستودع بلا استيراد مخزون مكتمل.",
+  "counts.boundary.connector_not_seen": "لم يُبلّغ موصّل ERPNext مؤخرًا.",
+  "counts.boundary.connector_version_unlisted": "لم يُبلّغ الموصّل بأنه يقبل ترحيل الجرد.",
+  "counts.boundary.erp_back_dated_role_unverified":
+    "لم يتحقق الموصّل حديثًا من دور المخزون ذي التاريخ السابق في ERPNext.",
+  "counts.activation.title": "تفعيل جلسات الجرد",
+  "counts.activation.sub":
+    "فعّل رحلة الجرد الفعلي لهذه المؤسسة. وهي مفعّلة، يُرفض الجرد الفوري للمخزون فتبقى طريقة واحدة للجرد. وهي معطّلة إلى أن يفعّلها مالك أو مسؤول.",
+  "counts.activation.on": "جلسات الجرد مفعّلة.",
+  "counts.activation.off": "جلسات الجرد معطّلة.",
+  "counts.activation.changed": "غيّرها {who} في {when}.",
+  "counts.activation.ready": "كل ما تعتمد عليه جلسات الجرد جاهز.",
+  "counts.activation.notReady": "غير جاهز للتفعيل. هذه البنود غير مثبتة:",
+  "counts.activation.storeScoped": "المتجر: {store}",
+  "counts.activation.turnOn": "تفعيل جلسات الجرد",
+  "counts.activation.turnOff": "تعطيل جلسات الجرد",
+  "counts.activation.readOnly": "المالك أو المسؤول وحده يغيّر هذا الإعداد.",
+  "counts.activation.saved": "حُفظ الإعداد.",
+  "counts.activation.failed": "لم يتغير الإعداد",
+  "counts.activation.loadingNoun": "إعداد التفعيل",
+  "counts.activation.loadFailed": "تعذّر تحميل إعداد التفعيل.",
+  "counts.activation.notAvailable": "هذا الإعداد غير متاح.",
 } satisfies Messages;

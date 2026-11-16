@@ -8,12 +8,14 @@ import { Banner } from "@/components/Banner";
 import { type MessageKey, useT } from "@/i18n";
 import { canReadInventory } from "@/inventory/inventoryLogic";
 import { Machine, ReadError } from "@/inventory/parts";
-import { type InventoryScope, useInventoryScope } from "@/inventory/useInventory";
+import { type InventoryScope, useInventoryScope, useStoreName } from "@/inventory/useInventory";
+import type { CountSessionsReadinessBoundary } from "@/lib/count-session-queries";
 import { usePeopleNames } from "@/people/usePeopleNames";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
 import {
   type CountOutcome,
+  boundaryKey,
   countStateKey,
   countStateTone,
   deviceReasonKey,
@@ -48,6 +50,7 @@ export function OutcomeBanner({
         </p>
       ) : null}
       {outcome.blockers ? <Blockers details={outcome.blockers} /> : null}
+      {outcome.unmet && outcome.unmet.length > 0 ? <UnmetList unmet={outcome.unmet} /> : null}
     </div>
   );
 }
@@ -84,6 +87,40 @@ function Blockers({
         </>
       ) : null}
     </div>
+  );
+}
+
+function UnmetItem({
+  boundary,
+}: Readonly<{ boundary: CountSessionsReadinessBoundary }>): React.JSX.Element {
+  const t = useT();
+  const scope = useInventoryScope();
+  const store = useStoreName(scope.tenantId, boundary.storeId ?? "");
+  return (
+    <li>
+      {t(boundaryKey(boundary.code))}
+      {boundary.storeId ? (
+        <>
+          {" · "}
+          {t.rich("counts.activation.storeScoped", {
+            store: store ? <bdi dir="auto">{store}</bdi> : <Machine value={boundary.storeId} />,
+          })}
+        </>
+      ) : null}
+    </li>
+  );
+}
+
+/** The activation boundaries that do not hold, by code (the server words are never shown). */
+export function UnmetList({
+  unmet,
+}: Readonly<{ unmet: readonly CountSessionsReadinessBoundary[] }>): React.JSX.Element {
+  return (
+    <ul className="counts__list" data-testid="count-unmet">
+      {unmet.map((u) => (
+        <UnmetItem key={`${u.code}|${u.storeId ?? ""}`} boundary={u} />
+      ))}
+    </ul>
   );
 }
 

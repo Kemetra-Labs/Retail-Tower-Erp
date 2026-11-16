@@ -17,11 +17,13 @@ import type {
   CountObservationInput,
   CountSession,
   CountSessionState,
+  CountSessionsReadinessBoundary,
   CountVarianceFlag,
   CountVarianceLine,
   InventoryStatus,
 } from "@/lib/count-session-queries";
 import { errorCodeOf, errorRequestIdOf } from "@/lib/write-outcome";
+import { unmetOf } from "./activationDetails";
 
 function keyOf(map: Record<string, MessageKey>, code: string, fallback: MessageKey): MessageKey {
   return Object.hasOwn(map, code) ? map[code] : fallback;
@@ -245,7 +247,24 @@ const CONFLICT_KEYS: Record<string, MessageKey> = {
   count_line_version_stale: "counts.error.lineStale",
   idempotency_key_conflict: "counts.error.keyConflict",
   count_self_approval_owner_only: "counts.error.ownerOnly",
+  count_sessions_readiness_unmet: "counts.error.readinessUnmet",
+  count_sessions_open: "counts.error.sessionsOpen",
+  count_sessions_active: "counts.error.legacyBlocked",
 };
+
+const BOUNDARY_KEYS: Record<string, MessageKey> = {
+  no_live_store: "counts.boundary.no_live_store",
+  store_warehouse_unmapped: "counts.boundary.store_warehouse_unmapped",
+  store_barrier_unprovable: "counts.boundary.store_barrier_unprovable",
+  connector_not_seen: "counts.boundary.connector_not_seen",
+  connector_version_unlisted: "counts.boundary.connector_version_unlisted",
+  erp_back_dated_role_unverified: "counts.boundary.erp_back_dated_role_unverified",
+};
+
+/** The catalog message of one activation readiness boundary (the server's words are never shown). */
+export function boundaryKey(code: string): MessageKey {
+  return keyOf(BOUNDARY_KEYS, code, "counts.value.unknown");
+}
 
 const DEVICE_REASON_KEYS: Record<string, MessageKey> = {
   no_heartbeat: "counts.cut.device.no_heartbeat",
@@ -287,6 +306,8 @@ export type CountOutcome<D = unknown> =
       code?: string;
       /** The Count Cut blockers (devices and warehouses), when the server named them. */
       blockers?: CountCutBarrierDetails;
+      /** The activation boundaries that do not hold, when the server named them. */
+      unmet?: CountSessionsReadinessBoundary[];
       requestId?: string;
       retryAfter?: number;
     };
@@ -321,6 +342,7 @@ export function classifyCountResult<D>(result: {
     messageKey,
     code,
     blockers: code === "count_cut_barrier_not_met" ? barrierDetailsOf(result.error) : undefined,
+    unmet: code === "count_sessions_readiness_unmet" ? unmetOf(result.error) : undefined,
     requestId: errorRequestIdOf(result.error),
     retryAfter: result.retryAfter,
   };

@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ a14571e789f3b2890905645418b10c6b548e66ef
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 3d6804b36daf319adce99e3855e4840cf309fde0
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -5683,6 +5683,33 @@ export namespace ConnectorHealthSchema {
                  * @description Connector-reported clock at heartbeat time. PRESERVED as provenance only; NEVER used for the liveness verdict (§X). Distinct from DP2's server-clock `last_seen_at`.
                  */
                 sourceClockAt?: string;
+                /** @description RT-1427. The posting work-item kinds the deployed Connector accepts (its own `WORK_ITEM_KINDS`). Self-report; stored verbatim. */
+                acceptedWorkItemKinds?: ("sale_post" | "reversal" | "inventory_count")[];
+                backDatedRole?: components["schemas"]["HeartbeatBackDatedRole"];
+            };
+            /** @description RT-1427. Whether the Connector's ERP user may create and edit back-dated stock documents (read-only permission check; the Connector never changes ERP data to find out). `unknown` when the check itself could not run; a failed check is never reported as `verified`. */
+            HeartbeatBackDatedRole: {
+                /** @enum {string} */
+                status: "verified" | "missing" | "unknown";
+                /**
+                 * Format: date-time
+                 * @description Connector clock of the check. Provenance only, never a freshness clock (§X).
+                 */
+                checkedAt: string;
+            };
+            ConnectorHealthBackDatedRole: {
+                /** @enum {string} */
+                status: "verified" | "missing" | "unknown";
+                /**
+                 * Format: date-time
+                 * @description Connector clock of the check. Provenance only.
+                 */
+                checkedAt: string | null;
+                /**
+                 * Format: date-time
+                 * @description DP2 server clock when the status last arrived. Freshness is judged by this alone (§X).
+                 */
+                reportedAt: string;
             };
             /** @description Minimal heartbeat acknowledgement. Carries the DP2 server-clock stamp at which the heartbeat was recorded. No identity echo beyond what the connector already knows; no secret. */
             HeartbeatAck: {
@@ -5731,6 +5758,10 @@ export namespace ConnectorHealthSchema {
                  * @description Server-clock time the self-reported fields above were last updated (null until the first beat with self-reported fields).
                  */
                 reportedFieldsAt?: string | null;
+                /** @description RT-1427. The posting work-item kinds the Connector last reported accepting; null until reported (no evidence). */
+                acceptedWorkItemKinds?: ("sale_post" | "reversal" | "inventory_count")[] | null;
+                /** @description RT-1427. The last reported back-dated stock role readiness; null until reported (no evidence). */
+                backDatedRole?: components["schemas"]["ConnectorHealthBackDatedRole"] | null;
             };
             /** @description The tenant's connector connection-status list. `items` is possibly empty (no registrations). Only the caller's tenant's instances appear (RLS). */
             ConnectorHealthList: {
@@ -11813,7 +11844,7 @@ export namespace InventorySchema {
             put?: never;
             /**
              * Record a physical count; append a correction movement for any variance.
-             * @description Record a physical stock count for a product at the path-scoped store. Any variance from the derived on-hand is appended as a `count_correction` movement (signed variance) linked to the count; the movement history is NEVER rewritten (FR-021/SC-005). After the count, the derived on-hand equals the counted quantity. A zero-variance count is deterministic (no correction, or an explicit zero-variance record). The `storeId` is the PATH-scoped selection target, authorized server-side; it is never taken from the body (§XII). Idempotent via the `Idempotency-Key` header. RT-1419: this legacy route is unchanged until the per-tenant Count Session activation (RT-292 G6-7); the Count Session operations (`createCountSession` and the rest) are contract-only until the Count Session domain issue RT-1420, and nothing here answers the typed 409 yet.
+             * @description Record a physical stock count for a product at the path-scoped store. Any variance from the derived on-hand is appended as a `count_correction` movement (signed variance) linked to the count; the movement history is NEVER rewritten (FR-021/SC-005). After the count, the derived on-hand equals the counted quantity. A zero-variance count is deterministic (no correction, or an explicit zero-variance record). The `storeId` is the PATH-scoped selection target, authorized server-side; it is never taken from the body (§XII). Idempotent via the `Idempotency-Key` header. RT-1423 (RT-292 G6-7): this legacy route is unchanged while the tenant has NOT activated Count Sessions (the default). Once the tenant has (`setCountSessionsSetting`), it answers the typed 409 `count_sessions_active` and writes nothing: the tenant counts through Count Sessions, so there is one count writer.
              */
             post: operations["recordStockCount"];
             delete?: never;
@@ -12407,6 +12438,30 @@ export namespace InventorySchema {
              * @description RT-1420 (RT-292 G6-10). Owner only (typed 403 `count_self_approval_owner_only` for any other role). Enabling needs a `reason` of 1 to 500 characters (400 otherwise); disabling clears it. Every change is audited with the actor, the time, the value and the reason. It is a whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`. The activation of Count Sessions themselves is not this setting.
              */
             put: operations["setCountSelfApprovalSetting"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/settings/count-sessions": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's Count Session activation switch and its readiness.
+             * @description RT-1423 (RT-292 G6-7). Whether Count Sessions are active for the tenant. `enabled` is false for every tenant until switched on; `changedAt` and `changedBy` are null while it was never changed. `unmetReadiness` lists every readiness boundary that does not hold now, evaluated on each read and failing closed: a boundary the server cannot prove is listed as unmet. `readinessMet` is true exactly when that list is empty. The boundaries (`CountSessionsReadinessBoundary.code`) are `no_live_store`, `store_warehouse_unmapped`, `store_barrier_unprovable`, `connector_not_seen`, `connector_version_unlisted` and `erp_back_dated_role_unverified`. Owner or tenant_admin read every field; a store_manager reads `enabled` only, with the other fields null. Any other role is a 403.
+             */
+            get: operations["getCountSessionsSetting"];
+            /**
+             * Switch Count Sessions on or off for the tenant.
+             * @description RT-1423 (RT-292 G6-7). `{"enabled": true}` evaluates the readiness in the same transaction as the write: while any boundary is unmet it is refused with 409 `count_sessions_readiness_unmet`, which names the first boundary, and nothing is written. There is no override. `{"enabled": false}` is refused with 409 `count_sessions_open` while any session of the tenant is open (open, cut taken, submitted, approved, posting or needing attention). Setting the current value again writes nothing and records no audit event. Every change is audited. While ON, the legacy `recordStockCount` is refused with 409 `count_sessions_active`. Owner or tenant_admin; any other role is a 403. A whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`.
+             */
+            put: operations["setCountSessionsSetting"];
             post?: never;
             delete?: never;
             options?: never;
@@ -13510,6 +13565,32 @@ export namespace InventorySchema {
                 /** @description Required (1 to 500 characters) when `enabled` is true. */
                 reason?: string | null;
             };
+            /** @description RT-1423 — one readiness boundary that does not hold. */
+            CountSessionsReadinessBoundary: {
+                /** @enum {string} */
+                code: "no_live_store" | "store_warehouse_unmapped" | "store_barrier_unprovable" | "connector_not_seen" | "connector_version_unlisted" | "erp_back_dated_role_unverified";
+                /**
+                 * Format: uuid
+                 * @description The store the boundary is about; null for a tenant-wide boundary.
+                 */
+                storeId: string | null;
+                message: string;
+            };
+            /** @description RT-1423 (G6-7) — the tenant's Count Session activation switch and its readiness. */
+            CountSessionsSetting: {
+                enabled: boolean;
+                /** Format: date-time */
+                changedAt: string | null;
+                /** Format: uuid */
+                changedBy: string | null;
+                /** @description True exactly when `unmetReadiness` is empty; null for a store_manager. */
+                readinessMet: boolean | null;
+                /** @description Every unmet boundary, evaluated now and failing closed; null for a store_manager. */
+                unmetReadiness: components["schemas"]["CountSessionsReadinessBoundary"][] | null;
+            };
+            SetCountSessionsSettingCommand: {
+                enabled: boolean;
+            };
             CountCutBarrierDevice: {
                 /** Format: uuid */
                 deviceId: string;
@@ -13546,6 +13627,30 @@ export namespace InventorySchema {
                      */
                     request_id?: string;
                     details?: components["schemas"]["CountCutBarrierDetails"];
+                };
+            };
+            /** @description The canonical error envelope (`Error`) of the Count Sessions setting 409, with the optional `details`. `details` is present for `count_sessions_readiness_unmet` and absent for `count_sessions_open`. */
+            CountSessionsSettingConflictError: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                    details?: {
+                        /** @description The code of the first readiness boundary that does not hold. */
+                        boundary: string;
+                        /**
+                         * Format: uuid
+                         * @description The store of the first boundary, or null for a tenant-wide one.
+                         */
+                        storeId?: string | null;
+                        unmet: components["schemas"]["CountSessionsReadinessBoundary"][];
+                    };
                 };
             };
         };
@@ -13647,6 +13752,23 @@ export namespace InventorySchema {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 — RT-1423. `count_sessions_readiness_unmet`: switching Count Sessions on was refused because a readiness boundary does not hold; `error.details` names the first (`boundary`, `storeId`) and lists all (`unmet`). `count_sessions_open`: switching off was refused because a session is open. Nothing is written. */
+            CountSessionsSettingConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "count_sessions_readiness_unmet",
+                     *         "message": "Count Sessions cannot be switched on: There is no evidence that the Connector ERP user holds the back-dated stock role."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CountSessionsSettingConflictError"];
                 };
             };
             /** @description 409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the command is not allowed in the session's state. `count_tracked_product_refused`: a product is tracked (batch or serial); tracked counting is not available in V1 (G6-3). `count_scope_in_use`: a product is already in the scope of another live session of the store. `count_cut_barrier_not_met`: the Count Cut barrier does not hold yet (devices not drained, or the ERP import has not read past the cut). `count_approver_conflict`: the approver is a counter or the submitter and the tenant's audited small-merchant exception does not apply (G6-10). `count_flagged_line_not_acknowledged`: a flagged line needs an acknowledgement (G6-2). `count_line_version_stale`: an acknowledgement's `lineVersion` no longer matches the line, which changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. A count-up line without valuation history is not an error of the request: it is refused on its line (`CountVarianceLine.refusal`). */
@@ -15299,6 +15421,80 @@ export namespace InventorySchema {
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["CountSelfApprovalOwnerOnly"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getCountSessionsSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's activation switch and its readiness. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "enabled": false,
+                         *       "changedAt": null,
+                         *       "changedBy": null,
+                         *       "readinessMet": false,
+                         *       "unmetReadiness": [
+                         *         {
+                         *           "code": "erp_back_dated_role_unverified",
+                         *           "storeId": null,
+                         *           "message": "There is no evidence that the Connector ERP user holds the back-dated stock role."
+                         *         }
+                         *       ]
+                         *     }
+                         */
+                        "application/json": components["schemas"]["CountSessionsSetting"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setCountSessionsSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SetCountSessionsSettingCommand"];
+                };
+            };
+            responses: {
+                /** @description The tenant's activation switch after the command. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CountSessionsSetting"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                409: components["responses"]["CountSessionsSettingConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
