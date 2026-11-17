@@ -42,11 +42,23 @@ const installedOf = (e) => (e.kind === "build" ? { kind: e.kind, build_id: e.bui
 const fresh = () => {
   const m = structuredClone(parseYamlSubset(MATRIX_TEXT));
   if (m.fleet_baseline.installed.length === 0) {
-    m.fleet_baseline.installed = m.supported.map(installedOf);
+    // A strict subset when there is more than one entry, as the lab matrix had: supported can be a superset of installed.
+    m.fleet_baseline.installed = (m.supported.length > 1 ? m.supported.slice(1) : m.supported).map(installedOf);
     delete m.bootstrap_exception;
   }
   return m;
 };
+// The committed text with a populated fleet, for the run() cases that read text: under the bootstrap exception run()
+// skips oasdiff, envelope and replay, which those cases exist to exercise.
+const POPULATED_TEXT = (() => {
+  const lines = fresh().fleet_baseline.installed.flatMap((e) => [
+    `    - kind: ${e.kind}`,
+    e.kind === "build" ? `      build_id: ${e.build_id}` : `      pos_version: ${e.pos_version}`,
+  ]);
+  const installed = ["  installed:", ...lines].join("\n") + "\n";
+  return MATRIX_TEXT.replace(/^ {2}installed: \[\]\r?\n/m, installed)
+    .replace(/^bootstrap_exception:\r?\n(?: {2}.*\r?\n)+/m, "");
+})();
 // A blobAt stub that agrees with every file the matrix lists.
 const honestBlobAt = (matrix) => {
   const known = new Map();
@@ -78,10 +90,17 @@ test("parser fails closed on unsupported syntax", () => {
 
 // ---- evaluator -------------------------------------------------------------------------------
 
-test("the committed matrix is valid as it stands: READY, or NOT_PROVEN under its owner-approved exception", () => {
-  const r = evaluate(parseYamlSubset(MATRIX_TEXT));
+test("the committed matrix is valid as it stands (an empty fleet needs its owner-approved exception)", () => {
+  const m = parseYamlSubset(MATRIX_TEXT);
+  const r = evaluate(m);
   assert.deepEqual(r.problems, []);
-  assert.ok(["READY", "NOT_PROVEN_NO_SUPPORTED_RELEASE_SNAPSHOT"].includes(r.state), r.state);
+  assert.equal(r.state, m.fleet_baseline.installed.length === 0 ? "NOT_PROVEN_NO_SUPPORTED_RELEASE_SNAPSHOT" : "READY");
+});
+
+test("the populated text the run() cases read is READY (so they exercise oasdiff, envelope and replay)", () => {
+  const r = evaluate(parseYamlSubset(POPULATED_TEXT));
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.state, "READY");
 });
 
 test("matching snapshot: READY", () => {
@@ -264,7 +283,7 @@ test("introduced breaking change turns the diff red; compatible one passes", nee
 });
 
 test("run(): committed matrix passes; VERIFIED is contract-level and release mode needs a recorded fixture", needsOasdiff, () => {
-  const r = run({ now: NOW });
+  const r = run({ now: NOW, matrixText: POPULATED_TEXT });
   const text = r.lines.join(" | ");
   assert.equal(r.exit, 0, text);
   assert.match(text, /harness correctness +: PASS/);
@@ -275,13 +294,13 @@ test("run(): committed matrix passes; VERIFIED is contract-level and release mod
   assert.match(text, /envelope[/]idempotency +: PASS/);
   assert.match(text, new RegExp(`replay +: PASS [(]${5 * n} event[(]s[)]: 0 recorded, ${5 * n} contract-derived[)]`));
   assert.match(text, /VERIFIED [(]contract level; replay is offline[)]/);
-  const release = run({ now: NOW, mode: "release" });
+  const release = run({ now: NOW, mode: "release", matrixText: POPULATED_TEXT });
   assert.equal(release.exit, 1, "release mode must not go green without a recorded fixture");
   assert.match(release.lines.join(" | "), /needs a recorded fixture/);
 });
 
 test("run(): a supported snapshot with no replay fixture is NOT_PROVEN, never VERIFIED", needsOasdiff, () => {
-  const m = MATRIX_TEXT.split("9dfd7d977267806a907d4c03a566382570cbd0c9").join("b".repeat(40));
+  const m = POPULATED_TEXT.split("9dfd7d977267806a907d4c03a566382570cbd0c9").join("b".repeat(40));
   // The accepted breaks are keyed by snapshot id, so they follow the renamed build (RT-1051).
   const accepted = ACCEPTED_TEXT.split("pos-build-9dfd7d977267").join(`pos-build-${"b".repeat(12)}`);
   const r = run({ now: NOW, matrixText: m, acceptedText: accepted });
@@ -295,9 +314,9 @@ test("run(): a supported snapshot with no replay fixture is NOT_PROVEN, never VE
 
 
 test("run(): a tampered blob, an unknown kind or an empty matrix fail the job", needsOasdiff, () => {
-  const tampered = MATRIX_TEXT.replace("blob: bd8e3abf4f02760d267bc74efc72c7e6ebd72768", `blob: ${"1".repeat(40)}`);
+  const tampered = POPULATED_TEXT.replace("blob: bd8e3abf4f02760d267bc74efc72c7e6ebd72768", `blob: ${"1".repeat(40)}`);
   assert.equal(run({ now: NOW, matrixText: tampered }).exit, 1);
-  const unknown = MATRIX_TEXT.replace("  - kind: build\n    build_id", "  - kind: nightly\n    build_id");
+  const unknown = POPULATED_TEXT.replace("  - kind: build\n    build_id", "  - kind: nightly\n    build_id");
   assert.equal(run({ now: NOW, matrixText: unknown }).exit, 1);
   const capturedAt = new Date(CAPTURED_MS).toISOString().replace(".000Z", "Z");
   const empty = `schema: retail-tower/pos-compat@1\nfleet_baseline:\n  source: x\n  captured_at: ${capturedAt}\n  evidence: x\n  installed: []\nsupported: []\n`;

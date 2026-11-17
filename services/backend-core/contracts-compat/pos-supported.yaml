@@ -17,10 +17,10 @@ fleet_baseline:
   evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=17418
   installed: []
 bootstrap_exception:
-  approved_by: owner (Ahmed Shaaban), chat decision 2026-11-17, recorded on RT-713 comment 17418
-  approved_at: 2026-11-17T13:55:00Z
+  approved_by: owner (Ahmed Shaaban), answer in the Claude Code chat on 2026-11-17, recorded on RT-713 comment 17418
+  approved_at: 2026-11-17
   jira: RT-713
-  residual_risk: the one active lab till reports no build (RT-719), so what it runs is unknown; pos/v0.1.5 (f79b237cf) is in the lab update feed but no till has been seen on it; no pilot or production terminals
+  residual_risk: the one active lab till reports no build (RT-719), so what it runs is unknown; pos/v0.1.5 (f79b237cf) is in the lab update feed but no till has been seen on it; no pilot or production terminals; while this exception is active the supported snapshots are NOT diffed by the PR gate (NOT_VERIFIED), only G5 and the freshness check still read them
   expires_when: a lab till reports a POS build (reported_build_commit) or the first pilot or production terminal pairs; then record it as installed and add its supported entry
 supported:
   - kind: build

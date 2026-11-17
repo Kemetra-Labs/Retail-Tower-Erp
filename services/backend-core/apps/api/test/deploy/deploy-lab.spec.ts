@@ -213,13 +213,16 @@ const SYNTHETIC_AT = REAL_MATRIX.indexOf("\n# Test-only probes that prove the ha
 const REAL_ENTRIES = REAL_MATRIX.slice(SUPPORTED_AT + "supported:\n".length, SYNTHETIC_AT);
 const SECOND_ENTRY_AT = REAL_ENTRIES.indexOf("\n  - kind: ", 1);
 const REAL_ENTRY = SECOND_ENTRY_AT === -1 ? REAL_ENTRIES : REAL_ENTRIES.slice(0, SECOND_ENTRY_AT + 1);
-const INSTALLED_RE = /^ {2}installed:\n(?: {4}- kind: build\n {6}build_id: [0-9a-f]{40}\n)+/m;
+// The real fleet is a list of builds, or empty under the bootstrap exception; the fixture's fleet is always BUILD_A.
+const INSTALLED_RE = /^ {2}installed: \[\]\n|^ {2}installed:\n(?: {4}- kind: build\n {6}build_id: [0-9a-f]{40}\n)+/m;
+const EXCEPTION_RE = /^bootstrap_exception:\n(?: {2}.*\n)+/m;
 const supportedEntry = (build: string): string => REAL_ENTRY.replace(`build_id: ${BUILD_A}`, `build_id: ${build}`);
 /** The release commit's contracts-compat matrix: the real one with a chosen capture time and builds. */
 function writeMatrix({ capturedAt = daysAgo(1), builds = [BUILD_A] }: { capturedAt?: string; builds?: string[] } = {}): void {
   const supported = builds.length ? `supported:\n${builds.map(supportedEntry).join("")}` : "supported: []\n";
   const head = REAL_MATRIX.slice(0, SUPPORTED_AT)
     .replace(/^ {2}captured_at: .*$/m, `  captured_at: ${capturedAt}`)
+    .replace(EXCEPTION_RE, "")
     .replace(INSTALLED_RE, `  installed:\n    - kind: build\n      build_id: ${BUILD_A}\n`);
   put("source/contracts-compat/pos-supported.yaml", `${head}${supported}${REAL_MATRIX.slice(SYNTHETIC_AT)}`);
 }
