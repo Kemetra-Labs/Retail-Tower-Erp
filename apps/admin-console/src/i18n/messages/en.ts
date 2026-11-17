@@ -14,6 +14,7 @@ import { catalog } from "./en/catalog";
 import { common } from "./en/common";
 import { counts } from "./en/counts";
 import { devices } from "./en/devices";
+import { forceActions } from "./en/forceActions";
 import { downloadPos } from "./en/downloadPos";
 import { erp } from "./en/erp";
 import { inventory } from "./en/inventory";
@@ -54,6 +55,7 @@ export const EN_MODULES = {
   erp,
   productRecon,
   devices,
+  forceActions,
   downloadPos,
   posPilot,
   sales,
@@ -90,6 +92,7 @@ export const en: MessagesOf<typeof ar> = {
   ...erp,
   ...productRecon,
   ...devices,
+  ...forceActions,
   ...downloadPos,
   ...posPilot,
   ...sales,
