@@ -412,4 +412,30 @@ describe("ForceCloseDialog", () => {
     );
     expect(consoleForceCloseShift.mock.calls[1][2]).toBe(consoleForceCloseShift.mock.calls[0][2]);
   });
+
+  test("a 429 on the retry of a lost answer keeps Try again, so the held attempt is still recoverable once the preview says the shift is no longer open", async () => {
+    consoleGetForceClosePreview.mockResolvedValueOnce(preview());
+    consoleForceCloseShift
+      .mockResolvedValueOnce({ status: 503, error: err("system_failure") })
+      .mockResolvedValueOnce({ status: 429, error: err("force_action_rate_limited") })
+      .mockResolvedValueOnce({ status: 200, data: {} });
+    renderDialog();
+    await fillAndAcknowledge("Till A died");
+    fireEvent.click(commitButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/reached the hourly limit/)).toBeTruthy();
+    // The first attempt may have been recorded: the re-read now says the shift is not open.
+    consoleGetForceClosePreview.mockResolvedValue(
+      preview({ eligible: false, blockers: ["shift_not_open"] }),
+    );
+    await queryClient.refetchQueries({ queryKey: ["force-actions", "preview"] });
+    await waitFor(() => expect(screen.getByText(/The shift is no longer open/)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/This shift is already closed without a count/)).toBeTruthy();
+    expect(consoleForceCloseShift).toHaveBeenCalledTimes(3);
+    expect(consoleForceCloseShift.mock.calls[2][1]).toEqual(
+      consoleForceCloseShift.mock.calls[0][1],
+    );
+    expect(consoleForceCloseShift.mock.calls[2][2]).toBe(consoleForceCloseShift.mock.calls[0][2]);
+  });
 });

@@ -155,14 +155,26 @@ function Blockers({ blockers }: Readonly<{ blockers: readonly string[] }>): Reac
   );
 }
 
+function RetryButton({ retry }: Readonly<{ retry: () => void }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <button type="button" className="btn-secondary" onClick={retry}>
+      {t("forceActions.close.retry")}
+    </button>
+  );
+}
+
 function Outcome({
   outcome,
   requestId,
   retry,
+  canRetry,
 }: Readonly<{
   outcome: NonNullable<ReturnType<typeof useForceCloseFlow>["outcome"]>;
   requestId?: string;
   retry: () => void;
+  /** An attempt is still held: a refusal that kept it (429) offers the resend too. */
+  canRetry: boolean;
 }>): React.JSX.Element | null {
   const t = useT();
   switch (outcome.kind) {
@@ -193,6 +205,7 @@ function Outcome({
           variant="danger"
           message={t(outcome.messageKey)}
           requestId={outcome.requestId ?? requestId}
+          action={canRetry ? <RetryButton retry={retry} /> : undefined}
         />
       );
     case "retryable":
@@ -201,11 +214,7 @@ function Outcome({
           variant="warning"
           message={t("forceActions.close.retryable")}
           requestId={outcome.requestId}
-          action={
-            <button type="button" className="btn-secondary" onClick={retry}>
-              {t("forceActions.close.retry")}
-            </button>
-          }
+          action={<RetryButton retry={retry} />}
         />
       );
     case "session":
@@ -454,6 +463,7 @@ export function ForceCloseDialog({
             outcome={flow.outcome}
             requestId={flow.requestId}
             retry={() => void flow.retry()}
+            canRetry={flow.canRetry}
           />
         ) : null}
         {showForm ? <ReasonForm flow={flow} /> : null}

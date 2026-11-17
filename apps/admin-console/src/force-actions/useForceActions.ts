@@ -122,6 +122,8 @@ export interface ForceCloseFlow {
   commit: () => Promise<void>;
   /** Resend the unclear attempt exactly as it was (same body, same key): the server replays a recorded close. */
   retry: () => Promise<void>;
+  /** An attempt is held for a resend (an unclear answer, or a 429 that did not say the close was recorded). */
+  canRetry: boolean;
 }
 
 /** The confirm step: input state, the keyed write and the reaction to each answer. */
@@ -137,6 +139,7 @@ export function useForceCloseFlow(
   const [reason, setReasonState] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [pending, setPending] = useState(false);
+  const [canRetry, setCanRetry] = useState(false);
   const [outcome, setOutcome] = useState<ForceCloseOutcome | null>(null);
   const [requestId, setRequestId] = useState<string | undefined>();
 
@@ -184,6 +187,7 @@ export function useForceCloseFlow(
           held.current = null;
           attempt.current.settle();
         }
+        setCanRetry(keep);
         setRequestId(errorRequestIdOf(res.error));
         setOutcome(next);
         if (next.kind === "stale") {
@@ -229,5 +233,6 @@ export function useForceCloseFlow(
     canCommit: ready && !pending,
     commit,
     retry,
+    canRetry,
   };
 }
