@@ -35,7 +35,18 @@ const oasdiffBin = process.env.OASDIFF ?? "oasdiff";
 const haveOasdiff = !spawnSync(oasdiffBin, ["--version"]).error;
 const needsOasdiff = { skip: !haveOasdiff && process.env.CONTRACTS_COMPAT_REQUIRE_OASDIFF !== "1" && "oasdiff not installed" };
 
-const fresh = () => structuredClone(parseYamlSubset(MATRIX_TEXT));
+// The cases below need a populated fleet. The committed fleet can be empty (a bootstrap_exception while no active
+// lab till reports a build, RT-713 comment 17418), so an empty one is filled from the committed supported entries
+// and the exception is dropped: these cases then do not depend on what the lab fleet looks like today.
+const installedOf = (e) => (e.kind === "build" ? { kind: e.kind, build_id: e.build_id } : { kind: e.kind, pos_version: e.pos_version });
+const fresh = () => {
+  const m = structuredClone(parseYamlSubset(MATRIX_TEXT));
+  if (m.fleet_baseline.installed.length === 0) {
+    m.fleet_baseline.installed = m.supported.map(installedOf);
+    delete m.bootstrap_exception;
+  }
+  return m;
+};
 // A blobAt stub that agrees with every file the matrix lists.
 const honestBlobAt = (matrix) => {
   const known = new Map();
@@ -66,6 +77,12 @@ test("parser fails closed on unsupported syntax", () => {
 });
 
 // ---- evaluator -------------------------------------------------------------------------------
+
+test("the committed matrix is valid as it stands: READY, or NOT_PROVEN under its owner-approved exception", () => {
+  const r = evaluate(parseYamlSubset(MATRIX_TEXT));
+  assert.deepEqual(r.problems, []);
+  assert.ok(["READY", "NOT_PROVEN_NO_SUPPORTED_RELEASE_SNAPSHOT"].includes(r.state), r.state);
+});
 
 test("matching snapshot: READY", () => {
   const r = evaluate(fresh());

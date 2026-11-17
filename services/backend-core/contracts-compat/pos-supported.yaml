@@ -7,19 +7,21 @@
 schema: retail-tower/pos-compat@1
 fleet_baseline:
   source: lab devices table, active (not revoked, not retired) devices and the build each till reported (RT-719); no pilot or production terminals
-  # 2026-11-10 re-observation (RT-1312 Phase 1 F2, RT-713 comment 16400): read-only query on lab-02,
-  # owner-approved. The earlier entries were an attestation (2026-10-24, comment 13734) whose clock
-  # was moved twice without re-observation (comments 14440, 15724). Two active tills report no build
-  # (T-1A011D4D, RT-778 Windows Test 1), so the 9dfd7d97 supported entry below is kept for them. Three
-  # older test tills (Test_1, dsad, rrrr on builds 318eb48e, c263f18a, e4d25139, contracts that main has
-  # since broken) are being retired in the Console by owner decision (RT-1312, 2026-11-10); not listed.
-  captured_at: 2026-11-10T11:30:00Z
-  evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=16400
-  installed:
-    - kind: build
-      build_id: 27e466afcd2cb9dc309ad24f2e3dc7e1b1ad0691
-    - kind: build
-      build_id: 9931199b90eace78aba02d3878d5bf027c9e6bce
+  # 2026-11-17 re-observation (RT-713 comment 17418): read-only query on lab-02 (SSM command
+  # 7a3b3bb0-7b36-4e58-a3b2-77368a008ac3), owner-approved for that one run. The one active till (not
+  # revoked, not retired) reports no POS build, so the fleet evidence shows nothing installed. The three
+  # tills of the 2026-11-10 observation (office-3 and Office on 27e466af, Home on 9931199b) are no longer
+  # active. Their `supported` entries stay (dropping one is its own reviewed change); installed is empty,
+  # so the owner-approved bootstrap_exception below applies (state NOT_PROVEN, never green).
+  captured_at: 2026-11-17T13:52:00Z
+  evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=17418
+  installed: []
+bootstrap_exception:
+  approved_by: owner (Ahmed Shaaban), chat decision 2026-11-17, recorded on RT-713 comment 17418
+  approved_at: 2026-11-17T13:55:00Z
+  jira: RT-713
+  residual_risk: the one active lab till reports no build (RT-719), so what it runs is unknown; pos/v0.1.5 (f79b237cf) is in the lab update feed but no till has been seen on it; no pilot or production terminals
+  expires_when: a lab till reports a POS build (reported_build_commit) or the first pilot or production terminal pairs; then record it as installed and add its supported entry
 supported:
   - kind: build
     build_id: 9dfd7d977267806a907d4c03a566382570cbd0c9
