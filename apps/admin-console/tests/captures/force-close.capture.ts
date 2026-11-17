@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { type Page, test } from "../e2e/fixtures";
 import { DEVICE_1, DUBAI_STORE, SHIFT_OPEN, detail } from "../unit/device-fixtures";
 import { impact, openShift } from "../unit/device-lifecycle-fixtures";
-import { type Page, test } from "../e2e/fixtures";
 
 /**
  * RT-1440 (U1): evidence captures of the owner's force close of a stuck shift, taken in CI only
@@ -78,7 +78,13 @@ function preview(eligible: boolean) {
         "terminal_may_open_new_shift",
         "device_retire_replace_move_unblocked",
       ],
-      willNotChange: ["sales_unchanged", "refunds_unchanged", "cash_movements_unchanged", "stock_unchanged", "erp_documents_unchanged"],
+      willNotChange: [
+        "sales_unchanged",
+        "refunds_unchanged",
+        "cash_movements_unchanged",
+        "stock_unchanged",
+        "erp_documents_unchanged",
+      ],
     },
     reversible: false,
     drawerCashUnaccounted: true,
@@ -89,7 +95,14 @@ function preview(eligible: boolean) {
 }
 
 async function mock(page: Page): Promise<void> {
-  const store = { id: DUBAI_STORE, tenant_id: "t1", code: "DXB", name: "Dubai Mall", timezone: "Asia/Dubai", is_active: true };
+  const store = {
+    id: DUBAI_STORE,
+    tenant_id: "t1",
+    code: "DXB",
+    name: "Dubai Mall",
+    timezone: "Asia/Dubai",
+    is_active: true,
+  };
   await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
   await page.route("**/api/v1/device-health**", (r) => r.fulfill({ status: 404 }));
   await page.route("**/api/v1/context/me", (r) =>
@@ -107,7 +120,9 @@ async function mock(page: Page): Promise<void> {
   await page.route("**/api/v1/stores", (r) => r.fulfill(json([store])));
   await page.route(`**/api/v1/stores/${DUBAI_STORE}`, (r) => r.fulfill(json(store)));
   await page.route(`**/api/v1/devices/${DEVICE_1}`, (r) => r.fulfill(json(detail())));
-  await page.route("**/api/v1/pairing-codes?**", (r) => r.fulfill(json({ items: [], nextCursor: null })));
+  await page.route("**/api/v1/pairing-codes?**", (r) =>
+    r.fulfill(json({ items: [], nextCursor: null })),
+  );
   await page.route(`**/api/v1/devices/${DEVICE_1}/impact?**`, (r) =>
     r.fulfill(
       json(
@@ -131,11 +146,16 @@ async function mock(page: Page): Promise<void> {
       }),
     ),
   );
-  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close-preview`, (r) => r.fulfill(json(preview(true))));
-  await page.route("**/api/v1/shifts/0190f000-0000-7000-8000-0000000000b8/force-close-preview", (r) =>
-    r.fulfill(json(preview(false))),
+  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close-preview`, (r) =>
+    r.fulfill(json(preview(true))),
   );
-  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close`, (r) => r.fulfill(json({ shiftId: SHIFT_OPEN, status: "force_closed" }, 201)));
+  await page.route(
+    "**/api/v1/shifts/0190f000-0000-7000-8000-0000000000b8/force-close-preview",
+    (r) => r.fulfill(json(preview(false))),
+  );
+  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close`, (r) =>
+    r.fulfill(json({ shiftId: SHIFT_OPEN, status: "force_closed" }, 201)),
+  );
   await page.route("**/api/v1/audit/events**", (r) =>
     r.fulfill(
       json({
@@ -150,7 +170,12 @@ async function mock(page: Page): Promise<void> {
             kind: "change",
             target_type: "shift",
             target_id: SHIFT_OPEN,
-            metadata: { shift_id: SHIFT_OPEN, channel: "console", actor_role: "owner", shift_age_minutes: 880 },
+            metadata: {
+              shift_id: SHIFT_OPEN,
+              channel: "console",
+              actor_role: "owner",
+              shift_age_minutes: 880,
+            },
           },
           {
             id: "0190f000-0000-7000-8000-0000000000f2",
@@ -162,7 +187,12 @@ async function mock(page: Page): Promise<void> {
             kind: "change",
             target_type: "shift",
             target_id: "0190f000-0000-7000-8000-0000000000b7",
-            metadata: { shift_id: "0190f000-0000-7000-8000-0000000000b7", channel: "pos", actor_role: "store_manager", shift_age_minutes: 1500 },
+            metadata: {
+              shift_id: "0190f000-0000-7000-8000-0000000000b7",
+              channel: "pos",
+              actor_role: "store_manager",
+              shift_age_minutes: 1500,
+            },
           },
         ],
         next_cursor: null,
@@ -177,10 +207,14 @@ test("RT-1440 open shifts and the close-without-a-count dialog", async ({ page, 
   await page.getByText(t("forceActions.openShifts.verdict.eligible")).waitFor();
   await shot(page, "open-shifts", appLocale);
 
-  await page.getByRole("button", { name: t("forceActions.openShifts.openLabel", { terminal: TERMINAL }) }).click();
+  await page
+    .getByRole("button", { name: t("forceActions.openShifts.openLabel", { terminal: TERMINAL }) })
+    .click();
   const dialog = page.getByRole("dialog", { name: t("forceActions.close.title") });
   await dialog.getByText(t("forceActions.close.drawerUnaccounted")).waitFor();
-  await dialog.getByLabel(t("forceActions.close.reason.label")).fill("Till died with the shift open");
+  await dialog
+    .getByLabel(t("forceActions.close.reason.label"))
+    .fill("Till died with the shift open");
   await dialog.getByRole("checkbox", { name: t("forceActions.close.acknowledge") }).check();
   await shot(page, "dialog-eligible", appLocale);
 
@@ -201,7 +235,9 @@ test("RT-1440 a live drawer is blocked with its reason", async ({ page, t, appLo
       }),
     ),
   );
-  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close-preview`, (r) => r.fulfill(json(preview(false))));
+  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close-preview`, (r) =>
+    r.fulfill(json(preview(false))),
+  );
   await page.goto(`/stores/${DUBAI_STORE}/open-shifts`);
   await page.getByText(t("forceActions.openShifts.verdict.blocked")).waitFor();
   await shot(page, "open-shifts-blocked", appLocale);

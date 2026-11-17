@@ -101,7 +101,9 @@ function answerAll(): void {
 
 /** Every audit read the Overview made carries the force-close action filter (no recent-activity read). */
 function onlyForceClosedAuditReads(): boolean {
-  return listAuditEvents.mock.calls.every(([q]) => (q as { action?: string }).action === "shift.force_closed");
+  return listAuditEvents.mock.calls.every(
+    ([q]) => (q as { action?: string }).action === "shift.force_closed",
+  );
 }
 
 function renderOverview(): void {
@@ -467,7 +469,11 @@ describe("Overview panels (RT-559, spec 009)", () => {
     const r = await findRow(FORCE_CLOSED);
     await within(r).findByText("Closes without a count: 3");
     expect(listAuditEvents).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "shift.force_closed", limit: 200, from: expect.any(String) }),
+      expect.objectContaining({
+        action: "shift.force_closed",
+        limit: 200,
+        from: expect.any(String),
+      }),
     );
     expect(
       within(r).getByRole("link", { name: "Review closes without a count" }).getAttribute("href"),
@@ -480,9 +486,9 @@ describe("Overview panels (RT-559, spec 009)", () => {
     renderOverview();
     const r = await findRow(FORCE_CLOSED);
     await within(r).findByText("Closes without a count: 1");
-    expect(within(r).getByRole("link", { name: "Review closes without a count" }).getAttribute("href")).toBe(
-      `/shifts/force-closed?store=${A}`,
-    );
+    expect(
+      within(r).getByRole("link", { name: "Review closes without a count" }).getAttribute("href"),
+    ).toBe(`/shifts/force-closed?store=${A}`);
   });
 
   test("RT-1440: a full page of force closes reads 'or more', never an exact count it cannot prove", async () => {
@@ -495,7 +501,10 @@ describe("Overview panels (RT-559, spec 009)", () => {
   test("RT-1440: count-activation blockers show their count and link to the store's activation panel; hidden once the switch is on", async () => {
     activeContext.mockReturnValue(ctx("owner", { id: A, name: "Cairo Festival City" }));
     getCountSessionsSetting.mockImplementation(() =>
-      ok({ enabled: false, unmetReadiness: [{ code: "connector_not_seen" }, { code: "store_warehouse_unmapped" }] }),
+      ok({
+        enabled: false,
+        unmetReadiness: [{ code: "connector_not_seen" }, { code: "store_warehouse_unmapped" }],
+      }),
     );
     renderOverview();
     const r = await findRow(READINESS);

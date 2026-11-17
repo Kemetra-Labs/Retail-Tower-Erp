@@ -9,21 +9,30 @@
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
+import { TrustBadge } from "@/devices/DeviceParts";
+import { TextArea } from "@/devices/RevokeFields";
 import { DateTime, type MessageKey, Money, useT } from "@/i18n";
 import { formatNumber } from "@/i18n/translate";
 import type { ForceClosePreview } from "@/lib/force-action-queries";
 import { useEffect, useId, useRef } from "react";
-import { TextArea } from "@/devices/RevokeFields";
-import { TrustBadge } from "@/devices/DeviceParts";
-import { type ForceCloseOutcome, blockerKeys } from "./forceCloseOutcomes";
 import { effectKeys, hasUnknownEffect, reasonProblem } from "./forceCloseLogic";
-import { type ForceCloseFlow, type Read, type ReadError, useForceCloseFlow, useForceClosePreview } from "./useForceActions";
+import { type ForceCloseOutcome, blockerKeys } from "./forceCloseOutcomes";
+import {
+  type ForceCloseFlow,
+  type Read,
+  type ReadError,
+  useForceCloseFlow,
+  useForceClosePreview,
+} from "./useForceActions";
 import "./force-actions.css";
 
 const FOCUSABLE =
-  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])';
+  "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])";
 
-function Fact({ label, children }: Readonly<{ label: string; children: React.ReactNode }>): React.JSX.Element {
+function Fact({
+  label,
+  children,
+}: Readonly<{ label: string; children: React.ReactNode }>): React.JSX.Element {
   return (
     <div className="force-close__fact">
       <dt>{label}</dt>
@@ -35,16 +44,24 @@ function Fact({ label, children }: Readonly<{ label: string; children: React.Rea
 function Count({ value }: Readonly<{ value: number | null }>): React.JSX.Element {
   const t = useT();
   // null is unknown, never zero (a legacy shift has no received cash facts).
-  return value === null ? <>{t("forceActions.close.fact.unknown")}</> : <bdi dir="ltr">{formatNumber(value)}</bdi>;
+  return value === null ? (
+    <>{t("forceActions.close.fact.unknown")}</>
+  ) : (
+    <bdi dir="ltr">{formatNumber(value)}</bdi>
+  );
 }
 
-function Facts({ preview, timeZone }: Readonly<{ preview: ForceClosePreview; timeZone?: string }>): React.JSX.Element {
+function Facts({
+  preview,
+  timeZone,
+}: Readonly<{ preview: ForceClosePreview; timeZone?: string }>): React.JSX.Element {
   const t = useT();
   const { shift, recorded } = preview;
   return (
     <dl className="force-close__facts">
       <Fact label={t("forceActions.close.fact.terminal")}>
-        {shift.terminal.label ?? t("forceActions.openShifts.terminal.none")} <TrustBadge trustState={shift.terminal.trustState} />
+        {shift.terminal.label ?? t("forceActions.openShifts.terminal.none")}{" "}
+        <TrustBadge trustState={shift.terminal.trustState} />
       </Fact>
       <Fact label={t("forceActions.close.fact.cashier")}>
         {shift.cashier.displayName ?? t("forceActions.openShifts.cashier.none")}
@@ -66,7 +83,11 @@ function Facts({ preview, timeZone }: Readonly<{ preview: ForceClosePreview; tim
       </Fact>
       <Fact label={t("forceActions.close.fact.lastMovement")}>
         {recorded.lastCashMovementReceivedAt === null ? (
-          t(recorded.cashMovementCount === null ? "forceActions.close.fact.unknown" : "forceActions.close.fact.none")
+          t(
+            recorded.cashMovementCount === null
+              ? "forceActions.close.fact.unknown"
+              : "forceActions.close.fact.none",
+          )
         ) : (
           <bdi dir="ltr">
             <DateTime value={recorded.lastCashMovementReceivedAt} timeZone={timeZone} />
@@ -87,7 +108,11 @@ function EffectList({
   heading,
   list,
   codes,
-}: Readonly<{ heading: string; list: "willChange" | "willNotChange"; codes: readonly string[] }>): React.JSX.Element {
+}: Readonly<{
+  heading: string;
+  list: "willChange" | "willNotChange";
+  codes: readonly string[];
+}>): React.JSX.Element {
   const t = useT();
   return (
     <section className="force-close__effects">
@@ -109,7 +134,9 @@ const CAVEATS: Readonly<Record<string, MessageKey>> = {
 
 /** One catalog key per distinct caveat; a code this build does not know reads as a generic limit. */
 function caveatKeys(codes: readonly string[]): MessageKey[] {
-  const keys = codes.map((c) => (Object.hasOwn(CAVEATS, c) ? CAVEATS[c] : ("forceActions.close.caveat.unknown" as const)));
+  const keys = codes.map((c) =>
+    Object.hasOwn(CAVEATS, c) ? CAVEATS[c] : ("forceActions.close.caveat.unknown" as const),
+  );
   return [...new Set(keys)];
 }
 
@@ -140,15 +167,34 @@ function Outcome({
   const t = useT();
   switch (outcome.kind) {
     case "closed":
-      return <Banner variant="success" message={t(outcome.replay ? "forceActions.close.successReplay" : "forceActions.close.success")} />;
+      return (
+        <Banner
+          variant="success"
+          message={t(
+            outcome.replay ? "forceActions.close.successReplay" : "forceActions.close.success",
+          )}
+        />
+      );
     case "stale":
       return <Banner variant="warning" message={t("forceActions.close.stale")} />;
     case "blocked":
       return null; // the blockers render below, from the server's list
     case "settled":
-      return <Banner variant="info" message={t(`forceActions.close.settled.${outcome.by}`)} requestId={outcome.requestId} />;
+      return (
+        <Banner
+          variant="info"
+          message={t(`forceActions.close.settled.${outcome.by}`)}
+          requestId={outcome.requestId}
+        />
+      );
     case "rejected":
-      return <Banner variant="danger" message={t(outcome.messageKey)} requestId={outcome.requestId ?? requestId} />;
+      return (
+        <Banner
+          variant="danger"
+          message={t(outcome.messageKey)}
+          requestId={outcome.requestId ?? requestId}
+        />
+      );
     case "retryable":
       return (
         <Banner
@@ -176,7 +222,9 @@ export interface ForceCloseDialogProps {
 
 /** Tab and Shift+Tab cycle inside the panel (aria-modal is honest, UX-11.9). */
 function trapTab(e: React.KeyboardEvent<HTMLDialogElement>, panel: HTMLElement): void {
-  const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+  const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => el.offsetParent !== null,
+  );
   const first = items[0];
   const last = items.at(-1);
   if (!first || !last) return;
@@ -205,13 +253,24 @@ function useRefetchOnBlocked(outcome: ForceCloseOutcome | null, refetch: () => v
   }, [blocked, refetch]);
 }
 
-function Preview({ data, timeZone }: Readonly<{ data: ForceClosePreview; timeZone?: string }>): React.JSX.Element {
+function Preview({
+  data,
+  timeZone,
+}: Readonly<{ data: ForceClosePreview; timeZone?: string }>): React.JSX.Element {
   const t = useT();
   return (
     <>
       <Facts preview={data} timeZone={timeZone} />
-      <EffectList heading={t("forceActions.close.heading.willChange")} list="willChange" codes={data.effects.willChange} />
-      <EffectList heading={t("forceActions.close.heading.willNotChange")} list="willNotChange" codes={data.effects.willNotChange} />
+      <EffectList
+        heading={t("forceActions.close.heading.willChange")}
+        list="willChange"
+        codes={data.effects.willChange}
+      />
+      <EffectList
+        heading={t("forceActions.close.heading.willNotChange")}
+        list="willNotChange"
+        codes={data.effects.willNotChange}
+      />
       <p className="force-close__unaccounted">{t("forceActions.close.drawerUnaccounted")}</p>
       <ul className="force-close__caveats">
         {caveatKeys(data.caveats).map((key) => (
@@ -231,13 +290,18 @@ function Preview({ data, timeZone }: Readonly<{ data: ForceClosePreview; timeZon
   );
 }
 
-function PreviewError({ error, retry }: Readonly<{ error: ReadError; retry: () => void }>): React.JSX.Element {
+function PreviewError({
+  error,
+  retry,
+}: Readonly<{ error: ReadError; retry: () => void }>): React.JSX.Element {
   const t = useT();
   const notAvailable = error.kind === "not-available";
   return (
     <Banner
       variant="danger"
-      message={t(notAvailable ? "forceActions.close.error.notAvailable" : "forceActions.close.previewFailed")}
+      message={t(
+        notAvailable ? "forceActions.close.error.notAvailable" : "forceActions.close.previewFailed",
+      )}
       requestId={error.requestId}
       action={
         notAvailable ? undefined : (
@@ -267,7 +331,11 @@ function ReasonForm({ flow }: Readonly<{ flow: ForceCloseFlow }>): React.JSX.Ele
       />
       <div className="field">
         <label className="drawer__radio">
-          <input type="checkbox" checked={flow.acknowledged} onChange={(e) => flow.setAcknowledged(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={flow.acknowledged}
+            onChange={(e) => flow.setAcknowledged(e.target.checked)}
+          />
           {t("forceActions.close.acknowledge")}
         </label>
       </div>
@@ -288,11 +356,23 @@ interface ActionsProps {
   onClose: () => void;
 }
 
-function Actions({ flow, finished, showForm, cancelRef, onClose }: Readonly<ActionsProps>): React.JSX.Element {
+function Actions({
+  flow,
+  finished,
+  showForm,
+  cancelRef,
+  onClose,
+}: Readonly<ActionsProps>): React.JSX.Element {
   const t = useT();
   return (
     <div className="force-close__actions">
-      <button ref={cancelRef} type="button" className="btn-secondary" onClick={onClose} disabled={flow.pending}>
+      <button
+        ref={cancelRef}
+        type="button"
+        className="btn-secondary"
+        onClick={onClose}
+        disabled={flow.pending}
+      >
         {t(finished ? "forceActions.close.done" : "forceActions.close.cancel")}
       </button>
       {finished || !showForm ? null : (
@@ -310,7 +390,11 @@ function Actions({ flow, finished, showForm, cancelRef, onClose }: Readonly<Acti
   );
 }
 
-export function ForceCloseDialog({ shiftId, timeZone, onClose }: Readonly<ForceCloseDialogProps>): React.JSX.Element {
+export function ForceCloseDialog({
+  shiftId,
+  timeZone,
+  onClose,
+}: Readonly<ForceCloseDialogProps>): React.JSX.Element {
   const t = useT();
   const titleId = useId();
   const preview: Read<ForceClosePreview> = useForceClosePreview(shiftId);
@@ -327,7 +411,8 @@ export function ForceCloseDialog({ shiftId, timeZone, onClose }: Readonly<ForceC
   }, [finished]);
   const data = preview.data;
   const eligible = data?.shift.verdict.eligible === true;
-  const blockers = flow.outcome?.kind === "blocked" ? flow.outcome.blockers : (data?.shift.verdict.blockers ?? []);
+  const blockers =
+    flow.outcome?.kind === "blocked" ? flow.outcome.blockers : (data?.shift.verdict.blockers ?? []);
   const showForm = data !== undefined && eligible && !finished;
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDialogElement>): void {
@@ -341,7 +426,14 @@ export function ForceCloseDialog({ shiftId, timeZone, onClose }: Readonly<ForceC
 
   return (
     <div className="force-close-scrim">
-      <dialog ref={panelRef} open className="force-close" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
+      <dialog
+        ref={panelRef}
+        open
+        className="force-close"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onKeyDown={onKeyDown}
+      >
         <h2 id={titleId} className="force-close__title">
           {t("forceActions.close.title")}
         </h2>
@@ -353,10 +445,24 @@ export function ForceCloseDialog({ shiftId, timeZone, onClose }: Readonly<ForceC
         ) : null}
         {preview.error ? <PreviewError error={preview.error} retry={preview.refetch} /> : null}
         {data && !finished ? <Preview data={data} timeZone={timeZone} /> : null}
-        {data !== undefined && !finished && (!eligible || flow.outcome?.kind === "blocked") ? <Blockers blockers={blockers} /> : null}
-        {flow.outcome ? <Outcome outcome={flow.outcome} requestId={flow.requestId} retry={() => void flow.commit()} /> : null}
+        {data !== undefined && !finished && (!eligible || flow.outcome?.kind === "blocked") ? (
+          <Blockers blockers={blockers} />
+        ) : null}
+        {flow.outcome ? (
+          <Outcome
+            outcome={flow.outcome}
+            requestId={flow.requestId}
+            retry={() => void flow.commit()}
+          />
+        ) : null}
         {showForm ? <ReasonForm flow={flow} /> : null}
-        <Actions flow={flow} finished={finished} showForm={showForm} cancelRef={cancelRef} onClose={onClose} />
+        <Actions
+          flow={flow}
+          finished={finished}
+          showForm={showForm}
+          cancelRef={cancelRef}
+          onClose={onClose}
+        />
       </dialog>
     </div>
   );

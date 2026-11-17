@@ -21,7 +21,9 @@ export function blockedByOpenShift(blockCode: string | null): boolean {
   return blockCode !== null && SHIFT_BLOCK_CODES.has(blockCode);
 }
 
-export function ForceCloseNextStep({ storeId }: Readonly<{ storeId: string }>): React.JSX.Element | null {
+export function ForceCloseNextStep({
+  storeId,
+}: Readonly<{ storeId: string }>): React.JSX.Element | null {
   const t = useT();
   const { context } = useActiveContextValue();
   const inSupportSession = Boolean(context?.support_session);

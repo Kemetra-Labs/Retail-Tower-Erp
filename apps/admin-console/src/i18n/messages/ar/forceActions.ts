@@ -34,9 +34,9 @@ export const forceActions = {
   "forceActions.openShifts.loading": "جارٍ تحميل الورديات المفتوحة…",
   "forceActions.openShifts.loadFailed": "تعذّر تحميل الورديات المفتوحة.",
   "forceActions.openShifts.retry": "إعادة المحاولة",
-  "forceActions.openShifts.notAvailable":
-    "هذه الصفحة غير متاحة لصلاحياتك، أو أن المتجر غير موجود.",
-  "forceActions.openShifts.snapshot": "حتى {time}. هذه لقطة لا حجز: يقرّر الخادم مرة أخرى عند التأكيد.",
+  "forceActions.openShifts.notAvailable": "هذه الصفحة غير متاحة لصلاحياتك، أو أن المتجر غير موجود.",
+  "forceActions.openShifts.snapshot":
+    "حتى {time}. هذه لقطة لا حجز: يقرّر الخادم مرة أخرى عند التأكيد.",
   "forceActions.openShifts.open": "إغلاق الوردية دون عدّ…",
   "forceActions.openShifts.openLabel": "إغلاق وردية {terminal} دون عدّ…",
 
@@ -67,16 +67,20 @@ export const forceActions = {
   "forceActions.close.heading.willNotChange": "ما لن يتغير",
   "forceActions.close.effect.willChange.shift_closed_not_counted": "تُغلق الوردية دون عدّ الدرج.",
   "forceActions.close.effect.willChange.no_cash_up_recorded": "لا يُسجَّل إقفال نقدي ولا فرق.",
-  "forceActions.close.effect.willChange.terminal_may_open_new_shift": "يمكن للجهاز أن يفتح وردية جديدة.",
+  "forceActions.close.effect.willChange.terminal_may_open_new_shift":
+    "يمكن للجهاز أن يفتح وردية جديدة.",
   "forceActions.close.effect.willChange.device_retire_replace_move_unblocked":
     "يصبح سحب الجهاز واستبداله ونقله ممكنًا.",
   "forceActions.close.effect.willChange.timezone_change_unblocked":
     "لا تمنع هذه الوردية تغيير المنطقة الزمنية للمتجر.",
   "forceActions.close.effect.willNotChange.sales_unchanged": "المبيعات المسجلة تبقى كما هي.",
-  "forceActions.close.effect.willNotChange.refunds_unchanged": "عمليات الاسترداد المسجلة تبقى كما هي.",
-  "forceActions.close.effect.willNotChange.cash_movements_unchanged": "الحركات النقدية المسجلة تبقى كما هي.",
+  "forceActions.close.effect.willNotChange.refunds_unchanged":
+    "عمليات الاسترداد المسجلة تبقى كما هي.",
+  "forceActions.close.effect.willNotChange.cash_movements_unchanged":
+    "الحركات النقدية المسجلة تبقى كما هي.",
   "forceActions.close.effect.willNotChange.stock_unchanged": "سجلات المخزون تبقى كما هي.",
-  "forceActions.close.effect.willNotChange.erp_documents_unchanged": "لا يُنشأ ولا يُعدَّل أي مستند في نظام المحاسبة.",
+  "forceActions.close.effect.willNotChange.erp_documents_unchanged":
+    "لا يُنشأ ولا يُعدَّل أي مستند في نظام المحاسبة.",
   "forceActions.close.caveat.offline_facts_not_visible":
     "لا يرى الخادم ما لم يزامنه الجهاز بعد: قد توجد مبيعات أو حركات غير مرسلة.",
   "forceActions.close.caveat.terminal_not_notified":
@@ -103,7 +107,8 @@ export const forceActions = {
   "forceActions.close.done": "تم",
   "forceActions.close.stale": "تغيّرت حالة الوردية منذ الفحص. راجع الفحص الجديد ثم أكّد.",
   "forceActions.close.settled.force_close": "أُغلقت هذه الوردية دون عدّ من قبل. لم يتغير شيء.",
-  "forceActions.close.settled.cash_up": "أُغلقت هذه الوردية بعدّ الدرج من الجهاز نفسه. لا حاجة لإغلاقها دون عدّ.",
+  "forceActions.close.settled.cash_up":
+    "أُغلقت هذه الوردية بعدّ الدرج من الجهاز نفسه. لا حاجة لإغلاقها دون عدّ.",
   "forceActions.close.retryable":
     "لم نتأكد من تسجيل الإغلاق. أعد المحاولة بالطلب نفسه؛ لن يُسجَّل إغلاق ثانٍ.",
   "forceActions.close.session": "انتهت جلسة الدخول. سجّل الدخول مرة أخرى للمتابعة.",
@@ -120,7 +125,8 @@ export const forceActions = {
   "forceActions.close.error.validation": "القيم المدخلة غير مقبولة. راجع السبب وأعد المحاولة.",
   // --- Shifts closed without a count (A4, from the audit search) -------------
   "forceActions.closed.title": "ورديات أُغلقت دون عدّ",
-  "forceActions.closed.sub": "من سجل التدقيق: متى أُغلقت الوردية ومن أغلقها وفي أي متجر. سبب الإغلاق محفوظ مع السجل ولا يظهر هنا.",
+  "forceActions.closed.sub":
+    "من سجل التدقيق: متى أُغلقت الوردية ومن أغلقها وفي أي متجر. سبب الإغلاق محفوظ مع السجل ولا يظهر هنا.",
   "forceActions.closed.caption": "الورديات التي أُغلقت دون عدّ",
   "forceActions.closed.col.when": "الوقت",
   "forceActions.closed.col.by": "أغلقها",

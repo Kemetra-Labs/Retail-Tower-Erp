@@ -18,8 +18,8 @@ import { useStoreOf } from "@/shift-closes/useShiftCloses";
 import { useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ForceCloseDialog } from "./ForceCloseDialog";
-import { blockerKeys } from "./forceCloseOutcomes";
 import { canForceClose } from "./forceCloseLogic";
+import { blockerKeys } from "./forceCloseOutcomes";
 import { useOpenShifts } from "./useForceActions";
 import "../shell/surface.css";
 import "./force-actions.css";
@@ -55,28 +55,30 @@ function Row({ shift, timeZone, canClose, onClose }: Readonly<RowProps>): React.
         <bdi dir="auto">{terminal}</bdi> <TrustBadge trustState={shift.terminal.trustState} />
         <br />
         <small className="device-quiet">
-          {shift.terminal.lastSeenAt === null ? (
-            t("forceActions.openShifts.neverSeen")
-          ) : (
-            t.rich("forceActions.openShifts.lastSeen", {
-              time: (
-                <bdi dir="ltr">
-                  <DateTime value={shift.terminal.lastSeenAt} timeZone={timeZone} />
-                </bdi>
-              ),
-            })
-          )}
+          {shift.terminal.lastSeenAt === null
+            ? t("forceActions.openShifts.neverSeen")
+            : t.rich("forceActions.openShifts.lastSeen", {
+                time: (
+                  <bdi dir="ltr">
+                    <DateTime value={shift.terminal.lastSeenAt} timeZone={timeZone} />
+                  </bdi>
+                ),
+              })}
         </small>
       </td>
       <td>
-        <bdi dir="auto">{shift.cashier.displayName ?? t("forceActions.openShifts.cashier.none")}</bdi>
+        <bdi dir="auto">
+          {shift.cashier.displayName ?? t("forceActions.openShifts.cashier.none")}
+        </bdi>
       </td>
       <td>
         <bdi dir="ltr">
           <DateTime value={shift.openedAt} timeZone={timeZone} />
         </bdi>
         <br />
-        <small className="device-quiet">{t("forceActions.openShifts.age", { count: shift.ageMinutes })}</small>
+        <small className="device-quiet">
+          {t("forceActions.openShifts.age", { count: shift.ageMinutes })}
+        </small>
       </td>
       <td>
         <Verdict shift={shift} />
@@ -131,7 +133,11 @@ export function OpenShiftsPage(): React.JSX.Element {
       {shifts.error ? (
         <Banner
           variant="danger"
-          message={t(shifts.error.kind === "not-available" ? "forceActions.openShifts.notAvailable" : "forceActions.openShifts.loadFailed")}
+          message={t(
+            shifts.error.kind === "not-available"
+              ? "forceActions.openShifts.notAvailable"
+              : "forceActions.openShifts.loadFailed",
+          )}
           requestId={shifts.error.requestId}
           action={
             shifts.error.kind === "failed" ? (
@@ -142,7 +148,9 @@ export function OpenShiftsPage(): React.JSX.Element {
           }
         />
       ) : null}
-      {shifts.data && shifts.data.items.length === 0 ? <p>{t("forceActions.openShifts.empty")}</p> : null}
+      {shifts.data && shifts.data.items.length === 0 ? (
+        <p>{t("forceActions.openShifts.empty")}</p>
+      ) : null}
       {shifts.data && shifts.data.items.length > 0 ? (
         <div className="table-scroll">
           <table className="data-table">

@@ -43,11 +43,15 @@ function channelOf(v: unknown): ForceClosedChannel {
 export function forceClosedRowOf(event: unknown): ForceClosedRow | null {
   if (typeof event !== "object" || event === null) return null;
   const e = event as Record<string, unknown>;
-  const meta = (typeof e.metadata === "object" && e.metadata !== null ? e.metadata : {}) as Record<string, unknown>;
+  const meta = (typeof e.metadata === "object" && e.metadata !== null ? e.metadata : {}) as Record<
+    string,
+    unknown
+  >;
   const id = str(e.id);
   const occurredAt = str(e.occurred_at);
   const shiftId = str(meta.shift_id) ?? str(e.target_id);
-  if (e.action !== FORCE_CLOSED_ACTION || id === null || occurredAt === null || shiftId === null) return null;
+  if (e.action !== FORCE_CLOSED_ACTION || id === null || occurredAt === null || shiftId === null)
+    return null;
   // A natural-key replay writes the same close again: it is the same event, not a second one.
   if (meta.replayed === true) return null;
   const age = meta.shift_age_minutes;

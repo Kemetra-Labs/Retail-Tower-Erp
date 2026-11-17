@@ -16,11 +16,7 @@ import { usePeopleNames } from "@/people/usePeopleNames";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
-import {
-  FORCE_CLOSED_ACTION,
-  type ForceClosedRow,
-  forceClosedRows,
-} from "./forceClosedLogic";
+import { FORCE_CLOSED_ACTION, type ForceClosedRow, forceClosedRows } from "./forceClosedLogic";
 import "../shell/surface.css";
 
 const PAGE_SIZE = 50;
@@ -35,7 +31,13 @@ type ListError = { kind: "not-available" | "failed"; requestId?: string };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function useForceClosedList(tenantId: string | null, storeId: string | null) {
-  return useInfiniteQuery<ClosedPage, ListError, { pages: ClosedPage[] }, unknown[], string | undefined>({
+  return useInfiniteQuery<
+    ClosedPage,
+    ListError,
+    { pages: ClosedPage[] },
+    unknown[],
+    string | undefined
+  >({
     queryKey: ["force-actions", "closed", tenantId, storeId],
     enabled: tenantId !== null,
     retry: false,
@@ -52,8 +54,12 @@ function useForceClosedList(tenantId: string | null, storeId: string | null) {
         const next = (res.data as { next_cursor?: unknown }).next_cursor;
         return { rows: forceClosedRows(res.data), next: typeof next === "string" ? next : null };
       }
-      const requestId = (res.error as { error?: { request_id?: string } } | undefined)?.error?.request_id;
-      throw { kind: res.status === 403 || res.status === 404 ? "not-available" : "failed", requestId } satisfies ListError;
+      const requestId = (res.error as { error?: { request_id?: string } } | undefined)?.error
+        ?.request_id;
+      throw {
+        kind: res.status === 403 || res.status === 404 ? "not-available" : "failed",
+        requestId,
+      } satisfies ListError;
     },
   });
 }
@@ -62,7 +68,11 @@ function RowView({
   row,
   names,
   storeName,
-}: Readonly<{ row: ForceClosedRow; names: ReadonlyMap<string, string>; storeName: (id: string) => string | undefined }>): React.JSX.Element {
+}: Readonly<{
+  row: ForceClosedRow;
+  names: ReadonlyMap<string, string>;
+  storeName: (id: string) => string | undefined;
+}>): React.JSX.Element {
   const t = useT();
   const who = row.actorUserId ? names.get(row.actorUserId.toLowerCase()) : undefined;
   const store = row.storeId ? storeName(row.storeId) : undefined;
@@ -81,7 +91,9 @@ function RowView({
         ) : (
           <Machine value={row.actorUserId} />
         )}
-        {row.actorRole ? <small className="device-quiet"> · {t(roleKey(row.actorRole))}</small> : null}
+        {row.actorRole ? (
+          <small className="device-quiet"> · {t(roleKey(row.actorRole))}</small>
+        ) : null}
       </td>
       <td>{t(`forceActions.closed.channel.${row.channel}`)}</td>
       <td>
@@ -112,7 +124,10 @@ export function ForceClosedPage(): React.JSX.Element {
   // The Overview row counts one store when a store is active; its link carries that store (?store=).
   const [params] = useSearchParams();
   const storeParam = params.get("store");
-  const list = useForceClosedList(tenantId, storeParam && UUID.test(storeParam) ? storeParam : null);
+  const list = useForceClosedList(
+    tenantId,
+    storeParam && UUID.test(storeParam) ? storeParam : null,
+  );
   const directory = useStoreDirectory(tenantId);
   const rows = list.data?.pages.flatMap((p) => p.rows) ?? [];
   const names = usePeopleNames(rows.map((r) => r.actorUserId));
@@ -131,7 +146,11 @@ export function ForceClosedPage(): React.JSX.Element {
       {list.error ? (
         <Banner
           variant="danger"
-          message={t(list.error.kind === "not-available" ? "forceActions.closed.notAvailable" : "forceActions.closed.loadFailed")}
+          message={t(
+            list.error.kind === "not-available"
+              ? "forceActions.closed.notAvailable"
+              : "forceActions.closed.loadFailed",
+          )}
           requestId={list.error.requestId}
           action={
             list.error.kind === "failed" ? (

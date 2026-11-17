@@ -316,7 +316,13 @@ export function LifecycleFlow({
           <Details action={action} flow={flow} device={device} onClose={onClose} />
         ) : null}
         {flow.step === "review" ? (
-          <Review action={action} flow={flow} onClose={onClose} timeZone={timeZone} storeId={device.storeId} />
+          <Review
+            action={action}
+            flow={flow}
+            onClose={onClose}
+            timeZone={timeZone}
+            storeId={device.storeId}
+          />
         ) : null}
         {flow.step === "done" ? (
           <Done flow={flow} onClose={onClose} onSwitch={onSwitch} timeZone={timeZone} />

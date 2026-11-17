@@ -216,7 +216,10 @@ export function useUnknownItemsPanel(session: OverviewSession): PanelState<PageC
  * the audit search (`shift.force_closed`, both channels), one page of at most 200: more than that
  * reads "or more". The server decides who may read the audit log; a refusal omits the row.
  */
-export function useForceClosedPanel(session: OverviewSession, nowMs: number): PanelState<PageCount> {
+export function useForceClosedPanel(
+  session: OverviewSession,
+  nowMs: number,
+): PanelState<PageCount> {
   return usePanelQuery({
     key: overviewKey("force-closed", session),
     gate: "run",
@@ -237,7 +240,10 @@ export function useForceClosedPanel(session: OverviewSession, nowMs: number): Pa
 function unmetCountOf(data: unknown): { enabled: boolean; unmet: number | null } | undefined {
   const d = data as { enabled?: unknown; unmetReadiness?: unknown } | undefined;
   if (typeof d?.enabled !== "boolean") return undefined;
-  return { enabled: d.enabled, unmet: Array.isArray(d.unmetReadiness) ? d.unmetReadiness.length : null };
+  return {
+    enabled: d.enabled,
+    unmet: Array.isArray(d.unmetReadiness) ? d.unmetReadiness.length : null,
+  };
 }
 
 export function useReadinessPanel(session: OverviewSession): PanelState<PageCount> {

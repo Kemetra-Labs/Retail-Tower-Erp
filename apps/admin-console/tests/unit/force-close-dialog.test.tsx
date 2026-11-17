@@ -103,17 +103,27 @@ function renderDialog(): void {
 }
 
 async function fillAndAcknowledge(reason = "  Till A died; the cashier left  "): Promise<void> {
-  fireEvent.change(await screen.findByLabelText(/Reason for closing/), { target: { value: reason } });
+  fireEvent.change(await screen.findByLabelText(/Reason for closing/), {
+    target: { value: reason },
+  });
   fireEvent.click(
-    screen.getByRole("checkbox", { name: /I understand that this drawer's cash will not be counted/ }),
+    screen.getByRole("checkbox", {
+      name: /I understand that this drawer's cash will not be counted/,
+    }),
   );
 }
 
-const commitButton = () => screen.getByRole("button", { name: /Confirm closing the shift without a count/ });
+const commitButton = () =>
+  screen.getByRole("button", { name: /Confirm closing the shift without a count/ });
 
 describe("ForceCloseDialog", () => {
   beforeEach(() => {
-    for (const fn of [consoleGetForceClosePreview, consoleForceCloseShift, consoleListOpenShifts, onClose]) {
+    for (const fn of [
+      consoleGetForceClosePreview,
+      consoleForceCloseShift,
+      consoleListOpenShifts,
+      onClose,
+    ]) {
       fn.mockReset();
     }
   });
@@ -130,7 +140,9 @@ describe("ForceCloseDialog", () => {
   test("eligible: states the consequence and the preview, and commits only with a reason and the acknowledgement", async () => {
     consoleGetForceClosePreview.mockResolvedValue(preview());
     renderDialog();
-    expect(await screen.findByText("The shift is closed without counting the drawer.")).toBeTruthy();
+    expect(
+      await screen.findByText("The shift is closed without counting the drawer."),
+    ).toBeTruthy();
     expect(screen.getByText(/This cannot be undone/)).toBeTruthy();
     expect(screen.getByText("Recorded sales stay as they are.")).toBeTruthy();
     expect(screen.getByText(/The drawer's real cash stays unaccounted for/)).toBeTruthy();
@@ -146,7 +158,9 @@ describe("ForceCloseDialog", () => {
     renderDialog();
     expect(await screen.findByText(/It cannot be closed from here now/)).toBeTruthy();
     expect(
-      screen.getByText(/still in use \(an active cashier session\)\. Close the shift from the terminal itself/),
+      screen.getByText(
+        /still in use \(an active cashier session\)\. Close the shift from the terminal itself/,
+      ),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/Reason for closing/)).toBeNull();
     expect(screen.queryByRole("button", { name: /Confirm closing/ })).toBeNull();
@@ -162,7 +176,10 @@ describe("ForceCloseDialog", () => {
     expect(consoleForceCloseShift).toHaveBeenCalledTimes(1);
     const [shiftId, body, key] = consoleForceCloseShift.mock.calls[0];
     expect(shiftId).toBe(SHIFT);
-    expect(body).toEqual({ forcedReason: "Till A died; the cashier left", previewFingerprint: FINGERPRINT });
+    expect(body).toEqual({
+      forcedReason: "Till A died; the cashier left",
+      previewFingerprint: FINGERPRINT,
+    });
     expect(typeof key).toBe("string");
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Confirm closing/ })).toBeNull();
@@ -187,8 +204,12 @@ describe("ForceCloseDialog", () => {
     fireEvent.click(commitButton());
     expect(await screen.findByText(/The shift changed since the check/)).toBeTruthy();
     await waitFor(() => expect(consoleGetForceClosePreview).toHaveBeenCalledTimes(2));
-    expect((screen.getByRole("checkbox", { name: /I understand/ }) as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByLabelText(/Reason for closing/) as HTMLTextAreaElement).value).toBe("Till A died");
+    expect(
+      (screen.getByRole("checkbox", { name: /I understand/ }) as HTMLInputElement).checked,
+    ).toBe(false);
+    expect((screen.getByLabelText(/Reason for closing/) as HTMLTextAreaElement).value).toBe(
+      "Till A died",
+    );
     expect((commitButton() as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -220,7 +241,10 @@ describe("ForceCloseDialog", () => {
 
   test("error: a refusal is a banner with the request id, and nothing is shown as closed", async () => {
     consoleGetForceClosePreview.mockResolvedValue(preview());
-    consoleForceCloseShift.mockResolvedValue({ status: 403, error: err("support_session_read_only") });
+    consoleForceCloseShift.mockResolvedValue({
+      status: 403,
+      error: err("support_session_read_only"),
+    });
     renderDialog();
     await fillAndAcknowledge();
     fireEvent.click(commitButton());
@@ -267,10 +291,15 @@ describe("ForceCloseDialog", () => {
   test("an effect, caveat or blocker code this build does not know never crashes the dialog", async () => {
     const p = preview();
     (p.data as { caveats: string[] }).caveats = ["offline_facts_not_visible", "something_new"];
-    (p.data.effects as { willChange: string[] }).willChange = ["shift_closed_not_counted", "brand_new_change"];
+    (p.data.effects as { willChange: string[] }).willChange = [
+      "shift_closed_not_counted",
+      "brand_new_change",
+    ];
     consoleGetForceClosePreview.mockResolvedValue(p);
     renderDialog();
-    expect(await screen.findByText("The shift is closed without counting the drawer.")).toBeTruthy();
+    expect(
+      await screen.findByText("The shift is closed without counting the drawer."),
+    ).toBeTruthy();
     expect(screen.getByText(/The server cannot see everything/)).toBeTruthy();
     expect(screen.getByText(/Other changes the server reports/)).toBeTruthy();
     expect(screen.queryByText(/something_new|brand_new_change/)).toBeNull();
@@ -302,18 +331,24 @@ describe("ForceCloseDialog", () => {
     await waitFor(() => expect(consoleForceCloseShift).toHaveBeenCalledTimes(2));
     expect(consoleForceCloseShift.mock.calls[1][2]).toBe(consoleForceCloseShift.mock.calls[0][2]);
     // The operator edits the reason: a different body is a different action.
-    fireEvent.change(screen.getByLabelText(/Reason for closing/), { target: { value: "Till A died, cashier left" } });
+    fireEvent.change(screen.getByLabelText(/Reason for closing/), {
+      target: { value: "Till A died, cashier left" },
+    });
     fireEvent.click(commitButton());
     await waitFor(() => expect(consoleForceCloseShift).toHaveBeenCalledTimes(3));
-    expect(consoleForceCloseShift.mock.calls[2][2]).not.toBe(consoleForceCloseShift.mock.calls[0][2]);
+    expect(consoleForceCloseShift.mock.calls[2][2]).not.toBe(
+      consoleForceCloseShift.mock.calls[0][2],
+    );
   });
 
   test("after a stale answer the next commit carries the NEW fingerprint, and commit waits for the re-read", async () => {
     const fresh = "b".repeat(64);
     let release: (v: unknown) => void = () => undefined;
-    consoleGetForceClosePreview
-      .mockResolvedValueOnce(preview())
-      .mockReturnValueOnce(new Promise((r) => { release = r; }));
+    consoleGetForceClosePreview.mockResolvedValueOnce(preview()).mockReturnValueOnce(
+      new Promise((r) => {
+        release = r;
+      }),
+    );
     consoleForceCloseShift
       .mockResolvedValueOnce({ status: 409, error: err("preview_stale") })
       .mockResolvedValueOnce({ status: 201, data: {} });
@@ -328,7 +363,9 @@ describe("ForceCloseDialog", () => {
     await waitFor(() => expect((commitButton() as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(commitButton());
     await waitFor(() => expect(consoleForceCloseShift).toHaveBeenCalledTimes(2));
-    expect(consoleForceCloseShift.mock.calls[1][1]).toEqual({ forcedReason: "Till A died", previewFingerprint: fresh });
+    expect(consoleForceCloseShift.mock.calls[1][1]).toEqual({
+      forcedReason: "Till A died",
+      previewFingerprint: fresh,
+    });
   });
-
 });

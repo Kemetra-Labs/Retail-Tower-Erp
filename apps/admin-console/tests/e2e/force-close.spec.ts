@@ -49,8 +49,19 @@ function stuckShift() {
     openedAt: "2026-10-17T07:30:00Z",
     ageMinutes: 880,
     cashier: { userId: "0190f000-0000-7000-8000-0000000000c1", displayName: null },
-    terminal: { deviceId: DEVICE_1, label: TERMINAL, lastSeenAt: "2026-10-17T07:50:00Z", trustState: "active" },
-    verdict: { eligible: true, stale: true, liveOperatorSession: false, liveCashierAdmission: false, blockers: [] },
+    terminal: {
+      deviceId: DEVICE_1,
+      label: TERMINAL,
+      lastSeenAt: "2026-10-17T07:50:00Z",
+      trustState: "active",
+    },
+    verdict: {
+      eligible: true,
+      stale: true,
+      liveOperatorSession: false,
+      liveCashierAdmission: false,
+      blockers: [],
+    },
   };
 }
 
@@ -82,7 +93,11 @@ interface Calls {
 }
 
 /** Mocked Backend-Core: a device whose retire is blocked until the shift is closed from the Console. */
-async function mockStuckTill(page: Page, role: string, supportSession: unknown = null): Promise<Calls> {
+async function mockStuckTill(
+  page: Page,
+  role: string,
+  supportSession: unknown = null,
+): Promise<Calls> {
   const calls: Calls = { close: [] };
   let closed = false;
   await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
@@ -91,7 +106,9 @@ async function mockStuckTill(page: Page, role: string, supportSession: unknown =
   await page.route("**/api/v1/stores", (r) => r.fulfill(json([store])));
   await page.route(`**/api/v1/stores/${DUBAI_STORE}`, (r) => r.fulfill(json(store)));
   await page.route(`**/api/v1/devices/${DEVICE_1}`, (r) => r.fulfill(json(detail())));
-  await page.route("**/api/v1/pairing-codes?**", (r) => r.fulfill(json({ items: [], nextCursor: null })));
+  await page.route("**/api/v1/pairing-codes?**", (r) =>
+    r.fulfill(json({ items: [], nextCursor: null })),
+  );
   await page.route(`**/api/v1/devices/${DEVICE_1}/impact?**`, (r) =>
     r.fulfill(
       json(
@@ -118,11 +135,21 @@ async function mockStuckTill(page: Page, role: string, supportSession: unknown =
             items: closed ? [] : [stuckShift()],
           }),
         )
-      : r.fulfill(json({ error: { code: "store_not_found", message: "Not found", request_id: "req-404" } }, 404)),
+      : r.fulfill(
+          json(
+            { error: { code: "store_not_found", message: "Not found", request_id: "req-404" } },
+            404,
+          ),
+        ),
   );
-  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close-preview`, (r) => r.fulfill(json(previewBody())));
+  await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close-preview`, (r) =>
+    r.fulfill(json(previewBody())),
+  );
   await page.route(`**/api/v1/shifts/${SHIFT_OPEN}/force-close`, async (r) => {
-    calls.close.push({ body: r.request().postDataJSON(), key: r.request().headers()["idempotency-key"] });
+    calls.close.push({
+      body: r.request().postDataJSON(),
+      key: r.request().headers()["idempotency-key"],
+    });
     closed = true;
     return r.fulfill(
       json(
@@ -181,7 +208,9 @@ test("S1: a blocked retire leads to the open shifts, the close without a count, 
   await expect(dialog.getByRole("button", { name: t("forceActions.close.cancel") })).toBeFocused();
   await expect(dialog.getByRole("button", { name: t("forceActions.close.commit") })).toBeDisabled();
 
-  await dialog.getByLabel(t("forceActions.close.reason.label")).fill("Till died with the shift open");
+  await dialog
+    .getByLabel(t("forceActions.close.reason.label"))
+    .fill("Till died with the shift open");
   await dialog.getByRole("checkbox", { name: t("forceActions.close.acknowledge") }).check();
   await dialog.getByRole("button", { name: t("forceActions.close.commit") }).click();
   await expect(dialog.getByText(t("forceActions.close.success"))).toBeVisible();
@@ -229,7 +258,10 @@ test("S2: the dialog has no serious accessibility violation and keeps Tab inside
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("S3: a store_manager sees neither the device next step nor the close action", async ({ page, t }) => {
+test("S3: a store_manager sees neither the device next step nor the close action", async ({
+  page,
+  t,
+}) => {
   await mockStuckTill(page, "store_manager");
   await page.goto(`/devices/${DEVICE_1}`);
   await page.getByRole("button", { name: t("devices.actions.retire") }).click();
@@ -242,7 +274,9 @@ test("S3: a store_manager sees neither the device next step nor the close action
   // The page itself reads as not available (the server's uniform 404), with no action.
   await page.goto(`/stores/${DUBAI_STORE}/open-shifts`);
   await expect(page.getByText(t("forceActions.openShifts.notAvailable"))).toBeVisible();
-  await expect(page.getByRole("button", { name: t("forceActions.openShifts.open") })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: t("forceActions.openShifts.open") })).toHaveCount(
+    0,
+  );
 });
 
 test("S3b: inside a support session the close action is not offered", async ({ page, t }) => {
@@ -251,7 +285,9 @@ test("S3b: inside a support session the close action is not offered", async ({ p
   await page.waitForLoadState("networkidle");
   // The tenant surface is not shown in a support session (RT-781); either way no close control exists.
   await expect(
-    page.getByRole("button", { name: t("forceActions.openShifts.openLabel", { terminal: TERMINAL }) }),
+    page.getByRole("button", {
+      name: t("forceActions.openShifts.openLabel", { terminal: TERMINAL }),
+    }),
   ).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: t("forceActions.close.title") })).toHaveCount(0);
 });

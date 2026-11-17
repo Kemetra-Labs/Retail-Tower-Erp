@@ -53,8 +53,18 @@ describe("forceClosedRowOf", () => {
   });
 
   it("missing optional facts stay null (unknown, never zero)", () => {
-    const row = forceClosedRowOf(event({ actor_user_id: null, store_id: null }, { actor_role: undefined, shift_age_minutes: undefined }));
-    expect(row).toMatchObject({ actorUserId: null, storeId: null, actorRole: null, ageMinutes: null });
+    const row = forceClosedRowOf(
+      event(
+        { actor_user_id: null, store_id: null },
+        { actor_role: undefined, shift_age_minutes: undefined },
+      ),
+    );
+    expect(row).toMatchObject({
+      actorUserId: null,
+      storeId: null,
+      actorRole: null,
+      ageMinutes: null,
+    });
   });
 
   it("drops what is not a force-close audit row", () => {

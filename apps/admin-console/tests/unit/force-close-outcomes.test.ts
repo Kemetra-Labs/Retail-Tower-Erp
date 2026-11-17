@@ -7,8 +7,8 @@
  */
 import {
   type ForceCloseOutcome,
-  classifyForceCloseOutcome,
   blockerKeys,
+  classifyForceCloseOutcome,
 } from "@/force-actions/forceCloseOutcomes";
 import { describe, expect, it } from "vitest";
 
@@ -40,7 +40,9 @@ describe("classifyForceCloseOutcome", () => {
   it("409 shift_not_stuck keeps the server's blockers as the persistent reason", () => {
     const out = classifyForceCloseOutcome({
       status: 409,
-      error: err("shift_not_stuck", { details: { blockers: ["live_operator_session", "not_stale"] } }),
+      error: err("shift_not_stuck", {
+        details: { blockers: ["live_operator_session", "not_stale"] },
+      }),
     });
     expect(out).toEqual<ForceCloseOutcome>({
       kind: "blocked",
@@ -55,7 +57,9 @@ describe("classifyForceCloseOutcome", () => {
   });
 
   it("409 shift_force_closed and shift_closed are final outcomes of another actor", () => {
-    expect(classifyForceCloseOutcome({ status: 409, error: err("shift_force_closed") })).toMatchObject({
+    expect(
+      classifyForceCloseOutcome({ status: 409, error: err("shift_force_closed") }),
+    ).toMatchObject({
       kind: "settled",
       by: "force_close",
       requestId: "req-1",
@@ -79,17 +83,21 @@ describe("classifyForceCloseOutcome", () => {
   });
 
   it("any other 403 (role, origin) is a plain refusal", () => {
-    expect(classifyForceCloseOutcome({ status: 403, error: err("origin_rejected") })).toMatchObject({
-      kind: "rejected",
-      messageKey: "forceActions.close.error.forbidden",
-    });
+    expect(classifyForceCloseOutcome({ status: 403, error: err("origin_rejected") })).toMatchObject(
+      {
+        kind: "rejected",
+        messageKey: "forceActions.close.error.forbidden",
+      },
+    );
   });
 
   it("404 is the non-disclosing 'not available for you'", () => {
-    expect(classifyForceCloseOutcome({ status: 404, error: err("shift_not_found") })).toMatchObject({
-      kind: "rejected",
-      messageKey: "forceActions.close.error.notAvailable",
-    });
+    expect(classifyForceCloseOutcome({ status: 404, error: err("shift_not_found") })).toMatchObject(
+      {
+        kind: "rejected",
+        messageKey: "forceActions.close.error.notAvailable",
+      },
+    );
   });
 
   it("429 force_action_rate_limited and the per-user 429 are told apart by their code", () => {
@@ -103,7 +111,9 @@ describe("classifyForceCloseOutcome", () => {
   });
 
   it("400 is a rejected value; nothing was recorded", () => {
-    expect(classifyForceCloseOutcome({ status: 400, error: err("validation_failure") })).toMatchObject({
+    expect(
+      classifyForceCloseOutcome({ status: 400, error: err("validation_failure") }),
+    ).toMatchObject({
       kind: "rejected",
       messageKey: "forceActions.close.error.validation",
     });
@@ -135,7 +145,9 @@ describe("blockerKeys", () => {
 
 describe("blockerKeys de-duplication", () => {
   it("two unknown codes read as one line, and an empty list still reads as a reason", () => {
-    expect(blockerKeys(["a_new_one", "another_new_one"])).toEqual(["forceActions.close.blocker.unknown"]);
+    expect(blockerKeys(["a_new_one", "another_new_one"])).toEqual([
+      "forceActions.close.blocker.unknown",
+    ]);
     expect(blockerKeys([])).toEqual(["forceActions.close.blocker.unknown"]);
   });
 });

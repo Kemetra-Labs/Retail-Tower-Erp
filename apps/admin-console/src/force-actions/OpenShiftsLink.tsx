@@ -8,7 +8,9 @@ import { useT } from "@/i18n";
 import { Link } from "react-router";
 import { canForceClose } from "./forceCloseLogic";
 
-export function OpenShiftsLink({ storeId }: Readonly<{ storeId: string }>): React.JSX.Element | null {
+export function OpenShiftsLink({
+  storeId,
+}: Readonly<{ storeId: string }>): React.JSX.Element | null {
   const t = useT();
   const { context } = useActiveContextValue();
   if (!canForceClose(context?.active_role_code, Boolean(context?.support_session))) return null;

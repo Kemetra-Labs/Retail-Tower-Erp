@@ -19,8 +19,8 @@ import {
 import { KeyedAttempt, errorRequestIdOf } from "@/lib/write-outcome";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import { type ForceCloseOutcome, classifyForceCloseOutcome } from "./forceCloseOutcomes";
 import { commitReady } from "./forceCloseLogic";
+import { type ForceCloseOutcome, classifyForceCloseOutcome } from "./forceCloseOutcomes";
 
 export type ReadError = { kind: "not-available" | "failed"; requestId?: string };
 
@@ -108,7 +108,10 @@ export interface ForceCloseFlow {
 }
 
 /** The confirm step: input state, the keyed write and the reaction to each answer. */
-export function useForceCloseFlow(shiftId: string, preview: Read<ForceClosePreview>): ForceCloseFlow {
+export function useForceCloseFlow(
+  shiftId: string,
+  preview: Read<ForceClosePreview>,
+): ForceCloseFlow {
   const qc = useQueryClient();
   const attempt = useRef(new KeyedAttempt());
   const inFlight = useRef(false);
@@ -123,7 +126,8 @@ export function useForceCloseFlow(shiftId: string, preview: Read<ForceClosePrevi
   // Once the close is recorded, nothing more can be sent from this dialog.
   const finished = outcome?.kind === "closed" || outcome?.kind === "settled";
   const fetching = preview.isFetching;
-  const ready = !finished && commitReady({ eligible, reason, acknowledged, pending: false, fetching });
+  const ready =
+    !finished && commitReady({ eligible, reason, acknowledged, pending: false, fetching });
 
   const clearAnswer = useCallback(() => {
     setOutcome((o) => (o?.kind === "rejected" || o?.kind === "retryable" ? null : o));

@@ -19,7 +19,16 @@ describe("canForceClose", () => {
   });
 
   it("is hidden from every other role, an unknown role and no role at all", () => {
-    for (const role of ["store_manager", "store_staff", "cashier", "platform_admin", "x", "", undefined, null]) {
+    for (const role of [
+      "store_manager",
+      "store_staff",
+      "cashier",
+      "platform_admin",
+      "x",
+      "",
+      undefined,
+      null,
+    ]) {
       expect(canForceClose(role, false)).toBe(false);
     }
   });
@@ -44,7 +53,13 @@ describe("reasonProblem", () => {
 });
 
 describe("commitReady", () => {
-  const ready = { eligible: true, reason: "till died", acknowledged: true, pending: false, fetching: false };
+  const ready = {
+    eligible: true,
+    reason: "till died",
+    acknowledged: true,
+    pending: false,
+    fetching: false,
+  };
 
   it("needs an eligible verdict, a valid reason, the acknowledgement and no request in flight", () => {
     expect(commitReady(ready)).toBe(true);
@@ -57,7 +72,9 @@ describe("commitReady", () => {
 
 describe("effectKeys", () => {
   it("maps the server's closed effect lists to catalog keys, in order", () => {
-    expect(effectKeys("willChange", ["shift_closed_not_counted", "timezone_change_unblocked"])).toEqual([
+    expect(
+      effectKeys("willChange", ["shift_closed_not_counted", "timezone_change_unblocked"]),
+    ).toEqual([
       "forceActions.close.effect.willChange.shift_closed_not_counted",
       "forceActions.close.effect.willChange.timezone_change_unblocked",
     ]);
@@ -73,13 +90,31 @@ describe("effectKeys", () => {
 describe("hasUnknownEffect", () => {
   it("is true only when the server lists an effect code this build does not know", () => {
     expect(hasUnknownEffect("willChange", ["shift_closed_not_counted"])).toBe(false);
-    expect(hasUnknownEffect("willChange", ["shift_closed_not_counted", "brand_new_change"])).toBe(true);
+    expect(hasUnknownEffect("willChange", ["shift_closed_not_counted", "brand_new_change"])).toBe(
+      true,
+    );
   });
 });
 
 describe("commitReady while the preview is being read again", () => {
   it("waits for the new preview, so a commit cannot go out against the old one", () => {
-    expect(commitReady({ eligible: true, reason: "x", acknowledged: true, pending: false, fetching: true })).toBe(false);
-    expect(commitReady({ eligible: true, reason: "x", acknowledged: true, pending: false, fetching: false })).toBe(true);
+    expect(
+      commitReady({
+        eligible: true,
+        reason: "x",
+        acknowledged: true,
+        pending: false,
+        fetching: true,
+      }),
+    ).toBe(false);
+    expect(
+      commitReady({
+        eligible: true,
+        reason: "x",
+        acknowledged: true,
+        pending: false,
+        fetching: false,
+      }),
+    ).toBe(true);
   });
 });

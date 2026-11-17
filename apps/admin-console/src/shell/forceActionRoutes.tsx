@@ -7,7 +7,10 @@ import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
 
 const OpenShiftsPage = lazyPage(() => import("@/force-actions/OpenShiftsPage"), "OpenShiftsPage");
-const ForceClosedPage = lazyPage(() => import("@/force-actions/ForceClosedPage"), "ForceClosedPage");
+const ForceClosedPage = lazyPage(
+  () => import("@/force-actions/ForceClosedPage"),
+  "ForceClosedPage",
+);
 
 export const forceActionRoutes = (
   <>

@@ -15,7 +15,10 @@ export const REASON_MAX = 200;
 
 const ALLOWED_ROLES: ReadonlySet<string> = new Set(["owner", "tenant_admin"]);
 
-export function canForceClose(roleCode: string | null | undefined, inSupportSession: boolean): boolean {
+export function canForceClose(
+  roleCode: string | null | undefined,
+  inSupportSession: boolean,
+): boolean {
   return !inSupportSession && typeof roleCode === "string" && ALLOWED_ROLES.has(roleCode);
 }
 
@@ -36,7 +39,13 @@ export interface CommitState {
 }
 
 /** The commit button is enabled only when every input the server's contract needs is present. */
-export function commitReady({ eligible, reason, acknowledged, pending, fetching }: CommitState): boolean {
+export function commitReady({
+  eligible,
+  reason,
+  acknowledged,
+  pending,
+  fetching,
+}: CommitState): boolean {
   return eligible && acknowledged && !pending && !fetching && reasonProblem(reason) === null;
 }
 
@@ -59,13 +68,19 @@ const WILL_NOT_CHANGE: Readonly<Record<string, MessageKey>> = {
 };
 
 /** The server's effect list as catalog keys, in its order. A code this build does not know is dropped, never shown raw. */
-export function effectKeys(list: "willChange" | "willNotChange", codes: readonly string[]): MessageKey[] {
+export function effectKeys(
+  list: "willChange" | "willNotChange",
+  codes: readonly string[],
+): MessageKey[] {
   const table = list === "willChange" ? WILL_CHANGE : WILL_NOT_CHANGE;
   return codes.filter((c) => Object.hasOwn(table, c)).map((c) => table[c]);
 }
 
 /** True when the server lists an effect code this build has no copy for: the dialog says so instead of hiding it. */
-export function hasUnknownEffect(list: "willChange" | "willNotChange", codes: readonly string[]): boolean {
+export function hasUnknownEffect(
+  list: "willChange" | "willNotChange",
+  codes: readonly string[],
+): boolean {
   const table = list === "willChange" ? WILL_CHANGE : WILL_NOT_CHANGE;
   return codes.some((c) => !Object.hasOwn(table, c));
 }

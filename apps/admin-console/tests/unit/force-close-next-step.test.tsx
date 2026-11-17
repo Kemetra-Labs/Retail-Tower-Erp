@@ -73,9 +73,9 @@ describe("OpenShiftsLink (the store page entry)", () => {
   test.each(["owner", "tenant_admin"])("a %s sees the link to the store's open shifts", (role) => {
     activeContext.mockReturnValue(asContext(role));
     renderLink();
-    expect(screen.getByRole("link", { name: "Open shifts in this store" }).getAttribute("href")).toBe(
-      `/stores/${STORE}/open-shifts`,
-    );
+    expect(
+      screen.getByRole("link", { name: "Open shifts in this store" }).getAttribute("href"),
+    ).toBe(`/stores/${STORE}/open-shifts`);
   });
 
   test("a store_manager and a support session see nothing", () => {

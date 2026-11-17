@@ -45,7 +45,8 @@ const KEY = {
 
 /** The `error.details.blockers` the server sent; anything that is not a string list is dropped. */
 function blockersOf(error: unknown): string[] {
-  const details = (error as { error?: { details?: { blockers?: unknown } } } | undefined)?.error?.details;
+  const details = (error as { error?: { details?: { blockers?: unknown } } } | undefined)?.error
+    ?.details;
   const blockers = details?.blockers;
   return Array.isArray(blockers) ? blockers.filter((b): b is string => typeof b === "string") : [];
 }
@@ -95,7 +96,10 @@ export function classifyForceCloseOutcome(result: WrapperResult): ForceCloseOutc
     case 429:
       return {
         kind: "rejected",
-        messageKey: errorCodeOf(result.error) === "force_action_rate_limited" ? KEY.capReached : KEY.rateLimited,
+        messageKey:
+          errorCodeOf(result.error) === "force_action_rate_limited"
+            ? KEY.capReached
+            : KEY.rateLimited,
         requestId,
       };
     default:
@@ -120,7 +124,9 @@ const BLOCKER_KEYS: Readonly<Record<string, MessageKey>> = {
  */
 export function blockerKeys(blockers: readonly string[]): MessageKey[] {
   const keys = blockers.map((b) =>
-    Object.hasOwn(BLOCKER_KEYS, b) ? BLOCKER_KEYS[b] : ("forceActions.close.blocker.unknown" as const),
+    Object.hasOwn(BLOCKER_KEYS, b)
+      ? BLOCKER_KEYS[b]
+      : ("forceActions.close.blocker.unknown" as const),
   );
   const distinct = [...new Set(keys)];
   return distinct.length > 0 ? distinct : ["forceActions.close.blocker.unknown"];
