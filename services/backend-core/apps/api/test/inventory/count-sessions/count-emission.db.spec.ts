@@ -399,3 +399,32 @@ describe('activation and the legacy route (AC1)', () => {
     expect(read).toMatchObject({ enabled: true, readinessMet: null, unmetReadiness: null, changedAt: null });
   });
 });
+
+describe('a Count Session cannot open on a store that is being deleted (RT-1439)', () => {
+  it('waits behind the deletion that holds the store row, then finds no live store: 404, no session', async () => {
+    if (skipped()) return;
+    const before = await admin.query<{ n: number }>(`SELECT count(*)::int AS n FROM count_sessions WHERE store_id = $1`, [STORE_A_X]);
+    const deleter = await admin.connect();
+    try {
+      // What the deletion holds: the store row FOR UPDATE, soft-deleted, not yet committed.
+      await deleter.query('BEGIN');
+      await deleter.query(`SELECT 1 FROM stores WHERE id = $1 FOR UPDATE`, [STORE_A_X]);
+      await deleter.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [STORE_A_X]);
+      const create = counts.createSession(as(COUNTER), STORE_A_X, [PRODUCT_A_ACTIVE], 'race').then(
+        () => 'created',
+        (e: unknown) => (e as Error).constructor.name,
+      );
+      const marker = Symbol('pending');
+      const early = await Promise.race([create, new Promise((r) => setTimeout(() => r(marker), 500))]);
+      expect(early).toBe(marker); // blocked behind the deletion, not racing past it
+      await deleter.query('COMMIT');
+      expect(await create).toBe('NotFoundException');
+    } finally {
+      await deleter.query('ROLLBACK').catch(() => undefined);
+      deleter.release();
+      await admin.query(`UPDATE stores SET deleted_at = NULL WHERE id = $1`, [STORE_A_X]);
+    }
+    const after = await admin.query<{ n: number }>(`SELECT count(*)::int AS n FROM count_sessions WHERE store_id = $1`, [STORE_A_X]);
+    expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
+  });
+});

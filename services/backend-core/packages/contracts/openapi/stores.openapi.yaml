@@ -23,8 +23,9 @@ info:
     otherwise stay a bypass of them. Its roles (owner and `tenant_admin`),
     its lack of a reason, a preview and re-authentication, and its 404 on a
     second call are unchanged; tightening them is not decided in D1 to D10.
-    Both new operations carry `x-runtime-status: contract-only` until RT-1439
-    ships them. No other wire change. The stores contract's operations before
+    RT-1439 ships both new operations and the guards on `softDeleteStore`: the
+    `x-runtime-status: contract-only` markers are lifted, with no wire change.
+    No other wire change. The stores contract's operations before
     this version are unchanged.
 
 
@@ -315,9 +316,6 @@ paths:
     get:
       summary: Preview what deleting the store would change. Read-only.
       operationId: previewStoreDeletion
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1444 contract. The runtime ships in RT-1439 (B2, RT-1437 slice B2).
       description: >
         RT-1437 A2. Reports, in one database snapshot, the store (name, code,
         active flag), every open shift (each with whether
@@ -422,9 +420,6 @@ paths:
       summary: Delete the store, after the impact preview and a re-authentication. Owner only.
       operationId: consoleDeleteStore
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1444 contract. The runtime ships in RT-1439 (B2, RT-1437 slice B2).
       description: >
         RT-1437 A2, D1, D2b, D3, D4a, D7a. Soft-deletes the store: the same
         effect as `softDeleteStore`, with the guards, the typed reason, the

@@ -221,6 +221,11 @@ export class CountSessionsService {
   ): Promise<CountSessionBody> {
     return this.tx(caller, async (client) => {
       await assertReferencesInTenant(client, { storeIds: [storeId] });
+      // RT-1439: a store deletion holds the store row FOR UPDATE while it reads its blockers; the
+      // `count_sessions` foreign key only needs the row to EXIST, so without this lock a session could
+      // commit on a store that is being deleted. Behind a deletion this finds no live row: 404.
+      const live = await client.query(`SELECT 1 FROM stores WHERE id = $1 AND deleted_at IS NULL FOR SHARE`, [storeId]);
+      if (live.rows.length === 0) throw new NotFoundException('Not Found');
       const ids = [...new Set(productIds)];
       const products = await client.query<{ id: string; tracking_mode: string }>(
         `SELECT id, tracking_mode FROM tenant_products WHERE id = ANY($1::uuid[])`,

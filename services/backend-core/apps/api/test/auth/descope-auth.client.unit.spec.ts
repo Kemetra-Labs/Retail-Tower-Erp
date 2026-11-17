@@ -333,6 +333,86 @@ describe("DescopeAuthClient.logoutAllSessions (RT-1327)", () => {
   });
 });
 
+describe("DescopeAuthClient.verifyPassword (RT-1439)", () => {
+  it("posts the sign-in call and keeps BOTH tokens, so the session it creates can be ended", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, { sessionJwt: "sess-1", refreshJwt: "refresh-1" }));
+
+    const result = await client.verifyPassword("a@b.co", SECRET_PASSWORD);
+
+    expect(result).toEqual({ kind: "ok", sessionJwt: "sess-1", refreshJwt: "refresh-1" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/password/signin");
+    expect(calls[0]?.init.redirect).toBe("error");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ loginId: "a@b.co", password: SECRET_PASSWORD });
+  });
+
+  it("a 200 without a refresh token is ok with refreshJwt null; without a session token it is refused", async () => {
+    expect(await clientWith(() => jsonResponse(200, { sessionJwt: "s" })).client.verifyPassword("a@b.co", SECRET_PASSWORD)).toEqual({
+      kind: "ok",
+      sessionJwt: "s",
+      refreshJwt: null,
+    });
+    expect(await clientWith(() => jsonResponse(200, { refreshJwt: "r" })).client.verifyPassword("a@b.co", SECRET_PASSWORD)).toEqual({
+      kind: "refused",
+    });
+  });
+
+  it.each([400, 401])("maps a %i answer to refused", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, { errorCode: "E061102" }));
+    expect(await client.verifyPassword("a@b.co", SECRET_PASSWORD)).toEqual({ kind: "refused" });
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.verifyPassword("a@b.co", SECRET_PASSWORD)).toEqual({ kind: "unavailable" });
+  });
+
+  it("never leaks the password through a transport failure", async () => {
+    const { client } = clientWith(() => {
+      throw Object.assign(new Error(`failed ${SECRET_PASSWORD}`), { cause: { body: SECRET_PASSWORD } });
+    });
+    const result = await client.verifyPassword("a@b.co", SECRET_PASSWORD);
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain(SECRET_PASSWORD);
+  });
+});
+
+describe("DescopeAuthClient.endSession (RT-1439)", () => {
+  it("posts an empty body to logout (ONE session, not logoutall) with projectId:refreshJwt as bearer", async () => {
+    const { client, calls } = clientWith(() => jsonResponse(200, {}));
+
+    const result = await client.endSession("refresh-1");
+
+    expect(result).toEqual({ kind: "ok" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://api.descope.com/v1/auth/logout");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(calls[0]?.init.redirect).toBe("error");
+    expect(header(calls[0] as Call, "Authorization")).toBe(`Bearer ${PROJECT_ID}:refresh-1`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({});
+  });
+
+  it.each([400, 401, 403])("maps a %i answer to refused", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.endSession("refresh-1")).toEqual({ kind: "refused" });
+  });
+
+  it.each([429, 500, 503])("maps a %i answer to unavailable", async (status) => {
+    const { client } = clientWith(() => jsonResponse(status, {}));
+    expect(await client.endSession("refresh-1")).toEqual({ kind: "unavailable" });
+  });
+
+  it("maps a transport failure to unavailable without leaking the refresh token", async () => {
+    const { client } = clientWith(() => {
+      throw Object.assign(new Error("failed refresh-1"), { cause: { header: "refresh-1" } });
+    });
+    const result = await client.endSession("refresh-1");
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(JSON.stringify(result)).not.toContain("refresh-1");
+  });
+});
+
 describe("DescopeAuthClient management calls", () => {
   it("fail closed as unconfigured, with no request, when the management key is unset", async () => {
     for (const managementKey of [null, ""]) {

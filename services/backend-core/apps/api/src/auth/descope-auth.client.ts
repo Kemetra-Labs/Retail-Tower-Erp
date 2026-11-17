@@ -13,6 +13,7 @@
  *   - `POST /v1/auth/magiclink/verify`    Bearer <projectId>   (RT-1327: consume the link's one-time token)
  *   - `POST /v1/auth/password/update`     Bearer <projectId>:<refreshJwt> (RT-1327)
  *   - `POST /v1/auth/logoutall`           Bearer <projectId>:<refreshJwt> (RT-1327: end every provider session)
+ *   - `POST /v1/auth/logout`              Bearer <projectId>:<refreshJwt> (RT-1439: end ONE provider session)
  *   - `POST /v1/mgmt/user/create`         Bearer <projectId>:<managementKey>
  *   - `GET  /v1/mgmt/user?loginId=`       Bearer <projectId>:<managementKey>
  *   - `POST /v1/mgmt/user/password/set/active` Bearer <projectId>:<managementKey>
@@ -53,6 +54,7 @@ import type {
   LogoutAllResult,
   PasswordSignInResult,
   ReplacePasswordResult,
+  VerifyPasswordResult,
   SendResetResult,
   SetPasswordResult,
   UpdatePasswordResult,
@@ -154,6 +156,25 @@ export class DescopeAuthClient implements ExternalCredentialPort {
     return this.sessionCall("/v1/auth/password/signin", { loginId, password });
   }
 
+  /**
+   * RT-1439: the sign-in call, keeping the refresh token so the session it created can be
+   * ended. A 200 without a session token is `refused`; a missing refresh token is `null`.
+   */
+  async verifyPassword(loginId: string, password: string): Promise<VerifyPasswordResult> {
+    const result = await this.tokenCall("/v1/auth/password/signin", { loginId, password });
+    return result.kind === "tokens"
+      ? { kind: "ok", sessionJwt: result.sessionJwt, refreshJwt: result.refreshJwt }
+      : result;
+  }
+
+  /**
+   * `POST /v1/auth/logout`, authorized by `<projectId>:<refreshJwt>` as the SDK's `logout`
+   * does: ends the one session that token belongs to, not the user's other sessions.
+   */
+  async endSession(refreshJwt: string): Promise<LogoutAllResult> {
+    return this.endSessionsAt("/v1/auth/logout", refreshJwt);
+  }
+
   async replacePassword(
     loginId: string,
     oldPassword: string,
@@ -182,13 +203,11 @@ export class DescopeAuthClient implements ExternalCredentialPort {
   async verifyResetToken(token: string): Promise<VerifyResetResult> {
     // Recovery off: no link was sent, so no proof can be legitimate; never ask the provider.
     if (this.resetRedirectUrl === null) return { kind: "refused" };
-    const sent = await this.send("POST", "/v1/auth/magiclink/verify", this.projectId, { token });
-    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
-    if (!sent.res.ok) return { kind: "refused" };
-    const body = asRecord(await this.readJson(sent.res));
-    const sessionJwt = nonEmptyString(body?.["sessionJwt"]);
-    const refreshJwt = nonEmptyString(body?.["refreshJwt"]);
-    return sessionJwt === null || refreshJwt === null ? { kind: "refused" } : { kind: "ok", sessionJwt, refreshJwt };
+    const result = await this.tokenCall("/v1/auth/magiclink/verify", { token });
+    if (result.kind !== "tokens") return result;
+    return result.refreshJwt === null
+      ? { kind: "refused" }
+      : { kind: "ok", sessionJwt: result.sessionJwt, refreshJwt: result.refreshJwt };
   }
 
   /** `POST /v1/auth/password/update`, authorized by `<projectId>:<refreshJwt>` as the SDK does. */
@@ -206,9 +225,7 @@ export class DescopeAuthClient implements ExternalCredentialPort {
    * the user's refresh tokens, so sessions opened with the old password end too.
    */
   async logoutAllSessions(refreshJwt: string): Promise<LogoutAllResult> {
-    const sent = await this.send("POST", "/v1/auth/logoutall", `${this.projectId}:${refreshJwt}`, {});
-    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
-    return sent.res.ok ? { kind: "ok" } : { kind: "refused" };
+    return this.endSessionsAt("/v1/auth/logoutall", refreshJwt);
   }
 
   async createUser(input: CreateUserInput): Promise<CreateUserResult> {
@@ -260,6 +277,34 @@ export class DescopeAuthClient implements ExternalCredentialPort {
 
   private managementBearer(key: string): string {
     return `${this.projectId}:${key}`;
+  }
+
+  /**
+   * A call that answers with the user's tokens (sign-in, link verification): `tokens` carries the
+   * session token (required) and the refresh token (null when the answer has none).
+   */
+  private async tokenCall(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<
+    | { readonly kind: "tokens"; readonly sessionJwt: string; readonly refreshJwt: string | null }
+    | { readonly kind: "refused" }
+    | { readonly kind: "unavailable" }
+  > {
+    const sent = await this.send("POST", path, this.projectId, body);
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    if (!sent.res.ok) return { kind: "refused" };
+    const answer = asRecord(await this.readJson(sent.res));
+    const sessionJwt = nonEmptyString(answer?.["sessionJwt"]);
+    if (sessionJwt === null) return { kind: "refused" };
+    return { kind: "tokens", sessionJwt, refreshJwt: nonEmptyString(answer?.["refreshJwt"]) };
+  }
+
+  /** A sign-out call authorized by `<projectId>:<refreshJwt>`: `logout` (one session) or `logoutall`. */
+  private async endSessionsAt(path: string, refreshJwt: string): Promise<LogoutAllResult> {
+    const sent = await this.send("POST", path, `${this.projectId}:${refreshJwt}`, {});
+    if (sent.kind === "failed" || isTransientStatus(sent.res.status)) return { kind: "unavailable" };
+    return sent.res.ok ? { kind: "ok" } : { kind: "refused" };
   }
 
   /** The shared shape of sign-in and replace: a 200 carrying a non-empty `sessionJwt`. */
@@ -323,6 +368,8 @@ export function descopeAuthFactory(): ExternalCredentialPort {
     return {
       identity: { providerKey: DESCOPE_PROVIDER_KEY, issuer: UNCONFIGURED_ISSUER },
       passwordSignIn: unavailable,
+      verifyPassword: unavailable,
+      endSession: unavailable,
       replacePassword: unavailable,
       sendPasswordReset: unconfigured,
       // No provider: a token Backend-Core does not hold cannot be a provider proof,

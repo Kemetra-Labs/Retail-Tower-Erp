@@ -32,6 +32,7 @@ import {
   evaluateReadiness,
   type ReadinessEvidence,
   type StoreEvidence,
+  type ReadinessSubject,
   type UnmetReadiness,
 } from './count-readiness';
 
@@ -44,7 +45,7 @@ export interface CountSessionsSettingBody {
   readonly changedAt: string | null;
   readonly changedBy: string | null;
   readonly readinessMet: boolean | null;
-  readonly unmetReadiness: Array<{ code: string; storeId: string | null; message: string }> | null;
+  readonly unmetReadiness: Array<{ code: string; storeId: string | null; message: string; subject?: ReadinessSubject }> | null;
 }
 
 export interface CountSessionsCaller {
@@ -60,7 +61,7 @@ interface SwitchRow {
 }
 
 /** Sessions that are not finished: switching the feature off while one exists is refused. */
-const OPEN_STATES = ['open', 'cut_taken', 'submitted', 'approved', 'posting', 'needs_attention'];
+export const OPEN_COUNT_SESSION_STATES = ['open', 'cut_taken', 'submitted', 'approved', 'posting', 'needs_attention'];
 
 async function readSwitch(client: PoolClient, tenantId: string, forUpdate: boolean): Promise<SwitchRow | undefined> {
   const r = await client.query<SwitchRow>(
@@ -72,7 +73,12 @@ async function readSwitch(client: PoolClient, tenantId: string, forUpdate: boole
 }
 
 function unmetBody(unmet: readonly UnmetReadiness[]): NonNullable<CountSessionsSettingBody['unmetReadiness']> {
-  return unmet.map((u) => ({ code: u.code, storeId: u.storeId, message: u.message }));
+  return unmet.map((u) => ({
+    code: u.code,
+    storeId: u.storeId,
+    message: u.message,
+    ...(u.subject !== undefined ? { subject: u.subject } : {}), // additionalProperties: false allows no null key
+  }));
 }
 
 function fullBody(row: SwitchRow | undefined, unmet: readonly UnmetReadiness[]): CountSessionsSettingBody {
@@ -211,7 +217,7 @@ export class CountSessionsSettingService {
   private async assertNoOpenSession(client: PoolClient, tenantId: string): Promise<void> {
     const r = await client.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM count_sessions WHERE tenant_id = $1 AND state = ANY($2::text[])`,
-      [tenantId, OPEN_STATES],
+      [tenantId, OPEN_COUNT_SESSION_STATES],
     );
     if (Number(r.rows[0]?.n ?? '0') > 0) {
       throw new ConflictException({

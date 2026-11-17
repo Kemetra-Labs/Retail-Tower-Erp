@@ -54,6 +54,18 @@ export interface RedisLike {
   decr(key: string): Promise<number>;
   /** Delete `key`; returns the number of keys removed. */
   del(key: string): Promise<number>;
+  /**
+   * RT-1439: `incrWindow` that also returns the window's END on the REDIS SERVER clock (`TIME` plus
+   * the key's TTL), as one atomic step. The end is the window's identity: a later refund presents it
+   * to `decrIfWindowEnds`. Optional: a stub without it has no window identity.
+   */
+  incrWindowWithEnd?(key: string, ttlMs: number): Promise<WindowHit & { windowEndsAtMs: number }>;
+  /**
+   * RT-1439: ONE atomic step: decrement `key` only while its window still ends within `toleranceMs` of
+   * `windowEndsAtMs`, both read on the Redis server clock, so neither a delayed command nor a skewed
+   * application clock can match the wrong window. Returns true when it decremented. Optional.
+   */
+  decrIfWindowEnds?(key: string, windowEndsAtMs: number, toleranceMs: number): Promise<boolean>;
 }
 
 /** Result of {@link RedisLike.incrWindow}. */
@@ -105,6 +117,9 @@ export const RATE_LIMIT_BUCKETS = {
   // only (the hit is released on success), so a stolen session cannot be used
   // to guess the current password faster than the provider's own lockout.
   passwordChangePerUser: { limit: 5, windowMs: 15 * 60 * 1000 },
+  // RT-1439: failed re-authentication password attempts per signed-in user, counted as
+  // `passwordChangePerUser` is (a success gives its hit back), read BEFORE any password is checked.
+  reauthPerUser: { limit: 5, windowMs: 15 * 60 * 1000 },
   // RT-141: verification-email requests per user. Over the limit the request
   // is still answered 202 (contract) but no further email is sent.
   emailVerifyRequestPerUser: { limit: 3, windowMs: 60 * 60 * 1000 },
@@ -184,6 +199,11 @@ export interface RateLimitDecision {
    * keeps no TTL (`AlwaysAllowRedis`); callers should treat that as "now".
    */
   resetMs: number;
+  /**
+   * RT-1439: the window's end on the Redis server clock, its identity for `releaseIfSameWindow`.
+   * Absent from a stub client.
+   */
+  windowEndsAtMs?: number;
 }
 
 const KEY_PREFIX = "rl:";
@@ -215,12 +235,17 @@ export class RateLimiter {
     bucket: RateLimitBucket,
   ): Promise<RateLimitDecision> {
     const key = buildKey(bucketName, identifier);
-    const { count, ttlMs } = await this.redis.incrWindow(key, bucket.windowMs);
+    const hit = this.redis.incrWindowWithEnd
+      ? await this.redis.incrWindowWithEnd(key, bucket.windowMs)
+      : await this.redis.incrWindow(key, bucket.windowMs);
+    const { count, ttlMs } = hit;
     const resetMs = ttlMs < 0 ? -1 : ttlMs;
     const remaining = Math.max(0, bucket.limit - count);
     const allowed = count <= bucket.limit;
 
-    return { allowed, count, remaining, resetMs };
+    const decision: RateLimitDecision = { allowed, count, remaining, resetMs };
+    if ("windowEndsAtMs" in hit && typeof hit.windowEndsAtMs === "number") decision.windowEndsAtMs = hit.windowEndsAtMs;
+    return decision;
   }
 
   /**
@@ -236,6 +261,27 @@ export class RateLimiter {
     const key = buildKey(bucketName, identifier);
     const count = await this.redis.decr(key);
     if (count < 0) await this.redis.del(key);
+  }
+
+  /**
+   * Give back a hit only when the window it was taken in is STILL the live one (RT-1439). A hit
+   * reserved before a slow call can outlive its window: releasing it then would decrement a
+   * DIFFERENT request's hit in the new window. `windowEndsAtMs` is `check(...).windowEndsAtMs` (the
+   * window's end on the Redis server clock); the script compares it with the live window's end read
+   * on the same clock, in one atomic step. With no window identity (a stub Redis) the hit is simply
+   * released, as `release` does.
+   */
+  async releaseIfSameWindow(
+    bucketName: string,
+    identifier: string,
+    windowEndsAtMs: number | undefined,
+    toleranceMs = 2_000,
+  ): Promise<void> {
+    if (windowEndsAtMs === undefined || !this.redis.decrIfWindowEnds) {
+      await this.release(bucketName, identifier);
+      return;
+    }
+    await this.redis.decrIfWindowEnds(buildKey(bucketName, identifier), windowEndsAtMs, toleranceMs);
   }
 
   /**

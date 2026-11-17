@@ -28,14 +28,35 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { RolesGuard } from "../auth/roles.guard";
 import { ContextModule } from "../context/context.module";
+import { ConsoleReauthService } from "./deletion/reauth.service";
+import { ReauthGrantStore } from "./deletion/reauth-grant.store";
+import { StoreDeletionController } from "./deletion/store-deletion.controller";
+import { ReauthRoleGuard, StoreDeletionOwnerGuard } from "./deletion/store-deletion-owner.guard";
+import { StoreDeletionService } from "./deletion/store-deletion.service";
 import { StoresController } from "./stores.controller";
 import { StoresRepository } from "./stores.repository";
 import { StoresService } from "./stores.service";
 
+/**
+ * RT-1439: the guarded store deletion (`StoreDeletionController`: the preview, the owner-only
+ * deletion and the re-authentication that deletion needs) shares this module's repository and
+ * pool. The interceptor `consoleDeleteStore` is `@Idempotent` on is the global `APP_INTERCEPTOR`
+ * of `IdempotencyModule` (imported by other modules such as `DevicesModule`); this module does not
+ * import it, so the existing StoresModule specs do not need its providers.
+ */
 @Module({
   imports: [AuthModule, ContextModule],
-  controllers: [StoresController],
-  providers: [StoresRepository, StoresService, RolesGuard],
+  controllers: [StoresController, StoreDeletionController],
+  providers: [
+    StoresRepository,
+    StoresService,
+    RolesGuard,
+    StoreDeletionOwnerGuard,
+    ReauthRoleGuard,
+    StoreDeletionService,
+    ConsoleReauthService,
+    ReauthGrantStore,
+  ],
   exports: [StoresService, StoresRepository],
 })
 export class StoresModule {}

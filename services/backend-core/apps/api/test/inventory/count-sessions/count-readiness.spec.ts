@@ -64,6 +64,37 @@ describe('evaluateReadiness', () => {
     expect(u).toMatchObject({ code: 'store_barrier_unprovable', storeId: STORE });
   });
 
+  it('names EVERY offending device and warehouse, one boundary each, with a structured subject (RT-1439)', () => {
+    const many = goodStore({
+      devices: [
+        { deviceId: 'd1', hasHealthRow: false, lastSeenAt: null, pending: null, deadLetter: null, held: null },
+        { deviceId: 'd2', hasHealthRow: true, lastSeenAt: NOW, pending: null, deadLetter: null, held: null },
+        { deviceId: 'd3', hasHealthRow: true, lastSeenAt: NOW, pending: 0, deadLetter: 0, held: 0 },
+      ],
+      warehouses: [
+        { warehouseMapId: 'w1', erpnextWarehouseRef: 'A', lastCompletedEndedAt: null },
+        { warehouseMapId: 'w2', erpnextWarehouseRef: 'B', lastCompletedEndedAt: NOW },
+        { warehouseMapId: 'w3', erpnextWarehouseRef: 'C', lastCompletedEndedAt: null },
+      ],
+    });
+    const barrier = evaluateReadiness(ready({ stores: [many] }));
+    expect(barrier.map((u) => u.subject)).toEqual([
+      { deviceId: 'd1' },
+      { deviceId: 'd2' },
+      { warehouseRef: 'A' },
+      { warehouseRef: 'C' },
+    ]);
+    expect(barrier.every((u) => u.code === 'store_barrier_unprovable' && u.storeId === STORE)).toBe(true);
+  });
+
+  it('only the barrier boundary has a subject; the others have no subject key at all', () => {
+    const none = evaluateReadiness(
+      ready({ stores: [goodStore({ hasStockWarehouse: false })], connector: goodConnector({ lastSeenAt: null }) }),
+    );
+    expect(none.map((u) => u.code)).toEqual(['connector_not_seen', 'store_warehouse_unmapped']);
+    for (const u of none) expect(Object.keys(u)).not.toContain('subject');
+  });
+
   it('a device with a pending queue is NOT an evidence gap (the cut itself waits for it)', () => {
     const busy = goodStore({
       devices: [{ deviceId: 'd', hasHealthRow: true, lastSeenAt: NOW, pending: 7, deadLetter: 0, held: 0 }],

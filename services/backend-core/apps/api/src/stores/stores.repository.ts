@@ -205,6 +205,21 @@ export class StoresRepository {
   }
 
   /**
+   * RT-1439: soft-delete and return the `deleted_at` the database stamped, or `null` when no
+   * live row of the tenant matched. Same effect as `softDelete`; the deletion paths need the
+   * stamp for their audit row.
+   */
+  async markDeleted(client: PoolClient, storeId: string): Promise<Date | null> {
+    const db = drizzle(client);
+    const rows = await db
+      .update(stores)
+      .set({ deletedAt: sql`now()` })
+      .where(and(eq(stores.id, storeId), isNull(stores.deletedAt)))
+      .returning({ deletedAt: stores.deletedAt });
+    return rows[0]?.deletedAt ?? null;
+  }
+
+  /**
    * Existence probe scoped to the active tenant: returns `true` iff
    * a row with `(id = storeId, deleted_at IS NULL)` is visible under
    * the current RLS context. Used by the service to distinguish
