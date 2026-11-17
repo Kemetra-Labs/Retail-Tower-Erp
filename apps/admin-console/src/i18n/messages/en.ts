@@ -34,6 +34,7 @@ import { salesDaily } from "./en/salesDaily";
 import { shell } from "./en/shell";
 import { shift } from "./en/shift";
 import { stock } from "./en/stock";
+import { storeDeletion } from "./en/storeDeletion";
 import { tenants } from "./en/tenants";
 import { trackedSelling } from "./en/trackedSelling";
 import { tracking } from "./en/tracking";
@@ -56,6 +57,7 @@ export const EN_MODULES = {
   productRecon,
   devices,
   forceActions,
+  storeDeletion,
   downloadPos,
   posPilot,
   sales,
@@ -93,6 +95,7 @@ export const en: MessagesOf<typeof ar> = {
   ...productRecon,
   ...devices,
   ...forceActions,
+  ...storeDeletion,
   ...downloadPos,
   ...posPilot,
   ...sales,

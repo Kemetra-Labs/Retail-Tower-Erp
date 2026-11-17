@@ -54,20 +54,16 @@ describe("button grammar (RT-957, DESIGN.md §9)", () => {
     expect(src).toMatch(/"btn-secondary"/);
   });
 
-  test("store suspend opens with btn-danger-quiet", () => {
-    const opener = uses.find(
-      (u) =>
-        u.file.endsWith("stores/StoreStatusSection.tsx") &&
-        u.keys.includes("stores.status.suspend"),
-    );
-    // The first suspend control is the opener; the destructive one is its confirm.
-    const suspendUses = uses.filter(
-      (u) =>
-        u.file.endsWith("stores/StoreStatusSection.tsx") &&
-        u.keys.includes("stores.status.suspend"),
-    );
-    expect(opener).toBeDefined();
-    expect(suspendUses.map((u) => u.cls)).toEqual(["btn-danger-quiet", "btn-destructive"]);
+  test("store suspend opens with btn-danger-quiet and confirms with btn-destructive", () => {
+    // RT-1441: the inline confirm is one shared component (`SuspendConfirm`), used by the edit
+    // screen's status section and by the detail page's danger zone, which both open it.
+    const suspendIn = (file: string): string[] =>
+      uses
+        .filter((u) => u.file.endsWith(file) && u.keys.includes("stores.status.suspend"))
+        .map((u) => u.cls);
+    expect(suspendIn("stores/StoreStatusSection.tsx")).toEqual(["btn-danger-quiet"]);
+    expect(suspendIn("store-deletion/StoreDangerZone.tsx")).toEqual(["btn-danger-quiet"]);
+    expect(suspendIn("stores/SuspendConfirm.tsx")).toEqual(["btn-destructive"]);
   });
 
   test("a file that confirms with btn-destructive never opens the same action with a secondary button", () => {

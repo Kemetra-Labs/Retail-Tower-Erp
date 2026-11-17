@@ -35,6 +35,7 @@ import { salesDaily } from "./ar/salesDaily";
 import { shell } from "./ar/shell";
 import { shift } from "./ar/shift";
 import { stock } from "./ar/stock";
+import { storeDeletion } from "./ar/storeDeletion";
 import { tenants } from "./ar/tenants";
 import { trackedSelling } from "./ar/trackedSelling";
 import { tracking } from "./ar/tracking";
@@ -56,6 +57,7 @@ export const AR_MODULES = {
   productRecon,
   devices,
   forceActions,
+  storeDeletion,
   downloadPos,
   posPilot,
   sales,
@@ -93,6 +95,7 @@ export const ar = {
   ...productRecon,
   ...devices,
   ...forceActions,
+  ...storeDeletion,
   ...downloadPos,
   ...posPilot,
   ...sales,

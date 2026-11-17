@@ -1,0 +1,58 @@
+/* The modal of the owner's guarded force actions (RT-1440, RT-1441). Logical properties only; tokens
+   only (no raw colour). It mirrors the Stay / Discard modal (strongest elevation) but holds the
+   server's impact preview, so it scrolls inside. */
+.confirm-modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-scrim);
+}
+.confirm-modal {
+  position: static;
+  margin: 0;
+  max-width: none;
+  max-height: min(90vh, 880px);
+  overflow-y: auto;
+  color: inherit;
+  width: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-overlay);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-5);
+}
+.confirm-modal__title {
+  margin: 0;
+  font: var(--weight-strong) var(--text-screen-title) / var(--leading-title) var(--font-sans);
+  color: var(--color-text);
+}
+.confirm-modal__consequence {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  color: var(--color-text);
+}
+.confirm-modal__caveats {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+.confirm-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding-block-start: var(--space-2);
+}
+@media (forced-colors: active) {
+  .confirm-modal {
+    border: 1px solid CanvasText;
+  }
+}

@@ -1,0 +1,79 @@
+/* RT-1441 (U2): the store danger zone and the store-deletion dialog.
+   Logical properties only; tokens only (no raw colour). The dialog reuses the modal shell of
+   `ConfirmModal` (`src/components/confirm-modal.css`) and adds only what is its own: the facts
+   grid, the terminals list, the blockers with their fix links. */
+
+/* The danger zone keeps a danger-tinted edge, as the suspend section does on the board. */
+.store-danger {
+  border-color: color-mix(in srgb, var(--color-danger) 22%, var(--color-border));
+}
+.store-danger__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.store-deletion__irreversible {
+  margin: 0;
+  font-weight: var(--weight-strong);
+  color: var(--color-text);
+}
+.store-deletion__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+}
+.store-deletion__fact dt {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+.store-deletion__fact dd {
+  margin: 0;
+  color: var(--color-text);
+}
+.store-deletion__effects h3 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-body);
+  font-weight: var(--weight-strong);
+}
+.store-deletion__effects ul,
+.store-deletion__blockers,
+.store-deletion__fixes {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+.store-deletion__devices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding-inline-start: 0;
+}
+.store-deletion__device {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  align-items: baseline;
+}
+.store-deletion__device-name {
+  color: var(--color-text);
+}
+.store-deletion__blocked-intro {
+  margin: 0 0 var(--space-2);
+  font-weight: var(--weight-strong);
+  color: var(--color-text);
+}
+.store-deletion__blockers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.store-deletion__blockers p {
+  margin: 0;
+}
+.store-deletion__fixes {
+  margin-block-start: var(--space-1);
+  list-style: none;
+  padding-inline-start: 0;
+}

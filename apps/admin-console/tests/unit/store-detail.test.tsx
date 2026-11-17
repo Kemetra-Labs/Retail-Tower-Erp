@@ -42,7 +42,9 @@ function renderDetail(): void {
 
 /**
  * Store detail (T027; RT-400 screen 19). Read-first; state badge; «Edit store»
- * for everyone (403 on attempt). No delete or closure action (decision 194).
+ * for everyone (403 on attempt). No delete or closure action for anyone but the owner (decision 194;
+ * RT-1441: the owner's danger zone is covered in store-danger-zone.test.tsx, and this context has no
+ * role, so the page must show none).
  * 404 uniform (FR-004-008). A scope-401 renders the scope prompt, not a
  * sign-out (OQ-4).
  */
@@ -51,7 +53,7 @@ describe("StoreDetail", () => {
     readStore.mockReset();
   });
 
-  test("success -> field rows, state badge and the edit action, no delete", async () => {
+  test("success -> field rows, state badge, edit action, no delete (non-owner)", async () => {
     readStore.mockResolvedValue({
       status: 200,
       data: { id: "s1", code: "CFC", name: "Cairo Festival City", is_active: true },
