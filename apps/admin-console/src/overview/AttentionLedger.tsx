@@ -24,6 +24,8 @@ import type { PageCount } from "./overviewLogic";
 import {
   type OverviewSession,
   type StockPanel,
+  useForceClosedPanel,
+  useReadinessPanel,
   useShiftPanel,
   useStockPanel,
   useUnknownItemsPanel,
@@ -230,7 +232,14 @@ export function AttentionLedger({
   const stock = useStockPanel(session);
   const shift = useShiftPanel(session, nowMs);
   const unknown = useUnknownItemsPanel(session);
-  const allHidden = [stock, shift.state, unknown].every((s) => s.status === "hidden");
+  const forceClosed = useForceClosedPanel(session, nowMs);
+  const readiness = useReadinessPanel(session);
+  const allHidden = [stock, shift.state, unknown, forceClosed, readiness].every(
+    (s) => s.status === "hidden",
+  );
+  const readinessHref = session.activeStoreId
+    ? `/inventory/stores/${session.activeStoreId}/counts#counts-activation`
+    : "/inventory";
 
   return (
     <section className="section-panel overview__attention" aria-labelledby="overview-attention">
@@ -257,6 +266,18 @@ export function AttentionLedger({
             label={t("overview.unknown.label")}
             noun="overview.unknown.noun"
             link={{ to: "/unknown-items", text: t("overview.unknown.open") }}
+          />
+          <CountRow
+            state={forceClosed}
+            label={t("overview.forceClosed.label")}
+            noun="overview.forceClosed.noun"
+            link={{ to: "/shifts/force-closed", text: t("overview.forceClosed.open") }}
+          />
+          <CountRow
+            state={readiness}
+            label={t("overview.readiness.label")}
+            noun="overview.readiness.noun"
+            link={{ to: readinessHref, text: t("overview.readiness.open") }}
           />
         </ul>
       )}

@@ -8,6 +8,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 }));
 
 import { ForceCloseNextStep, blockedByOpenShift } from "@/force-actions/ForceCloseNextStep";
+import { OpenShiftsLink } from "@/force-actions/OpenShiftsLink";
 
 /**
  * RT-1440 (U1) AC4: the device panel's next step is shown to an owner or tenant_admin only, never
@@ -57,5 +58,32 @@ describe("blockedByOpenShift", () => {
     expect(blockedByOpenShift("device_retired")).toBe(false);
     expect(blockedByOpenShift("something_new")).toBe(false);
     expect(blockedByOpenShift(null)).toBe(false);
+  });
+});
+
+describe("OpenShiftsLink (the store page entry)", () => {
+  beforeEach(() => activeContext.mockReset());
+  const renderLink = () =>
+    render(
+      <MemoryRouter>
+        <OpenShiftsLink storeId={STORE} />
+      </MemoryRouter>,
+    );
+
+  test.each(["owner", "tenant_admin"])("a %s sees the link to the store's open shifts", (role) => {
+    activeContext.mockReturnValue(asContext(role));
+    renderLink();
+    expect(screen.getByRole("link", { name: "Open shifts in this store" }).getAttribute("href")).toBe(
+      `/stores/${STORE}/open-shifts`,
+    );
+  });
+
+  test("a store_manager and a support session see nothing", () => {
+    activeContext.mockReturnValue(asContext("store_manager"));
+    renderLink();
+    expect(screen.queryByRole("link")).toBeNull();
+    activeContext.mockReturnValue(asContext("owner", { id: "ss-1" }));
+    renderLink();
+    expect(screen.queryByRole("link")).toBeNull();
   });
 });

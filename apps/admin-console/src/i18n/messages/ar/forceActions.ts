@@ -42,6 +42,7 @@ export const forceActions = {
 
   // --- The device page: the next step for a blocked retire -------------------
   "forceActions.deviceLink": "عرض الورديات المفتوحة في المتجر لإغلاقها دون عدّ",
+  "forceActions.storeLink": "الورديات المفتوحة في هذا المتجر",
 
   // --- The close-without-a-count dialog --------------------------------------
   "forceActions.close.title": "إغلاق الوردية دون عدّ",
@@ -115,4 +116,32 @@ export const forceActions = {
     "بلغت المؤسسة الحد الأقصى لهذه الإجراءات في الساعة. حاول لاحقًا.",
   "forceActions.close.error.rateLimited": "طلبات كثيرة. انتظر قليلًا ثم أعد المحاولة.",
   "forceActions.close.error.validation": "القيم المدخلة غير مقبولة. راجع السبب وأعد المحاولة.",
+  // --- Shifts closed without a count (A4, from the audit search) -------------
+  "forceActions.closed.title": "ورديات أُغلقت دون عدّ",
+  "forceActions.closed.sub": "من سجل التدقيق: متى أُغلقت الوردية ومن أغلقها وفي أي متجر. سبب الإغلاق محفوظ مع السجل ولا يظهر هنا.",
+  "forceActions.closed.caption": "الورديات التي أُغلقت دون عدّ",
+  "forceActions.closed.col.when": "الوقت",
+  "forceActions.closed.col.by": "أغلقها",
+  "forceActions.closed.col.channel": "القناة",
+  "forceActions.closed.col.store": "المتجر",
+  "forceActions.closed.col.shift": "الوردية",
+  "forceActions.closed.col.age": "عمر الوردية",
+  "forceActions.closed.channel.pos": "جهاز نقطة البيع",
+  "forceActions.closed.channel.console": "لوحة التحكم",
+  "forceActions.closed.channel.unknown": "غير معروفة",
+  "forceActions.closed.minutes": {
+    zero: "أقل من دقيقة",
+    one: "دقيقة",
+    two: "دقيقتان",
+    few: "{count} دقائق",
+    many: "{count} دقيقة",
+    other: "{count} دقيقة",
+  },
+  "forceActions.closed.unknown": "غير معروف",
+  "forceActions.closed.empty": "لا توجد ورديات أُغلقت دون عدّ.",
+  "forceActions.closed.loading": "جارٍ تحميل الإغلاقات…",
+  "forceActions.closed.loadFailed": "تعذّر تحميل الإغلاقات دون عدّ.",
+  "forceActions.closed.retry": "إعادة المحاولة",
+  "forceActions.closed.loadMore": "تحميل المزيد",
+  "forceActions.closed.notAvailable": "هذه الصفحة غير متاحة لصلاحياتك.",
 } as const satisfies Messages;

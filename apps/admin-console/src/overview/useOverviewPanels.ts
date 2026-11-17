@@ -9,6 +9,9 @@
  * 403/404 omits the panel (§6.2).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { FORCE_CLOSED_ACTION, windowStart } from "@/force-actions/forceClosedLogic";
+import { listAuditEvents } from "@/lib/client";
+import { getCountSessionsSetting } from "@/lib/count-session-queries";
 import { consoleListShiftCloses } from "@/lib/shift-close-queries";
 import {
   type SnapshotStatusCode,
@@ -204,4 +207,49 @@ function useCountPanel(
 export function useUnknownItemsPanel(session: OverviewSession): PanelState<PageCount> {
   const list = () => listUnknownItems({ status: "pending", ...storeQuery(session) });
   return useCountPanel("unknown-items", session, list as () => Promise<ApiResult>, "next_cursor");
+}
+
+// --- RT-1440: shifts closed without a count, and count-activation blockers ------------
+
+/**
+ * Shifts closed without a count in the last 30 days (RT-1437 A1, Health). The count is read from
+ * the audit search (`shift.force_closed`, both channels), one page of at most 200: more than that
+ * reads "or more". The server decides who may read the audit log; a refusal omits the row.
+ */
+export function useForceClosedPanel(session: OverviewSession, nowMs: number): PanelState<PageCount> {
+  return usePanelQuery({
+    key: overviewKey("force-closed", session),
+    gate: "run",
+    read: async () =>
+      readResult(
+        (await listAuditEvents({
+          action: FORCE_CLOSED_ACTION,
+          from: windowStart(nowMs),
+          limit: 200,
+          ...storeQuery(session),
+        })) as ApiResult,
+        countOf("next_cursor"),
+      ),
+  });
+}
+
+/** The unmet count-activation boundaries; nothing to show once the switch is on or for a role that cannot read them. */
+function unmetCountOf(data: unknown): { enabled: boolean; unmet: number | null } | undefined {
+  const d = data as { enabled?: unknown; unmetReadiness?: unknown } | undefined;
+  if (typeof d?.enabled !== "boolean") return undefined;
+  return { enabled: d.enabled, unmet: Array.isArray(d.unmetReadiness) ? d.unmetReadiness.length : null };
+}
+
+export function useReadinessPanel(session: OverviewSession): PanelState<PageCount> {
+  const allowed = session.role === "owner" || session.role === "tenant_admin";
+  return usePanelQuery({
+    key: overviewKey("count-readiness", session),
+    gate: roleGate(allowed),
+    read: async () => {
+      const read = readResult((await getCountSessionsSetting()) as ApiResult, unmetCountOf);
+      if (read.kind !== "ready") return read;
+      if (read.data.enabled || read.data.unmet === null) return { kind: "hidden" };
+      return { kind: "ready", data: pageCount(read.data.unmet, null) };
+    },
+  });
 }

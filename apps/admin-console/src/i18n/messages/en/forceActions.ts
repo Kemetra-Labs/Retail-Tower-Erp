@@ -34,6 +34,7 @@ export const forceActions: MessagesOf<typeof ar> = {
 
   // --- The device page: the next step for a blocked retire -------------------
   "forceActions.deviceLink": "View the store's open shifts to close one without a count",
+  "forceActions.storeLink": "Open shifts in this store",
 
   // --- The close-without-a-count dialog --------------------------------------
   "forceActions.close.title": "Close the shift without a count",
@@ -112,4 +113,29 @@ export const forceActions: MessagesOf<typeof ar> = {
     "The organisation reached the hourly limit for these actions. Try again later.",
   "forceActions.close.error.rateLimited": "Too many requests. Wait a moment, then try again.",
   "forceActions.close.error.validation": "The values were not accepted. Check the reason and try again.",
+
+  // --- Shifts closed without a count (A4, from the audit search) -------------
+  "forceActions.closed.title": "Shifts closed without a count",
+  "forceActions.closed.sub": "From the audit log: when the shift was closed, who closed it and in which store. The reason is stored with the record and is not shown here.",
+  "forceActions.closed.caption": "Shifts closed without a count",
+  "forceActions.closed.col.when": "When",
+  "forceActions.closed.col.by": "Closed by",
+  "forceActions.closed.col.channel": "Channel",
+  "forceActions.closed.col.store": "Store",
+  "forceActions.closed.col.shift": "Shift",
+  "forceActions.closed.col.age": "Shift age",
+  "forceActions.closed.channel.pos": "Point-of-sale terminal",
+  "forceActions.closed.channel.console": "Console",
+  "forceActions.closed.channel.unknown": "Unknown",
+  "forceActions.closed.minutes": {
+    one: "{count} minute",
+    other: "{count} minutes",
+  },
+  "forceActions.closed.unknown": "Unknown",
+  "forceActions.closed.empty": "No shifts were closed without a count.",
+  "forceActions.closed.loading": "Loading the closes…",
+  "forceActions.closed.loadFailed": "Could not load the closes without a count.",
+  "forceActions.closed.retry": "Try again",
+  "forceActions.closed.loadMore": "Load more",
+  "forceActions.closed.notAvailable": "This page is not available for your access.",
 };

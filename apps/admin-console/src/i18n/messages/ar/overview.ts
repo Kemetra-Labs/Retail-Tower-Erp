@@ -38,6 +38,12 @@ export const overview = {
   "overview.unknown.label": "أصناف غير معروفة بانتظار المراجعة",
   "overview.unknown.noun": "الأصناف",
   "overview.unknown.open": "مراجعة الأصناف",
+  "overview.forceClosed.label": "ورديات أُغلقت دون عدّ (آخر 30 يومًا)",
+  "overview.forceClosed.noun": "الإغلاقات دون عدّ",
+  "overview.forceClosed.open": "مراجعة الإغلاقات دون عدّ",
+  "overview.readiness.label": "تفعيل الجرد",
+  "overview.readiness.noun": "العوائق",
+  "overview.readiness.open": "مراجعة العوائق",
 
   // --- Overview v2 (RT-970) ---------------------------------------------------
   "overview.unavailable": "غير متاح",
