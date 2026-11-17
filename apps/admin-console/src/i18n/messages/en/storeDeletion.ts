@@ -11,6 +11,8 @@ export const storeDeletion: MessagesOf<typeof ar> = {
   "storeDeletion.zone.suspendConfirm":
     "Suspend {name}? You can activate it again from the edit store page.",
   "storeDeletion.zone.suspendFailed": "Could not suspend the store. Nothing changed.",
+  "storeDeletion.zone.suspendUnclear":
+    "We could not confirm whether the store was suspended. Reload the page to check its state.",
   "storeDeletion.zone.delete": "Delete store…",
 
   // --- The dialog ------------------------------------------------------------
