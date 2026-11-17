@@ -297,6 +297,37 @@ describe("posPairTerminal — a store being deleted (RT-1439)", () => {
   });
 });
 
+describe("posPairTerminal — a code that expires while waiting on the store lock (RT-1439)", () => {
+  it("is refused (410) when the lock holder rolls back after the code's expiry: no device is created", async () => {
+    if (skip()) return;
+    const raw = "RACE-EXP-0001";
+    const terminalId = "0e000000-0000-7000-8000-0000000071ba";
+    const storeId = "0e000000-0000-7000-8000-00000000e5ba";
+    await env!.admin.query(
+      `INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $2, 'BR-EXP', 'Lock then rollback')`,
+      [storeId, TENANT],
+    );
+    await seedCode(env!.admin, { rawCode: raw, storeId, terminalId, expiresInMs: 2_500 });
+    const holder = await env!.admin.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query(`SELECT 1 FROM stores WHERE id = $1 FOR UPDATE`, [storeId]);
+      const pair = http().post(PAIR).send({ pairing_code: raw }).then((r) => r.status);
+      const marker = Symbol("pending");
+      const early = await Promise.race([pair, new Promise((r) => setTimeout(() => r(marker), 500))]);
+      expect(early).toBe(marker); // blocked on the store row, before the burn
+      await new Promise((r) => setTimeout(r, 2_300)); // now past the code's expiry
+      await holder.query("ROLLBACK"); // the store stays live
+      expect(await pair).toBe(410); // `now()` (transaction start) would have let this burn
+    } finally {
+      await holder.query("ROLLBACK").catch(() => undefined);
+      holder.release();
+    }
+    const devices = await env!.admin.query(`SELECT 1 FROM devices WHERE store_id = $1`, [storeId]);
+    expect(devices.rowCount).toBe(0);
+  });
+});
+
 describe("posPairTerminal — closed error set", () => {
   it("unknown code → 404 INVALID_CODE", async () => {
     if (skip()) return;

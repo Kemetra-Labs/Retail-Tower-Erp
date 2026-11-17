@@ -236,7 +236,9 @@ export async function readStoreDeletionFacts(
       WHERE m.deleted_at IS NULL
         AND m.store_access_kind = 'specific'
         AND EXISTS (SELECT 1 FROM store_access sa WHERE sa.membership_id = m.id AND sa.store_id = $1)
-        AND (SELECT count(*) FROM store_access sb WHERE sb.membership_id = m.id) = 1
+        AND (SELECT count(*) FROM store_access sb
+               JOIN stores sst ON sst.id = sb.store_id AND sst.tenant_id = sb.tenant_id
+              WHERE sb.membership_id = m.id AND sst.deleted_at IS NULL) = 1
       ORDER BY m.user_id
       LIMIT $2`,
     [storeId, MAX_MEMBERS],

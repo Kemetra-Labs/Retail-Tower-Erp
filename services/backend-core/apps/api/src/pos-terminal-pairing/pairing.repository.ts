@@ -211,10 +211,13 @@ export class PairingRepository {
         // that crosses its expiry between the service's isSpent() pre-check and this
         // transaction cannot still be burned/provisioned (Codex P2): an expired (or
         // already-burned) row updates 0 rows → lost_race → 410 EXPIRED_CODE.
+        // `clock_timestamp()`, not `now()`: `now()` is the transaction START, and the store-row
+        // `FOR SHARE` above can wait behind a deletion that later rolls back (RT-1439), so a code
+        // that expired during that wait must still be refused at the burn.
         const burn = await client.query<{ id: string }>(
           `UPDATE pairing_codes
               SET status = 'used', used_at = now()
-            WHERE id = $1 AND status = 'pending' AND expires_at > now()
+            WHERE id = $1 AND status = 'pending' AND expires_at > clock_timestamp()
           RETURNING id`,
           [input.codeId],
         );
