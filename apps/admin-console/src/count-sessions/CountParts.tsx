@@ -13,6 +13,8 @@ import type { CountSessionsReadinessBoundary } from "@/lib/count-session-queries
 import { usePeopleNames } from "@/people/usePeopleNames";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
+import { Link } from "react-router";
+import { subjectLinkOf } from "./activationDetails";
 import {
   type CountOutcome,
   boundaryKey,
@@ -96,6 +98,7 @@ function UnmetItem({
   const t = useT();
   const scope = useInventoryScope();
   const store = useStoreName(scope.tenantId, boundary.storeId ?? "");
+  const link = subjectLinkOf(boundary.subject);
   return (
     <li>
       {t(boundaryKey(boundary.code))}
@@ -105,6 +108,12 @@ function UnmetItem({
           {t.rich("counts.activation.storeScoped", {
             store: store ? <bdi dir="auto">{store}</bdi> : <Machine value={boundary.storeId} />,
           })}
+        </>
+      ) : null}
+      {link ? (
+        <>
+          {" · "}
+          <Link to={link.to}>{t(link.labelKey)}</Link>
         </>
       ) : null}
     </li>

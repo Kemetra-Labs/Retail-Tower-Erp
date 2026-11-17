@@ -310,6 +310,8 @@ export const counts = {
   "counts.activation.ready": "كل ما تعتمد عليه جلسات الجرد جاهز.",
   "counts.activation.notReady": "غير جاهز للتفعيل. هذه البنود غير مثبتة:",
   "counts.activation.storeScoped": "المتجر: {store}",
+  "counts.activation.link.device": "افتح صفحة الجهاز لمعالجة العائق",
+  "counts.activation.link.warehouse": "افتح ربط المستودعات في نظام المحاسبة",
   "counts.activation.turnOn": "تفعيل جلسات الجرد",
   "counts.activation.turnOff": "تعطيل جلسات الجرد",
   "counts.activation.readOnly": "المالك أو المسؤول وحده يغيّر هذا الإعداد.",
