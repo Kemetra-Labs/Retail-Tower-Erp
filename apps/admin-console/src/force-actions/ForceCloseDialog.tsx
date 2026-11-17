@@ -7,27 +7,21 @@
  * the server's; a blocked shift offers no commit and says why as persistent text (UX-11.11).
  */
 import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { FailureBanner } from "@/components/FailureBanner";
+import { ImpactFootnotes, ImpactList } from "@/components/ImpactList";
 import { InlineError } from "@/components/InlineError";
 import { TrustBadge } from "@/devices/DeviceParts";
 import { TextArea } from "@/devices/RevokeFields";
 import { DateTime, type MessageKey, Money, useT } from "@/i18n";
 import { formatNumber } from "@/i18n/translate";
 import type { ForceClosePreview } from "@/lib/force-action-queries";
-import { useEffect, useId, useRef } from "react";
+import { type Read, type ReadError, useRefetchOnce } from "@/lib/server-read";
+import { useId } from "react";
 import { effectKeys, hasUnknownEffect, reasonProblem } from "./forceCloseLogic";
-import { type ForceCloseOutcome, blockerKeys } from "./forceCloseOutcomes";
-import {
-  type ForceCloseFlow,
-  type Read,
-  type ReadError,
-  useForceCloseFlow,
-  useForceClosePreview,
-} from "./useForceActions";
+import { blockerKeys } from "./forceCloseOutcomes";
+import { type ForceCloseFlow, useForceCloseFlow, useForceClosePreview } from "./useForceActions";
 import "./force-actions.css";
-
-const FOCUSABLE =
-  "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled])";
 
 function Fact({
   label,
@@ -113,17 +107,13 @@ function EffectList({
   list: "willChange" | "willNotChange";
   codes: readonly string[];
 }>): React.JSX.Element {
-  const t = useT();
   return (
-    <section className="force-close__effects">
-      <h3>{heading}</h3>
-      <ul>
-        {effectKeys(list, codes).map((key) => (
-          <li key={key}>{t(key)}</li>
-        ))}
-        {hasUnknownEffect(list, codes) ? <li>{t("forceActions.close.effect.unknown")}</li> : null}
-      </ul>
-    </section>
+    <ImpactList
+      className="force-close__effects"
+      heading={heading}
+      keys={effectKeys(list, codes)}
+      unknownKey={hasUnknownEffect(list, codes) ? "forceActions.close.effect.unknown" : undefined}
+    />
   );
 }
 
@@ -152,15 +142,6 @@ function Blockers({ blockers }: Readonly<{ blockers: readonly string[] }>): Reac
         ))}
       </ul>
     </section>
-  );
-}
-
-function RetryButton({ retry }: Readonly<{ retry: () => void }>): React.JSX.Element {
-  const t = useT();
-  return (
-    <button type="button" className="btn-secondary" onClick={retry}>
-      {t("forceActions.close.retry")}
-    </button>
   );
 }
 
@@ -201,20 +182,20 @@ function Outcome({
       );
     case "rejected":
       return (
-        <Banner
+        <FailureBanner
           variant="danger"
           message={t(outcome.messageKey)}
           requestId={outcome.requestId ?? requestId}
-          action={canRetry ? <RetryButton retry={retry} /> : undefined}
+          retry={canRetry ? { label: t("forceActions.close.retry"), onClick: retry } : undefined}
         />
       );
     case "retryable":
       return (
-        <Banner
+        <FailureBanner
           variant="warning"
           message={t("forceActions.close.retryable")}
           requestId={outcome.requestId}
-          action={<RetryButton retry={retry} />}
+          retry={{ label: t("forceActions.close.retry"), onClick: retry }}
         />
       );
     case "session":
@@ -228,39 +209,6 @@ export interface ForceCloseDialogProps {
   timeZone?: string;
   /** `recorded`: the close was recorded (the shift is gone from the list), not merely cancelled. */
   onClose: (recorded: boolean) => void;
-}
-
-/** Tab and Shift+Tab cycle inside the panel (aria-modal is honest, UX-11.9). */
-function trapTab(e: React.KeyboardEvent<HTMLDialogElement>, panel: HTMLElement): void {
-  const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => el.offsetParent !== null,
-  );
-  const first = items[0];
-  const last = items.at(-1);
-  if (!first || !last) return;
-  const atEdge = e.shiftKey ? document.activeElement === first : document.activeElement === last;
-  if (!atEdge) return;
-  e.preventDefault();
-  (e.shiftKey ? last : first).focus();
-}
-
-/** Focus starts on the safe choice and returns to the opener on close (UX-05.11, UX-11.8). */
-function useSafeFocus(target: React.RefObject<HTMLElement | null>): void {
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    target.current?.focus();
-    return () => opener?.focus?.();
-  }, [target]);
-}
-
-/** A blocked answer shows the server's verdict again: read the preview once more per answer. */
-function useRefetchOnBlocked(outcome: ForceCloseOutcome | null, refetch: () => void): void {
-  const done = useRef(false);
-  const blocked = outcome?.kind === "blocked";
-  useEffect(() => {
-    if (blocked && !done.current) refetch();
-    done.current = blocked;
-  }, [blocked, refetch]);
 }
 
 function Preview({
@@ -282,20 +230,12 @@ function Preview({
         codes={data.effects.willNotChange}
       />
       <p className="force-close__unaccounted">{t("forceActions.close.drawerUnaccounted")}</p>
-      <ul className="force-close__caveats">
-        {caveatKeys(data.caveats).map((key) => (
-          <li key={key}>{t(key)}</li>
-        ))}
-      </ul>
-      <p className="device-quiet">
-        {t.rich("forceActions.close.snapshot", {
-          time: (
-            <bdi dir="ltr">
-              <DateTime value={data.evaluatedAt} timeZone={timeZone} />
-            </bdi>
-          ),
-        })}
-      </p>
+      <ImpactFootnotes
+        caveats={caveatKeys(data.caveats)}
+        snapshotKey="forceActions.close.snapshot"
+        evaluatedAt={data.evaluatedAt}
+        timeZone={timeZone}
+      />
     </>
   );
 }
@@ -307,19 +247,13 @@ function PreviewError({
   const t = useT();
   const notAvailable = error.kind === "not-available";
   return (
-    <Banner
+    <FailureBanner
       variant="danger"
       message={t(
         notAvailable ? "forceActions.close.error.notAvailable" : "forceActions.close.previewFailed",
       )}
       requestId={error.requestId}
-      action={
-        notAvailable ? undefined : (
-          <button type="button" className="btn-secondary" onClick={retry}>
-            {t("forceActions.close.retry")}
-          </button>
-        )
-      }
+      retry={notAvailable ? undefined : { label: t("forceActions.close.retry"), onClick: retry }}
     />
   );
 }
@@ -358,46 +292,20 @@ function ReasonForm({ flow }: Readonly<{ flow: ForceCloseFlow }>): React.JSX.Ele
   );
 }
 
-interface ActionsProps {
-  flow: ForceCloseFlow;
-  finished: boolean;
-  showForm: boolean;
-  cancelRef: React.RefObject<HTMLButtonElement | null>;
-  onClose: (recorded: boolean) => void;
-}
-
-function Actions({
-  flow,
-  finished,
-  showForm,
-  cancelRef,
-  onClose,
-}: Readonly<ActionsProps>): React.JSX.Element {
-  const t = useT();
-  return (
-    <div className="force-close__actions">
-      <button
-        ref={cancelRef}
-        type="button"
-        className="btn-secondary"
-        onClick={() => onClose(finished)}
-        disabled={flow.pending}
-      >
-        {t(finished ? "forceActions.close.done" : "forceActions.close.cancel")}
-      </button>
-      {finished || !showForm ? null : (
-        <GatedButton
-          type="button"
-          className="btn-destructive"
-          disabled={!flow.ready}
-          busy={flow.pending}
-          onClick={() => void flow.commit()}
-        >
-          {t(flow.pending ? "forceActions.close.committing" : "forceActions.close.commit")}
-        </GatedButton>
-      )}
-    </div>
-  );
+/** Which of the preview's parts the dialog shows now, from the server's verdict and the last answer. */
+function useCloseView(preview: Read<ForceClosePreview>, flow: ForceCloseFlow) {
+  const outcome = flow.outcome;
+  const data = preview.data;
+  const finished = outcome?.kind === "closed" || outcome?.kind === "settled";
+  const eligible = data?.shift.verdict.eligible === true;
+  const blockedByAnswer = outcome?.kind === "blocked";
+  return {
+    data,
+    finished,
+    blockers: outcome?.kind === "blocked" ? outcome.blockers : (data?.shift.verdict.blockers ?? []),
+    showBlockers: data !== undefined && !finished && (!eligible || blockedByAnswer),
+    showForm: data !== undefined && eligible && !finished,
+  };
 }
 
 export function ForceCloseDialog({
@@ -406,75 +314,49 @@ export function ForceCloseDialog({
   onClose,
 }: Readonly<ForceCloseDialogProps>): React.JSX.Element {
   const t = useT();
-  const titleId = useId();
   const preview: Read<ForceClosePreview> = useForceClosePreview(shiftId);
   const flow = useForceCloseFlow(shiftId, preview);
-  const panelRef = useRef<HTMLDialogElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useSafeFocus(cancelRef);
-  useRefetchOnBlocked(flow.outcome, preview.refetch);
-
-  const finished = flow.outcome?.kind === "closed" || flow.outcome?.kind === "settled";
-  // The commit button leaves when the close is recorded: keep focus inside the modal, on Done (UX-11.8).
-  useEffect(() => {
-    if (finished && !flow.pending) cancelRef.current?.focus();
-  }, [finished, flow.pending]);
-  const data = preview.data;
-  const eligible = data?.shift.verdict.eligible === true;
-  const blockers =
-    flow.outcome?.kind === "blocked" ? flow.outcome.blockers : (data?.shift.verdict.blockers ?? []);
-  const showForm = data !== undefined && eligible && !finished;
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLDialogElement>): void {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      if (!flow.pending) onClose(finished);
-    } else if (e.key === "Tab" && panelRef.current) {
-      trapTab(e, panelRef.current);
-    }
-  }
+  useRefetchOnce(flow.outcome?.kind === "blocked", preview.refetch);
+  const view = useCloseView(preview, flow);
+  const commitKey = flow.pending ? "forceActions.close.committing" : "forceActions.close.commit";
 
   return (
-    <div className="force-close-scrim">
-      <dialog
-        ref={panelRef}
-        open
-        className="force-close"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onKeyDown={onKeyDown}
-      >
-        <h2 id={titleId} className="force-close__title">
-          {t("forceActions.close.title")}
-        </h2>
-        <p className="force-close__consequence">{t("forceActions.close.consequence")}</p>
-        {preview.isLoading ? (
-          <output className="content__sub">
-            <span className="spinner" aria-hidden="true" /> {t("forceActions.close.loading")}
-          </output>
-        ) : null}
-        {preview.error ? <PreviewError error={preview.error} retry={preview.refetch} /> : null}
-        {data && !finished ? <Preview data={data} timeZone={timeZone} /> : null}
-        {data !== undefined && !finished && (!eligible || flow.outcome?.kind === "blocked") ? (
-          <Blockers blockers={blockers} />
-        ) : null}
-        {flow.outcome ? (
-          <Outcome
-            outcome={flow.outcome}
-            requestId={flow.requestId}
-            retry={() => void flow.retry()}
-            canRetry={flow.canRetry}
-          />
-        ) : null}
-        {showForm ? <ReasonForm flow={flow} /> : null}
-        <Actions
-          flow={flow}
-          finished={finished}
-          showForm={showForm}
-          cancelRef={cancelRef}
-          onClose={onClose}
+    <ConfirmModal
+      title={t("forceActions.close.title")}
+      finished={view.finished}
+      pending={flow.pending}
+      cancelLabel={t("forceActions.close.cancel")}
+      doneLabel={t("forceActions.close.done")}
+      commit={
+        view.showForm
+          ? {
+              label: t(commitKey),
+              disabled: !flow.ready,
+              busy: flow.pending,
+              onClick: () => void flow.commit(),
+            }
+          : null
+      }
+      onClose={onClose}
+    >
+      <p className="confirm-modal__consequence">{t("forceActions.close.consequence")}</p>
+      {preview.isLoading ? (
+        <output className="content__sub">
+          <span className="spinner" aria-hidden="true" /> {t("forceActions.close.loading")}
+        </output>
+      ) : null}
+      {preview.error ? <PreviewError error={preview.error} retry={preview.refetch} /> : null}
+      {view.data && !view.finished ? <Preview data={view.data} timeZone={timeZone} /> : null}
+      {view.showBlockers ? <Blockers blockers={view.blockers} /> : null}
+      {flow.outcome ? (
+        <Outcome
+          outcome={flow.outcome}
+          requestId={flow.requestId}
+          retry={() => void flow.retry()}
+          canRetry={flow.canRetry}
         />
-      </dialog>
-    </div>
+      ) : null}
+      {view.showForm ? <ReasonForm flow={flow} /> : null}
+    </ConfirmModal>
   );
 }

@@ -16,6 +16,7 @@ import { type Rf2ErrorRender, mapRf2Error } from "@/lib/rf2-queries";
  */
 import { useState } from "react";
 import { StoreStateBadge } from "./StoreStateBadge";
+import { SuspendConfirm } from "./SuspendConfirm";
 import { STORE_REQUEST_FAILED, useStoreStatusMutation } from "./useStoreQueries";
 import { useStoreScope } from "./useStoreScope";
 
@@ -78,30 +79,14 @@ export function StoreStatusSection({
       </div>
 
       {confirming ? (
-        <section className="surface__confirm" aria-label={t("stores.status.confirmLabel")}>
-          <p className="surface__confirm-msg">
-            {t.rich("stores.status.confirmPrompt", { name: <bdi>{storeName}</bdi> })}
-          </p>
-          <div className="surface__confirm-actions">
-            <GatedButton
-              type="button"
-              className="btn-destructive"
-              onClick={() => apply(false)}
-              busy={status.isPending}
-              disabled={disabled}
-            >
-              {t("stores.status.suspend")}
-            </GatedButton>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => setConfirming(false)}
-              disabled={status.isPending}
-            >
-              {t("common.cancel")}
-            </button>
-          </div>
-        </section>
+        <SuspendConfirm
+          storeName={storeName}
+          busy={status.isPending}
+          disabled={disabled}
+          confirmPromptKey="stores.status.confirmPrompt"
+          onConfirm={() => apply(false)}
+          onCancel={() => setConfirming(false)}
+        />
       ) : null}
     </section>
   );

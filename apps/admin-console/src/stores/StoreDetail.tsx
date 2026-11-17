@@ -12,14 +12,18 @@ import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { OpenShiftsLink } from "@/force-actions/OpenShiftsLink";
 import { useT } from "@/i18n";
+import { StoreDangerZone } from "@/store-deletion/StoreDangerZone";
 /**
  * SF-S2 — Store detail (T027; RT-400 screen 19). Read-first field rows plus
  * the state badge and the store's time zone (RT-477), and «تعديل المتجر» in the header for everyone (no role
  * pre-hide, OQ-3; the server's 403 is the authority). 404 renders uniformly
  * (FR-004-008).
  *
- * There is no delete or closure action: permanent closure is a governed
- * workflow (Org & Store decision 194), not something this V1 surface offers.
+ * RT-1441 (U2): the owner's «حذف المتجر» danger zone closes the page (owner only, never in a
+ * support session; suspend is offered first). It is the guarded B2 operation behind an impact
+ * preview, a typed reason and a password re-entry; nothing is read while this page loads. Every
+ * other role sees no delete: permanent closure stays a governed workflow (Org & Store decision
+ * 194), and the server answers 403 or 404 to anyone who asks anyway.
  *
  * RT-371: «أجهزة هذا المتجر» deep-links to the device registry filtered to this
  * store. Like the edit action it is shown to everyone (no role pre-hide, OQ-3
@@ -183,6 +187,13 @@ export function StoreDetail(): React.JSX.Element {
       </DetailPanel>
 
       <StorePolicySection storeId={store.id} timeZone={store.timezone} />
+
+      <StoreDangerZone
+        storeId={store.id}
+        storeName={store.name}
+        isActive={store.is_active}
+        timeZone={store.timezone}
+      />
     </div>
   );
 }

@@ -2,7 +2,8 @@ import { type Page, expect, test } from "./fixtures";
 
 /**
  * RT-400 store detail → edit E2E (screens 17 and 19). The detail page offers
- * «Edit store» and no delete. On the edit page the name save sends `{ name }`
+ * «Edit store» and, to a tenant_admin (this context), no delete: RT-1441 gives the owner alone a
+ * danger zone (tests/e2e/store-delete.spec.ts). On the edit page the name save sends `{ name }`
  * only and routes back to the detail; «Suspend store» sends
  * `{ is_active: false }` on its own and stays put. Mocked DP2 (C-5).
  */
@@ -46,7 +47,7 @@ async function mockStore(page: Page, patches: unknown[]): Promise<void> {
   });
 }
 
-test("RT-400: detail offers edit and no delete; save sends the name only", async ({ page, t }) => {
+test("RT-400: edit offered, no delete for tenant_admin; save sends name", async ({ page, t }) => {
   const patches: unknown[] = [];
   await mockStore(page, patches);
 
