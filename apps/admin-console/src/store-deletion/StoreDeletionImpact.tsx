@@ -10,6 +10,7 @@ import { DateTime, useT } from "@/i18n";
 import { formatNumber } from "@/i18n/translate";
 import type { StoreDeletionPreview } from "@/lib/store-deletion-queries";
 import { StoreStateBadge } from "@/stores/StoreStateBadge";
+import { useId } from "react";
 import { Link } from "react-router";
 import {
   type BlockerEntry,
@@ -212,9 +213,12 @@ export function DeletionBlockers({
   storeId: string;
 }>): React.JSX.Element {
   const t = useT();
+  const introId = useId();
   return (
-    <section className="store-deletion__blocked" aria-label={t("storeDeletion.blockedIntro")}>
-      <p className="store-deletion__blocked-intro">{t("storeDeletion.blockedIntro")}</p>
+    <section className="store-deletion__blocked" aria-labelledby={introId}>
+      <p id={introId} className="store-deletion__blocked-intro">
+        {t("storeDeletion.blockedIntro")}
+      </p>
       <ul className="store-deletion__blockers">
         {blockerRows(blockers, preview, storeId).map((row) => (
           <li key={row.code}>

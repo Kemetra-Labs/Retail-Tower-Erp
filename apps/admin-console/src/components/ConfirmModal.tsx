@@ -71,6 +71,16 @@ export function ConfirmModal({
     if (finished && !pending) cancelRef.current?.focus();
   }, [finished, pending]);
 
+  // A control that left or went disabled while focused (the commit after a refusal) must not strand
+  // focus outside the keyboard handling: it falls back to the safe choice.
+  useEffect(() => {
+    const active = document.activeElement;
+    const stranded =
+      !panelRef.current?.contains(active) ||
+      (active instanceof HTMLButtonElement && active.disabled);
+    if (stranded) cancelRef.current?.focus();
+  });
+
   function onKeyDown(e: React.KeyboardEvent<HTMLDialogElement>): void {
     if (e.key === "Escape") {
       e.preventDefault();

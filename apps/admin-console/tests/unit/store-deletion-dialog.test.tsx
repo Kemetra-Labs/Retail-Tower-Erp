@@ -36,7 +36,7 @@ const FINGERPRINT = "3f0c8a5e1b7d4c2a9e6f0b1d8c7a5e4f2b3d9c6a1e8f7b0d5c4a3e2f1b9
 
 type Blocker = { code: string; count: number };
 
-function preview(over: { blockers?: Blocker[]; fingerprint?: string } = {}) {
+function preview(over: { blockers?: Blocker[]; fingerprint?: string; evaluatedAt?: string } = {}) {
   const blockers = over.blockers ?? [];
   return {
     status: 200,
@@ -84,7 +84,7 @@ function preview(over: { blockers?: Blocker[]; fingerprint?: string } = {}) {
       reversibleAlternative: "suspend_store",
       caveats: ["offline_facts_not_visible", "queue_as_of_last_heartbeat"],
       previewFingerprint: over.fingerprint ?? FINGERPRINT,
-      evaluatedAt: "2026-11-17T10:00:00Z",
+      evaluatedAt: over.evaluatedAt ?? "2026-11-17T10:00:00Z",
     },
   };
 }
@@ -98,7 +98,7 @@ const grant = (token = "grant-1") => ({ status: 200, data: { reauthToken: token 
 let queryClient: ReturnType<typeof createQueryClient>;
 const onClose = vi.fn();
 
-function renderDialog(): void {
+function renderDialog(): { unmount: () => void } {
   queryClient = createQueryClient();
   function Tree({ children }: { children: ReactNode }) {
     return (
@@ -107,7 +107,7 @@ function renderDialog(): void {
       </QueryClientProvider>
     );
   }
-  render(
+  return render(
     <Tree>
       <StoreDeletionDialog storeId={STORE} onClose={onClose} />
     </Tree>,
@@ -222,12 +222,12 @@ describe("StoreDeletionDialog", () => {
     expect(await screen.findByText("This store is already deleted. Nothing changed.")).toBeTruthy();
   });
 
-  test("the password is cleared as soon as it is sent, whatever the answer", async () => {
+  test("the password is cleared as soon as it is sent: after a stale answer the field is empty", async () => {
     previewStoreDeletion.mockResolvedValue(preview());
-    consoleDeleteStore.mockResolvedValue({ status: 500 });
+    consoleDeleteStore.mockResolvedValue({ status: 409, error: err("preview_stale") });
     renderDialog();
     await commitClean();
-    await screen.findByText(/We could not confirm the delete was recorded/);
+    await screen.findByText(/The store changed since the check/);
     expect(passwordInput().value).toBe("");
   });
 
@@ -273,7 +273,7 @@ describe("StoreDeletionDialog", () => {
       ["store_device_queue_unsynced", /1 terminal has sales that are not sent yet/],
       ["store_has_open_count_session", /1 open count session/],
     ])(
-      "a 409 %s after the confirm shows that blocker, reads the preview again and keeps the grant out of reach",
+      "a 409 %s after the confirm shows that blocker, reads the preview again and offers no commit",
       async (code, text) => {
         previewStoreDeletion.mockResolvedValue(preview());
         consoleDeleteStore.mockResolvedValue({
@@ -454,7 +454,7 @@ describe("StoreDeletionDialog", () => {
     expect(consoleDeleteStore).not.toHaveBeenCalled();
   });
 
-  test("Tab stays inside the panel", async () => {
+  test("focus stays inside the panel (the Tab trap itself is proven in e2e S3)", async () => {
     previewStoreDeletion.mockResolvedValue(preview());
     renderDialog();
     await fillIn();
@@ -463,5 +463,75 @@ describe("StoreDeletionDialog", () => {
     last.focus();
     fireEvent.keyDown(dialog, { key: "Tab" });
     expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  test("while an attempt is held the form is gone: Try again is the only way forward, never a second, different delete", async () => {
+    previewStoreDeletion.mockResolvedValue(preview());
+    consoleDeleteStore.mockResolvedValue({ status: 503 });
+    renderDialog();
+    await commitClean();
+    await screen.findByRole("button", { name: "Try again" });
+    expect(screen.queryByLabelText("Your current password")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Confirm deleting/ })).toBeNull();
+    expect(screen.queryByLabelText(/Reason for deleting/)).toBeNull();
+    expect(consoleReauthenticate).toHaveBeenCalledTimes(1);
+  });
+
+  test("closing with an attempt still held reads the list and the store again: the delete may be recorded", async () => {
+    previewStoreDeletion.mockResolvedValue(preview());
+    consoleDeleteStore.mockResolvedValue({ status: 503 });
+    const { unmount } = renderDialog();
+    await commitClean();
+    await screen.findByRole("button", { name: "Try again" });
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    unmount();
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["rf2", "stores", "t1"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["rf2", "store", STORE] });
+  });
+
+  test("closing with nothing held reads nothing again", async () => {
+    previewStoreDeletion.mockResolvedValue(preview());
+    const { unmount } = renderDialog();
+    await screen.findByText("The store disappears from the lists.");
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    unmount();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("after a refusal the focus goes to the password field, not to a disabled button", async () => {
+    previewStoreDeletion.mockResolvedValue(preview());
+    consoleReauthenticate.mockResolvedValue({ status: 403, error: err("reauth_failed") });
+    renderDialog();
+    await fillIn();
+    fireEvent.click(commitButton());
+    await screen.findByText(/Could not verify who you are/);
+    await waitFor(() => expect(document.activeElement).toBe(passwordInput()));
+  });
+
+  test("a guard answer is superseded by a newer preview: the form comes back when the blocker is gone", async () => {
+    previewStoreDeletion
+      .mockResolvedValueOnce(preview({ evaluatedAt: "2026-11-17T10:00:00Z" }))
+      .mockResolvedValue(preview({ evaluatedAt: "2026-11-17T10:05:00Z" }));
+    consoleDeleteStore.mockResolvedValue({
+      status: 409,
+      error: err("store_has_open_shift", {
+        details: { blockers: [{ code: "store_has_open_shift", count: 1 }] },
+      }),
+    });
+    renderDialog();
+    await commitClean();
+    await waitFor(() => expect(previewStoreDeletion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/The store has 1 open shift/)).toBeNull());
+    expect(await screen.findByLabelText("Your current password")).toBeTruthy();
+  });
+
+  test("the reason's bound is exactly 200 characters", async () => {
+    previewStoreDeletion.mockResolvedValue(preview());
+    renderDialog();
+    fireEvent.change(await screen.findByLabelText(/Reason for deleting/), {
+      target: { value: "x".repeat(200) },
+    });
+    fireEvent.change(passwordInput(), { target: { value: "pw" } });
+    expect((commitButton() as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -15,7 +15,7 @@ import { TextArea } from "@/devices/RevokeFields";
 import { useT } from "@/i18n";
 import { type Read, type ReadError, useRefetchOnce } from "@/lib/server-read";
 import type { StoreDeletionPreview } from "@/lib/store-deletion-queries";
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { DeletionBlockers, DeletionImpact } from "./StoreDeletionImpact";
 import { reasonFieldProblem } from "./storeDeletionLogic";
 import {
@@ -106,11 +106,16 @@ function PreviewError({
   );
 }
 
-/** The password re-entry (D2b): masked, never autofilled from this form, and the server judges it. */
+/** The password re-entry (D2b): masked, offered to the password manager as the current password, and the server judges it. */
 function PasswordField({
   value,
   onChange,
-}: Readonly<{ value: string; onChange: (value: string) => void }>): React.JSX.Element {
+  inputRef,
+}: Readonly<{
+  value: string;
+  onChange: (value: string) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+}>): React.JSX.Element {
   const t = useT();
   const id = useId();
   const helpId = `${id}-help`;
@@ -121,6 +126,7 @@ function PasswordField({
         {t("storeDeletion.password.help")}
       </small>
       <input
+        ref={inputRef}
         id={id}
         className="input"
         type="password"
@@ -135,9 +141,23 @@ function PasswordField({
   );
 }
 
+/** After a refusal the password is gone and the commit is off: focus goes to the field to write it again. */
+function usePasswordFocusAfterRefusal(
+  flow: StoreDeletionFlow,
+  input: React.RefObject<HTMLInputElement | null>,
+): void {
+  const kind = flow.outcome?.kind;
+  const refused = kind === "rejected" || kind === "reauthRequired" || kind === "stale";
+  useEffect(() => {
+    if (refused && !flow.pending) input.current?.focus();
+  }, [refused, flow.pending, input]);
+}
+
 function ConfirmForm({ flow }: Readonly<{ flow: StoreDeletionFlow }>): React.JSX.Element {
   const t = useT();
   const reasonId = useId();
+  const passwordRef = useRef<HTMLInputElement>(null);
+  usePasswordFocusAfterRefusal(flow, passwordRef);
   return (
     <>
       <TextArea
@@ -149,7 +169,7 @@ function ConfirmForm({ flow }: Readonly<{ flow: StoreDeletionFlow }>): React.JSX
         required
         onChange={flow.setReason}
       />
-      <PasswordField value={flow.password} onChange={flow.setPassword} />
+      <PasswordField inputRef={passwordRef} value={flow.password} onChange={flow.setPassword} />
       {flow.ready || flow.pending ? null : (
         <p className="device-quiet">
           <InlineError message={t("storeDeletion.needInputs")} />
@@ -172,14 +192,16 @@ function useDialogView(preview: Read<StoreDeletionPreview>, flow: StoreDeletionF
   const data = preview.data;
   const outcome = flow.outcome;
   const finished = outcome?.kind === "deleted";
-  const blockedByAnswer = outcome?.kind === "blocked";
+  // A guard answer holds until a newer preview supersedes it: the verdict follows the newest preview.
+  const blockedByAnswer = outcome?.kind === "blocked" && flow.blockedAt === data?.evaluatedAt;
   const canDelete = data?.canDelete === true;
   return {
     data,
     finished,
-    blockers: outcome?.kind === "blocked" ? outcome.blockers : (data?.blockers ?? []),
+    blockers:
+      outcome?.kind === "blocked" && blockedByAnswer ? outcome.blockers : (data?.blockers ?? []),
     showBlockers: data !== undefined && !finished && (!canDelete || blockedByAnswer),
-    showForm: data !== undefined && canDelete && !finished && !blockedByAnswer,
+    showForm: data !== undefined && canDelete && !finished && !blockedByAnswer && !flow.canRetry,
   };
 }
 

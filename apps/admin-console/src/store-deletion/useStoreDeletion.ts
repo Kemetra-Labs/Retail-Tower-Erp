@@ -60,8 +60,13 @@ export interface StoreDeletionFlow {
   commit: () => Promise<void>;
   /** Resend the unclear attempt exactly as it was (same body, same grant, same key). */
   retry: () => Promise<void>;
-  /** An attempt is held for a resend (an unclear answer, or a 429). */
+  /**
+   * An attempt is held for a resend (an unclear answer, or a 429). While it is, the form is gone: the
+   * only way forward is the resend (same body, grant and key) or cancel, never a second, different delete.
+   */
   canRetry: boolean;
+  /** The preview's `evaluatedAt` when the server last answered a guard (409); the answer is superseded by a newer preview. */
+  blockedAt: string | undefined;
 }
 
 /** The confirm step: input state, the keyed write and the reaction to each answer. */
@@ -81,13 +86,19 @@ export function useStoreDeletionFlow(
   const [canRetry, setCanRetry] = useState(false);
   const [outcome, setOutcome] = useState<DeletionOutcome | null>(null);
   const [requestId, setRequestId] = useState<string | undefined>();
+  const [blockedAt, setBlockedAt] = useState<string | undefined>();
 
-  // The grant is a credential: it never outlives the dialog.
+  // The grant is a credential: it never outlives the dialog. Closing with an attempt still held means
+  // the delete may be recorded, so the list and this store are read again instead of trusted.
   useEffect(
     () => () => {
+      if (held.current !== null) {
+        void qc.invalidateQueries({ queryKey: rf2QueryKeys.stores(tenantId) });
+        void qc.invalidateQueries({ queryKey: rf2QueryKeys.store(storeId) });
+      }
       held.current = null;
     },
-    [],
+    [qc, storeId, tenantId],
   );
 
   const fingerprint = preview.data?.previewFingerprint;
@@ -96,6 +107,7 @@ export function useStoreDeletionFlow(
   const finished = outcome?.kind === "deleted";
   const ready =
     !finished &&
+    !canRetry &&
     commitReady({ canDelete, reason, password, pending: false, fetching: preview.isFetching });
 
   const clearAnswer = useCallback(() => {
@@ -133,6 +145,7 @@ export function useStoreDeletionFlow(
       setCanRetry(keep);
       setRequestId(errorRequestIdOf(res.error));
       setOutcome(next);
+      setBlockedAt(next.kind === "blocked" ? preview.data?.evaluatedAt : undefined);
       if (next.kind === "stale") preview.refetch();
       if (next.kind === "deleted") {
         await qc.invalidateQueries({ queryKey: rf2QueryKeys.stores(tenantId) });
@@ -205,5 +218,6 @@ export function useStoreDeletionFlow(
     commit,
     retry,
     canRetry,
+    blockedAt,
   };
 }
