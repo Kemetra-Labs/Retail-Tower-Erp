@@ -64,6 +64,8 @@ builds wire payloads at drain time, so there is no stored payload to record), `s
 | `NOT_PROVEN_NO_SUPPORTED_RELEASE_SNAPSHOT` | nothing installed, valid owner-approved `bootstrap_exception` | pass, never green |
 | `FAIL_STALE_FLEET` | `fleet_baseline.captured_at` older than 7 days (owner decision O-3) | warning on PR, fail in release mode |
 
+Under `NOT_PROVEN_NO_SUPPORTED_RELEASE_SNAPSHOT` the job skips steps 3 to 5 (oasdiff, envelope/idempotency, replay) for every `supported` entry: with nothing installed there is no terminal to protect, so the verdict is `NOT_VERIFIED`. The `supported` entries still count for the release gates (G5 of `system_gate.py`, the freshness check).
+
 ## Adding or dropping a POS build
 
 - **Add:** record the terminal inventory on RT-713 (device label, POS commit, capture date), then
