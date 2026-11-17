@@ -278,7 +278,11 @@ test("M1: owner confirms, retires and re-points item mappings, and sets and reti
 
   expect(sent).toEqual(EXPECTED_SENT);
   for (const url of urls) {
-    expect(url.startsWith(`${baseURL}/api/v1/`), url).toBe(true);
+    // Backend-Core's two API roots: the Overview also reads the count-activation setting (RT-1440).
+    expect(
+      url.startsWith(`${baseURL}/api/v1/`) || url.startsWith(`${baseURL}/api/inventory/v1/`),
+      url,
+    ).toBe(true);
   }
 });
 

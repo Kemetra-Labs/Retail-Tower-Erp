@@ -215,11 +215,6 @@ export function useUnknownItemsPanel(session: OverviewSession): PanelState<PageC
 
 // --- RT-1440: shifts closed without a count, and count-activation blockers ------------
 
-/**
- * Shifts closed without a count in the last 30 days (RT-1437 A1, Health). The count is read from
- * the audit search (`shift.force_closed`, both channels), one page of at most 200: more than that
- * reads "or more". The server decides who may read the audit log; a refusal omits the row.
- */
 /** One page's count of real force-close rows (a replay or a malformed item is not a close), with the page's cursor. */
 function forceClosedCountOf(data: unknown): PageCount | undefined {
   const items = itemsOf(data);
@@ -228,6 +223,11 @@ function forceClosedCountOf(data: unknown): PageCount | undefined {
   return pageCount(forceClosedRows(items).length, typeof cursor === "string" ? cursor : null);
 }
 
+/**
+ * Shifts closed without a count in the last 30 days (RT-1437 A1, Health). The count is read from
+ * the audit search (`shift.force_closed`, both channels), one page of at most 200: more than that
+ * reads "or more". The server decides who may read the audit log; a refusal omits the row.
+ */
 export function useForceClosedPanel(
   session: OverviewSession,
   nowMs: number,

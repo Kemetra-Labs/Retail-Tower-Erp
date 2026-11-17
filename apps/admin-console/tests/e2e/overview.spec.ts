@@ -134,7 +134,7 @@ function salesSummary() {
   };
 }
 
-type Panel = "stock" | "shift" | "unknown" | "receivables" | "audit" | "glance";
+type Panel = "stock" | "shift" | "unknown" | "receivables" | "audit" | "forceClosed" | "glance";
 
 async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
   const seen: Record<Panel, (string | null)[]> = {
@@ -143,6 +143,7 @@ async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
     unknown: [],
     receivables: [],
     audit: [],
+    forceClosed: [],
     glance: [],
   };
   const json = (body: unknown) => ({
@@ -214,9 +215,12 @@ async function mock(page: Page): Promise<Record<Panel, (string | null)[]>> {
     seen.receivables.push(storeOf(r.request().url()));
     return r.fulfill(json({ items: [], nextCursor: null }));
   });
-  // P-5 is deferred (OD-009-3, RT-567): the Overview must not read audit events.
+  // P-5 is deferred (OD-009-3, RT-567): the Overview must not read audit events, except the one
+  // action-filtered count of closes without a count (RT-1440), which is recorded apart.
   await page.route("**/api/v1/audit/events**", (r) => {
-    seen.audit.push(storeOf(r.request().url()));
+    const url = r.request().url();
+    const forceClose = new URL(url).searchParams.get("action") === "shift.force_closed";
+    seen[forceClose ? "forceClosed" : "audit"].push(storeOf(url));
     return r.fulfill(json({ items: [], next_cursor: null }));
   });
   return seen;
@@ -257,6 +261,7 @@ test("AC-12: changing the store re-reads every panel and drops the old scope's r
     expect(seen[panel], panel).toContain("s2");
   }
   expect(seen.stock).toContain("s2");
+  expect(seen.forceClosed).toContain("s2");
   expect(seen.audit).toEqual([]);
   expect(seen.receivables).toEqual([]);
 
