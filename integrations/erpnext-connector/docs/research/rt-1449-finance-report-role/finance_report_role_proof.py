@@ -1007,8 +1007,8 @@ def case_v9_load_signal():
 		"""n ticks, then more while `until` says the load is still running; counts the ticks that started
 		while it was, so a window that missed the load cannot pass for a result."""
 		out, overlapped = [], 0
-		while len(out) < n or (until is not None and not until() and len(out) < cap):
-			if until is not None and not until():
+		while len(out) < n or (until is not None and until() and len(out) < cap):
+			if until is not None and until():
 				overlapped += 1
 			t0 = time.time()
 			wait_job(enqueue(tick_job, "default"), 60)
