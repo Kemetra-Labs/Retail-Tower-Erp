@@ -139,15 +139,32 @@ describe("StoreDangerZone", () => {
     expect(await screen.findByText(/already suspended/)).toBeTruthy();
   });
 
-  test("a failed suspend says nothing changed", async () => {
+  test("a refused suspend (4xx) says nothing changed", async () => {
     context = ctx("owner");
     readStore.mockResolvedValue(storeBody());
-    updateStore.mockResolvedValue({ status: 500 });
+    updateStore.mockResolvedValue({ status: 403 });
     renderPage();
     await screen.findByRole("region", { name: "Delete the store" });
     fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Suspend store" })[0]);
     expect(await screen.findByText("Could not suspend the store. Nothing changed.")).toBeTruthy();
+  });
+
+  test.each([
+    ["a 5xx", { status: 500 }],
+    ["a 408", { status: 408 }],
+    ["no answer", new Error("network")],
+  ])("%s on suspend does not claim nothing changed", async (_name, answer) => {
+    context = ctx("owner");
+    readStore.mockResolvedValue(storeBody());
+    if (answer instanceof Error) updateStore.mockRejectedValue(answer);
+    else updateStore.mockResolvedValue(answer);
+    renderPage();
+    await screen.findByRole("region", { name: "Delete the store" });
+    fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Suspend store" })[0]);
+    expect(await screen.findByText(/could not confirm whether the store was suspended/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing changed/)).toBeNull();
   });
 
   test.each([["tenant_admin"], ["store_manager"], ["cashier"], [undefined]])(
