@@ -586,7 +586,7 @@ describe("StoresService.softDelete", () => {
     };
     return {
       ...base,
-      counts: { openShifts: base.openShifts.length, unretiredDevices: 0, unsyncedDevices: 0, openCountSessions: base.openCountSessions.length },
+      counts: { openShifts: base.openShifts.length, totalDevices: 0, unretiredDevices: 0, unsyncedDevices: 0, openCountSessions: base.openCountSessions.length },
     };
   };
   const liveStore = { id: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true } as StoreRecord;

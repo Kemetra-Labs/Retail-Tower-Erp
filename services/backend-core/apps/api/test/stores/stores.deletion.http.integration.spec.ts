@@ -47,6 +47,7 @@ const STORE = {
   unblock: sid(15),
   preview: sid(16),
   manyDevices: sid(17),
+  manyRetired: sid(18),
   globex: "20000000-bbbb-4bbb-8bbb-000000000001",
 };
 const DEVICE = {
@@ -132,6 +133,14 @@ async function seed(pg: import("pg").Pool): Promise<void> {
     [ACME_ID, STORE.manyDevices],
   );
   await device("31000000-aaaa-4aaa-8aaa-000000000900", STORE.manyDevices, "active", zero);
+  // 501 retired devices (one past the preview cap): deletable, and the audit records the EXACT total.
+  await pg.query(
+    `INSERT INTO devices (id, tenant_id, store_id, token_hash, revoked_at, retired_at, retire_reason)
+     SELECT ('32000000-aaaa-4aaa-8aaa-' || lpad(g::text, 12, '0'))::uuid, $1, $2,
+            decode(md5('r' || g::text) || md5('r' || g::text), 'hex'), now(), now(), 'closed'
+       FROM generate_series(1, 501) g`,
+    [ACME_ID, STORE.manyRetired],
+  );
 
   for (const storeId of [STORE.allBlockers, STORE.countOnly]) {
     await pg.query(
@@ -346,14 +355,16 @@ describe("the four guards refuse with the named 409, on both paths (AC1)", () =>
     expect(p).toMatchObject({ canDelete: false });
     expect((p as { blockers: Array<{ code: string }> }).blockers.map((b) => b.code)).toEqual(all);
 
+    const liveGrants = h.redis.grantKeys();
+    expect(liveGrants.length).toBeGreaterThan(0);
     const res = await consoleDelete(owner, storeId, { previewFingerprint, reauthToken });
     expect(res.status).toBe(409);
     expect(errorOf(res).code).toBe(first);
     expect(errorOf(res).details?.blockers.map((b) => b.code)).toEqual(all);
     expect(await deletedAt(storeId)).toBeNull();
     expect(await auditRows(storeId)).toHaveLength(0);
-    // The grant is not spent by a refusal: it is still valid for the next attempt.
-    expect(h.redis.grantKeys().length).toBeGreaterThan(0);
+    // The grant is not spent by a refusal: EVERY grant that was live before the request still is.
+    expect(h.redis.grantKeys()).toEqual(expect.arrayContaining(liveGrants));
   });
 
   it.each(CASES)("legacy DELETE: %s", async (_name, storeId, first, all) => {
@@ -380,6 +391,15 @@ describe("the four guards refuse with the named 409, on both paths (AC1)", () =>
     expect(res.status).toBe(409);
     expect(errorOf(res).code).toBe("store_has_unretired_device");
     expect(await deletedAt(STORE.manyDevices)).toBeNull();
+  });
+
+  it("the audit records the EXACT device total, not the capped preview length (501 retired devices)", async () => {
+    if (skip()) return;
+    const admin = await h.signIn("admin");
+    await h.http().delete(`/api/v1/stores/${STORE.manyRetired}`).set("Cookie", admin).set(SAME_ORIGIN).expect(204);
+    const rows = await auditRows(STORE.manyRetired);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.metadata).toMatchObject({ before: { device_count: 501, open_shift_count: 0 } });
   });
 
   it("a retired device's frozen queue does not block (the legacy path deletes, and audits channel api)", async () => {
@@ -576,6 +596,7 @@ describe("the Console force-action hourly cap (D9)", () => {
         [USERS.owner.id, ACME_ID],
       );
     }
+    const liveGrants = h.redis.grantKeys();
     const res = await consoleDelete(owner, STORE.cap, { previewFingerprint, reauthToken });
     expect(res.status).toBe(429);
     expect(errorOf(res).code).toBe("force_action_rate_limited");
@@ -588,7 +609,7 @@ describe("the Console force-action hourly cap (D9)", () => {
     expect(await deletedAt(STORE.cap)).toBeNull();
     expect(await auditRows(STORE.cap)).toHaveLength(0);
     // A refusal never spends the grant: it is still live for the retry after the hour.
-    expect(h.redis.grantKeys().length).toBeGreaterThan(0);
+    expect(h.redis.grantKeys()).toEqual(expect.arrayContaining(liveGrants));
   });
 
   it("a same-key retry of a deletion that already succeeded replays the 200 even with the cap spent", async () => {

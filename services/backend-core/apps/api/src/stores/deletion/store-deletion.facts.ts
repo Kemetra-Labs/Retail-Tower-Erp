@@ -68,6 +68,8 @@ export interface StoreDeletionCounts {
   /** Non-retired devices with a non-zero or unknown (no heartbeat row, or a NULL counter) sale queue. */
   readonly unsyncedDevices: number;
   readonly openCountSessions: number;
+  /** Every device of the store, retired included: the audit's `device_count`. */
+  readonly totalDevices: number;
 }
 
 export interface StoreDeletionFacts {
@@ -173,6 +175,7 @@ const DEVICES_SQL = `
 /** $1 store, $2 the open Count Session states. One row; every count is exact. */
 const COUNTS_SQL = `
   SELECT (SELECT count(*) FROM shifts WHERE store_id = $1 AND lifecycle_state = 'open')::int AS open_shifts,
+         (SELECT count(*) FROM devices d WHERE d.store_id = $1)::int AS total_devices,
          (SELECT count(*) FROM devices d WHERE d.store_id = $1 AND d.retired_at IS NULL)::int AS unretired_devices,
          (SELECT count(*)
             FROM devices d
@@ -201,6 +204,7 @@ export async function readStoreDeletionFacts(
   const storeId = store.storeId;
   const counted = await client.query<{
     open_shifts: number;
+    total_devices: number;
     unretired_devices: number;
     unsynced_devices: number;
     open_count_sessions: number;
@@ -208,6 +212,7 @@ export async function readStoreDeletionFacts(
   const c = counted.rows[0];
   const counts: StoreDeletionCounts = {
     openShifts: c?.open_shifts ?? 0,
+    totalDevices: c?.total_devices ?? 0,
     unretiredDevices: c?.unretired_devices ?? 0,
     unsyncedDevices: c?.unsynced_devices ?? 0,
     openCountSessions: c?.open_count_sessions ?? 0,

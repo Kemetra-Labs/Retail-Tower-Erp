@@ -84,13 +84,13 @@ export class ConsoleReauthService {
 
   async reauthenticate(input: ReauthInput): Promise<ReauthGrantBody> {
     await this.requireStoreAndRole(input);
-    await this.reserveAttempt(input.userId);
+    const window = await this.reserveAttempt(input.userId);
 
     let verdict: "ok" | "refused";
     try {
       verdict = await this.auth.verifyCurrentPassword(input.userId, input.password);
     } catch (err) {
-      await this.giveBackAttempt(input.userId); // an outage is not a wrong guess
+      await this.giveBackAttempt(input.userId, window); // an outage is not a wrong guess
       if (err instanceof HttpException && err.getStatus() === HttpStatus.SERVICE_UNAVAILABLE) throw unavailable();
       throw err;
     }
@@ -99,7 +99,7 @@ export class ConsoleReauthService {
       throw new ForbiddenException({ code: REAUTH_FAILED, message: "Re-authentication failed." });
     }
 
-    await this.giveBackAttempt(input.userId); // only failed attempts count
+    await this.giveBackAttempt(input.userId, window); // only failed attempts count
     const binding: ReauthBinding = {
       sessionId: input.sessionId,
       userId: input.userId,
@@ -132,8 +132,11 @@ export class ConsoleReauthService {
     if (input.role !== "owner") throw storeDeletionOwnerOnly();
   }
 
-  /** Step 4: reserve one failed-attempt slot BEFORE the password is looked at. */
-  private async reserveAttempt(userId: string): Promise<void> {
+  /**
+   * Step 4: reserve one failed-attempt slot BEFORE the password is looked at. Returns when the
+   * reserving window ends (null when the limiter reports none), so only THAT window is refunded.
+   */
+  private async reserveAttempt(userId: string): Promise<number | null> {
     let decision: Awaited<ReturnType<RateLimiter["check"]>>;
     try {
       decision = await this.limiter.check(BUCKET, userId, RATE_LIMIT_BUCKETS.reauthPerUser);
@@ -141,14 +144,16 @@ export class ConsoleReauthService {
       log().warn({ bucket: BUCKET }, "re-authentication limiter unavailable; failing closed (503)");
       throw unavailable();
     }
-    if (decision.allowed) return;
-    await this.giveBackAttempt(userId); // a refused request tested no password
+    const windowEndsAt = decision.resetMs < 0 ? null : Date.now() + decision.resetMs;
+    if (decision.allowed) return windowEndsAt;
+    await this.giveBackAttempt(userId, windowEndsAt); // a refused request tested no password
     throw new ConsoleActionRateLimited("reauth_rate_limited", decision.resetMs < 0 ? 1 : decision.resetMs / 1000);
   }
 
-  private async giveBackAttempt(userId: string): Promise<void> {
+  private async giveBackAttempt(userId: string, windowEndsAt: number | null): Promise<void> {
     try {
-      await this.limiter.release(BUCKET, userId);
+      if (windowEndsAt === null) await this.limiter.release(BUCKET, userId);
+      else await this.limiter.releaseIfSameWindow(BUCKET, userId, windowEndsAt);
     } catch {
       // Best effort: a failed release leaves the slot to expire with its window.
     }

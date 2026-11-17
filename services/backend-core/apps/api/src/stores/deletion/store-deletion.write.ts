@@ -55,8 +55,9 @@ export async function deleteStoreWithAudit(
       name: facts.store.name,
       code: facts.store.code,
       is_active: facts.store.isActive,
-      device_count: facts.devices.length,
-      open_shift_count: facts.openShifts.length,
+      // Exact totals: the lists are capped for the preview.
+      device_count: facts.counts.totalDevices,
+      open_shift_count: facts.counts.openShifts,
     },
     after: { deleted_at: deletedAt.toISOString() },
   };

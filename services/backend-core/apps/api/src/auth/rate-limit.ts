@@ -242,6 +242,26 @@ export class RateLimiter {
   }
 
   /**
+   * Give back a hit only when the window it was taken in is STILL the live one (RT-1439). A hit
+   * reserved before a slow call can outlive its window: releasing it then would decrement a
+   * DIFFERENT request's hit in the new window. `windowEndsAtMs` is when the reserving window ends
+   * (now + `resetMs` at reservation); the live window must end within `toleranceMs` of it.
+   * A missing key, or a window that already rolled, is left alone. (The check and the decrement
+   * are two commands, so a rollover in between is not excluded, only made negligible.)
+   */
+  async releaseIfSameWindow(
+    bucketName: string,
+    identifier: string,
+    windowEndsAtMs: number,
+    toleranceMs = 2_000,
+  ): Promise<void> {
+    const ttl = await this.redis.pttl(buildKey(bucketName, identifier));
+    if (ttl < 0) return;
+    if (Math.abs(Date.now() + ttl - windowEndsAtMs) > toleranceMs) return;
+    await this.release(bucketName, identifier);
+  }
+
+  /**
    * Drop a bucket's window entirely, so the next hit starts a fresh one.
    * RT-625 D2: a successful password-reset confirm clears that email's
    * sign-in lockout.

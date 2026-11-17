@@ -177,7 +177,6 @@ export class StoreDeletionService {
       if (storeDeletionFingerprint(input.tenantId, facts) !== input.previewFingerprint) throw previewStale();
 
       await enforceForceActionCap(client, input.tenantId);
-      if (!(await this.grants.consume(input.reauthToken, binding))) throw reauthRequired();
 
       const deletedAt = await deleteStoreWithAudit(client, this.stores, input.tenantId, facts, {
         channel: "console",
@@ -187,6 +186,10 @@ export class StoreDeletionService {
         reason: input.reason,
         previewFingerprint: input.previewFingerprint,
       });
+      // The grant is spent LAST: a failure of the SQL above leaves it valid for the retry, and a lost
+      // race for it (a concurrent use) rolls the whole transaction back. Redis is not part of the
+      // database commit, so a failure of the commit itself still spends it (fail closed).
+      if (!(await this.grants.consume(input.reauthToken, binding))) throw reauthRequired();
       return { storeId: input.storeId, deletedAt: deletedAt.toISOString() };
     });
   }

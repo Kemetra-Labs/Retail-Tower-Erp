@@ -266,6 +266,37 @@ describe("posPairTerminal — happy path + device_token credential", () => {
   });
 });
 
+describe("posPairTerminal — a store being deleted (RT-1439)", () => {
+  it("waits behind the deletion that holds the store row; then no device is created and the code is refused (410)", async () => {
+    if (skip()) return;
+    const raw = "RACE-DEL-0001";
+    const terminalId = "0e000000-0000-7000-8000-0000000071b9";
+    const storeId = "0e000000-0000-7000-8000-00000000e5b9";
+    await env!.admin.query(
+      `INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $2, 'BR-DEL', 'Being deleted')`,
+      [storeId, TENANT],
+    );
+    await seedCode(env!.admin, { rawCode: raw, storeId, terminalId });
+    const deleter = await env!.admin.connect();
+    try {
+      await deleter.query("BEGIN");
+      await deleter.query(`SELECT 1 FROM stores WHERE id = $1 FOR UPDATE`, [storeId]);
+      await deleter.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [storeId]);
+      const pair = http().post(PAIR).send({ pairing_code: raw }).then((r) => r.status);
+      const marker = Symbol("pending");
+      const early = await Promise.race([pair, new Promise((r) => setTimeout(() => r(marker), 500))]);
+      expect(early).toBe(marker); // blocked behind the deletion
+      await deleter.query("COMMIT");
+      expect(await pair).toBe(410);
+    } finally {
+      await deleter.query("ROLLBACK").catch(() => undefined);
+      deleter.release();
+    }
+    const devices = await env!.admin.query(`SELECT 1 FROM devices WHERE store_id = $1`, [storeId]);
+    expect(devices.rowCount).toBe(0);
+  });
+});
+
 describe("posPairTerminal — closed error set", () => {
   it("unknown code → 404 INVALID_CODE", async () => {
     if (skip()) return;
