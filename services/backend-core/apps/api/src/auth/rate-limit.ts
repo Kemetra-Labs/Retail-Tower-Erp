@@ -54,6 +54,13 @@ export interface RedisLike {
   decr(key: string): Promise<number>;
   /** Delete `key`; returns the number of keys removed. */
   del(key: string): Promise<number>;
+  /**
+   * RT-1439: ONE atomic step: decrement `key` only while its window still ends within `toleranceMs`
+   * of `windowEndsAtMs` (the caller's clock; the live end is `nowMs` + the key's remaining TTL).
+   * Returns true when it decremented. Optional: a stub without it falls back to the two-step check
+   * in `RateLimiter.releaseIfSameWindow`.
+   */
+  decrIfWindowEnds?(key: string, nowMs: number, windowEndsAtMs: number, toleranceMs: number): Promise<boolean>;
 }
 
 /** Result of {@link RedisLike.incrWindow}. */
@@ -246,8 +253,7 @@ export class RateLimiter {
    * reserved before a slow call can outlive its window: releasing it then would decrement a
    * DIFFERENT request's hit in the new window. `windowEndsAtMs` is when the reserving window ends
    * (now + `resetMs` at reservation); the live window must end within `toleranceMs` of it.
-   * A missing key, or a window that already rolled, is left alone. (The check and the decrement
-   * are two commands, so a rollover in between is not excluded, only made negligible.)
+   * A missing key, or a window that already rolled, is left alone. With a Redis that supports it the check and the decrement are ONE atomic step.
    */
   async releaseIfSameWindow(
     bucketName: string,
@@ -255,7 +261,13 @@ export class RateLimiter {
     windowEndsAtMs: number,
     toleranceMs = 2_000,
   ): Promise<void> {
-    const ttl = await this.redis.pttl(buildKey(bucketName, identifier));
+    const key = buildKey(bucketName, identifier);
+    if (this.redis.decrIfWindowEnds) {
+      await this.redis.decrIfWindowEnds(key, Date.now(), windowEndsAtMs, toleranceMs);
+      return;
+    }
+    // A stub without the atomic form: check, then release (two commands).
+    const ttl = await this.redis.pttl(key);
     if (ttl < 0) return;
     if (Math.abs(Date.now() + ttl - windowEndsAtMs) > toleranceMs) return;
     await this.release(bucketName, identifier);

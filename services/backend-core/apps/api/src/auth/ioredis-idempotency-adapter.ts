@@ -55,6 +55,23 @@ end
 return 0
 `;
 
+/**
+ * RT-1439: decrement a fixed-window counter only while ITS window is still the live one: the live end
+ * (ARGV[1] = the caller's now in ms, plus the key's remaining TTL) must be within ARGV[3] ms of the
+ * window end the hit was reserved in (ARGV[2]). One atomic step, so a rollover cannot fall between
+ * the check and the decrement. Returns 1 when it decremented, else 0. A counter that goes below zero
+ * is deleted so the next window starts clean (as `RateLimiter.release` does).
+ */
+const DECR_IF_WINDOW_ENDS_SCRIPT = `
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl < 0 then return 0 end
+local liveEnd = tonumber(ARGV[1]) + ttl
+if math.abs(liveEnd - tonumber(ARGV[2])) > tonumber(ARGV[3]) then return 0 end
+local count = redis.call('DECR', KEYS[1])
+if count < 0 then redis.call('DEL', KEYS[1]) end
+return 1
+`;
+
 function isInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value);
 }
@@ -93,6 +110,19 @@ export class IoredisIdempotencyAdapter {
 
   del(key: string): Promise<number> {
     return this.client.del(key);
+  }
+
+  /** RT-1439: atomic window-checked decrement (see {@link DECR_IF_WINDOW_ENDS_SCRIPT}). */
+  async decrIfWindowEnds(key: string, nowMs: number, windowEndsAtMs: number, toleranceMs: number): Promise<boolean> {
+    const reply: unknown = await this.client.eval(
+      DECR_IF_WINDOW_ENDS_SCRIPT,
+      1,
+      key,
+      String(nowMs),
+      String(windowEndsAtMs),
+      String(toleranceMs),
+    );
+    return reply === 1;
   }
 
   /** RT-1439: atomic delete-if-equal (see {@link COMPARE_AND_DELETE_SCRIPT}). */

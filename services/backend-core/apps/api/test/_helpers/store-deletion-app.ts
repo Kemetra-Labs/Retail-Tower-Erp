@@ -98,6 +98,16 @@ export class TestRedis {
     w.count -= 1;
     return Promise.resolve(w.count);
   }
+  /** The atomic window-checked decrement the ioredis adapter runs as one script. */
+  decrIfWindowEnds(key: string, nowMs: number, windowEndsAtMs: number, toleranceMs: number): Promise<boolean> {
+    const w = this.windows.get(key);
+    if (!w || this.now() > w.expiresAt) return Promise.resolve(false);
+    const liveEnd = nowMs + (w.expiresAt - this.now());
+    if (Math.abs(liveEnd - windowEndsAtMs) > toleranceMs) return Promise.resolve(false);
+    w.count -= 1;
+    if (w.count < 0) this.windows.delete(key);
+    return Promise.resolve(true);
+  }
   /** The live (unexpired) grant keys. */
   grantKeys(): string[] {
     return [...this.values.keys()].filter((k) => k.startsWith("reauth:grant:") && this.now() <= this.values.get(k)!.expiresAt);
