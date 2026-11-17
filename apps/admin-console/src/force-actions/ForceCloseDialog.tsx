@@ -217,7 +217,8 @@ export interface ForceCloseDialogProps {
   shiftId: string;
   /** The store's IANA zone for the times shown (RT-401). */
   timeZone?: string;
-  onClose: () => void;
+  /** `recorded`: the close was recorded (the shift is gone from the list), not merely cancelled. */
+  onClose: (recorded: boolean) => void;
 }
 
 /** Tab and Shift+Tab cycle inside the panel (aria-modal is honest, UX-11.9). */
@@ -353,7 +354,7 @@ interface ActionsProps {
   finished: boolean;
   showForm: boolean;
   cancelRef: React.RefObject<HTMLButtonElement | null>;
-  onClose: () => void;
+  onClose: (recorded: boolean) => void;
 }
 
 function Actions({
@@ -370,7 +371,7 @@ function Actions({
         ref={cancelRef}
         type="button"
         className="btn-secondary"
-        onClick={onClose}
+        onClick={() => onClose(finished)}
         disabled={flow.pending}
       >
         {t(finished ? "forceActions.close.done" : "forceActions.close.cancel")}
@@ -418,7 +419,7 @@ export function ForceCloseDialog({
   function onKeyDown(e: React.KeyboardEvent<HTMLDialogElement>): void {
     if (e.key === "Escape") {
       e.preventDefault();
-      if (!flow.pending) onClose();
+      if (!flow.pending) onClose(finished);
     } else if (e.key === "Tab" && panelRef.current) {
       trapTab(e, panelRef.current);
     }

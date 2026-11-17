@@ -15,7 +15,7 @@ import { DateTime, useT } from "@/i18n";
 import type { OpenShiftSummary } from "@/lib/force-action-queries";
 import { useSupportSession } from "@/platform/session/useSupportSession";
 import { useStoreOf } from "@/shift-closes/useShiftCloses";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ForceCloseDialog } from "./ForceCloseDialog";
 import { canForceClose } from "./forceCloseLogic";
@@ -108,10 +108,25 @@ export function OpenShiftsPage(): React.JSX.Element {
   const shifts = useOpenShifts(storeId);
   const [closing, setClosing] = useState<string | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const restoreFocus = useRef<"opener" | "heading" | null>(null);
+
+  // When the dialog is gone, focus goes back to the button that opened it, or, after a recorded
+  // close removed that row (or when the button no longer exists), to the page heading (UX-11.8).
+  useEffect(() => {
+    if (closing !== null || restoreFocus.current === null) return;
+    const target =
+      restoreFocus.current === "opener" && opener.current?.isConnected
+        ? opener.current
+        : titleRef.current;
+    restoreFocus.current = null;
+    target?.focus();
+  }, [closing]);
   const canClose = canForceClose(context?.active_role_code, supportSession !== null);
 
   const header = (
     <PageHeader
+      titleRef={titleRef}
       title={t("forceActions.openShifts.title")}
       subtitle={t("forceActions.openShifts.sub", { store: store.name ?? "" })}
     />
@@ -196,7 +211,8 @@ export function OpenShiftsPage(): React.JSX.Element {
         <ForceCloseDialog
           shiftId={closing}
           timeZone={store.timeZone}
-          onClose={() => {
+          onClose={(recorded) => {
+            restoreFocus.current = recorded ? "heading" : "opener";
             setClosing(null);
           }}
         />

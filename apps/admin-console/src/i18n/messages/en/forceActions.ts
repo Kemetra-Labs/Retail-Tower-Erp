@@ -131,7 +131,7 @@ export const forceActions: MessagesOf<typeof ar> = {
   // --- Shifts closed without a count (A4, from the audit search) -------------
   "forceActions.closed.title": "Shifts closed without a count",
   "forceActions.closed.sub":
-    "From the audit log: when the shift was closed, who closed it and in which store. The reason is stored with the record and is not shown here.",
+    "From the audit log, last 30 days: when the shift was closed, who closed it and in which store. The reason is stored with the record and is not shown here.",
   "forceActions.closed.caption": "Shifts closed without a count",
   "forceActions.closed.col.when": "When",
   "forceActions.closed.col.by": "Closed by",

@@ -126,7 +126,7 @@ export const forceActions = {
   // --- Shifts closed without a count (A4, from the audit search) -------------
   "forceActions.closed.title": "ورديات أُغلقت دون عدّ",
   "forceActions.closed.sub":
-    "من سجل التدقيق: متى أُغلقت الوردية ومن أغلقها وفي أي متجر. سبب الإغلاق محفوظ مع السجل ولا يظهر هنا.",
+    "من سجل التدقيق، آخر 30 يومًا: متى أُغلقت الوردية ومن أغلقها وفي أي متجر. سبب الإغلاق محفوظ مع السجل ولا يظهر هنا.",
   "forceActions.closed.caption": "الورديات التي أُغلقت دون عدّ",
   "forceActions.closed.col.when": "الوقت",
   "forceActions.closed.col.by": "أغلقها",

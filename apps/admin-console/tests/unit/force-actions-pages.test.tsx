@@ -334,3 +334,91 @@ describe("ForceClosedPage", () => {
     expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2);
   });
 });
+
+describe("RT-1440 review: focus after a close, and the list's window", () => {
+  const SHIFT_ID = "0198a0c4-0000-7000-8000-000000000b01";
+  const previewData = () => ({
+    shift: shift(SHIFT_ID, { eligible: true }),
+    recorded: {
+      currencyCode: "EGP",
+      openingFloat: "500.00",
+      cashMovementCount: 3,
+      lastCashMovementReceivedAt: "2026-11-16T09:12:00Z",
+      saleCount: 41,
+      refundExecutionCount: 1,
+    },
+    effects: { willChange: ["shift_closed_not_counted"], willNotChange: ["sales_unchanged"] },
+    reversible: false,
+    drawerCashUnaccounted: true,
+    caveats: ["offline_facts_not_visible"],
+    previewFingerprint: "3f0c8a5e1b7d4c2a9e6f0b1d8c7a5e4f2b3d9c6a1e8f7b0d5c4a3e2f1b9d8c7a",
+    evaluatedAt: "2026-11-16T22:40:00Z",
+  });
+
+  beforeEach(() => {
+    for (const fn of [
+      consoleListOpenShifts,
+      consoleGetForceClosePreview,
+      consoleForceCloseShift,
+      listAuditEvents,
+      activeContext,
+      supportSession,
+    ]) {
+      fn.mockReset();
+    }
+    activeContext.mockReturnValue(asRole("owner"));
+    supportSession.mockReturnValue(null);
+  });
+
+  test("after a successful close removes the row, focus lands on the page heading, not on the page body", async () => {
+    consoleListOpenShifts
+      .mockResolvedValueOnce(list([shift(SHIFT_ID, { eligible: true })]))
+      .mockResolvedValue(list([]));
+    consoleGetForceClosePreview.mockResolvedValue({ status: 200, data: previewData() });
+    consoleForceCloseShift.mockResolvedValue({ status: 201, data: {} });
+    renderOpenShifts();
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Close the shift on till-A without a count/ }),
+    );
+    fireEvent.change(await screen.findByLabelText(/Reason for closing/), {
+      target: { value: "Till died" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Confirm closing the shift without a count/ }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("heading", { level: 1, name: "Open shifts" }),
+      ),
+    );
+  });
+
+  test("a cancelled dialog returns focus to the button that opened it while that button still exists", async () => {
+    consoleListOpenShifts.mockResolvedValue(list([shift(SHIFT_ID, { eligible: true })]));
+    consoleGetForceClosePreview.mockResolvedValue({ status: 200, data: previewData() });
+    renderOpenShifts();
+    const opener = await screen.findByRole("button", {
+      name: /Close the shift on till-A without a count/,
+    });
+    fireEvent.click(opener);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
+  test("the list reads the same last 30 days the Overview row counts, and says so", async () => {
+    listAuditEvents.mockResolvedValue({
+      status: 200,
+      data: { items: [auditRow("a1")], next_cursor: null },
+    });
+    renderClosed();
+    expect(await screen.findByText(/last 30 days/)).toBeTruthy();
+    const query = listAuditEvents.mock.calls[0][0] as { from?: string };
+    const days = (Date.now() - Date.parse(query.from ?? "")) / 86_400_000;
+    expect(days).toBeGreaterThan(29.99);
+    expect(days).toBeLessThan(30.01);
+  });
+});

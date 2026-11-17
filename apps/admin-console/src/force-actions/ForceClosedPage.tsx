@@ -15,8 +15,14 @@ import { listAuditEvents } from "@/lib/client";
 import { usePeopleNames } from "@/people/usePeopleNames";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { FORCE_CLOSED_ACTION, type ForceClosedRow, forceClosedRows } from "./forceClosedLogic";
+import {
+  FORCE_CLOSED_ACTION,
+  type ForceClosedRow,
+  forceClosedRows,
+  windowStart,
+} from "./forceClosedLogic";
 import "../shell/surface.css";
 
 const PAGE_SIZE = 50;
@@ -30,7 +36,7 @@ type ListError = { kind: "not-available" | "failed"; requestId?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function useForceClosedList(tenantId: string | null, storeId: string | null) {
+function useForceClosedList(tenantId: string | null, storeId: string | null, from: string) {
   return useInfiniteQuery<
     ClosedPage,
     ListError,
@@ -38,7 +44,7 @@ function useForceClosedList(tenantId: string | null, storeId: string | null) {
     unknown[],
     string | undefined
   >({
-    queryKey: ["force-actions", "closed", tenantId, storeId],
+    queryKey: ["force-actions", "closed", tenantId, storeId, from],
     enabled: tenantId !== null,
     retry: false,
     initialPageParam: undefined,
@@ -46,6 +52,7 @@ function useForceClosedList(tenantId: string | null, storeId: string | null) {
     queryFn: async ({ pageParam }) => {
       const res = await listAuditEvents({
         action: FORCE_CLOSED_ACTION,
+        from,
         limit: PAGE_SIZE,
         cursor: pageParam,
         ...(storeId ? { store_id: storeId } : {}),
@@ -124,9 +131,12 @@ export function ForceClosedPage(): React.JSX.Element {
   // The Overview row counts one store when a store is active; its link carries that store (?store=).
   const [params] = useSearchParams();
   const storeParam = params.get("store");
+  // The same last 30 days the Overview row counts, fixed when the page opens so paging stays stable.
+  const [from] = useState(() => windowStart(Date.now()));
   const list = useForceClosedList(
     tenantId,
     storeParam && UUID.test(storeParam) ? storeParam : null,
+    from,
   );
   const directory = useStoreDirectory(tenantId);
   const rows = list.data?.pages.flatMap((p) => p.rows) ?? [];
