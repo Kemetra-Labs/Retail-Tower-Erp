@@ -1,0 +1,191 @@
+# RT-1449 (RT-1448 blueprint v2, Step 0): run the finance-report role proof on a throwaway ERPNext v16
+# bench. The proof script is integrations/erpnext-connector/docs/research/rt-1449-finance-report-role/
+# finance_report_role_proof.py; it is research evidence only and no product code imports it.
+#
+# Manual only: workflow_dispatch, no schedule, push or pull_request trigger, so it never feeds `required`
+# and is not a graph.yaml job (the same standing as connector-bench-nightly.yml). A new workflow file can
+# only be dispatched once it is on the default branch; the optional `ref` input then runs the script from
+# any branch or SHA, so a script fix does not need another policy PR.
+#
+# Read-only and secret-free: no `secrets`, a read-only token, no deploy, no AWS, no lab host. The bench,
+# its MariaDB root password and the admin password are job-local throwaway values. Everything it posts is
+# synthetic. The lab and tenant sites are never touched.
+#
+# A failed proof case is a recorded RESULT, not a failed run: the job passes when the proof wrote its
+# results file, and fails only when the bench or the script itself broke. The results are in the job
+# summary and in the `finance-report-proof` artifact.
+#
+# Same pins as connector-bench-nightly.yml (the RT-494 validated pair on Frappe v16, the only supported
+# line, and MariaDB 11.8). Bump them deliberately, together with that policy.
+name: Finance report role bench proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or SHA to run the proof script from (blank: the ref this run was dispatched on)"
+        required: false
+        default: ""
+        type: string
+      bulk_invoices:
+        description: "Bulk POS sales to post before the proof (a few hundred give a usable General Ledger size curve)"
+        required: false
+        default: "240"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: finance-report-role-bench
+  cancel-in-progress: false
+
+env:
+  FRAPPE_REF: v16.52.0
+  ERPNEXT_REF: v16.51.0
+  BENCH_VERSION: "5.31.0"
+  SITE: proof_site
+  PROOF_DIR: integrations/erpnext-connector/docs/research/rt-1449-finance-report-role
+
+jobs:
+  proof:
+    name: Finance report role proof (Frappe v16, MariaDB)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    # Throwaway service containers that live only for this job; the root password below is a
+    # job-local value, not a secret.
+    services:
+      redis-cache:
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports:
+          - 13000:6379
+      redis-queue:
+        image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+        ports:
+          - 11000:6379
+      mariadb:
+        image: mariadb:11.8@sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mariadb-admin ping -h 127.0.0.1"
+          --health-interval=5s --health-timeout=2s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      # Frappe v16 requires Python 3.14 and Node 24 (RT-494).
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: integrations/erpnext-connector/.python-version
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install MariaDB client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client
+
+      - name: Initialise bench
+        run: |
+          pip install --only-binary :all: "frappe-bench==${BENCH_VERSION}"
+          bench init --frappe-branch "${FRAPPE_REF}" --skip-redis-config-generation --skip-assets \
+            --python "$(which python)" ~/frappe-bench
+
+      # ERPNext only: the proof does not install the Connector app (it reads ERPNext's own reports).
+      - name: Get ERPNext and create the throwaway site
+        working-directory: /home/runner/frappe-bench
+        env:
+          CI: "Yes"
+        run: |
+          bench get-app --branch "${ERPNEXT_REF}" --skip-assets https://github.com/frappe/erpnext
+          bench setup requirements --dev
+          bench new-site --db-host 127.0.0.1 --db-root-password root --admin-password admin "${SITE}"
+          bench --site "${SITE}" install-app erpnext
+
+      # The proof runs report jobs on a queue of its own, so the queue is declared and the redis
+      # endpoints are set explicitly (bench was initialised without generating its redis config).
+      - name: Configure the queues
+        working-directory: /home/runner/frappe-bench
+        run: |
+          bench set-config -g redis_cache redis://127.0.0.1:13000
+          bench set-config -g redis_queue redis://127.0.0.1:11000
+          bench set-config -g workers '{"finance_report": {"timeout": 900}}' --parse
+          bench version
+
+      - name: Run the proof
+        working-directory: /home/runner/frappe-bench
+        env:
+          BULK: ${{ inputs.bulk_invoices }}
+          RESULTS: ${{ runner.temp }}/finance-report-proof-results.json
+          WORKER_LOGS: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          case "${BULK}" in '' | *[!0-9]*) echo "::error::bulk_invoices must be a whole number"; exit 1 ;; esac
+          # The proof receives 5000 units of each of three items, and a sale takes 1-3 units.
+          if [ "${BULK}" -gt 3000 ]; then echo "::error::bulk_invoices must be at most 3000"; exit 1; fi
+          export PYTHONPATH="${GITHUB_WORKSPACE}/${PROOF_DIR}"
+          # GitHub sets CI=true, and a bench worker started with CI set switches to test mode and
+          # raises its log level, so the workers run without it.
+          env -u CI bench worker --queue short,default,long > "${WORKER_LOGS}/worker-main.log" 2>&1 &
+          worker_main=$!
+          env -u CI bench worker --queue finance_report > "${WORKER_LOGS}/worker-finance.log" 2>&1 &
+          worker_finance=$!
+          trap 'kill "${worker_main}" "${worker_finance}" 2>/dev/null || true' EXIT
+          sleep 10 # let both workers connect to the queue
+          cd sites
+          # Imported, not run as `python -m`: the jobs are pickled by module and name, which the
+          # workers cannot unpickle for __main__.
+          env -u CI RT_PROOF_THROWAWAY=1 RT_PROOF_SITE="${SITE}" RT_PROOF_BULK="${BULK}" \
+            RT_PROOF_OUT="${RESULTS}" \
+            ../env/bin/python -c "import finance_report_role_proof as m; m.main()" "${SITE}"
+
+      - name: Summarise the proof
+        if: always()
+        env:
+          RESULTS: ${{ runner.temp }}/finance-report-proof-results.json
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+
+          out = open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8")
+          out.write("## Finance report role bench proof\n\n")
+          path = os.environ["RESULTS"]
+          if not os.path.exists(path):
+              out.write("No results file: the bench or the script broke before it wrote one (see the earlier steps).\n")
+              sys.exit(1)
+          data = json.load(open(path, encoding="utf-8"))
+          cases = data.get("cases", {})
+          failed = sorted(c for c, r in cases.items() if not r.get("ok"))
+          out.write(f"Cases: {len(cases)}, recorded as failed: {len(failed)}. A case fails when it raised or a check inside it failed (a refused report that should have run, or an expectation that did not hold). That is a finding, not a broken run. Cases that only record values (V5, V6, V7 legs) never fail by themselves: read their tables in the artifact.\n\n")
+          out.write("| Case | Result |\n| --- | --- |\n")
+          for name, result in cases.items():
+              detail = "ok"
+              if not result.get("ok"):
+                  text = str(result.get("error") or "a nested check failed (see the artifact)")
+                  detail = "FAILED: " + " ".join(text.split())[:160].replace("|", "/")
+              out.write(f"| `{name}` | {detail} |\n")
+          out.write("\nThe full tables are in the `finance-report-proof` artifact (finance-report-proof-results.json).\n")
+
+      - name: Upload the proof results
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: finance-report-proof
+          path: |
+            ${{ runner.temp }}/finance-report-proof-results.json
+            ${{ runner.temp }}/worker-main.log
+            ${{ runner.temp }}/worker-finance.log
+          if-no-files-found: warn
+          retention-days: 30
