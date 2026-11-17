@@ -51,15 +51,26 @@ export interface Read<T> {
   refetch: () => void;
 }
 
-/** Every open shift of one store with the server's verdict (D6). */
-export function useOpenShifts(storeId: string | undefined): Read<OpenShiftList> {
-  const { tenantId, role } = useScope();
-  const q = useQuery<OpenShiftList, ReadError>({
-    queryKey: ["force-actions", "open-shifts", tenantId, role, storeId],
-    enabled: tenantId !== null && storeId !== undefined,
+/** What a read returns: the status, and the body or the error body. */
+type Answer<T> = { status: number; data?: T; error?: unknown };
+
+interface ServerRead<T> {
+  queryKey: readonly unknown[];
+  enabled: boolean;
+  fetcher: () => Promise<Answer<T>>;
+  /** Never reused: read again on every mount (the preview is a snapshot, not a cache). */
+  fresh?: boolean;
+}
+
+/** One server read as a `Read<T>`: a non-200 answer, or no answer at all, is a typed `ReadError`. */
+function useServerRead<T>({ queryKey, enabled, fetcher, fresh = false }: ServerRead<T>): Read<T> {
+  const q = useQuery<T, ReadError>({
+    queryKey,
+    enabled,
     retry: false,
+    ...(fresh ? { gcTime: 0, staleTime: 0, refetchOnWindowFocus: false } : {}),
     queryFn: async () => {
-      const res = await consoleListOpenShifts(storeId as string).catch(() => NO_ANSWER);
+      const res: Answer<T> = await fetcher().catch(() => NO_ANSWER);
       if (res.status === 200 && res.data) return res.data;
       throw readErrorOf(res.status, res.error);
     },
@@ -73,29 +84,25 @@ export function useOpenShifts(storeId: string | undefined): Read<OpenShiftList> 
   };
 }
 
+/** Every open shift of one store with the server's verdict (D6). */
+export function useOpenShifts(storeId: string | undefined): Read<OpenShiftList> {
+  const { tenantId, role } = useScope();
+  return useServerRead({
+    queryKey: ["force-actions", "open-shifts", tenantId, role, storeId],
+    enabled: tenantId !== null && storeId !== undefined,
+    fetcher: () => consoleListOpenShifts(storeId as string),
+  });
+}
+
 /** What force-closing one shift would change now. Read fresh on every open. */
 export function useForceClosePreview(shiftId: string): Read<ForceClosePreview> {
   const { tenantId, role } = useScope();
-  const q = useQuery<ForceClosePreview, ReadError>({
+  return useServerRead({
     queryKey: ["force-actions", "preview", tenantId, role, shiftId],
     enabled: tenantId !== null,
-    retry: false,
-    gcTime: 0,
-    staleTime: 0,
-    refetchOnWindowFocus: false,
-    queryFn: async () => {
-      const res = await consoleGetForceClosePreview(shiftId).catch(() => NO_ANSWER);
-      if (res.status === 200 && res.data) return res.data;
-      throw readErrorOf(res.status, res.error);
-    },
+    fetcher: () => consoleGetForceClosePreview(shiftId),
+    fresh: true,
   });
-  return {
-    data: q.data,
-    isLoading: q.isLoading,
-    isFetching: q.isFetching,
-    error: q.error ?? undefined,
-    refetch: () => void q.refetch(),
-  };
 }
 
 export interface ForceCloseFlow {

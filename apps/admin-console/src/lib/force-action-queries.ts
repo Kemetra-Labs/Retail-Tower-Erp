@@ -19,7 +19,6 @@ export type OpenShiftList = Schemas["OpenShiftList"];
 export type OpenShiftSummary = Schemas["OpenShiftSummary"];
 export type ForceClosePreview = Schemas["ForceClosePreview"];
 export type ConsoleForceCloseRequest = Schemas["ConsoleForceCloseRequest"];
-export type ConsoleForceClosedShift = Schemas["ConsoleForceClosedShift"];
 
 /** GET /api/v1/stores/{store_id}/open-shifts: owner or all-store tenant_admin; else the uniform 404. */
 export async function consoleListOpenShifts(storeId: string) {

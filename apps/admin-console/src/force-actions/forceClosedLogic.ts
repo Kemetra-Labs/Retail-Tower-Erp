@@ -15,7 +15,7 @@ export const FORCE_CLOSED_ACTION = "shift.force_closed";
 /** The ledger row counts the last 30 days (RT-1437 A1, Health). */
 export const FORCE_CLOSED_WINDOW_DAYS = 30;
 
-export type ForceClosedChannel = "pos" | "console" | "unknown";
+type ForceClosedChannel = "pos" | "console" | "unknown";
 
 export interface ForceClosedRow {
   id: string;
