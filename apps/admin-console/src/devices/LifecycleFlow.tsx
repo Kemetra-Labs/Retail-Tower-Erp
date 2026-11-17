@@ -138,13 +138,14 @@ function Review({
   flow,
   onClose,
   timeZone,
-}: Readonly<StepProps & { timeZone?: string }>): React.JSX.Element {
+  storeId,
+}: Readonly<StepProps & { timeZone?: string; storeId?: string }>): React.JSX.Element {
   const t = useT();
   const { canConfirm, pending, back } = flow;
   return (
     <>
       <NoticeBanner flow={flow} />
-      <ReviewBody action={action} flow={flow} timeZone={timeZone} />
+      <ReviewBody action={action} flow={flow} timeZone={timeZone} storeId={storeId} />
       <div className="surface__actions">
         {canConfirm ? (
           <GatedButton
@@ -315,7 +316,13 @@ export function LifecycleFlow({
           <Details action={action} flow={flow} device={device} onClose={onClose} />
         ) : null}
         {flow.step === "review" ? (
-          <Review action={action} flow={flow} onClose={onClose} timeZone={timeZone} />
+          <Review
+            action={action}
+            flow={flow}
+            onClose={onClose}
+            timeZone={timeZone}
+            storeId={device.storeId}
+          />
         ) : null}
         {flow.step === "done" ? (
           <Done flow={flow} onClose={onClose} onSwitch={onSwitch} timeZone={timeZone} />

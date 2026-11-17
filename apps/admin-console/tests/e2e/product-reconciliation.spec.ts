@@ -200,7 +200,11 @@ test("S1: owner maps an unmapped product, starts a run and opens its results", a
   // Exactly one repair and one trigger; every request stayed on this origin's API.
   expect(calls.filter((c) => c.method === "POST" && RECON.test(c.url))).toHaveLength(2);
   for (const { url } of calls) {
-    expect(url.startsWith(`${baseURL}/api/v1/`), url).toBe(true);
+    // Backend-Core's two API roots: the Overview also reads the count-activation setting (RT-1440).
+    expect(
+      url.startsWith(`${baseURL}/api/v1/`) || url.startsWith(`${baseURL}/api/inventory/v1/`),
+      url,
+    ).toBe(true);
   }
 });
 

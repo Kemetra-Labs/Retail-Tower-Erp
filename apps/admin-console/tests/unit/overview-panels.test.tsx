@@ -32,6 +32,10 @@ const listAuditEvents = vi.fn();
 vi.mock("@/lib/client", () => ({
   listAuditEvents: (...a: unknown[]) => listAuditEvents(...a),
 }));
+const getCountSessionsSetting = vi.fn();
+vi.mock("@/lib/count-session-queries", () => ({
+  getCountSessionsSetting: (...a: unknown[]) => getCountSessionsSetting(...a),
+}));
 const storeRows = vi.fn();
 vi.mock("@/stores/useStoreQueries", () => ({
   useStoreList: () => ({ result: { kind: "rows", rows: storeRows() }, isLoading: false }),
@@ -90,6 +94,37 @@ function answerAll(): void {
   );
   consoleListShiftCloses.mockImplementation(() => ok({ items: [{}, {}], nextCursor: null }));
   listUnknownItems.mockImplementation(() => ok({ items: [{}], next_cursor: null }));
+  // RT-1440: no force closes, and the count switch is on (so its row is hidden).
+  listAuditEvents.mockImplementation(() => ok({ items: [], next_cursor: null }));
+  getCountSessionsSetting.mockImplementation(() => ok({ enabled: true, unmetReadiness: [] }));
+}
+
+/** A `shift.force_closed` audit event, as the audit search returns it. */
+function closeEvent(id: string, replayed = false) {
+  return {
+    id,
+    occurred_at: "2026-11-16T22:41:00Z",
+    actor_user_id: "0198a0c4-0000-7000-8000-000000000e01",
+    store_id: A,
+    action: "shift.force_closed",
+    kind: "change",
+    target_type: "shift",
+    target_id: `shift-${id}`,
+    metadata: {
+      shift_id: `shift-${id}`,
+      channel: "console",
+      actor_role: "owner",
+      shift_age_minutes: 5,
+      replayed,
+    },
+  };
+}
+
+/** Every audit read the Overview made carries the force-close action filter (no recent-activity read). */
+function onlyForceClosedAuditReads(): boolean {
+  return listAuditEvents.mock.calls.every(
+    ([q]) => (q as { action?: string }).action === "shift.force_closed",
+  );
 }
 
 function renderOverview(): void {
@@ -115,6 +150,8 @@ async function findRow(label: string): Promise<HTMLElement> {
 
 const SHIFT = "Shift-close variances with no recorded approver (last 7 days)";
 const UNKNOWN = "Unknown items pending review";
+const FORCE_CLOSED = "Shifts closed without a count (last 30 days)";
+const READINESS = "Count activation";
 const stockLabel = (store: string) => `Stock discrepancies · ${store}`;
 
 describe("Overview panels (RT-559, spec 009)", () => {
@@ -126,6 +163,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
       consoleListShiftCloses,
       listUnknownItems,
       listAuditEvents,
+      getCountSessionsSetting,
       activeContext,
     ]) {
       fn.mockReset();
@@ -152,6 +190,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
       consoleListShiftCloses,
       listUnknownItems,
       listAuditEvents,
+      getCountSessionsSetting,
     ]) {
       expect(fn).not.toHaveBeenCalled();
     }
@@ -325,6 +364,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
   test("with every attention panel refused, the ledger says so instead of rendering empty", async () => {
     activeContext.mockReturnValue(ctx("store_staff"));
     listUnknownItems.mockImplementation(() => fail(403));
+    listAuditEvents.mockImplementation(() => fail(403));
     renderOverview();
     expect(
       await screen.findByText("No attention items are available to your role here."),
@@ -420,8 +460,9 @@ describe("Overview panels (RT-559, spec 009)", () => {
       expect(screen.getByRole("link", { name: "Audit" }).getAttribute("href")).toBe("/audit");
       unmount();
     }
-    // P-5 is deferred (OD-009-3, RT-567): no list, no counts, no audit read.
-    expect(listAuditEvents).not.toHaveBeenCalled();
+    // P-5 is deferred (OD-009-3, RT-567): no recent-activity list. The only audit read is the
+    // filtered count of shifts closed without a count (RT-1440), never an unfiltered page.
+    expect(onlyForceClosedAuditReads()).toBe(true);
     expect(screen.queryByRole("table")).toBeNull();
   });
 
@@ -439,7 +480,90 @@ describe("Overview panels (RT-559, spec 009)", () => {
       expect(screen.queryByRole("link", { name: "Audit" })).toBeNull();
       unmount();
     }
-    expect(listAuditEvents).not.toHaveBeenCalled();
+    expect(onlyForceClosedAuditReads()).toBe(true);
+  });
+
+  test("RT-1440: shifts closed without a count are counted from the audit search over the last 30 days, with a link to the list", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listAuditEvents.mockImplementation(() =>
+      ok({ items: [closeEvent("e1"), closeEvent("e2"), closeEvent("e3")], next_cursor: null }),
+    );
+    renderOverview();
+    const r = await findRow(FORCE_CLOSED);
+    await within(r).findByText("Closes without a count: 3");
+    expect(listAuditEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "shift.force_closed",
+        limit: 200,
+        from: expect.any(String),
+      }),
+    );
+    expect(
+      within(r).getByRole("link", { name: "Review closes without a count" }).getAttribute("href"),
+    ).toBe("/shifts/force-closed");
+  });
+
+  test("RT-1440: with an active store the row's link keeps that store, so the list matches the count", async () => {
+    activeContext.mockReturnValue(ctx("owner", { id: A, name: "Cairo Festival City" }));
+    listAuditEvents.mockImplementation(() => ok({ items: [closeEvent("e1")], next_cursor: null }));
+    renderOverview();
+    const r = await findRow(FORCE_CLOSED);
+    await within(r).findByText("Closes without a count: 1");
+    expect(
+      within(r).getByRole("link", { name: "Review closes without a count" }).getAttribute("href"),
+    ).toBe(`/shifts/force-closed?store=${A}`);
+  });
+
+  test("RT-1440: a replayed audit row is not counted, so the count matches the list it links to", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listAuditEvents.mockImplementation(() =>
+      ok({
+        items: [closeEvent("e1"), closeEvent("e2", true), closeEvent("e3")],
+        next_cursor: null,
+      }),
+    );
+    renderOverview();
+    await within(await findRow(FORCE_CLOSED)).findByText("Closes without a count: 2");
+  });
+
+  test("RT-1440: a full page of force closes reads 'or more', never an exact count it cannot prove", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listAuditEvents.mockImplementation(() =>
+      ok({ items: [closeEvent("e1"), closeEvent("e2")], next_cursor: "c2" }),
+    );
+    renderOverview();
+    await within(await findRow(FORCE_CLOSED)).findByText("Closes without a count: 2 or more");
+  });
+
+  test("RT-1440: count-activation blockers show their count and link to the store's activation panel; hidden once the switch is on", async () => {
+    activeContext.mockReturnValue(ctx("owner", { id: A, name: "Cairo Festival City" }));
+    getCountSessionsSetting.mockImplementation(() =>
+      ok({
+        enabled: false,
+        unmetReadiness: [{ code: "connector_not_seen" }, { code: "store_warehouse_unmapped" }],
+      }),
+    );
+    renderOverview();
+    const r = await findRow(READINESS);
+    await within(r).findByText("Blockers: 2");
+    expect(within(r).getByRole("link", { name: "Review blockers" }).getAttribute("href")).toBe(
+      `/inventory/stores/${A}/counts#counts-activation`,
+    );
+  });
+
+  test("RT-1440: the readiness row is hidden when the switch is on", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    renderOverview();
+    await within(await findRow(UNKNOWN)).findByText("Items: 1");
+    expect(screen.queryByText(READINESS)).toBeNull();
+  });
+
+  test("RT-1440: the readiness setting is never read for a store_manager", async () => {
+    activeContext.mockReturnValue(ctx("store_manager"));
+    renderOverview();
+    await within(await findRow(UNKNOWN)).findByText("Items: 1");
+    expect(getCountSessionsSetting).not.toHaveBeenCalled();
+    expect(screen.queryByText(READINESS)).toBeNull();
   });
 
   test("NG-7: one refresh control re-reads every panel", async () => {

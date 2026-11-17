@@ -6,6 +6,7 @@
  */
 import { Banner } from "@/components/Banner";
 import { InlineError } from "@/components/InlineError";
+import { ForceCloseNextStep, blockedByOpenShift } from "@/force-actions/ForceCloseNextStep";
 import { type MessageKey, useT } from "@/i18n";
 import { useId } from "react";
 import { ImpactPanel } from "./ImpactPanel";
@@ -195,10 +196,13 @@ export function ReviewBody({
   action,
   flow,
   timeZone,
+  storeId,
 }: Readonly<{
   action: FlowAction;
   flow: LifecycleFlowState;
   timeZone?: string;
+  /** The device's store: where its open shifts are listed (RT-1440). */
+  storeId?: string;
 }>): React.JSX.Element {
   const t = useT();
   const { preview, decision, impact, draft, problems, patch } = flow;
@@ -215,6 +219,9 @@ export function ReviewBody({
   return (
     <>
       <ImpactPanel preview={preview} timeZone={timeZone} />
+      {storeId && decision.kind === "blocked" && blockedByOpenShift(decision.blockCode) ? (
+        <ForceCloseNextStep storeId={storeId} />
+      ) : null}
       {decision.kind === "ready" ? (
         <Requirements decision={decision} draft={draft} problems={problems} onPatch={patch} />
       ) : null}

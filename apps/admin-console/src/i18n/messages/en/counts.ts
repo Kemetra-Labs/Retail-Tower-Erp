@@ -295,6 +295,8 @@ export const counts: MessagesOf<typeof ar> = {
   "counts.activation.ready": "Everything Count Sessions depend on is ready.",
   "counts.activation.notReady": "Not ready to switch on. These items are not proven:",
   "counts.activation.storeScoped": "Store: {store}",
+  "counts.activation.link.device": "Open the device page to clear this",
+  "counts.activation.link.warehouse": "Open the ERP warehouse mappings",
   "counts.activation.turnOn": "Switch on Count Sessions",
   "counts.activation.turnOff": "Switch off Count Sessions",
   "counts.activation.readOnly": "Only an owner or administrator can change this.",

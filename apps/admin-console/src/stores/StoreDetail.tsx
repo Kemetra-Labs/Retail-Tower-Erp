@@ -10,6 +10,7 @@ import {
 } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
+import { OpenShiftsLink } from "@/force-actions/OpenShiftsLink";
 import { useT } from "@/i18n";
 /**
  * SF-S2 — Store detail (T027; RT-400 screen 19). Read-first field rows plus
@@ -159,6 +160,7 @@ export function StoreDetail(): React.JSX.Element {
               {t("stores.detail.devices")}
             </Link>
           </p>
+          <OpenShiftsLink storeId={store.id} />
         </PanelBody>
       </DetailPanel>
 

@@ -33,6 +33,12 @@ export const overview: MessagesOf<typeof ar> = {
   "overview.unknown.label": "Unknown items pending review",
   "overview.unknown.noun": "Items",
   "overview.unknown.open": "Review items",
+  "overview.forceClosed.label": "Shifts closed without a count (last 30 days)",
+  "overview.forceClosed.noun": "Closes without a count",
+  "overview.forceClosed.open": "Review closes without a count",
+  "overview.readiness.label": "Count activation",
+  "overview.readiness.noun": "Blockers",
+  "overview.readiness.open": "Review blockers",
 
   // --- Overview v2 (RT-970) ---------------------------------------------------
   "overview.unavailable": "Not available",

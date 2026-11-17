@@ -17,6 +17,7 @@ import { counts } from "./ar/counts";
 import { devices } from "./ar/devices";
 import { downloadPos } from "./ar/downloadPos";
 import { erp } from "./ar/erp";
+import { forceActions } from "./ar/forceActions";
 import { inventory } from "./ar/inventory";
 import { metrics } from "./ar/metrics";
 import { money } from "./ar/money";
@@ -54,6 +55,7 @@ export const AR_MODULES = {
   erp,
   productRecon,
   devices,
+  forceActions,
   downloadPos,
   posPilot,
   sales,
@@ -90,6 +92,7 @@ export const ar = {
   ...erp,
   ...productRecon,
   ...devices,
+  ...forceActions,
   ...downloadPos,
   ...posPilot,
   ...sales,

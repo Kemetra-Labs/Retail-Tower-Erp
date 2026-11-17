@@ -32,6 +32,13 @@ vi.mock("@/lib/low-stock-queries", () => ({
   consoleListLowStock: () => Promise.resolve({ status: 404 }),
 }));
 vi.mock("@/lib/shift-close-queries", () => ({ consoleListShiftCloses: () => quiet() }));
+vi.mock("@/lib/client", () => ({
+  listAuditEvents: () => Promise.resolve({ status: 200, data: { items: [], next_cursor: null } }),
+}));
+vi.mock("@/lib/count-session-queries", () => ({
+  getCountSessionsSetting: () =>
+    Promise.resolve({ status: 200, data: { enabled: true, unmetReadiness: [] } }),
+}));
 vi.mock("@/lib/unknown-items-queries", () => ({
   listUnknownItems: () => Promise.resolve({ status: 200, data: { items: [], next_cursor: null } }),
 }));

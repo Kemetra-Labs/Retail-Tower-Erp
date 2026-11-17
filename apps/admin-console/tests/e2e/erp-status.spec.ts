@@ -153,7 +153,11 @@ test("S1: owner sees no signal on today's main, separate domains, and a Backend-
   const erpCalls = urls.filter((u) => ERP_PATHS.test(u));
   expect(erpCalls.length).toBeGreaterThanOrEqual(5);
   for (const url of urls) {
-    expect(url.startsWith(`${baseURL}/api/v1/`), url).toBe(true);
+    // Backend-Core's two API roots: the Overview also reads the count-activation setting (RT-1440).
+    expect(
+      url.startsWith(`${baseURL}/api/v1/`) || url.startsWith(`${baseURL}/api/inventory/v1/`),
+      url,
+    ).toBe(true);
     expect(url).not.toContain("/api/connector/");
   }
 });
