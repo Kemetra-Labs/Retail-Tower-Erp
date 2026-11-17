@@ -56,17 +56,35 @@ return 0
 `;
 
 /**
+ * RT-1439: `INCR_WINDOW_SCRIPT` that also returns the window's END on the Redis SERVER clock
+ * (`TIME` plus the remaining TTL): `{count, ttl, windowEndsAtMs}`. The end is the window's identity.
+ */
+const INCR_WINDOW_WITH_END_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+local ttl = redis.call('PTTL', KEYS[1])
+if ttl == -1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+  ttl = tonumber(ARGV[1])
+end
+local t = redis.call('TIME')
+local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+return {count, ttl, nowMs + ttl}
+`;
+
+/**
  * RT-1439: decrement a fixed-window counter only while ITS window is still the live one: the live end
- * (ARGV[1] = the caller's now in ms, plus the key's remaining TTL) must be within ARGV[3] ms of the
- * window end the hit was reserved in (ARGV[2]). One atomic step, so a rollover cannot fall between
- * the check and the decrement. Returns 1 when it decremented, else 0. A counter that goes below zero
- * is deleted so the next window starts clean (as `RateLimiter.release` does).
+ * (the server's `TIME` plus the key's remaining TTL, at the moment the script runs) must be within
+ * ARGV[2] ms of the window end the hit was reserved in (ARGV[1], also a server-clock value). One atomic
+ * step on one clock, so a delayed command cannot match a later window and a skewed application clock
+ * is irrelevant. Returns 1 when it decremented, else 0. A counter that goes below zero is deleted so
+ * the next window starts clean (as `RateLimiter.release` does).
  */
 const DECR_IF_WINDOW_ENDS_SCRIPT = `
 local ttl = redis.call('PTTL', KEYS[1])
 if ttl < 0 then return 0 end
-local liveEnd = tonumber(ARGV[1]) + ttl
-if math.abs(liveEnd - tonumber(ARGV[2])) > tonumber(ARGV[3]) then return 0 end
+local t = redis.call('TIME')
+local nowMs = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+if math.abs(nowMs + ttl - tonumber(ARGV[1])) > tonumber(ARGV[2]) then return 0 end
 local count = redis.call('DECR', KEYS[1])
 if count < 0 then redis.call('DEL', KEYS[1]) end
 return 1
@@ -112,13 +130,27 @@ export class IoredisIdempotencyAdapter {
     return this.client.del(key);
   }
 
+  /** RT-1439: `incrWindow` plus the window's end on the server clock (see {@link INCR_WINDOW_WITH_END_SCRIPT}). */
+  async incrWindowWithEnd(key: string, ttlMs: number): Promise<WindowHit & { windowEndsAtMs: number }> {
+    const reply: unknown = await this.client.eval(INCR_WINDOW_WITH_END_SCRIPT, 1, key, String(ttlMs));
+    if (
+      !Array.isArray(reply) ||
+      reply.length !== 3 ||
+      !isInteger(reply[0]) ||
+      !isInteger(reply[1]) ||
+      !isInteger(reply[2])
+    ) {
+      throw new Error("IoredisIdempotencyAdapter.incrWindowWithEnd: unexpected reply from the rate-limit script");
+    }
+    return { count: reply[0], ttlMs: reply[1], windowEndsAtMs: reply[2] };
+  }
+
   /** RT-1439: atomic window-checked decrement (see {@link DECR_IF_WINDOW_ENDS_SCRIPT}). */
-  async decrIfWindowEnds(key: string, nowMs: number, windowEndsAtMs: number, toleranceMs: number): Promise<boolean> {
+  async decrIfWindowEnds(key: string, windowEndsAtMs: number, toleranceMs: number): Promise<boolean> {
     const reply: unknown = await this.client.eval(
       DECR_IF_WINDOW_ENDS_SCRIPT,
       1,
       key,
-      String(nowMs),
       String(windowEndsAtMs),
       String(toleranceMs),
     );

@@ -98,12 +98,16 @@ export class TestRedis {
     w.count -= 1;
     return Promise.resolve(w.count);
   }
+  /** `incrWindow` plus the window's end, on this fake's one clock (the adapter's script uses the server's). */
+  async incrWindowWithEnd(key: string, ttlMs: number): Promise<WindowHit & { windowEndsAtMs: number }> {
+    const hit = await this.incrWindow(key, ttlMs);
+    return { ...hit, windowEndsAtMs: this.now() + hit.ttlMs };
+  }
   /** The atomic window-checked decrement the ioredis adapter runs as one script. */
-  decrIfWindowEnds(key: string, nowMs: number, windowEndsAtMs: number, toleranceMs: number): Promise<boolean> {
+  decrIfWindowEnds(key: string, windowEndsAtMs: number, toleranceMs: number): Promise<boolean> {
     const w = this.windows.get(key);
     if (!w || this.now() > w.expiresAt) return Promise.resolve(false);
-    const liveEnd = nowMs + (w.expiresAt - this.now());
-    if (Math.abs(liveEnd - windowEndsAtMs) > toleranceMs) return Promise.resolve(false);
+    if (Math.abs(w.expiresAt - windowEndsAtMs) > toleranceMs) return Promise.resolve(false);
     w.count -= 1;
     if (w.count < 0) this.windows.delete(key);
     return Promise.resolve(true);

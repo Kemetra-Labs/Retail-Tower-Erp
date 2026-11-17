@@ -133,8 +133,8 @@ export class ConsoleReauthService {
   }
 
   /**
-   * Step 4: reserve one failed-attempt slot BEFORE the password is looked at. Returns when the
-   * reserving window ends (null when the limiter reports none), so only THAT window is refunded.
+   * Step 4: reserve one failed-attempt slot BEFORE the password is looked at. Returns the reserving
+   * window's identity (its end on the Redis server clock; null from a stub), so only THAT window is refunded.
    */
   private async reserveAttempt(userId: string): Promise<number | null> {
     let decision: Awaited<ReturnType<RateLimiter["check"]>>;
@@ -144,7 +144,7 @@ export class ConsoleReauthService {
       log().warn({ bucket: BUCKET }, "re-authentication limiter unavailable; failing closed (503)");
       throw unavailable();
     }
-    const windowEndsAt = decision.resetMs < 0 ? null : Date.now() + decision.resetMs;
+    const windowEndsAt = decision.windowEndsAtMs ?? null;
     if (decision.allowed) return windowEndsAt;
     await this.giveBackAttempt(userId, windowEndsAt); // a refused request tested no password
     throw new ConsoleActionRateLimited("reauth_rate_limited", decision.resetMs < 0 ? 1 : decision.resetMs / 1000);
@@ -152,8 +152,7 @@ export class ConsoleReauthService {
 
   private async giveBackAttempt(userId: string, windowEndsAt: number | null): Promise<void> {
     try {
-      if (windowEndsAt === null) await this.limiter.release(BUCKET, userId);
-      else await this.limiter.releaseIfSameWindow(BUCKET, userId, windowEndsAt);
+      await this.limiter.releaseIfSameWindow(BUCKET, userId, windowEndsAt ?? undefined);
     } catch {
       // Best effort: a failed release leaves the slot to expire with its window.
     }
