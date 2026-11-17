@@ -48,6 +48,8 @@ export function forceClosedRowOf(event: unknown): ForceClosedRow | null {
   const occurredAt = str(e.occurred_at);
   const shiftId = str(meta.shift_id) ?? str(e.target_id);
   if (e.action !== FORCE_CLOSED_ACTION || id === null || occurredAt === null || shiftId === null) return null;
+  // A natural-key replay writes the same close again: it is the same event, not a second one.
+  if (meta.replayed === true) return null;
   const age = meta.shift_age_minutes;
   return {
     id,

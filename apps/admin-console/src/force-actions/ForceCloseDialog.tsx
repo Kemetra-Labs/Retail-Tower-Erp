@@ -9,14 +9,14 @@
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { InlineError } from "@/components/InlineError";
-import { DateTime, Money, useT } from "@/i18n";
+import { DateTime, type MessageKey, Money, useT } from "@/i18n";
 import { formatNumber } from "@/i18n/translate";
 import type { ForceClosePreview } from "@/lib/force-action-queries";
 import { useEffect, useId, useRef } from "react";
 import { TextArea } from "@/devices/RevokeFields";
 import { TrustBadge } from "@/devices/DeviceParts";
 import { type ForceCloseOutcome, blockerKeys } from "./forceCloseOutcomes";
-import { effectKeys, reasonProblem } from "./forceCloseLogic";
+import { effectKeys, hasUnknownEffect, reasonProblem } from "./forceCloseLogic";
 import { type ForceCloseFlow, type Read, type ReadError, useForceCloseFlow, useForceClosePreview } from "./useForceActions";
 import "./force-actions.css";
 
@@ -96,15 +96,22 @@ function EffectList({
         {effectKeys(list, codes).map((key) => (
           <li key={key}>{t(key)}</li>
         ))}
+        {hasUnknownEffect(list, codes) ? <li>{t("forceActions.close.effect.unknown")}</li> : null}
       </ul>
     </section>
   );
 }
 
-const CAVEATS = {
+const CAVEATS: Readonly<Record<string, MessageKey>> = {
   offline_facts_not_visible: "forceActions.close.caveat.offline_facts_not_visible",
   terminal_not_notified: "forceActions.close.caveat.terminal_not_notified",
-} as const;
+};
+
+/** One catalog key per distinct caveat; a code this build does not know reads as a generic limit. */
+function caveatKeys(codes: readonly string[]): MessageKey[] {
+  const keys = codes.map((c) => (Object.hasOwn(CAVEATS, c) ? CAVEATS[c] : ("forceActions.close.caveat.unknown" as const)));
+  return [...new Set(keys)];
+}
 
 function Blockers({ blockers }: Readonly<{ blockers: readonly string[] }>): React.JSX.Element {
   const t = useT();
@@ -207,8 +214,8 @@ function Preview({ data, timeZone }: Readonly<{ data: ForceClosePreview; timeZon
       <EffectList heading={t("forceActions.close.heading.willNotChange")} list="willNotChange" codes={data.effects.willNotChange} />
       <p className="force-close__unaccounted">{t("forceActions.close.drawerUnaccounted")}</p>
       <ul className="force-close__caveats">
-        {data.caveats.map((c) => (
-          <li key={c}>{t(CAVEATS[c])}</li>
+        {caveatKeys(data.caveats).map((key) => (
+          <li key={key}>{t(key)}</li>
         ))}
       </ul>
       <p className="device-quiet">
@@ -292,7 +299,7 @@ function Actions({ flow, finished, showForm, cancelRef, onClose }: Readonly<Acti
         <GatedButton
           type="button"
           className="btn-destructive"
-          disabled={!flow.canCommit}
+          disabled={!flow.ready}
           busy={flow.pending}
           onClick={() => void flow.commit()}
         >
@@ -314,6 +321,10 @@ export function ForceCloseDialog({ shiftId, timeZone, onClose }: Readonly<ForceC
   useRefetchOnBlocked(flow.outcome, preview.refetch);
 
   const finished = flow.outcome?.kind === "closed" || flow.outcome?.kind === "settled";
+  // The commit button leaves when the close is recorded: keep focus inside the modal, on Done (UX-11.8).
+  useEffect(() => {
+    if (finished) cancelRef.current?.focus();
+  }, [finished]);
   const data = preview.data;
   const eligible = data?.shift.verdict.eligible === true;
   const blockers = flow.outcome?.kind === "blocked" ? flow.outcome.blockers : (data?.shift.verdict.blockers ?? []);
@@ -341,8 +352,8 @@ export function ForceCloseDialog({ shiftId, timeZone, onClose }: Readonly<ForceC
           </output>
         ) : null}
         {preview.error ? <PreviewError error={preview.error} retry={preview.refetch} /> : null}
-        {data ? <Preview data={data} timeZone={timeZone} /> : null}
-        {data !== undefined && (!eligible || flow.outcome?.kind === "blocked") ? <Blockers blockers={blockers} /> : null}
+        {data && !finished ? <Preview data={data} timeZone={timeZone} /> : null}
+        {data !== undefined && !finished && (!eligible || flow.outcome?.kind === "blocked") ? <Blockers blockers={blockers} /> : null}
         {flow.outcome ? <Outcome outcome={flow.outcome} requestId={flow.requestId} retry={() => void flow.commit()} /> : null}
         {showForm ? <ReasonForm flow={flow} /> : null}
         <Actions flow={flow} finished={finished} showForm={showForm} cancelRef={cancelRef} onClose={onClose} />

@@ -132,3 +132,10 @@ describe("blockerKeys", () => {
     expect(blockerKeys(["something_new"])).toEqual(["forceActions.close.blocker.unknown"]);
   });
 });
+
+describe("blockerKeys de-duplication", () => {
+  it("two unknown codes read as one line, and an empty list still reads as a reason", () => {
+    expect(blockerKeys(["a_new_one", "another_new_one"])).toEqual(["forceActions.close.blocker.unknown"]);
+    expect(blockerKeys([])).toEqual(["forceActions.close.blocker.unknown"]);
+  });
+});

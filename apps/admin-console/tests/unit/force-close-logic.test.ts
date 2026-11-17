@@ -7,6 +7,7 @@ import {
   canForceClose,
   commitReady,
   effectKeys,
+  hasUnknownEffect,
   reasonProblem,
 } from "@/force-actions/forceCloseLogic";
 import { describe, expect, it } from "vitest";
@@ -43,7 +44,7 @@ describe("reasonProblem", () => {
 });
 
 describe("commitReady", () => {
-  const ready = { eligible: true, reason: "till died", acknowledged: true, pending: false };
+  const ready = { eligible: true, reason: "till died", acknowledged: true, pending: false, fetching: false };
 
   it("needs an eligible verdict, a valid reason, the acknowledgement and no request in flight", () => {
     expect(commitReady(ready)).toBe(true);
@@ -66,5 +67,19 @@ describe("effectKeys", () => {
     expect(effectKeys("willNotChange", ["sales_unchanged", "brand_new_effect"])).toEqual([
       "forceActions.close.effect.willNotChange.sales_unchanged",
     ]);
+  });
+});
+
+describe("hasUnknownEffect", () => {
+  it("is true only when the server lists an effect code this build does not know", () => {
+    expect(hasUnknownEffect("willChange", ["shift_closed_not_counted"])).toBe(false);
+    expect(hasUnknownEffect("willChange", ["shift_closed_not_counted", "brand_new_change"])).toBe(true);
+  });
+});
+
+describe("commitReady while the preview is being read again", () => {
+  it("waits for the new preview, so a commit cannot go out against the old one", () => {
+    expect(commitReady({ eligible: true, reason: "x", acknowledged: true, pending: false, fetching: true })).toBe(false);
+    expect(commitReady({ eligible: true, reason: "x", acknowledged: true, pending: false, fetching: false })).toBe(true);
   });
 });

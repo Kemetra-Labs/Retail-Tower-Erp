@@ -237,6 +237,9 @@ export function AttentionLedger({
   const allHidden = [stock, shift.state, unknown, forceClosed, readiness].every(
     (s) => s.status === "hidden",
   );
+  const forceClosedHref = session.activeStoreId
+    ? `/shifts/force-closed?store=${session.activeStoreId}`
+    : "/shifts/force-closed";
   const readinessHref = session.activeStoreId
     ? `/inventory/stores/${session.activeStoreId}/counts#counts-activation`
     : "/inventory";
@@ -271,7 +274,7 @@ export function AttentionLedger({
             state={forceClosed}
             label={t("overview.forceClosed.label")}
             noun="overview.forceClosed.noun"
-            link={{ to: "/shifts/force-closed", text: t("overview.forceClosed.open") }}
+            link={{ to: forceClosedHref, text: t("overview.forceClosed.open") }}
           />
           <CountRow
             state={readiness}

@@ -81,6 +81,8 @@ export const forceActions = {
     "لا يرى الخادم ما لم يزامنه الجهاز بعد: قد توجد مبيعات أو حركات غير مرسلة.",
   "forceActions.close.caveat.terminal_not_notified":
     "لا يُبلَّغ الجهاز بالإغلاق؛ يعلم به عندما يُرفض طلبه لإغلاق الوردية.",
+  "forceActions.close.caveat.unknown": "لا يرى الخادم كل ما يعرفه الجهاز.",
+  "forceActions.close.effect.unknown": "تغييرات أخرى يذكرها الخادم ولا تعرضها هذه الواجهة بعد.",
   "forceActions.close.blockedIntro": "لا يمكن الإغلاق من هنا الآن:",
   "forceActions.close.blocker.shift_not_open": "الوردية لم تعد مفتوحة.",
   "forceActions.close.blocker.not_stale": "فُتحت الوردية منذ وقت قصير.",

@@ -114,9 +114,14 @@ const BLOCKER_KEYS: Readonly<Record<string, MessageKey>> = {
   live_cashier_admission: "forceActions.close.blocker.live_cashier_admission",
 };
 
-/** One catalog key per blocker, in the server's order. An unknown code never leaks: it reads as not closable now. */
+/**
+ * One catalog key per distinct blocker, in the server's order. An unknown code never leaks: it reads as
+ * not closable now. A blocked verdict with no usable blocker still reads as a reason (UX-11.11).
+ */
 export function blockerKeys(blockers: readonly string[]): MessageKey[] {
-  return blockers.map((b) =>
-    Object.hasOwn(BLOCKER_KEYS, b) ? BLOCKER_KEYS[b] : "forceActions.close.blocker.unknown",
+  const keys = blockers.map((b) =>
+    Object.hasOwn(BLOCKER_KEYS, b) ? BLOCKER_KEYS[b] : ("forceActions.close.blocker.unknown" as const),
   );
+  const distinct = [...new Set(keys)];
+  return distinct.length > 0 ? distinct : ["forceActions.close.blocker.unknown"];
 }

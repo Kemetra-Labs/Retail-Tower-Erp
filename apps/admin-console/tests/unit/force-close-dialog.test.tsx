@@ -249,4 +249,86 @@ describe("ForceCloseDialog", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+  test("after a successful close the re-read preview (shift no longer open) is not shown as a blocker, and focus lands on Done", async () => {
+    consoleGetForceClosePreview
+      .mockResolvedValueOnce(preview())
+      .mockResolvedValue(preview({ eligible: false, blockers: ["shift_not_open"] }));
+    consoleForceCloseShift.mockResolvedValue({ status: 201, data: {} });
+    renderDialog();
+    await fillAndAcknowledge();
+    fireEvent.click(commitButton());
+    expect(await screen.findByText(/The shift was closed without a count/)).toBeTruthy();
+    await waitFor(() => expect(consoleGetForceClosePreview.mock.calls.length).toBeGreaterThan(1));
+    expect(screen.queryByText(/It cannot be closed from here now/)).toBeNull();
+    expect(screen.queryByText("The shift is closed without counting the drawer.")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" }));
+  });
+
+  test("an effect, caveat or blocker code this build does not know never crashes the dialog", async () => {
+    const p = preview();
+    (p.data as { caveats: string[] }).caveats = ["offline_facts_not_visible", "something_new"];
+    (p.data.effects as { willChange: string[] }).willChange = ["shift_closed_not_counted", "brand_new_change"];
+    consoleGetForceClosePreview.mockResolvedValue(p);
+    renderDialog();
+    expect(await screen.findByText("The shift is closed without counting the drawer.")).toBeTruthy();
+    expect(screen.getByText(/The server cannot see everything/)).toBeTruthy();
+    expect(screen.getByText(/Other changes the server reports/)).toBeTruthy();
+    expect(screen.queryByText(/something_new|brand_new_change/)).toBeNull();
+  });
+
+  test("Try again never sends the close with the acknowledgement unticked", async () => {
+    consoleGetForceClosePreview.mockResolvedValue(preview());
+    consoleForceCloseShift.mockResolvedValue({ status: 503, error: err("system_failure") });
+    renderDialog();
+    await fillAndAcknowledge();
+    fireEvent.click(commitButton());
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ })); // untick
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull(); // the unclear answer is cleared
+    expect(consoleForceCloseShift).toHaveBeenCalledTimes(1);
+    expect(retry).toBeTruthy();
+  });
+
+  test("an unclear answer (503) is retried with the same Idempotency-Key, and a changed reason is a new action", async () => {
+    consoleGetForceClosePreview.mockResolvedValue(preview());
+    consoleForceCloseShift
+      .mockResolvedValueOnce({ status: 503, error: err("system_failure") })
+      .mockResolvedValueOnce({ status: 503, error: err("system_failure") })
+      .mockResolvedValueOnce({ status: 201, data: {} });
+    renderDialog();
+    await fillAndAcknowledge("Till A died");
+    fireEvent.click(commitButton());
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(consoleForceCloseShift).toHaveBeenCalledTimes(2));
+    expect(consoleForceCloseShift.mock.calls[1][2]).toBe(consoleForceCloseShift.mock.calls[0][2]);
+    // The operator edits the reason: a different body is a different action.
+    fireEvent.change(screen.getByLabelText(/Reason for closing/), { target: { value: "Till A died, cashier left" } });
+    fireEvent.click(commitButton());
+    await waitFor(() => expect(consoleForceCloseShift).toHaveBeenCalledTimes(3));
+    expect(consoleForceCloseShift.mock.calls[2][2]).not.toBe(consoleForceCloseShift.mock.calls[0][2]);
+  });
+
+  test("after a stale answer the next commit carries the NEW fingerprint, and commit waits for the re-read", async () => {
+    const fresh = "b".repeat(64);
+    let release: (v: unknown) => void = () => undefined;
+    consoleGetForceClosePreview
+      .mockResolvedValueOnce(preview())
+      .mockReturnValueOnce(new Promise((r) => { release = r; }));
+    consoleForceCloseShift
+      .mockResolvedValueOnce({ status: 409, error: err("preview_stale") })
+      .mockResolvedValueOnce({ status: 201, data: {} });
+    renderDialog();
+    await fillAndAcknowledge("Till A died");
+    fireEvent.click(commitButton());
+    await screen.findByText(/The shift changed since the check/);
+    fireEvent.click(screen.getByRole("checkbox", { name: /I understand/ }));
+    // The re-read has not landed: the commit stays disabled, so it cannot go out against the old preview.
+    expect((commitButton() as HTMLButtonElement).disabled).toBe(true);
+    release(preview({ fingerprint: fresh }));
+    await waitFor(() => expect((commitButton() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(commitButton());
+    await waitFor(() => expect(consoleForceCloseShift).toHaveBeenCalledTimes(2));
+    expect(consoleForceCloseShift.mock.calls[1][1]).toEqual({ forcedReason: "Till A died", previewFingerprint: fresh });
+  });
+
 });

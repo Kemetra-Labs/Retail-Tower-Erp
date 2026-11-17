@@ -31,11 +31,13 @@ export interface CommitState {
   reason: string;
   acknowledged: boolean;
   pending: boolean;
+  /** The preview is being read again (a reconnect, or after a stale answer): wait for it. */
+  fetching: boolean;
 }
 
 /** The commit button is enabled only when every input the server's contract needs is present. */
-export function commitReady({ eligible, reason, acknowledged, pending }: CommitState): boolean {
-  return eligible && acknowledged && !pending && reasonProblem(reason) === null;
+export function commitReady({ eligible, reason, acknowledged, pending, fetching }: CommitState): boolean {
+  return eligible && acknowledged && !pending && !fetching && reasonProblem(reason) === null;
 }
 
 /** Effect codes the contract names (`ForceClosePreview.effects`), one catalog key each. */
@@ -60,4 +62,10 @@ const WILL_NOT_CHANGE: Readonly<Record<string, MessageKey>> = {
 export function effectKeys(list: "willChange" | "willNotChange", codes: readonly string[]): MessageKey[] {
   const table = list === "willChange" ? WILL_CHANGE : WILL_NOT_CHANGE;
   return codes.filter((c) => Object.hasOwn(table, c)).map((c) => table[c]);
+}
+
+/** True when the server lists an effect code this build has no copy for: the dialog says so instead of hiding it. */
+export function hasUnknownEffect(list: "willChange" | "willNotChange", codes: readonly string[]): boolean {
+  const table = list === "willChange" ? WILL_CHANGE : WILL_NOT_CHANGE;
+  return codes.some((c) => !Object.hasOwn(table, c));
 }

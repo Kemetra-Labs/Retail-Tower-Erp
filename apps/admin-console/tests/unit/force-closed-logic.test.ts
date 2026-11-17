@@ -67,6 +67,13 @@ describe("forceClosedRowOf", () => {
   });
 });
 
+describe("forceClosedRows replays", () => {
+  it("a replayed audit row is the same close seen again, never a second one", () => {
+    const rows = forceClosedRows([event({ id: "r1" }), event({ id: "r2" }, { replayed: true })]);
+    expect(rows.map((r) => r.id)).toEqual(["r1"]);
+  });
+});
+
 describe("forceClosedRows", () => {
   it("keeps the server's newest-first order and skips malformed items", () => {
     const rows = forceClosedRows([event({ id: "a1" }), { nope: true }, event({ id: "a2" })]);

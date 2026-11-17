@@ -77,6 +77,8 @@ export const forceActions: MessagesOf<typeof ar> = {
     "The server cannot see what the terminal has not synced: unsent sales or movements may exist.",
   "forceActions.close.caveat.terminal_not_notified":
     "The terminal is not told about the close; it finds out when its request to close the shift is refused.",
+  "forceActions.close.caveat.unknown": "The server cannot see everything the terminal knows.",
+  "forceActions.close.effect.unknown": "Other changes the server reports that this screen does not describe yet.",
   "forceActions.close.blockedIntro": "It cannot be closed from here now:",
   "forceActions.close.blocker.shift_not_open": "The shift is no longer open.",
   "forceActions.close.blocker.not_stale": "The shift was opened a short while ago.",

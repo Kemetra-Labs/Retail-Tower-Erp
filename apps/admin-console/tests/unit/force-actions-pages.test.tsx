@@ -117,6 +117,12 @@ describe("OpenShiftsPage", () => {
     expect(screen.getAllByRole("button", { name: /Close the shift on .* without a count/ })).toHaveLength(1);
   });
 
+  test("a blocked shift whose blocker list is empty still shows a reason, never a bare label", async () => {
+    consoleListOpenShifts.mockResolvedValue(list([shift("0198a0c4-0000-7000-8000-000000000b01", { eligible: false, blockers: [] })]));
+    renderOpenShifts();
+    expect(await screen.findByText("This shift cannot be closed from here now.")).toBeTruthy();
+  });
+
   test("the action opens the dialog for that shift, which reads its preview", async () => {
     consoleListOpenShifts.mockResolvedValue(list([shift("0198a0c4-0000-7000-8000-000000000b01", { eligible: true })]));
     consoleGetForceClosePreview.mockReturnValue(new Promise(() => undefined));
@@ -177,10 +183,10 @@ const auditRow = (id: string, over: Record<string, unknown> = {}, meta: Record<s
   ...over,
 });
 
-function renderClosed(): void {
+function renderClosed(search = ""): void {
   render(
     <QueryClientProvider client={createQueryClient()}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[`/shifts/force-closed${search}`]}>
         <ForceClosedPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -207,6 +213,20 @@ describe("ForceClosedPage", () => {
     expect(screen.getAllByText("Cairo Festival City")).toHaveLength(2);
     expect(screen.getAllByText("880 minutes")).toHaveLength(2);
     expect(screen.queryByText(/reason/i, { selector: "th" })).toBeNull();
+  });
+
+  test("the store in the link narrows the list to that store, as the ledger row's count was", async () => {
+    listAuditEvents.mockResolvedValue({ status: 200, data: { items: [auditRow("a1")], next_cursor: null } });
+    renderClosed(`?store=${STORE}`);
+    await screen.findAllByText("Mona Hassan");
+    expect(listAuditEvents).toHaveBeenCalledWith(expect.objectContaining({ action: "shift.force_closed", store_id: STORE }));
+  });
+
+  test("a malformed store in the link is ignored, never sent", async () => {
+    listAuditEvents.mockResolvedValue({ status: 200, data: { items: [auditRow("a1")], next_cursor: null } });
+    renderClosed("?store=not-a-uuid");
+    await screen.findAllByText("Mona Hassan");
+    expect((listAuditEvents.mock.calls[0][0] as Record<string, unknown>).store_id).toBeUndefined();
   });
 
   test("a continuation cursor offers 'Load more' and appends the next page", async () => {

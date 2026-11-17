@@ -474,6 +474,17 @@ describe("Overview panels (RT-559, spec 009)", () => {
     ).toBe("/shifts/force-closed");
   });
 
+  test("RT-1440: with an active store the row's link keeps that store, so the list matches the count", async () => {
+    activeContext.mockReturnValue(ctx("owner", { id: A, name: "Cairo Festival City" }));
+    listAuditEvents.mockImplementation(() => ok({ items: [{}], next_cursor: null }));
+    renderOverview();
+    const r = await findRow(FORCE_CLOSED);
+    await within(r).findByText("Closes without a count: 1");
+    expect(within(r).getByRole("link", { name: "Review closes without a count" }).getAttribute("href")).toBe(
+      `/shifts/force-closed?store=${A}`,
+    );
+  });
+
   test("RT-1440: a full page of force closes reads 'or more', never an exact count it cannot prove", async () => {
     activeContext.mockReturnValue(ctx("owner"));
     listAuditEvents.mockImplementation(() => ok({ items: [{}, {}], next_cursor: "c2" }));

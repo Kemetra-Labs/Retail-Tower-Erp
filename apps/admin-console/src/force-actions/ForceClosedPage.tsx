@@ -15,7 +15,7 @@ import { listAuditEvents } from "@/lib/client";
 import { usePeopleNames } from "@/people/usePeopleNames";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import {
   FORCE_CLOSED_ACTION,
   type ForceClosedRow,
@@ -32,15 +32,22 @@ interface ClosedPage {
 
 type ListError = { kind: "not-available" | "failed"; requestId?: string };
 
-function useForceClosedList(tenantId: string | null) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function useForceClosedList(tenantId: string | null, storeId: string | null) {
   return useInfiniteQuery<ClosedPage, ListError, { pages: ClosedPage[] }, unknown[], string | undefined>({
-    queryKey: ["force-actions", "closed", tenantId],
+    queryKey: ["force-actions", "closed", tenantId, storeId],
     enabled: tenantId !== null,
     retry: false,
     initialPageParam: undefined,
     getNextPageParam: (last) => last.next ?? undefined,
     queryFn: async ({ pageParam }) => {
-      const res = await listAuditEvents({ action: FORCE_CLOSED_ACTION, limit: PAGE_SIZE, cursor: pageParam });
+      const res = await listAuditEvents({
+        action: FORCE_CLOSED_ACTION,
+        limit: PAGE_SIZE,
+        cursor: pageParam,
+        ...(storeId ? { store_id: storeId } : {}),
+      });
       if (res.status === 200 && res.data) {
         const next = (res.data as { next_cursor?: unknown }).next_cursor;
         return { rows: forceClosedRows(res.data), next: typeof next === "string" ? next : null };
@@ -102,7 +109,10 @@ export function ForceClosedPage(): React.JSX.Element {
   const t = useT();
   const { context } = useActiveContextValue();
   const tenantId = context?.active_tenant?.id ?? null;
-  const list = useForceClosedList(tenantId);
+  // The Overview row counts one store when a store is active; its link carries that store (?store=).
+  const [params] = useSearchParams();
+  const storeParam = params.get("store");
+  const list = useForceClosedList(tenantId, storeParam && UUID.test(storeParam) ? storeParam : null);
   const directory = useStoreDirectory(tenantId);
   const rows = list.data?.pages.flatMap((p) => p.rows) ?? [];
   const names = usePeopleNames(rows.map((r) => r.actorUserId));

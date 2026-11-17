@@ -37,6 +37,8 @@ function useTenantId(): string | null {
 export interface Read<T> {
   data: T | undefined;
   isLoading: boolean;
+  /** A read (first or again) is in flight. */
+  isFetching: boolean;
   error: ReadError | undefined;
   refetch: () => void;
 }
@@ -54,7 +56,13 @@ export function useOpenShifts(storeId: string | undefined): Read<OpenShiftList> 
       throw readErrorOf(res.status, res.error);
     },
   });
-  return { data: q.data, isLoading: q.isLoading, error: q.error ?? undefined, refetch: () => void q.refetch() };
+  return {
+    data: q.data,
+    isLoading: q.isLoading,
+    isFetching: q.isFetching,
+    error: q.error ?? undefined,
+    refetch: () => void q.refetch(),
+  };
 }
 
 /** What force-closing one shift would change now. Read fresh on every open. */
@@ -73,7 +81,13 @@ export function useForceClosePreview(shiftId: string): Read<ForceClosePreview> {
       throw readErrorOf(res.status, res.error);
     },
   });
-  return { data: q.data, isLoading: q.isLoading, error: q.error ?? undefined, refetch: () => void q.refetch() };
+  return {
+    data: q.data,
+    isLoading: q.isLoading,
+    isFetching: q.isFetching,
+    error: q.error ?? undefined,
+    refetch: () => void q.refetch(),
+  };
 }
 
 export interface ForceCloseFlow {
@@ -86,6 +100,9 @@ export interface ForceCloseFlow {
   outcome: ForceCloseOutcome | null;
   /** The request id of the last refusal, as a support handle. */
   requestId: string | undefined;
+  /** Every input the contract needs is present, whatever is in flight (the button's own enabled state). */
+  ready: boolean;
+  /** `ready` and nothing in flight. */
   canCommit: boolean;
   commit: () => Promise<void>;
 }
@@ -105,14 +122,32 @@ export function useForceCloseFlow(shiftId: string, preview: Read<ForceClosePrevi
   const eligible = preview.data?.shift.verdict.eligible === true;
   // Once the close is recorded, nothing more can be sent from this dialog.
   const finished = outcome?.kind === "closed" || outcome?.kind === "settled";
+  const fetching = preview.isFetching;
+  const ready = !finished && commitReady({ eligible, reason, acknowledged, pending: false, fetching });
 
-  const setReason = useCallback((next: string) => {
-    setReasonState(next);
+  const clearAnswer = useCallback(() => {
     setOutcome((o) => (o?.kind === "rejected" || o?.kind === "retryable" ? null : o));
   }, []);
 
+  const setReason = useCallback(
+    (next: string) => {
+      setReasonState(next);
+      clearAnswer();
+    },
+    [clearAnswer],
+  );
+
+  const setAcknowledgedAndClear = useCallback(
+    (next: boolean) => {
+      setAcknowledged(next);
+      clearAnswer();
+    },
+    [clearAnswer],
+  );
+
   const commit = useCallback(async () => {
-    if (inFlight.current || fingerprint === undefined) return;
+    // The retry button and the commit button both come here: neither may send what the form would not.
+    if (inFlight.current || fingerprint === undefined || !ready) return;
     inFlight.current = true;
     setPending(true);
     setOutcome(null);
@@ -142,17 +177,18 @@ export function useForceCloseFlow(shiftId: string, preview: Read<ForceClosePrevi
       inFlight.current = false;
       setPending(false);
     }
-  }, [fingerprint, preview, qc, reason, shiftId]);
+  }, [fingerprint, preview, qc, ready, reason, shiftId]);
 
   return {
     reason,
     acknowledged,
     setReason,
-    setAcknowledged,
+    setAcknowledged: setAcknowledgedAndClear,
     pending,
     outcome,
     requestId,
-    canCommit: !finished && commitReady({ eligible, reason, acknowledged, pending }),
+    ready,
+    canCommit: ready && !pending,
     commit,
   };
 }
