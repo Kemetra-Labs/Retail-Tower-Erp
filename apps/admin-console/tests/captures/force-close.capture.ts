@@ -241,6 +241,26 @@ test("RT-1440 a live drawer is blocked with its reason", async ({ page, t, appLo
   await page.goto(`/stores/${DUBAI_STORE}/open-shifts`);
   await page.getByText(t("forceActions.openShifts.verdict.blocked")).waitFor();
   await shot(page, "open-shifts-blocked", appLocale);
+
+  // The list still offers the close (it was read a moment ago), but the dialog's fresh preview says a
+  // live drawer is in use: the server's blocker stays on screen and there is no commit control.
+  await page.route(`**/api/v1/stores/${DUBAI_STORE}/open-shifts`, (r) =>
+    r.fulfill(
+      json({
+        storeId: DUBAI_STORE,
+        evaluatedAt: "2026-10-17T10:00:00Z",
+        staleThresholdMinutes: 15,
+        items: [shift(true)],
+      }),
+    ),
+  );
+  await page.reload();
+  await page
+    .getByRole("button", { name: t("forceActions.openShifts.openLabel", { terminal: TERMINAL }) })
+    .click();
+  const dialog = page.getByRole("dialog", { name: t("forceActions.close.title") });
+  await dialog.getByText(t("forceActions.close.blockedIntro")).waitFor();
+  await shot(page, "dialog-blocked", appLocale);
 });
 
 test("RT-1440 the force-closed list and the device next step", async ({ page, t, appLocale }) => {

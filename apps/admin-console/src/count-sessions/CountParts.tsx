@@ -14,7 +14,7 @@ import { usePeopleNames } from "@/people/usePeopleNames";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
 import { Link } from "react-router";
-import { subjectLinkOf } from "./activationDetails";
+import { subjectKey, subjectLinkOf } from "./activationDetails";
 import {
   type CountOutcome,
   boundaryKey,
@@ -127,7 +127,7 @@ export function UnmetList({
   return (
     <ul className="counts__list" data-testid="count-unmet">
       {unmet.map((u) => (
-        <UnmetItem key={`${u.code}|${u.storeId ?? ""}`} boundary={u} />
+        <UnmetItem key={`${u.code}|${u.storeId ?? ""}|${subjectKey(u.subject)}`} boundary={u} />
       ))}
     </ul>
   );

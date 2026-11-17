@@ -99,6 +99,27 @@ function answerAll(): void {
   getCountSessionsSetting.mockImplementation(() => ok({ enabled: true, unmetReadiness: [] }));
 }
 
+/** A `shift.force_closed` audit event, as the audit search returns it. */
+function closeEvent(id: string, replayed = false) {
+  return {
+    id,
+    occurred_at: "2026-11-16T22:41:00Z",
+    actor_user_id: "0198a0c4-0000-7000-8000-000000000e01",
+    store_id: A,
+    action: "shift.force_closed",
+    kind: "change",
+    target_type: "shift",
+    target_id: `shift-${id}`,
+    metadata: {
+      shift_id: `shift-${id}`,
+      channel: "console",
+      actor_role: "owner",
+      shift_age_minutes: 5,
+      replayed,
+    },
+  };
+}
+
 /** Every audit read the Overview made carries the force-close action filter (no recent-activity read). */
 function onlyForceClosedAuditReads(): boolean {
   return listAuditEvents.mock.calls.every(
@@ -464,7 +485,9 @@ describe("Overview panels (RT-559, spec 009)", () => {
 
   test("RT-1440: shifts closed without a count are counted from the audit search over the last 30 days, with a link to the list", async () => {
     activeContext.mockReturnValue(ctx("owner"));
-    listAuditEvents.mockImplementation(() => ok({ items: [{}, {}, {}], next_cursor: null }));
+    listAuditEvents.mockImplementation(() =>
+      ok({ items: [closeEvent("e1"), closeEvent("e2"), closeEvent("e3")], next_cursor: null }),
+    );
     renderOverview();
     const r = await findRow(FORCE_CLOSED);
     await within(r).findByText("Closes without a count: 3");
@@ -482,7 +505,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
 
   test("RT-1440: with an active store the row's link keeps that store, so the list matches the count", async () => {
     activeContext.mockReturnValue(ctx("owner", { id: A, name: "Cairo Festival City" }));
-    listAuditEvents.mockImplementation(() => ok({ items: [{}], next_cursor: null }));
+    listAuditEvents.mockImplementation(() => ok({ items: [closeEvent("e1")], next_cursor: null }));
     renderOverview();
     const r = await findRow(FORCE_CLOSED);
     await within(r).findByText("Closes without a count: 1");
@@ -491,9 +514,23 @@ describe("Overview panels (RT-559, spec 009)", () => {
     ).toBe(`/shifts/force-closed?store=${A}`);
   });
 
+  test("RT-1440: a replayed audit row is not counted, so the count matches the list it links to", async () => {
+    activeContext.mockReturnValue(ctx("owner"));
+    listAuditEvents.mockImplementation(() =>
+      ok({
+        items: [closeEvent("e1"), closeEvent("e2", true), closeEvent("e3")],
+        next_cursor: null,
+      }),
+    );
+    renderOverview();
+    await within(await findRow(FORCE_CLOSED)).findByText("Closes without a count: 2");
+  });
+
   test("RT-1440: a full page of force closes reads 'or more', never an exact count it cannot prove", async () => {
     activeContext.mockReturnValue(ctx("owner"));
-    listAuditEvents.mockImplementation(() => ok({ items: [{}, {}], next_cursor: "c2" }));
+    listAuditEvents.mockImplementation(() =>
+      ok({ items: [closeEvent("e1"), closeEvent("e2")], next_cursor: "c2" }),
+    );
     renderOverview();
     await within(await findRow(FORCE_CLOSED)).findByText("Closes without a count: 2 or more");
   });

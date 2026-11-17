@@ -10,6 +10,7 @@
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import {
+  type ConsoleForceCloseRequest,
   type ForceClosePreview,
   type OpenShiftList,
   consoleForceCloseShift,
@@ -29,10 +30,17 @@ function readErrorOf(status: number, error: unknown): ReadError {
   return status === 404 ? { kind: "not-available", requestId } : { kind: "failed", requestId };
 }
 
-function useTenantId(): string | null {
+/**
+ * The scope every key carries: the active tenant AND the role. The role decides what the server
+ * returns (a refusal for one role, rows for another), so a cached answer must not cross a role change.
+ */
+function useScope(): { tenantId: string | null; role: string | null } {
   const { context } = useActiveContextValue();
-  return context?.active_tenant?.id ?? null;
+  return { tenantId: context?.active_tenant?.id ?? null, role: context?.active_role_code ?? null };
 }
+
+/** A request that never got an answer (offline, aborted) reads as a failed read, so it can be retried. */
+const NO_ANSWER = { status: 0, data: undefined, error: undefined } as const;
 
 export interface Read<T> {
   data: T | undefined;
@@ -45,13 +53,13 @@ export interface Read<T> {
 
 /** Every open shift of one store with the server's verdict (D6). */
 export function useOpenShifts(storeId: string | undefined): Read<OpenShiftList> {
-  const tenantId = useTenantId();
+  const { tenantId, role } = useScope();
   const q = useQuery<OpenShiftList, ReadError>({
-    queryKey: ["force-actions", "open-shifts", tenantId, storeId],
+    queryKey: ["force-actions", "open-shifts", tenantId, role, storeId],
     enabled: tenantId !== null && storeId !== undefined,
     retry: false,
     queryFn: async () => {
-      const res = await consoleListOpenShifts(storeId as string);
+      const res = await consoleListOpenShifts(storeId as string).catch(() => NO_ANSWER);
       if (res.status === 200 && res.data) return res.data;
       throw readErrorOf(res.status, res.error);
     },
@@ -67,16 +75,16 @@ export function useOpenShifts(storeId: string | undefined): Read<OpenShiftList> 
 
 /** What force-closing one shift would change now. Read fresh on every open. */
 export function useForceClosePreview(shiftId: string): Read<ForceClosePreview> {
-  const tenantId = useTenantId();
+  const { tenantId, role } = useScope();
   const q = useQuery<ForceClosePreview, ReadError>({
-    queryKey: ["force-actions", "preview", tenantId, shiftId],
+    queryKey: ["force-actions", "preview", tenantId, role, shiftId],
     enabled: tenantId !== null,
     retry: false,
     gcTime: 0,
     staleTime: 0,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const res = await consoleGetForceClosePreview(shiftId);
+      const res = await consoleGetForceClosePreview(shiftId).catch(() => NO_ANSWER);
       if (res.status === 200 && res.data) return res.data;
       throw readErrorOf(res.status, res.error);
     },
@@ -105,6 +113,8 @@ export interface ForceCloseFlow {
   /** `ready` and nothing in flight. */
   canCommit: boolean;
   commit: () => Promise<void>;
+  /** Resend the unclear attempt exactly as it was (same body, same key): the server replays a recorded close. */
+  retry: () => Promise<void>;
 }
 
 /** The confirm step: input state, the keyed write and the reaction to each answer. */
@@ -115,6 +125,8 @@ export function useForceCloseFlow(
   const qc = useQueryClient();
   const attempt = useRef(new KeyedAttempt());
   const inFlight = useRef(false);
+  /** The attempt whose answer was unclear (or rate-limited): resent as it was, whatever the preview says now. */
+  const held = useRef<{ body: ConsoleForceCloseRequest; key: string } | null>(null);
   const [reason, setReasonState] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
   const [pending, setPending] = useState(false);
@@ -149,39 +161,54 @@ export function useForceCloseFlow(
     [clearAnswer],
   );
 
+  /** Send one attempt and react to the answer. */
+  const send = useCallback(
+    async (body: ConsoleForceCloseRequest, key: string) => {
+      inFlight.current = true;
+      setPending(true);
+      setOutcome(null);
+      try {
+        const res = await consoleForceCloseShift(shiftId, body, key).catch(() => NO_ANSWER);
+        const next = classifyForceCloseOutcome(res);
+        // An unclear answer (425, 5xx, no answer) and a 429 keep the attempt: a retry is the same action.
+        const keep = next.kind === "retryable" || res.status === 429;
+        if (keep) held.current = { body, key };
+        else {
+          held.current = null;
+          attempt.current.settle();
+        }
+        setRequestId(errorRequestIdOf(res.error));
+        setOutcome(next);
+        if (next.kind === "stale") {
+          setAcknowledged(false);
+          preview.refetch();
+        }
+        if (next.kind === "closed" || next.kind === "settled") {
+          await qc.invalidateQueries({ queryKey: ["force-actions"] });
+          await qc.invalidateQueries({ queryKey: ["devices"] });
+        }
+      } finally {
+        inFlight.current = false;
+        setPending(false);
+      }
+    },
+    [preview, qc, shiftId],
+  );
+
   const commit = useCallback(async () => {
-    // The retry button and the commit button both come here: neither may send what the form would not.
+    // A new action must be what the form would send now.
     if (inFlight.current || fingerprint === undefined || !ready) return;
-    inFlight.current = true;
-    setPending(true);
-    setOutcome(null);
-    try {
-      const body = { forcedReason: reason.trim(), previewFingerprint: fingerprint };
-      const key = attempt.current.keyFor(`${shiftId}|${body.forcedReason}|${fingerprint}`);
-      const res = await consoleForceCloseShift(shiftId, body, key).catch(() => ({
-        status: 0,
-        data: undefined,
-        error: undefined,
-      }));
-      const next = classifyForceCloseOutcome(res);
-      // An unclear answer (425, 5xx, no answer) and a 429 keep the key: the retry is the same action.
-      const rateLimited = res.status === 429;
-      if (next.kind !== "retryable" && !rateLimited) attempt.current.settle();
-      setRequestId(errorRequestIdOf(res.error));
-      setOutcome(next);
-      if (next.kind === "stale") {
-        setAcknowledged(false);
-        preview.refetch();
-      }
-      if (next.kind === "closed" || next.kind === "settled") {
-        await qc.invalidateQueries({ queryKey: ["force-actions"] });
-        await qc.invalidateQueries({ queryKey: ["devices"] });
-      }
-    } finally {
-      inFlight.current = false;
-      setPending(false);
-    }
-  }, [fingerprint, preview, qc, ready, reason, shiftId]);
+    const body = { forcedReason: reason.trim(), previewFingerprint: fingerprint };
+    const key = attempt.current.keyFor(`${shiftId}|${body.forcedReason}|${fingerprint}`);
+    await send(body, key);
+  }, [fingerprint, ready, reason, send, shiftId]);
+
+  const retry = useCallback(async () => {
+    // Recovery of an unclear close does not depend on today's verdict: the server answers a recorded
+    // close with a replay (the natural key is the shift and the reason), whatever the preview says now.
+    if (inFlight.current || held.current === null) return;
+    await send(held.current.body, held.current.key);
+  }, [send]);
 
   return {
     reason,
@@ -194,5 +221,6 @@ export function useForceCloseFlow(
     ready,
     canCommit: ready && !pending,
     commit,
+    retry,
   };
 }

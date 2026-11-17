@@ -36,7 +36,12 @@ type ListError = { kind: "not-available" | "failed"; requestId?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function useForceClosedList(tenantId: string | null, storeId: string | null, from: string) {
+function useForceClosedList(
+  tenantId: string | null,
+  role: string | null,
+  storeId: string | null,
+  from: string,
+) {
   return useInfiniteQuery<
     ClosedPage,
     ListError,
@@ -44,7 +49,7 @@ function useForceClosedList(tenantId: string | null, storeId: string | null, fro
     unknown[],
     string | undefined
   >({
-    queryKey: ["force-actions", "closed", tenantId, storeId, from],
+    queryKey: ["force-actions", "closed", tenantId, role, storeId, from],
     enabled: tenantId !== null,
     retry: false,
     initialPageParam: undefined,
@@ -56,7 +61,7 @@ function useForceClosedList(tenantId: string | null, storeId: string | null, fro
         limit: PAGE_SIZE,
         cursor: pageParam,
         ...(storeId ? { store_id: storeId } : {}),
-      });
+      }).catch(() => ({ status: 0, data: undefined, error: undefined }));
       if (res.status === 200 && res.data) {
         const next = (res.data as { next_cursor?: unknown }).next_cursor;
         return { rows: forceClosedRows(res.data), next: typeof next === "string" ? next : null };
@@ -135,6 +140,7 @@ export function ForceClosedPage(): React.JSX.Element {
   const [from] = useState(() => windowStart(Date.now()));
   const list = useForceClosedList(
     tenantId,
+    context?.active_role_code ?? null,
     storeParam && UUID.test(storeParam) ? storeParam : null,
     from,
   );

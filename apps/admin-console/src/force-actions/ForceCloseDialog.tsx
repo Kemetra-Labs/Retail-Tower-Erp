@@ -408,8 +408,8 @@ export function ForceCloseDialog({
   const finished = flow.outcome?.kind === "closed" || flow.outcome?.kind === "settled";
   // The commit button leaves when the close is recorded: keep focus inside the modal, on Done (UX-11.8).
   useEffect(() => {
-    if (finished) cancelRef.current?.focus();
-  }, [finished]);
+    if (finished && !flow.pending) cancelRef.current?.focus();
+  }, [finished, flow.pending]);
   const data = preview.data;
   const eligible = data?.shift.verdict.eligible === true;
   const blockers =
@@ -453,7 +453,7 @@ export function ForceCloseDialog({
           <Outcome
             outcome={flow.outcome}
             requestId={flow.requestId}
-            retry={() => void flow.commit()}
+            retry={() => void flow.retry()}
           />
         ) : null}
         {showForm ? <ReasonForm flow={flow} /> : null}

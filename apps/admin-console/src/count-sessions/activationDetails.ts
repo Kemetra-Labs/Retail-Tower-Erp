@@ -40,3 +40,12 @@ export function subjectLinkOf(subject: unknown): { to: string; labelKey: Message
   }
   return null;
 }
+
+/** A stable identity of a boundary's subject, so sibling rows for one store keep their own keys. */
+export function subjectKey(subject: unknown): string {
+  if (typeof subject !== "object" || subject === null) return "";
+  const { deviceId, warehouseRef } = subject as { deviceId?: unknown; warehouseRef?: unknown };
+  if (typeof deviceId === "string") return `d:${deviceId}`;
+  if (typeof warehouseRef === "string") return `w:${warehouseRef}`;
+  return "";
+}

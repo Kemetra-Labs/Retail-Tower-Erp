@@ -274,9 +274,11 @@ test("S3: a store_manager sees neither the device next step nor the close action
   // The page itself reads as not available (the server's uniform 404), with no action.
   await page.goto(`/stores/${DUBAI_STORE}/open-shifts`);
   await expect(page.getByText(t("forceActions.openShifts.notAvailable"))).toBeVisible();
-  await expect(page.getByRole("button", { name: t("forceActions.openShifts.open") })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("button", {
+      name: t("forceActions.openShifts.openLabel", { terminal: TERMINAL }),
+    }),
+  ).toHaveCount(0);
 });
 
 test("S3b: inside a support session the close action is not offered", async ({ page, t }) => {

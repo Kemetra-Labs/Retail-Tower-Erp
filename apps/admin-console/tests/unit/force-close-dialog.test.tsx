@@ -368,4 +368,48 @@ describe("ForceCloseDialog", () => {
       previewFingerprint: fresh,
     });
   });
+  test("focus moves to Done once the close is recorded AND the dialog has finished refreshing (Done is disabled until then)", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    consoleGetForceClosePreview.mockResolvedValueOnce(preview()).mockReturnValueOnce(
+      new Promise((r) => {
+        release = r;
+      }),
+    );
+    consoleForceCloseShift.mockResolvedValue({ status: 201, data: {} });
+    renderDialog();
+    await fillAndAcknowledge();
+    commitButton().focus(); // a real click moves focus to the commit button, which leaves when the close is recorded
+    fireEvent.click(commitButton());
+    expect(await screen.findByText(/The shift was closed without a count/)).toBeTruthy();
+    // The re-read is still running: Done is disabled and cannot take focus yet.
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Done" }));
+    release(preview({ eligible: false, blockers: ["shift_not_open"] }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Done" })),
+    );
+  });
+
+  test("Try again after a lost answer resends the SAME body and key even if the re-read preview now says the shift is no longer open", async () => {
+    consoleGetForceClosePreview.mockResolvedValueOnce(preview());
+    consoleForceCloseShift
+      .mockResolvedValueOnce({ status: 503, error: err("system_failure") })
+      .mockResolvedValueOnce({ status: 200, data: {} });
+    renderDialog();
+    await fillAndAcknowledge("Till A died");
+    fireEvent.click(commitButton());
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    // The reconnect re-read lands: the first attempt may have been recorded, so the shift is not open.
+    consoleGetForceClosePreview.mockResolvedValue(
+      preview({ eligible: false, blockers: ["shift_not_open"] }),
+    );
+    await queryClient.refetchQueries({ queryKey: ["force-actions", "preview"] });
+    await waitFor(() => expect(screen.getByText(/The shift is no longer open/)).toBeTruthy());
+    fireEvent.click(retry);
+    expect(await screen.findByText(/This shift is already closed without a count/)).toBeTruthy();
+    expect(consoleForceCloseShift).toHaveBeenCalledTimes(2);
+    expect(consoleForceCloseShift.mock.calls[1][1]).toEqual(
+      consoleForceCloseShift.mock.calls[0][1],
+    );
+    expect(consoleForceCloseShift.mock.calls[1][2]).toBe(consoleForceCloseShift.mock.calls[0][2]);
+  });
 });

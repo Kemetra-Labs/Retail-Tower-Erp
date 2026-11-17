@@ -422,3 +422,53 @@ describe("RT-1440 review: focus after a close, and the list's window", () => {
     expect(days).toBeLessThan(30.01);
   });
 });
+
+describe("RT-1440 review: cache scope and transport failures", () => {
+  beforeEach(() => {
+    for (const fn of [consoleListOpenShifts, listAuditEvents, activeContext, supportSession])
+      fn.mockReset();
+    activeContext.mockReturnValue(asRole("owner"));
+    supportSession.mockReturnValue(null);
+  });
+
+  test("a role change in the same tenant re-reads the closed list instead of showing the old role's rows", async () => {
+    listAuditEvents.mockResolvedValue({
+      status: 200,
+      data: { items: [auditRow("a1")], next_cursor: null },
+    });
+    const client = createQueryClient();
+    const tree = () => (
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/shifts/force-closed"]}>
+          <ForceClosedPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    await screen.findAllByText("Mona Hassan");
+    expect(listAuditEvents).toHaveBeenCalledTimes(1);
+    listAuditEvents.mockResolvedValue({ status: 403, error: { error: { code: "forbidden" } } });
+    activeContext.mockReturnValue(asRole("store_manager"));
+    rerender(tree());
+    await waitFor(() => expect(listAuditEvents).toHaveBeenCalledTimes(2));
+  });
+
+  test("the closed list offers Try again when the request itself fails (offline), not only on a server error", async () => {
+    listAuditEvents.mockRejectedValueOnce(new Error("offline"));
+    listAuditEvents.mockResolvedValueOnce({
+      status: 200,
+      data: { items: [auditRow("a1")], next_cursor: null },
+    });
+    renderClosed();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Mona Hassan")).toBeTruthy();
+  });
+
+  test("the open shifts offer Try again when the request itself fails (offline)", async () => {
+    consoleListOpenShifts.mockRejectedValueOnce(new Error("offline"));
+    consoleListOpenShifts.mockResolvedValueOnce(list([]));
+    renderOpenShifts();
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("No shifts are open in this store.")).toBeTruthy();
+  });
+});
