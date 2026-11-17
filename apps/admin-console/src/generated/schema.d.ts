@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ d34ae6a63208109cd7150e773ca7ad2d68f43c84
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 831588367d898ce6133789408aac3061d5c7ab13
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -43,6 +43,7 @@
 // - services/backend-core/packages/contracts/openapi/pos-device-health.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/vouchers-admin.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/offers.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/console-force-actions.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -1316,7 +1317,10 @@ export namespace StoresSchema {
             get: operations["readStore"];
             put?: never;
             post?: never;
-            /** Soft-delete the store. */
+            /**
+             * Soft-delete the store.
+             * @description Tenant-admin or owner. **From the RT-1439 runtime (RT-1444, a behaviour change): the four deletion guards of the contract description apply here too** (409 `store_has_open_shift`, `store_has_unretired_device`, `store_device_queue_unsynced`, `store_has_open_count_session`, with `error.details.blockers`), and the delete writes one `store.deleted` audit event with `channel: api`. Before that runtime this operation behaves as before: no guard and no audit row. There is still no preview, reason or re-authentication here; the Console uses `consoleDeleteStore`. Irreversible. A second call on the same store is 404.
+             */
             delete: operations["softDeleteStore"];
             options?: never;
             head?: never;
@@ -1349,10 +1353,175 @@ export namespace StoresSchema {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/stores/{store_id}/deletion-preview": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    store_id: components["parameters"]["StoreId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Preview what deleting the store would change. Read-only.
+             * @description RT-1437 A2. Reports, in one database snapshot, the store (name, code, active flag), every open shift (each with whether `consoleForceCloseShift` could close it now), every device with its trust state, last heartbeat and sale queue counters, the open Count Sessions, the ERP warehouse mappings (kept), the members whose only store this is, the number of offers whose pack is rebuilt, and the blockers that would refuse the delete now. It states what changes and what does not as closed code lists (the Console renders them in Arabic with no English fallback), that the delete is irreversible (D7a), and that suspending the store is the reversible alternative, and returns the `previewFingerprint` the delete requires. Writes nothing and takes no lock.
+             *
+             *     **A snapshot, not a reservation.** The delete decides again in its own transaction. A device's counters are as of its last stored heartbeat, not live, and a fact a till has not synced cannot be seen (`caveats`). The fingerprint is the opaque server digest described in `console-force-actions.openapi.yaml`; here it covers the store's name, code and active flag, the open shifts (ids and states), every device (id, trust state, queue counters; not the heartbeat time), the open Count Session ids, the warehouse mappings, the single-store members, and the tenant.
+             *
+             *     Owner only (D1): a `tenant_admin` is 403 `store_deletion_owner_only`; any other role, another tenant's store, a deleted store and an unknown id are the non-disclosing 404.
+             */
+            get: operations["previewStoreDeletion"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/stores/{store_id}/deletion": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    store_id: components["parameters"]["StoreId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Delete the store, after the impact preview and a re-authentication. Owner only.
+             * @description RT-1437 A2, D1, D2b, D3, D4a, D7a. Soft-deletes the store: the same effect as `softDeleteStore`, with the guards, the typed reason, the preview fingerprint, the re-authentication grant and the audit row. The evaluation order, the four guards and the audit metadata are in the contract description.
+             *
+             *     **Owner only.** The request needs a `reauthToken` from `consoleReauthenticate` (purpose `store_deletion`, this store, 5 minutes, single use, bound to this session). `reason` is required, 1 to 200 characters, no PII; it is recorded in the `store.deleted` audit event and never logged. The 409 `error.details.blockers` lists every guard that holds. Irreversible (D7a): nothing restores the store.
+             *     **Idempotency.** `Idempotency-Key` is REQUIRED. A same-key retry replays the stored 200 with `Idempotent-Replayed: true`, before the grant, the fingerprint and the cap are looked at. A new key after a successful delete is 404.
+             */
+            post: operations["consoleDeleteStore"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
     }
     export type webhooks = Record<string, never>;
     export interface components {
         schemas: {
+            /** @description Opaque server-computed digest of the previewed state. Clients store and echo it, never interpret it. */
+            StoreDeletionFingerprint: string;
+            StoreDeletionBlocker: {
+                /**
+                 * @description In the order the 409 reports them.
+                 * @enum {string}
+                 */
+                code: "store_has_open_shift" | "store_has_unretired_device" | "store_device_queue_unsynced" | "store_has_open_count_session";
+                count: number;
+            };
+            /** @description The till's unsent sales as of its last stored heartbeat (RT-1312), in the `pos-device-health` counters: `pending`, `dead_letter` and `held_previous_pairing`. */
+            StoreDeletionQueue: {
+                pending: number;
+                deadLetter: number;
+                held: number;
+            };
+            StoreDeletionPreview: {
+                store: {
+                    /** Format: uuid */
+                    storeId: string;
+                    code: string;
+                    name: string;
+                    isActive: boolean;
+                };
+                openShifts: {
+                    /** Format: uuid */
+                    shiftId: string;
+                    /** Format: date-time */
+                    openedAt: string;
+                    terminalLabel: string | null;
+                    /** @description Whether `consoleForceCloseShift` would pass its stuck rule now (the link from the preview to that action). */
+                    forceCloseEligible: boolean;
+                }[];
+                devices: {
+                    /** Format: uuid */
+                    deviceId: string;
+                    label: string | null;
+                    /** @enum {string} */
+                    trustState: "active" | "revoked" | "retired";
+                    /**
+                     * Format: date-time
+                     * @description The last heartbeat; null when the till never reported.
+                     */
+                    lastSeenAt: string | null;
+                    /** @description The sale queue counters; null when the till never reported them (unknown, never zero). */
+                    queue: components["schemas"]["StoreDeletionQueue"] | null;
+                }[];
+                openCountSessions: {
+                    /** Format: uuid */
+                    sessionId: string;
+                    /** @description The Count Session status (`inventory/inventory.yaml`). */
+                    status: string;
+                }[];
+                /** @description The store's ERP warehouse mappings. They are kept. */
+                warehouseMappings: {
+                    warehouseRef: string;
+                }[];
+                /** @description Members whose only store access is this store; they lose all store access. */
+                singleStoreMembers: {
+                    /** Format: uuid */
+                    userId: string;
+                    roleCode: string;
+                }[];
+                /** @description Offers whose pack is rebuilt because the store leaves it. */
+                offersRebuiltCount: number;
+                effects: {
+                    willChange: ("store_hidden_from_lists" | "devices_refused_immediately" | "offer_packs_rebuilt" | "single_store_members_lose_access" | "count_readiness_excludes_store" | "inventory_activation_excludes_store")[];
+                    willNotChange: ("sales_unchanged" | "shifts_unchanged" | "stock_movements_unchanged" | "erp_documents_unchanged" | "warehouse_mapping_kept")[];
+                };
+                blockers: components["schemas"]["StoreDeletionBlocker"][];
+                /** @description True exactly when `blockers` is empty. */
+                canDelete: boolean;
+                /**
+                 * @description D7a. No supported operation restores a deleted store.
+                 * @constant
+                 */
+                reversible: false;
+                /**
+                 * @description Suspending the store (`is_active: false`) is reversible.
+                 * @constant
+                 */
+                reversibleAlternative: "suspend_store";
+                caveats: ("offline_facts_not_visible" | "queue_as_of_last_heartbeat")[];
+                previewFingerprint: components["schemas"]["StoreDeletionFingerprint"];
+                /** Format: date-time */
+                evaluatedAt: string;
+            };
+            StoreDeletionRequest: {
+                /** @description Why the store is deleted. No PII. Recorded in the audit event; never logged. */
+                reason: string;
+                previewFingerprint: components["schemas"]["StoreDeletionFingerprint"];
+                /** @description The grant from `consoleReauthenticate` (purpose `store_deletion`, this store). A credential: never logged. */
+                reauthToken: string;
+            };
+            StoreDeleted: {
+                /** Format: uuid */
+                storeId: string;
+                /** Format: date-time */
+                deletedAt: string;
+            };
+            /** @description Canonical error envelope, with the optional `details`. */
+            StoreDeletionError: {
+                error: {
+                    /** @description Stable machine-readable error code. This contract adds `store_has_open_shift`, `store_has_unretired_device`, `store_device_queue_unsynced`, `store_has_open_count_session`, `preview_stale`, `reauth_required`, `store_deletion_owner_only` and `force_action_rate_limited`. */
+                    code: string;
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                    /** @description Present on the four guard codes (`blockers`); absent otherwise. */
+                    details?: {
+                        blockers?: components["schemas"]["StoreDeletionBlocker"][];
+                    };
+                };
+            };
             /**
              * @description IANA time zone name, case-sensitive: `UTC` or an `Area/Location[/Sub]` name under a canonical IANA area (Africa, America, Antarctica, Arctic, Asia, Atlantic, Australia, Europe, Indian, Pacific) that the server's PostgreSQL resolves. Abbreviations (`EET`), POSIX strings (`UTC+2`, `+02:00`), `Etc/*` and the legacy alias trees (`US/Eastern`, `posix/*`, …) are rejected.
              * @example Africa/Cairo
@@ -1445,6 +1614,29 @@ export namespace StoresSchema {
             };
         };
         responses: {
+            /** @description 409 on `softDeleteStore` (from the RT-1439 runtime) and `consoleDeleteStore`. `error.code` is one of, in evaluation order: `idempotency_key_conflict` (`consoleDeleteStore` only: the key reused with a different body, answered at the idempotency step, before every guard, so it wins on a blocked store too), then `store_has_open_shift`, `store_has_unretired_device`, `store_device_queue_unsynced` and `store_has_open_count_session` (each with `error.details.blockers` listing every guard that holds; `softDeleteStore` answers these only), then, on `consoleDeleteStore` only, `preview_stale` (the previewed state changed: read the preview again). Deterministic; nothing is deleted and no grant is consumed. */
+            StoreDeletionConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreDeletionError"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574, the per-user console limit) or `force_action_rate_limited` (D9: the tenant's hourly cap of force actions is spent). The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. */
+            ForceActionTooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreDeletionError"];
+                };
+            };
             /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
             TooManyRequests: {
                 headers: {
@@ -1462,9 +1654,13 @@ export namespace StoresSchema {
         };
         parameters: {
             StoreId: string;
+            /** @description REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. An identical retry replays the stored response with `Idempotent-Replayed: true`; reuse with a different body is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+            IdempotencyKey: string;
         };
         requestBodies: never;
         headers: {
+            /** @description Present and `true` on every idempotent-replay response. Clients MUST detect a replay by this header, not by the status code. Absent on a first-time delete. */
+            IdempotentReplayed: boolean;
             /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600; it is not the POS `RetryAfter` header. */
             ConsoleRetryAfter: number;
         };
@@ -1617,6 +1813,7 @@ export namespace StoresSchema {
                     };
                     content?: never;
                 };
+                409: components["responses"]["StoreDeletionConflict"];
                 429: components["responses"]["TooManyRequests"];
             };
         };
@@ -1725,6 +1922,125 @@ export namespace StoresSchema {
                     content?: never;
                 };
                 429: components["responses"]["TooManyRequests"];
+            };
+        };
+        previewStoreDeletion: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    store_id: components["parameters"]["StoreId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The impact preview. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreDeletionPreview"];
+                    };
+                };
+                /** @description No active tenant. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description `store_deletion_owner_only` (a `tenant_admin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreDeletionError"];
+                    };
+                };
+                /** @description Not found / no access. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        consoleDeleteStore: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. An identical retry replays the stored response with `Idempotent-Replayed: true`; reuse with a different body is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    store_id: components["parameters"]["StoreId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StoreDeletionRequest"];
+                };
+            };
+            responses: {
+                /** @description Deleted (first time), or the same `Idempotency-Key` replayed (with `Idempotent-Replayed: true`). */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreDeleted"];
+                    };
+                };
+                /** @description `validation_error` (malformed body or path, unknown key), `idempotency_key_required` or `idempotency_key_malformed`. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreDeletionError"];
+                    };
+                };
+                /** @description No active tenant. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description `reauth_required` (the grant is missing, expired, used, or for another session, store or purpose; one answer for every cause), `store_deletion_owner_only` (a `tenant_admin`), `origin_rejected` (RT-430), or a support-session refusal (`support_session_required`, `support_session_expired`, `support_session_read_only`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreDeletionError"];
+                    };
+                };
+                /** @description Not found / no access (a role outside the owner, another tenant's store, an unknown or already deleted store). */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                409: components["responses"]["StoreDeletionConflict"];
+                /** @description `idempotency_in_progress`: the first request with this key is still being processed. Retry with the same key and body after `Retry-After`. The body is the interceptor's own shape (`{ error: "idempotency_in_progress", retryAfterSec }`). */
+                425: {
+                    headers: {
+                        /** @description Seconds to wait before retrying (currently always 2). */
+                        "Retry-After"?: number;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                429: components["responses"]["ForceActionTooManyRequests"];
             };
         };
     }
@@ -13627,7 +13943,15 @@ export namespace InventorySchema {
                  */
                 storeId: string | null;
                 message: string;
+                /** @description RT-1444 (RT-1437 A3). The one device or ERP warehouse the boundary is about, as a structured id so a client can link to the screen that clears it instead of parsing `message`. Optional: absent for a boundary that is not about one device or warehouse (`no_live_store`, `store_warehouse_unmapped` (the store has none), `connector_not_seen`, `connector_version_unlisted`, `erp_back_dated_role_unverified`). Present on `store_barrier_unprovable`. `message` is unchanged. */
+                subject?: components["schemas"]["CountSessionsReadinessSubject"];
             };
+            /** @description RT-1444. Exactly one of `deviceId` and `warehouseRef`. `deviceId` is the device whose heartbeat or sale queue cannot be trusted. `warehouseRef` is the ERP warehouse of the store stock mapping that has no completed ERP stock import. */
+            CountSessionsReadinessSubject: {
+                /** Format: uuid */
+                deviceId?: string;
+                warehouseRef?: string;
+            } & (unknown | unknown);
             /** @description RT-1423 (G6-7) — the tenant's Count Session activation switch and its readiness. */
             CountSessionsSetting: {
                 enabled: boolean;
@@ -22830,6 +23154,611 @@ export namespace OffersSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations;
+export namespace ConsoleForceActionsSchema {
+    export interface paths {
+        "/api/v1/stores/{store_id}/open-shifts": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    store_id: components["parameters"]["StoreId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * List every open shift of a store with its eligibility verdict.
+             * @description RT-1437 A1, D6. Every shift of the store whose lifecycle state is `open`, newest first, each with its verdict: stale, a live operator session, a live cashier admission, and the resulting blockers. Unlike the POS `GET /api/pos/v1/shifts/stuck` (which does not change), it lists shifts that are not eligible and the shift of a manager who is signed in elsewhere. The Console reader has no POS envelope, so the live-operator-session predicate counts every active `pos_operator` session of the opening cashier on the store, with no exception. The verdict is the same one `consoleForceCloseShift` evaluates, judged at `evaluatedAt`. A shift whose opening cashier has no display name is listed (RT-1438), with `displayName: null`.
+             *
+             *     Owner or `tenant_admin` with all-store access; every other caller is the non-disclosing 404. A store of another tenant, a deleted store and an unknown id are the same 404. At most one shift is open per device, so the list is short; it carries no cursor and is capped at 200.
+             */
+            get: operations["consoleListOpenShifts"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/shifts/{shift_id}/force-close-preview": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The `shiftId` of a shift of the caller's tenant (the id the list returns). Another tenant's shift, a shift outside the caller's scope and an unknown id are the non-disclosing 404. */
+                    shift_id: components["parameters"]["ShiftId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Preview what force-closing one shift would change. Read-only.
+             * @description RT-1437 A1. Reports, as recorded counts only, what a force close of this shift would do now: the shift and its verdict, the cash movements received and the last received time, the sales and refund executions recorded for the opening terminal since the shift opened, and the opening float as recorded. Never expected cash and never a variance (Constitution §III). It states what changes and what does not as closed code lists (the Console renders them in Arabic with no English fallback, UX-12), that the close is irreversible, and returns the `previewFingerprint` the write requires.
+             *
+             *     **A snapshot, not a reservation.** The write decides again in its own transaction. **Server-received view.** A fact the till has not synced cannot be seen, so the preview never claims everything has synced (`caveats`). A legacy shift (opened before the cash-up facts) has no received cash facts: `cashMovementCount` and `lastCashMovementReceivedAt` are null (unknown, never zero), as on the device impact preview (RT-366).
+             *
+             *     A shift that is no longer open is previewed too, with `shift.lifecycleState` `closed` or `closed_forced` and the blocker `shift_not_open`, so a stale Console tab learns the outcome. Another tenant's shift, a shift outside the caller's scope and an unknown id are the non-disclosing 404. Same roles as `consoleListOpenShifts`.
+             */
+            get: operations["consoleGetForceClosePreview"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/shifts/{shift_id}/force-close": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The `shiftId` of a shift of the caller's tenant (the id the list returns). Another tenant's shift, a shift outside the caller's scope and an unknown id are the non-disclosing 404. */
+                    shift_id: components["parameters"]["ShiftId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Force-close a stuck shift from the Console, as not counted.
+             * @description RT-1437 A1, D1, D2a, D5, D9. The Console equivalent of `forceCloseShift` (`pos-shifts.openapi.yaml`): the same `ShiftForceCloseService`, the same stuck rule, the same RT-811 admission rule, the same idempotency, and the same result, a shift closed as NOT COUNTED (`cashCount: not_counted`) with no counted cash, no variance and no `ShiftClose`. The preview's "what changes" and "what does not" lists apply unchanged.
+             *
+             *     **Eligibility** is the POS predicate evaluated at the call: the shift is open, older than the staleness threshold, its opening cashier has no active `pos_operator` session on the store (no caller exception: the Console reader has no envelope session), and its opening terminal holds no live cashier admission. Otherwise 409 `shift_not_stuck`, whose `error.details.blockers` lists every predicate that failed, so a live drawer is never closed from the Console.
+             *
+             *     **Roles (D1).** Owner or `tenant_admin` with all-store access. Every other caller, including a `store_manager`, is the non-disclosing 404; no caller reaches this operation as `platform_admin` or inside a support session. **Re-authentication (D2a):** none, the typed reason only.
+             *
+             *     **Idempotency.** `Idempotency-Key` is REQUIRED (the shared interceptor, keyed on the verified user). The natural key is the shift with the hash of `forcedReason`, never the actor, the channel or the fingerprint: the same close sent again under another key, by another user, from the Console or a POS, is a `200` replay of the recorded fact. The evaluation order is in the contract description.
+             *
+             *     **Effect and the till that comes back.** Nothing already recorded is edited or deleted. The opening terminal does not know yet: its later `closeShift` is 409 `shift_force_closed` (`pos-shifts.openapi.yaml`); the POS treats that as final (RT-1442, merged).
+             *
+             *     **Audit.** One `shift.force_closed` event with the metadata listed in the contract description; the reason is never in it.
+             */
+            post: operations["consoleForceCloseShift"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/auth/reauth": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Re-enter the password to obtain a short-lived, single-use grant for one sensitive action.
+             * @description RT-1437 D2b (owner decision: re-enter the password and give a reason, for the store deletion only). **Mechanism, verified against main and the vendor docs.** The current user's password is verified server-side by the same path as sign-in: for a user with an ACTIVE external identity link, the provider's password sign-in (Descope `POST /v1/auth/password/signin`, the backend SDK's `password.signIn`, https://docs.descope.com/auth-methods/passwords/with-sdks/backend), whose returned session JWT is verified against the provider's keys and whose `sub` must equal the link's subject; for any other user, the native Argon2 hash that sign-in verifies. The provider's session is discarded and nothing from it is kept. Provider step-up (https://docs.descope.com/mfa-and-step-up/step-up) was considered and rejected: it needs the user's provider refresh token and flow or SDK interaction in the browser and issues a token with an `su` claim, but the Console holds only the native `dp2_session` and the password never reaches a browser SDK (RT-937). No re-authentication endpoint existed before this contract; the RT-414 break-glass decision (password re-entry plus reason) had no contract, so this operation defines it.
+             *
+             *     **The grant.** On success the response carries an opaque `reauthToken`, valid for 5 minutes (`expiresAt`), single use, and bound to the calling session, the user, the `purpose` and the `storeId`. The password is never part of the destructive request: the deletion carries only the token, so the password is never in an idempotency fingerprint or a replay record (the shared `IdempotencyInterceptor` hashes and stores the whole request body for 72 hours). The grant is consumed by the write that succeeds; a deletion refused for another reason (a guard, a stale preview) leaves it valid until it expires. A same-key replay never needs it.
+             *
+             *     **Refusals.** A wrong password, an unverifiable provider answer, a token that fails verification and a subject mismatch are ONE generic 403 `reauth_failed`; they cannot be told apart, so the response cannot be used to probe the password. It is never 401, because the Console treats a 401 as session loss. Failed attempts are counted per user, 5 per 15 minutes, as `changePassword` counts them (a success does not count); past that the answer is 429 `reauth_rate_limited` with `Retry-After`. A provider outage is 503 `identity_provider_unavailable` (an outage is not a wrong password). For `store_deletion` only the tenant `owner` may obtain a grant: a `tenant_admin` is 403 `store_deletion_owner_only`, and any other role, another tenant's store and an unknown store are the non-disclosing 404. Support sessions and `platform_admin` are refused as on every write here.
+             *
+             *     **Evaluation order.** The password is the LAST thing checked, so no caller who fails an earlier step can use this endpoint to test a password:
+             *
+             *
+             *       1. The guards: authentication (401), `Origin` and the support-session
+             *          gate (403), the console rate limit (429 `rate_limited`).
+             *
+             *       2. Body validation (400 `validation_error`).
+             *
+             *       3. The store and the role: the store in the caller's tenant, not
+             *          deleted (404); a role outside owner and `tenant_admin` (404); a
+             *          `tenant_admin` (403 `store_deletion_owner_only`).
+             *
+             *       4. The failed-attempt budget (429 `reauth_rate_limited`), read before
+             *          any password is verified, so a user over budget is refused without
+             *          another guess being tested. Only failed attempts count.
+             *
+             *       5. The password verification (403 `reauth_failed`, 503
+             *          `identity_provider_unavailable`).
+             *
+             *       6. The grant (200).
+             *
+             *
+             *     The response is never cached. The password and the token are never logged and never appear in an error, an audit row or a metric label.
+             */
+            post: operations["consoleReauthenticate"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Canonical error envelope, with the optional `details`. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. This contract adds `shift_not_found`, `shift_not_stuck`, `shift_closed`, `shift_force_closed`, `preview_stale`, `force_action_rate_limited`, `reauth_failed`, `reauth_rate_limited`, `store_deletion_owner_only` and `identity_provider_unavailable`. */
+                    code: string;
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                    /** @description Present on 409 `shift_not_stuck` (`blockers`). Absent on every other code. */
+                    details?: {
+                        blockers?: components["schemas"]["ShiftBlocker"][];
+                    };
+                };
+            };
+            /** @description Opaque server-computed digest of the previewed state (a SHA-256 hex string today). Clients store and echo it, never interpret it. */
+            FingerprintString: string;
+            /**
+             * @description Why the shift cannot be force-closed now. `shift_not_open`: it is already closed or force-closed. `not_stale`: it was opened less than the staleness threshold ago. `live_operator_session`: its opening cashier has an active `pos_operator` session on the store. `live_cashier_admission`: its opening terminal holds a live cashier admission (RT-811).
+             * @enum {string}
+             */
+            ShiftBlocker: "shift_not_open" | "not_stale" | "live_operator_session" | "live_cashier_admission";
+            /** @description The stuck rule evaluated at `evaluatedAt`. `eligible` is true exactly when `blockers` is empty. */
+            ShiftVerdict: {
+                eligible: boolean;
+                /** @description Opened longer ago than the staleness threshold. */
+                stale: boolean;
+                liveOperatorSession: boolean;
+                liveCashierAdmission: boolean;
+                blockers: components["schemas"]["ShiftBlocker"][];
+            };
+            ShiftCashier: {
+                /** Format: uuid */
+                userId: string;
+                /** @description The opening cashier's display name; null when the user has none. */
+                displayName: string | null;
+            };
+            ShiftTerminal: {
+                /** Format: uuid */
+                deviceId: string;
+                /** @description The terminal's label; null when it has none. */
+                label: string | null;
+                /**
+                 * Format: date-time
+                 * @description The terminal's last heartbeat; null when it never reported.
+                 */
+                lastSeenAt: string | null;
+                /**
+                 * @description The device trust state (`devices.openapi.yaml`).
+                 * @enum {string}
+                 */
+                trustState: "active" | "revoked" | "retired";
+            };
+            OpenShiftSummary: {
+                /** Format: uuid */
+                shiftId: string;
+                /** Format: uuid */
+                storeId: string;
+                /**
+                 * @description How the shift was opened (`shifts.source`).
+                 * @enum {string}
+                 */
+                source: "cash_up" | "legacy";
+                /**
+                 * @description Always `open` in a list; the preview of a finished shift reports its state.
+                 * @enum {string}
+                 */
+                lifecycleState: "open" | "closed" | "closed_forced";
+                /** Format: date-time */
+                openedAt: string;
+                /** @description Minutes since `openedAt` at `evaluatedAt`. Not covered by the fingerprint. */
+                ageMinutes: number;
+                cashier: components["schemas"]["ShiftCashier"];
+                terminal: components["schemas"]["ShiftTerminal"];
+                verdict: components["schemas"]["ShiftVerdict"];
+            };
+            OpenShiftList: {
+                /** Format: uuid */
+                storeId: string;
+                /**
+                 * Format: date-time
+                 * @description Server time the verdicts were computed at.
+                 */
+                evaluatedAt: string;
+                /** @description The staleness threshold the verdicts used (the stuck-list threshold). */
+                staleThresholdMinutes: number;
+                items: components["schemas"]["OpenShiftSummary"][];
+            };
+            /** @description Recorded counts and amounts only, as the server received them. Never an expected-cash or variance figure. */
+            RecordedFacts: {
+                /** @description The shift's ISO-4217 currency; null for a legacy shift. */
+                currencyCode: string | null;
+                /** @description The opening float as recorded, an exact-decimal string; null for a legacy shift. */
+                openingFloat: string | null;
+                /** @description Cash movements received for the shift; null for a legacy shift (unknown, never zero). */
+                cashMovementCount: number | null;
+                /**
+                 * Format: date-time
+                 * @description When the server last received a movement; null when none, and for a legacy shift.
+                 */
+                lastCashMovementReceivedAt: string | null;
+                /** @description Sales captured from the opening terminal with a sale time at or after the shift opened, as the server recorded them. */
+                saleCount: number;
+                /** @description Refund executions recorded from the opening terminal since the shift opened. */
+                refundExecutionCount: number;
+            };
+            ForceClosePreview: {
+                shift: components["schemas"]["OpenShiftSummary"];
+                recorded: components["schemas"]["RecordedFacts"];
+                effects: {
+                    willChange: ("shift_closed_not_counted" | "no_cash_up_recorded" | "terminal_may_open_new_shift" | "device_retire_replace_move_unblocked" | "timezone_change_unblocked")[];
+                    willNotChange: ("sales_unchanged" | "refunds_unchanged" | "cash_movements_unchanged" | "stock_unchanged" | "erp_documents_unchanged")[];
+                };
+                /**
+                 * @description There is no reopen operation. A later close from the till is refused 409 `shift_force_closed`.
+                 * @constant
+                 */
+                reversible: false;
+                /**
+                 * @description The drawer's real cash stays unaccounted in Retail Tower.
+                 * @constant
+                 */
+                drawerCashUnaccounted: true;
+                /** @description Limits of what the server can see, always returned. `offline_facts_not_visible`: a shift, sale or movement the till has not synced is not counted. `terminal_not_notified`: the till is not told and learns only when its next close is refused. */
+                caveats: ("offline_facts_not_visible" | "terminal_not_notified")[];
+                previewFingerprint: components["schemas"]["FingerprintString"];
+                /** Format: date-time */
+                evaluatedAt: string;
+            };
+            /** @description The actor is the cookie session user, the time is the server clock, and tenant and store come from the session and the shift; the body carries none of them and no cash-up total (a force close records none). */
+            ConsoleForceCloseRequest: {
+                /** @description Why the shift is closed from the Console. 1 to 200 characters. No PII. Stored with the fact; never logged, never in audit metadata. Part of the natural-key payload hash. */
+                forcedReason: string;
+                previewFingerprint: components["schemas"]["FingerprintString"];
+            };
+            /** @description The recorded force close, as the Console reads it. No total of any kind exists on it. No internal id (tenant, store, device) is returned. */
+            ConsoleForcedCloseRecord: {
+                /** Format: uuid */
+                closedByUserId: string;
+                /** Format: date-time */
+                closedAt: string;
+                /**
+                 * @description Where the close came from: a POS terminal (`pos`) or this surface (`console`). The fact records it explicitly (D5), because a null terminal label already means "the terminal has no label".
+                 * @enum {string}
+                 */
+                closedVia: "pos" | "console";
+                /** @description Label of the terminal the request came from. Always null for a `console` close; null for a `pos` close from a terminal with no label. */
+                closedFromTerminalLabel: string | null;
+                openedOnTerminalLabel: string | null;
+                forcedReason: string;
+                /** @constant */
+                cashCount: "not_counted";
+            };
+            /** @description A shift closed as not counted. It is NOT a `Shift`: `status` is `force_closed`, never `closed`. The same fields as the POS `ForceClosedShift`, with the Console record; null `currencyCode`, `openingFloat` and `receivedAt` for a legacy shift. */
+            ConsoleForceClosedShift: {
+                /** Format: uuid */
+                shiftId: string;
+                /** @constant */
+                status: "force_closed";
+                currencyCode: string | null;
+                openingFloat: string | null;
+                /** Format: date-time */
+                openedAt: string;
+                /** Format: uuid */
+                openingUserId: string;
+                /** Format: date-time */
+                receivedAt: string | null;
+                forcedClose: components["schemas"]["ConsoleForcedCloseRecord"];
+            };
+            ReauthRequest: {
+                /**
+                 * @description The one action this grant is for. More purposes need their own owner decision.
+                 * @enum {string}
+                 */
+                purpose: "store_deletion";
+                /**
+                 * Format: uuid
+                 * @description The store the grant is bound to.
+                 */
+                storeId: string;
+                /** @description The current user's password. Never logged, stored or echoed. */
+                password: string;
+            };
+            ReauthGrant: {
+                /** @description Opaque, single-use, bound to the session, user, purpose and store. A credential: never logged. */
+                reauthToken: string;
+                /** @enum {string} */
+                purpose: "store_deletion";
+                /** Format: uuid */
+                storeId: string;
+                /**
+                 * Format: date-time
+                 * @description 5 minutes after the grant was issued.
+                 */
+                expiresAt: string;
+            };
+        };
+        responses: {
+            /** @description 401 — no valid session, or a non-session credential. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 404 — the non-disclosing refusal: a role or scope outside the contract's list, another tenant's resource, or an unknown id. One body for every cause. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 400 — `validation_error` (a malformed body, path or unknown key), `idempotency_key_required` or `idempotency_key_malformed`. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 — `origin_rejected` (RT-430: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session refusal (`support_session_required`, `support_session_expired`, `support_session_read_only`): no write on this surface is admitted in a support session. */
+            ForbiddenForce: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 on `consoleForceCloseShift`. `error.code` is one of: `idempotency_key_conflict` (the same key reused with a different body); `shift_force_closed` (already force-closed with a different `forcedReason`); `shift_closed` (already closed with a cash-up); `shift_not_stuck` (open but not eligible now, with `error.details.blockers`); `preview_stale` (the previewed state changed: read the preview again). Deterministic; nothing is recorded. */
+            ForceCloseConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 425 `idempotency_in_progress`: the first request with this key is still being processed. Nothing is recorded by this request. Retry with the same key and body after `Retry-After`. The body is the interceptor's own shape, `{ error: "idempotency_in_progress", retryAfterSec }`, not the `Error` envelope. */
+            IdempotencyInProgress: {
+                headers: {
+                    /** @description Seconds to wait before retrying (currently always 2). */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        error: "idempotency_in_progress";
+                        retryAfterSec: number;
+                    };
+                };
+            };
+            /** @description 5xx — internal failure; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574, the per-user console limit; see the shared 429 on the reads) or `force_action_rate_limited` (D9: the tenant's hourly cap of force actions is spent, or, on `consoleReauthenticate`, `reauth_rate_limited`: the user's failed-attempt budget is spent). The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. */
+            ForceActionTooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            StoreId: string;
+            /** @description The `shiftId` of a shift of the caller's tenant (the id the list returns). Another tenant's shift, a shift outside the caller's scope and an unknown id are the non-disclosing 404. */
+            ShiftId: string;
+            /** @description REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the method, the route, the path parameters, the verified user and the key. An identical retry replays the stored response with `Idempotent-Replayed: true`; reuse with a different body is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
+            IdempotencyKey: string;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description Present and `true` on every idempotent-replay response. Clients MUST detect a replay by this header, not by the status code. Absent on a first-time record. */
+            IdempotentReplayed: boolean;
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleListOpenShifts: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    store_id: components["parameters"]["StoreId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The store's open shifts, possibly none. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpenShiftList"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetForceClosePreview: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The `shiftId` of a shift of the caller's tenant (the id the list returns). Another tenant's shift, a shift outside the caller's scope and an unknown id are the non-disclosing 404. */
+                    shift_id: components["parameters"]["ShiftId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The impact preview. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ForceClosePreview"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        consoleForceCloseShift: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED. 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the method, the route, the path parameters, the verified user and the key. An identical retry replays the stored response with `Idempotent-Replayed: true`; reuse with a different body is 409 `idempotency_key_conflict`; a key whose first request is still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. No new idempotency primitive. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The `shiftId` of a shift of the caller's tenant (the id the list returns). Another tenant's shift, a shift outside the caller's scope and an unknown id are the non-disclosing 404. */
+                    shift_id: components["parameters"]["ShiftId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConsoleForceCloseRequest"];
+                };
+            };
+            responses: {
+                /** @description Replay. The same `Idempotency-Key` again (the stored response with its stored status), or the same close re-delivered under another key or by another channel (`200` with the recorded projection). Both carry `Idempotent-Replayed: true`. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleForceClosedShift"];
+                    };
+                };
+                /** @description Shift force-closed for the first time. A retry with the same `Idempotency-Key` replays this stored `201` with `Idempotent-Replayed: true`. */
+                201: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConsoleForceClosedShift"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenForce"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["ForceCloseConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["ForceActionTooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        consoleReauthenticate: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReauthRequest"];
+                };
+            };
+            responses: {
+                /** @description The grant. */
+                200: {
+                    headers: {
+                        /** @description Always `no-store`. */
+                        "Cache-Control": "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReauthGrant"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                /** @description `reauth_failed` (the generic refusal), `store_deletion_owner_only`, `origin_rejected` (RT-430), or a support-session refusal (`support_session_required`, `support_session_expired`, `support_session_read_only`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["ForceActionTooManyRequests"];
+                /** @description `identity_provider_unavailable`: the provider (or the limiter) is unavailable. Nothing was granted. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations;

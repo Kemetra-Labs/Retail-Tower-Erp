@@ -545,6 +545,18 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "Offers",
     path: "services/backend-core/packages/contracts/openapi/offers.openapi.yaml",
   },
+  // Console force actions (RT-1444 contract #641; RT-1445 runtime #643, RT-1439 runtime #642;
+  // RT-1440): the three shift operations `consoleListOpenShifts`, `consoleGetForceClosePreview` and
+  // `consoleForceCloseShift`, wrapped for the open-shifts view and the close-without-a-count dialog.
+  // `consoleReauthenticate` (the store-deletion grant, RT-1441) is composed, not called. Consume-only;
+  // no YAML authored here. NEW SOURCE at the repin to the RT-1439 merge commit (831588367), the
+  // `main` commit that carries both runtimes. Of the 38 other sources only `inventory/inventory.yaml`
+  // (1.19.0-draft: the optional `subject` on `UnmetReadiness`, RT-1444) and `stores.openapi.yaml`
+  // (1.3.0-draft: the guarded delete 409 and the deletion operations, RT-1439) moved.
+  {
+    name: "ConsoleForceActions",
+    path: "services/backend-core/packages/contracts/openapi/console-force-actions.openapi.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */
