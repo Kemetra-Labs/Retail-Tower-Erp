@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
+import { MembershipRepository } from "../context/membership.repository";
 import { canonicalJson } from "../idempotency/canonical-json";
 import { ShiftCashUpError } from "./shift-cash-up.errors";
 import type { ShiftWriteResult } from "./shift-cash-up.service";
@@ -47,7 +48,6 @@ import {
 } from "./shift-force-close.repository";
 import { formatMoney } from "./shift-money";
 
-export type { ForceCloseAudit } from "./shift-force-close.audit";
 
 /** What the envelope guard published: scope, actor, calling terminal and session. */
 export interface ForceCloseContext {
@@ -138,7 +138,7 @@ export interface ConsoleForceCloseRequest {
 }
 
 /** The `ConsoleForcedCloseRecord` projection: the POS record plus where the close came from. */
-export interface ConsoleForcedCloseProjection {
+interface ConsoleForcedCloseProjection {
   readonly closedByUserId: string;
   readonly closedAt: string;
   readonly closedVia: "pos" | "console";
@@ -154,7 +154,7 @@ export interface ConsoleForceClosedShiftProjection extends Omit<ForceClosedShift
 }
 
 /** What the record step hands the audit hook (the row is written in the close's transaction). */
-export interface ConsoleCloseEvent {
+interface ConsoleCloseEvent {
   readonly audit: ForceCloseAudit;
   readonly shiftId: string;
   readonly storeId: string;
@@ -172,7 +172,7 @@ export interface ConsoleCloseHooks {
 }
 
 /** The wire projection of a force-closed shift for the Console. No internal id is returned. */
-export function toConsoleForceClosedShiftProjection(
+function toConsoleForceClosedShiftProjection(
   shift: StoreShiftRow,
   close: ForcedCloseRow,
 ): ConsoleForceClosedShiftProjection {
@@ -209,12 +209,22 @@ interface ConsoleCloseRequest {
 }
 
 export class ShiftForceCloseService {
+  private readonly memberships: MembershipRepository;
+
   constructor(
     /** The NOBYPASSRLS domain pool (PG_POOL). */
     private readonly pool: Pool,
     private readonly repo: ShiftForceCloseRepository = new ShiftForceCloseRepository(),
-    private readonly thresholdMinutes: number = STUCK_THRESHOLD_MINUTES,
-  ) {}
+    /** The staleness threshold of the stuck rule: the one source for POS, list, preview and close. */
+    readonly thresholdMinutes: number = STUCK_THRESHOLD_MINUTES,
+  ) {
+    this.memberships = new MembershipRepository(pool);
+  }
+
+  /** The Console's stuck rule: it has no envelope session, so no session is excluded. */
+  consoleStuckRule(): { readonly callerTokenId: null; readonly thresholdMinutes: number } {
+    return { callerTokenId: null, thresholdMinutes: this.thresholdMinutes };
+  }
 
   async forceClose(
     ctx: ForceCloseContext,
@@ -227,7 +237,7 @@ export class ShiftForceCloseService {
       { tenantId: ctx.tenantId, isPlatformAdmin: false },
       async (client) => {
         const [found, written] = await this.forceCloseInTenant(client, { ctx, shiftId, fact, hash });
-        return [found, written, await readActorRole(client, ctx.tenantId, ctx.actorUserId)] as const;
+        return [found, written, await readActorRole(this.memberships, client, ctx.tenantId, ctx.actorUserId)] as const;
       },
     );
     const audit = buildForceCloseAudit({
@@ -287,10 +297,7 @@ export class ShiftForceCloseService {
       return { created: false, projection: toConsoleForceClosedShiftProjection(shift, close) };
     }
     if (shift.lifecycleState !== "open") throw new ShiftCashUpError("shift_closed");
-    const verdict = await this.repo.readVerdict(client, shift, {
-      callerTokenId: null,
-      thresholdMinutes: this.thresholdMinutes,
-    });
+    const verdict = await this.repo.readVerdict(client, shift, this.consoleStuckRule());
     const blockers = stuckBlockers(verdict);
     if (blockers.length > 0) throw new ShiftCashUpError("shift_not_stuck", { blockers });
     const facts = await readForceCloseFacts(client, shift);

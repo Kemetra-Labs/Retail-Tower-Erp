@@ -21,12 +21,8 @@ import { PG_POOL } from "../auth/auth.module";
 import { ShiftCashUpError } from "../pos-shifts/shift-cash-up.errors";
 import type { ShiftWriteResult } from "../pos-shifts/shift-cash-up.service";
 import { previewFingerprint, readForceCloseFacts, type ForceCloseFacts } from "../pos-shifts/shift-force-close.facts";
-import { ShiftForceCloseRepository, type StoreShiftRow } from "../pos-shifts/shift-force-close.repository";
-import {
-  ShiftForceCloseService,
-  STUCK_THRESHOLD_MINUTES,
-  type ConsoleForceClosedShiftProjection,
-} from "../pos-shifts/shift-force-close.service";
+import { ShiftForceCloseRepository, toStoreShift, type StoreShiftRow } from "../pos-shifts/shift-force-close.repository";
+import { ShiftForceCloseService, type ConsoleForceClosedShiftProjection } from "../pos-shifts/shift-force-close.service";
 import { formatMoney } from "../pos-shifts/shift-money";
 import { enforceForceActionCap, insertForceActionAudit } from "./force-action-cap";
 import {
@@ -113,7 +109,7 @@ export class ConsoleForceActionsService {
       const now = (await client.query<{ now: Date }>("SELECT now() AS now")).rows[0]!.now;
       const items: OpenShiftRow[] = [];
       for (const row of rows) {
-        const shift = toShiftRow(row);
+        const shift = toStoreShift(row, false);
         // One verdict per shift, the very SQL the POS force close and the write use.
         // sequential: one pg client runs one statement at a time.
         const verdict = await this.repo.readVerdict(client, shift, this.rule());
@@ -124,7 +120,7 @@ export class ConsoleForceActionsService {
           verdict,
         });
       }
-      return toOpenShiftListBody({ storeId, evaluatedAt: now, thresholdMinutes: STUCK_THRESHOLD_MINUTES, items });
+      return toOpenShiftListBody({ storeId, evaluatedAt: now, thresholdMinutes: this.forceClose.thresholdMinutes, items });
     });
   }
 
@@ -210,9 +206,9 @@ export class ConsoleForceActionsService {
     });
   }
 
-  /** The Console reader has no envelope session: nothing is excluded from the live-session predicate. */
+  /** The same rule the write judges with (one threshold source: `ShiftForceCloseService`). */
   private rule(): { callerTokenId: null; thresholdMinutes: number } {
-    return { callerTokenId: null, thresholdMinutes: STUCK_THRESHOLD_MINUTES };
+    return this.forceClose.consoleStuckRule();
   }
 }
 
@@ -220,22 +216,4 @@ async function requireFacts(client: PoolClient, shift: StoreShiftRow): Promise<F
   const facts = await readForceCloseFacts(client, shift);
   if (facts === null) throw new ShiftCashUpError("shift_not_found");
   return facts;
-}
-
-function toShiftRow(row: OpenShiftDbRow): StoreShiftRow {
-  return {
-    shiftId: row.shift_id,
-    tenantId: row.tenant_id,
-    storeId: row.store_id,
-    openingDeviceId: row.opening_device_id,
-    openingUserId: row.opening_cashier_user_id,
-    openedAt: row.opened_at,
-    lifecycleState: row.lifecycle_state,
-    source: row.source,
-    currencyCode: row.currency_code,
-    openingFloat: row.opening_float,
-    receivedAt: row.received_at,
-    openedOnTerminalLabel: row.opened_on_terminal_label,
-    notCounted: false,
-  };
 }

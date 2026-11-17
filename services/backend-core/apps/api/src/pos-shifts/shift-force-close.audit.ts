@@ -13,9 +13,10 @@
  */
 import type { PoolClient } from "pg";
 
+import type { MembershipRepository } from "../context/membership.repository";
 import type { StoreShiftRow } from "./shift-force-close.repository";
 
-export type ForceCloseChannel = "pos" | "console";
+type ForceCloseChannel = "pos" | "console";
 
 /** The `shift.force_closed` audit metadata. */
 export interface ForceCloseAudit {
@@ -62,15 +63,15 @@ export function buildForceCloseAudit(input: ForceCloseAuditInput): ForceCloseAud
 
 /**
  * The user's role code in the tenant (`owner`, `tenant_admin`, ...), or null
- * when they hold no live membership. Read in the force close's own tenant
- * transaction, so RLS scopes it to the tenant.
+ * when they hold no live membership in an active tenant. It is the guards' own
+ * lookup (`MembershipRepository.findRoleCodeForUserInTenant`), so "live role"
+ * has one definition, read in the force close's own tenant transaction.
  */
-export async function readActorRole(client: PoolClient, tenantId: string, userId: string): Promise<string | null> {
-  const r = await client.query<{ code: string }>(
-    `SELECT r.code FROM memberships m JOIN roles r ON r.id = m.role_id
-      WHERE m.tenant_id = $1 AND m.user_id = $2 AND m.revoked_at IS NULL AND m.deleted_at IS NULL
-      LIMIT 1`,
-    [tenantId, userId],
-  );
-  return r.rows[0]?.code ?? null;
+export function readActorRole(
+  memberships: MembershipRepository,
+  client: PoolClient,
+  tenantId: string,
+  userId: string,
+): Promise<string | null> {
+  return memberships.findRoleCodeForUserInTenant(userId, tenantId, client);
 }

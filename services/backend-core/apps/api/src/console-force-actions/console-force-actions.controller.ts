@@ -47,7 +47,7 @@ import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decor
 import { TenantContextGuard } from "../context/tenant-context.guard";
 import { Idempotent } from "../idempotency/idempotent.decorator";
 import { toShiftHttpError } from "../pos-shifts/shift-cash-up.errors";
-import type { ShiftWriteResult } from "../pos-shifts/shift-cash-up.service";
+import { settle } from "../pos-shifts/shift-cash-up.controller";
 import type { ConsoleForceClosedShiftProjection } from "../pos-shifts/shift-force-close.service";
 import {
   ConsoleForceCloseRequestSchema,
@@ -143,15 +143,4 @@ function rateLimited(err: unknown, request: ForceActionRequest, res: Response): 
     { code: "force_action_rate_limited", message: "Too many force actions. Try again later." },
     HttpStatus.TOO_MANY_REQUESTS,
   );
-}
-
-/** 201 for a first record; 200 with `Idempotent-Replayed: true` for a replay of the recorded fact. */
-function settle<T>(res: Response, result: ShiftWriteResult<T>): T {
-  if (result.created) {
-    res.status(HttpStatus.CREATED);
-  } else {
-    res.status(HttpStatus.OK);
-    res.setHeader("Idempotent-Replayed", "true");
-  }
-  return result.projection;
 }

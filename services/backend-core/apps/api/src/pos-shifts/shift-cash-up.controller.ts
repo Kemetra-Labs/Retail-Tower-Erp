@@ -135,7 +135,7 @@ async function mapped<R>(write: () => Promise<R>): Promise<R> {
 }
 
 /** 201 for a first record; 200 with `Idempotent-Replayed: true` for a replay. */
-function settle<T>(res: Response, result: ShiftWriteResult<T>): T {
+export function settle<T>(res: Response, result: ShiftWriteResult<T>): T {
   if (result.created) {
     res.status(HttpStatus.CREATED);
   } else {

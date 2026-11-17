@@ -24,11 +24,11 @@ import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
-export const FORCE_ACTION_CAP = 10;
-export const FORCE_ACTION_WINDOW_SECONDS = 3600;
+const FORCE_ACTION_CAP = 10;
+const FORCE_ACTION_WINDOW_SECONDS = 3600;
 
 /** The audit actions that count against the cap, when written with `channel: console`. */
-export const COUNTED_FORCE_ACTIONS = ["shift.force_closed", "store.deleted"] as const;
+const COUNTED_FORCE_ACTIONS = ["shift.force_closed", "store.deleted"] as const;
 
 /** The 429 `force_action_rate_limited`: the tenant's hourly cap is spent. */
 export class ForceActionRateLimitedError extends Error {

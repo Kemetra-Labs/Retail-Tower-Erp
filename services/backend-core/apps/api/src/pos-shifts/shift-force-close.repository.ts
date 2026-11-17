@@ -45,7 +45,7 @@ export interface StoreShiftRow {
 }
 
 /** Where a force close came from (`shift_forced_closes.closed_via`, 0119). */
-export type ForcedCloseVia = "pos" | "console";
+type ForcedCloseVia = "pos" | "console";
 
 /** The force close to record; the time is the server clock. */
 export interface NewForcedClose {
@@ -210,7 +210,7 @@ const FIND_FORCED_CLOSE_SQL = `
     LEFT JOIN devices od ON od.id = f.opening_device_id AND od.tenant_id = f.tenant_id
    WHERE f.shift_id = $1 AND f.tenant_id = $2 AND f.store_id = $3`;
 
-function toStoreShift(row: StoreShiftDbRow, notCounted: boolean): StoreShiftRow {
+export function toStoreShift(row: StoreShiftDbRow, notCounted: boolean): StoreShiftRow {
   return {
     shiftId: row.shift_id,
     tenantId: row.tenant_id,

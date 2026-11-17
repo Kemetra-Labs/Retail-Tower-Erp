@@ -7,9 +7,9 @@
 import { stuckBlockers, type StoreShiftRow, type StuckVerdict } from "../pos-shifts/shift-force-close.repository";
 import type { TerminalTrustState } from "../pos-shifts/shift-force-close.facts";
 
-export type ShiftBlocker = "shift_not_open" | "not_stale" | "live_operator_session" | "live_cashier_admission";
+type ShiftBlocker = "shift_not_open" | "not_stale" | "live_operator_session" | "live_cashier_admission";
 
-export interface ShiftVerdictBody {
+interface ShiftVerdictBody {
   readonly eligible: boolean;
   readonly stale: boolean;
   readonly liveOperatorSession: boolean;
@@ -78,7 +78,7 @@ export interface OpenShiftRow {
  * `blockers` is empty. A shift that is no longer open has the one blocker
  * `shift_not_open` (the other predicates are still reported as judged).
  */
-export function toVerdictBody(shift: StoreShiftRow, verdict: StuckVerdict): ShiftVerdictBody {
+function toVerdictBody(shift: StoreShiftRow, verdict: StuckVerdict): ShiftVerdictBody {
   const blockers: ShiftBlocker[] = shift.lifecycleState === "open" ? stuckBlockers(verdict) : ["shift_not_open"];
   return {
     eligible: blockers.length === 0,
