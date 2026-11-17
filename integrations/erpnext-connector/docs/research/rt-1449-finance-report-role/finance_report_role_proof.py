@@ -124,6 +124,8 @@ def guard():
 		sys.exit("refusing to run: RT_PROOF_SITE must name this exact site")
 	if frappe.conf.get("db_host") not in (None, "", "127.0.0.1", "localhost"):
 		sys.exit(f"refusing to run: database host {frappe.conf.get('db_host')!r} is not local")
+	if frappe.db.count("GL Entry"):
+		sys.exit("refusing to run: the site already has GL Entries; use a fresh throwaway site")
 	companies = frappe.get_all("Company", pluck="name")
 	if set(companies) - {COMPANY, OTHER_COMPANY}:
 		sys.exit(f"refusing to run: site has companies {companies}; use a fresh throwaway site")
@@ -746,10 +748,15 @@ def case_v2_write_refusal():
 				attempts[dt] = f"{type(e).__name__} (not a permission refusal)"
 	finally:
 		frappe.set_user("Administrator")
+	any_right = any(v for r in rights.values() for v in r.values())
 	return {
 		"has_permission": rights,
 		"insert_attempts": attempts,
-		"any_write_right": any(v for r in rights.values() for v in r.values()),
+		"any_write_right": any_right,
+		"expectation": {
+			"ok": not any_right and all(v == "PermissionError" for v in attempts.values()),
+			"meaning": "the service user holds no write right and every insert is a permission refusal",
+		},
 	}
 
 
@@ -764,7 +771,14 @@ def refused(user, report):
 
 
 def case_v2_norole():
-	return {r: refused(USERS["norole"], r) for r in REPORTS}
+	reports = {r: refused(USERS["norole"], r) for r in REPORTS}
+	return {
+		"reports": reports,
+		"expectation": {
+			"ok": "ALLOWED" not in reports.values(),
+			"meaning": "a user without the role is refused every report",
+		},
+	}
 
 
 def case_stock_role_comparison():
@@ -810,6 +824,15 @@ def case_v4_parity():
 		COMPANY,
 	)[0][0]
 	out["profit_vs_sql"] = {"report": flt(profit.get("total")) if profit else None, "sql": flt(income)}
+	same_rows = [v["service_user_equals_administrator"] for v in out.values() if "rows" in v]
+	profit_ok = out["profit_vs_sql"]["report"] is not None and (
+		abs(out["profit_vs_sql"]["report"] - out["profit_vs_sql"]["sql"]) < 0.01
+	)
+	out["expectation"] = {
+		"ok": bool(all(same_rows) and out["trial_balance_vs_sql"]["matches"] and profit_ok),
+		"meaning": "service user equals Administrator, and Trial Balance and profit equal independent SQL; "
+		"a profit row that was not found counts as not verified",
+	}
 	out["note"] = (
 		"Desk is the same run endpoint, so the Administrator run stands in for it; SQL is independent"
 	)
@@ -923,7 +946,29 @@ def case_v7_cost_centre():
 		}
 		isolation[report] = {k: len(rows_of(v)) for k, v in res.items()}
 	sql = {k: sql_totals(company=COMPANY, cost_center=v) for k, v in (("store_a", a), ("store_b", b))}
-	return {"gl_legs": legs, "report_rows_by_filter": isolation, "sql_by_cost_centre": sql}
+	by_store = {}
+	for key, centre in (("store_a", a), ("store_b", b)):
+		row = find_row(
+			run_as(USERS["svc"], "Trial Balance", filters_for("Trial Balance", cost_centre=centre)), "Total"
+		)
+		by_store[key] = {
+			"report_debit": flt(row.get("debit")) if row else None,
+			"sql_debit": sql[key]["debit"],
+		}
+	isolates = all(
+		v["report_debit"] is not None and abs(v["report_debit"] - v["sql_debit"]) < 0.01
+		for v in by_store.values()
+	)
+	return {
+		"gl_legs": legs,
+		"report_rows_by_filter": isolation,
+		"sql_by_cost_centre": sql,
+		"trial_balance_by_store": by_store,
+		"expectation": {
+			"ok": bool(isolates),
+			"meaning": "Trial Balance with a cost_center filter equals the SQL total for that cost centre",
+		},
+	}
 
 
 def case_v8_closed_period():
@@ -958,16 +1003,20 @@ def case_v9_load_signal():
 	if not STATE.get("jobs"):
 		return {"skipped": {"ok": False, "reason": "no worker on the report queue: V9 is NOT verified"}}
 
-	def ticks(n):
-		out = []
-		for _ in range(n):
+	def ticks(n, until=None, cap=150):
+		"""n ticks, then more while `until` says the load is still running; counts the ticks that started
+		while it was, so a window that missed the load cannot pass for a result."""
+		out, overlapped = [], 0
+		while len(out) < n or (until is not None and not until() and len(out) < cap):
+			if until is not None and not until():
+				overlapped += 1
 			t0 = time.time()
 			wait_job(enqueue(tick_job, "default"), 60)
 			out.append(round(time.time() - t0, 3))
 			time.sleep(0.5)
-		return out
+		return out, overlapped
 
-	baseline = ticks(10)
+	baseline, _ = ticks(10)
 	heavy = [
 		enqueue(
 			report_job,
@@ -978,13 +1027,25 @@ def case_v9_load_signal():
 		)
 		for _ in range(6)
 	]
-	loaded = ticks(10)
-	finished = [wait_job(j)["status"] for j in heavy]
+
+	def load_running():
+		return not all(
+			j.get_status(refresh=True) in ("finished", "failed", "stopped", "canceled") for j in heavy
+		)
+
+	loaded, overlapped = ticks(5, until=load_running)
+	outcomes = [wait_job(j) for j in heavy]
 	stat = lambda xs: {"median": statistics.median(xs), "max": max(xs)}  # noqa: E731
 	return {
 		"tick_seconds_baseline": stat(baseline),
 		"tick_seconds_under_report_load": stat(loaded),
-		"heavy_jobs": finished,
+		"ticks_started_during_load": overlapped,
+		"heavy_jobs": [o["status"] for o in outcomes],
+		"heavy_job_seconds": [(o["value"] or {}).get("seconds") for o in outcomes],
+		"expectation": {
+			"ok": overlapped >= 3 and all(o["status"] == "finished" for o in outcomes),
+			"meaning": "at least three ticks started while the report jobs were still running",
+		},
 		"note": "first signal on one shared site and DB; the lab proof stays separate",
 	}
 
@@ -1014,7 +1075,7 @@ def main():
 		return STATE["seed"]
 
 	step("setup_seed", setup)
-	if "seed" not in STATE:
+	if not RESULTS["cases"]["setup_seed"]["ok"]:  # any seeding step failing leaves a half-built site
 		write_results()
 		sys.exit("seeding failed: nothing to prove on; see the setup_seed case")
 	step("role_configuration", configure_role)
