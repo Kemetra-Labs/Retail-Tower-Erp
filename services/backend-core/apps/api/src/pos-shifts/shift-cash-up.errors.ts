@@ -15,6 +15,7 @@ export type ShiftCashUpFailure =
   | "shift_closed"
   | "shift_force_closed"
   | "shift_not_stuck"
+  | "preview_stale"
   | "shift_cashup_inconsistent"
   | "currency_mismatch"
   | "refund_ref_invalid";
@@ -47,6 +48,11 @@ const RESPONSES: Readonly<Record<ShiftCashUpFailure, { status: HttpStatus; messa
     status: HttpStatus.CONFLICT,
     message: "the shift is not stuck; close it from the terminal that holds it",
   },
+  // RT-1445: the Console force close's `previewFingerprint` no longer matches.
+  preview_stale: {
+    status: HttpStatus.CONFLICT,
+    message: "the shift changed since the preview; read the preview again",
+  },
   shift_cashup_inconsistent: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
     message: "the cash-up arithmetic does not hold",
@@ -62,7 +68,15 @@ const RESPONSES: Readonly<Record<ShiftCashUpFailure, { status: HttpStatus; messa
 };
 
 export class ShiftCashUpError extends Error {
-  constructor(readonly failure: ShiftCashUpFailure) {
+  /**
+   * `details` is the envelope's optional `error.details`: only 409
+   * `shift_not_stuck` from the Console carries one (`blockers`, RT-1445). It
+   * names stuck-rule predicates, never an id or a scope.
+   */
+  constructor(
+    readonly failure: ShiftCashUpFailure,
+    readonly details?: Readonly<Record<string, unknown>>,
+  ) {
     super(failure);
     this.name = "ShiftCashUpError";
   }
@@ -72,5 +86,8 @@ export class ShiftCashUpError extends Error {
 export function toShiftHttpError(err: unknown): unknown {
   if (!(err instanceof ShiftCashUpError)) return err;
   const { status, message } = RESPONSES[err.failure];
-  return new HttpException({ code: err.failure, message }, status);
+  return new HttpException(
+    { code: err.failure, message, ...(err.details === undefined ? {} : { details: err.details }) },
+    status,
+  );
 }

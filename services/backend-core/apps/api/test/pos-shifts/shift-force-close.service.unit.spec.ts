@@ -128,6 +128,7 @@ const forcedCloseWith = (payloadHash: Buffer, closedByUserId = MANAGER): ForcedC
   closedByUserId,
   closedAt: new Date("2026-10-06T09:10:00Z"),
   closedFromDeviceId: TILL_B,
+  closedVia: "pos",
   closedFromTerminalLabel: "till-B",
   openedOnTerminalLabel: "till-A",
   forcedReason: REASON,
@@ -162,7 +163,21 @@ describe("forceClose — a first force close (201)", () => {
 
   it("hands the controller the audit evidence: the shift and both terminals, never the reason", async () => {
     const result = await harness({ shift: cashUpShift("open") }).service.forceClose(CTX, SHIFT_ID, { forcedReason: REASON });
-    expect(result.audit).toEqual({ shift_id: SHIFT_ID, closed_from_device_id: TILL_B, opened_on_device_id: TILL_A, replayed: false });
+    // RT-1445: the shared builder also writes the channel and the shift facts (the POS response is unchanged).
+    expect(result.audit).toMatchObject({
+      shift_id: SHIFT_ID,
+      channel: "pos",
+      actor_role: null, // the fake client has no membership row
+      preview_fingerprint: null,
+      lifecycle_state_before: "open",
+      lifecycle_state_after: "closed_forced",
+      closed_from_device_id: TILL_B,
+      opened_on_device_id: TILL_A,
+      opening_user_id: CASHIER,
+      replayed: false,
+    });
+    expect(typeof result.audit.shift_age_minutes).toBe("number");
+    expect(JSON.stringify(result.audit)).not.toContain(REASON);
   });
 
   it("a legacy shift closes the same way, with null currency, float and receipt", async () => {

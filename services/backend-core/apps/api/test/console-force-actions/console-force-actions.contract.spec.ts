@@ -60,22 +60,16 @@ function op(doc: Node, path: string, method: string): Node {
   return doc["paths"]?.[path]?.[method] ?? {};
 }
 
-// Still contract-only until their runtime slice lands.
-const CONTRACT_ONLY_OPS: Array<[Node, string, string, string, string]> = [
-  [force, "/api/v1/stores/{store_id}/open-shifts", "get", "consoleListOpenShifts", "RT-1445"],
-  [force, "/api/v1/shifts/{shift_id}/force-close-preview", "get", "consoleGetForceClosePreview", "RT-1445"],
-  [force, "/api/v1/shifts/{shift_id}/force-close", "post", "consoleForceCloseShift", "RT-1445"],
-];
-// RT-1439 shipped these: the contract-only markers are lifted (the runtime specs cover them).
+// RT-1439 and RT-1445 shipped these: the contract-only markers are lifted (the runtime specs cover them).
 const RUNTIME_OPS: Array<[Node, string, string, string]> = [
+  [force, "/api/v1/stores/{store_id}/open-shifts", "get", "consoleListOpenShifts"],
+  [force, "/api/v1/shifts/{shift_id}/force-close-preview", "get", "consoleGetForceClosePreview"],
+  [force, "/api/v1/shifts/{shift_id}/force-close", "post", "consoleForceCloseShift"],
   [force, "/api/v1/auth/reauth", "post", "consoleReauthenticate"],
   [stores, "/api/v1/stores/{store_id}/deletion-preview", "get", "previewStoreDeletion"],
   [stores, "/api/v1/stores/{store_id}/deletion", "post", "consoleDeleteStore"],
 ];
-const NEW_OPS: Array<[Node, string, string, string]> = [
-  ...CONTRACT_ONLY_OPS.map(([doc, path, method, id]): [Node, string, string, string] => [doc, path, method, id]),
-  ...RUNTIME_OPS,
-];
+const NEW_OPS: Array<[Node, string, string, string]> = RUNTIME_OPS;
 
 describe("console force actions contract (RT-1444)", () => {
   it("is 1.0.0-draft; stores moved to 1.3.0-draft", () => {
@@ -83,15 +77,7 @@ describe("console force actions contract (RT-1444)", () => {
     expect(stores["info"].version).toBe("1.3.0-draft");
   });
 
-  it.each(CONTRACT_ONLY_OPS)("%#: is a contract-only cookieAuth operation naming its runtime slice", (doc, path, method, id, slice) => {
-    const o = op(doc, path, method);
-    expect(o["operationId"]).toBe(id);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toContain(slice);
-    expect(o["security"] ?? doc["security"]).toEqual([{ cookieAuth: [] }]);
-  });
-
-  it.each(RUNTIME_OPS)("%#: is a runtime cookieAuth operation (RT-1439 lifted its contract-only marker)", (doc, path, method, id) => {
+  it.each(RUNTIME_OPS)("%#: is a runtime cookieAuth operation (RT-1439 and RT-1445 lifted the contract-only marker)", (doc, path, method, id) => {
     const o = op(doc, path, method);
     expect(o["operationId"]).toBe(id);
     expect(o["x-runtime-status"]).toBeUndefined();

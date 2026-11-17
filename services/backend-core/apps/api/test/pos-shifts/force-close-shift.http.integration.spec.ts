@@ -63,6 +63,7 @@ import {
   stopHarness,
   waitForLockWaiters,
 } from "./__support__/shift-http-harness";
+import { forceCloseHash } from "../../src/pos-shifts/shift-force-close.service";
 
 beforeAll(() => startHarness("force-close-shift.http"), 240_000);
 afterAll(() => stopHarness(), 60_000);
@@ -128,7 +129,22 @@ describe("forceCloseShift — a manager clears a stuck shift from another termin
     }
     expect(await stateOf(shiftId)).toEqual(FORCE_CLOSED);
     expect(auditsOf("shift.force_closed").map((p) => [p.actor_user_id, p.store_id, p.metadata])).toEqual([
-      [MANAGER.id, DEV_A1.store, { shift_id: shiftId, closed_from_device_id: DEV_A1_SECOND.id, opened_on_device_id: DEV_A1.id, replayed: false }],
+      [
+        MANAGER.id,
+        DEV_A1.store,
+        expect.objectContaining({
+          shift_id: shiftId,
+          channel: "pos",
+          actor_role: expect.any(String),
+          preview_fingerprint: null,
+          lifecycle_state_before: "open",
+          lifecycle_state_after: "closed_forced",
+          closed_from_device_id: DEV_A1_SECOND.id,
+          opened_on_device_id: DEV_A1.id,
+          opening_user_id: CASHIER.id,
+          replayed: false,
+        }),
+      ],
     ]);
     expectReasonNeverLogged();
   });
@@ -412,6 +428,27 @@ describe("forceCloseShift — late facts from the opening terminal (contract, La
     const precision = closeBody({ countedCash: "2750.001", variance: "-4.999" });
     expectError(await post({ path: closePath(shiftId), bearer: DEV_A1.token, body: precision }), { status: 409, code: "shift_force_closed" });
     expect(await stateOf(shiftId)).toEqual(FORCE_CLOSED);
+  });
+
+  it("a Console-origin force close (RT-1445, no terminal) is final for the opening till: close → 409 shift_force_closed; a POS manager's same-reason close replays 200", async () => {
+    if (skipped()) return;
+    const open = openBody();
+    expect((await post({ path: OPEN_PATH, bearer: DEV_A1.token, body: open })).status).toBe(201);
+    const shiftId = open["shiftId"] as string;
+    // What `consoleForceCloseShift` records: closed_via 'console', no closing terminal, the same natural-key hash.
+    await admin().query(
+      `INSERT INTO shift_forced_closes
+         (shift_id, tenant_id, store_id, opening_device_id, closed_from_device_id, closed_via, closed_by_user_id, forced_reason, payload_hash)
+       VALUES ($1, $2, $3, $4, NULL, 'console', $5, $6, $7)`,
+      [shiftId, DEV_A1.tenant, DEV_A1.store, DEV_A1.id, MANAGER.id, REASON, forceCloseHash(shiftId, { forcedReason: REASON })],
+    );
+    await admin().query(`UPDATE shifts SET lifecycle_state = 'closed_forced' WHERE shift_id = $1`, [shiftId]);
+    expectError(await post({ path: closePath(shiftId), bearer: DEV_A1.token, body: closeBody() }), { status: 409, code: "shift_force_closed" });
+    const replay = await forceClose({ bearer: await managerEnvelope(DEV_A1_SECOND), shiftId });
+    expect(replay.status).toBe(200);
+    expect(replay.headers["idempotent-replayed"]).toBe("true");
+    expect(replay.body.forcedClose).toMatchObject({ closedByUserId: MANAGER.id, closedFromTerminalLabel: null, forcedReason: REASON });
+    expect(replay.body.forcedClose).not.toHaveProperty("closedVia"); // the POS record is unchanged
   });
 
   it("another terminal's close → the non-disclosing 404", async () => {
