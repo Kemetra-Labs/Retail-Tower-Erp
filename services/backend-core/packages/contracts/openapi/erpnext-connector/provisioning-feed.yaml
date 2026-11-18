@@ -909,7 +909,8 @@ components:
         siteName:
           type: string
           minLength: 1
-          maxLength: 128
+          maxLength: 63
+          pattern: '^t[0-9a-f]{20}[a-z0-9.-]*$'
           description: >
             Derived by Backend-Core from the tenant id (never from the slug or
             business name): `t`, then the first 20 hexadecimal characters of the
