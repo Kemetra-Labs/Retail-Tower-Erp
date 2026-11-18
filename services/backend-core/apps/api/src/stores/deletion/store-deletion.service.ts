@@ -21,6 +21,7 @@ import type { Pool, PoolClient } from "pg";
 import { runWithTenantContext } from "@data-pulse-2/db";
 
 import { PG_POOL } from "../../auth/auth.module";
+import type { ForceActionAuditActor } from "../../console-action-cap/force-action-actor";
 import { enforceForceActionCap } from "../../console-action-cap/force-action-cap";
 import { StoresRepository } from "../stores.repository";
 import { type ReauthBinding, ReauthGrantStore } from "./reauth-grant.store";
@@ -78,6 +79,8 @@ export interface ConsoleDeleteInput {
   readonly reason: string;
   readonly previewFingerprint: string;
   readonly reauthToken: string;
+  /** The admitted caller (kind, role, on-behalf-of), as `StoreDeletionOwnerGuard` published it. */
+  readonly actor: ForceActionAuditActor;
   readonly requestId: string | null;
 }
 
@@ -181,7 +184,8 @@ export class StoreDeletionService {
       const deletedAt = await deleteStoreWithAudit(client, this.stores, input.tenantId, facts, {
         channel: "console",
         actorUserId: input.userId,
-        actorRole: "owner",
+        actorRole: input.actor.role,
+        actor: input.actor,
         requestId: input.requestId,
         reason: input.reason,
         previewFingerprint: input.previewFingerprint,

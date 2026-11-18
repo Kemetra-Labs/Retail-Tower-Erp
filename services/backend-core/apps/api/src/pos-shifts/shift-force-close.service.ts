@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
+import type { ForceActionAuditActor } from "../console-action-cap/force-action-actor";
 import { MembershipRepository } from "../context/membership.repository";
 import { canonicalJson } from "../idempotency/canonical-json";
 import { ShiftCashUpError } from "./shift-cash-up.errors";
@@ -123,12 +124,15 @@ export function toForceClosedShiftProjection(shift: StoreShiftRow, close: Forced
   };
 }
 
-/** What the Console session published: the tenant, the closing user and their role. */
+/**
+ * What the Console session published: the tenant, the closing user and the admitted actor (the access
+ * guard ran before the service: an `owner` or `tenant_admin` with all-store access, or, since RT-1462,
+ * a platform admin acting on behalf of the tenant).
+ */
 export interface ConsoleForceCloseContext {
   readonly tenantId: string;
   readonly actorUserId: string;
-  /** `owner` or `tenant_admin` (the role gate ran before the service). */
-  readonly actorRole: string;
+  readonly actor: ForceActionAuditActor;
 }
 
 /** The `ConsoleForceCloseRequest` body. */
@@ -316,7 +320,8 @@ export class ShiftForceCloseService {
       audit: buildForceCloseAudit({
         shift,
         channel: "console",
-        actorRole: ctx.actorRole,
+        actorRole: ctx.actor.role,
+        actor: ctx.actor,
         previewFingerprint: fingerprint,
         closedFromDeviceId: null,
         replayed: false,

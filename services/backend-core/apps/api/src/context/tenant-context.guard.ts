@@ -245,6 +245,7 @@ export class TenantContextGuard implements CanActivate {
     // routes never infer it from a null active store. Platform admins are
     // tenant-wide (FR-TEN-6).
     let storeAccess: StoreAccess = { kind: "all" };
+    let supportSession: ResolvedContext["supportSession"];
 
     if (!isPlatformAdmin) {
       // FR-CTX-2: validate active membership.
@@ -284,7 +285,7 @@ export class TenantContextGuard implements CanActivate {
         }
       });
     } else {
-      await this.admitPlatformAdmin(principal, tenantId, storeId, access);
+      supportSession = await this.admitPlatformAdmin(principal, tenantId, storeId, access);
     }
 
     return {
@@ -294,6 +295,7 @@ export class TenantContextGuard implements CanActivate {
       isPlatformAdmin,
       source: "session",
       storeAccess,
+      ...(supportSession === undefined ? {} : { supportSession }),
     };
   }
 
@@ -304,19 +306,22 @@ export class TenantContextGuard implements CanActivate {
    * check (no membership/access policy applies to platform admins). The
    * repo's 'all' branch does exactly that check; the synthetic membershipId
    * is never referenced by 'all'.
+   *
+   * Returns the support session that admitted a non-member (RT-1462: the force
+   * actions record it as "on behalf of"); `undefined` for a member.
    */
   private async admitPlatformAdmin(
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     storeId: string | null,
     access: RequestAccess,
-  ): Promise<void> {
+  ): Promise<ResolvedContext["supportSession"]> {
     let member = false;
     await this.withBootstrapCtx(async (client) => {
       member = await this.memberships.hasLiveMembership(principal.userId, tenantId, client);
     });
-    if (!member) await this.enforceSupportSession(principal, tenantId, access);
-    if (storeId === null) return;
+    const supportSession = member ? undefined : await this.enforceSupportSession(principal, tenantId, access);
+    if (storeId === null) return supportSession;
     await this.withBootstrapCtx(async (client) => {
       const ok = await this.memberships.canAccessStore(
         "00000000-0000-0000-0000-000000000000",
@@ -327,21 +332,23 @@ export class TenantContextGuard implements CanActivate {
       );
       if (!ok) throw notFound();
     });
+    return supportSession;
   }
 
   private async enforceSupportSession(
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     access: RequestAccess,
-  ): Promise<void> {
+  ): Promise<{ readonly id: string; readonly ticketRef: string | null }> {
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    await new SupportSessionGate(this.pool).enforce(tenantId, {
+    const session = await new SupportSessionGate(this.pool).enforce(tenantId, {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: access.method,
       route: access.route,
       requestId: access.requestId(),
     });
+    return { id: session.id, ticketRef: session.ticketRef };
   }
 
   /**

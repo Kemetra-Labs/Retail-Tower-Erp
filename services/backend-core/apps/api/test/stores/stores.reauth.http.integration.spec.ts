@@ -131,7 +131,6 @@ describe("the evaluation order: the password is verified last", () => {
     ["an owner on an unknown store", () => h.signIn("owner"), randomUUID(), 404, null],
     ["an owner on another tenant's store", () => h.signIn("owner"), STORE_GLOBEX, 404, null],
     ["the other tenant's owner on this store", () => h.signIn("globexOwner", GLOBEX_ID), STORE_A, 404, null],
-    ["a platform admin in a support session", () => h.signInPlatformAdmin(), STORE_A, 403, "support_session_read_only"],
   ])("%s is refused before any password is tested, and spends no budget", async (_name, cookieOf, storeId, status, code) => {
     if (skip()) return;
     const cookie = await cookieOf();
@@ -145,12 +144,29 @@ describe("the evaluation order: the password is verified last", () => {
     expect(await auditActions(USERS.manager.id)).not.toContain("auth.reauth.refused");
   });
 
-  it("a platform admin who is not an owner never gets a grant, with the right password", async () => {
+  it("a platform admin in a support session (RT-1462) gets a grant with THEIR OWN password, never the owner's", async () => {
     if (skip()) return;
     const cookie = await h.signInPlatformAdmin();
+    const wrong = await reauth(cookie, STORE_A, USERS.owner.password);
+    expect([wrong.status, codeOf(wrong)]).toEqual([403, "reauth_failed"]);
     const res = await reauth(cookie, STORE_A, USERS.platform.password);
-    expect(res.status).toBe(403);
-    expect(codeOf(res)).toBe("support_session_read_only");
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ purpose: "store_deletion", storeId: STORE_A });
+    // The grant row says who asked, and on whose behalf; never the password.
+    const rows = await h.admin.query<{ action: string; metadata: Record<string, unknown> }>(
+      `SELECT action, metadata FROM audit_events WHERE actor_user_id = $1 AND action LIKE 'auth.reauth.%' ORDER BY occurred_at`,
+      [USERS.platform.id],
+    );
+    expect(rows.rows.map((r) => r.action)).toEqual(["auth.reauth.refused", "auth.reauth.granted"]);
+    for (const row of rows.rows) {
+      expect(row.metadata).toMatchObject({
+        purpose: "store_deletion",
+        store_id: STORE_A,
+        actor_kind: "platform_admin",
+        on_behalf_of: { tenant_id: ACME_ID, support_session_id: expect.any(String), ticket_ref: null },
+      });
+      expect(JSON.stringify(row.metadata)).not.toContain(USERS.platform.password);
+    }
   });
 
   it("the failed attempts of the refused callers did not touch the owner's budget", async () => {

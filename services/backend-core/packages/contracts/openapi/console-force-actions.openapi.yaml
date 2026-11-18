@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Console Force Actions API (shifts and re-authentication)
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     RT-1444 (C1 of RT-1437; `[GATED: contract]`, owner decisions D1 to D10
     approved 2026-11-16, Confluence RETAIL page 80084994, RT-1437 comment
@@ -16,6 +16,18 @@ info:
     `closedVia`), and `consoleReauthenticate` is runtime since B2 (RT-1439). No
     wire change in those edits: only the markers of the shipped operations are
     dropped.
+
+
+    **1.1.0-draft (RT-1462, `[GATED: contract]`; owner decision 2026-11-18,
+    RT-1437 comment 17453 and RT-1462 comment 17454; amends D1).** A PLATFORM
+    ADMIN may use the force actions on a customer's behalf: the three shift
+    operations here, `consoleReauthenticate`, and (in `stores.openapi.yaml`
+    1.4.0-draft) the store deletion. The same guards, the same preview and
+    fingerprint, the same typed reason, the same re-authentication and the same
+    D9 cap apply; nothing about a rule is weakened. No wire change: no path,
+    parameter, request body or response schema changes, and the shift response
+    is unchanged. What changes is who is admitted, and the audit metadata
+    (below). Every other caller keeps the uniform 404.
 
 
     **What "force" means here (decision record, principle 1 and 3).** The
@@ -35,13 +47,19 @@ info:
     access. `store_manager` keeps only the POS force close. A `store_manager`,
     a `store_staff`, a `tenant_admin` with specific-store access, another
     tenant's shift and an unknown id are the same non-disclosing 404
-    (`RolesGuard` default `denyAs: 404`, FR-ISO-4). A `platform_admin` who is
-    not a tenant member is admitted only through a support session
-    (RT-414), and a support session never admits these operations: the writes
-    are refused 403 `support_session_read_only`, and no write of this surface
-    is a break-glass. The tenant comes from the session, never from the
-    request (§II, §XII). Every cookie write must carry a trusted `Origin`
-    (RT-430), else 403 `origin_rejected`.
+    (`RolesGuard` default `denyAs: 404`, FR-ISO-4). **A platform admin is
+    admitted (RT-1462, amending D1),** whether or not they are a member of the
+    tenant, and whatever membership role they hold there. A platform admin who
+    is not a tenant member reaches the tenant only through an active support
+    session for it (RT-414, unchanged), so they act on a customer's tenant only
+    inside a session that names it; `support_session_required` and
+    `support_session_expired` still refuse a request outside one. A support
+    session still admits no OTHER write: this amendment names exactly the
+    operations of this surface and the store deletion, and a suspended
+    tenant's support session stays read-only for an unsafe method
+    (`support_session_read_only`, RT-414). The tenant comes from the session,
+    never from the request (§II, §XII). Every cookie write must carry a trusted
+    `Origin` (RT-430), else 403 `origin_rejected`.
 
 
     **Preview, then confirm, then re-check (principle 2).** The preview is a
@@ -139,15 +157,27 @@ info:
     **Audit.** The existing `shift.force_closed` event gains these metadata
     keys (additive). `channel`: `console` for this surface (`pos` on the POS
     path, which the B1 runtime also starts to write). `actor_role`: the
-    closing user's role. `preview_fingerprint`: the fingerprint the request
+    closing user's role in the tenant (null for a platform admin who is not a
+    member). **RT-1462:** `actor_kind` (`owner`, `tenant_admin` or
+    `platform_admin`; `platform_admin` whenever the caller is a platform admin,
+    even when the same account also holds an owner membership) and
+    `on_behalf_of` (null for `owner` and `tenant_admin`; for a platform admin
+    an object `{ tenant_id, support_session_id, ticket_ref }`: the customer
+    tenant, the live support session the request ran in, and its ticket
+    reference, each null when absent). `on_behalf_of` is read from the server
+    (the session's tenant and the live support session), never from the
+    request, and holds ids and a ticket reference only: no customer name,
+    e-mail or phone. `preview_fingerprint`: the fingerprint the request
     carried (null on the POS path). `lifecycle_state_before`: `open`.
     `lifecycle_state_after`: `closed_forced`. `opened_on_device_id`,
     `opening_user_id` and `shift_age_minutes`. `closed_from_device_id` is null
     for a Console close. The existing `shift_id` and `replayed` keys are
     unchanged. The reason is never in the metadata. The closing user is the
     audit actor. The re-authentication writes `auth.reauth.granted` and
-    `auth.reauth.refused`, whose metadata is `purpose` and `store_id` only: no
-    password and no token, ever.
+    `auth.reauth.refused`, whose metadata is `purpose` and `store_id`, plus
+    `actor_kind` and `on_behalf_of` when the caller is a platform admin
+    (RT-1462): no password and no token, ever. A platform admin re-enters their
+    OWN password, never the customer's.
 
 
     **PII.** User references are `users.id` values; the opening cashier's
@@ -598,7 +628,7 @@ paths:
             `reauth_failed` (the generic refusal), `store_deletion_owner_only`,
             `origin_rejected` (RT-430), or a support-session refusal
             (`support_session_required`, `support_session_expired`,
-            `support_session_read_only`).
+            `support_session_read_only` on a suspended tenant).
           content:
             application/json:
               schema:
@@ -1088,9 +1118,10 @@ components:
         403 — `origin_rejected` (RT-430: the request is authenticated by the
         `dp2_session` cookie and its `Origin` header is missing, or is neither the
         API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session
-        refusal (`support_session_required`, `support_session_expired`,
-        `support_session_read_only`): no write on this surface is admitted in a
-        support session.
+        refusal (`support_session_required`, `support_session_expired`, or
+        `support_session_read_only` on a suspended tenant). Since RT-1462 an
+        active support session admits the writes of this surface for a platform
+        admin.
       content:
         application/json:
           schema:

@@ -14,7 +14,6 @@ import {
 const PREVIEW_STALE = "preview_stale";
 const REAUTH_REQUIRED = "reauth_required";
 const STORE_DELETION_OWNER_ONLY = "store_deletion_owner_only";
-const SUPPORT_SESSION_READ_ONLY = "support_session_read_only";
 
 /** The non-disclosing 404 (a role outside the contract, another tenant's store, an unknown or deleted id). */
 export function storeNotFound(): NotFoundException {
@@ -52,13 +51,5 @@ export function storeDeletionOwnerOnly(): ForbiddenException {
   return new ForbiddenException({
     code: STORE_DELETION_OWNER_ONLY,
     message: "Only the tenant owner can delete a store.",
-  });
-}
-
-/** A support session never admits a write of this surface (RT-414: read-only). */
-export function supportSessionReadOnly(): ForbiddenException {
-  return new ForbiddenException({
-    code: SUPPORT_SESSION_READ_ONLY,
-    message: "The support session is read-only for this tenant",
   });
 }

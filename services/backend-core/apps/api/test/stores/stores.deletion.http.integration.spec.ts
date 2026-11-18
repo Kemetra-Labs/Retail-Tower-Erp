@@ -10,7 +10,9 @@
  *      nothing is deleted, no audit row is written, no grant is spent;
  *   2. a clean store is deleted and writes exactly one `store.deleted` audit row (console and api);
  *   3. the deletion request needs the re-authentication grant;
- *   4. a tenant_admin, another tenant's owner and a platform admin are refused;
+ *   4. a tenant_admin and another tenant's owner are refused; a platform admin is ADMITTED
+ *      (RT-1462), re-entering their OWN password, and the audit row says
+ *      `actor_kind: platform_admin` on behalf of the tenant and the support session;
  *   5. the preview matches what the write evaluates; a stale fingerprint is 409 `preview_stale`;
  *   + replay, the hourly cap (D9), and that the preview writes nothing.
  */
@@ -48,6 +50,7 @@ const STORE = {
   preview: sid(16),
   manyDevices: sid(17),
   manyRetired: sid(18),
+  platformDelete: sid(19),
   globex: "20000000-bbbb-4bbb-8bbb-000000000001",
 };
 const DEVICE = {
@@ -476,9 +479,50 @@ describe("who may use the deletion surface (AC4)", () => {
     await expectRefused(await h.signIn("globexOwner", GLOBEX_ID), 404, null);
   });
 
-  it("a platform admin in a support session is never admitted: 403 support_session_read_only", async () => {
+  it("a platform admin in a support session is ADMITTED (RT-1462): own password, platform_admin on behalf of the tenant", async () => {
     if (skip()) return;
-    await expectRefused(await h.signInPlatformAdmin(), 403, "support_session_read_only");
+    const cookie = await h.signInPlatformAdmin();
+    const p = await preview(cookie, STORE.platformDelete).expect(200);
+    expect(p.body).toMatchObject({ canDelete: true, blockers: [] });
+    // The re-authentication is the CALLER's own password: the owner's does not work for a platform admin.
+    const wrong = await h.http().post("/api/v1/auth/reauth").set("Cookie", cookie).set(SAME_ORIGIN).send({
+      storeId: STORE.platformDelete,
+      purpose: "store_deletion",
+      password: USERS.owner.password,
+    });
+    expect([wrong.status, errorOf(wrong).code]).toEqual([403, "reauth_failed"]);
+    const reauthToken = await h.grantFor(cookie, STORE.platformDelete, USERS.platform.password);
+    const res = await consoleDelete(cookie, STORE.platformDelete, {
+      previewFingerprint: (p.body as { previewFingerprint: string }).previewFingerprint,
+      reauthToken,
+      reason: "Customer asked support to close the store",
+    }).expect(200);
+    expect(res.body).toMatchObject({ storeId: STORE.platformDelete });
+    expect(await deletedAt(STORE.platformDelete)).not.toBeNull();
+
+    const rows = await auditRows(STORE.platformDelete);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.actor_user_id).toBe(USERS.platform.id);
+    expect(rows[0]!.metadata).toMatchObject({
+      channel: "console",
+      actor_kind: "platform_admin",
+      actor_role: null,
+      on_behalf_of: { tenant_id: ACME_ID, support_session_id: expect.any(String), ticket_ref: null },
+    });
+    // On behalf of: ids and a ticket reference only; no e-mail, name, password or token.
+    const text = JSON.stringify(rows[0]!.metadata);
+    expect(text).not.toContain(USERS.platform.email);
+    expect(text).not.toContain(USERS.platform.password);
+    expect(text).not.toContain(reauthToken);
+  });
+
+  it("the owner's own deletion still says owner, on behalf of no one", async () => {
+    if (skip()) return;
+    expect((await auditRows(STORE.cleanConsole))[0]!.metadata).toMatchObject({
+      actor_kind: "owner",
+      actor_role: "owner",
+      on_behalf_of: null,
+    });
   });
 
   it("no session is 401", async () => {

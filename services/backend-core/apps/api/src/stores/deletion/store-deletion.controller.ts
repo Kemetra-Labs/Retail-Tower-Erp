@@ -8,9 +8,11 @@
  *
  * The HUMAN cookie session only (`SessionOnlyAdminGuard` -> `TenantContextGuard` -> `RolesGuard`
  * -> the owner gate): a bearer, a POS device token or an operator envelope is 401. Owner only
- * (D1): a `tenant_admin` is 403 `store_deletion_owner_only`, a platform admin is never admitted
- * as one (403 `support_session_read_only`), and every other caller is the non-disclosing 404. A
- * cookie write must carry a trusted `Origin` (RT-430, in `AuthGuard`).
+ * (D1): a `tenant_admin` is 403 `store_deletion_owner_only` and every other caller is the
+ * non-disclosing 404. Since RT-1462 a platform admin is admitted too (inside the support session
+ * that names the tenant, when they are not a member) and the audit records `actor_kind:
+ * platform_admin` on behalf of the tenant. A cookie write must carry a trusted `Origin` (RT-430,
+ * in `AuthGuard`).
  */
 import {
   Body,
@@ -31,6 +33,7 @@ import { SessionOnlyAdminGuard } from "../../auth/session-only-admin.guard";
 import { Roles } from "../../auth/roles.decorator";
 import { RolesGuard } from "../../auth/roles.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
+import type { ForceActionAuditActor } from "../../console-action-cap/force-action-actor";
 import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.decorator";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import { Idempotent } from "../../idempotency/idempotent.decorator";
@@ -50,13 +53,19 @@ import {
 import { StoreDeletionService, type StoreDeletionPreview } from "./store-deletion.service";
 
 /** The caller as the session carries it; a non-session principal never reaches here (SessionOnlyAdminGuard). */
-function callerOf(request: StoreDeletionRequestWithRole): { tenantId: string; userId: string; sessionId: string } {
+function callerOf(request: StoreDeletionRequestWithRole): {
+  tenantId: string;
+  userId: string;
+  sessionId: string;
+  actor: ForceActionAuditActor;
+} {
   const ctx = request.context;
   const principal = request.principal;
-  if (!ctx || ctx.tenantId === null || ctx.userId === null || principal?.kind !== "session") {
+  const actor = request.storeDeletionActor;
+  if (!ctx || ctx.tenantId === null || ctx.userId === null || principal?.kind !== "session" || actor === undefined) {
     throw new UnauthorizedException("Unauthorized");
   }
-  return { tenantId: ctx.tenantId, userId: ctx.userId, sessionId: principal.sessionId };
+  return { tenantId: ctx.tenantId, userId: ctx.userId, sessionId: principal.sessionId, actor };
 }
 
 @Controller()
@@ -128,7 +137,6 @@ export class StoreDeletionController {
         storeId: body.storeId,
         purpose: body.purpose,
         password: body.password,
-        role: request.storeDeletionRole ?? null,
         requestId: request.requestId ?? null,
       });
     } catch (err) {
