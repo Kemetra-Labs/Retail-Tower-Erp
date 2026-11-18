@@ -15,8 +15,8 @@ A path under `integrations/erpnext-connector/` is a violation when:
   (a) a directory segment is named `research` (any depth, any case), so `docs/research/**` and
       `**/research/**` cannot come back; a file named `research.md` (a spec-kit artifact under
       `specs/`) is not a research directory and is allowed
-  (b) it is a script (`.py .sh .bash .js .mjs .cjs .ts .ps1`) under `docs/`: docs hold prose and
-      assets, and a one-off script there ships with the app
+  (b) it is a script or notebook (SCRIPT_SUFFIXES: `.py .sh .js .ts .ps1 .bat .sql .ipynb` and a few
+      more) under `docs/`: docs hold prose and assets, and a one-off script there ships with the app
 
 Git-tracked paths plus untracked, non-ignored ones (`git ls-files --cached --others --exclude-standard`),
 so the same result locally and in CI. Stdlib only.
@@ -28,7 +28,8 @@ import sys
 
 CONNECTOR = "integrations/erpnext-connector/"
 DOCS = CONNECTOR + "docs/"
-SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".ps1")
+SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".cjs", ".ts", ".ps1", ".bat", ".cmd",
+                   ".rb", ".pl", ".sql", ".ipynb")
 HOME = "docs/research/erpnext-connector/"
 
 
@@ -64,7 +65,10 @@ def list_paths(repo):
 
 
 def check(repo):
-    return violations(list_paths(repo))
+    paths = list_paths(repo)
+    if not paths:  # fail closed: a renamed subtree or a partial checkout must not pass as "clean"
+        raise InputError(f"no files found under {CONNECTOR} in {repo}")
+    return violations(paths)
 
 
 def main(argv=None):

@@ -49,7 +49,8 @@ class ViolationsTests(unittest.TestCase):
         self.assertEqual(guard.violations([C + "docs/researchers/a.md", C + "docs/pre-research/a.md"]), [])
 
     def test_script_under_docs_fails_markdown_and_assets_do_not(self):
-        for name in ("a.py", "b.sh", "c.js", "d.mjs", "e.cjs", "f.ts", "g.ps1", "h.bash", "UP.PY"):
+        for name in ("a.py", "b.sh", "c.js", "d.mjs", "e.cjs", "f.ts", "g.ps1", "h.bash", "UP.PY", "i.ipynb",
+                     "j.bat", "k.cmd", "l.zsh", "m.rb", "n.pl", "o.sql"):
             with self.subTest(name=name):
                 self.assertEqual(len(guard.violations([C + "docs/runbooks/" + name])), 1)
         self.assertEqual(guard.violations([C + "docs/a.md", C + "docs/b.svg", C + "docs/c.json"]), [])
@@ -108,6 +109,14 @@ class CliTests(unittest.TestCase):
         self.add(".gitignore", C + "docs/research/\n")
         self.add(C + "docs/research/rt-9999/proof.py")
         self.assertEqual(self.run_check()[0], 0)
+
+    def test_no_connector_files_exits_two_not_ok(self):
+        with tempfile.TemporaryDirectory() as bare:
+            git(bare, "init", "-q", "-b", "main")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = guard.main(["check", "--repo", bare])
+        self.assertEqual((code, "OK" in out.getvalue()), (2, False))
 
     def test_not_a_git_repo_exits_two(self):
         with tempfile.TemporaryDirectory() as empty:
