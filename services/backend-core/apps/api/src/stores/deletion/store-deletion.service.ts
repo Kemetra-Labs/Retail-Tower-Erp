@@ -21,7 +21,7 @@ import type { Pool, PoolClient } from "pg";
 import { runWithTenantContext } from "@data-pulse-2/db";
 
 import { PG_POOL } from "../../auth/auth.module";
-import { enforceForceActionCap } from "../../console-force-actions/force-action-cap";
+import { enforceForceActionCap } from "../../console-action-cap/force-action-cap";
 import { StoresRepository } from "../stores.repository";
 import { type ReauthBinding, ReauthGrantStore } from "./reauth-grant.store";
 import {

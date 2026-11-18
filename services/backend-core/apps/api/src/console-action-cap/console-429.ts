@@ -7,7 +7,7 @@
 import { HttpException, HttpStatus } from "@nestjs/common";
 import type { Request, Response } from "express";
 
-import { assignRequestId } from "../../common/request-id.interceptor";
+import { assignRequestId } from "../common/request-id.interceptor";
 
 const MIN_RETRY_AFTER_SECONDS = 1;
 const MAX_RETRY_AFTER_SECONDS = 3600;
