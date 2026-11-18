@@ -74,25 +74,37 @@ const isTypeOnlyClause = (clause) => {
   return !clause.name && named && ts.isNamedImports(named) && named.elements.length > 0 && named.elements.every((e) => e.isTypeOnly);
 };
 
-/** Module specifiers a file loads at runtime (see the header for what counts). */
-export function runtimeSpecifiers(sourceText, fileName = "x.ts") {
+/**
+ * Module specifiers a file loads at runtime (see the header for what counts). `includeTypeOnly`
+ * (RT-1453, the module-boundary check) also returns the type-only ones: a deep import of another
+ * module's internal types is still a reach-in, although it is not a runtime cycle.
+ */
+export function runtimeSpecifiers(sourceText, fileName = "x.ts", includeTypeOnly = false) {
   const sf = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
   const found = [];
   const visit = (node) => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      if (!isTypeOnlyClause(node.importClause)) found.push(node.moduleSpecifier.text);
+      if (includeTypeOnly || !isTypeOnlyClause(node.importClause)) found.push(node.moduleSpecifier.text);
     } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       const named = node.exportClause;
       const typeOnly =
         node.isTypeOnly || (named && ts.isNamedExports(named) && named.elements.length > 0 && named.elements.every((e) => e.isTypeOnly));
-      if (!typeOnly) found.push(node.moduleSpecifier.text);
+      if (includeTypeOnly || !typeOnly) found.push(node.moduleSpecifier.text);
     } else if (
       ts.isImportEqualsDeclaration(node) &&
-      !node.isTypeOnly &&
+      (includeTypeOnly || !node.isTypeOnly) &&
       ts.isExternalModuleReference(node.moduleReference) &&
       ts.isStringLiteral(node.moduleReference.expression)
     ) {
       found.push(node.moduleReference.expression.text);
+    } else if (
+      includeTypeOnly &&
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
+    ) {
+      // `type T = import("./x").T` (RT-1453): a type-position import, only for the boundary check.
+      found.push(node.argument.literal.text);
     } else if (ts.isCallExpression(node) && node.arguments.length >= 1 && ts.isStringLiteralLike(node.arguments[0])) {
       const callee = node.expression;
       if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === "require")) {
