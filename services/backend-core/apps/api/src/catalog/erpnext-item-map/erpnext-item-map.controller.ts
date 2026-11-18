@@ -10,7 +10,7 @@
  * cannot distinguish "exists but forbidden" from "absent", §II/§XII).
  *
  * Routes:
- *   GET  /api/v1/catalog/erpnext-item-mappings[?state=]    tenantAdminListErpnextItemMappings
+ *   GET  /api/v1/catalog/erpnext-item-mappings[?state=&limit=&cursor=]    tenantAdminListErpnextItemMappings
  *   POST /api/v1/catalog/erpnext-item-mappings            tenantAdminSuggestErpnextItemMapping
  *   POST /api/v1/catalog/erpnext-item-mappings/:id/confirm tenantAdminConfirmErpnextItemMapping
  *
@@ -22,6 +22,7 @@
  * `@Auditable` decorator + AuditEmitterInterceptor.
  */
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -57,12 +58,21 @@ import {
   VersionedMutationRequestSchema,
   type VersionedMutationRequestDto,
 } from "./dto/versioned-mutation-request.dto";
+import {
+  decodeItemMapCursor,
+  InvalidItemMapCursorError,
+  type ItemMapKeyset,
+} from "./erpnext-item-map.cursor";
 import { ErpnextItemMapService } from "./erpnext-item-map.service";
 
 /** Optional `state` list filter (mirrors the OpenAPI enum). */
 const ListQuerySchema = z
   .object({
     state: z.enum(["suggested", "confirmed"]).optional(),
+    /** RT-1458: optional page size; absent keeps the unpaged list (additive contract). */
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+    /** RT-1458: opaque `nextCursor` of the previous page. */
+    cursor: z.string().min(1).max(512).optional(),
   })
   .strict();
 type ListQueryDto = z.infer<typeof ListQuerySchema>;
@@ -83,19 +93,33 @@ export class ErpnextItemMapController {
     return { tenantId: ctx.tenantId, userId: ctx.userId };
   }
 
-  /** GET — list the tenant's active mappings (optionally the review queue). */
+  /** GET — list the tenant's active mappings (optionally the review queue), keyset-paged. */
   @Get("api/v1/catalog/erpnext-item-mappings")
   @UseGuards(RolesGuard)
   @Roles("owner", "tenant_admin")
   async list(
     @Req() request: TenantContextRequest,
     @Query(new ZodValidationPipe(ListQuerySchema)) query: ListQueryDto,
-  ): Promise<{ items: ErpnextItemMappingBody[] }> {
+  ): Promise<{ items: ErpnextItemMappingBody[]; nextCursor: string | null }> {
     const { tenantId } = this.requireContext(request);
-    const rows = await this.service.list(
-      query.state ? { tenantId, state: query.state } : { tenantId },
-    );
-    return { items: rows.map(toErpnextItemMapping) };
+    let after: ItemMapKeyset | undefined;
+    if (query.cursor !== undefined) {
+      try {
+        after = decodeItemMapCursor(query.cursor);
+      } catch (err) {
+        if (err instanceof InvalidItemMapCursorError) {
+          throw new BadRequestException({ code: "validation_error", message: err.message });
+        }
+        throw err;
+      }
+    }
+    const page = await this.service.list({
+      tenantId,
+      ...(query.state ? { state: query.state } : {}),
+      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      ...(after ? { after } : {}),
+    });
+    return { items: page.rows.map(toErpnextItemMapping), nextCursor: page.nextCursor };
   }
 
   /** POST — record a manual suggested mapping. */

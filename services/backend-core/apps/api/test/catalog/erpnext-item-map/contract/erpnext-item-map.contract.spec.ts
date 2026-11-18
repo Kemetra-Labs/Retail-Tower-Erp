@@ -183,6 +183,46 @@ describe("catalog/erpnext-item-map.yaml — operations", () => {
 });
 
 // ===========================================================================
+// 2b. List paging (RT-1458, audit A-17) — additive: optional limit/cursor, nextCursor
+// ===========================================================================
+describe("catalog/erpnext-item-map.yaml — list keyset paging (RT-1458)", () => {
+  interface Param {
+    in?: string;
+    name?: string;
+    required?: boolean;
+    schema?: { type?: string; minimum?: number; maximum?: number; default?: unknown };
+  }
+  const listGet = (): { parameters?: Param[]; responses?: Record<string, unknown> } =>
+    (doc.paths?.["/api/v1/catalog/erpnext-item-mappings"] as unknown as Record<string, never>)[
+      "get"
+    ] as never;
+  const param = (name: string): Param | undefined =>
+    listGet().parameters?.find((p) => p.in === "query" && p.name === name);
+
+  it("declares optional `limit` (1..500) and `cursor` query parameters", () => {
+    const limit = param("limit");
+    expect(limit?.required).toBe(false);
+    expect(limit?.schema).toMatchObject({ type: "integer", minimum: 1, maximum: 500 });
+    expect(param("cursor")?.required).toBe(false);
+    expect(param("cursor")?.schema?.type).toBe("string");
+  });
+
+  it("applies NO default `limit` yet: omitting it keeps today's unpaged list (additive)", () => {
+    expect(param("limit")?.schema?.default).toBeUndefined();
+  });
+
+  it("the 200 response carries `items` and a nullable `nextCursor`", () => {
+    const ok = listGet().responses?.["200"] as {
+      content: { "application/json": { schema: SchemaObject } };
+    };
+    const body = ok.content["application/json"].schema;
+    expect(body.additionalProperties).toBe(false);
+    expect(body.required?.sort()).toEqual(["items", "nextCursor"]);
+    expect((body.properties?.["nextCursor"] as SchemaObject).type).toEqual(["string", "null"]);
+  });
+});
+
+// ===========================================================================
 // 3. Auth — the HUMAN dashboard cookieAuth scheme (the slice's stop condition)
 // ===========================================================================
 describe("catalog/erpnext-item-map.yaml — auth boundary", () => {
