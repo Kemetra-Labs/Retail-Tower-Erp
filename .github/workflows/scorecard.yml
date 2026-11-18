@@ -13,8 +13,8 @@
 #    `pgraph privileges` would put this workflow in scope and reject the job's write grants. The
 #    weekly schedule picks up branch-protection changes; run it by hand to see one sooner.
 #  - no push trigger (RT-1467, CI-08). Scorecard scores repository settings and supply-chain
-#    practice, which do not change per merge, so a run on every push to main was ~30 runs a day
-#    for the same score. Weekly plus workflow_dispatch is enough.
+#    practice, which do not change per merge, so one run per push to main repeated the same score
+#    many times a day. Weekly plus workflow_dispatch is enough.
 #  - workflow_dispatch added for an on-demand run.
 #  - top-level `permissions: read-all` (Scorecard's own recommendation); checkout is pinned to
 #    the SHA the root workflows use.
