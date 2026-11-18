@@ -92,8 +92,17 @@ repository is a consumer error that names the blob and the file (RT-453). Then:
 
 `check.sh` applies only the ignore lines that are **new relative to the merge-base**.
 After the PR merges, its lines are on the base of every later PR, so they stop
-applying automatically and cannot hide a later break. The script prints a note
-when inherited lines remain; delete them in any later PR.
+applying automatically and cannot hide a later break. A line that is on the base
+and still in the head is **stale**, and `check.sh` fails (RT-1458, the same rule
+`boundary-todo.yaml` applies to stale entries); the message names the lines. Delete
+them in the next PR: deleting a line is never stale, and the consumer-impact check
+(RT-674) still reads only the lines the PR adds. `breaking-ignore.txt` therefore
+holds only its header comments on `main` between breaking changes.
+
+One consequence: a PR that was green before another PR's acknowledgement merged
+can turn the `push` run on `main` red when it lands (its head then carries the
+inherited line, and `push` compares with the previous `main`). Delete the line in
+a fix-forward PR.
 
 ## Known limits (RT-37)
 
