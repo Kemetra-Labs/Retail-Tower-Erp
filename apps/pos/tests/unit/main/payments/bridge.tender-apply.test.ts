@@ -38,7 +38,10 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createTenderApplyHandler } from '../../../../src/main/payments/handlers/tender-apply.js';
+import {
+  createTenderApplyHandler,
+  type TenderApplyHandlerDeps,
+} from '../../../../src/main/payments/handlers/tender-apply.js';
 
 import {
   makeAttemptRow,
@@ -613,7 +616,7 @@ describe('tender.apply — branch-coverage backfill', () => {
     });
     const linesRepo = makeLinesRepoDouble([priorCash]);
     const fsm = makeTenderLineFsmDouble();
-    const validateVoucher = vi.fn(() =>
+    const validateVoucher = vi.fn<NonNullable<TenderApplyHandlerDeps['validateVoucher']>>(() =>
       Promise.resolve({
         kind: 'validated' as const,
         applied_amount_minor: 1500,

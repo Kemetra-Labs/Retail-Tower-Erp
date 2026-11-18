@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
+import type { CheckCartForPayment } from '../../../../src/main/payments/cart-payment-eligibility.js';
 import { createPaymentsStartHandler } from '../../../../src/main/payments/handlers/payments-start.js';
 import type { PaymentsStartRequest } from '../../../../src/shared/bridge-api.js';
 import {
@@ -28,7 +29,7 @@ function request(): PaymentsStartRequest {
   };
 }
 
-function build(checkCartForPayment: ReturnType<typeof vi.fn>) {
+function build(checkCartForPayment: CheckCartForPayment) {
   const fsm = makePaymentAttemptFsmDouble();
   const handler = createPaymentsStartHandler({
     getCurrentSession: makeSessionSource(makeSession()).getCurrentSession,
@@ -48,7 +49,7 @@ describe('payments.start — cart eligibility', () => {
   it.each(['cart_lost', 'stale_handoff', 'attempt_terminal'] as const)(
     'refuses %s from main without starting an attempt',
     async (reason) => {
-      const check = vi.fn().mockReturnValue({ kind: 'refused', reason });
+      const check = vi.fn<CheckCartForPayment>().mockReturnValue({ kind: 'refused', reason });
       const { handler, fsm } = build(check);
       expect(await handler(request())).toEqual({ kind: 'refused', reason });
       expect(fsm.start).not.toHaveBeenCalled();
@@ -56,7 +57,7 @@ describe('payments.start — cart eligibility', () => {
   );
 
   it('checks the request against the session scope, then starts the attempt', async () => {
-    const check = vi.fn().mockReturnValue({ kind: 'ok' });
+    const check = vi.fn<CheckCartForPayment>().mockReturnValue({ kind: 'ok' });
     const { handler, fsm } = build(check);
     const session = makeSession();
     await handler(request());

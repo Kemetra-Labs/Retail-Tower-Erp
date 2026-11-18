@@ -35,9 +35,12 @@
  * **Wave 5 — TDD RED.** Forward-references the resolver factory.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 
-import { createDeferredReversalResolver } from '../../../../src/main/payments/deferred-reversal-resolver.js';
+import {
+  createDeferredReversalResolver,
+  type NetworkRestoreSignal,
+} from '../../../../src/main/payments/deferred-reversal-resolver.js';
 
 import {
   makeAttemptRow,
@@ -72,13 +75,13 @@ function makeReverseVoucherDouble(...outcomes: ReadonlyArray<ReverseVoucherOutco
 }
 
 interface NetworkRestoreDouble {
-  subscribe: ReturnType<typeof vi.fn>;
+  subscribe: Mock<NetworkRestoreSignal['subscribe']>;
   fire: () => Promise<void>;
 }
 
 function makeNetworkRestoreSignal(): NetworkRestoreDouble {
   const callbacks: Array<() => void | Promise<void>> = [];
-  const subscribe = vi.fn((cb: () => void | Promise<void>) => {
+  const subscribe = vi.fn<NetworkRestoreSignal['subscribe']>((cb) => {
     callbacks.push(cb);
     return (): void => {
       const idx = callbacks.indexOf(cb);
