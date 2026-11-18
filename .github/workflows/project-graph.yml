@@ -80,8 +80,17 @@ jobs:
       - name: Size guard logic tests
         run: python -m unittest discover -s tools/size-guard -v
 
+      # Runs the BASE copy of the script (HEAD^1), so a change cannot edit the guard to pass itself;
+      # the PR's own copy runs only when the base has none yet (the PR that introduces it).
       - name: Binary size guard
-        run: python tools/size-guard/size_guard.py check --repo "$GITHUB_WORKSPACE" --base HEAD^1
+        run: |
+          set -euo pipefail
+          guard=tools/size-guard/size_guard.py
+          if git cat-file -e "HEAD^1:$guard" 2>/dev/null; then
+            git show "HEAD^1:$guard" > "$RUNNER_TEMP/size_guard_base.py"
+            guard="$RUNNER_TEMP/size_guard_base.py"
+          fi
+          python "$guard" check --repo "$GITHUB_WORKSPACE" --base HEAD^1
 
   # The job `name:` is the graph key (static rule 5): a literal, no expression, no `if:`, no
   # `paths:` filter. A selected job that is skipped fails the gate, so this always runs.

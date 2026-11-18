@@ -37,6 +37,10 @@ entry when you delete or shrink the file (the guard tells you when an entry is s
 captures stay where they are; nothing is deleted and no history is rewritten. Removing the existing
 captures from the working tree, or a history rewrite, are separate decisions for the owner.
 
+The guard is a habit-stopper, not a sandbox: it sees only the listed binary extensions (a renamed
+file or an extensionless blob is not seen), and the 2 MiB budget is per change. CI runs the
+base branch's copy of the script, so a pull request cannot loosen the guard it is judged by.
+
 Run it locally before pushing:
 
 ```bash

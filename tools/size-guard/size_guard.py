@@ -4,7 +4,7 @@
   size_guard.py check --repo PATH [--base REF] [--head REV] [--config PATH]
   size_guard.py generate --repo PATH [--rev REV]      print a fresh config to stdout
 
-`check` exits 0 when every rule passes, 1 on a violation, 2 on unreadable input.
+`check` exits 0 when every rule passes, 1 on a violation, 2 on unreadable input or a git failure.
 
 Why it exists: apps/pos/docs/design holds ~2,900 captures (116 MB) and every clone and CI checkout
 pays for them. The guard stops the growth; it never deletes anything and never rewrites history.
@@ -23,7 +23,8 @@ Rules (config: tools/size-guard/config.json, read from git, so the same file is 
      100 KB each (averaging 37 KB).
 
 Generated text files (schema.d.ts, api-types.ts, CSV, HTML) are out of scope: only the listed binary
-extensions count.
+extensions count, so the list is best-effort (a renamed file or an extensionless blob is not seen) and
+the budget is per change. The point is to stop the habit of committing captures, not to be a sandbox.
 """
 from __future__ import annotations
 
@@ -34,6 +35,10 @@ import subprocess
 import sys
 
 DEFAULT_CONFIG = "tools/size-guard/config.json"
+EXTENSIONS = sorted(
+    "7z asar avi avif bmp bz2 dll exe gif gz heic ico jpeg jpg mkv mov mp4 otf pdf png psd tar tgz tif tiff "
+    "ttf webm webp woff woff2 xz zip".split()
+)
 CONFIG_KEYS = {"threshold_bytes", "pr_budget_bytes", "binary_extensions", "allowlist"}
 GITLINK_MODE = "160000"
 ZERO_SHA = "0" * 40
@@ -49,6 +54,7 @@ def git(repo: str, *args: str, stdin: bytes | None = None) -> bytes:
         input=stdin,
         capture_output=True,
         check=False,
+        env={**os.environ, "LC_ALL": "C"},
     )
     if proc.returncode != 0:
         raise GuardError(f"git {' '.join(args)} failed: {proc.stderr.decode(errors='replace').strip()}")
@@ -95,6 +101,11 @@ def is_binary(path: str, exts: set[str]) -> bool:
     return "." in name and name.rsplit(".", 1)[1].lower() in exts
 
 
+def _text(raw: bytes) -> str:
+    """A git path or record as text. Bytes that are not UTF-8 survive as surrogates, never a crash."""
+    return raw.decode("utf-8", "surrogateescape")
+
+
 def tree_sizes(repo: str, rev: str) -> dict[str, int]:
     """path -> blob size for every blob in the tree at `rev` (one git call)."""
     out = git(repo, "ls-tree", "-r", "-l", "-z", rev)
@@ -102,7 +113,7 @@ def tree_sizes(repo: str, rev: str) -> dict[str, int]:
     for entry in out.split(b"\0"):
         if not entry:
             continue
-        meta, _, path = entry.decode().partition("\t")
+        meta, _, path = _text(entry).partition("\t")
         mode, kind, _sha, size = meta.split(None, 3)
         if kind == "blob" and mode != GITLINK_MODE:
             sizes[path] = int(size)
@@ -124,17 +135,17 @@ def object_sizes(repo: str, shas: list[str]) -> dict[str, int]:
 
 def changes(repo: str, base: str, head: str) -> list[dict]:
     """Added, modified and renamed blobs between base and head: path, old_path, old_sha, new_sha."""
-    out = git(repo, "diff", "--raw", "-z", "-M", "--no-abbrev", "--diff-filter=AMR", base, head).split(b"\0")
+    out = git(repo, "diff", "--raw", "-z", "-M", "--no-abbrev", "--diff-filter=AMRT", base, head).split(b"\0")
     items: list[dict] = []
     i = 0
     while i < len(out) and out[i]:
-        meta = out[i].decode().lstrip(":").split()
+        meta = _text(out[i]).lstrip(":").split()
         old_mode, new_mode, old_sha, new_sha, status = meta[:5]
         if status.startswith("R"):
-            old_path, path = out[i + 1].decode(), out[i + 2].decode()
+            old_path, path = _text(out[i + 1]), _text(out[i + 2])
             i += 3
         else:
-            old_path = path = out[i + 1].decode()
+            old_path = path = _text(out[i + 1])
             i += 2
         if GITLINK_MODE in (old_mode, new_mode):
             continue
@@ -230,7 +241,7 @@ def generate(repo: str, rev: str, config_path: str) -> dict:
     base_cfg = current or {
         "threshold_bytes": 512000,
         "pr_budget_bytes": 2097152,
-        "binary_extensions": ["avif", "gif", "gz", "jpeg", "jpg", "mov", "mp4", "pdf", "png", "tgz", "webm", "webp", "zip", "7z"],
+        "binary_extensions": EXTENSIONS,
         "allowlist": {},
     }
     exts = set(base_cfg["binary_extensions"])
@@ -262,12 +273,17 @@ def main(argv: list[str] | None = None) -> int:
     for note in notes:
         print(f"size-guard: {note}")
     for err in errors:
-        print(f"::error title=size-guard::{err}" if _in_actions() else f"size-guard: FAIL {err}")
+        print(f"::error title=size-guard::{_escape(err)}" if _in_actions() else f"size-guard: FAIL {err}")
     if errors:
         print(f"size-guard: {len(errors)} violation(s)", file=sys.stderr)
         return 1
     print("size-guard: ok")
     return 0
+
+
+def _escape(message: str) -> str:
+    """Workflow-command escaping: a path named with %0A or :: must not inject a command."""
+    return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def _in_actions() -> bool:

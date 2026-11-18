@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -198,6 +199,31 @@ class SizeGuardTest(unittest.TestCase):
     def test_generate_lists_only_over_threshold_binaries(self):
         generated = sg.generate(self.repo.root, "HEAD", CFG)
         self.assertEqual(generated["allowlist"], {"docs/old.png": 2000})
+
+    def test_symlink_replaced_by_a_real_file_counts_against_the_budget(self):
+        for i in range(6):
+            os.symlink("small.png", os.path.join(self.repo.root, f"docs/s{i}.png"))
+        base = self.repo.commit("symlinks")
+        for i in range(6):
+            os.unlink(os.path.join(self.repo.root, f"docs/s{i}.png"))
+            self.repo.write(f"docs/s{i}.png", b"x" * 900)
+        self.repo.commit("real files")
+        errors, notes = self.check(base)
+        self.assertTrue(any("over the 5000-byte budget" in e for e in errors), (errors, notes))
+
+    def test_non_utf8_path_does_not_crash_the_guard(self):
+        with open(os.path.join(os.fsencode(self.repo.root), b"docs/bad\xff.txt"), "wb") as handle:
+            handle.write(b"x")
+        self.repo.commit("odd name")
+        errors, _ = self.check(self.base)
+        self.assertEqual(errors, [])
+
+    def test_annotation_escaping_blocks_command_injection(self):
+        self.assertEqual(sg._escape("a%b\nc::d"), "a%25b%0Ac::d")
+
+    def test_widened_extension_list_covers_other_formats(self):
+        for ext in ("bmp", "tif", "ico", "psd", "heic", "mkv", "tar", "xz", "asar", "woff2"):
+            self.assertIn(ext, sg.EXTENSIONS)
 
     def test_cli_exit_codes(self):
         self.repo.write("docs/new.png", b"x" * 1500)
