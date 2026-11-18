@@ -14,9 +14,11 @@ info:
     RT-1437 comment 17453 and RT-1462 comment 17454; amends D1).** A PLATFORM
     ADMIN may preview and delete a store, and re-authenticate for it
     (`consoleReauthenticate`), on a customer's behalf: whether or not they are
-    a member of the tenant, and whatever membership role they hold there. A
-    platform admin who is not a member reaches the tenant only through an
-    active support session for it (RT-414, unchanged). The four guards, the
+    a member of the tenant, whatever membership role they hold there, and,
+    when they are not a member, WITHOUT a support session (the mechanism and
+    its audit are in `console-force-actions.openapi.yaml` 1.1.0-draft, "No
+    support session on this surface"; a suspended tenant stays read-only for a
+    non-member). The four guards, the
     preview fingerprint, the typed reason, the re-authentication and the D9 cap
     apply unchanged. No wire change. The `store.deleted` audit metadata gains
     `actor_kind` and `on_behalf_of` (see Audit). A `tenant_admin` is still
@@ -505,8 +507,9 @@ paths:
             another session, store or purpose; one answer for every cause),
             `store_deletion_owner_only` (a `tenant_admin`), `origin_rejected`
             (RT-430), or a support-session refusal
-            (`support_session_required`, `support_session_expired`,
-            `support_session_read_only` on a suspended tenant).
+            (`support_session_read_only` for a non-member platform admin on a
+            suspended tenant; `support_session_required` for a tenant that does
+            not exist).
           content:
             application/json:
               schema:

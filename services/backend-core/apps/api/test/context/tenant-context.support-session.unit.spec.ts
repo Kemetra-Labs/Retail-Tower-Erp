@@ -83,6 +83,49 @@ describe("TenantContextGuard publishes the admitting support session (RT-1462)",
     expect("supportSession" in ctx).toBe(false);
   });
 
+  describe("a direct route (RT-1462): no support session is needed", () => {
+    const direct = { method: "POST", route: "/api/v1/shifts/:shift_id/force-close", requestId: () => null, platformDirect: true };
+
+    it("a non-member platform admin is admitted through admitDirect, never enforce; the live session, if any, is published", async () => {
+      const enforce = jest.spyOn(SupportSessionGate.prototype, "enforce");
+      const admitDirect = jest.spyOn(SupportSessionGate.prototype, "admitDirect").mockResolvedValue(record("RT-4242"));
+      const ctx = await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, direct);
+      expect(ctx.supportSession).toEqual({ id: SUPPORT_ID, ticketRef: "RT-4242" });
+      expect(admitDirect).toHaveBeenCalledTimes(1);
+      expect(enforce).not.toHaveBeenCalled();
+    });
+
+    it("with no live session the context carries none (on_behalf_of then names the tenant only)", async () => {
+      jest.spyOn(SupportSessionGate.prototype, "admitDirect").mockResolvedValue(null);
+      const ctx = await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, direct);
+      expect(ctx).toMatchObject({ tenantId: TENANT_ID, isPlatformAdmin: true });
+      expect("supportSession" in ctx).toBe(false);
+    });
+
+    it("a refusal of admitDirect (a suspended tenant's write, a missing tenant) propagates", async () => {
+      jest
+        .spyOn(SupportSessionGate.prototype, "admitDirect")
+        .mockRejectedValue(new ForbiddenException({ code: "support_session_read_only", message: "x" }));
+      await expect(guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, direct)).rejects.toMatchObject({
+        status: 403,
+        response: { code: "support_session_read_only" },
+      });
+    });
+
+    it("a route that is NOT direct still enforces the support session", async () => {
+      const enforce = jest.spyOn(SupportSessionGate.prototype, "enforce").mockResolvedValue(record(null));
+      const admitDirect = jest.spyOn(SupportSessionGate.prototype, "admitDirect");
+      await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, { ...direct, platformDirect: false });
+      await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, {
+        method: "GET",
+        route: "/api/v1/stores",
+        requestId: () => null,
+      });
+      expect(enforce).toHaveBeenCalledTimes(2);
+      expect(admitDirect).not.toHaveBeenCalled();
+    });
+  });
+
   it("the gate's refusal still propagates (no session, no context)", async () => {
     jest
       .spyOn(SupportSessionGate.prototype, "enforce")

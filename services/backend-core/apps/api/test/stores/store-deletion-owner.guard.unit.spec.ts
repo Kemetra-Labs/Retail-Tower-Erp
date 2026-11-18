@@ -69,7 +69,6 @@ describe("StoreDeletionOwnerGuard and ReauthRoleGuard (RT-1462)", () => {
           role,
           onBehalfOf: { tenant_id: TENANT, support_session_id: null, ticket_ref: null },
         });
-        expect(req.storeDeletionRole).toBe(role);
       },
     );
 

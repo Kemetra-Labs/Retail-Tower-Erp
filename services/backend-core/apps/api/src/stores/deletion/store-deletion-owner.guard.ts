@@ -7,17 +7,18 @@
  *
  *   platform admin                -> admitted (RT-1462, owner decision 2026-11-18), whether or not
  *                                    they are a tenant member and whatever role they hold there.
- *                                    A non-member got here only through an active support session
- *                                    for the tenant (`TenantContextGuard`), so the tenant is the
- *                                    session's. The row says `actor_kind: platform_admin`, on
- *                                    behalf of that tenant and session;
+ *                                    These handlers are in `PLATFORM_DIRECT_HANDLERS`, so a
+ *                                    non-member needs no support session (`TenantContextGuard`);
+ *                                    the tenant is the session's active tenant. The row says
+ *                                    `actor_kind: platform_admin`, on behalf of that tenant (and
+ *                                    the support session, if the caller holds one);
  *   owner                         -> admitted;
  *   tenant_admin                  -> 403 `store_deletion_owner_only`;
  *   anything else                 -> the non-disclosing 404.
  *
  * `ReauthRoleGuard` differs in one step only: `consoleReauthenticate` checks the store before the
  * `tenant_admin` refusal (contract, evaluation order 3), so it admits a `tenant_admin` here and
- * leaves the refusal to the service, which reads the role from `request.storeDeletionRole`.
+ * leaves the refusal to the service, which reads `request.storeDeletionActor.kind`.
  */
 import {
   type CanActivate,
@@ -38,7 +39,6 @@ import type { TenantContextRequest } from "../../context/types";
 import { storeDeletionOwnerOnly, storeNotFound } from "./store-deletion.errors";
 
 export type StoreDeletionRequestWithRole = TenantContextRequest & {
-  storeDeletionRole?: string | null;
   /** The admitted caller as the audit records it (set by the guard on every admission). */
   storeDeletionActor?: ForceActionAuditActor;
 };
@@ -66,7 +66,6 @@ export class StoreDeletionOwnerGuard implements CanActivate {
           this.memberships.findRoleCodeForUserInTenant(userId, tenantId, client),
         )
       : await this.memberships.findRoleCodeForUserInTenant(userId, tenantId);
-    request.storeDeletionRole = role;
     if (ctx.isPlatformAdmin) {
       request.storeDeletionActor = platformAdminActor(ctx, tenantId, role);
       return true;

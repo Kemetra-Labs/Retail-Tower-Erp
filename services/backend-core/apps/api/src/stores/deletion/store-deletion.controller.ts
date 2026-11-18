@@ -9,9 +9,8 @@
  * The HUMAN cookie session only (`SessionOnlyAdminGuard` -> `TenantContextGuard` -> `RolesGuard`
  * -> the owner gate): a bearer, a POS device token or an operator envelope is 401. Owner only
  * (D1): a `tenant_admin` is 403 `store_deletion_owner_only` and every other caller is the
- * non-disclosing 404. Since RT-1462 a platform admin is admitted too (inside the support session
- * that names the tenant, when they are not a member) and the audit records `actor_kind:
- * platform_admin` on behalf of the tenant. A cookie write must carry a trusted `Origin` (RT-430,
+ * non-disclosing 404. Since RT-1462 a platform admin is admitted too (a member or not, and without
+ * a support session) and the audit records `actor_kind: platform_admin` on behalf of the tenant. A cookie write must carry a trusted `Origin` (RT-430,
  * in `AuthGuard`).
  */
 import {

@@ -51,6 +51,7 @@ const STORE = {
   manyDevices: sid(17),
   manyRetired: sid(18),
   platformDelete: sid(19),
+  platformDirect: sid(20),
   globex: "20000000-bbbb-4bbb-8bbb-000000000001",
 };
 const DEVICE = {
@@ -514,6 +515,31 @@ describe("who may use the deletion surface (AC4)", () => {
     expect(text).not.toContain(USERS.platform.email);
     expect(text).not.toContain(USERS.platform.password);
     expect(text).not.toContain(reauthToken);
+  });
+
+  it("a non-member platform admin with NO support session deletes a store too (RT-1462); the cross-tenant row names no session", async () => {
+    if (skip()) return;
+    const cookie = await h.signInPlatformAdminDirect();
+    const p = await preview(cookie, STORE.platformDirect).expect(200);
+    const reauthToken = await h.grantFor(cookie, STORE.platformDirect, USERS.platform.password);
+    await consoleDelete(cookie, STORE.platformDirect, {
+      previewFingerprint: (p.body as { previewFingerprint: string }).previewFingerprint,
+      reauthToken,
+    }).expect(200);
+    const rows = await auditRows(STORE.platformDirect);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.metadata).toMatchObject({
+      actor_kind: "platform_admin",
+      actor_role: null,
+      on_behalf_of: { tenant_id: ACME_ID, support_session_id: null, ticket_ref: null },
+    });
+    const access = await h.admin.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM audit_events
+        WHERE tenant_id = $1 AND actor_user_id = $2 AND action = 'platform.cross_tenant.accessed'
+          AND metadata->>'support_session_id' IS NULL AND metadata->>'outcome' = 'succeeded'`,
+      [ACME_ID, USERS.platform.id],
+    );
+    expect(access.rows[0]!.n).toBeGreaterThanOrEqual(3); // preview, re-authentication, deletion
   });
 
   it("the owner's own deletion still says owner, on behalf of no one", async () => {

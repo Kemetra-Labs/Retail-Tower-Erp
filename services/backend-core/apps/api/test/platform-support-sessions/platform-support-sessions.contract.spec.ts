@@ -131,9 +131,9 @@ const activeSession = {
 };
 
 describe("platform-support-sessions — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-414 runtime)", () => {
+  it("is an OpenAPI 3.1 document at version 1.3.0-draft (RT-414 runtime; RT-1462 exempts the force actions)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.2.0-draft");
+    expect(doc.info?.version).toBe("1.3.0-draft");
   });
 
   it("declares exactly open, read-current, renew and end", () => {
@@ -469,11 +469,11 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
 describe("context contract — additive RT-414 changes", () => {
   const switchOp = (): OperationObject => contextDoc.paths!["/api/v1/context/tenant"]!["post"]!;
 
-  it("keeps the non-disclosing 404 and adds a platform-only 403", () => {
+  it("keeps the non-disclosing 404; the platform-only 403 is lifted for the switch by RT-1462 (1.3.0-draft)", () => {
     const responses = switchOp().responses ?? {};
     expect(responses["404"]?.description).toMatch(/Same response for both/);
     expect(responses["403"]?.description).toContain("support_session_required");
-    expect(responses["403"]?.description).toMatch(/Never returned to a user who is not a\s+platform admin/);
+    expect(responses["403"]?.description).toMatch(/until RT-1462/);
   });
 
   it("adds a nullable support_session summary to ContextResponse", () => {

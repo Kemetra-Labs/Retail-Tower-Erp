@@ -15,21 +15,22 @@
  *     membership's own authority, not the session's active store: a session that
  *     picked one store does not narrow what its membership may do);
  *   - a PLATFORM ADMIN (RT-1462, owner decision 2026-11-18), whether or not they
- *     are a member of the tenant. A non-member got here only through an active
- *     support session for the tenant (`TenantContextGuard` refuses the rest, 403
- *     `support_session_*`), so a platform admin acts on a customer's tenant only
- *     inside a session that names it. The tenant is the session's, never the
+ *     are a member of the tenant, and without a support session: these handlers
+ *     are in `PLATFORM_DIRECT_HANDLERS`, so `TenantContextGuard` admits a
+ *     non-member through `SupportSessionGate.admitDirect` (one
+ *     `platform.cross_tenant.accessed` row per request; a suspended tenant
+ *     stays read-only). The tenant is the session's active tenant, never the
  *     request's. The action is recorded as `actor_kind: platform_admin`, on
- *     behalf of that tenant and support session (`force-action-actor.ts`).
+ *     behalf of that tenant and, when the caller holds one, its support
+ *     session (`force-action-actor.ts`).
  *
  * Everything else is the non-disclosing 404 (FR-ISO-4), the same body as
  * `RolesGuard`'s default: a `store_manager`, a `store_staff`, a `tenant_admin`
  * with specific-store access, and a caller whose tenant is not the shift's.
  *
- * What this does NOT change: a support session stays read-only for every other
- * write (`SupportSessionGate`, and a suspended tenant's session still refuses an
- * unsafe method), and no platform-admin database context is opened here: the
- * caller's role is read under the TENANT's own RLS context.
+ * What this does NOT change: every other covered route still needs a support
+ * session for a non-member, and no platform-admin database context is opened
+ * here: the caller's role is read under the TENANT's own RLS context.
  */
 import {
   type CanActivate,

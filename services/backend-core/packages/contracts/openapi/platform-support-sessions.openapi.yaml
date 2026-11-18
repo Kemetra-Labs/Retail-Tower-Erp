@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Platform Support Session API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     Jira RT-414 (RT-391 P0-a, owner decision D2): a platform operator enters a
     tenant they are not a member of ONLY through a support session. Four
@@ -21,6 +21,22 @@ info:
     1–5 recorded on RT-414. The four operations and the enforcement are
     implemented (RT-414, `1.2.0-draft`) on the `[GATED]` migration
     `0062_platform_support_sessions`.
+
+
+    **1.3.0-draft (RT-1462, `[GATED: contract]`, owner decision 2026-11-18).**
+    The Console force actions (`consoleListOpenShifts`,
+    `consoleGetForceClosePreview`, `consoleForceCloseShift`,
+    `consoleReauthenticate`, `previewStoreDeletion`, `consoleDeleteStore`) are
+    exempt from the requirement below: a platform admin who is not a member
+    needs no support session for them (`x-support-session-enforcement`
+    `platform-direct-operations`). The exemption names exactly those
+    operations; every other covered route is unchanged. Each such request
+    still writes one `platform.cross_tenant.accessed` row (a live support
+    session is named when the caller holds one for the tenant, else
+    `support_session_id` is null), and a suspended tenant stays read-only
+    (`support_session_read_only` on an unsafe method). `switchActiveTenant`
+    admits a platform admin for any existing tenant (`context.openapi.yaml`
+    1.3.0-draft).
 
 
     **Who needs a support session.** A user whose `users.is_platform_admin` is
@@ -172,6 +188,15 @@ x-support-session-enforcement:
   guarded-routes: TenantContextGuard
   path-tenant-operations: [listMembers, updateTenant]
   active-tenant-operations: [switchActiveStore]
+  platform-direct-operations:
+    [
+      consoleListOpenShifts,
+      consoleGetForceClosePreview,
+      consoleForceCloseShift,
+      consoleReauthenticate,
+      previewStoreDeletion,
+      consoleDeleteStore,
+    ]
   unchanged-platform-scope-operations: [listTenants, readTenant, createTenant, softDeleteTenant]
   origin-checked-methods: [POST, PUT, PATCH, DELETE]
 servers:

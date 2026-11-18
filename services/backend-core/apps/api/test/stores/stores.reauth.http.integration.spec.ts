@@ -6,7 +6,7 @@
  *   - the grant: shape, `Cache-Control: no-store`, a 5-minute expiry, bound to the session, the
  *     user, the purpose and the store, single use, and not spent by a refusal;
  *   - the evaluation order: the password is verified LAST, so a caller who fails the store or
- *     role step (a store_manager, a tenant_admin, another tenant, a platform admin) never spends
+ *     role step (a store_manager, a tenant_admin, another tenant) never spends
  *     the failed-attempt budget and never has a password tested;
  *   - the budget: 5 failed attempts per 15 minutes per user, then 429 `reauth_rate_limited` with
  *     `Retry-After`, and a correct password is NOT verified while over budget;
@@ -167,6 +167,14 @@ describe("the evaluation order: the password is verified last", () => {
       });
       expect(JSON.stringify(row.metadata)).not.toContain(USERS.platform.password);
     }
+  });
+
+  it("a non-member platform admin with NO support session gets a grant too (RT-1462)", async () => {
+    if (skip()) return;
+    const cookie = await h.signInPlatformAdminDirect();
+    const res = await reauth(cookie, STORE_A, USERS.platform.password);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ purpose: "store_deletion", storeId: STORE_A });
   });
 
   it("the failed attempts of the refused callers did not touch the owner's budget", async () => {

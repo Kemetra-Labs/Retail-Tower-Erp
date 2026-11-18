@@ -34,10 +34,14 @@
  *   - Platform-admin sessions bypass the per-tenant membership check
  *     (FR-TEN-6). `active_role_code` is `null` for platform admins
  *     unless they happen to have a normal membership too.
- *   - RT-414: a platform admin enters a tenant they are NOT a member of
- *     only through `openSupportSession`. `switchTenant` refuses that case
- *     with 403 `support_session_required`, and ends any live support
- *     session of the auth session (`tenant_switched`) before switching.
+ *   - RT-414: a platform admin works in a tenant they are NOT a member of
+ *     only through `openSupportSession`, EXCEPT the Console force actions
+ *     (RT-1462, `PLATFORM_DIRECT_HANDLERS`). So `switchTenant` lets a platform
+ *     admin select any existing tenant (404 for one that does not exist) and
+ *     ends any live support session of the auth session (`tenant_switched`)
+ *     before switching; selecting a tenant reads nothing of it, and every
+ *     covered route still refuses a non-member without a session, so the
+ *     switch alone opens nothing but the force-action routes.
  *     `switchStore` for a non-member platform admin goes through
  *     `SupportSessionGate` (one `platform.cross_tenant.accessed` row).
  *     `support_session` on the response is the caller's live support
@@ -172,7 +176,7 @@ export class ContextService {
         if (!membership) throw notFound();
       });
     } else {
-      await this.assertPlatformAdminMayEnter(principal, tenantId);
+      await this.assertPlatformAdminMayEnter(tenantId);
     }
 
     await this.endSupportSessionOnSwitch(principal, requestId);
@@ -286,19 +290,14 @@ export class ContextService {
 
   /**
    * Platform admin switching tenant: the tenant must exist (a typo'd UUID
-   * would otherwise set a non-existent active tenant), and — RT-414 — the
-   * admin must be a member: a non-member enters only through a support
-   * session.
+   * would otherwise set a non-existent active tenant). RT-1462: a non-member
+   * is admitted too, without a support session (see the header): the session
+   * is required by every covered route except the force actions.
    */
-  private async assertPlatformAdminMayEnter(
-    principal: SessionPrincipal,
-    tenantId: string,
-  ): Promise<void> {
+  private async assertPlatformAdminMayEnter(tenantId: string): Promise<void> {
     await this.withBootstrapCtx(async (client) => {
       const tenantSummary = await this.memberships.findTenantSummary(tenantId, client);
       if (!tenantSummary) throw notFound();
-      const member = await this.memberships.hasLiveMembership(principal.userId, tenantId, client);
-      if (!member) throw supportSessionRefusal("support_session_required");
     });
   }
 

@@ -41,8 +41,14 @@
  * without a membership row. Store-access validation still applies if
  * `activeStoreId` is set, falling back to the `'all'` branch.
  *
- * Support sessions (RT-414)
- * -------------------------
+ * Support sessions (RT-414; RT-1462 exemption)
+ * ---------------------------------------------
+ * RT-1462: for the six handlers in `PLATFORM_DIRECT_HANDLERS` (the Console force
+ * actions) the non-member case needs NO support session: `admitDirect` writes the
+ * same one `platform.cross_tenant.accessed` row, names the live session when
+ * there is one, and keeps a suspended tenant read-only. Every other route is as
+ * below.
+ *
  * A platform admin with NO live membership in the active tenant (whatever
  * the tenant's status) is admitted only through an `active` support session
  * for exactly that tenant (`SupportSessionGate`): otherwise 403
@@ -107,7 +113,7 @@ import {
 } from "../observability/metrics/api.metrics";
 import { assignRequestId } from "../common/request-id.interceptor";
 import { recordDbRlsContextFailure } from "../observability/metrics/db.metrics";
-import { routeTemplate } from "../platform-support-sessions/support-session.coverage";
+import { isPlatformDirect, routeTemplate } from "../platform-support-sessions/support-session.coverage";
 import {
   SupportSessionGate,
   supportSessionRefusal,
@@ -125,6 +131,11 @@ export interface RequestAccess {
   readonly route: string;
   /** Assigns the request id on first use (only a support-session row needs it). */
   readonly requestId: () => string | null;
+  /**
+   * RT-1462: the route is one a platform admin who is not a member may use WITHOUT a support session
+   * (`PLATFORM_DIRECT_HANDLERS`). Absent means no, so a caller that builds its own access stays covered.
+   */
+  readonly platformDirect?: boolean;
 }
 
 export { routeTemplate };
@@ -162,6 +173,7 @@ export class TenantContextGuard implements CanActivate {
         method: request.method ?? "GET",
         route: routeTemplate(execCtx),
         requestId: () => assignRequestId(request, execCtx.switchToHttp().getResponse()),
+        platformDirect: isPlatformDirect(execCtx),
       });
       request.context = resolved;
       return true;
@@ -339,16 +351,20 @@ export class TenantContextGuard implements CanActivate {
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     access: RequestAccess,
-  ): Promise<{ readonly id: string; readonly ticketRef: string | null }> {
+  ): Promise<ResolvedContext["supportSession"]> {
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    const session = await new SupportSessionGate(this.pool).enforce(tenantId, {
+    const gate = new SupportSessionGate(this.pool);
+    const request = {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: access.method,
       route: access.route,
       requestId: access.requestId(),
-    });
-    return { id: session.id, ticketRef: session.ticketRef };
+    };
+    // RT-1462: a direct route needs no session; its live one, if any, is still recorded.
+    const session =
+      access.platformDirect === true ? await gate.admitDirect(tenantId, request) : await gate.enforce(tenantId, request);
+    return session === null ? undefined : { id: session.id, ticketRef: session.ticketRef };
   }
 
   /**

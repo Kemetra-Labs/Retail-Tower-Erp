@@ -49,17 +49,28 @@ info:
     tenant's shift and an unknown id are the same non-disclosing 404
     (`RolesGuard` default `denyAs: 404`, FR-ISO-4). **A platform admin is
     admitted (RT-1462, amending D1),** whether or not they are a member of the
-    tenant, and whatever membership role they hold there. A platform admin who
-    is not a tenant member reaches the tenant only through an active support
-    session for it (RT-414, unchanged), so they act on a customer's tenant only
-    inside a session that names it; `support_session_required` and
-    `support_session_expired` still refuse a request outside one. A support
-    session still admits no OTHER write: this amendment names exactly the
-    operations of this surface and the store deletion, and a suspended
-    tenant's support session stays read-only for an unsafe method
-    (`support_session_read_only`, RT-414). The tenant comes from the session,
-    never from the request (§II, §XII). Every cookie write must carry a trusted
-    `Origin` (RT-430), else 403 `origin_rejected`.
+    tenant, whatever membership role they hold there, and, when they are not a
+    member, without a support session (see below). The tenant comes from the
+    session's active tenant, never from the request (§II, §XII). Every cookie
+    write must carry a trusted `Origin` (RT-430), else 403 `origin_rejected`.
+
+
+    **No support session on this surface (owner decision 2026-11-18).** A
+    platform admin who is NOT a tenant member needs no support session for the
+    operations of this surface or for the store deletion (`stores.openapi.yaml`
+    1.4.0-draft): they select the tenant with `switchActiveTenant`
+    (`context.openapi.yaml` 1.3.0-draft, which now admits a platform admin for
+    any existing tenant) and call the operation. Each such request writes one
+    `platform.cross_tenant.accessed` row (`actor_kind: platform_admin`,
+    `support_session_id` null, or the caller's live support session for the
+    tenant when they hold one), exactly as a covered request inside a session
+    does, so no platform-admin request here is unrecorded. This lifts the
+    support-session requirement (RT-414) for exactly these operations and
+    nothing else: every other covered route still needs a support session, and
+    a suspended tenant stays read-only for a non-member platform admin
+    (403 `support_session_read_only` on an unsafe method). A platform admin who
+    IS a tenant member is judged as on every route (the tenant's status is not
+    checked against a member).
 
 
     **Preview, then confirm, then re-check (principle 2).** The preview is a
@@ -181,9 +192,10 @@ info:
 
 
     **PII.** User references are `users.id` values; the opening cashier's
-    `displayName` is returned only to the authorised owner or tenant_admin,
-    as the POS stuck list returns it to a manager, and is null when the user
-    has none. No e-mail, phone, PIN or credential appears anywhere.
+    `displayName` is returned only to the authorised caller (the owner, a
+    `tenant_admin`, or, since RT-1462, a platform admin acting for the
+    customer), as the POS stuck list returns it to a manager, and is null when
+    the user has none. No e-mail, phone, PIN or credential appears anywhere.
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id,
@@ -220,8 +232,9 @@ paths:
         listed (RT-1438), with `displayName: null`.
 
 
-        Owner or `tenant_admin` with all-store access; every other caller is
-        the non-disclosing 404. A store of another tenant, a deleted store and
+        Owner or `tenant_admin` with all-store access, or a platform admin
+        (RT-1462); every other caller is the non-disclosing 404. A store of
+        another tenant, a deleted store and
         an unknown id are the same 404. At most one shift is open per device,
         so the list is short; it carries no cursor and is capped at 200.
       responses:
@@ -411,11 +424,11 @@ paths:
         drawer is never closed from the Console.
 
 
-        **Roles (D1).** Owner or `tenant_admin` with all-store access.
-        Every other caller, including a `store_manager`, is the non-disclosing
-        404; no caller reaches this operation as `platform_admin` or inside a
-        support session. **Re-authentication (D2a):** none, the typed reason
-        only.
+        **Roles (D1, amended by RT-1462).** Owner or `tenant_admin` with
+        all-store access, or a platform admin (a member or not, with or without
+        a support session). Every other caller, including a `store_manager`, is
+        the non-disclosing 404. **Re-authentication (D2a):** none, the typed
+        reason only.
 
 
         **Idempotency.** `Idempotency-Key` is REQUIRED (the shared
@@ -553,11 +566,11 @@ paths:
         per 15 minutes, as `changePassword` counts them (a success does not
         count); past that the answer is 429 `reauth_rate_limited` with
         `Retry-After`. A provider outage is 503 `identity_provider_unavailable`
-        (an outage is not a wrong password). For `store_deletion` only the
-        tenant `owner` may obtain a grant: a `tenant_admin` is 403
+        (an outage is not a wrong password). For `store_deletion` the tenant
+        `owner` or, since RT-1462, a platform admin may obtain a grant (with
+        their OWN password): a `tenant_admin` is 403
         `store_deletion_owner_only`, and any other role, another tenant's store
-        and an unknown store are the non-disclosing 404. Support sessions and
-        `platform_admin` are refused as on every write here.
+        and an unknown store are the non-disclosing 404.
 
 
         **Evaluation order.** The password is the LAST thing checked, so no
@@ -571,8 +584,9 @@ paths:
           2. Body validation (400 `validation_error`).
 
           3. The store and the role: the store in the caller's tenant, not
-             deleted (404); a role outside owner and `tenant_admin` (404); a
-             `tenant_admin` (403 `store_deletion_owner_only`).
+             deleted (404); a role outside owner and `tenant_admin` (404, a
+             platform admin passes whatever role they hold); a `tenant_admin`
+             (403 `store_deletion_owner_only`).
 
           4. The failed-attempt budget (429 `reauth_rate_limited`), read before
              any password is verified, so a user over budget is refused without
@@ -627,8 +641,9 @@ paths:
           description: >
             `reauth_failed` (the generic refusal), `store_deletion_owner_only`,
             `origin_rejected` (RT-430), or a support-session refusal
-            (`support_session_required`, `support_session_expired`,
-            `support_session_read_only` on a suspended tenant).
+            (`support_session_read_only` for a non-member platform admin on a
+            suspended tenant; `support_session_required` for a tenant that does
+            not exist).
           content:
             application/json:
               schema:
@@ -1119,9 +1134,9 @@ components:
         `dp2_session` cookie and its `Origin` header is missing, or is neither the
         API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session
         refusal (`support_session_required`, `support_session_expired`, or
-        `support_session_read_only` on a suspended tenant). Since RT-1462 an
-        active support session admits the writes of this surface for a platform
-        admin.
+        `support_session_read_only` for a non-member platform admin's unsafe
+        method on a suspended tenant). Since RT-1462 no support session is
+        needed on this surface.
       content:
         application/json:
           schema:
