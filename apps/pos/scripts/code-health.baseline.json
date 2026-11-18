@@ -11,5 +11,5 @@
   "eslintComplexity": 9,
   "eslintMaxLinesPerFunction": 32,
   "eslintMaxLines": 2,
-  "testsTypeErrors": 400
+  "testsTypeErrors": 361
 }
