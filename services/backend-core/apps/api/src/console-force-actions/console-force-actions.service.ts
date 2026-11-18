@@ -18,8 +18,8 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
+import { formatMoney } from "../common/money/shift-money";
 import {
-  formatMoney,
   previewFingerprint,
   readForceCloseFacts,
   readStoreOpenShifts,

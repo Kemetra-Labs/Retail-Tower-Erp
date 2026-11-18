@@ -46,7 +46,7 @@ import {
   type ForcedCloseRow,
   type StoreShiftRow,
 } from "./shift-force-close.repository";
-import { formatMoney } from "./shift-money";
+import { formatMoney } from "../common/money/shift-money";
 
 
 /** What the envelope guard published: scope, actor, calling terminal and session. */
