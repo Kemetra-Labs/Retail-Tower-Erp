@@ -176,7 +176,7 @@ describe("gate and reads", () => {
     expect(
       screen.getByRole("link", { name: "Back to connection & sync" }).getAttribute("href"),
     ).toBe("/erp-connection");
-    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith(undefined);
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith(undefined, { limit: 100 });
   });
 
   test("tenant_admin may use it too", async () => {
@@ -220,25 +220,31 @@ describe("gate and reads", () => {
   test("the state filter reads the review queue through the URL", async () => {
     renderPage("/erp-connection/mappings?state=suggested");
     await itemRowEl();
-    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith("suggested");
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith("suggested", {
+      limit: 100,
+    });
     fireEvent.change(screen.getByLabelText("State"), { target: { value: "confirmed" } });
     // RT-960: the filter applies on Apply, not on change.
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
-      expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith("confirmed"),
+      expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith("confirmed", {
+        limit: 100,
+      }),
     );
     fireEvent.change(screen.getByLabelText("State"), { target: { value: "" } });
     // RT-960: the filter applies on Apply, not on change.
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() =>
-      expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined),
+      expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
+        limit: 100,
+      }),
     );
   });
 
   test("a bad state filter is never sent", async () => {
     renderPage("/erp-connection/mappings?state=retired");
     await itemRowEl();
-    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith(undefined);
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledWith(undefined, { limit: 100 });
   });
 
   test("empty lists say so, per filter", async () => {
@@ -421,6 +427,132 @@ describe("confirm an item mapping", () => {
     settle(ok(itemRow({ state: "confirmed" })));
     expect(await screen.findByText("Mapping confirmed.")).toBeTruthy();
     expect(api.tenantAdminConfirmErpnextItemMapping).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("item mappings paging (RT-1458, UX-10.16 to UX-10.21)", () => {
+  const REF_2 = "ITEM-SODA-250";
+  const REF_3 = "ITEM-JUICE-1L";
+  const page1 = () =>
+    ok({
+      items: [itemRow()],
+      nextCursor: "cursor-1",
+    });
+  const page2 = (nextCursor: string | null = null) =>
+    ok({
+      items: [itemRow({ id: ITEM_2, erpnext_item_ref: REF_2 })],
+      nextCursor,
+    });
+  const loadMoreButton = () => within(itemsPanel()).queryByRole("button", { name: "Load more" });
+
+  test("the first page asks for the page size and no cursor; Load more appends the next page by its cursor", async () => {
+    api.tenantAdminListErpnextItemMappings
+      .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(page2());
+    renderPage();
+    await itemRowEl();
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(1);
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
+      limit: 100,
+    });
+    expect(within(itemsPanel()).queryByRole("row", { name: new RegExp(REF_2) })).toBeNull();
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    expect(await itemRowEl(REF_2)).toBeTruthy();
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
+      cursor: "cursor-1",
+      limit: 100,
+    });
+    // Both pages stay on screen, and the last page (nextCursor null) offers no more.
+    expect(await itemRowEl()).toBeTruthy();
+    await waitFor(() => expect(loadMoreButton()).toBeNull());
+  });
+
+  test("a single page with nextCursor null, or an answer without the field, offers no Load more", async () => {
+    api.tenantAdminListErpnextItemMappings.mockResolvedValue(ok({ items: [itemRow()] }));
+    renderPage();
+    await itemRowEl();
+    expect(loadMoreButton()).toBeNull();
+  });
+
+  test("a failed continuation keeps the rows shown and offers a retry at the boundary, sent once per click", async () => {
+    api.tenantAdminListErpnextItemMappings
+      .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(failure(500))
+      .mockResolvedValueOnce(page2());
+    renderPage();
+    await itemRowEl();
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    const panel = itemsPanel();
+    await waitFor(() => expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(2));
+    // The proven row is still there; the failure is stated next to the table, not instead of it.
+    expect(await itemRowEl()).toBeTruthy();
+    const retry = await within(panel).findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    expect(await itemRowEl(REF_2)).toBeTruthy();
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(3);
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
+      cursor: "cursor-1",
+      limit: 100,
+    });
+  });
+
+  test("a continuation refused with 429 says to wait, in the kind's own words, and keeps the rows", async () => {
+    api.tenantAdminListErpnextItemMappings
+      .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(failure(429, 30));
+    renderPage();
+    await itemRowEl();
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    const panel = itemsPanel();
+    expect(
+      await within(panel).findByText("Too many requests. Wait 30 seconds, then try again."),
+    ).toBeTruthy();
+    expect(await itemRowEl()).toBeTruthy();
+  });
+
+  test("a continuation answered 400 is a rejected cursor: Retry drops every loaded page and reads from page 1, never a stored cursor again", async () => {
+    api.tenantAdminListErpnextItemMappings
+      .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(page2("cursor-2"))
+      .mockResolvedValueOnce(failure(400))
+      .mockResolvedValueOnce(ok({ items: [itemRow()], nextCursor: "cursor-1b" }));
+    renderPage();
+    await itemRowEl();
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    await itemRowEl(REF_2);
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    const retry = await within(itemsPanel()).findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(4));
+    // Only the first page is read again: a refetch of the two loaded pages would make a fifth call here.
+    await waitFor(() => expect(loadMoreButton()).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(4);
+    // The fourth call is the first page again, with no cursor; the second page's rows are gone.
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
+      limit: 100,
+    });
+    await waitFor(() =>
+      expect(within(itemsPanel()).queryByRole("row", { name: new RegExp(REF_2) })).toBeNull(),
+    );
+    expect(await itemRowEl()).toBeTruthy();
+  });
+
+  test("a filter change starts again from the first page without the old cursor", async () => {
+    api.tenantAdminListErpnextItemMappings.mockResolvedValueOnce(page1());
+    renderPage();
+    await itemRowEl();
+    api.tenantAdminListErpnextItemMappings.mockResolvedValueOnce(
+      ok({ items: [itemRow({ id: ITEM_2, erpnext_item_ref: REF_3 })], nextCursor: null }),
+    );
+    fireEvent.change(within(itemsPanel()).getByLabelText("State"), {
+      target: { value: "suggested" },
+    });
+    fireEvent.click(within(itemsPanel()).getByRole("button", { name: "Apply" }));
+    expect(await itemRowEl(REF_3)).toBeTruthy();
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith("suggested", {
+      limit: 100,
+    });
   });
 });
 
