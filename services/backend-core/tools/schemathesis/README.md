@@ -16,10 +16,13 @@ decision was a 5xx gate plus report-only contract checks.
 
 ## What runs
 
-| Step | Check | Effect |
-| --- | --- | --- |
-| Gate | `not_a_server_error` | **Fails the PR** on any 5xx not listed in `5xx-baseline.json` |
-| Report | `positive_data_acceptance` | Findings **never fail the PR.** Lists requests the contract allows but the server rejects, in the job summary, except those in `report-baseline.json` |
+| Step | Check | Where | Effect |
+| --- | --- | --- | --- |
+| Gate | `not_a_server_error` | PR shards and nightly | **Fails the PR** on any 5xx not listed in `5xx-baseline.json` |
+| Report | `positive_data_acceptance` | nightly only (RT-1467) | Findings **never fail a run.** Lists requests the contract allows but the server rejects, in the job summary, except those in `report-baseline.json` |
+
+The PR shards run the gate only since RT-1467 (CI-03): the report never gated a PR and took about
+a third of each shard's time.
 
 Either step **fails if Schemathesis could not run** a contract file (schema
 load, network or tool error), so a broken check never looks green.

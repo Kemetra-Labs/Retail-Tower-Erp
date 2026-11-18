@@ -708,16 +708,17 @@ jobs:
 
   # Sharded 4 ways by the product (RT-809). Every shard boots its own ephemeral Backend-Core
   # stack on its own runner (fresh Postgres + Redis, throwaway owner and platform sessions, no
-  # worker), then runs Schemathesis over its share of the cookieAuth contract files: the gate
-  # (not_a_server_error, fails on any 5xx not in tools/schemathesis/5xx-baseline.json) and the
-  # report (positive_data_acceptance, never fails the job). Either step fails if Schemathesis
-  # could not run. The plan is computed from ops.py at this SHA, and the fan-in below proves the
-  # shards ran every file exactly once.
+  # worker), then runs the Schemathesis gate over its share of the cookieAuth contract files
+  # (not_a_server_error, fails on any 5xx not in tools/schemathesis/5xx-baseline.json, or if
+  # Schemathesis could not run). The plan is computed from ops.py at this SHA, and the fan-in
+  # below proves the shards ran every file exactly once. RT-1467 (CI-03): the non-gating report
+  # (positive_data_acceptance) no longer runs here; it runs in api-fuzz-nightly.yml, so PR
+  # shards spend their time on the gate only.
   #
   # To change the shard count, change the matrix and SHARD_TOTAL in BOTH jobs together.
   # The name is an expression, so it is not a graph job key and never equals bc/schemathesis.
   # Timeouts are the product's, not yet measured on this repo's 2-core runner (job 30 minutes;
-  # steps 10, 20 and 15).
+  # steps 10 and 20).
   #
   # Image layer cache (RT-578, RT-917 comment 14404): the api and migrate images are built here
   # with Buildx and the GitHub Actions cache, then stack-up.sh runs with SKIP_BUILD=1. Only
@@ -793,12 +794,6 @@ jobs:
         timeout-minutes: 20
         run: bash tools/schemathesis/shard.sh run gate
 
-      # Findings never fail this step; it fails only if Schemathesis could not run.
-      - name: "Report (non-gating findings): positive_data_acceptance"
-        if: always()
-        timeout-minutes: 15
-        run: bash tools/schemathesis/shard.sh run report
-
       # Plan, manifests, exit codes, SHA and findings only: no raw logs (their curl
       # reproductions carry the session cookie) and nothing if a credential shows up in them.
       # Runs before the teardown removes $RUNNER_TEMP/api-fuzz.
@@ -829,7 +824,7 @@ jobs:
 
   # Fail-closed fan-in: the single job named bc/schemathesis. It fails unless all shard jobs
   # succeeded and the shards' artifacts prove that every (group, contract file, operationIds)
-  # of the inventory regenerated here ran exactly once in gate and in report, at this SHA, with
+  # of the inventory regenerated here ran exactly once in the gate, at this SHA, with
   # no unbaselined 5xx. `!cancelled()` keeps it reporting when a shard failed.
   bc-schemathesis:
     name: bc/schemathesis
