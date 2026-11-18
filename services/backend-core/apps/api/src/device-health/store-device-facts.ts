@@ -11,7 +11,7 @@
 import type { PoolClient } from "pg";
 
 import { DEVICE_HEALTH_SELECT_SQL } from "./device-health.service";
-import type { DeviceHealthReadRow, TrustState } from "./device-health.projections";
+import { hasStoredSaleQueue, type DeviceHealthReadRow, type TrustState } from "./device-health.projections";
 
 interface StoreDeviceFact {
   readonly deviceId: string;
@@ -38,12 +38,8 @@ export async function readStoreDeviceFacts(
     label: row.label,
     trustState: row.trust_state,
     lastSeenAt: row.heartbeat_at,
-    queue:
-      row.heartbeat_at === null ||
-      row.sale_queue_pending === null ||
-      row.sale_queue_dead_letter === null ||
-      row.sale_queue_held === null
-        ? null
-        : { pending: row.sale_queue_pending, deadLetter: row.sale_queue_dead_letter, held: row.sale_queue_held },
+    queue: hasStoredSaleQueue(row)
+      ? { pending: row.sale_queue_pending, deadLetter: row.sale_queue_dead_letter, held: row.sale_queue_held }
+      : null,
   }));
 }
