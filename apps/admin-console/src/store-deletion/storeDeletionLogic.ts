@@ -2,7 +2,8 @@
  * RT-1441 (U2): the client-side gates and tables of the store deletion. Pure, no React.
  *
  * These only decide whether the control is SHOWN (D1: the owner only, never inside a support
- * session) and which catalog key a server code reads as. The Console never grants more than the
+ * session; RT-1462, owner decision 2026-11-18: a PLATFORM ADMIN too, whatever their membership role
+ * or none, and also inside a support session) and which catalog key a server code reads as. The Console never grants more than the
  * server contract and never judges a store itself: the verdict (`canDelete`), the blockers and the
  * effects are the server's. The links are navigation only: each blocker names the screen that
  * clears it (A1 close without a count, retire the device, finish the count).
@@ -13,10 +14,17 @@ import type { StoreDeletionPreview } from "@/lib/store-deletion-queries";
 /** The contract's `reason` bound (1 to 200 characters). */
 export const REASON_MAX = 200;
 
+/**
+ * `isPlatformAdmin` is required, not defaulted, so a caller cannot forget it and silently keep the
+ * pre-RT-1462 rule. A platform admin who also holds the `tenant_admin` role is admitted by the server
+ * as a platform admin, so the role does not hide the control for them.
+ */
 export function canDeleteStore(
   roleCode: string | null | undefined,
   inSupportSession: boolean,
+  isPlatformAdmin: boolean,
 ): boolean {
+  if (isPlatformAdmin) return true;
   return !inSupportSession && roleCode === "owner";
 }
 

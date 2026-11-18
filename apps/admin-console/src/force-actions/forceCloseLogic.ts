@@ -2,7 +2,9 @@
  * RT-1440 (U1): the client-side gates of the close-without-a-count action. Pure, no React.
  *
  * These only decide whether the control is SHOWN (D1: owner and `tenant_admin`; never inside a
- * support session). "With all-store access" is not a fact the context exposes, so a
+ * support session). RT-1462 (owner decision 2026-11-18) amends that for a PLATFORM ADMIN: the control
+ * is shown whatever their membership role (or none) and also inside a support session, because the
+ * server admits them there. "With all-store access" is not a fact the context exposes, so a
  * `tenant_admin` restricted to some stores sees the control and the server answers the uniform
  * 404 (shown as "not available for your access"). The Console never grants more than the server
  * contract and never judges a shift itself: the verdict, the blockers and the effects are the
@@ -15,10 +17,16 @@ export const REASON_MAX = 200;
 
 const ALLOWED_ROLES: ReadonlySet<string> = new Set(["owner", "tenant_admin"]);
 
+/**
+ * `isPlatformAdmin` is required, not defaulted, so a caller cannot forget it and silently keep the
+ * pre-RT-1462 rule.
+ */
 export function canForceClose(
   roleCode: string | null | undefined,
   inSupportSession: boolean,
+  isPlatformAdmin: boolean,
 ): boolean {
+  if (isPlatformAdmin) return true;
   return !inSupportSession && typeof roleCode === "string" && ALLOWED_ROLES.has(roleCode);
 }
 

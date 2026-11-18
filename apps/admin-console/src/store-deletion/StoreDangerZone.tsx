@@ -137,6 +137,14 @@ function DangerZone(props: Readonly<StoreDangerZoneProps>): React.JSX.Element {
 
 export function StoreDangerZone(props: Readonly<StoreDangerZoneProps>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
-  if (!canDeleteStore(context?.active_role_code, Boolean(context?.support_session))) return null;
+  if (
+    !canDeleteStore(
+      context?.active_role_code,
+      Boolean(context?.support_session),
+      context?.user?.is_platform_admin === true,
+    )
+  ) {
+    return null;
+  }
   return <DangerZone {...props} />;
 }

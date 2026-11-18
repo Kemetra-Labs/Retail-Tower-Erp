@@ -44,20 +44,42 @@ function preview(over: Partial<StoreDeletionPreview> = {}): StoreDeletionPreview
 }
 
 describe("canDeleteStore", () => {
-  it("is offered to the owner only (D1)", () => {
-    expect(canDeleteStore("owner", false)).toBe(true);
+  it("is offered to the owner (D1) who is not a platform admin", () => {
+    expect(canDeleteStore("owner", false, false)).toBe(true);
   });
 
   it("is hidden from tenant_admin and every other role, an unknown role and no role at all", () => {
     for (const role of ["tenant_admin", "store_manager", "cashier", "platform_admin", "", "x"]) {
-      expect(canDeleteStore(role, false)).toBe(false);
+      expect(canDeleteStore(role, false, false)).toBe(false);
     }
-    expect(canDeleteStore(undefined, false)).toBe(false);
-    expect(canDeleteStore(null, false)).toBe(false);
+    expect(canDeleteStore(undefined, false, false)).toBe(false);
+    expect(canDeleteStore(null, false, false)).toBe(false);
   });
 
-  it("is hidden for the owner inside a support session (read-only)", () => {
-    expect(canDeleteStore("owner", true)).toBe(false);
+  it("is hidden for the owner inside a support session when they are not a platform admin", () => {
+    expect(canDeleteStore("owner", true, false)).toBe(false);
+  });
+
+  // RT-1462 (owner decision 2026-11-18): the server admits a platform admin whatever their role in
+  // the tenant, with or without a support session, so the control follows.
+  it("is offered to a platform admin whatever the membership role, or none", () => {
+    for (const role of [
+      "owner",
+      "tenant_admin",
+      "store_manager",
+      "store_staff",
+      "",
+      "x",
+      undefined,
+      null,
+    ]) {
+      expect(canDeleteStore(role, false, true)).toBe(true);
+    }
+  });
+
+  it("is offered to a platform admin inside a support session too", () => {
+    expect(canDeleteStore(null, true, true)).toBe(true);
+    expect(canDeleteStore("owner", true, true)).toBe(true);
   });
 });
 
