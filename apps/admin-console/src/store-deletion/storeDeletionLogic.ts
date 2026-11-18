@@ -2,11 +2,12 @@
  * RT-1441 (U2): the client-side gates and tables of the store deletion. Pure, no React.
  *
  * These only decide whether the control is SHOWN (D1: the owner only, never inside a support
- * session; RT-1462, owner decision 2026-11-18: a PLATFORM ADMIN too, whatever their membership role
- * or none, and also inside a support session) and which catalog key a server code reads as. The Console never grants more than the
- * server contract and never judges a store itself: the verdict (`canDelete`), the blockers and the
- * effects are the server's. The links are navigation only: each blocker names the screen that
- * clears it (A1 close without a count, retire the device, finish the count).
+ * session; RT-1462, owner decision 2026-11-18: a PLATFORM ADMIN too, whatever their membership
+ * role or none, and also inside a support session) and which catalog key a server code reads as.
+ * The Console never grants more than the server contract and never judges a store itself: the
+ * verdict (`canDelete`), the blockers and the effects are the server's. The links are navigation
+ * only: each blocker names the screen that clears it (A1 close without a count, retire the
+ * device, finish the count).
  */
 import type { MessageKey } from "@/i18n";
 import type { StoreDeletionPreview } from "@/lib/store-deletion-queries";

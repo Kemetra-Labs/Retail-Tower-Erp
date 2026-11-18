@@ -4,8 +4,9 @@
  * reversible alternative («إيقاف المتجر بدلًا من حذفه يمكن التراجع عنه.»); only then «حذف المتجر…»,
  * which opens the impact preview and the guarded confirm (`StoreDeletionDialog`).
  *
- * Shown to the owner only, never inside a support session (D1). That only hides the control: the
- * server answers 403 `store_deletion_owner_only` or the uniform 404 to anyone else. Nothing is read
+ * Shown to the owner, never inside a support session (D1), and, since RT-1462 (owner decision
+ * 2026-11-18), to a platform admin whatever their role or support session. That only hides the
+ * control: the server answers 403 `store_deletion_owner_only` or the uniform 404 to anyone else. Nothing is read
  * while the page loads: the preview is requested only once the dialog opens.
  */
 import { Banner } from "@/components/Banner";
