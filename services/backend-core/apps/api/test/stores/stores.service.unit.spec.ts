@@ -626,7 +626,8 @@ describe("StoresService.softDelete", () => {
       (deleteStoreWithAudit as jest.Mock).mock.invocationCallOrder[0]!,
     );
     // RT-1453: the facts are read for the store's own tenant (the pos-shifts port scopes by it).
-    expect(mockFacts).toHaveBeenCalledWith(fakeClient, expect.anything(), liveStore.tenantId);
+    // The delete path refuses on counts and fingerprints ids only, so it reads no per-shift eligibility.
+    expect(mockFacts).toHaveBeenCalledWith(fakeClient, expect.anything(), liveStore.tenantId, { withEligibility: false });
   });
 
   it("SD3: a guard holds → 409 with the first blocker as the code and every blocker in details; nothing is deleted", async () => {
