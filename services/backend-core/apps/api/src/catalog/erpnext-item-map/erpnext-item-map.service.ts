@@ -43,6 +43,7 @@ import {
 import { PG_POOL } from "../../auth/auth.module";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { ErpnextItemMapRow } from "./dto/erpnext-item-mapping.dto";
+import { encodeItemMapCursor, type ItemMapKeyset } from "./erpnext-item-map.cursor";
 
 // ---------------------------------------------------------------------------
 // DB row shape (snake_case) → service row (camelCase)
@@ -353,28 +354,50 @@ export class ErpnextItemMapService {
     return exists.rows[0] ? { kind: "conflict" } : { kind: "not_found" };
   }
 
-  /** List the tenant's ACTIVE mappings, optionally filtered by lifecycle state. */
+  /**
+   * List the tenant's ACTIVE mappings, optionally filtered by lifecycle state, in keyset pages
+   * (RT-1458, audit A-17). Order is `suggested_at DESC, id` (id ascending), so the page after
+   * `(S, I)` is `suggested_at < S OR (suggested_at = S AND id > I)`; a row-value comparison
+   * would need both columns in the same direction. Without `limit` the query is unbounded
+   * (`LIMIT NULL`), today's behaviour: the paging contract is additive until the Console pages.
+   * With `limit`, one extra row is read to know whether another page exists.
+   */
   list(input: {
     readonly tenantId: string;
     readonly state?: "suggested" | "confirmed";
-  }): Promise<ErpnextItemMapRow[]> {
+    readonly limit?: number;
+    readonly after?: ItemMapKeyset;
+  }): Promise<{ rows: ErpnextItemMapRow[]; nextCursor: string | null }> {
+    const limit = input.limit ?? null;
     return runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
-      async (client): Promise<ErpnextItemMapRow[]> => {
-        const rows = input.state
-          ? await client.query<DbRow>(
-              `SELECT ${SELECT_COLS} FROM erpnext_item_map
-                WHERE retired_at IS NULL AND state = $1
-                ORDER BY suggested_at DESC, id`,
-              [input.state],
-            )
-          : await client.query<DbRow>(
-              `SELECT ${SELECT_COLS} FROM erpnext_item_map
-                WHERE retired_at IS NULL
-                ORDER BY suggested_at DESC, id`,
-            );
-        return rows.rows.map(toRow);
+      async (client): Promise<{ rows: ErpnextItemMapRow[]; nextCursor: string | null }> => {
+        const result = await client.query<DbRow & { suggested_at_key: string }>(
+          `SELECT ${SELECT_COLS},
+                  to_char(suggested_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS suggested_at_key
+             FROM erpnext_item_map
+            WHERE retired_at IS NULL
+              AND ($1::text IS NULL OR state = $1::text)
+              AND ($2::timestamptz IS NULL
+                   OR suggested_at < $2::timestamptz
+                   OR (suggested_at = $2::timestamptz AND id > $3::uuid))
+            ORDER BY suggested_at DESC, id
+            LIMIT $4::int`,
+          [
+            input.state ?? null,
+            input.after?.suggestedAtKey ?? null,
+            input.after?.id ?? null,
+            limit === null ? null : limit + 1,
+          ],
+        );
+        const hasMore = limit !== null && result.rows.length > limit;
+        const page = hasMore ? result.rows.slice(0, limit) : result.rows;
+        const last = page[page.length - 1];
+        return {
+          rows: page.map(toRow),
+          nextCursor: hasMore && last ? encodeItemMapCursor(last.suggested_at_key, last.id) : null,
+        };
       },
     );
   }
