@@ -15,6 +15,7 @@ import type { PoolClient } from "pg";
 import type { MembershipRepository } from "./membership.repository";
 import { resolveStoreScope, type StoreScope } from "./store-scope";
 import type { ResolvedContext } from "./types";
+import { findCallerRoleCode } from "./effective-role";
 
 /** Roles whose scope is their membership's, not narrowed by the active store (RT-51 D6). */
 const TENANT_WIDE_ROLES: ReadonlySet<string> = new Set(["owner", "tenant_admin"]);
@@ -45,11 +46,8 @@ export async function callerStoreScope(
   memberships: MembershipRepository,
   input: { readonly tenantId: string; readonly context: ResolvedContext },
 ): Promise<StoreScope> {
-  const userId = input.context.userId;
-  const roleCode =
-    userId !== null
-      ? await memberships.findRoleCodeForUserInTenant(userId, input.tenantId, client)
-      : null;
+  // RT-1470: a session platform admin decides as an owner (tenant-wide), member or not.
+  const roleCode = await findCallerRoleCode(memberships, client, input);
   return readScope({ context: input.context, roleCode });
 }
 

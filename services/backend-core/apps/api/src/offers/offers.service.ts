@@ -85,6 +85,7 @@ import {
   type OfferHeader,
   type OpenPause,
 } from "./offers.repository";
+import { findCallerRoleCode } from "../context";
 
 /** The session of a Console call. */
 export interface OfferCallInput {
@@ -492,7 +493,8 @@ export class OffersService {
 
   private async caller(client: PoolClient, input: OfferCallInput): Promise<Caller> {
     const scope = await callerStoreScope(client, this.memberships, { tenantId: input.tenantId, context: input.context });
-    const roleCode = await this.memberships.findRoleCodeForUserInTenant(input.actorUserId, input.tenantId, client);
+    // RT-1470: a session platform admin decides as an owner, member or not.
+    const roleCode = await findCallerRoleCode(this.memberships, client, { tenantId: input.tenantId, context: input.context });
     // A store_manager whose membership covers every store reads and pauses in every live store of the tenant.
     const bounded = isStoreBounded(roleCode);
     const tenantStores = bounded && scope.kind === "tenant" ? (await loadLiveStores(client, input.tenantId)).map((s) => s.id) : [];

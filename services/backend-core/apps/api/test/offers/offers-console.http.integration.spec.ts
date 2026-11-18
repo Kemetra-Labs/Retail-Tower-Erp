@@ -35,6 +35,8 @@ import {
   SES_MANAGER,
   SES_OWNER_ALL,
   SES_OWNER_B,
+  SES_PA,
+  SES_PA_MANAGER,
   SES_STAFF,
   USER_MANAGER,
   STORE_A_X,
@@ -846,5 +848,42 @@ describe("the Offer Pack read (posGetOfferPack)", () => {
     // And tenant B's owner cannot read tenant A's offers.
     expectError(await get(`/api/v1/offers/${offer.offerId}`, SES_OWNER_B), 404, "offer_not_found");
     expect(((await get("/api/v1/offers", SES_OWNER_B)).body as { items: unknown[] }).items).toEqual([]);
+  });
+});
+
+describe("RT-1470: a platform admin decides as an owner, member or not", () => {
+  beforeEach(async () => {
+    if (!skip()) await endAll();
+  });
+
+  it("a platform admin with no membership creates, publishes, pauses the whole offer and ends it", async () => {
+    if (skip()) return;
+    const offer = await createOffer(definition(), SES_PA);
+    const published = await publishOffer(offer, SES_PA);
+    expect(published.status).toBe(200);
+    const paused = await post(`/api/v1/offers/${offer.offerId}/pause`, SES_PA, { reason: "platform check" });
+    expect(paused.status).toBe(200);
+    expect(paused.body).toMatchObject({ state: "paused", pause: { reason: "platform check" } });
+    expect((await post(`/api/v1/offers/${offer.offerId}/end`, SES_PA)).status).toBe(200);
+    // The offers list is tenant-wide for them, not narrowed to a store.
+    const listed = await get("/api/v1/offers", SES_PA, { page_size: 100 });
+    expect(listed.status).toBe(200);
+    expect((listed.body as { items: Array<{ offerId: string }> }).items.map((o) => o.offerId)).toContain(offer.offerId);
+  });
+
+  it("a platform admin who is a store-limited store_manager still pauses the whole offer and can resume it", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition());
+    const paused = await post(`/api/v1/offers/${offer.offerId}/pause`, SES_PA_MANAGER, { reason: "platform check" });
+    expect(paused.status).toBe(200);
+    expect(paused.body).toMatchObject({ state: "paused" });
+    expect((await post(`/api/v1/offers/${offer.offerId}/resume`, SES_PA_MANAGER, {})).status).toBe(200);
+  });
+
+  it("an ordinary store_manager is unchanged: no whole-offer pause, no create", async () => {
+    if (skip()) return;
+    const offer = await publishOk(definition());
+    expect((await post(`/api/v1/offers/${offer.offerId}/pause`, SES_MANAGER, { reason: "r" })).status).toBe(403);
+    expect((await post("/api/v1/offers", SES_MANAGER, { definition: definition() })).status).toBe(403);
   });
 });

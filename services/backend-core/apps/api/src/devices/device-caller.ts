@@ -10,6 +10,7 @@ import type { MembershipRepository } from "../context/membership.repository";
 import { inStoreScope, readScope } from "../context/operator-store-scope";
 import type { StoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
+import { findCallerRoleCode } from "../context";
 
 /** The session context of a call; its role and store scope bound it. */
 export interface ScopedInput {
@@ -28,9 +29,8 @@ export async function resolveDeviceCaller(
   client: PoolClient,
   input: ScopedInput,
 ): Promise<DeviceCaller> {
-  const userId = input.context.userId;
-  const roleCode =
-    userId !== null ? await memberships.findRoleCodeForUserInTenant(userId, input.tenantId, client) : null;
+  // RT-1470: a session platform admin decides as an owner, member or not.
+  const roleCode = await findCallerRoleCode(memberships, client, input);
   return { roleCode, scope: readScope({ context: input.context, roleCode }) };
 }
 

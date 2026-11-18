@@ -43,10 +43,13 @@ import {
   writeCompensation,
   type CompensationRow,
 } from './late-compensation.store';
+import { PLATFORM_ADMIN_EFFECTIVE_ROLE } from '../../context';
 
 export interface CountCaller {
   readonly tenantId: string;
   readonly userId: string;
+  /** RT-1470: a session platform admin decides as an owner (`isSessionPlatformAdmin`). */
+  readonly isPlatformAdmin?: boolean;
 }
 
 export type CompensationBody = FindingCompensation;
@@ -105,9 +108,11 @@ export class CountLateCompensationService {
       { tenantId: caller.tenantId, isPlatformAdmin: false },
       async (client) => {
         await assertCountSessionsEnabled(client, caller.tenantId);
-        // E: the caller's OWN role in this tenant, so a platform admin (whom the route guard admits first) or a
-        // store_manager is refused; there is no platform override of this resolution.
-        const role = await this.memberships.findRoleCodeForUserInTenant(caller.userId, caller.tenantId, client);
+        // E: the caller's OWN role in this tenant, so a store_manager is refused. RT-1470 (owner decision
+        // 2026-11-18): a session platform admin decides as an owner, member or not.
+        const role = caller.isPlatformAdmin
+          ? PLATFORM_ADMIN_EFFECTIVE_ROLE
+          : await this.memberships.findRoleCodeForUserInTenant(caller.userId, caller.tenantId, client);
         if (role === null || !(COMPENSATION_ROLES as readonly string[]).includes(role)) {
           throw new ForbiddenException({
             code: 'count_compensation_role_forbidden',

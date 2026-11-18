@@ -73,12 +73,15 @@ import {
   type SessionRow,
   type VarianceLineBody,
 } from './count-session.store';
+import { PLATFORM_ADMIN_EFFECTIVE_ROLE } from '../../context';
 
 const AUDIT_TARGET = 'count_session';
 
 export interface CountCaller {
   readonly tenantId: string;
   readonly userId: string;
+  /** RT-1470: a session platform admin decides as an owner (`isSessionPlatformAdmin`). */
+  readonly isPlatformAdmin?: boolean;
 }
 
 export interface Page<T> {
@@ -827,11 +830,10 @@ export class CountSessionsService {
         this.pool,
         { tenantId: caller.tenantId, isPlatformAdmin: false },
         async (client) => {
-          const role = await this.memberships.findRoleCodeForUserInTenant(
-            caller.userId,
-            caller.tenantId,
-            client,
-          );
+          // RT-1470: a session platform admin decides as an owner, member or not.
+          const role = caller.isPlatformAdmin
+            ? PLATFORM_ADMIN_EFFECTIVE_ROLE
+            : await this.memberships.findRoleCodeForUserInTenant(caller.userId, caller.tenantId, client);
           if (role !== 'owner') {
             throw new ForbiddenException({
               code: 'count_self_approval_owner_only',
