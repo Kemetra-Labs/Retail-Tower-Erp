@@ -5,3 +5,6 @@
   `callerStoreScope`), member or not, and is tenant-wide. New `context/effective-role.ts`. A bearer
   token never qualifies (RT-132 D6); audit records keep the real membership role; non-admin callers
   are unchanged.
+- RT-1470 `[GATED: contract]`, owner decision 2026-11-18: a session platform admin may write a tenant's
+  AI opt-out like its owner (`AiOwnerMembershipGuard`; `ai-entitlements.openapi.yaml` text only, no
+  wire change). Still subtract-only against the plan; the audit row names the platform admin.

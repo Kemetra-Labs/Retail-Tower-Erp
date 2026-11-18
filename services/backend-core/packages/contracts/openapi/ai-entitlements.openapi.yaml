@@ -3,9 +3,10 @@ info:
   title: Backend-Core — AI Entitlements API
   version: "1.2.0-draft"
   description: >
-    **1.2.0-draft (RT-1468, text only).** A platform admin reads the
-    entitlement member or not and with or without a support session; the
-    opt-out write still requires an `owner` membership. No wire change.
+    **1.2.0-draft (RT-1468, RT-1470, text only).** A platform admin reads the
+    entitlement member or not and with or without a support session. Since
+    RT-1470 (owner decision 2026-11-18) a session platform admin may also
+    write an opt-out like the tenant owner, member or not. No wire change.
 
     Jira RT-662 (RT-644 follow-up ENT-BC1, Epic RT-641): the contract for the
     tenant AI entitlement read, the tenant owner's per-feature opt-out write
@@ -82,13 +83,13 @@ info:
     row). Reading
     consumes no tenant AI feature (D-6, K-6).
 
-    The opt-out write is `owner` only (D-5): `tenant_admin`, `store_manager`,
-    `store_staff` and a platform admin who is not an owner member of the
-    tenant (a support session included) get the same non-disclosing 404.
-    The `RolesGuard` platform-admin pass must NOT admit this route: the
-    RT-664 runtime requires an active `owner` membership in the tenant,
-    because only the tenant owner may author an opt-out and a platform
-    write path would turn the tenant-authored source into a grant path. A
+    The opt-out write is the tenant `owner`'s (D-5) and, since RT-1470 (owner
+    decision 2026-11-18), a session platform admin's, member or not:
+    `tenant_admin`, `store_manager` and `store_staff` get the same
+    non-disclosing 404, and a bearer token never counts as a platform admin.
+    The write is subtract-only against the plan: an opt-in never exceeds
+    what the plan grants (422 `not_entitled`), so a platform write is not a
+    grant path. The audit row names the platform admin as the actor. A
     write answers 403 only with `origin_rejected` (the RT-430 `Origin` check
     on a cookie-authenticated unsafe request).
 
