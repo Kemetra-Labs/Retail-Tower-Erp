@@ -9,10 +9,10 @@
  * reason, not the tenant or the version, so two revisions with the same
  * content have the same hash.
  *
- * Why its own `canonicalJson` (RT-1214): it is typed to `Json` values only —
+ * Why its own `canonicalRevisionJson` (RT-1214): it is typed to `Json` values only —
  * callers normalise optionals (omitted) and instants (ISO strings) before
  * hashing, so it needs neither the `undefined`/`Date` rules of
- * `idempotency/canonical-json.ts` nor those of `catalog/sales/payload-hash.ts`.
+ * `common/hashing/canonical-json.ts` nor those of `common/hashing/payload-hash.ts`.
  * Persisted column: `tenant_ai_entitlements.content_hash` (BYTEA, migration
  * 0055). Changing this serializer changes that stored hash.
  */
@@ -48,11 +48,11 @@ function byCodeUnit(a: string, b: string): number {
 }
 
 function canonicalMember(object: { [key: string]: Json }, key: string): string {
-  return JSON.stringify(key) + ":" + canonicalJson(object[key]!);
+  return JSON.stringify(key) + ":" + canonicalRevisionJson(object[key]!);
 }
 
-export function canonicalJson(value: Json): string {
-  if (Array.isArray(value)) return "[" + value.map(canonicalJson).join(",") + "]";
+export function canonicalRevisionJson(value: Json): string {
+  if (Array.isArray(value)) return "[" + value.map(canonicalRevisionJson).join(",") + "]";
   if (value !== null && typeof value === "object") {
     const keys = Object.keys(value).sort(byCodeUnit);
     return "{" + keys.map((key) => canonicalMember(value, key)).join(",") + "}";
@@ -87,5 +87,5 @@ export function revisionContentHash(content: RevisionContent): Buffer {
     source: "manual_platform",
     state: content.state,
   };
-  return createHash("sha256").update(canonicalJson(json)).digest();
+  return createHash("sha256").update(canonicalRevisionJson(json)).digest();
 }

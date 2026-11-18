@@ -42,6 +42,8 @@ function mkSession(overrides: Partial<OperatorSessionRecord> = {}): OperatorSess
     started_at: '2026-09-24T08:00:00.000Z',
     backend_session_id: 'b',
     last_activity_at: '2026-09-24T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
     ...overrides,
   };
 }

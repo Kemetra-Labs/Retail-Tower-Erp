@@ -58,7 +58,7 @@ import {
   InProgressMarker,
 } from "../../../../src/idempotency/in-progress-marker";
 import { IdempotencyKeyStore } from "@data-pulse-2/shared";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import type { ResolvedContext } from "../../../../src/context/types";
 import { UnknownItemsController } from "../../../../src/catalog/unknown-items/unknown-items.controller";
 import { UnknownItemsService } from "../../../../src/catalog/unknown-items/unknown-items.service";

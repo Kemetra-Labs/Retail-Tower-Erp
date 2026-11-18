@@ -11,7 +11,7 @@ import {
   TENANT_A,
   type HarnessHandle,
 } from "../capture/__capture-harness";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 
 /** Enable the RT-73 deployment gate for a suite (read per request). */
 export function enableReturns(): void {

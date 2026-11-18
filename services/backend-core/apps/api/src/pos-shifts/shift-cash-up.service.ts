@@ -54,10 +54,10 @@ import type { Pool, PoolClient } from "pg";
 
 import { OpenPolicyFlagger } from "../cash-variance-policy/policy-open-flags";
 import { deriveCloseApproval } from "../cash-variance-policy/policy-value";
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import type { ShiftCloseApproverUnverifiedReason } from "../observability/metrics/api.metrics";
 import type { DeviceScope } from "../pos-cashier-admissions/device-scope";
-import { closeFitsCurrency, isCashUpConsistent } from "./shift-cash-arithmetic";
+import { closeFitsCurrency, isCashUpConsistent } from "../common/money/shift-cash-arithmetic";
 import type { CashMovementFact, CloseShiftFact, OpenShiftFact } from "./shift-cash-up.dto";
 import { ShiftCashUpError } from "./shift-cash-up.errors";
 import {
@@ -87,7 +87,7 @@ import {
 import { frozenPolicyHashForm, type RecordedFrozenPolicy } from "./shift-frozen-policy";
 import { refundRefFailure } from "./shift-refund-refs";
 import { ShiftStoreUserReader } from "./shift-store-user";
-import { canonicalInstant, fitsCurrencyPrecision, formatMoney } from "./shift-money";
+import { canonicalInstant, fitsCurrencyPrecision, formatMoney } from "../common/money/shift-money";
 
 /** Which credential admitted the request (the guard decided it). */
 export type ShiftAuthPath = "device" | "envelope";

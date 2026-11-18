@@ -50,6 +50,8 @@ function makeSession(): OperatorSessionRecord {
     started_at: '2026-05-17T08:00:00.000Z',
     backend_session_id: 'b',
     last_activity_at: '2026-05-17T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
@@ -58,11 +60,13 @@ const resolver: ItemRefResolver = () =>
 
 function makeAuditCapture(): { emitter: AuditEmitter; events: AuditEvent[] } {
   const events: AuditEvent[] = [];
-  const emitter: AuditEmitter = {
-    emit(event) {
+  // Capture-only stand-in: the test asserts on the emitted events, not on the
+  // emitter's validation, so one boundary cast replaces the class's private state.
+  const emitter = {
+    emit(event: AuditEvent): void {
       events.push(event);
     },
-  };
+  } as unknown as AuditEmitter;
   return { emitter, events };
 }
 

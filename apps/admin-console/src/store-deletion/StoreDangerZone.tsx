@@ -4,8 +4,9 @@
  * reversible alternative («إيقاف المتجر بدلًا من حذفه يمكن التراجع عنه.»); only then «حذف المتجر…»,
  * which opens the impact preview and the guarded confirm (`StoreDeletionDialog`).
  *
- * Shown to the owner only, never inside a support session (D1). That only hides the control: the
- * server answers 403 `store_deletion_owner_only` or the uniform 404 to anyone else. Nothing is read
+ * Shown to the owner, never inside a support session (D1), and, since RT-1462 (owner decision
+ * 2026-11-18), to a platform admin whatever their role or support session. That only hides the
+ * control: the server answers 403 `store_deletion_owner_only` or the uniform 404 to anyone else. Nothing is read
  * while the page loads: the preview is requested only once the dialog opens.
  */
 import { Banner } from "@/components/Banner";
@@ -21,6 +22,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { StoreDeletionDialog } from "./StoreDeletionDialog";
 import { canDeleteStore } from "./storeDeletionLogic";
+import { isDefiniteRefusal } from "./storeDeletionOutcomes";
 import "./store-deletion.css";
 
 export interface StoreDangerZoneProps {
@@ -40,19 +42,20 @@ function SuspendOffer({
   const { activeTenantId } = useStoreScope();
   const status = useStoreStatusMutation(activeTenantId, storeId);
   const [confirming, setConfirming] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // "refused": a definite 4xx, nothing changed. "unclear": 5xx, 408, 425 or no answer: the PATCH may be applied.
+  const [failed, setFailed] = useState<"refused" | "unclear" | null>(null);
 
   if (isActive === false) {
     return <p className="store-panel-note">{t("storeDeletion.zone.alreadySuspended")}</p>;
   }
 
   async function suspend(): Promise<void> {
-    setFailed(false);
+    setFailed(null);
     try {
       const res = await status.mutateAsync(false);
-      if (res.status >= 400) setFailed(true);
+      if (res.status >= 400) setFailed(isDefiniteRefusal(res.status) ? "refused" : "unclear");
     } catch {
-      setFailed(true);
+      setFailed("unclear");
     } finally {
       setConfirming(false);
     }
@@ -76,7 +79,16 @@ function SuspendOffer({
           </button>
         </div>
       )}
-      {failed ? <Banner variant="danger" message={t("storeDeletion.zone.suspendFailed")} /> : null}
+      {failed === null ? null : (
+        <Banner
+          variant="danger"
+          message={t(
+            failed === "refused"
+              ? "storeDeletion.zone.suspendFailed"
+              : "storeDeletion.zone.suspendUnclear",
+          )}
+        />
+      )}
     </>
   );
 }
@@ -126,6 +138,14 @@ function DangerZone(props: Readonly<StoreDangerZoneProps>): React.JSX.Element {
 
 export function StoreDangerZone(props: Readonly<StoreDangerZoneProps>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
-  if (!canDeleteStore(context?.active_role_code, Boolean(context?.support_session))) return null;
+  if (
+    !canDeleteStore(
+      context?.active_role_code,
+      Boolean(context?.support_session),
+      context?.user?.is_platform_admin === true,
+    )
+  ) {
+    return null;
+  }
   return <DangerZone {...props} />;
 }

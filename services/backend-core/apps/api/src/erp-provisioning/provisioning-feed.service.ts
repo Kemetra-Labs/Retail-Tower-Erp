@@ -19,8 +19,8 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/database-pools";
-import { resolveDeploymentEnvironment } from "../connector/deployment-environment";
+import { PG_POOL } from "../database";
+import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 import type { OutcomeBody, ProvisioningRequestItem, PullQuery, StepAckBody } from "./dto/provisioning.dto";
 import { AUDIT, insertProvisioningAudit } from "./provisioning-audit";
 import { DEFAULT_LANGUAGE, LOCALE_V1, LEASE_TTL_MS, MANAGED_CREDENTIAL_EXPIRY_DAYS, SYSTEM_ACTOR_USER_ID } from "./provisioning.config";

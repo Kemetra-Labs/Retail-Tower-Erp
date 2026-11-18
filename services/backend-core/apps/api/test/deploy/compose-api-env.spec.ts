@@ -284,6 +284,8 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY", () => createPilotReleasePresigner(process.env)],
       ["POS_PILOT_PROMOTION_OIDC_AUDIENCE", () => resolvePromotionOidcConfig(process.env)],
       ["POS_PILOT_PROMOTION_OIDC_REPOSITORY", () => resolvePromotionOidcConfig(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID", () => resolvePromotionOidcConfig(process.env)],
+      ["POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID", () => resolvePromotionOidcConfig(process.env)],
       ["POS_PILOT_PROMOTION_OIDC_ENVIRONMENT", () => resolvePromotionOidcConfig(process.env)],
       ["POS_PILOT_PROMOTION_OIDC_REF", () => resolvePromotionOidcConfig(process.env)],
       ["POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF", () => resolvePromotionOidcConfig(process.env)],
@@ -340,10 +342,12 @@ describe("RT-1297 the pilot S3 key reaches the api container only", () => {
     }
   });
 
-  it("maps the five promotion pins into the api service, without `:?`, so a missing value never stops it (RT-1298)", () => {
+  it("maps the seven promotion pins into the api service, without `:?`, so a missing value never stops it (RT-1298, RT-1459)", () => {
     const pins = [
       "POS_PILOT_PROMOTION_OIDC_AUDIENCE",
       "POS_PILOT_PROMOTION_OIDC_REPOSITORY",
+      "POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID",
+      "POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID",
       "POS_PILOT_PROMOTION_OIDC_ENVIRONMENT",
       "POS_PILOT_PROMOTION_OIDC_REF",
       "POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF",

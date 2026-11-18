@@ -14,7 +14,8 @@
  */
 import { createHash } from 'node:crypto';
 
-import { parseQuantity } from '../decimal-quantity';
+import { canonicalJson } from '../../common/hashing/canonical-json';
+import { parseQuantity } from '../../common/quantity/decimal-quantity';
 
 /** A Stock Reconciliation holds at most 100 rows (G6-6, posting-feed.yaml `CountPosting.lines`). */
 export const COUNT_CHUNK_MAX = 100;
@@ -137,18 +138,6 @@ export function countBody(input: CountBodyInput): Record<string, unknown> {
       unit: l.unit,
     })),
   };
-}
-
-/** Key-sorted JSON, so the hash does not depend on property order. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 /** SHA-256 of the canonical count body (the feed's `payloadHash`). */

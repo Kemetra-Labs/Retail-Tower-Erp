@@ -34,14 +34,17 @@
  *   - Platform-admin sessions bypass the per-tenant membership check
  *     (FR-TEN-6). `active_role_code` is `null` for platform admins
  *     unless they happen to have a normal membership too.
- *   - RT-414: a platform admin enters a tenant they are NOT a member of
- *     only through `openSupportSession`. `switchTenant` refuses that case
- *     with 403 `support_session_required`, and ends any live support
- *     session of the auth session (`tenant_switched`) before switching.
- *     `switchStore` for a non-member platform admin goes through
- *     `SupportSessionGate` (one `platform.cross_tenant.accessed` row).
- *     `support_session` on the response is the caller's live support
- *     session for the active tenant, or null.
+ *   - RT-1468 (owner decision 2026-11-18): a platform admin works in any
+ *     existing tenant, member or not, with or without a support session
+ *     (which stays optional attribution). `switchTenant` lets a platform
+ *     admin select any existing tenant (404 for one that does not exist) and
+ *     ends any live support session of the auth session (`tenant_switched`)
+ *     before switching; it is not a covered route, and the next request in
+ *     the tenant records a `platform.cross_tenant.accessed` row.
+ *     `switchStore` by a platform admin (member or not) goes through
+ *     `SupportSessionGate.admit` (one row). `support_session` on the
+ *     response is the caller's live support session for the active tenant,
+ *     or null.
  *
  * What this service does NOT do
  * -----------------------------
@@ -65,9 +68,9 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { SessionRepository } from "../auth/session.repository";
 import {
   SupportSessionGate,
@@ -126,8 +129,9 @@ export class ContextService {
     private readonly memberships: MembershipRepository,
     /**
      * Optional: when present, RLS-protected membership/store lookups run
-     * inside `runWithTenantContext({ tenantId: null, isPlatformAdmin: true })`
-     * so a non-superuser app role can read those tables. Omitting it
+     * inside `runWithSystemPrivilege({ tenantId: null, privilege:
+     * "membership_bootstrap" })` (RT-1457) so a non-superuser app role can
+     * read those tables. Omitting it
      * (unit tests that construct `ContextService` directly) falls back to
      * the plain-pool surface of `MembershipRepository` — those callers
      * always stub the repo anyway.
@@ -171,7 +175,7 @@ export class ContextService {
         if (!membership) throw notFound();
       });
     } else {
-      await this.assertPlatformAdminMayEnter(principal, tenantId);
+      await this.assertPlatformAdminMayEnter(tenantId);
     }
 
     await this.endSupportSessionOnSwitch(principal, requestId);
@@ -285,19 +289,14 @@ export class ContextService {
 
   /**
    * Platform admin switching tenant: the tenant must exist (a typo'd UUID
-   * would otherwise set a non-existent active tenant), and — RT-414 — the
-   * admin must be a member: a non-member enters only through a support
-   * session.
+   * would otherwise set a non-existent active tenant). RT-1462: a non-member
+   * is admitted too, without a support session (see the header): the session
+   * is required by every covered route except the force actions.
    */
-  private async assertPlatformAdminMayEnter(
-    principal: SessionPrincipal,
-    tenantId: string,
-  ): Promise<void> {
+  private async assertPlatformAdminMayEnter(tenantId: string): Promise<void> {
     await this.withBootstrapCtx(async (client) => {
       const tenantSummary = await this.memberships.findTenantSummary(tenantId, client);
       if (!tenantSummary) throw notFound();
-      const member = await this.memberships.hasLiveMembership(principal.userId, tenantId, client);
-      if (!member) throw supportSessionRefusal("support_session_required");
     });
   }
 
@@ -316,27 +315,21 @@ export class ContextService {
   }
 
   /**
-   * RT-414: `switchActiveStore` is a covered route. A non-member platform
-   * admin needs an active support session for the active tenant; it stays
-   * admitted on a suspended tenant (navigation, not a tenant write).
+   * `switchActiveStore` is a covered route: a platform admin (member or not,
+   * RT-1468) is admitted and the request writes one cross-tenant row.
    */
   private async admitPlatformAdminStoreSwitch(
     principal: SessionPrincipal,
     tenantId: string,
     requestId: string | null,
   ): Promise<void> {
-    const member = await this.withBootstrapCtx((client) =>
-      this.memberships.hasLiveMembership(principal.userId, tenantId, client),
-    );
-    if (member) return;
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    await new SupportSessionGate(this.pool).enforce(tenantId, {
+    await new SupportSessionGate(this.pool).admit(tenantId, {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: "POST",
       route: SWITCH_STORE_ROUTE,
       requestId,
-      readOnlyExempt: true,
     });
   }
 
@@ -460,19 +453,18 @@ export class ContextService {
   }
 
   /**
-   * Run `work` inside a platform-admin GUC context so RLS-protected
-   * membership/store/tenant tables are readable by a non-superuser app
-   * role.
+   * Run `work` inside the `membership_bootstrap` system-privilege context
+   * so RLS-protected membership/store/tenant tables are readable by a
+   * non-superuser app role (RT-1457). It never sets the platform-admin
+   * flag; the SELECT-only policies of migration 0120 grant the read.
    *
-   * Uses `runWithTenantContext(pool, { tenantId: NIL_UUID,
-   * isPlatformAdmin: true }, work)`. The nil UUID (all-zeros) is a
-   * valid UUID that matches no real tenant, so `tenant_id = NIL_UUID`
-   * evaluates to `false` for every row and the
-   * `is_platform_admin = 'true'` OR-branch grants access. Using
-   * `tenantId: null` would set the GUC to `""`, causing
-   * `invalid input syntax for type uuid: ""` when the RLS predicate
-   * attempts the `::uuid` cast — PostgreSQL does not short-circuit `OR`
-   * before evaluating sub-expressions that throw.
+   * Uses `runWithSystemPrivilege(pool, { tenantId: null, privilege:
+   * "membership_bootstrap" }, work)`. For a null tenant the helper pins
+   * the nil UUID (all-zeros), a valid UUID that matches no real tenant,
+   * so the tenant RLS predicate evaluates to `false` for every row
+   * instead of failing the `::uuid` cast on an empty GUC string
+   * (`invalid input syntax for type uuid: ""`; PostgreSQL does not
+   * short-circuit `OR` before evaluating sub-expressions that throw).
    *
    * Falls back to calling `work(undefined)` when `this.pool` is absent
    * (unit tests). In that scenario `MembershipRepository` methods fall
@@ -484,16 +476,14 @@ export class ContextService {
     if (!this.pool) {
       return await work(undefined);
     }
-    // Use the nil UUID (all-zeros) rather than null/empty-string so the
-    // `::uuid` cast in RLS policies succeeds. The comparison
-    // `tenant_id = '00000000-…'` evaluates to `false` for every real
-    // tenant, so access is granted exclusively via the
-    // `is_platform_admin = 'true'` OR-branch. Passing null would set the
-    // GUC to "" which throws `invalid input syntax for type uuid: ""` at
-    // the cast site before PostgreSQL can short-circuit the OR.
-    return await runWithTenantContext(
+    // `tenantId: null` makes the helper pin the nil UUID (all-zeros) rather
+    // than an empty string, so the `::uuid` cast in the tenant RLS policies
+    // succeeds and `tenant_id = '00000000-…'` is false for every real
+    // tenant; access is granted exclusively by the SELECT-only
+    // `membership_bootstrap` policies (0120).
+    return await runWithSystemPrivilege(
       this.pool,
-      { tenantId: "00000000-0000-0000-0000-000000000000", isPlatformAdmin: true },
+      { tenantId: null, privilege: "membership_bootstrap" },
       (client) => work(client),
     );
   }

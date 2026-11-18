@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { PassThrough } from 'node:stream';
 import { describe, it, vi, beforeEach } from 'vitest';
-import pino from 'pino';
+import pino, { type Logger } from 'pino';
 
 import { SignInHandler } from '../main/operator/sign-in-handler.js';
 import { SignOutHandler } from '../main/operator/sign-out-handler.js';
@@ -33,7 +33,7 @@ interface Streams {
   lines: () => string[];
 }
 
-function makeCapturingPinoLogger(): { logger: ReturnType<typeof pino>; streams: Streams } {
+function makeCapturingPinoLogger(): { logger: Logger; streams: Streams } {
   const stream = new PassThrough();
   const buf: Buffer[] = [];
   stream.on('data', (chunk: Buffer) => buf.push(chunk));
@@ -86,6 +86,7 @@ const SUCCESS_BACKEND: BackendSignInResponse = {
   kind: 'signed_in',
   operator: {
     id: 'clerk-user-1',
+    user_id: 'user-1',
     display_name: 'Manager One',
     role: 'manager',
     tenant_id: 't1',
@@ -102,6 +103,10 @@ function fakeBackend(result: BackendSignInResponse): BackendClient {
   return {
     signIn: vi.fn(() => Promise.resolve(result)),
     signOut: vi.fn(() => Promise.resolve({ kind: 'signed_out' as const })),
+    // Not reached by the sign-in / sign-out handlers under test.
+    listRoster: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
+    confirmTakeover: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
+    getStuckShifts: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
   };
 }
 

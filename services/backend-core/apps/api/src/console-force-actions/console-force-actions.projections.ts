@@ -4,7 +4,7 @@
  * `ForceClosePreview`). Recorded counts and amounts only: never an expected-cash
  * or variance figure (Constitution §III), never an e-mail, a phone or a PIN.
  */
-import { stuckBlockers, type StoreShiftRow, type StuckVerdict } from "../pos-shifts/shift-force-close.repository";
+import { stuckBlockers, type StoreShiftRow, type StuckVerdict } from "../pos-shifts";
 import type { TerminalTrustState } from "../pos-shifts/shift-force-close.facts";
 
 type ShiftBlocker = "shift_not_open" | "not_stale" | "live_operator_session" | "live_cashier_admission";

@@ -77,7 +77,7 @@ import {
   runWithTenantContext,
   type TenantContext,
 } from "@data-pulse-2/db";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { MembershipRepository } from "../context/membership.repository";
 import type { ResolvedContext } from "../context/types";
 import {
@@ -493,7 +493,7 @@ export class StoresService {
     await this.tx(this.pool, txCtx(ctx), async (client) => {
       const store = await this.stores.findByIdForUpdate(client, storeId);
       if (!store) throw notFound();
-      const facts = await readStoreDeletionFacts(client, factsStoreOf(store));
+      const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId, { withEligibility: false });
       const blockers = evaluateStoreDeletionBlockers(facts);
       if (blockers.length > 0) throw storeDeletionBlocked(blockers);
       const role =

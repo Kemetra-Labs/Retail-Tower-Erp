@@ -24,7 +24,7 @@
  * `null` unless the region and both key halves are valid, and with `null` the
  * resolver answers `available:false` (fail closed), never an error. The
  * promotion verifier (RT-1298) is bound from the `POS_PILOT_PROMOTION_OIDC_*`
- * pins (`promotion-oidc.config.ts`); it is `null` unless all five are valid, and
+ * pins (`promotion-oidc.config.ts`); it is `null` unless all seven are valid, and
  * with `null` every registry write from the workflow is 401.
  */
 import { Logger, Module } from "@nestjs/common";
@@ -64,7 +64,7 @@ function warn(message: string): void {
     { provide: PILOT_RELEASE_CONFIG, useFactory: () => resolvePilotReleaseConfig(process.env) },
     // RT-1297: null (the lane stays inert, `available:false`) unless the pilot S3 key is complete.
     { provide: PILOT_RELEASE_PRESIGNER, useFactory: () => bindPilotReleasePresigner(process.env, warn) },
-    // RT-1298: null (every workflow write is 401) unless all five promotion pins are valid.
+    // RT-1298: null (every workflow write is 401) unless all seven promotion pins are valid.
     { provide: PROMOTION_OIDC_VERIFIER, useFactory: () => bindPromotionVerifier(process.env, warn) },
     PlatformAdminGuard,
     PromotionWriterGuard,

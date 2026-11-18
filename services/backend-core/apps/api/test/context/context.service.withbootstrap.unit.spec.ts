@@ -2,15 +2,21 @@
  * context.service.withbootstrap.unit.spec.ts
  *
  * Covers the `withBootstrapCtx` path in ContextService when a real `Pool`
- * is injected (the `runWithTenantContext` branch at lines 391-395).
+ * is injected (the `runWithSystemPrivilege` branch at lines 391-395).
  *
- * `runWithTenantContext` is mocked so no DB connection is required.
+ * `runWithSystemPrivilege` is mocked so no DB connection is required.
  * The service is constructed with a fake pool to exercise the non-fallback
  * branch of `withBootstrapCtx`.
  */
 
 // Mock must appear before any import that transitively loads @data-pulse-2/db.
+// `runWithTenantContext` stays mocked too: other modules the service reaches on a
+// tenant switch (support-session lifecycle) still use it. The bootstrap reads use
+// `runWithSystemPrivilege` (RT-1457).
 jest.mock("@data-pulse-2/db", () => ({
+  runWithSystemPrivilege: jest.fn(
+    async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
+  ),
   runWithTenantContext: jest.fn(
     async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
   ),
@@ -20,7 +26,7 @@ import "reflect-metadata";
 
 import { NotFoundException } from "@nestjs/common";
 import type { Pool } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege, runWithTenantContext } from "@data-pulse-2/db";
 
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type {
@@ -39,14 +45,14 @@ const fakePool = {} as Pool;
 describe("ContextService — withBootstrapCtx pool path", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (runWithTenantContext as jest.Mock).mockImplementation(
-      // The fake client answers the RT-414 support-session queries with no rows.
-      async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) =>
-        fn({ query: jest.fn().mockResolvedValue({ rows: [] }) }),
-    );
+    // The fake client answers the RT-414 support-session queries with no rows.
+    const run = async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown): Promise<unknown> =>
+      fn({ query: jest.fn().mockResolvedValue({ rows: [] }) });
+    (runWithSystemPrivilege as jest.Mock).mockImplementation(run);
+    (runWithTenantContext as jest.Mock).mockImplementation(run);
   });
 
-  it("switchTenant calls runWithTenantContext when pool is present (covers withBootstrapCtx pool branch)", async () => {
+  it("switchTenant calls runWithSystemPrivilege when pool is present (covers withBootstrapCtx pool branch)", async () => {
     const fakeMembership = {
       membershipId: "m1",
       storeAccessKind: "all",
@@ -95,9 +101,13 @@ describe("ContextService — withBootstrapCtx pool path", () => {
       service.switchTenant(principal, TENANT_ID),
     ).resolves.toBeDefined();
 
-    // runWithTenantContext is called multiple times: once for the membership
+    // runWithSystemPrivilege is called multiple times: once for the membership
     // check and additional times for buildResponse (listForUser, findTenantSummary).
-    expect(runWithTenantContext).toHaveBeenCalled();
+    expect(runWithSystemPrivilege).toHaveBeenCalledWith(
+      fakePool,
+      { tenantId: null, privilege: "membership_bootstrap" },
+      expect.any(Function),
+    );
     expect(fakeMemberships.findActiveMembership).toHaveBeenCalledWith(
       USER_ID,
       TENANT_ID,
@@ -125,6 +135,6 @@ describe("ContextService — withBootstrapCtx pool path", () => {
       service.switchTenant(principal, TENANT_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
 
-    expect(runWithTenantContext).toHaveBeenCalledTimes(1);
+    expect(runWithSystemPrivilege).toHaveBeenCalledTimes(1);
   });
 });

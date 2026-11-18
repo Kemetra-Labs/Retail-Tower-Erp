@@ -17,7 +17,7 @@
 import type { InventoryStatus } from '@data-pulse-2/db';
 import type { PoolClient } from 'pg';
 
-import { formatQuantity, parseQuantity } from '../decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
 import { recordPositionEvent } from '../position-events/position-event.writer';
 import type { HoldMoves } from './hold-move.rules';
 import { fingerprint } from './safety.common';

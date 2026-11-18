@@ -62,7 +62,8 @@ import cookieParser from "cookie-parser";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { AuthController } from "../../src/auth/auth.controller";
 import {
   EMAIL_JOB_ENQUEUER,

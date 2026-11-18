@@ -39,7 +39,7 @@ import { SessionRepository } from "./session.repository";
 import { AuthTokenRepository } from "./auth-token.repository";
 import { recordAuthFailure } from "../observability/metrics/api.metrics";
 import { ORIGIN_REJECTED, checkRequestOrigin, isUnsafeMethod } from "./origin-check";
-import { PG_POOL } from "./database-pools";
+import { PG_POOL } from "../database";
 import { assignRequestId } from "../common/request-id.interceptor";
 import { auditSupportSessionOriginRefusal } from "../platform-support-sessions/support-session.origin-audit";
 
@@ -224,7 +224,6 @@ export class AuthGuard implements CanActivate {
       activeTenantId: session.activeTenantId,
       method: request.method,
       params: (request.params ?? {}) as Record<string, string | undefined>,
-      body: request.body as unknown,
       requestId: assignRequestId(request, context.switchToHttp().getResponse()),
     });
     return refusal ?? plain;

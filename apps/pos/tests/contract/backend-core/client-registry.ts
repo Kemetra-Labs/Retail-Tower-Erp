@@ -688,7 +688,7 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     method: 'post',
     pathTemplate: '/api/pos/v1/shifts/{shift_id}/close',
     wiring: SHIFT_SYNC_ENVELOPE_WIRING,
-    invoke: (fetch) => shiftSyncClient(fetch).sendEnvelope?.(forcedCloseEnvelopeFact()),
+    invoke: async (fetch) => shiftSyncClient(fetch).sendEnvelope?.(forcedCloseEnvelopeFact()),
   },
   {
     id: 'validateVoucher',

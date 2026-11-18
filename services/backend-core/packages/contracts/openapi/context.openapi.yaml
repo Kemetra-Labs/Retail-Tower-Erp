@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Active Context API
-  version: "1.2.0-draft"
+  version: "1.4.0-draft"
   description: >
     Server-side resolution and switching of active tenant + active store
     for an authenticated session. Per spec §6.6 and Q3 default A.
@@ -12,6 +12,23 @@ info:
     that case with 403 `support_session_required`, and `ContextResponse`
     gains `support_session`. Behavior for users who are not platform admins
     is unchanged. Both changes ship with the RT-414 runtime.
+
+    RT-1462 (1.3.0-draft, `[GATED: contract]`, owner decision 2026-11-18):
+    `switchActiveTenant` now admits a platform admin for ANY existing tenant,
+    member or not, without a support session, so a platform admin can use the
+    Console force actions (`console-force-actions.openapi.yaml` 1.1.0-draft)
+    on a customer's tenant. The response carries only the tenant summary (id,
+    slug, name), which a platform admin can already read. A tenant that does
+    not exist is still 404. No schema change.
+
+    RT-1468 (1.4.0-draft, `[GATED: contract]`, owner decision 2026-11-18):
+    after the switch, a platform admin uses EVERY covered route of the tenant,
+    member or not, without a support session and also on a suspended tenant
+    (`platform-support-sessions.openapi.yaml` 1.4.0-draft); each request there
+    writes one `platform.cross_tenant.accessed` row. `switchActiveStore` by a
+    platform admin, member or not, writes one such row too. The switch itself
+    stays uncovered: it writes no row, and the next request in the tenant
+    does. No schema change.
 
 
     **1.2.0-draft (RT-620, additive).** Every cookieAuth operation may
@@ -55,7 +72,8 @@ paths:
         "200":
           description: >
             Active tenant switched. Active store is cleared. Any current support
-            session has ended, so `support_session` is null.
+            session has ended (`end_reason: tenant_switched`), so
+            `support_session` is null.
           content:
             application/json:
               schema:
@@ -66,12 +84,7 @@ paths:
                       support_session: { type: "null" }
         "403":
           description: >
-            `support_session_required` (RT-414): the caller is a platform admin
-            and not an active member of this existing tenant. Enter it with
-            `openSupportSession` instead. Never returned to a user who is not a
-            platform admin. A successful switch ends any current support
-            session (`end_reason: tenant_switched`).
-            Also `origin_rejected` (RT-430): the request is authenticated by the
+            `origin_rejected` (RT-430): the request is authenticated by the
             `dp2_session` cookie and its `Origin` header is missing, or is
             neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
         "404":

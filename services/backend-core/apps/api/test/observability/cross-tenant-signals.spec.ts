@@ -18,7 +18,7 @@
  *      behavior is preserved (no status-code or body change).
  *
  * Scope: in-process, no Testcontainers, no live DB. Cross-tenant rejections
- * are simulated by mocking `runWithTenantContext` from `@data-pulse-2/db`
+ * are simulated by mocking `runWithSystemPrivilege` from `@data-pulse-2/db`
  * to execute the work function, with `findActiveMembership` returning null.
  * The OTel Meter is a no-op in this context.
  *
@@ -27,7 +27,7 @@
 
 // Mock @data-pulse-2/db before any imports that may load the module.
 jest.mock("@data-pulse-2/db", () => ({
-  runWithTenantContext: jest.fn(
+  runWithSystemPrivilege: jest.fn(
     async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
   ),
 }));
@@ -36,7 +36,7 @@ import "reflect-metadata";
 
 import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import type { Pool } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import { ALLOWED_METRIC_LABELS, FORBIDDEN_METRIC_LABELS, validateMetricLabels } from "@data-pulse-2/shared";
 
 import {
@@ -162,8 +162,8 @@ describe("T475 — TenantContextGuard emits cross_tenant_rejection_total on NotF
     jest.clearAllMocks();
     crossTenantSpy = jest.spyOn(apiMetrics, "recordCrossTenantRejection");
     tenantContextSpy = jest.spyOn(apiMetrics, "recordTenantContextFailure");
-    // Default: runWithTenantContext calls the work function (normal path).
-    (runWithTenantContext as jest.Mock).mockImplementation(
+    // Default: runWithSystemPrivilege calls the work function (normal path).
+    (runWithSystemPrivilege as jest.Mock).mockImplementation(
       async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
     );
   });

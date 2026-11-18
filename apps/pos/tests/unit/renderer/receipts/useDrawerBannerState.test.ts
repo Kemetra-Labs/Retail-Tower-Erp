@@ -14,13 +14,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import { useDrawerBannerState } from '../../../../src/renderer/ui/receipts/useDrawerBannerState.js';
-import type { SalesBridgeAPI } from '../../../../src/shared/bridge-api.js';
+import type { SalesBridgeAPI, SalesSubscribeResponse } from '../../../../src/shared/bridge-api.js';
 import type { BannerState } from '../../../../src/shared/sales/types.js';
 
 function salesBridge(banner: BannerState): SalesBridgeAPI {
   return {
     read: vi.fn(),
     findByNumber: vi.fn(),
+    list: vi.fn(),
+    listRecent: vi.fn(),
+    readForHandoff: vi.fn(),
     subscribe: vi.fn(() =>
       Promise.resolve({ kind: 'ok' as const, subscription_token: 'tok-1', banner_state: banner }),
     ),
@@ -103,6 +106,9 @@ describe('useDrawerBannerState', () => {
     const bridge: SalesBridgeAPI = {
       read: vi.fn(),
       findByNumber: vi.fn(),
+      list: vi.fn(),
+      listRecent: vi.fn(),
+      readForHandoff: vi.fn(),
       subscribe: vi.fn(() =>
         Promise.resolve({ kind: 'refused' as const, reason: 'no_session' as const }),
       ),
@@ -121,6 +127,9 @@ describe('useDrawerBannerState', () => {
     const bridge: SalesBridgeAPI = {
       read: vi.fn(),
       findByNumber: vi.fn(),
+      list: vi.fn(),
+      listRecent: vi.fn(),
+      readForHandoff: vi.fn(),
       subscribe: vi.fn(() => Promise.reject(new Error('ipc boom'))),
       unsubscribe: vi.fn(() => Promise.resolve({ kind: 'ok' as const })),
     };
@@ -161,9 +170,12 @@ describe('useDrawerBannerState', () => {
     const bridge: SalesBridgeAPI = {
       read: vi.fn(),
       findByNumber: vi.fn(),
+      list: vi.fn(),
+      listRecent: vi.fn(),
+      readForHandoff: vi.fn(),
       subscribe: vi.fn(
         () =>
-          new Promise((resolve) => {
+          new Promise<SalesSubscribeResponse>((resolve) => {
             resolveFn = resolve;
           }),
       ),
@@ -195,9 +207,12 @@ describe('useDrawerBannerState', () => {
     const bridge: SalesBridgeAPI = {
       read: vi.fn(),
       findByNumber: vi.fn(),
+      list: vi.fn(),
+      listRecent: vi.fn(),
+      readForHandoff: vi.fn(),
       subscribe: vi.fn(
         () =>
-          new Promise((_resolve, reject) => {
+          new Promise<SalesSubscribeResponse>((_resolve, reject) => {
             rejectFn = reject;
           }),
       ),
@@ -255,6 +270,9 @@ describe('useDrawerBannerState — onSnapshot (RT-241)', () => {
     const bridge: SalesBridgeAPI = {
       read: vi.fn(),
       findByNumber: vi.fn(),
+      list: vi.fn(),
+      listRecent: vi.fn(),
+      readForHandoff: vi.fn(),
       subscribe: vi.fn(subscribe),
       unsubscribe: vi.fn(() => Promise.resolve({ kind: 'ok' as const })),
     };

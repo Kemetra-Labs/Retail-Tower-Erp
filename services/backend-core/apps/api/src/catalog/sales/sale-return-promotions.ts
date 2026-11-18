@@ -1,7 +1,7 @@
 /**
  * Returns of a sale that took part in automatic offers — spec 048 §9, OD-3,
  * OD-10, OD-11 (Jira RT-1337, RT-286 S4; the rule of `sales.yaml`
- * `recordReturn`, the pure arithmetic in `offers/evaluator/offer-return-settlement.ts`).
+ * `recordReturn`, the pure arithmetic in `@data-pulse-2/offer-engine` `offer-return-settlement.ts`).
  *
  * A return uses the FROZEN offer version and unit prices of the sale
  * (`sale_line_promotions`, `offer_versions`), never the current offers, and
@@ -26,15 +26,14 @@
  */
 import type { PoolClient } from "pg";
 
-import { formatColumnAmount, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import { formatColumnAmount, settleOfferReturn, wholeUnits, type SaleOfferLine } from "@data-pulse-2/offer-engine";
 import {
   allocateReturnPromotion,
   allocationLineOf,
   ReturnPromotionOverflowError,
   type AllocationLine,
 } from "../../offers/evaluator/offer-return-allocation";
-import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
-import { minorUnitExponent } from "./iso4217-minor-units";
+import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
 import { replaySaleReturns } from "./sale-return-history";
 import { PromotionClawbackExceedsRefundError } from "./sale-reversal";
 

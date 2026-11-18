@@ -7,7 +7,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { canonicalJson } from "../../../../src/idempotency/canonical-json";
+import { canonicalJson } from "../../../../src/common/hashing/canonical-json";
 import { E1_CASES, E1_DATASET_VERSION, materialize, materializeTwin } from "./e1.cases";
 
 export function sha256Of(value: unknown): string {

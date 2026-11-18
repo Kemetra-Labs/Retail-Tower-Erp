@@ -16,8 +16,17 @@ import { OpenShiftsLink } from "@/force-actions/OpenShiftsLink";
  */
 
 const STORE = "0198a0c4-0000-7000-8000-000000000a01";
-const asContext = (role: string, supportSession: unknown = null) => ({
-  context: { active_tenant: { id: "t1" }, active_role_code: role, support_session: supportSession },
+const asContext = (
+  role: string | null,
+  supportSession: unknown = null,
+  isPlatformAdmin = false,
+) => ({
+  context: {
+    active_tenant: { id: "t1" },
+    active_role_code: role,
+    support_session: supportSession,
+    user: { is_platform_admin: isPlatformAdmin },
+  },
 });
 
 function renderStep(): void {
@@ -44,10 +53,22 @@ describe("ForceCloseNextStep", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
-  test("inside a support session even an owner sees nothing (read-only by construction)", () => {
+  test("inside a support session even an owner who is not a platform admin sees nothing", () => {
     activeContext.mockReturnValue(asContext("owner", { id: "ss-1" }));
     renderStep();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  // RT-1462 (owner decision 2026-11-18): the server admits a platform admin whatever their role in the
+  // tenant, with or without a support session, so the link follows.
+  test.each([
+    ["a store_manager member", "store_manager", null],
+    ["no membership", null, null],
+    ["no membership, inside a support session", null, { id: "ss-1" }],
+  ])("a platform admin with %s sees the link", (_label, role, session) => {
+    activeContext.mockReturnValue(asContext(role, session, true));
+    renderStep();
+    expect(screen.getByRole("link", { name: /View the store's open shifts/ })).toBeTruthy();
   });
 });
 
@@ -85,5 +106,11 @@ describe("OpenShiftsLink (the store page entry)", () => {
     activeContext.mockReturnValue(asContext("owner", { id: "ss-1" }));
     renderLink();
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  test("a platform admin sees the link with no membership, inside a support session too (RT-1462)", () => {
+    activeContext.mockReturnValue(asContext(null, { id: "ss-1" }, true));
+    renderLink();
+    expect(screen.getByRole("link", { name: "Open shifts in this store" })).toBeTruthy();
   });
 });

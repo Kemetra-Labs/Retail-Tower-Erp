@@ -16,8 +16,11 @@
  *      `shift_not_stuck` with `details.blockers`; that refusal precedes the
  *      fingerprint;
  *   3. another tenant's shift and an unknown id are 404; a store the caller has
- *      no all-store access to, a store_manager, a platform admin in a support
- *      session are refused (404 / 403 `support_session_read_only`);
+ *      no all-store access to and a store_manager are refused (404); a platform
+ *      admin is ADMITTED (RT-1462: a member whatever their role, a non-member
+ *      with or without a support session), recorded as `actor_kind:
+ *      platform_admin` on behalf of the tenant and the session, with one
+ *      `platform.cross_tenant.accessed` row per request (since RT-1468 member or not);
  *   4. a stale `previewFingerprint` is 409 `preview_stale`; the replay (same key,
  *      or the same close under another key with a stale fingerprint) is 200 and
  *      writes nothing;
@@ -81,6 +84,14 @@ interface World {
   readonly adminSpecific: string;
   readonly manager: string;
   readonly platform: string;
+  /** RT-1462: a platform admin who is ALSO an owner member of the tenant (no support session needed). */
+  readonly platformMember: string;
+  /** RT-1462: a platform admin who is not a member and has NO support session. */
+  readonly platformBare: string;
+  readonly platformUser: string; // user ids of the three platform-admin sessions
+  readonly platformMemberUser: string;
+  readonly platformBareUser: string;
+  readonly supportSessionId: string;
   readonly cashier: string; // user id (no live session)
   readonly ownerUser: string;
 }
@@ -110,10 +121,17 @@ async function seedWorld(pool: Pool, label: string): Promise<World> {
     adminSpecific: id(),
     manager: id(),
     platform: id(),
+    platformMember: id(),
+    platformBare: id(),
+    platformUser: id(),
+    platformMemberUser: id(),
+    platformBareUser: id(),
+    supportSessionId: "",
     cashier: id(),
     ownerUser: id(),
   };
-  const [adminUser, specUser, managerUser, platformUser] = [id(), id(), id(), id()];
+  const [adminUser, specUser, managerUser] = [id(), id(), id()];
+  const [platformUser, platformMemberUser, platformBareUser] = [w.platformUser, w.platformMemberUser, w.platformBareUser];
   await pool.query(`INSERT INTO tenants (id, slug, name) VALUES ($1, $2, $2)`, [w.tenant, `rt1445-${label}`]);
   await pool.query(`INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $3, 'S1', 'S1'), ($2, $3, 'S2', 'S2')`, [
     w.store,
@@ -125,7 +143,14 @@ async function seedWorld(pool: Pool, label: string): Promise<World> {
        ($1, $6, 'Cashier Cat'), ($2, $7, NULL), ($3, $8, NULL), ($4, $9, NULL), ($5, $10, NULL)`,
     [w.cashier, w.ownerUser, adminUser, specUser, managerUser, `c-${label}@e.test`, `o-${label}@e.test`, `a-${label}@e.test`, `s-${label}@e.test`, `m-${label}@e.test`],
   );
-  await pool.query(`INSERT INTO users (id, email, is_platform_admin) VALUES ($1, $2, true)`, [platformUser, `p-${label}@e.test`]);
+  await pool.query(`INSERT INTO users (id, email, is_platform_admin) VALUES ($1, $4, true), ($2, $5, true), ($3, $6, true)`, [
+    platformUser,
+    platformMemberUser,
+    platformBareUser,
+    `p-${label}@e.test`,
+    `pm-${label}@e.test`,
+    `pb-${label}@e.test`,
+  ]);
   const roles = { owner: id(), tenant_admin: id(), store_manager: id() };
   for (const [code, rid] of Object.entries(roles)) {
     await pool.query(`INSERT INTO roles (id, tenant_id, code, name) VALUES ($1, $2, $3, $3)`, [rid, w.tenant, code]);
@@ -135,6 +160,7 @@ async function seedWorld(pool: Pool, label: string): Promise<World> {
     [adminUser, roles.tenant_admin, id(), "all"],
     [specUser, roles.tenant_admin, id(), "specific"],
     [managerUser, roles.store_manager, id(), "all"],
+    [platformMemberUser, roles.owner, id(), "all"],
   ];
   for (const [user, role, membership, access] of members) {
     await pool.query(
@@ -152,6 +178,8 @@ async function seedWorld(pool: Pool, label: string): Promise<World> {
     [w.adminSpecific, specUser, null],
     [w.manager, managerUser, null],
     [w.platform, platformUser, null],
+    [w.platformMember, platformMemberUser, null],
+    [w.platformBare, platformBareUser, null],
   ];
   for (const [sid, user, active] of sessions) {
     await pool.query(
@@ -161,8 +189,8 @@ async function seedWorld(pool: Pool, label: string): Promise<World> {
     );
     registerTestSession(sid, user);
   }
-  await grantSupportSession(pool, w.platform, platformUser, w.tenant);
-  return w;
+  const supportSessionId = await grantSupportSession(pool, w.platform, platformUser, w.tenant);
+  return { ...w, supportSessionId };
 }
 
 interface SeededShift {
@@ -442,6 +470,121 @@ describe("consoleForceCloseShift: a shift that is not stuck is refused with its 
   });
 });
 
+/**
+ * RT-1462's closes run on their OWN tenant: the D9 cap counts a tenant's first-time console closes per hour, and
+ * `worldA` is shared by the whole file, so adding closes there would push the cap test over its limit.
+ */
+let platformWorldCache: World | undefined;
+async function platformWorld(): Promise<World> {
+  platformWorldCache ??= await seedWorld(admin(), "rt1462");
+  return platformWorldCache;
+}
+
+describe("consoleForceCloseShift: a platform admin acts on a customer's behalf (RT-1462, amending D1)", () => {
+  it("a non-member in the support session that names the tenant lists, previews and closes, and the audit says so", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    const shift = await seedShift(w);
+    const list = await openShifts(w.platform, w.store);
+    expect(list.status).toBe(200);
+    expect(list.body.items.map((i: { shiftId: string }) => i.shiftId)).toContain(shift.shiftId);
+    const res = await close(w.platform, shift.shiftId, {
+      forcedReason: REASON,
+      previewFingerprint: (await preview(w.platform, shift.shiftId)).body.previewFingerprint,
+    });
+    expect(res.status).toBe(201);
+    expectValid("ConsoleForceClosedShift", res.body);
+    const state = await stateOf(shift.shiftId);
+    expect(state.forced[0]).toMatchObject({ closed_via: "console", closed_by_user_id: w.platformUser });
+    const audits = await auditRows(w.tenant, shift.shiftId);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ actor_user_id: w.platformUser });
+    expect(audits[0]!["metadata"]).toMatchObject({
+      channel: "console",
+      actor_kind: "platform_admin",
+      actor_role: null,
+      on_behalf_of: { tenant_id: w.tenant, support_session_id: w.supportSessionId, ticket_ref: null },
+    });
+    // On behalf of: ids and a ticket reference only (no name, e-mail or phone), and never the reason.
+    expect(JSON.stringify(audits)).not.toMatch(/@e\.test|Cashier Cat/);
+    expect(JSON.stringify(audits)).not.toContain(REASON);
+  });
+
+  it("a non-member platform admin WITHOUT a support session lists, previews and closes, and one cross-tenant row records each request", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    const shift = await seedShift(w);
+    // Each request carries its own X-Request-Id (the API honours a well-formed one), so the audit rows below
+    // can be matched to the requests that caused them.
+    const ids = { list: randomUUID(), preview: randomUUID(), close: randomUUID() };
+    expect((await openShifts(w.platformBare, w.store).set("X-Request-Id", ids.list)).status).toBe(200);
+    const fingerprint = (await preview(w.platformBare, shift.shiftId).set("X-Request-Id", ids.preview)).body.previewFingerprint;
+    const res = await close(w.platformBare, shift.shiftId, { forcedReason: REASON, previewFingerprint: fingerprint }).set(
+      "X-Request-Id",
+      ids.close,
+    );
+    expect(res.status).toBe(201);
+    const audits = await auditRows(w.tenant, shift.shiftId);
+    expect(audits[0]!["metadata"]).toMatchObject({
+      actor_kind: "platform_admin",
+      actor_role: null,
+      on_behalf_of: { tenant_id: w.tenant, support_session_id: null, ticket_ref: null },
+    });
+    const rows = await admin().query<{ request_id: string | null; metadata: Record<string, unknown> }>(
+      `SELECT request_id, metadata FROM audit_events WHERE tenant_id = $1 AND action = 'platform.cross_tenant.accessed' AND actor_user_id = $2`,
+      [w.tenant, w.platformBareUser],
+    );
+    // list, preview (the fingerprint read) and close: exactly one row per request, none names a session.
+    // Matched by the id each request carried: two rows for one request and none for another cannot pass.
+    expect(rows.rowCount).toBe(3);
+    for (const requestId of Object.values(ids)) {
+      expect(rows.rows.filter((row) => row.request_id === requestId)).toHaveLength(1);
+    }
+    for (const row of rows.rows) {
+      expect(row.metadata).toMatchObject({ actor_kind: "platform_admin", outcome: "succeeded", support_session_id: null, purpose: null });
+    }
+  });
+
+  it("a platform admin who is also the tenant's owner is recorded as platform_admin, not owner", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    const shift = await seedShift(w);
+    const res = await close(w.platformMember, shift.shiftId, {
+      forcedReason: REASON,
+      previewFingerprint: (await preview(w.platformMember, shift.shiftId)).body.previewFingerprint,
+    });
+    expect(res.status).toBe(201);
+    const audits = await auditRows(w.tenant, shift.shiftId);
+    expect(audits[0]!["metadata"]).toMatchObject({
+      actor_kind: "platform_admin",
+      actor_role: "owner",
+      on_behalf_of: { tenant_id: w.tenant, support_session_id: null, ticket_ref: null },
+    });
+  });
+
+  it("the owner's own close still says owner, on behalf of no one", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    const shift = await seedShift(w);
+    expect((await closeOk(w, shift)).status).toBe(201);
+    expect((await auditRows(w.tenant, shift.shiftId))[0]!["metadata"]).toMatchObject({
+      actor_kind: "owner",
+      actor_role: "owner",
+      on_behalf_of: null,
+    });
+  });
+
+  it("the tenant is the session's, never the request's: another tenant's shift is 404 for a platform admin too", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    const foreign = await seedShift(worldB);
+    const res = await close(w.platform, foreign.shiftId, { forcedReason: REASON, previewFingerprint: "a".repeat(64) });
+    expect([res.status, res.body.error.code]).toEqual([404, "shift_not_found"]);
+    expect((await preview(w.platform, foreign.shiftId)).status).toBe(404);
+    expect(await stateOf(foreign.shiftId)).toEqual(STILL_OPEN);
+  });
+});
+
 describe("consoleForceCloseShift: who may call it, and the non-disclosing 404 (criterion 3)", () => {
   it("another tenant's shift and an unknown id are the same 404 shift_not_found", async () => {
     if (skip()) return;
@@ -470,16 +613,6 @@ describe("consoleForceCloseShift: who may call it, and the non-disclosing 404 (c
     // One refusal for every route and cause: nothing about the shift is disclosed.
     const [write, read] = [res.body.error, (await preview(session(), shift.shiftId)).body.error];
     expect({ code: write.code, message: write.message }).toEqual({ code: read.code, message: read.message });
-  });
-
-  it("a platform admin in a support session: the write is 403 support_session_read_only, the reads 404", async () => {
-    if (skip()) return;
-    const shift = await seedShift(worldA);
-    const res = await close(worldA.platform, shift.shiftId, { forcedReason: REASON, previewFingerprint: "a".repeat(64) });
-    expect([res.status, res.body.error.code]).toEqual([403, "support_session_read_only"]);
-    expect((await preview(worldA.platform, shift.shiftId)).status).toBe(404);
-    expect((await openShifts(worldA.platform, worldA.store)).status).toBe(404);
-    expect(await stateOf(shift.shiftId)).toEqual(STILL_OPEN);
   });
 
   it("a bearer credential is 401 (a human cookie session only; the Origin check is SessionOnlyAdminGuard's, covered by its own spec)", async () => {

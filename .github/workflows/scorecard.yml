@@ -11,7 +11,10 @@
 # Differences from the product workflows:
 #  - no `branch_protection_rule` trigger. It is a privileged, non-PR trigger, so
 #    `pgraph privileges` would put this workflow in scope and reject the job's write grants. The
-#    weekly schedule and push to main still pick up branch-protection changes.
+#    weekly schedule picks up branch-protection changes; run it by hand to see one sooner.
+#  - no push trigger (RT-1467, CI-08). Scorecard scores repository settings and supply-chain
+#    practice, which do not change per merge, so one run per push to main repeated the same score
+#    many times a day. Weekly plus workflow_dispatch is enough.
 #  - workflow_dispatch added for an on-demand run.
 #  - top-level `permissions: read-all` (Scorecard's own recommendation); checkout is pinned to
 #    the SHA the root workflows use.
@@ -21,14 +24,12 @@ on:
   # Weekly, off-peak.
   schedule:
     - cron: "27 5 * * 1"
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # Read-only default; the job below adds only what Scorecard needs.
 permissions: read-all
 # RT-1318: no `concurrency` group on purpose. Each run scores one commit and publishes an idempotent
-# result, so an overlapping weekly, push or manual run is harmless, and a group would put a queue in
+# result, so an overlapping weekly or manual run is harmless, and a group would put a queue in
 # front of a publish path whose restrictions this file must keep.
 
 jobs:

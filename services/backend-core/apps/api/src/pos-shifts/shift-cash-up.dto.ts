@@ -13,10 +13,10 @@
  */
 import { z } from "zod";
 
-import { minorUnitExponent } from "../catalog/sales/iso4217-minor-units";
+import { minorUnitExponent } from "../common/money/iso4217-minor-units";
 import { boundedArray } from "../common/bounded-array";
 import { FrozenPolicySchema } from "./shift-frozen-policy";
-import { fitsCurrencyPrecision } from "./shift-money";
+import { fitsCurrencyPrecision } from "../common/money/shift-money";
 
 /**
  * A UUID, normalised to lower case (PR #714 round 1, Codex P2). RFC 4122

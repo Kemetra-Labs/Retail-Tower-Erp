@@ -65,11 +65,14 @@ import {
 } from "./erpnext-item-map.cursor";
 import { ErpnextItemMapService } from "./erpnext-item-map.service";
 
+/** The page size of a list with no `limit` (the contract's `default`, RT-1458 PR 3c). */
+const DEFAULT_LIST_LIMIT = 100;
+
 /** Optional `state` list filter (mirrors the OpenAPI enum). */
 const ListQuerySchema = z
   .object({
     state: z.enum(["suggested", "confirmed"]).optional(),
-    /** RT-1458: optional page size; absent keeps the unpaged list (additive contract). */
+    /** RT-1458: optional page size, 1 to 500; absent means the contract's default (100). */
     limit: z.coerce.number().int().min(1).max(500).optional(),
     /** RT-1458: opaque `nextCursor` of the previous page. */
     cursor: z.string().min(1).max(512).optional(),
@@ -116,7 +119,7 @@ export class ErpnextItemMapController {
     const page = await this.service.list({
       tenantId,
       ...(query.state ? { state: query.state } : {}),
-      ...(query.limit !== undefined ? { limit: query.limit } : {}),
+      limit: query.limit ?? DEFAULT_LIST_LIMIT,
       ...(after ? { after } : {}),
     });
     return { items: page.rows.map(toErpnextItemMapping), nextCursor: page.nextCursor };

@@ -22,7 +22,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
 import { MembershipRepository } from "../context/membership.repository";
 import { callerStoreScope, inStoreScope } from "../context/operator-store-scope";

@@ -75,7 +75,7 @@ import { alias, type BuildAliasTable } from "drizzle-orm/pg-core";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { auditEvents } from "@data-pulse-2/db/schema";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { READ_ACTION_CODES, type AuditActionKind } from "./audit-action-kinds";
 import type { AuditCursor } from "./audit.query.schema";
 

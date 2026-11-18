@@ -42,11 +42,16 @@ import { StoreDetail } from "@/stores/StoreDetail";
 
 const STORE = "0198a0c4-0000-7000-8000-000000000a01";
 
-function ctx(role: string | undefined, supportSession: unknown = null): Record<string, unknown> {
+function ctx(
+  role: string | undefined,
+  supportSession: unknown = null,
+  isPlatformAdmin = false,
+): Record<string, unknown> {
   return {
     active_tenant: { id: "t1", name: "Northstar Retail" },
     active_role_code: role,
     support_session: supportSession,
+    user: { is_platform_admin: isPlatformAdmin },
   };
 }
 
@@ -139,15 +144,34 @@ describe("StoreDangerZone", () => {
     expect(await screen.findByText(/already suspended/)).toBeTruthy();
   });
 
-  test("a failed suspend says nothing changed", async () => {
+  test("a refused suspend (4xx) says nothing changed", async () => {
     context = ctx("owner");
     readStore.mockResolvedValue(storeBody());
-    updateStore.mockResolvedValue({ status: 500 });
+    updateStore.mockResolvedValue({ status: 403 });
     renderPage();
     await screen.findByRole("region", { name: "Delete the store" });
     fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Suspend store" })[0]);
     expect(await screen.findByText("Could not suspend the store. Nothing changed.")).toBeTruthy();
+  });
+
+  test.each([
+    ["a 5xx", { status: 500 }],
+    ["a 408", { status: 408 }],
+    ["no answer", new Error("network")],
+  ])("%s on suspend does not claim nothing changed", async (_name, answer) => {
+    context = ctx("owner");
+    readStore.mockResolvedValue(storeBody());
+    if (answer instanceof Error) updateStore.mockRejectedValue(answer);
+    else updateStore.mockResolvedValue(answer);
+    renderPage();
+    await screen.findByRole("region", { name: "Delete the store" });
+    fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Suspend store" })[0]);
+    expect(
+      await screen.findByText(/could not confirm whether the store was suspended/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Nothing changed/)).toBeNull();
   });
 
   test.each([["tenant_admin"], ["store_manager"], ["cashier"], [undefined]])(
@@ -170,6 +194,20 @@ describe("StoreDangerZone", () => {
     await screen.findByRole("heading", { name: "Dubai Mall", level: 1 });
     expect(deleteButton()).toBeNull();
     expect(previewStoreDeletion).not.toHaveBeenCalled();
+  });
+
+  // RT-1462 (owner decision 2026-11-18): the server admits a platform admin whatever their role in the
+  // tenant, with or without a support session, so the delete control follows.
+  test.each([
+    ["a tenant_admin member", "tenant_admin", null],
+    ["no membership", undefined, null],
+    ["no membership, inside a support session", undefined, { id: "ss-1" }],
+  ])("a platform admin with %s sees the delete control", async (_label, role, session) => {
+    context = ctx(role, session, true);
+    readStore.mockResolvedValue(storeBody());
+    renderPage();
+    await screen.findByRole("region", { name: "Delete the store" });
+    expect(deleteButton()).not.toBeNull();
   });
 
   test("after the delete, Back to stores returns to the store list and the store is not read again", async () => {

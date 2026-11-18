@@ -15,6 +15,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { dispatchFirstPrintOnFinalize } from '../../../../src/main/receipts/dispatch-first-print-on-finalize.js';
+import type { PrintDispatcher } from '../../../../src/main/receipts/print-dispatcher.js';
+import type { DrawerKickDispatcher } from '../../../../src/main/drawer/drawer-kick.js';
 import type { SaleRow } from '../../../../src/main/sales/repositories/sales.repository.js';
 import type {
   FinalizeFinalized,
@@ -80,8 +82,11 @@ const IDEMPOTENT: FinalizeFinalizedIdempotent = {
   receipt_number: 'TERM-01-2026-05-27-000001',
 };
 
+const unexpectedDispatch = (): Promise<never> =>
+  Promise.reject(new Error('unexpected dispatcher call in a first-print test'));
+
 function deps(row: SaleRow | null, printOk = true) {
-  const dispatchFirstPrint = vi.fn(() =>
+  const dispatchFirstPrint = vi.fn<PrintDispatcher['dispatchFirstPrint']>(() =>
     Promise.resolve({
       result: printOk
         ? { ok: true as const, render_path: 'escpos_direct' as const }
@@ -97,7 +102,13 @@ function deps(row: SaleRow | null, printOk = true) {
   return {
     dispatchFirstPrint,
     salesRepo: { readById: vi.fn(() => row) },
-    printDispatcher: { dispatchFirstPrint },
+    // The seam only calls dispatchFirstPrint; the other members reject so a
+    // stray call is loud.
+    printDispatcher: {
+      dispatchFirstPrint,
+      dispatchRetryPrint: vi.fn(unexpectedDispatch),
+      dispatchReprint: vi.fn(unexpectedDispatch),
+    } satisfies PrintDispatcher,
   };
 }
 
@@ -109,10 +120,10 @@ describe('T273 — dispatchFirstPrintOnFinalize', () => {
       printDispatcher: d.printDispatcher,
     });
     expect(d.dispatchFirstPrint).toHaveBeenCalledTimes(1);
-    const [payloadArg, ctxArg] = d.dispatchFirstPrint.mock.calls[0] as [
-      { sale_id: string; variant: string },
-      { sale_id: string; attribution_operator_id: string },
-    ];
+    const [payloadArg, ctxArg] = d.dispatchFirstPrint.mock.calls[0] ?? [];
+    if (payloadArg === undefined || ctxArg === undefined) {
+      throw new Error('expected dispatchFirstPrint to have been called');
+    }
     expect(payloadArg.variant).toBe('first_print');
     expect(payloadArg.sale_id).toBe('sale-1');
     expect(ctxArg.attribution_operator_id).toBe('op-abc');
@@ -170,7 +181,11 @@ describe('T273 — dispatchFirstPrintOnFinalize', () => {
 
 describe('T352 — drawer-kick chains after a successful first print', () => {
   function drawerDispatcherSpy() {
-    return { dispatchOnFirstPrintSuccess: vi.fn(() => Promise.resolve()) };
+    return {
+      dispatchOnFirstPrintSuccess: vi.fn<DrawerKickDispatcher['dispatchOnFirstPrintSuccess']>(() =>
+        Promise.resolve(),
+      ),
+    };
   }
 
   it('chains the drawer-kick dispatch on print success, threading the FK + tender summary', async () => {
@@ -182,14 +197,10 @@ describe('T352 — drawer-kick chains after a successful first print', () => {
       drawerKickDispatcher,
     });
     expect(drawerKickDispatcher.dispatchOnFirstPrintSuccess).toHaveBeenCalledTimes(1);
-    const [arg] = drawerKickDispatcher.dispatchOnFirstPrintSuccess.mock.calls[0] as [
-      {
-        sale_id: string;
-        triggering_print_event_id: string;
-        tender_lines_summary_json: string;
-        attribution_operator_id: string;
-      },
-    ];
+    const [arg] = drawerKickDispatcher.dispatchOnFirstPrintSuccess.mock.calls[0] ?? [];
+    if (arg === undefined) {
+      throw new Error('expected dispatchOnFirstPrintSuccess to have been called');
+    }
     expect(arg.sale_id).toBe('sale-1');
     // The FK target is the just-written first-print event id (no re-query).
     expect(arg.triggering_print_event_id).toBe('pe-1');

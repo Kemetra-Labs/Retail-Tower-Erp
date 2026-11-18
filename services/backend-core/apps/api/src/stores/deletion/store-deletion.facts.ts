@@ -20,9 +20,10 @@ import { createHash } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
-import { canonicalJson } from "../../idempotency/canonical-json";
-import { OPEN_COUNT_SESSION_STATES } from "../../inventory/count-sessions/count-sessions-setting.service";
-import { STUCK_THRESHOLD_MINUTES } from "../../pos-shifts/shift-force-close.service";
+import { canonicalJson } from "../../common/hashing/canonical-json";
+import { readStoreDeviceFacts } from "../../device-health";
+import { countOpenCountSessionsOfStore, listOpenCountSessionsOfStore } from "../../inventory";
+import { countStoreOpenShifts, listStoreOpenShifts, readStoreOpenShifts } from "../../pos-shifts";
 
 export const STORE_HAS_OPEN_SHIFT = "store_has_open_shift";
 export const STORE_HAS_UNRETIRED_DEVICE = "store_has_unretired_device";
@@ -79,7 +80,8 @@ export interface StoreDeletionFacts {
     readonly shiftId: string;
     readonly openedAt: Date;
     readonly terminalLabel: string | null;
-    readonly forceCloseEligible: boolean;
+    /** Null when the facts were read without eligibility (`withEligibility: false`, the write paths). */
+    readonly forceCloseEligible: boolean | null;
   }>;
   readonly devices: ReadonlyArray<{
     readonly deviceId: string;
@@ -112,118 +114,45 @@ const MAX_COUNT_SESSIONS = 200;
 const MAX_WAREHOUSES = 50;
 const MAX_MEMBERS = 500;
 
-interface ShiftRow {
-  shift_id: string;
-  opened_at: Date;
-  terminal_label: string | null;
-  eligible: boolean;
-}
-
-interface DeviceRow {
-  id: string;
-  label: string | null;
-  revoked_at: Date | null;
-  retired_at: Date | null;
-  health_last_seen_at: Date | null;
-  has_health: boolean;
-  pending: number | null;
-  dead_letter: number | null;
-  held: number | null;
-}
-
-/**
- * The open shifts of the store with whether `consoleForceCloseShift` would pass its stuck rule
- * now: the POS predicate (`shift-force-close.repository.ts` IS_STUCK_SQL) with NO caller
- * exception, which is what the Console reader has (contract: no envelope session). $1 store,
- * $2 threshold minutes, $3 limit.
- */
-const OPEN_SHIFTS_SQL = `
-  SELECT s.shift_id, s.opened_at, d.label AS terminal_label,
-         (s.opened_at < now() - ($2::int * INTERVAL '1 minute')
-          AND NOT EXISTS (
-            SELECT 1 FROM auth_tokens t
-             WHERE t.scope = 'pos_operator'
-               AND t.user_id = s.opening_cashier_user_id
-               AND t.store_id = s.store_id
-               AND t.revoked_at IS NULL
-               AND t.expires_at > now())
-          AND NOT EXISTS (
-            SELECT 1 FROM cashier_admissions a
-             WHERE a.tenant_id = s.tenant_id
-               AND a.device_id = s.opening_device_id
-               AND a.ended_at IS NULL
-               AND a.expires_at > now())) AS eligible
-    FROM shifts s
-    LEFT JOIN devices d ON d.id = s.opening_device_id AND d.tenant_id = s.tenant_id
-   WHERE s.store_id = $1 AND s.lifecycle_state = 'open'
-   ORDER BY s.opened_at, s.shift_id
-   LIMIT $3`;
-
-const DEVICES_SQL = `
-  SELECT d.id, d.label, d.revoked_at, d.retired_at,
-         h.last_seen_at AS health_last_seen_at,
-         (h.device_id IS NOT NULL) AS has_health,
-         h.sale_queue_pending AS pending,
-         h.sale_queue_dead_letter AS dead_letter,
-         h.sale_queue_held AS held
-    FROM devices d
-    LEFT JOIN device_health h ON h.device_id = d.id AND h.tenant_id = d.tenant_id
-   WHERE d.store_id = $1
-   ORDER BY d.id
-   LIMIT $2`;
-
-/** $1 store, $2 the open Count Session states. One row; every count is exact. */
-const COUNTS_SQL = `
-  SELECT (SELECT count(*) FROM shifts WHERE store_id = $1 AND lifecycle_state = 'open')::int AS open_shifts,
-         (SELECT count(*) FROM devices d WHERE d.store_id = $1)::int AS total_devices,
-         (SELECT count(*) FROM devices d WHERE d.store_id = $1 AND d.retired_at IS NULL)::int AS unretired_devices,
-         (SELECT count(*)
-            FROM devices d
-            LEFT JOIN device_health h ON h.device_id = d.id AND h.tenant_id = d.tenant_id
-           WHERE d.store_id = $1 AND d.retired_at IS NULL
-             AND (h.device_id IS NULL
-                  OR h.sale_queue_pending IS NULL OR h.sale_queue_dead_letter IS NULL OR h.sale_queue_held IS NULL
-                  OR h.sale_queue_pending + h.sale_queue_dead_letter + h.sale_queue_held > 0))::int AS unsynced_devices,
-         (SELECT count(*) FROM count_sessions WHERE store_id = $1 AND state = ANY($2::text[]))::int AS open_count_sessions`;
-
-function trustStateOf(row: DeviceRow): DeviceTrustState {
-  if (row.retired_at !== null) return "retired";
-  return row.revoked_at !== null ? "revoked" : "active";
-}
-
-function queueOf(row: DeviceRow): StoreDeletionQueue | null {
-  if (!row.has_health || row.pending === null || row.dead_letter === null || row.held === null) return null;
-  return { pending: row.pending, deadLetter: row.dead_letter, held: row.held };
+export interface ReadStoreDeletionFactsOptions {
+  /**
+   * Judge each open shift's force-close eligibility (one stuck-verdict statement per shift). The preview
+   * states it, so it defaults to true. The write paths pass false: they refuse on the exact counts and
+   * fingerprint the shift ids only, so a verdict would be read under the store lock and discarded. The
+   * guards, the counts and the fingerprint are the same either way; `forceCloseEligible` is null.
+   */
+  readonly withEligibility?: boolean;
 }
 
 /** Read every fact one store deletion decides on, in the caller's transaction. */
 export async function readStoreDeletionFacts(
   client: PoolClient,
   store: StoreDeletionFacts["store"],
+  tenantId: string,
+  options: ReadStoreDeletionFactsOptions = {},
 ): Promise<StoreDeletionFacts> {
   const storeId = store.storeId;
-  const counted = await client.query<{
-    open_shifts: number;
-    total_devices: number;
-    unretired_devices: number;
-    unsynced_devices: number;
-    open_count_sessions: number;
-  }>(COUNTS_SQL, [storeId, OPEN_COUNT_SESSION_STATES]);
-  const c = counted.rows[0];
+  // Devices (and each till's last stored sale queue) come from the device-health port, open Count Sessions
+  // from the inventory port: every count below is exact over the whole store, the lists are the capped views.
+  const deviceFacts = await readStoreDeviceFacts(client, { tenantId, storeId });
+  const unretired = deviceFacts.filter((d) => d.trustState !== "retired");
   const counts: StoreDeletionCounts = {
-    openShifts: c?.open_shifts ?? 0,
-    totalDevices: c?.total_devices ?? 0,
-    unretiredDevices: c?.unretired_devices ?? 0,
-    unsyncedDevices: c?.unsynced_devices ?? 0,
-    openCountSessions: c?.open_count_sessions ?? 0,
+    openShifts: await countStoreOpenShifts(client, storeId),
+    totalDevices: deviceFacts.length,
+    unretiredDevices: unretired.length,
+    // A till with no stored queue (never reported, or a NULL counter) is unknown, never zero: it counts as unsynced.
+    unsyncedDevices: unretired.filter((d) => d.queue === null || d.queue.pending + d.queue.deadLetter + d.queue.held > 0).length,
+    openCountSessions: await countOpenCountSessionsOfStore(client, storeId),
   };
-  const shifts = await client.query<ShiftRow>(OPEN_SHIFTS_SQL, [storeId, STUCK_THRESHOLD_MINUTES, MAX_SHIFTS]);
-  const devices = await client.query<DeviceRow>(DEVICES_SQL, [storeId, MAX_DEVICES]);
-  const sessions = await client.query<{ id: string; state: string }>(
-    `SELECT id, state FROM count_sessions
-      WHERE store_id = $1 AND state = ANY($2::text[]) ORDER BY id LIMIT $3`,
-    [storeId, OPEN_COUNT_SESSION_STATES, MAX_COUNT_SESSIONS],
-  );
+  // The open-shift list (and, for the preview, each shift's eligibility) come from the pos-shifts port:
+  // the Console's own stuck verdict.
+  const shiftScope = { tenantId, storeId };
+  const shiftOptions = { limit: MAX_SHIFTS, order: "oldest_first" } as const;
+  const shifts =
+    options.withEligibility === false
+      ? (await listStoreOpenShifts(client, shiftScope, shiftOptions)).map((r) => ({ ...r, forceCloseEligible: null }))
+      : await readStoreOpenShifts(client, shiftScope, shiftOptions);
+  const sessions = await listOpenCountSessionsOfStore(client, storeId, MAX_COUNT_SESSIONS);
   const warehouses = await client.query<{ ref: string }>(
     `SELECT erpnext_warehouse_ref AS ref FROM erpnext_warehouse_map
       WHERE store_id = $1 AND retired_at IS NULL ORDER BY id LIMIT $2`,
@@ -251,20 +180,20 @@ export async function readStoreDeletionFacts(
   return {
     counts,
     store,
-    openShifts: shifts.rows.map((r) => ({
-      shiftId: r.shift_id,
-      openedAt: r.opened_at,
-      terminalLabel: r.terminal_label,
-      forceCloseEligible: r.eligible,
+    openShifts: shifts.map((r) => ({
+      shiftId: r.shift.shiftId,
+      openedAt: r.shift.openedAt,
+      terminalLabel: r.terminal.label,
+      forceCloseEligible: r.forceCloseEligible,
     })),
-    devices: devices.rows.map((r) => ({
-      deviceId: r.id,
-      label: r.label,
-      trustState: trustStateOf(r),
-      lastSeenAt: r.health_last_seen_at,
-      queue: queueOf(r),
+    devices: deviceFacts.slice(0, MAX_DEVICES).map((d) => ({
+      deviceId: d.deviceId,
+      label: d.label,
+      trustState: d.trustState,
+      lastSeenAt: d.lastSeenAt,
+      queue: d.queue,
     })),
-    openCountSessions: sessions.rows.map((r) => ({ sessionId: r.id, status: r.state })),
+    openCountSessions: sessions,
     warehouseMappings: warehouses.rows.map((r) => r.ref),
     singleStoreMembers: members.rows.map((r) => ({ userId: r.user_id, roleCode: r.role_code })),
     offersRebuiltCount: offers.rows[0]?.n ?? 0,

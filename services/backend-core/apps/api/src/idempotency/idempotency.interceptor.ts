@@ -64,7 +64,7 @@ import {
   type IdempotentOptions,
   type IdempotentPolicy,
 } from "./idempotent.decorator";
-import { canonicalJson } from "./canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import {
   DEFAULT_INFLIGHT_TTL_SEC,
   InProgressMarker,

@@ -1,0 +1,70 @@
+# Workflow lint baseline (RT-1459, audit A-14). One line per known finding: tool|file|rule|message.
+# `workflow-lint` fails on a finding that is not listed here AND on a line that no longer occurs, so
+# this file can only shrink: delete a line when you fix its finding; never add one to get a PR green
+# (a new line needs the policy approval of `.github/**`). Line numbers are not part of a line, so
+# moving a finding does not change it; an identical finding repeated in a file is listed repeatedly.
+# Regenerate after fixing (the tools are pinned in .github/workflows/workflow-lint.yml):
+#   actionlint -no-color -format '{{json .}}' -ignore 'unexpected key "queue" for "concurrency" section' > al.json
+#   zizmor --offline --no-progress --color never --quiet --strict-collection --format json .github/workflows > zz.json
+#   python3 .github/scripts/workflow_lint_baseline.py generate --actionlint al.json --zizmor zz.json \
+#     > .github/workflow-lint-baseline.txt
+actionlint|.github/workflows/admin-console.yml|shellcheck|shellcheck reported issue in this script: SC2016:info: Expressions don't expand in single quotes, use double quotes for that
+actionlint|.github/workflows/deploy-console-lab.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/deploy-console-lab.yml|shellcheck|shellcheck reported issue in this script: SC2016:info: Expressions don't expand in single quotes, use double quotes for that
+actionlint|.github/workflows/deploy-erp-lab.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/deploy-erp-lab.yml|shellcheck|shellcheck reported issue in this script: SC2016:info: Expressions don't expand in single quotes, use double quotes for that
+actionlint|.github/workflows/deploy-lab.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/deploy-lab.yml|shellcheck|shellcheck reported issue in this script: SC2016:info: Expressions don't expand in single quotes, use double quotes for that
+actionlint|.github/workflows/deploy-pos-lab.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/deploy-pos-lab.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/deploy-pos-lab.yml|shellcheck|shellcheck reported issue in this script: SC2016:info: Expressions don't expand in single quotes, use double quotes for that
+actionlint|.github/workflows/deploy-system-lab.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/pos.yml|shellcheck|shellcheck reported issue in this script: SC2086:info: Double quote to prevent globbing and word splitting
+actionlint|.github/workflows/pos.yml|shellcheck|shellcheck reported issue in this script: SC2086:info: Double quote to prevent globbing and word splitting
+actionlint|.github/workflows/pos.yml|shellcheck|shellcheck reported issue in this script: SC2086:info: Double quote to prevent globbing and word splitting
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/promote-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/release-admin-console.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-admin-console.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-backend-core.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-erpnext-connector.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/release-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos-pilot.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
+zizmor|.github/workflows/gate.yml|dangerous-triggers|use of fundamentally insecure workflow trigger: pull_request_target is almost always used insecurely
+zizmor|.github/workflows/gate.yml|dangerous-triggers|use of fundamentally insecure workflow trigger: workflow_run is almost always used insecurely
+zizmor|.github/workflows/release-admin-console.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-backend-core.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-backend-core.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-pos-pilot.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-pos-pilot.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-pos-pilot.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-pos.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-pos.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/release-pos.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
+zizmor|.github/workflows/sonar.yml|overprovisioned-secrets|excessively provisioned secrets: injects the entire secrets context into the runner
+zizmor|.github/workflows/sonar.yml|overprovisioned-secrets|excessively provisioned secrets: injects the entire secrets context into the runner

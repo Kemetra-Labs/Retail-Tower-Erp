@@ -36,11 +36,11 @@ import { emit, OUTBOX_EVENT_TYPES, runWithTenantContext, writeReturnEffects } fr
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { resolveReturnLandingStatus } from "../../inventory/position-events/position-events.service";
 import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-report";
 import type { RecordReturnRequestDto } from "./dto/record-return-request.dto";
-import { sha256CanonicalHex } from "./payload-hash";
+import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { insertReturnClawbacks, loadReturnClawbacks, settleReturnPromotions, type ReturnClawback } from "./sale-return-promotions";
 import { assertAllocationRules, assertOriginalTendersOfSale } from "./refund-allocation";
 import { isRefundSettleBeforePostEnabled } from "./refund-gates";

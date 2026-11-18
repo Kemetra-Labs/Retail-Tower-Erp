@@ -131,9 +131,15 @@ const activeSession = {
 };
 
 describe("platform-support-sessions — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-414 runtime)", () => {
+  it("is an OpenAPI 3.1 document at version 1.4.0-draft (RT-1468: the support session is optional on every route)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.2.0-draft");
+    expect(doc.info?.version).toBe("1.4.0-draft");
+    const text = doc.info?.description ?? "";
+    expect(text).toContain("**1.4.0-draft (RT-1468");
+    expect(text).toMatch(/A covered route admits EVERY platform admin, member of the\s+tenant or not/);
+    // RT-1462's six-route list is gone: every route is direct now.
+    expect(doc["x-support-session-enforcement"]?.["platform-direct-operations"]).toBeUndefined();
+    expect(doc.components?.schemas?.["PlatformDirectRoute"]).toBeUndefined();
   });
 
   it("declares exactly open, read-current, renew and end", () => {
@@ -190,13 +196,14 @@ describe("platform-support-sessions — auth and refusals", () => {
     expect(notFound).toMatch(/suspended tenant is not refused here/);
   });
 
-  it("opens a suspended tenant read-only and refuses break-glass there (comment 11737)", () => {
+  it("RT-1468: a suspended tenant is not read-only for a platform admin; older read-only rows stay valid", () => {
     const text = doc.info?.description ?? "";
-    expect(text).toMatch(/\*\*suspended\*\* tenant opens a \*\*read-only\*\* support session/);
-    expect(text).toMatch(/Break-glass write access \(RT-391 P0-b\) is refused on a suspended/);
-    expect(doc.components?.responses?.["SupportSessionRefused"]?.description).toContain(
-      "support_session_read_only",
+    expect(text).toMatch(/a suspended tenant is NOT\s+read-only for a platform admin: every method is admitted/);
+    expect(text).not.toMatch(/\*\*suspended\*\* tenant opens a \*\*read-only\*\* support session/);
+    expect(doc.components?.responses?.["SupportSessionRefused"]?.description).toMatch(
+      /`support_session_expired` and `support_session_read_only`\s+are no longer returned/,
     );
+    // A row written before RT-1468 still validates, with or without a session.
     const v = validator("CrossTenantAccessAuditMetadata");
     const readOnly = {
       actor_kind: "platform_admin",
@@ -208,7 +215,7 @@ describe("platform-support-sessions — auth and refusals", () => {
       route: "/api/v1/stores",
     };
     expect(v(readOnly)).toBe(true);
-    expect(v({ ...readOnly, support_session_id: null, purpose: null })).toBe(false);
+    expect(v({ ...readOnly, support_session_id: null, purpose: null })).toBe(true);
   });
 
   it("declares the cross-cutting refusal codes for tenant-scoped routes", () => {
@@ -375,7 +382,7 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
     const text = doc.info?.description ?? "";
     expect(text).toContain("**Unresolvable path tenant.**");
     expect(text).toMatch(/not a UUID or\s+does not name an existing tenant/);
-    expect(text).toMatch(/403 `support_session_required`, identical to the\s+existing-tenant case/);
+    expect(text).toMatch(/403\s+`support_session_required`, identical to a deleted tenant; FR-ISO-4\)/);
     expect(text).toMatch(/platform-scoped with `tenant_id` null/);
     expect(text).toMatch(/`listAuditEvents` is tenant-scoped and never returns it/);
   });
@@ -399,7 +406,7 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
     expect(v({ ...admitted, actor_email: "ops@example.com" })).toBe(false);
   });
 
-  it("requires a reason exactly on refused rows, and a session on admitted ones", () => {
+  it("requires a reason exactly on refused rows; a session is optional on any route (RT-1468)", () => {
     const v = validator("CrossTenantAccessAuditMetadata");
     const admitted = {
       actor_kind: "platform_admin",
@@ -409,14 +416,21 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
       method: "GET",
       route: "/api/v1/sales/:saleId",
     };
+    expect(v(admitted)).toBe(true);
     expect(v({ ...admitted, reason: "support_session_expired" })).toBe(false);
-    expect(v({ ...admitted, support_session_id: null, purpose: null })).toBe(false);
     expect(v({ ...admitted, outcome: "rejected" })).toBe(false);
+    // RT-1468: an admitted row without a support session is valid on any route, not only the RT-1462 six.
+    for (const route of ["/api/v1/sales/:saleId", "/api/v1/stores", "/api/v1/shifts/:shift_id/force-close"]) {
+      expect(v({ ...admitted, route, support_session_id: null, purpose: null })).toBe(true);
+    }
+    // The purpose goes with the session: one without the other is never valid.
+    expect(v({ ...admitted, purpose: null })).toBe(false);
+    expect(v({ ...admitted, support_session_id: null })).toBe(false);
   });
 
-  it("origin-checks unsafe methods admitted by a support session (decision 5, extended)", () => {
+  it("origin-checks a platform admin's unsafe methods on covered routes (decision 5, extended)", () => {
     const text = doc.info?.description ?? "";
-    expect(text).toMatch(/every unsafe-method request \(`POST`, `PUT`,\s+`PATCH`, `DELETE`\) to a covered route/);
+    expect(text).toMatch(/every unsafe-method request \(`POST`, `PUT`,\s+`PATCH`, `DELETE`\) by a platform admin to a covered route/);
     expect(text).toMatch(/refuses with 403 `origin_rejected`/);
     const v = validator("CrossTenantAccessAuditMetadata");
     const refused = {
@@ -429,7 +443,8 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
       route: "/api/v1/stores",
     };
     expect(v(refused)).toBe(true);
-    expect(v({ ...refused, support_session_id: null, purpose: null })).toBe(false);
+    // RT-1468: a platform admin without a support session is refused for its Origin too.
+    expect(v({ ...refused, support_session_id: null, purpose: null })).toBe(true);
   });
 
   it("names the expired session on a support_session_expired rejection", () => {
@@ -447,6 +462,26 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
     expect(v({ ...expired, support_session_id: null })).toBe(false);
     expect(v({ ...expired, purpose: null })).toBe(false);
     expect(v({ ...expired, reason: "support_session_required", support_session_id: null, purpose: null })).toBe(true);
+  });
+
+  it("RT-1468: a row without a session is valid on any route; an expired row still names its session", () => {
+    const v = validator("CrossTenantAccessAuditMetadata");
+    const direct = {
+      actor_kind: "platform_admin",
+      outcome: "succeeded",
+      support_session_id: null,
+      purpose: null,
+      method: "POST",
+      route: "/api/v1/stores",
+    };
+    expect(v(direct)).toBe(true);
+    for (const reason of ["origin_rejected", "support_session_read_only", "support_session_required"]) {
+      expect(v({ ...direct, outcome: "rejected", reason })).toBe(true);
+    }
+    // An expired session (rows written before RT-1468) is always named.
+    expect(v({ ...direct, outcome: "rejected", reason: "support_session_expired" })).toBe(false);
+    // The purpose goes with the session: a session id without a purpose is never valid.
+    expect(v({ ...direct, support_session_id: SESSION_ID })).toBe(false);
   });
 
   it("accepts lifecycle rows", () => {
@@ -469,11 +504,15 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
 describe("context contract — additive RT-414 changes", () => {
   const switchOp = (): OperationObject => contextDoc.paths!["/api/v1/context/tenant"]!["post"]!;
 
-  it("keeps the non-disclosing 404 and adds a platform-only 403", () => {
+  it("keeps the non-disclosing 404; the platform-only 403 is lifted for the switch by RT-1462 (1.3.0-draft)", () => {
     const responses = switchOp().responses ?? {};
     expect(responses["404"]?.description).toMatch(/Same response for both/);
-    expect(responses["403"]?.description).toContain("support_session_required");
-    expect(responses["403"]?.description).toMatch(/Never returned to a user who is not a\s+platform admin/);
+    // The 403 is only the origin refusal now; the history (the old refusal, the lift) lives in the version note.
+    expect(responses["403"]?.description).toContain("origin_rejected");
+    expect(responses["403"]?.description).not.toContain("support_session_required");
+    expect(contextDoc.info?.description).toMatch(/RT-1462 \(1\.3\.0-draft/);
+    expect(contextDoc.info?.description).toContain("support_session_required");
+    expect(responses["200"]?.description).toContain("tenant_switched");
   });
 
   it("adds a nullable support_session summary to ContextResponse", () => {

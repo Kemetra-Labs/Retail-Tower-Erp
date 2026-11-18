@@ -24,7 +24,7 @@ import type { Pool } from "pg";
 import request from "supertest";
 
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { PosDeviceAuthGuard } from "../../../../src/auth/pos-device-auth.guard";
 import type { ResolvedContext } from "../../../../src/context/types";
 

@@ -119,8 +119,8 @@ const REVERSE: Client = {
 const TOKEN: TokenRead = () => Promise.resolve(FAKE_DEVICE_TOKEN);
 
 function asLogger(logger: Logger): VoucherAuthorityLogger {
-  // makeLogger()'s vi.fn sinks are the (fields, msg) methods of the pino-style logger.
-  return logger as unknown as VoucherAuthorityLogger;
+  // makeLogger()'s typed sinks are the (fields, msg) methods of the pino-style logger.
+  return logger;
 }
 
 function loggedText(logger: Logger): string {

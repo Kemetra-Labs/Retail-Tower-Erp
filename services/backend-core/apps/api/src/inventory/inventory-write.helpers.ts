@@ -19,7 +19,7 @@ import type { PoolClient } from 'pg';
 
 import { UUID_RE_I } from '../common/ids';
 import { recordInventoryNegativeBalance } from '../observability/metrics/api.metrics';
-import { parseQuantity } from './decimal-quantity';
+import { parseQuantity } from '../common/quantity/decimal-quantity';
 import {
   DEFAULT_INVENTORY_STATUS,
   NOT_POSTED,

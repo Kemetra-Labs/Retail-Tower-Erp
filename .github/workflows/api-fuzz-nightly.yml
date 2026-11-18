@@ -6,7 +6,10 @@
 #   - gate:   not_a_server_error. Fails on any 5xx that is not in
 #             tools/schemathesis/5xx-baseline.json.
 #   - report: positive_data_acceptance. Findings never fail the job; they are
-#             listed in the job summary.
+#             listed in the job summary. Since RT-1467 (CI-03) this is the only place it runs;
+#             the PR shards run the gate only.
+#   - operator: the RT-612 operator-envelope run, a second non-gating job (moved here from
+#             backend-core.yml by RT-1467, D5).
 #
 # The PR-time check is the sharded bc/schemathesis in backend-core.yml, selected by the project
 # graph. This run covers main whatever changed, unsharded, as the product's nightly did. It is not
@@ -92,6 +95,86 @@ jobs:
       - name: "Report (non-gating findings): positive_data_acceptance"
         if: always()
         run: bash tools/schemathesis/run.sh report
+
+      - name: Tear down
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/api-fuzz"
+          if [ -f "$out/stack.env" ]; then
+            set -a; . "$out/stack.env"; set +a
+            export API_IMAGE=api-fuzz-api:local
+            docker compose -p "$FUZZ_PROJECT" -f tools/schemathesis/compose.yml down -v
+          fi
+          rm -rf "$out"
+
+  # RT-612 phase 1 (owner decision 2026-11-05, confirmed 2026-11-06): the operator-envelope
+  # surface. `run.sh operator` fuzzes the operatorAuthorization (POS envelope) operations with
+  # not_a_server_error and the envelope that stack-up.sh mints. It is NON-GATING three ways:
+  #  - run.sh operator exits 0 on findings (they go to the job summary); it fails only when
+  #    Schemathesis could not run;
+  #  - `continue-on-error: true` on the job, so even that failure never fails the workflow;
+  #  - this workflow is not a graph workflow and is not in gate.yml `workflow_run`, so it never
+  #    feeds `required`.
+  # RT-1467 (D5): moved here from backend-core.yml, where it ran on every PR that selected
+  # bc/schemathesis and spent 3-6 runner-minutes for findings nobody gated on. Behaviour is
+  # unchanged: its own runner and stack, images built with the shards' GitHub Actions layer
+  # cache read only (main's entries; this job never writes the cache). Promoting it to a gate is
+  # a separate owner decision.
+  schemathesis-operator-nightly:
+    name: schemathesis operator (non-gating)
+    # Always ubuntu-24.04, as on PRs: the RT-917 Depot arm covers schemathesis-nightly only, and the
+    # read-only bc-st-* layer cache is written by GitHub-hosted runs.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    permissions:
+      contents: read
+    env:
+      FUZZ_PROJECT: api-fuzz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build api image (layer cache, read only)
+        timeout-minutes: 10
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/backend-core
+          target: api
+          tags: api-fuzz-api:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=bc-st-api
+
+      - name: Build migrate image (layer cache, read only)
+        timeout-minutes: 10
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/backend-core
+          target: migrate
+          tags: api-fuzz-migrate:local
+          load: true
+          push: false
+          provenance: false
+          cache-from: type=gha,scope=bc-st-migrate
+
+      - name: Start ephemeral stack
+        timeout-minutes: 10
+        env:
+          SKIP_BUILD: "1"
+        run: bash tools/schemathesis/stack-up.sh
+
+      # Findings never fail this step (see the job comment above); it fails only if Schemathesis
+      # could not run. The step summary carries the findings, never the envelope.
+      - name: "Operator envelope (non-gating): not_a_server_error"
+        timeout-minutes: 15
+        run: bash tools/schemathesis/run.sh operator
 
       - name: Tear down
         if: always()

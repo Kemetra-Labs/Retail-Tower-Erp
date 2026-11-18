@@ -44,10 +44,11 @@ import request from "supertest";
 
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../../../src/audit/audit-job.types";
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../../../../src/auth/auth.module";
+import { AuthModule } from "../../../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/database";
 import { FailClosedAuthGuard } from "../../../../src/auth/fail-closed-auth.guard";
 import { RateLimiter, type RateLimitDecision } from "../../../../src/auth/rate-limit";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { SalesModule } from "../../../../src/catalog/sales/sales.module";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
 import { RequestIdInterceptor } from "../../../../src/common/request-id.interceptor";

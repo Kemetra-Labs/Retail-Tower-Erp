@@ -61,6 +61,7 @@ function makePairedStore(): PairingStore {
         terminal_label: 'T1',
         paired_at: 0,
       }),
+    getCurrentTerminalId: () => TERMINAL,
     persist: () => Promise.resolve(),
     clear: () => Promise.resolve(),
   };
@@ -118,7 +119,7 @@ beforeEach(() => {
 afterEach(() => {
   useOperatorSessionStore.getState().reset();
   cleanup();
-  delete (window as Record<string, unknown>).api;
+  delete (window as unknown as { api?: unknown }).api;
 });
 
 // ── ShiftClosedBanner component ────────────────────────────────────────────

@@ -20,7 +20,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-report";
 import {
   allocate,
@@ -39,7 +39,7 @@ import {
   type StoredCreditReversal,
 } from "./credit-sale-reversal.store";
 import type { CreditSaleReversalRequestDto } from "./dto/credit-sale-reversal-request.dto";
-import { sha256CanonicalHex } from "./payload-hash";
+import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { TerminalEventProvenanceConflictError } from "./sale-errors";
 import { priceReturnLines, type PricedLine } from "./sale-returns.service";
 import { lockSaleForReversal, readReversalState, SaleAlreadyReversedError, type LockedSale } from "./sale-reversal";

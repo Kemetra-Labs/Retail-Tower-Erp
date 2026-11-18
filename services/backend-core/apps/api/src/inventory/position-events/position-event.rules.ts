@@ -14,7 +14,7 @@
  */
 import { INVENTORY_STATUSES, type InventoryReasonCode, type InventoryStatus } from '@data-pulse-2/db';
 
-import { parseQuantity } from '../decimal-quantity';
+import { parseQuantity } from '../../common/quantity/decimal-quantity';
 
 /**
  * The (from -> to) pairs each Reason Code allows on a status move.

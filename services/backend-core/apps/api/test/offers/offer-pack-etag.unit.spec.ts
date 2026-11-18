@@ -4,7 +4,8 @@
  * without `issuedAt`, so it changes when the Pack changes and never because
  * time passed.
  */
-import { canonicalJson, packEtag, type OfferPackBody } from "../../src/offers/offer-pack.service";
+import { canonicalJson } from "../../src/common/hashing/canonical-json";
+import { packEtag, type OfferPackBody } from "../../src/offers/offer-pack.service";
 
 const pack = (over: Partial<OfferPackBody> = {}): OfferPackBody => ({
   packRevision: 7,

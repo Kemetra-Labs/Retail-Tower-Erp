@@ -32,7 +32,7 @@ import request from "supertest";
 
 import { loadOpenApiContracts } from "../../../../src/openapi/loader";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import {
   AUDIT_JOB_ENQUEUER,
   NoOpAuditJobEnqueuer,

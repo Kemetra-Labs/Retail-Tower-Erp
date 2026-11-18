@@ -24,7 +24,7 @@ import {
 import { newId } from '@data-pulse-2/shared';
 import type { PoolClient } from 'pg';
 
-import { formatQuantity, parseQuantity } from '../decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
 import {
   CrossUnitError,
   MOVEMENT_COLUMNS,

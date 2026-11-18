@@ -36,7 +36,7 @@ import { ConnectorHealthService } from "../../../src/connector-health/connector-
 import {
   assertDeploymentEnvironmentConfigured,
   resolveDeploymentEnvironment,
-} from "../../../src/connector/deployment-environment";
+} from "../../../src/common/deployment-environment";
 
 const TENANT = "01900000-0000-7000-8000-0000000a7c10";
 const REF = "01900000-0000-7000-8000-0000000a7c11";

@@ -20,7 +20,7 @@ import type { Pool, PoolClient } from "pg";
 
 import type { Logger } from "@data-pulse-2/shared";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { MembershipRepository } from "../context/membership.repository";
 import { callerStoreScope, inStoreScope } from "../context/operator-store-scope";

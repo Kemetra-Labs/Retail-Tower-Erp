@@ -1,27 +1,35 @@
 /**
  * ForceActionAccessGuard — the role and scope gate of the Console force actions
- * (RT-1437 D1; `console-force-actions.openapi.yaml`, "Auth and scope"; RT-1445).
+ * (RT-1437 D1; `console-force-actions.openapi.yaml`, "Auth and scope"; RT-1445;
+ * RT-1462 amendment).
  *
  * Runs AFTER `SessionOnlyAdminGuard` (a human cookie session only, a trusted
  * `Origin` on a write) and `TenantContextGuard` (the tenant, the membership,
  * the support-session gate), and in place of `RolesGuard`. `RolesGuard` cannot be
- * used here: its decision matrix lets every platform admin through (step 4),
- * and these operations are never open to one.
+ * used here: its decision matrix lets every platform admin through (step 4) with
+ * no record of which authority was used, and this surface needs that record.
  *
- * Admitted: a tenant member whose role is `owner` or `tenant_admin` AND whose
- * membership has ALL-store access (`ctx.storeAccess.kind === 'all'`, the
- * membership's own authority, not the session's active store: a session that
- * picked one store does not narrow what its membership may do). Everything
- * else is the non-disclosing 404 (FR-ISO-4), the same body as `RolesGuard`'s
- * default: a `store_manager`, a `store_staff`, a `tenant_admin` with
- * specific-store access, a platform admin who is a member, and a caller whose
- * tenant is not the shift's.
+ * Admitted:
+ *   - a tenant member whose role is `owner` or `tenant_admin` AND whose
+ *     membership has ALL-store access (`ctx.storeAccess.kind === 'all'`, the
+ *     membership's own authority, not the session's active store: a session that
+ *     picked one store does not narrow what its membership may do);
+ *   - a PLATFORM ADMIN (RT-1462, owner decision 2026-11-18), whether or not they
+ *     are a member of the tenant, with or without a support session, suspended
+ *     tenant included (RT-1468): `TenantContextGuard` admits every platform
+ *     admin through `SupportSessionGate.admit` (one
+ *     `platform.cross_tenant.accessed` row per request). The tenant is the
+ *     session's active tenant, never the request's. The action is recorded as
+ *     `actor_kind: platform_admin`, on behalf of that tenant and, when the
+ *     caller holds a live support session for it, that session
+ *     (`force-action-actor.ts`).
  *
- * A platform admin who is NOT a member got here only through an active support
- * session (`TenantContextGuard` refuses the rest, 403 `support_session_*`). A
- * support session never admits these operations (D1, RT-391/RT-414): a write is
- * 403 `support_session_read_only`, a read is the 404. The tenant is the
- * session's, never the request's.
+ * Everything else is the non-disclosing 404 (FR-ISO-4), the same body as
+ * `RolesGuard`'s default: a `store_manager`, a `store_staff`, a `tenant_admin`
+ * with specific-store access, and a caller whose tenant is not the shift's.
+ *
+ * No platform-admin database context is opened here: the caller's role is read
+ * under the TENANT's own RLS context.
  */
 import {
   type CanActivate,
@@ -34,19 +42,17 @@ import {
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
+import { type ForceActionAuditActor, platformAdminActor } from "../common/force-action-actor";
 import { MembershipRepository } from "../context/membership.repository";
 import type { TenantContextRequest } from "../context/types";
-import { supportSessionRefusal } from "../platform-support-sessions/support-session.gate";
 
 const ADMITTED_ROLES: ReadonlySet<string> = new Set(["owner", "tenant_admin"]);
-const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
 /** The admitted caller, published for the handler (the tenant and user are the session's). */
-export interface ForceActionActor {
+export interface ForceActionActor extends ForceActionAuditActor {
   readonly tenantId: string;
   readonly userId: string;
-  readonly role: "owner" | "tenant_admin";
 }
 
 export type ForceActionRequest = TenantContextRequest & { forceActionActor?: ForceActionActor };
@@ -73,14 +79,14 @@ export class ForceActionAccessGuard implements CanActivate {
 
     const role = await this.roleOf(userId, tenantId);
     if (ctx.isPlatformAdmin) {
-      // A non-member platform admin is in a support session: never a write here.
-      if (role === null && !SAFE_METHODS.has(request.method)) throw supportSessionRefusal("support_session_read_only");
-      throw notFound();
+      // RT-1462: admitted as a platform admin, whatever membership role the account also holds.
+      request.forceActionActor = { tenantId, userId, ...platformAdminActor(ctx, tenantId, role) };
+      return true;
     }
     if (role === null || !ADMITTED_ROLES.has(role)) throw notFound();
     if (ctx.storeAccess?.kind !== "all") throw notFound();
 
-    request.forceActionActor = { tenantId, userId, role: role as ForceActionActor["role"] };
+    request.forceActionActor = { tenantId, userId, kind: role as "owner" | "tenant_admin", role, onBehalfOf: null };
     return true;
   }
 

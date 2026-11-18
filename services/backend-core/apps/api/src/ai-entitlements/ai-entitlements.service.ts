@@ -26,7 +26,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId, type Logger } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { MembershipRepository } from "../context/membership.repository";
 import { AI_ENTITLEMENTS_RUNTIME, type AiEntitlementsRuntime } from "./ai-entitlements.tokens";

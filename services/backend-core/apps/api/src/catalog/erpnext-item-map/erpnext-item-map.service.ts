@@ -40,7 +40,7 @@ import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,
 } from "../../audit/audit-job.enqueuer";
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { ErpnextItemMapRow } from "./dto/erpnext-item-mapping.dto";
 import { encodeItemMapCursor, type ItemMapKeyset } from "./erpnext-item-map.cursor";
@@ -358,17 +358,17 @@ export class ErpnextItemMapService {
    * List the tenant's ACTIVE mappings, optionally filtered by lifecycle state, in keyset pages
    * (RT-1458, audit A-17). Order is `suggested_at DESC, id` (id ascending), so the page after
    * `(S, I)` is `suggested_at < S OR (suggested_at = S AND id > I)`; a row-value comparison
-   * would need both columns in the same direction. Without `limit` the query is unbounded
-   * (`LIMIT NULL`), today's behaviour: the paging contract is additive until the Console pages.
-   * With `limit`, one extra row is read to know whether another page exists.
+   * would need both columns in the same direction. Every call is bounded: the controller passes the
+   * contract's default when the caller sent no `limit`. One extra row is read to know whether another
+   * page exists.
    */
   list(input: {
     readonly tenantId: string;
     readonly state?: "suggested" | "confirmed";
-    readonly limit?: number;
+    readonly limit: number;
     readonly after?: ItemMapKeyset;
   }): Promise<{ rows: ErpnextItemMapRow[]; nextCursor: string | null }> {
-    const limit = input.limit ?? null;
+    const { limit } = input;
     return runWithTenantContext(
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
@@ -388,10 +388,10 @@ export class ErpnextItemMapService {
             input.state ?? null,
             input.after?.suggestedAtKey ?? null,
             input.after?.id ?? null,
-            limit === null ? null : limit + 1,
+            limit + 1,
           ],
         );
-        const hasMore = limit !== null && result.rows.length > limit;
+        const hasMore = result.rows.length > limit;
         const page = hasMore ? result.rows.slice(0, limit) : result.rows;
         const last = page[page.length - 1];
         return {

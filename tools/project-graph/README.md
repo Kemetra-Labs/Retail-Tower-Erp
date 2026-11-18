@@ -61,6 +61,12 @@ Only the canonical guard shape is accepted (see `guard_keys`), so `always() || .
 
 ## API Jest impact selection, shadow only (RT-949 Phase 1)
 
+**Retired from CI by RT-1467 (2026-11-18).** RT-949 and RT-950 are Done, so `bc/db-integration`
+no longer runs the shadow steps or uploads the `api-jest-shadow` artifact. The selector module,
+its CLI commands and the `api_jest_fast` graph class below remain, unused by any workflow, until
+a follow-up removes them or a Phase 2 adopts them. The rest of this section describes the shadow
+as it ran.
+
 Design: RT-946 comment 14579; scope: RT-949 comment 14580. On every pull request `bc/db-integration` reports which API specs a fast mode **would** have run, then runs the whole suite with coverage exactly as before. Nothing is skipped, and the report cannot change the job, its coverage gate or `required` (every shadow step is `continue-on-error`).
 
 - **Fast class (graph data).** `graph.yaml` `products.backend-core.api_jest_fast` lists the globs a path must match, and the path must also be in no Backend-Core tier (untiered `high` only). Adding a tier shrinks the fast class without touching the selector. Validated by `graph.py` (`SCHEMA: ...api_jest_fast`, `TIER_GLOB_OUTSIDE_PRODUCT`).

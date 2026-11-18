@@ -61,9 +61,9 @@ import {
 } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { MembershipRepository } from '../../context/membership.repository';
-import { formatQuantity, parseQuantity } from '../decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
 import {
   PositionEventRuleError,
   assertRelocationAllowed,

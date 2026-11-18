@@ -35,6 +35,7 @@ consumers:
     repin: "python integrations/erpnext-connector/scripts/contracts_repin.py --ref <ref>"
 
 # Connector read-models parsed with `ast` (never imported; they live in a Frappe app).
+# `lengths` maps an integer constant to the `maxLength` of a schema (RT-1458).
 # Each class with a `from_wire` or `to_wire` method must name a schema under
 # components/schemas of `contract` (same name). Every module-level frozenset-of-str constant
 # and every module-level `re.compile` must be listed under `enums`, `patterns` or `local`,
@@ -83,6 +84,20 @@ connector:
     patterns: {}
     local: {}
 
+  # RT-1458 (audit A-12): the provisioner engine's own site-name guard against the `siteName` of the
+  # feed's ProvisioningRequest, so the contract and the Connector cannot drift apart again: the
+  # pattern (`_SITE_NAME`) and the DNS-label length (`_MAX_SITE_NAME` against `maxLength`).
+  - module: integrations/erpnext-connector/retail_tower_erpnext_connector/provisioner/engine.py
+    contract: erpnext-connector/provisioning-feed.yaml
+    enums: {}
+    patterns:
+      _SITE_NAME: ProvisioningRequest/properties/siteName
+    lengths:
+      _MAX_SITE_NAME: ProvisioningRequest/properties/siteName
+    local:
+      # The steps whose partial work leaves a site to clean up: an engine rule, not a wire enum.
+      _DIRTY_STEPS: engine rule (steps that dirty a site), not a wire value
+
 # Copies of one file that must stay byte-identical.
 identical:
   - name: OBS-1 golden vectors
@@ -98,9 +113,7 @@ identical:
       - apps/pos/src/main/observability/__tests__/rt879-redaction-vectors.json
       - apps/admin-console/tests/unit/rt879-redaction-vectors.json
       - integrations/erpnext-connector/retail_tower_erpnext_connector/tests/rt879-redaction-vectors.json
-  # RT-286 S5 / RT-1339: the Offer Engine golden vectors (spec 048 §6 and §9), consumed by the Backend-Core
-  # evaluator and by the POS evaluator, which must pass the very same file.
-  - name: Offer Engine golden vectors
-    paths:
-      - services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json
-      - apps/pos/src/shared/offers/__tests__/offers-golden-vectors.json
+  # The Offer Engine golden vectors (spec 048 §6 and §9) are no longer a group here: since RT-1378 there
+  # is one evaluator (services/backend-core/packages/offer-engine) and ONE copy of the file,
+  # services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json, which Backend-Core, the
+  # package and the POS tests all read.

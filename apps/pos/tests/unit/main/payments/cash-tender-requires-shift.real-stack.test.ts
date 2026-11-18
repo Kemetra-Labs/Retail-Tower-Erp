@@ -38,6 +38,7 @@ import {
 import type {
   PaymentsConfirmResponse,
   PaymentsStartResponse,
+  TenderApplyRequest,
   TenderApplyResponse,
 } from '../../../../src/shared/bridge-api.js';
 import { makeAuditEmitterDouble, makeSession } from './__fixtures__/bridge-handler-deps.js';
@@ -137,7 +138,7 @@ function build(flag: { shiftCashup: boolean }, gate?: CashShiftGate) {
         envelope_version: 'v1',
         idempotency_key: `k-start-${cart}`,
       }) as Promise<PaymentsStartResponse>,
-    apply: (request: Record<string, unknown>) =>
+    apply: (request: TenderApplyRequest) =>
       invoke(TENDER_IPC_CHANNELS.APPLY, request) as Promise<TenderApplyResponse>,
     confirm: (attempt: string, key = 'k-confirm') =>
       invoke(PAYMENTS_IPC_CHANNELS.CONFIRM, {
@@ -155,7 +156,7 @@ async function startAttempt(s: Stack): Promise<string> {
   return r.payment_attempt_id;
 }
 
-function cashRequest(attempt: string, key = 'k-cash') {
+function cashRequest(attempt: string, key = 'k-cash'): TenderApplyRequest {
   return {
     payment_attempt_id: attempt,
     tender_type: 'cash',

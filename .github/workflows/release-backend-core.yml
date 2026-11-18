@@ -149,7 +149,8 @@ jobs:
         id: gate
         env:
           # Root graph jobs that run on every push to main (backend-core.yml), plus the compat
-          # job (MR-3). bc/oasdiff and bc/schemathesis are PR-only and enforced at merge time.
+          # job (MR-3). bc/oasdiff and bc/schemathesis also run on a push to main today, but
+          # they gate at merge time through `required`, so this guard does not list them.
           REQUIRED_CHECKS: '["bc/fast","bc/db-integration","bc/db-package","bc/contracts-compat"]'
         run: |
           set -euo pipefail

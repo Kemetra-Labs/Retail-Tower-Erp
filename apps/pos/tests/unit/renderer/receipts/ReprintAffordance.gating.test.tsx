@@ -26,6 +26,7 @@ function okBridge(): ReceiptsBridgeAPI {
         render_path: 'escpos_direct' as const,
       }),
     ),
+    manualOverride: vi.fn(),
   };
 }
 

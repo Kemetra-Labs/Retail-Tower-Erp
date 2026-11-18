@@ -1,7 +1,7 @@
 /**
  * RT-1337 review hardening: impossible absolute dates are refused, and a reward-heavy evaluation stays linear.
  */
-import { MAX_EVALUATED_UNITS, evaluateOffer } from "../../src/offers/evaluator/offer-evaluator";
+import { evaluateOffer, MAX_EVALUATED_UNITS } from "@data-pulse-2/offer-engine";
 import { OfferDefinitionSchema } from "../../src/offers/offers.dto";
 
 const definition = (startsAt: string, endsAt: string | null) => ({

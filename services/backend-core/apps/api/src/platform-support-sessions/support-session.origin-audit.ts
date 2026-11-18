@@ -1,23 +1,23 @@
 /**
- * RT-414 audit row for an unsafe request that RT-430 refused for its
+ * The cross-tenant audit row for an unsafe request that RT-430 refused for its
  * `Origin`.
  *
  * `AuthGuard` checks `Origin` before any tenant logic runs, so on a covered
- * route a platform admin in a non-member tenant would otherwise leave no
- * `platform.cross_tenant.accessed` row. The contract orders the checks
- * support session first, then `Origin`, so this reproduces that order:
- * the refusal (and its row) is the support-session one when the session does
- * not admit the request, else `origin_rejected`.
+ * route a platform admin would otherwise leave no
+ * `platform.cross_tenant.accessed` row. Since RT-1468 every platform-admin
+ * request on a covered route is recorded, member or not, so this records the
+ * refused one too: `support_session_required` when the tenant does not exist,
+ * else `origin_rejected`.
  *
- * Returns null when RT-414 does not apply (the route is not covered, the user
- * is not a platform admin, or is a member of the target tenant): the caller
- * then throws the plain RT-430 refusal and writes no row. Reads only: the
- * auth session's idle window is never slid by a refused request.
+ * Returns null when it does not apply (the route is not covered, or the user
+ * is not a platform admin): the caller then throws the plain RT-430 refusal and
+ * writes no row. Reads only: the auth session's idle window is never slid by a
+ * refused request.
  */
 import type { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import type { Pool } from "pg";
 
-import { coveredTarget, readOnlyExemptFor, routeTemplate } from "./support-session.coverage";
+import { coveredTarget, routeTemplate } from "./support-session.coverage";
 import { SupportSessionGate, type GateRequest } from "./support-session.gate";
 import { withSupportSessionCtx } from "./support-session.lifecycle";
 
@@ -28,7 +28,6 @@ export interface OriginRefusalInput {
   readonly activeTenantId: string | null;
   readonly method: string;
   readonly params: Readonly<Record<string, string | undefined>>;
-  readonly body: unknown;
   readonly requestId: string | null;
 }
 
@@ -50,12 +49,10 @@ export async function auditSupportSessionOriginRefusal(
     method: input.method,
     route: routeTemplate(input.execCtx),
     requestId: input.requestId,
-    readOnlyExempt: readOnlyExemptFor(target, input.body),
   };
   if (!(await gate.tenantRowExists(tenantId))) {
     return gate.refuseUnresolvable(request).catch((error_: ForbiddenException) => error_);
   }
-  if (await gate.isMember({ userId: input.userId, tenantId })) return null;
   return gate.recordOriginRefusal(tenantId, request);
 }
 

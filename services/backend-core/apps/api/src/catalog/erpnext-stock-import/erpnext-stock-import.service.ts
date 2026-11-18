@@ -43,7 +43,7 @@ import { readSaleEffectsActivation, runWithTenantContext } from "@data-pulse-2/d
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { UUID_RE_I } from "../../common/ids";
 import type { StockImportReport } from "./dto/stock-import.dto";
 import { ingestRows, recordFinding } from "./stock-import.ingest";

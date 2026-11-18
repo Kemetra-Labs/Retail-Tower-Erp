@@ -5,7 +5,6 @@
  */
 import {
   COUNT_CHUNK_MAX,
-  canonicalJson,
   chunk,
   countBody,
   effectTargetFor,
@@ -15,6 +14,7 @@ import {
   sessionOutcome,
   type EmissionCandidate,
 } from '../../../src/inventory/count-sessions/count-emission';
+import { canonicalJson } from "../../../src/common/hashing/canonical-json";
 
 const SESSION = '00000000-0000-7000-8000-00000000c0e1';
 const STORE = '00000000-0000-7000-8000-00000000570e';

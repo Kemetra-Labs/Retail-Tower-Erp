@@ -111,8 +111,8 @@ describe("classifyDeletionOutcome", () => {
     });
   });
 
-  it("425, 5xx and no answer are retryable: the delete may already be recorded", () => {
-    for (const status of [425, 500, 502, 503, 0]) {
+  it("408, 425, 5xx and no answer are retryable: the delete may already be recorded", () => {
+    for (const status of [408, 425, 500, 502, 503, 0]) {
       expect(classifyDeletionOutcome({ status }).kind).toBe("retryable");
     }
   });

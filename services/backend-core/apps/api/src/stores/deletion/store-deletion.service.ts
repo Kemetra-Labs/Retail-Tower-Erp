@@ -20,7 +20,8 @@ import type { Pool, PoolClient } from "pg";
 
 import { runWithTenantContext } from "@data-pulse-2/db";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
+import type { ForceActionAuditActor } from "../../common/force-action-actor";
 import { enforceForceActionCap } from "../../console-action-cap/force-action-cap";
 import { StoresRepository } from "../stores.repository";
 import { type ReauthBinding, ReauthGrantStore } from "./reauth-grant.store";
@@ -78,6 +79,8 @@ export interface ConsoleDeleteInput {
   readonly reason: string;
   readonly previewFingerprint: string;
   readonly reauthToken: string;
+  /** The admitted caller (kind, role, on-behalf-of), as `StoreDeletionOwnerGuard` published it. */
+  readonly actor: ForceActionAuditActor;
   readonly requestId: string | null;
 }
 
@@ -110,7 +113,7 @@ function toPreview(
       shiftId: s.shiftId,
       openedAt: s.openedAt.toISOString(),
       terminalLabel: s.terminalLabel,
-      forceCloseEligible: s.forceCloseEligible,
+      forceCloseEligible: s.forceCloseEligible === true,
     })),
     devices: facts.devices.map((d) => ({
       deviceId: d.deviceId,
@@ -152,7 +155,7 @@ export class StoreDeletionService {
     return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
       const store = await this.stores.findById(client, storeId);
       if (!store) throw storeNotFound();
-      const facts = await readStoreDeletionFacts(client, factsStoreOf(store));
+      const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId);
       return toPreview(tenantId, facts, evaluateStoreDeletionBlockers(facts), await transactionNow(client));
     });
   }
@@ -171,7 +174,7 @@ export class StoreDeletionService {
       if (!store) throw storeNotFound();
       if (!(await this.grants.peek(input.reauthToken, binding))) throw reauthRequired();
 
-      const facts = await readStoreDeletionFacts(client, factsStoreOf(store));
+      const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId, { withEligibility: false });
       const blockers = evaluateStoreDeletionBlockers(facts);
       if (blockers.length > 0) throw storeDeletionBlocked(blockers);
       if (storeDeletionFingerprint(input.tenantId, facts) !== input.previewFingerprint) throw previewStale();
@@ -181,7 +184,8 @@ export class StoreDeletionService {
       const deletedAt = await deleteStoreWithAudit(client, this.stores, input.tenantId, facts, {
         channel: "console",
         actorUserId: input.userId,
-        actorRole: "owner",
+        actorRole: input.actor.role,
+        actor: input.actor,
         requestId: input.requestId,
         reason: input.reason,
         previewFingerprint: input.previewFingerprint,

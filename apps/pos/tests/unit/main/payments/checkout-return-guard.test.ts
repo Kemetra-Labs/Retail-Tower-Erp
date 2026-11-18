@@ -17,6 +17,7 @@ import {
   bindCheckoutReturnAssessment,
   bindCheckoutReturnGuard,
 } from '../../../../src/main/payments/checkout-return-guard.js';
+import type { PaymentAttemptFsm } from '../../../../src/main/payments/fsm/payment-attempt-fsm.js';
 import { makeSqlJsHandle } from '../cart/__helpers__/sql-js-handle.js';
 
 const __dirname0 = path.dirname(fileURLToPath(import.meta.url));
@@ -52,7 +53,7 @@ function startedAttempt(id: string, terminal: string, handoff: string): void {
 const REQ = { cart_id: 'cart-1', handoff_action_id: 'handoff-1' };
 const RELEASE = { ...REQ, action_id: 'back-1', at: '2026-10-04T10:01:00Z', session_id: 'sess' };
 
-function guardWith(cancel: ReturnType<typeof vi.fn>) {
+function guardWith(cancel: PaymentAttemptFsm['cancel']) {
   return bindCheckoutReturnGuard({
     db: makeSqlJsHandle(db),
     paymentAttemptFsm: { cancel },
@@ -70,14 +71,17 @@ describe('checkout return proof — states it does not cover refuse', () => {
 
   it('blocks when the started attempt belongs to another handoff', () => {
     startedAttempt('pa-1', 'term-1', 'handoff-old');
-    const cancel = vi.fn();
+    const cancel = vi.fn<PaymentAttemptFsm['cancel']>();
     expect(guardWith(cancel)(RELEASE)).toEqual({ kind: 'blocked' });
     expect(cancel).not.toHaveBeenCalled();
   });
 
   it('blocks when the payment FSM refuses to cancel the open attempt', () => {
     startedAttempt('pa-1', 'term-1', 'handoff-1');
-    const cancel = vi.fn(() => ({ kind: 'refused', reason: 'attempt_terminal' }));
+    const cancel = vi.fn<PaymentAttemptFsm['cancel']>(() => ({
+      kind: 'refused',
+      reason: 'attempt_terminal',
+    }));
     expect(guardWith(cancel)(RELEASE)).toEqual({ kind: 'blocked' });
     expect(cancel).toHaveBeenCalledOnce();
   });

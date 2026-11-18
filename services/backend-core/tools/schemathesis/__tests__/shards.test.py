@@ -209,7 +209,7 @@ class FanInTests(TempCase):
         self.assertEqual(problems, [])
         total = sum(len(ids) for *_, ids in INVENTORY)
         self.assertIn("- verdict: PASS", text)
-        self.assertIn(f"covered operations: gate {total}, report {total}", text)
+        self.assertIn(f"- covered operations: gate {total}\n", text)
 
     def test_the_job_result_must_be_success(self):
         ws = self.ws()
@@ -230,7 +230,7 @@ class FanInTests(TempCase):
         shutil.copytree(self.shard_dir(ws, 0), self.shard_dir(ws, 7))
         self.assertFails(ws, "unexpected artifact schemathesis-shard-7")
 
-    def test_failed_shard_gate_or_report_exit(self):
+    def test_failed_shard_gate_exit(self):
         for mode in shards.MODES:
             ws = self.tmp / f"ws-{mode}"
             make_ws(ws, INVENTORY, self.N, TIMINGS)
@@ -240,19 +240,19 @@ class FanInTests(TempCase):
     def test_missing_or_corrupt_exit_code(self):
         ws = self.ws()
         (self.shard_dir(ws, 0) / "gate.rc").unlink()
-        (self.shard_dir(ws, 1) / "report.rc").write_text("ok\n")
+        (self.shard_dir(ws, 1) / "gate.rc").write_text("ok\n")
         problems, _ = self.problems(ws)
         self.assertTrue(any("shard 0 gate exit=missing" in p for p in problems))
-        self.assertTrue(any("shard 1 report exit=ok" in p for p in problems))
+        self.assertTrue(any("shard 1 gate exit=ok" in p for p in problems))
 
     def test_missing_corrupt_and_non_utf8_artifacts(self):
         ws = self.ws()
         (self.shard_dir(ws, 0) / "manifest-gate.txt").unlink()
-        (self.shard_dir(ws, 1) / "manifest-report.txt").write_bytes(b"\xff\xfe\x00garbage")
+        (self.shard_dir(ws, 1) / "manifest-gate.txt").write_bytes(b"\xff\xfe\x00garbage")
         (self.shard_dir(ws, 2) / "sha.txt").unlink()
         (self.shard_dir(ws, 3) / "plan.txt").write_text("")
         problems, _ = self.problems(ws)
-        for needle in ("shard 0: manifest-gate.txt is missing", "shard 1: manifest-report.txt is missing",
+        for needle in ("shard 0: manifest-gate.txt is missing", "shard 1: manifest-gate.txt is missing",
                        "shard 2: sha.txt is missing", "shard 3 computed a different plan"):
             self.assertTrue(any(needle in p for p in problems), f"{needle!r} not in {problems}")
 
@@ -272,9 +272,9 @@ class FanInTests(TempCase):
 
     def test_missing_unit(self):
         ws = self.ws()
-        self.edit(ws, 0, "manifest-report.txt", lambda t: "\n".join(t.splitlines()[1:]) + "\n")
+        self.edit(ws, 0, "manifest-gate.txt", lambda t: "\n".join(t.splitlines()[1:]) + "\n")
         problems, _ = self.problems(ws)
-        self.assertTrue(any("report: " in p and "ran 0 times" in p for p in problems), problems)
+        self.assertTrue(any("gate: " in p and "ran 0 times" in p for p in problems), problems)
         self.assertTrue(any("covered" in p and "operations, the inventory has" in p for p in problems), problems)
 
     def test_unexpected_unit_not_in_the_inventory(self):
@@ -301,21 +301,26 @@ class FanInTests(TempCase):
         self.edit(ws, 0, "manifest-gate.txt", lambda t: t.replace(" 0 0 7 ", " 1 0 7 ", 1))
         self.assertFails(ws, "unbaselined 5xx")
 
-    def test_run_errors_fail_in_both_modes_including_the_non_gating_report(self):
+    def test_run_errors_fail(self):
         for mode in shards.MODES:
             ws = self.tmp / f"ws-err-{mode}"
             make_ws(ws, INVENTORY, self.N, TIMINGS)
             self.edit(ws, 0, f"manifest-{mode}.txt", lambda t: t.replace(" 0 0 7 ", " 1 1 7 ", 1))
             self.assertFails(ws, "could not run")
 
-    def test_report_findings_alone_stay_non_gating(self):
+    def test_pr_shards_run_the_gate_only(self):
+        # RT-1467 (CI-03): the non-gating report runs in api-fuzz-nightly.yml, not on PR shards.
+        self.assertEqual(shards.MODES, ("gate",))
         ws = self.ws()
-        self.edit(ws, 0, "manifest-report.txt", lambda t: t.replace(" 0 0 7 ", " 1 0 7 ", 1))
-        (self.shard_dir(ws, 0) / "report.md").write_text("### finding")
+        self.assertEqual(sorted(self.shard_dir(ws, 0).glob("*report*")), [])
         problems, text = self.problems(ws)
         self.assertEqual(problems, [])
-        self.assertIn("report files with findings (1)", text)
-        self.assertIn("### finding", text)
+        self.assertNotIn("report", text)
+
+    def test_a_report_line_in_the_gate_manifest_is_a_problem(self):
+        ws = self.ws()
+        self.edit(ws, 0, "manifest-gate.txt", lambda t: t + "report owner x.yaml 0 0 5 a\n")
+        self.assertFails(ws, "manifest line")
 
     def test_zero_or_unknown_generated_counts_fail(self):
         for generated in ("0", "-1"):

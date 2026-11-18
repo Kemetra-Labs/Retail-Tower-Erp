@@ -15,7 +15,7 @@ Repo docs are authoritative. Read `services/backend-core/docs/idempotency/strate
 ## Validation boundary: 400 at the DTO, the DB CHECK is the last resort
 - Derive each field's rule from **its own** DB column and CHECK: `> 0` vs `>= 0`, and the `numeric(p,s)` integer digits (`p - s`). A shared validator feeding fields with different CHECKs must be split (`PositiveMoneyString` vs non-negative). Don't tighten the shared helper.
 - DTO regexes must match the column. 15 integer digits against `numeric(19,6)` (13 allowed) produced 22003. Update the OpenAPI contracts (`packages/contracts/openapi/**`) in the same change.
-- Keep decimals exact: scaled `bigint` arithmetic (see `apps/api/src/inventory/decimal-quantity.ts`), never `Number` / `parseFloat`.
+- Keep decimals exact: scaled `bigint` arithmetic (see `apps/api/src/common/quantity/decimal-quantity.ts`), never `Number` / `parseFloat`.
 - `GlobalExceptionFilter` maps Postgres 22003/23514/22P02 (walking `cause`) to a 400 envelope and records metrics. A new mapped class needs its metric call and a spec assertion.
 
 ## Tenancy (RLS)
