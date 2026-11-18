@@ -14,7 +14,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createPaymentAuditEmitter } from '../../../../src/main/payments/audit-emitter.js';
+import {
+  createPaymentAuditEmitter,
+  type PaymentAuditEvent,
+} from '../../../../src/main/payments/audit-emitter.js';
+
+function firstEvent(events: readonly PaymentAuditEvent[]): PaymentAuditEvent {
+  const evt = events[0];
+  if (evt === undefined) throw new Error('no audit event captured');
+  return evt;
+}
 
 const fixedBase = {
   tenant_id: 'tenant-1',
@@ -25,7 +34,7 @@ const fixedBase = {
 
 describe('T094 — tender.applied per-line event', () => {
   it('emits tender.applied with attribution + redacted external_reference', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -43,7 +52,7 @@ describe('T094 — tender.applied per-line event', () => {
       applied_at: '2026-05-22T10:00:01.000Z',
       attribution_operator_id: 'op-clerk-user-abc',
     });
-    const evt = captured[0] as Record<string, unknown>;
+    const evt = firstEvent(captured);
     expect(evt.action_category).toBe('tender.applied');
     const payload = evt.payload as Record<string, unknown>;
     expect(payload.tender_line_id).toBe('tl-1');
@@ -54,7 +63,7 @@ describe('T094 — tender.applied per-line event', () => {
   });
 
   it('omits external_reference key entirely for cash applied event', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -72,7 +81,7 @@ describe('T094 — tender.applied per-line event', () => {
       applied_at: '2026-05-22T10:00:01.000Z',
       attribution_operator_id: 'op-clerk-user-abc',
     });
-    const payload = (captured[0] as Record<string, unknown>).payload as Record<string, unknown>;
+    const payload = firstEvent(captured).payload as Record<string, unknown>;
     expect(payload.external_reference).toBeUndefined();
     expect(payload.change_due_minor).toBe(0);
   });
@@ -80,7 +89,7 @@ describe('T094 — tender.applied per-line event', () => {
 
 describe('T094 — tender.refused per-line event', () => {
   it('emits tender.refused with refusal_reason and line id', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -97,15 +106,15 @@ describe('T094 — tender.refused per-line event', () => {
       refused_at: '2026-05-22T10:00:01.000Z',
       attribution_operator_id: 'op-clerk-user-abc',
     });
-    const payload = (captured[0] as Record<string, unknown>).payload as Record<string, unknown>;
-    expect((captured[0] as Record<string, unknown>).action_category).toBe('tender.refused');
+    const payload = firstEvent(captured).payload as Record<string, unknown>;
+    expect(firstEvent(captured).action_category).toBe('tender.refused');
     expect(payload.refusal_reason).toBe('non_cash_overpayment_refused');
   });
 });
 
 describe('T094 — tender.reversed per-line event', () => {
   it('emits tender.reversed for cash without manual_void_required', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -122,12 +131,12 @@ describe('T094 — tender.reversed per-line event', () => {
       attribution_operator_id: 'op-clerk-user-abc',
       manual_void_required: false,
     });
-    const payload = (captured[0] as Record<string, unknown>).payload as Record<string, unknown>;
+    const payload = firstEvent(captured).payload as Record<string, unknown>;
     expect(payload.manual_void_required).toBe(false);
   });
 
   it('emits tender.reversed for external_card_terminal with manual_void_required=true', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -144,7 +153,7 @@ describe('T094 — tender.reversed per-line event', () => {
       attribution_operator_id: 'op-clerk-user-abc',
       manual_void_required: true,
     });
-    const payload = (captured[0] as Record<string, unknown>).payload as Record<string, unknown>;
+    const payload = firstEvent(captured).payload as Record<string, unknown>;
     expect(payload.manual_void_required).toBe(true);
   });
 });
@@ -159,7 +168,7 @@ describe('T094 — tender.reversed per-line event', () => {
 //     emitter rather than going through the real one).
 describe('F-W6A-001 — emitTenderReversed reversal_pending_since preservation (line 433)', () => {
   it('preserves reversal_pending_since onto the payload when supplied (T231)', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -177,7 +186,7 @@ describe('F-W6A-001 — emitTenderReversed reversal_pending_since preservation (
       manual_void_required: false,
       reversal_pending_since: '2026-05-26T10:00:05.000Z',
     });
-    const payload = (captured[0] as Record<string, unknown>).payload as Record<string, unknown>;
+    const payload = firstEvent(captured).payload as Record<string, unknown>;
     expect(payload.reversal_pending_since).toBe('2026-05-26T10:00:05.000Z');
   });
 
@@ -186,7 +195,7 @@ describe('F-W6A-001 — emitTenderReversed reversal_pending_since preservation (
     // ternary — pins that the field does NOT appear on synchronous-reverse
     // paths (cash + external_card_terminal) where the line never went
     // through reversal_pending.
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -204,14 +213,14 @@ describe('F-W6A-001 — emitTenderReversed reversal_pending_since preservation (
       manual_void_required: false,
       // reversal_pending_since intentionally omitted
     });
-    const payload = (captured[0] as Record<string, unknown>).payload as Record<string, unknown>;
+    const payload = firstEvent(captured).payload as Record<string, unknown>;
     expect(payload.reversal_pending_since).toBeUndefined();
   });
 });
 
 describe('F-W6A-001 — emitTenderReversalPending shape (line 449)', () => {
   it('emits tender.reversal_pending with full attribution + per-line payload', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -228,7 +237,7 @@ describe('F-W6A-001 — emitTenderReversalPending shape (line 449)', () => {
       attribution_operator_id: 'op-clerk-user-abc',
     });
     expect(captured).toHaveLength(1);
-    const evt = captured[0] as Record<string, unknown>;
+    const evt = firstEvent(captured);
     expect(evt.action_category).toBe('tender.reversal_pending');
     expect(evt.payment_attempt_id).toBe('pa-1');
     expect(evt.attribution_operator_id).toBe('op-clerk-user-abc');
@@ -245,7 +254,7 @@ describe('F-W6A-001 — emitTenderReversalPending shape (line 449)', () => {
 
 describe('T094 — voucher token never crosses into payload', () => {
   it('emitter strips voucher_redemption_intent_token even if accidentally passed', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {

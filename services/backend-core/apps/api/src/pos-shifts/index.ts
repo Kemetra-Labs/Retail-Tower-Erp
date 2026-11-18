@@ -13,4 +13,3 @@ export { ShiftForceCloseRepository, stuckBlockers } from "./shift-force-close.re
 export type { StoreShiftRow, StuckVerdict } from "./shift-force-close.repository";
 export { STUCK_THRESHOLD_MINUTES, ShiftForceCloseService } from "./shift-force-close.service";
 export type { ConsoleForceClosedShiftProjection } from "./shift-force-close.service";
-export { formatMoney } from "./shift-money";

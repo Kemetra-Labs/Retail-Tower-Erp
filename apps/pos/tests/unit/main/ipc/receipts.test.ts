@@ -72,6 +72,16 @@ function makeBridgeSpy(): ReceiptsBridge {
           render_path: 'escpos_direct',
         }) as never,
     ),
+    manualOverride: vi.fn(
+      () =>
+        Promise.resolve({
+          kind: 'ok',
+          print_event_id: 'pe-mo-1',
+          purpose: 'first_print',
+          outcome: 'manual_override',
+          overridden_at: '2026-05-27T10:00:09.000Z',
+        }) as never,
+    ),
   };
 }
 

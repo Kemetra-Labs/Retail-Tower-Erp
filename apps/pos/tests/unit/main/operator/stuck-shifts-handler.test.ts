@@ -28,6 +28,8 @@ const MANAGER_SESSION: OperatorSessionRecord = {
   backend_session_id: 'be-sess-1',
   started_at: '2026-05-13T08:00:00.000Z',
   last_activity_at: '2026-05-13T08:00:00.000Z',
+  lock_state: 'active',
+  locked_at: null,
 };
 
 const CASHIER_SESSION: OperatorSessionRecord = {

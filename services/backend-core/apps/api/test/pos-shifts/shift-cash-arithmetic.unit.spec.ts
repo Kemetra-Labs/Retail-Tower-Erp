@@ -12,7 +12,7 @@ import {
   closeFitsCurrency,
   isCashUpConsistent,
   type CashUpTotals,
-} from "../../src/pos-shifts/shift-cash-arithmetic";
+} from "../../src/common/money/shift-cash-arithmetic";
 
 const TOTALS: CashUpTotals = {
   openingFloat: "500.00",

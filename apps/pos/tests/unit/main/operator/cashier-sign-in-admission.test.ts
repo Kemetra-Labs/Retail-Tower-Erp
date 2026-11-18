@@ -107,6 +107,7 @@ const paired: PairingStore = {
     }),
   persist: () => Promise.resolve(),
   clear: () => Promise.resolve(),
+  getCurrentTerminalId: () => TERMINAL,
 };
 
 function request(overrides: Partial<CashierSignInRequest> = {}): CashierSignInRequest {

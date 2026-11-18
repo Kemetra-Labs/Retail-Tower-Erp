@@ -19,7 +19,7 @@ import type {
 import type { PolicyTriState } from "../cash-variance-policy/policy-value";
 import { approverCheckOf, type ApproverCheck } from "./shift-close-approver";
 import type { RecordedFrozenPolicy } from "./shift-frozen-policy";
-import { formatMoney } from "./shift-money";
+import { formatMoney } from "../common/money/shift-money";
 
 export interface ShiftCloseProjection {
   readonly closedAt: string;

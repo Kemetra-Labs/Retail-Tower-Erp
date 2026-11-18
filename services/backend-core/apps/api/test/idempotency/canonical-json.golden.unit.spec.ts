@@ -12,7 +12,7 @@ import { canonicalJson } from "../../src/common/hashing/canonical-json";
 import { canonicalJsonPayload } from "../../src/common/hashing/payload-hash";
 import { countBody, payloadHash as countPayloadHash } from "../../src/inventory/count-sessions/count-emission";
 import { packEtag, type OfferPackBody } from "../../src/offers/offer-pack.service";
-import { canonicalInstant as shiftInstant } from "../../src/pos-shifts/shift-money";
+import { canonicalInstant as shiftInstant } from "../../src/common/money/shift-money";
 import { bodyFingerprint } from "../../src/idempotency/idempotency.interceptor";
 import {
   GOLDEN_FIXTURE,

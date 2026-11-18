@@ -88,8 +88,8 @@ describe('T112 — payment_tender_lines repository', () => {
     repo.insert(baseLine());
     const rows = repo.findByAttempt('attempt-1');
     expect(rows).toHaveLength(1);
-    expect(rows[0].tender_type).toBe('cash');
-    expect(rows[0].amount_applied_minor).toBe(1500);
+    expect(rows[0]?.tender_type).toBe('cash');
+    expect(rows[0]?.amount_applied_minor).toBe(1500);
   });
 
   it('findByAttempt returns rows in apply_order ascending', () => {
@@ -114,9 +114,9 @@ describe('T112 — payment_tender_lines repository', () => {
       last_action_id: 'action-2',
     });
     const row = repo.findByAttempt('attempt-1')[0];
-    expect(row.state).toBe('applied');
-    expect(row.applied_at).toBe('2026-05-22T10:00:02.000Z');
-    expect(row.last_action_id).toBe('action-2');
+    expect(row?.state).toBe('applied');
+    expect(row?.applied_at).toBe('2026-05-22T10:00:02.000Z');
+    expect(row?.last_action_id).toBe('action-2');
   });
 
   it('updateState transitions applied → reversed with reversed_at', () => {
@@ -131,8 +131,8 @@ describe('T112 — payment_tender_lines repository', () => {
       last_action_id: 'action-3',
     });
     const row = repo.findByAttempt('attempt-1')[0];
-    expect(row.state).toBe('reversed');
-    expect(row.reversed_at).toBe('2026-05-22T10:05:00.000Z');
+    expect(row?.state).toBe('reversed');
+    expect(row?.reversed_at).toBe('2026-05-22T10:05:00.000Z');
   });
 
   it('updateState transitions applied → reversal_pending with reversal_pending_since', () => {
@@ -147,8 +147,8 @@ describe('T112 — payment_tender_lines repository', () => {
       last_action_id: 'action-3',
     });
     const row = repo.findByAttempt('attempt-1')[0];
-    expect(row.state).toBe('reversal_pending');
-    expect(row.reversal_pending_since).toBe('2026-05-22T10:05:00.000Z');
+    expect(row?.state).toBe('reversal_pending');
+    expect(row?.reversal_pending_since).toBe('2026-05-22T10:05:00.000Z');
   });
 
   it('updateState reversal_pending → reversed clears reversal_pending_since', () => {
@@ -169,9 +169,9 @@ describe('T112 — payment_tender_lines repository', () => {
       last_action_id: 'action-4',
     });
     const row = repo.findByAttempt('attempt-1')[0];
-    expect(row.state).toBe('reversed');
-    expect(row.reversed_at).toBe('2026-05-22T10:06:00.000Z');
-    expect(row.reversal_pending_since).toBeNull();
+    expect(row?.state).toBe('reversed');
+    expect(row?.reversed_at).toBe('2026-05-22T10:06:00.000Z');
+    expect(row?.reversal_pending_since).toBeNull();
   });
 
   it('updateState to refused writes refused_at + refusal_reason', () => {
@@ -187,9 +187,9 @@ describe('T112 — payment_tender_lines repository', () => {
       refusal_reason: 'tender_underpaid',
     });
     const row = repo.findByAttempt('attempt-1')[0];
-    expect(row.state).toBe('refused');
-    expect(row.refused_at).toBe('2026-05-22T10:00:03.000Z');
-    expect(row.refusal_reason).toBe('tender_underpaid');
+    expect(row?.state).toBe('refused');
+    expect(row?.refused_at).toBe('2026-05-22T10:00:03.000Z');
+    expect(row?.refusal_reason).toBe('tender_underpaid');
   });
 
   it('settlementSumMinor returns the canonical invariant value (cash exact)', () => {
@@ -261,7 +261,7 @@ describe('T112 — payment_tender_lines repository', () => {
         external_reference: 'AB12XY',
       }),
     );
-    expect(repo.findByAttempt('attempt-1')[0].external_reference).toBe('AB12XY');
+    expect(repo.findByAttempt('attempt-1')[0]?.external_reference).toBe('AB12XY');
   });
 
   it('settlementSumMinor throws when the SUM exceeds MAX_SAFE_INTEGER (defence-in-depth)', () => {

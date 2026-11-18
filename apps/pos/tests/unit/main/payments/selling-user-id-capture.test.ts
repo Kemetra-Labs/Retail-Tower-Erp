@@ -20,7 +20,10 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createPaymentAuditEmitter } from '../../../../src/main/payments/audit-emitter.js';
+import {
+  createPaymentAuditEmitter,
+  type PaymentAuditEvent,
+} from '../../../../src/main/payments/audit-emitter.js';
 import { createPaymentsConfirmHandler } from '../../../../src/main/payments/handlers/payments-confirm.js';
 import { resolveSessionScope } from '../../../../src/main/operator/resolve-session-scope.js';
 import type { OperatorSessionRecord } from '../../../../src/main/operator/session-manager.js';
@@ -56,14 +59,14 @@ const SETTLED_BASE = {
 
 describe('RT-224 — the payment.settled payload carries selling_user_id when given', () => {
   it('includes it when the input has it', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({ sink: { write: (e) => captured.push(e) } });
     emitter.emitPaymentSettled({ ...SETTLED_BASE, selling_user_id: USER });
     expect((captured[0]?.payload as Record<string, unknown>).selling_user_id).toBe(USER);
   });
 
   it('omits the key entirely when the input has none (manager/admin session)', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({ sink: { write: (e) => captured.push(e) } });
     emitter.emitPaymentSettled(SETTLED_BASE);
     expect('selling_user_id' in (captured[0]?.payload as Record<string, unknown>)).toBe(false);

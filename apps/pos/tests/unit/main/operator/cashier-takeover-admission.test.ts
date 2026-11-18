@@ -37,6 +37,7 @@ const paired: PairingStore = {
     }),
   persist: () => Promise.resolve(),
   clear: () => Promise.resolve(),
+  getCurrentTerminalId: () => 'term-1',
 };
 
 function cashierProto(overrides: Partial<ProtoSession> = {}): ProtoSession {
@@ -80,7 +81,14 @@ function build(
     protoStore: store,
     sessionManager: sessions,
     backend,
-    jwtHolder: { set: vi.fn(), get: vi.fn(() => null), clear: vi.fn() },
+    jwtHolder: {
+      set: vi.fn(),
+      get: vi.fn(() => null),
+      clear: vi.fn(),
+      clearAll: vi.fn(),
+      hasFreshMark: vi.fn(() => false),
+      consumeMark: vi.fn(() => false),
+    },
     auditEmitter: { emit } as unknown as AuditEmitter,
     pairingStore: paired,
     deviceTokenAttestation: () => 'att',
@@ -201,7 +209,8 @@ describe('cashier takeover via takeover:true', () => {
 
   it('a cashier proto without a user_id is refused without any admission call', async () => {
     const { handler, store, fake } = build();
-    const proto = cashierProto({ user_id: undefined });
+    const proto = cashierProto();
+    delete proto.user_id;
     store.set(proto);
     const res = await handler.confirmTakeover({ pending_takeover_id: proto.pending_takeover_id });
     expect(res).toEqual({ kind: 'refused', category: 'invalid_input' });
@@ -215,7 +224,14 @@ describe('cashier takeover via takeover:true', () => {
       protoStore: store,
       sessionManager: sessions,
       backend: {} as BackendClient,
-      jwtHolder: { set: vi.fn(), get: vi.fn(() => null), clear: vi.fn() },
+      jwtHolder: {
+        set: vi.fn(),
+        get: vi.fn(() => null),
+        clear: vi.fn(),
+        clearAll: vi.fn(),
+        hasFreshMark: vi.fn(() => false),
+        consumeMark: vi.fn(() => false),
+      },
       auditEmitter: { emit: vi.fn() } as unknown as AuditEmitter,
       pairingStore: paired,
       deviceTokenAttestation: () => 'att',

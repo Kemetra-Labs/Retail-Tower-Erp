@@ -19,7 +19,7 @@ function makeDeps(): ForcedCloseHandlerDeps {
     pairingStore: {
       getStatus: () => Promise.resolve({ kind: 'unpaired' as const }),
     },
-    auditEmitter: { emit: vi.fn() } as ForcedCloseHandlerDeps['auditEmitter'],
+    auditEmitter: { emit: vi.fn() } as unknown as ForcedCloseHandlerDeps['auditEmitter'],
     shiftCashup: { forceCloseShift: vi.fn() },
   };
 }
