@@ -530,8 +530,8 @@ describe("consoleForceCloseShift: a platform admin acts on a customer's behalf (
       `SELECT metadata FROM audit_events WHERE tenant_id = $1 AND action = 'platform.cross_tenant.accessed' AND actor_user_id = $2`,
       [w.tenant, w.platformBareUser],
     );
-    // list + preview + preview + close (the fingerprint read): every request is recorded, none names a session.
-    expect(rows.rowCount).toBeGreaterThanOrEqual(3);
+    // list, preview (the fingerprint read) and close: exactly one row per request, none names a session.
+    expect(rows.rowCount).toBe(3);
     for (const row of rows.rows) {
       expect(row.metadata).toMatchObject({ actor_kind: "platform_admin", outcome: "succeeded", support_session_id: null, purpose: null });
     }

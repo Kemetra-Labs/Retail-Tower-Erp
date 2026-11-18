@@ -24,7 +24,7 @@ export type ForceActionActorKind = "owner" | "tenant_admin" | "platform_admin";
 /** The customer a platform admin acted for. Snake case: it is written as audit metadata as is. */
 export interface OnBehalfOf {
   readonly tenant_id: string;
-  /** The live support session the request ran in, or null (a platform admin who is a tenant member). */
+  /** The live support session the request ran in, or null (a tenant member, or a non-member who holds none). */
   readonly support_session_id: string | null;
   readonly ticket_ref: string | null;
 }

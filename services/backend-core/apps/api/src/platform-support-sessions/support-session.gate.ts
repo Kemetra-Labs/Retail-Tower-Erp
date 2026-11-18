@@ -220,22 +220,29 @@ export class SupportSessionGate {
   }
 
   /**
-   * RT-1462: the origin refusal of a DIRECT route (no support session needed). The row says
-   * `origin_rejected`: the session is not what refused the request.
+   * RT-1462: the origin refusal of a DIRECT route (no support session needed). It follows the contract's
+   * order like `recordOriginRefusal`: the tenant state first (a missing tenant is `support_session_required`,
+   * a suspended tenant's unsafe method `support_session_read_only`, exactly as `admitDirect` decides),
+   * else `origin_rejected`, and the row names the caller's live support session for this tenant when there is
+   * one. Returns the refusal the caller should throw.
    */
   async recordDirectOriginRefusal(tenantId: string, request: GateRequest): Promise<ForbiddenException> {
-    await this.withPlatformCtx((client) =>
-      recordCrossTenantAccess(client, {
+    const reason = await this.withPlatformCtx(async (client) => {
+      const found = await findLiveSupportSession(client, request.authSessionId);
+      const tenant = await readTenant(client, tenantId);
+      const refusal = directRefusal(tenant, request.method) ?? "origin_rejected";
+      await recordCrossTenantAccess(client, {
         tenantId,
         actorUserId: request.userId,
         requestId: request.requestId,
         method: request.method,
         route: request.route,
-        session: null,
-        reason: "origin_rejected",
-      }),
-    );
-    return supportSessionRefusal("origin_rejected");
+        session: found !== null && found.tenantId === tenantId && found.status === "active" ? found : null,
+        reason: refusal,
+      });
+      return refusal;
+    });
+    return supportSessionRefusal(reason);
   }
 
   /** Whether `userId` has a live membership in `tenantId`, whatever the tenant status. */

@@ -122,10 +122,25 @@ describe("SupportSessionGate.admitDirect (RT-1462)", () => {
     await expect(gate().admitDirect(TENANT, request("GET"))).resolves.toBeNull();
   });
 
-  it("the origin refusal of a direct route is recorded as origin_rejected", async () => {
+  it("the origin refusal of a direct route is origin_rejected, naming the live session when there is one", async () => {
     const refusal = await gate().recordDirectOriginRefusal(TENANT, request());
     expect(refusal.getResponse()).toMatchObject({ code: "origin_rejected" });
     expect(recorded()[0]).toMatchObject({ reason: "origin_rejected", session: null });
+    (findLiveSupportSession as jest.Mock).mockResolvedValue(live());
+    await gate().recordDirectOriginRefusal(TENANT, request());
+    expect(recorded()[1]).toMatchObject({ reason: "origin_rejected", session: { id: live().id } });
+  });
+
+  it("the origin refusal follows the contract order: a suspended tenant or a missing one decides first", async () => {
+    tenantRows = [{ status: "suspended" }];
+    await expect(gate().recordDirectOriginRefusal(TENANT, request("POST"))).resolves.toMatchObject({
+      response: { code: "support_session_read_only" },
+    });
+    tenantRows = [];
+    await expect(gate().recordDirectOriginRefusal(TENANT, request("POST"))).resolves.toMatchObject({
+      response: { code: "support_session_required" },
+    });
+    expect(recorded().map((r) => r["reason"])).toEqual(["support_session_read_only", "support_session_required"]);
   });
 });
 

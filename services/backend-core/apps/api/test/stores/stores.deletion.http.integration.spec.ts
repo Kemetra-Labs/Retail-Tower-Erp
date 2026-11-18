@@ -539,7 +539,7 @@ describe("who may use the deletion surface (AC4)", () => {
           AND metadata->>'support_session_id' IS NULL AND metadata->>'outcome' = 'succeeded'`,
       [ACME_ID, USERS.platform.id],
     );
-    expect(access.rows[0]!.n).toBeGreaterThanOrEqual(3); // preview, re-authentication, deletion
+    expect(access.rows[0]!.n).toBe(3); // exactly one row per request: preview, re-authentication, deletion
   });
 
   it("the owner's own deletion still says owner, on behalf of no one", async () => {

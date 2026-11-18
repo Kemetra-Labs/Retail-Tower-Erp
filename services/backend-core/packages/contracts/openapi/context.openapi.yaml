@@ -17,7 +17,8 @@ info:
     `switchActiveTenant` now admits a platform admin for ANY existing tenant,
     member or not, without a support session, so a platform admin can use the
     Console force actions (`console-force-actions.openapi.yaml` 1.1.0-draft)
-    on a customer's tenant. Selecting a tenant reads nothing of it, and every
+    on a customer's tenant. The response carries only the tenant summary (id,
+    slug, name), which a platform admin can already read, and every
     other covered route still refuses a non-member without a support session,
     so the switch alone opens nothing else. A tenant that does not exist is
     still 404. No schema change.

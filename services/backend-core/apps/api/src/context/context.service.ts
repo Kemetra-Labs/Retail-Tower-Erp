@@ -39,7 +39,7 @@
  *     (RT-1462, `PLATFORM_DIRECT_HANDLERS`). So `switchTenant` lets a platform
  *     admin select any existing tenant (404 for one that does not exist) and
  *     ends any live support session of the auth session (`tenant_switched`)
- *     before switching; selecting a tenant reads nothing of it, and every
+ *     before switching; the response carries only the tenant summary a platform admin can already read, and every
  *     covered route still refuses a non-member without a session, so the
  *     switch alone opens nothing but the force-action routes.
  *     `switchStore` for a non-member platform admin goes through

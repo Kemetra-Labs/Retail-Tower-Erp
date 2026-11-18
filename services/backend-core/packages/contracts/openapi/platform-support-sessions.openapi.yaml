@@ -558,6 +558,20 @@ components:
           not:
             required: [expires_at]
 
+    PlatformDirectRoute:
+      type: string
+      description: >
+        The route templates of the six operations a platform admin may use
+        without a support session (RT-1462; `x-support-session-enforcement`
+        `platform-direct-operations`).
+      enum:
+        - /api/v1/stores/:store_id/open-shifts
+        - /api/v1/shifts/:shift_id/force-close-preview
+        - /api/v1/shifts/:shift_id/force-close
+        - /api/v1/stores/:store_id/deletion-preview
+        - /api/v1/stores/:store_id/deletion
+        - /api/v1/auth/reauth
+
     CrossTenantAccessAuditMetadata:
       type: object
       additionalProperties: false
@@ -569,31 +583,64 @@ components:
         session and no `reason`; a `rejected` row always has a `reason`, and
         a `support_session_expired`, `support_session_read_only` or
         `origin_rejected` rejection also names the support session and its
-        purpose.
+        purpose. **RT-1462 exception:** on the six `platform-direct-operations`
+        routes (`PlatformDirectRoute`) a non-member platform admin needs no
+        support session, so a `succeeded`, `support_session_read_only` or
+        `origin_rejected` row there may have `support_session_id` and `purpose`
+        null (it still names the session when the caller holds a live one). The
+        exception is bound to those route templates: on every other route a
+        row without a session is only a `support_session_required` refusal.
       if:
         properties:
           outcome:
             const: rejected
       then:
         required: [reason]
-        if:
-          properties:
-            reason:
-              enum: [support_session_expired, support_session_read_only, origin_rejected]
-        then:
-          properties:
-            support_session_id:
-              type: string
-            purpose:
-              $ref: "#/components/schemas/SupportPurpose"
+        allOf:
+          - if:
+              properties:
+                reason:
+                  const: support_session_expired
+            then:
+              properties:
+                support_session_id:
+                  type: string
+                purpose:
+                  $ref: "#/components/schemas/SupportPurpose"
+          - if:
+              properties:
+                reason:
+                  enum: [support_session_read_only, origin_rejected]
+            then:
+              anyOf:
+                - properties:
+                    support_session_id:
+                      type: string
+                    purpose:
+                      $ref: "#/components/schemas/SupportPurpose"
+                - properties:
+                    support_session_id:
+                      type: "null"
+                    purpose:
+                      type: "null"
+                    route:
+                      $ref: "#/components/schemas/PlatformDirectRoute"
       else:
         not:
           required: [reason]
-        properties:
-          support_session_id:
-            type: string
-          purpose:
-            $ref: "#/components/schemas/SupportPurpose"
+        anyOf:
+          - properties:
+              support_session_id:
+                type: string
+              purpose:
+                $ref: "#/components/schemas/SupportPurpose"
+          - properties:
+              support_session_id:
+                type: "null"
+              purpose:
+                type: "null"
+              route:
+                $ref: "#/components/schemas/PlatformDirectRoute"
       properties:
         actor_kind:
           const: platform_admin
