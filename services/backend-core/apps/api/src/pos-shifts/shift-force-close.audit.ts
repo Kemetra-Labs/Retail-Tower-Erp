@@ -10,16 +10,25 @@
  * cashier and the shift's age in minutes. The closing user is the audit
  * actor. NEVER the reason (it is stored on the fact, D5a), never PII, never a
  * credential: ids, codes and counts only (FR-AUDIT-3, Constitution §XIV).
+ *
+ * RT-1462: a Console close also carries `actor_kind` (`owner`, `tenant_admin` or
+ * `platform_admin`) and `on_behalf_of` (null, or the tenant and support session a
+ * platform admin acted for). The POS path writes neither key.
  */
 import type { PoolClient } from "pg";
 
+import {
+  auditFieldsOf,
+  type ForceActionAuditActor,
+  type ForceActionAuditFields,
+} from "../common/force-action-actor";
 import type { MembershipRepository } from "../context/membership.repository";
 import type { StoreShiftRow } from "./shift-force-close.repository";
 
 type ForceCloseChannel = "pos" | "console";
 
 /** The `shift.force_closed` audit metadata. */
-export interface ForceCloseAudit {
+export interface ForceCloseAudit extends Partial<ForceActionAuditFields> {
   readonly shift_id: string;
   readonly channel: ForceCloseChannel;
   readonly actor_role: string | null;
@@ -37,6 +46,8 @@ export interface ForceCloseAuditInput {
   readonly shift: StoreShiftRow;
   readonly channel: ForceCloseChannel;
   readonly actorRole: string | null;
+  /** The Console actor (RT-1462); absent on the POS path. */
+  readonly actor?: ForceActionAuditActor;
   readonly previewFingerprint: string | null;
   readonly closedFromDeviceId: string | null;
   readonly replayed: boolean;
@@ -50,6 +61,7 @@ export function buildForceCloseAudit(input: ForceCloseAuditInput): ForceCloseAud
     shift_id: shift.shiftId,
     channel: input.channel,
     actor_role: input.actorRole,
+    ...(input.actor === undefined ? {} : auditFieldsOf(input.actor)),
     preview_fingerprint: input.previewFingerprint,
     lifecycle_state_before: input.replayed ? "closed_forced" : "open",
     lifecycle_state_after: "closed_forced",

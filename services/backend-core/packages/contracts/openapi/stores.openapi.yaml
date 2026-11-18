@@ -4,10 +4,25 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Stores API
-  version: "1.3.0-draft"
+  version: "1.4.0-draft"
   description: >
     Store administration within the active tenant. Active tenant must be
     set on the session/token; otherwise endpoints return 401.
+
+
+    **1.4.0-draft (RT-1462, `[GATED: contract]`; owner decision 2026-11-18,
+    RT-1437 comment 17453 and RT-1462 comment 17454; amends D1).** A PLATFORM
+    ADMIN may preview and delete a store, and re-authenticate for it
+    (`consoleReauthenticate`), on a customer's behalf: whether or not they are
+    a member of the tenant, whatever membership role they hold there, and,
+    when they are not a member, WITHOUT a support session (the mechanism and
+    its audit are in `console-force-actions.openapi.yaml` 1.1.0-draft, "No
+    support session on this surface"; a suspended tenant stays read-only for a
+    non-member). The four guards, the
+    preview fingerprint, the typed reason, the re-authentication and the D9 cap
+    apply unchanged. No wire change. The `store.deleted` audit metadata gains
+    `actor_kind` and `on_behalf_of` (see Audit). A `tenant_admin` who is not a
+    platform admin is still refused `store_deletion_owner_only`.
 
 
     **1.3.0-draft (RT-1444, C1 of RT-1437; `[GATED: contract]`, owner decisions
@@ -66,9 +81,11 @@ info:
 
 
       1. The guards: authentication (401), `Origin` and the support-session
-         gate (403), role (owner; a `tenant_admin` is 403
-         `store_deletion_owner_only`, any other role is the non-disclosing
-         404), the console rate limit (429 `rate_limited`).
+         gate (403), role (owner, or a platform admin since RT-1462; a
+         `tenant_admin` who is not a platform admin is 403
+         `store_deletion_owner_only`, any other role is
+         the non-disclosing 404), the console rate limit (429
+         `rate_limited`).
 
       2. `Idempotency-Key` (400 codes), the same-key replay with
          `Idempotent-Replayed: true`, 425, 409 `idempotency_key_conflict`.
@@ -102,7 +119,12 @@ info:
 
     **Audit.** A new `store.deleted` event on every deletion path, in the
     delete's transaction. Metadata: `channel` (`console` for
-    `consoleDeleteStore`, `api` for `softDeleteStore`), `actor_role`, `reason`
+    `consoleDeleteStore`, `api` for `softDeleteStore`), `actor_role` (the
+    caller's membership role, or null), `actor_kind` and `on_behalf_of` (RT-1462,
+    `consoleDeleteStore` only: `owner` or `platform_admin`, and null or, for a
+    platform admin, `{ tenant_id, support_session_id, ticket_ref }` read from
+    the server, never from the request; ids and a ticket reference only, no
+    customer name, e-mail or phone), `reason`
     (the typed reason; null on the `api` path), `preview_fingerprint` (null on
     the `api` path), `before` (`name`, `code`, `is_active`, `device_count`,
     `open_shift_count`) and `after` (`deleted_at`). The actor is the audit
@@ -342,9 +364,9 @@ paths:
         the tenant.
 
 
-        Owner only (D1): a `tenant_admin` is 403 `store_deletion_owner_only`;
-        any other role, another tenant's store, a deleted store and an unknown
-        id are the non-disclosing 404.
+        Owner only (D1), or a platform admin (RT-1462): a `tenant_admin` who is
+        not a platform admin is 403 `store_deletion_owner_only`; any other role, another tenant's store, a
+        deleted store and an unknown id are the non-disclosing 404.
       responses:
         "200":
           description: The impact preview.
@@ -404,7 +426,7 @@ paths:
         "401":
           description: No active tenant.
         "403":
-          description: "`store_deletion_owner_only` (a `tenant_admin`)."
+          description: "`store_deletion_owner_only` (a `tenant_admin` who is not a platform admin)."
           content:
             application/json:
               schema:
@@ -417,7 +439,7 @@ paths:
     parameters:
       - $ref: "#/components/parameters/StoreId"
     post:
-      summary: Delete the store, after the impact preview and a re-authentication. Owner only.
+      summary: Delete the store, after the impact preview and a re-authentication. Owner, or a platform admin.
       operationId: consoleDeleteStore
       x-idempotency: required
       description: >
@@ -428,7 +450,7 @@ paths:
         contract description.
 
 
-        **Owner only.** The request needs a `reauthToken` from
+        **Owner, or a platform admin (RT-1462).** The request needs a `reauthToken` from
         `consoleReauthenticate` (purpose `store_deletion`, this store, 5
         minutes, single use, bound to this session). `reason` is required, 1 to
         200 characters, no PII; it is recorded in the `store.deleted` audit
@@ -484,17 +506,20 @@ paths:
           description: >
             `reauth_required` (the grant is missing, expired, used, or for
             another session, store or purpose; one answer for every cause),
-            `store_deletion_owner_only` (a `tenant_admin`), `origin_rejected`
+            `store_deletion_owner_only` (a `tenant_admin` who is not a platform
+            admin), `origin_rejected`
             (RT-430), or a support-session refusal
-            (`support_session_required`, `support_session_expired`,
-            `support_session_read_only`).
+            (`support_session_read_only` for a non-member platform admin on a
+            suspended tenant; `support_session_required` for a tenant that does
+            not exist).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/StoreDeletionError"
         "404":
           description: >
-            Not found / no access (a role outside the owner, another tenant's
+            Not found / no access (a role outside the owner, the platform admin
+            and the `tenant_admin` refused by the 403 above, another tenant's
             store, an unknown or already deleted store).
         "409":
           $ref: "#/components/responses/StoreDeletionConflict"

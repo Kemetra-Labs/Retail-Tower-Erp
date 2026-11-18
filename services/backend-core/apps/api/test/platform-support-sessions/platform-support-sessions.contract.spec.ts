@@ -131,9 +131,9 @@ const activeSession = {
 };
 
 describe("platform-support-sessions — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-414 runtime)", () => {
+  it("is an OpenAPI 3.1 document at version 1.3.0-draft (RT-414 runtime; RT-1462 exempts the force actions)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.2.0-draft");
+    expect(doc.info?.version).toBe("1.3.0-draft");
   });
 
   it("declares exactly open, read-current, renew and end", () => {
@@ -449,6 +449,39 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
     expect(v({ ...expired, reason: "support_session_required", support_session_id: null, purpose: null })).toBe(true);
   });
 
+  it("RT-1462: a row without a session is valid only on the six direct routes", () => {
+    const v = validator("CrossTenantAccessAuditMetadata");
+    const direct = {
+      actor_kind: "platform_admin",
+      outcome: "succeeded",
+      support_session_id: null,
+      purpose: null,
+      method: "POST",
+      route: "/api/v1/shifts/:shift_id/force-close",
+    };
+    expect(v(direct)).toBe(true);
+    for (const route of [
+      "/api/v1/stores/:store_id/open-shifts",
+      "/api/v1/shifts/:shift_id/force-close-preview",
+      "/api/v1/stores/:store_id/deletion-preview",
+      "/api/v1/stores/:store_id/deletion",
+      "/api/v1/auth/reauth",
+    ]) {
+      expect(v({ ...direct, route })).toBe(true);
+    }
+    expect(v({ ...direct, route: "/api/v1/stores" })).toBe(false);
+    expect(v({ ...direct, route: "/api/v1/sales/:saleId" })).toBe(false);
+    for (const reason of ["origin_rejected", "support_session_read_only"]) {
+      const refused = { ...direct, outcome: "rejected", reason };
+      expect(v(refused)).toBe(true);
+      expect(v({ ...refused, route: "/api/v1/stores" })).toBe(false);
+    }
+    // An expired session is always named, even on a direct route.
+    expect(v({ ...direct, outcome: "rejected", reason: "support_session_expired" })).toBe(false);
+    // The purpose goes with the session: a session id without a purpose is never valid.
+    expect(v({ ...direct, support_session_id: SESSION_ID })).toBe(false);
+  });
+
   it("accepts lifecycle rows", () => {
     const v = validator("SupportSessionAuditMetadata");
     const base = {
@@ -469,11 +502,15 @@ describe("platform-support-sessions — audit metadata allowlists", () => {
 describe("context contract — additive RT-414 changes", () => {
   const switchOp = (): OperationObject => contextDoc.paths!["/api/v1/context/tenant"]!["post"]!;
 
-  it("keeps the non-disclosing 404 and adds a platform-only 403", () => {
+  it("keeps the non-disclosing 404; the platform-only 403 is lifted for the switch by RT-1462 (1.3.0-draft)", () => {
     const responses = switchOp().responses ?? {};
     expect(responses["404"]?.description).toMatch(/Same response for both/);
-    expect(responses["403"]?.description).toContain("support_session_required");
-    expect(responses["403"]?.description).toMatch(/Never returned to a user who is not a\s+platform admin/);
+    // The 403 is only the origin refusal now; the history (the old refusal, the lift) lives in the version note.
+    expect(responses["403"]?.description).toContain("origin_rejected");
+    expect(responses["403"]?.description).not.toContain("support_session_required");
+    expect(contextDoc.info?.description).toMatch(/RT-1462 \(1\.3\.0-draft/);
+    expect(contextDoc.info?.description).toContain("support_session_required");
+    expect(responses["200"]?.description).toContain("tenant_switched");
   });
 
   it("adds a nullable support_session summary to ContextResponse", () => {

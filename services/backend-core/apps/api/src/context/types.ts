@@ -41,6 +41,13 @@ export interface ResolvedContext {
    * consumers MUST treat that as no store, never as tenant-wide.
    */
   readonly storeAccess?: StoreAccess;
+  /**
+   * RT-1462: the live support session that admitted a platform admin who is NOT a member of the
+   * tenant (RT-414). Set by `TenantContextGuard` only in that case; absent for every other
+   * caller. It is the session `SupportSessionGate` already read, so no new platform-admin
+   * database context is opened to learn it.
+   */
+  readonly supportSession?: { readonly id: string; readonly ticketRef: string | null };
 }
 
 /**

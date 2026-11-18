@@ -17,7 +17,7 @@
 import type { ExecutionContext, ForbiddenException } from "@nestjs/common";
 import type { Pool } from "pg";
 
-import { coveredTarget, readOnlyExemptFor, routeTemplate } from "./support-session.coverage";
+import { coveredTarget, isPlatformDirect, readOnlyExemptFor, routeTemplate } from "./support-session.coverage";
 import { SupportSessionGate, type GateRequest } from "./support-session.gate";
 import { withSupportSessionCtx } from "./support-session.lifecycle";
 
@@ -56,6 +56,8 @@ export async function auditSupportSessionOriginRefusal(
     return gate.refuseUnresolvable(request).catch((error_: ForbiddenException) => error_);
   }
   if (await gate.isMember({ userId: input.userId, tenantId })) return null;
+  // RT-1462: a direct route is not refused by the support session, so its row says `origin_rejected`.
+  if (isPlatformDirect(input.execCtx)) return gate.recordDirectOriginRefusal(tenantId, request);
   return gate.recordOriginRefusal(tenantId, request);
 }
 

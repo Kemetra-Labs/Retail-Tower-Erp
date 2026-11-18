@@ -2,8 +2,9 @@
  * RT-414 — enter a tenant as a NON-member platform admin in a test.
  *
  * Since RT-414 a platform admin who is not a member of a tenant reaches its
- * tenant-scoped routes only through an active support session, and
- * `POST /context/tenant` refuses them (403 `support_session_required`).
+ * tenant-scoped routes only through an active support session (RT-1462 lifts
+ * that for the six Console force-action routes only). `POST /context/tenant`
+ * admits them since RT-1462 but opens no covered route by itself.
  * Specs that exercise platform-admin behavior inside a tenant (RT-142,
  * RT-669 D-a, store scope, …) call this instead of switching tenant: it does
  * what `openSupportSession` does, directly in SQL, so a spec need not mount
