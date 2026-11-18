@@ -386,7 +386,6 @@
     "apps/api/src/console-force-actions/console-force-actions.service.ts -> apps/api/src/console-action-cap/force-action-cap.ts": 1,
     "apps/api/src/console-force-actions/force-action-access.guard.ts -> apps/api/src/context/membership.repository.ts": 1,
     "apps/api/src/console-force-actions/force-action-access.guard.ts -> apps/api/src/context/types.ts": 1,
-    "apps/api/src/console-force-actions/force-action-access.guard.ts -> apps/api/src/platform-support-sessions/support-session.gate.ts": 1,
     "apps/api/src/console-people/console-people.controller.ts -> apps/api/src/audit/auditable.decorator.ts": 1,
     "apps/api/src/console-people/console-people.controller.ts -> apps/api/src/auth/roles.decorator.ts": 1,
     "apps/api/src/console-people/console-people.controller.ts -> apps/api/src/auth/roles.guard.ts": 1,

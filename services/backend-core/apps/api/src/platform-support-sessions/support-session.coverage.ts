@@ -32,6 +32,32 @@ export type CoveredTarget =
 
 const TENANT_CONTEXT_GUARD = "TenantContextGuard";
 
+/**
+ * RT-1462 (owner decision 2026-11-18): the Console force actions are open to a platform admin who is NOT a
+ * member of the tenant WITHOUT a support session. `TenantContextGuard` still resolves the session's active
+ * tenant and still writes one `platform.cross_tenant.accessed` row per request (naming the live support
+ * session when there is one, null otherwise); only the "a session is required" refusal is lifted, and only
+ * for exactly these handlers. Every other covered route keeps requiring one. Keyed `Controller.handler`, as
+ * the maps above are; a spec pins that every key names a real handler.
+ */
+export const PLATFORM_DIRECT_HANDLERS: ReadonlySet<string> = new Set([
+  "ConsoleForceActionsController.listOpenShifts",
+  "ConsoleForceActionsController.getForceClosePreview",
+  "ConsoleForceActionsController.forceCloseShift",
+  "StoreDeletionController.preview",
+  "StoreDeletionController.delete",
+  "StoreDeletionController.reauthenticate",
+]);
+
+/** Whether the route is one a platform admin may use without a support session (RT-1462). */
+export function isPlatformDirect(execCtx: ExecutionContext): boolean {
+  try {
+    return PLATFORM_DIRECT_HANDLERS.has(handlerKey(execCtx));
+  } catch {
+    return false; // no controller metadata (a stub context): fail closed, the session is required
+  }
+}
+
 const ACTIVE_TENANT_HANDLERS: ReadonlyMap<string, CoveredTarget> = new Map([
   // Navigation inside the tenant, not a tenant write: admitted on a suspended tenant.
   ["ContextController.switchStore", { kind: "active-tenant", readOnlyExempt: true }],

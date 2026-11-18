@@ -24,6 +24,8 @@ function session(overrides: Partial<OperatorSessionRecord> = {}): OperatorSessio
     backend_session_id: 'be-1',
     started_at: '2026-06-14T00:00:00.000Z',
     last_activity_at: '2026-06-14T00:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
     ...overrides,
   };
 }

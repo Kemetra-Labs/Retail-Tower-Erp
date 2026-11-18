@@ -549,8 +549,11 @@ describe.each(INACTIVE_STATES.filter((s) => s.label !== "soft-deleted"))(
       if (skip()) return;
       await setTenant(state);
       const admin = (await signIn(ADMIN)).cookie;
-      // RT-414: a non-member platform admin enters only through a support session.
-      await switchTenant(admin, SUBJECT).expect(403);
+      // RT-1462: selecting the tenant is admitted for a non-member platform admin (the Console force actions
+      // need it), but it opens nothing else: a covered route still needs a support session (RT-414).
+      await switchTenant(admin, SUBJECT).expect(200);
+      const noSession = await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(403);
+      expect(noSession.body.error.code).toBe("support_session_required");
       await enterTenantAsPlatformAdmin(E().admin, ADMIN, SUBJECT);
       await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(200);
       await asSession(http().get(`/api/v1/tenants/${SUBJECT}`), admin, randomUUID()).expect(200);

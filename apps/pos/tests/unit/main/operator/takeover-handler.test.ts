@@ -34,6 +34,7 @@ function makePairedStore(terminal_id = 'term-1'): PairingStore {
     ),
     persist: vi.fn(() => Promise.resolve()),
     clear: vi.fn(() => Promise.resolve()),
+    getCurrentTerminalId: vi.fn(() => terminal_id),
   };
 }
 
@@ -51,6 +52,8 @@ function makeSessionManager(): SessionManager {
         backend_session_id: input.backend_session_id,
         started_at: input.started_at ?? new Date().toISOString(),
         last_activity_at: new Date().toISOString(),
+        lock_state: 'active' as const,
+        locked_at: null,
       };
       current = record;
       return record;
@@ -103,6 +106,11 @@ function makeJwtHolder(): JwtHolder {
     set: vi.fn((id: string, jwt: string) => store.set(id, jwt)),
     get: vi.fn((id: string) => store.get(id) ?? null),
     clear: vi.fn((id: string) => store.delete(id)),
+    clearAll: vi.fn(() => {
+      store.clear();
+    }),
+    hasFreshMark: vi.fn(() => false),
+    consumeMark: vi.fn(() => false),
   };
 }
 

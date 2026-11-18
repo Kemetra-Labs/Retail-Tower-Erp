@@ -24,8 +24,7 @@ import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../../../src/audit/audit-job.enqueuer";
-import { PG_POOL } from "../../../../src/database";
-import { AUTH_LOOKUP_POOL } from "../../../../src/database";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/database";
 import { AuthTokenRepository } from "../../../../src/auth/auth-token.repository";
 import { DashboardAuthGuard } from "../../../../src/auth/dashboard-auth.guard";
 import { SessionRepository } from "../../../../src/auth/session.repository";

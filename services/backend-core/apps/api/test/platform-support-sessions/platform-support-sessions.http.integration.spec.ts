@@ -389,10 +389,11 @@ describe("RT-414 support sessions — callers", () => {
 // Enforcement, audit and lifecycle
 // ---------------------------------------------------------------------------
 describe("RT-414 support sessions — enforcement and audit", () => {
-  it("refuses switchActiveTenant for a non-member platform admin (403 support_session_required)", async () => {
+  it("switchActiveTenant admits a non-member platform admin (RT-1462), and every covered route still refuses without a session", async () => {
     if (dockerSkipped) return;
     const admin = await signIn(ADMIN);
-    const res = await post("/api/v1/context/tenant", admin).send({ tenant_id: ACME }).expect(403);
+    await post("/api/v1/context/tenant", admin).send({ tenant_id: ACME }).expect(200);
+    const res = await get("/api/v1/stores", admin).expect(403);
     expect(errorCode(res)).toBe("support_session_required");
   });
 

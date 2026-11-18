@@ -376,14 +376,11 @@ describe("ContextService.switchTenant", () => {
     expect(memberships.findActiveMembershipCalls).toHaveLength(0);
   });
 
-  it("refuses a NON-member platform admin with 403 support_session_required (RT-414)", async () => {
+  it("admits a NON-member platform admin without a support session (RT-1462: the force actions need none)", async () => {
     memberships.isPlatformAdminResult = true;
     memberships.hasLiveMembershipResult = false;
-    await expect(service.switchTenant(SESSION_PRINCIPAL, TENANT_ID)).rejects.toMatchObject({
-      status: 403,
-      response: { code: "support_session_required" },
-    });
-    expect(sessions.updates).toHaveLength(0);
+    await service.switchTenant(SESSION_PRINCIPAL, TENANT_ID);
+    expect(sessions.updates).toHaveLength(1);
   });
 
   it("throws 404 when the platform admin requests a non-existent tenant", async () => {
