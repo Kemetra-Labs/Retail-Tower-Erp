@@ -13,7 +13,15 @@ export function OpenShiftsLink({
 }: Readonly<{ storeId: string }>): React.JSX.Element | null {
   const t = useT();
   const { context } = useActiveContextValue();
-  if (!canForceClose(context?.active_role_code, Boolean(context?.support_session))) return null;
+  if (
+    !canForceClose(
+      context?.active_role_code,
+      Boolean(context?.support_session),
+      context?.user?.is_platform_admin === true,
+    )
+  ) {
+    return null;
+  }
   return (
     <p className="store-panel-row">
       <Link to={`/stores/${storeId}/open-shifts`} className="store-panel-link">

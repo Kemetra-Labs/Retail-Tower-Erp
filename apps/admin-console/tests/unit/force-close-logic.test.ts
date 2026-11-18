@@ -13,9 +13,9 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("canForceClose", () => {
-  it("is offered to owner and tenant_admin", () => {
-    expect(canForceClose("owner", false)).toBe(true);
-    expect(canForceClose("tenant_admin", false)).toBe(true);
+  it("is offered to owner and tenant_admin who are not platform admins", () => {
+    expect(canForceClose("owner", false, false)).toBe(true);
+    expect(canForceClose("tenant_admin", false, false)).toBe(true);
   });
 
   it("is hidden from every other role, an unknown role and no role at all", () => {
@@ -29,13 +29,35 @@ describe("canForceClose", () => {
       undefined,
       null,
     ]) {
-      expect(canForceClose(role, false)).toBe(false);
+      expect(canForceClose(role, false, false)).toBe(false);
     }
   });
 
-  it("is hidden inside a support session, whatever the role (read-only by construction)", () => {
-    expect(canForceClose("owner", true)).toBe(false);
-    expect(canForceClose("tenant_admin", true)).toBe(false);
+  it("is hidden inside a support session for a caller who is not a platform admin", () => {
+    expect(canForceClose("owner", true, false)).toBe(false);
+    expect(canForceClose("tenant_admin", true, false)).toBe(false);
+  });
+
+  // RT-1462 (owner decision 2026-11-18): the server admits a platform admin whatever their role in
+  // the tenant, with or without a support session, so the control follows.
+  it("is offered to a platform admin whatever the membership role, or none", () => {
+    for (const role of [
+      "owner",
+      "tenant_admin",
+      "store_manager",
+      "store_staff",
+      "",
+      "x",
+      undefined,
+      null,
+    ]) {
+      expect(canForceClose(role, false, true)).toBe(true);
+    }
+  });
+
+  it("is offered to a platform admin inside a support session too", () => {
+    expect(canForceClose(null, true, true)).toBe(true);
+    expect(canForceClose("owner", true, true)).toBe(true);
   });
 });
 

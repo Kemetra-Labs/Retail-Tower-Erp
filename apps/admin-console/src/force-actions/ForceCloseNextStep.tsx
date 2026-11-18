@@ -27,7 +27,15 @@ export function ForceCloseNextStep({
   const t = useT();
   const { context } = useActiveContextValue();
   const inSupportSession = Boolean(context?.support_session);
-  if (!canForceClose(context?.active_role_code, inSupportSession)) return null;
+  if (
+    !canForceClose(
+      context?.active_role_code,
+      inSupportSession,
+      context?.user?.is_platform_admin === true,
+    )
+  ) {
+    return null;
+  }
   return (
     <p>
       <Link className="btn-secondary" to={`/stores/${storeId}/open-shifts`}>
