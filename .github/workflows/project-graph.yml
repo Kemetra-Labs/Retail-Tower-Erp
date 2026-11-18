@@ -74,7 +74,7 @@ jobs:
         run: python .github/scripts/shared_deps.py check --repo "$GITHUB_WORKSPACE" --mode report
 
       # RT-1460 (audit A-19): stop binaries (design captures) from growing the clone. Fails a change
-      # that adds or grows a binary over 500 KB outside LFS or the shrink-only grandfather list
+      # that adds or grows a binary over 500 KiB outside LFS or the shrink-only grandfather list
       # (tools/size-guard/config.json), or adds or grows more than 2 MiB of binaries at once. Never
       # deletes anything. Going-forward rule: apps/pos/docs/design/README.md.
       - name: Size guard logic tests

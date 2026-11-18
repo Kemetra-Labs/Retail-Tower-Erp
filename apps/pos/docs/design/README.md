@@ -27,7 +27,7 @@ pointer files. No `.gitattributes` LFS rule exists, so no CI checkout needs `lfs
 (`.github/workflows/project-graph.yml`). It fails a pull request that:
 
 1. leaves a binary (png, jpg, jpeg, gif, webp, avif, mp4, mov, webm, zip, gz, tgz, 7z, pdf) larger
-   than 500 KB in the tree unless it is in the grandfather list, or lets a grandfathered file grow;
+   than 500 KiB (512,000 bytes) in the tree unless it is in the grandfather list, or lets a grandfathered file grow;
 2. adds or grows more than 2 MiB of binaries in one change (the design folder is made of files
    under 100 KB, so a per-file limit alone would not have stopped it);
 3. adds or raises a grandfather entry, or raises either limit.
