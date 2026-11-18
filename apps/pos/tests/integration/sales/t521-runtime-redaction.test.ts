@@ -261,7 +261,7 @@ function makePrintDispatcher(
   });
 }
 
-type PrintDispatcherLoggerArg = Parameters<typeof createPrintDispatcher>[0]['logger'];
+type PrintDispatcherLoggerArg = NonNullable<Parameters<typeof createPrintDispatcher>[0]['logger']>;
 
 describe('T521 — runtime redaction tripwire (real dispatchers, real pino, console spy)', () => {
   const consoleCalls: unknown[][] = [];

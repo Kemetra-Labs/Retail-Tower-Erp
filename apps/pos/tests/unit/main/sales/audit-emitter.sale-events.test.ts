@@ -44,7 +44,7 @@ describe('T093 — sale.finalized event', () => {
   it('emits sale.finalized with the canonical payload shape', () => {
     const captured: Array<Record<string, unknown>> = [];
     const emitter = createSaleAuditEmitter({
-      sink: { write: (e) => captured.push(e) },
+      sink: { write: (e) => captured.push({ ...e }) },
     });
     emitter.emitSaleFinalized({
       ...fixedBase,
@@ -78,7 +78,7 @@ describe('T093 — sale.finalized event', () => {
   it('substitutes external_reference with ***** for card tender lines', () => {
     const captured: Array<Record<string, unknown>> = [];
     const emitter = createSaleAuditEmitter({
-      sink: { write: (e) => captured.push(e) },
+      sink: { write: (e) => captured.push({ ...e }) },
     });
     emitter.emitSaleFinalized({
       ...fixedBase,
@@ -108,7 +108,7 @@ describe('T093 — sale.finalized event', () => {
   it('omits external_reference key entirely for cash tender lines', () => {
     const captured: Array<Record<string, unknown>> = [];
     const emitter = createSaleAuditEmitter({
-      sink: { write: (e) => captured.push(e) },
+      sink: { write: (e) => captured.push({ ...e }) },
     });
     emitter.emitSaleFinalized({
       ...fixedBase,
@@ -133,7 +133,7 @@ describe('T093 — sale.finalization_refused event', () => {
   it('emits sale.finalization_refused with a closed-set refusal_reason', () => {
     const captured: Array<Record<string, unknown>> = [];
     const emitter = createSaleAuditEmitter({
-      sink: { write: (e) => captured.push(e) },
+      sink: { write: (e) => captured.push({ ...e }) },
     });
     emitter.emitSaleFinalizationRefused({
       ...fixedBase,
@@ -152,7 +152,7 @@ describe('T093 — sale.finalization_refused event', () => {
   it('accepts all canonical refusal_reason values', () => {
     const captured: Array<Record<string, unknown>> = [];
     const emitter = createSaleAuditEmitter({
-      sink: { write: (e) => captured.push(e) },
+      sink: { write: (e) => captured.push({ ...e }) },
     });
     // Derive from the canonical tuple so a future extension to
     // SALE_FINALIZATION_REFUSAL_REASONS is automatically covered (per Nit2

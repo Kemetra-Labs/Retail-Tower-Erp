@@ -23,6 +23,8 @@ import { bindSalesRepository } from '../../../../src/main/sales/repositories/sal
 import { bindPrintEventsRepository } from '../../../../src/main/sales/repositories/print-events.repository.js';
 import { bindDrawerEventsRepository } from '../../../../src/main/sales/repositories/drawer-events.repository.js';
 import { makeSqlJsHandle } from '../cart/__helpers__/sql-js-handle.js';
+import type { SalesFindByNumberRequest } from '../../../../src/shared/bridge-api.js';
+import type { SaleNumber } from '../../../../src/shared/sales/types.js';
 
 const __dirnameForFile = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirnameForFile, '..', '..', '..', '..');
@@ -97,7 +99,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
   it('finds the sale when tenant/branch/terminal match', async () => {
     seedSale();
     const bridge = buildBridge();
-    const result = await bridge.findByNumber({ sale_number: 'TERM-01-2026-05-28-000001' });
+    const result = await bridge.findByNumber({
+      sale_number: 'TERM-01-2026-05-28-000001' as SaleNumber,
+    });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(result.sale.sale_id).toBe('sale-1');
@@ -106,7 +110,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
   it('refuses with sale_not_found on cross-tenant miss (no information leak)', async () => {
     seedSale({ tenant_id: 'tenant-OTHER' });
     const bridge = buildBridge();
-    const result = await bridge.findByNumber({ sale_number: 'TERM-01-2026-05-28-000001' });
+    const result = await bridge.findByNumber({
+      sale_number: 'TERM-01-2026-05-28-000001' as SaleNumber,
+    });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     // Critical: NOT tenant_isolation — that would leak existence.
@@ -116,7 +122,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
   it('refuses with sale_not_found on cross-branch miss within same tenant', async () => {
     seedSale({ branch_id: 'branch-OTHER' });
     const bridge = buildBridge();
-    const result = await bridge.findByNumber({ sale_number: 'TERM-01-2026-05-28-000001' });
+    const result = await bridge.findByNumber({
+      sale_number: 'TERM-01-2026-05-28-000001' as SaleNumber,
+    });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('sale_not_found');
@@ -125,7 +133,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
   it('refuses with sale_not_found on cross-terminal miss within same branch', async () => {
     seedSale({ terminal_id: 'terminal-OTHER' });
     const bridge = buildBridge();
-    const result = await bridge.findByNumber({ sale_number: 'TERM-01-2026-05-28-000001' });
+    const result = await bridge.findByNumber({
+      sale_number: 'TERM-01-2026-05-28-000001' as SaleNumber,
+    });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('sale_not_found');
@@ -133,7 +143,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
 
   it('refuses with sale_not_found when sale_number does not exist anywhere', async () => {
     const bridge = buildBridge();
-    const result = await bridge.findByNumber({ sale_number: 'TERM-99-9999-99-99-999999' });
+    const result = await bridge.findByNumber({
+      sale_number: 'TERM-99-9999-99-99-999999' as SaleNumber,
+    });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('sale_not_found');
@@ -142,7 +154,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
   it('refuses with no_session when no active session', async () => {
     seedSale();
     const bridge = buildBridge(null);
-    const result = await bridge.findByNumber({ sale_number: 'TERM-01-2026-05-28-000001' });
+    const result = await bridge.findByNumber({
+      sale_number: 'TERM-01-2026-05-28-000001' as SaleNumber,
+    });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('no_session');
@@ -152,9 +166,9 @@ describe('T071 — sales.findByNumber: tenant-isolated lookup', () => {
     seedSale();
     const bridge = buildBridge();
     const result = await bridge.findByNumber({
-      sale_number: 'TERM-01-2026-05-28-000001',
+      sale_number: 'TERM-01-2026-05-28-000001' as SaleNumber,
       pan: 'TEST_PAN_TOKEN_NOT_A_REAL_CARD',
-    } as unknown as { sale_number: string });
+    } as unknown as SalesFindByNumberRequest);
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('forbidden_field_in_request');

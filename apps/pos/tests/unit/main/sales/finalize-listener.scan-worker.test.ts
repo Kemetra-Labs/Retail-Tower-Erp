@@ -315,6 +315,8 @@ describe('T052 — AD-2 v3 scan worker: tickIntervalMs validation', () => {
     expect(() =>
       createFinalizeListener({
         db: makeSqlJsHandle(db),
+        tenant_id: 'tenant-1',
+        branch_id: 'branch-1',
         terminal_id: 'terminal-1',
         dispatch: () => {},
         tickIntervalMs: 200,
@@ -327,6 +329,8 @@ describe('T052 — AD-2 v3 scan worker: tickIntervalMs validation', () => {
     expect(() =>
       createFinalizeListener({
         db: makeSqlJsHandle(db),
+        tenant_id: 'tenant-1',
+        branch_id: 'branch-1',
         terminal_id: 'terminal-1',
         dispatch: () => {},
         tickIntervalMs: 100,
@@ -339,6 +343,8 @@ describe('T052 — AD-2 v3 scan worker: tickIntervalMs validation', () => {
     expect(() =>
       createFinalizeListener({
         db: makeSqlJsHandle(db),
+        tenant_id: 'tenant-1',
+        branch_id: 'branch-1',
         terminal_id: 'terminal-1',
         dispatch: () => {},
         tickIntervalMs: 1000,
@@ -351,6 +357,8 @@ describe('T052 — AD-2 v3 scan worker: tickIntervalMs validation', () => {
     expect(() =>
       createFinalizeListener({
         db: makeSqlJsHandle(db),
+        tenant_id: 'tenant-1',
+        branch_id: 'branch-1',
         terminal_id: 'terminal-1',
         dispatch: () => {},
         tickIntervalMs: 50,
@@ -363,6 +371,8 @@ describe('T052 — AD-2 v3 scan worker: tickIntervalMs validation', () => {
     expect(() =>
       createFinalizeListener({
         db: makeSqlJsHandle(db),
+        tenant_id: 'tenant-1',
+        branch_id: 'branch-1',
         terminal_id: 'terminal-1',
         dispatch: () => {},
         tickIntervalMs: 5000,
