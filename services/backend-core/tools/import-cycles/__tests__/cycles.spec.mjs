@@ -43,6 +43,21 @@ test("runtimeSpecifiers: runtime imports count, type-only ones do not", () => {
   );
 });
 
+test("runtimeSpecifiers(includeTypeOnly): type-only and type-position imports are returned too (RT-1453)", () => {
+  const src = `
+    import type { T } from "./type-only";
+    import { type X } from "./all-type-specifiers";
+    export type { F } from "./type-reexport";
+    export type Y = import("./type-position").Y;
+    import { v } from "./value";
+  `;
+  assert.deepEqual(runtimeSpecifiers(src), ["./value"]);
+  assert.deepEqual(
+    runtimeSpecifiers(src, "x.ts", true).sort(),
+    ["./all-type-specifiers", "./type-only", "./type-position", "./type-reexport", "./value"].sort(),
+  );
+});
+
 test("resolveRelative: file, index, .js suffix; bare and unknown specifiers are not followed", () => {
   const set = new Set([`${A}/a/x.ts`, `${A}/b/index.ts`, `${A}/c.ts`]);
   assert.equal(resolveRelative(`${A}/a/y.ts`, "./x", set), `${A}/a/x.ts`);
