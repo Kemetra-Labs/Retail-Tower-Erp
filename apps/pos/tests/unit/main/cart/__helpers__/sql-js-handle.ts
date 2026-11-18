@@ -70,7 +70,7 @@ export function makeSqlJsHandle(db: SqlJsDatabase): DatabaseHandle {
         db.run(nested ? `SAVEPOINT ${savepoint}` : 'BEGIN');
         depth += 1;
         try {
-          const result = (fn as (...a: unknown[]) => unknown)(...args);
+          const result = (fn as unknown as (...a: unknown[]) => unknown)(...args);
           depth -= 1;
           db.run(nested ? `RELEASE ${savepoint}` : 'COMMIT');
           return result;

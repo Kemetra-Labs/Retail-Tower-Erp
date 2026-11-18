@@ -55,10 +55,24 @@ function withRetryAfter<P>(status: number, data: P | undefined, error: unknown, 
 
 // --- Item mappings ---------------------------------------------------------------
 
-/** GET /api/v1/catalog/erpnext-item-mappings[?state=]. */
-export async function tenantAdminListErpnextItemMappings(state?: ItemMappingState) {
+/** One page of the item list: the opaque `nextCursor` of the previous page, and the page size. */
+export interface ItemMappingPage {
+  cursor?: string;
+  limit?: number;
+}
+
+/** GET /api/v1/catalog/erpnext-item-mappings[?state=&cursor=&limit=] (RT-1458 keyset paging). */
+export async function tenantAdminListErpnextItemMappings(
+  state?: ItemMappingState,
+  page?: ItemMappingPage,
+) {
+  const query = {
+    ...(state ? { state } : {}),
+    ...(page?.cursor ? { cursor: page.cursor } : {}),
+    ...(page?.limit ? { limit: page.limit } : {}),
+  };
   const { data, error, response } = await apiClient.GET("/api/v1/catalog/erpnext-item-mappings", {
-    params: { query: state ? { state } : {} },
+    params: { query },
   });
   return withRetryAfter(response.status, data, error, response);
 }

@@ -12,7 +12,11 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { createReceiptsBridge } from '../../../../src/main/receipts/receipts-bridge.js';
+import {
+  createReceiptsBridge,
+  type ReceiptsBridgeDependencies,
+} from '../../../../src/main/receipts/receipts-bridge.js';
+import type { SaleId } from '../../../../src/shared/sales/types.js';
 import type { SaleRow } from '../../../../src/main/sales/repositories/sales.repository.js';
 import type { OperatorSessionForSales } from '../../../../src/main/sales/sales-bridge.js';
 
@@ -72,17 +76,19 @@ const SESSION: OperatorSessionForSales = {
 function makeBridge(opts: { session?: OperatorSessionForSales | null; row?: SaleRow | null }) {
   const readById = vi.fn((): SaleRow | null => opts.row ?? null);
   const insert = vi.fn();
+  // preview() only touches the session and the sales repo; the print-side
+  // deps are never reached, so they are left out of this partial mock.
   const bridge = createReceiptsBridge({
     getCurrentSession: () => (opts.session === undefined ? SESSION : opts.session),
     salesRepo: { readById, insert },
-  });
+  } as unknown as ReceiptsBridgeDependencies);
   return { bridge, readById, insert };
 }
 
 describe('T140 — receipts.preview happy path', () => {
   it('returns the HTML preview + layout metadata for a sale in scope', async () => {
     const { bridge } = makeBridge({ row: saleRow() });
-    const res = await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    const res = await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     expect(res.kind).toBe('ok');
     if (res.kind !== 'ok') return;
     expect(res.preview.html).toContain('Paracetamol 500mg');
@@ -93,19 +99,19 @@ describe('T140 — receipts.preview happy path', () => {
 
   it('refuses with no_session when there is no active session', async () => {
     const { bridge } = makeBridge({ session: null, row: saleRow() });
-    const res = await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    const res = await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     expect(res).toEqual({ kind: 'refused', reason: 'no_session' });
   });
 
   it('refuses with sale_not_found when the sale does not exist', async () => {
     const { bridge } = makeBridge({ row: null });
-    const res = await bridge.preview({ sale_id: 'missing', idempotency_key: 'idem-1' });
+    const res = await bridge.preview({ sale_id: 'missing' as SaleId, idempotency_key: 'idem-1' });
     expect(res).toEqual({ kind: 'refused', reason: 'sale_not_found' });
   });
 
   it('refuses with sale_not_found on a cross-tenant sale (no information leak)', async () => {
     const { bridge } = makeBridge({ row: saleRow({ tenant_id: 'other-tenant' }) });
-    const res = await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    const res = await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     expect(res).toEqual({ kind: 'refused', reason: 'sale_not_found' });
   });
 
@@ -113,7 +119,7 @@ describe('T140 — receipts.preview happy path', () => {
     // For S2 preview, the variant is first_print by default; this asserts the
     // preview renders without a marker on a never-printed sale.
     const { bridge } = makeBridge({ row: saleRow() });
-    const res = await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    const res = await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     if (res.kind !== 'ok') throw new Error('expected ok');
     expect(res.preview.html).not.toContain('DUPLICATE COPY');
   });
@@ -122,7 +128,7 @@ describe('T140 — receipts.preview happy path', () => {
 describe('receipts.preview — corrupt persisted row degrades to a refusal', () => {
   it('refuses sale_not_found (not an unstructured throw) on malformed lines_json', async () => {
     const { bridge } = makeBridge({ row: saleRow({ lines_json: '{not json' }) });
-    const res = await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    const res = await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     expect(res).toEqual({ kind: 'refused', reason: 'sale_not_found' });
   });
 });
@@ -130,13 +136,13 @@ describe('receipts.preview — corrupt persisted row degrades to a refusal', () 
 describe('T141 — receipts.preview has no side effects', () => {
   it('never calls salesRepo.insert (no Sale mutation)', async () => {
     const { bridge, insert } = makeBridge({ row: saleRow() });
-    await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     expect(insert).not.toHaveBeenCalled();
   });
 
   it('only reads the sale (single readById, no writes)', async () => {
     const { bridge, readById } = makeBridge({ row: saleRow() });
-    await bridge.preview({ sale_id: 'sale-1', idempotency_key: 'idem-1' });
+    await bridge.preview({ sale_id: 'sale-1' as SaleId, idempotency_key: 'idem-1' });
     expect(readById).toHaveBeenCalledTimes(1);
   });
 });
@@ -145,7 +151,7 @@ describe('T142 — receipts.preview forbidden-field guard', () => {
   it('refuses a request carrying a top-level forbidden key', async () => {
     const { bridge, readById } = makeBridge({ row: saleRow() });
     const res = await bridge.preview({
-      sale_id: 'sale-1',
+      sale_id: 'sale-1' as SaleId,
       idempotency_key: 'idem-1',
       // @ts-expect-error — forbidden key not on the request type.
       pan: '4111111111111111',
@@ -157,7 +163,7 @@ describe('T142 — receipts.preview forbidden-field guard', () => {
   it('refuses a key from the shared 004 forbidden list (e.g. pin)', async () => {
     const { bridge } = makeBridge({ row: saleRow() });
     const res = await bridge.preview({
-      sale_id: 'sale-1',
+      sale_id: 'sale-1' as SaleId,
       idempotency_key: 'idem-1',
       // @ts-expect-error — `pin` is in the shared FORBIDDEN_PAYLOAD_KEYS list.
       pin: '1234',
@@ -168,7 +174,7 @@ describe('T142 — receipts.preview forbidden-field guard', () => {
   it('refuses a forbidden key nested inside an object/array (deep scan)', async () => {
     const { bridge } = makeBridge({ row: saleRow() });
     const res = await bridge.preview({
-      sale_id: 'sale-1',
+      sale_id: 'sale-1' as SaleId,
       idempotency_key: 'idem-1',
       // @ts-expect-error — forbidden key nested under an array of objects.
       meta: [{ ok: 1 }, { nested: { voucher_code: 'leak' } }],
@@ -188,7 +194,7 @@ describe('T142 — receipts.preview forbidden-field guard', () => {
   it('allows a clean request with extra non-forbidden keys', async () => {
     const { bridge } = makeBridge({ row: saleRow() });
     const res = await bridge.preview({
-      sale_id: 'sale-1',
+      sale_id: 'sale-1' as SaleId,
       idempotency_key: 'idem-1',
       // @ts-expect-error — harmless extra key; scan walks it and finds nothing.
       ui_hint: { zoom: 1 },

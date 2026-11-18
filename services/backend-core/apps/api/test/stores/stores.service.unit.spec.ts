@@ -589,7 +589,7 @@ describe("StoresService.softDelete", () => {
       counts: { openShifts: base.openShifts.length, totalDevices: 0, unretiredDevices: 0, unsyncedDevices: 0, openCountSessions: base.openCountSessions.length },
     };
   };
-  const liveStore = { id: STORE_ID, code: "BR-01", name: "Branch 01", isActive: true } as StoreRecord;
+  const liveStore = { id: STORE_ID, tenantId: "0e170000-0000-4000-8000-0000000a0001", code: "BR-01", name: "Branch 01", isActive: true } as StoreRecord;
 
   it("SD1: the store row cannot be locked (invisible or already deleted) → NotFoundException; nothing is deleted", async () => {
     const { service, storesRepo } = buildService();
@@ -625,6 +625,8 @@ describe("StoresService.softDelete", () => {
     expect(mockFacts.mock.invocationCallOrder[0]!).toBeLessThan(
       (deleteStoreWithAudit as jest.Mock).mock.invocationCallOrder[0]!,
     );
+    // RT-1453: the facts are read for the store's own tenant (the pos-shifts port scopes by it).
+    expect(mockFacts).toHaveBeenCalledWith(fakeClient, expect.anything(), liveStore.tenantId);
   });
 
   it("SD3: a guard holds → 409 with the first blocker as the code and every blocker in details; nothing is deleted", async () => {

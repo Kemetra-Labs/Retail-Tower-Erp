@@ -21,6 +21,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { StoreDeletionDialog } from "./StoreDeletionDialog";
 import { canDeleteStore } from "./storeDeletionLogic";
+import { isDefiniteRefusal } from "./storeDeletionOutcomes";
 import "./store-deletion.css";
 
 export interface StoreDangerZoneProps {
@@ -40,19 +41,20 @@ function SuspendOffer({
   const { activeTenantId } = useStoreScope();
   const status = useStoreStatusMutation(activeTenantId, storeId);
   const [confirming, setConfirming] = useState(false);
-  const [failed, setFailed] = useState(false);
+  // "refused": a definite 4xx, nothing changed. "unclear": 5xx, 408, 425 or no answer: the PATCH may be applied.
+  const [failed, setFailed] = useState<"refused" | "unclear" | null>(null);
 
   if (isActive === false) {
     return <p className="store-panel-note">{t("storeDeletion.zone.alreadySuspended")}</p>;
   }
 
   async function suspend(): Promise<void> {
-    setFailed(false);
+    setFailed(null);
     try {
       const res = await status.mutateAsync(false);
-      if (res.status >= 400) setFailed(true);
+      if (res.status >= 400) setFailed(isDefiniteRefusal(res.status) ? "refused" : "unclear");
     } catch {
-      setFailed(true);
+      setFailed("unclear");
     } finally {
       setConfirming(false);
     }
@@ -76,7 +78,16 @@ function SuspendOffer({
           </button>
         </div>
       )}
-      {failed ? <Banner variant="danger" message={t("storeDeletion.zone.suspendFailed")} /> : null}
+      {failed === null ? null : (
+        <Banner
+          variant="danger"
+          message={t(
+            failed === "refused"
+              ? "storeDeletion.zone.suspendFailed"
+              : "storeDeletion.zone.suspendUnclear",
+          )}
+        />
+      )}
     </>
   );
 }

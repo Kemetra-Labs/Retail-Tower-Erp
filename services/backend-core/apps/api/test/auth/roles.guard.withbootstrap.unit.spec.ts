@@ -2,16 +2,16 @@
  * roles.guard.withbootstrap.unit.spec.ts
  *
  * Covers the `withBootstrapCtx` path in RolesGuard when a real `Pool` is
- * injected (the `runWithTenantContext` branch at lines 208-212).
+ * injected (the `runWithSystemPrivilege` branch at lines 208-212).
  *
- * `runWithTenantContext` is mocked so no DB connection is required.
+ * `runWithSystemPrivilege` is mocked so no DB connection is required.
  * The guard is constructed with a fake pool to exercise the non-fallback
  * branch of `withBootstrapCtx`.
  */
 
 // Mock must appear before any import that transitively loads @data-pulse-2/db.
 jest.mock("@data-pulse-2/db", () => ({
-  runWithTenantContext: jest.fn(
+  runWithSystemPrivilege: jest.fn(
     async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
   ),
 }));
@@ -22,7 +22,7 @@ import { ForbiddenException } from "@nestjs/common";
 import type { ExecutionContext } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { Pool } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 
 import { ROLES_METADATA_KEY, Roles } from "../../src/auth/roles.decorator";
 import type { RolesMetadata } from "../../src/auth/roles.decorator";
@@ -54,12 +54,12 @@ function makeCtx(request: Partial<TenantContextRequest>): ExecutionContext {
 describe("RolesGuard — withBootstrapCtx pool path", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (runWithTenantContext as jest.Mock).mockImplementation(
+    (runWithSystemPrivilege as jest.Mock).mockImplementation(
       async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
     );
   });
 
-  it("calls runWithTenantContext when pool is present (covers withBootstrapCtx pool branch)", async () => {
+  it("calls runWithSystemPrivilege when pool is present (covers withBootstrapCtx pool branch)", async () => {
     const fakeReflector = {
       getAllAndOverride: jest.fn().mockReturnValue({
         any: ["owner"],
@@ -97,7 +97,13 @@ describe("RolesGuard — withBootstrapCtx pool path", () => {
 
     const result = await guard.canActivate(makeCtx(request));
     expect(result).toBe(true);
-    expect(runWithTenantContext).toHaveBeenCalledTimes(1);
+    // RT-1457: the narrow privilege, the nil tenant (null), never the platform-admin flag.
+    expect(runWithSystemPrivilege).toHaveBeenCalledWith(
+      fakePool,
+      { tenantId: null, privilege: "membership_bootstrap" },
+      expect.any(Function),
+    );
+    expect(runWithSystemPrivilege).toHaveBeenCalledTimes(1);
     expect(fakeMemberships.findRoleCodeForUserInTenant).toHaveBeenCalledWith(
       USER_ID,
       TENANT_ID,
@@ -105,7 +111,7 @@ describe("RolesGuard — withBootstrapCtx pool path", () => {
     );
   });
 
-  it("runWithTenantContext rejection propagates (DB bootstrap failure)", async () => {
+  it("runWithSystemPrivilege rejection propagates (DB bootstrap failure)", async () => {
     const fakeReflector = {
       getAllAndOverride: jest.fn().mockReturnValue({
         any: ["owner"],
@@ -120,7 +126,7 @@ describe("RolesGuard — withBootstrapCtx pool path", () => {
       findRoleCodeForUserInTenant: jest.fn().mockResolvedValue(null),
     } as unknown as MembershipRepository;
 
-    (runWithTenantContext as jest.Mock).mockRejectedValueOnce(
+    (runWithSystemPrivilege as jest.Mock).mockRejectedValueOnce(
       new ForbiddenException("DB error"),
     );
 
@@ -148,6 +154,6 @@ describe("RolesGuard — withBootstrapCtx pool path", () => {
     await expect(guard.canActivate(makeCtx(request))).rejects.toBeInstanceOf(
       ForbiddenException,
     );
-    expect(runWithTenantContext).toHaveBeenCalledTimes(1);
+    expect(runWithSystemPrivilege).toHaveBeenCalledTimes(1);
   });
 });

@@ -152,7 +152,7 @@ export class StoreDeletionService {
     return await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
       const store = await this.stores.findById(client, storeId);
       if (!store) throw storeNotFound();
-      const facts = await readStoreDeletionFacts(client, factsStoreOf(store));
+      const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId);
       return toPreview(tenantId, facts, evaluateStoreDeletionBlockers(facts), await transactionNow(client));
     });
   }
@@ -171,7 +171,7 @@ export class StoreDeletionService {
       if (!store) throw storeNotFound();
       if (!(await this.grants.peek(input.reauthToken, binding))) throw reauthRequired();
 
-      const facts = await readStoreDeletionFacts(client, factsStoreOf(store));
+      const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId);
       const blockers = evaluateStoreDeletionBlockers(facts);
       if (blockers.length > 0) throw storeDeletionBlocked(blockers);
       if (storeDeletionFingerprint(input.tenantId, facts) !== input.previewFingerprint) throw previewStale();

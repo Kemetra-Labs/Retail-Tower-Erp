@@ -977,6 +977,8 @@ GitHub's public key set, so this adds one outbound call from the api to
 |---|---|---|
 | `POS_PILOT_PROMOTION_OIDC_AUDIENCE` | same | The `aud` the workflow requests for its token. |
 | `POS_PILOT_PROMOTION_OIDC_REPOSITORY` | same | The `repository` claim, `owner/name`. |
+| `POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID` | same | The `repository_id` claim (RT-1459): the immutable numeric id of the repository, digits only. Read it with `gh api repos/<owner>/<name> --jq .id`. |
+| `POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID` | same | The `repository_owner_id` claim (RT-1459): the immutable numeric id of the owning organisation, digits only. Read it with `gh api repos/<owner>/<name> --jq .owner.id`. |
 | `POS_PILOT_PROMOTION_OIDC_ENVIRONMENT` | same | The `environment` claim: the protected approval environment of the promotion job. |
 | `POS_PILOT_PROMOTION_OIDC_REF` | same | The `ref` claim, such as `refs/heads/main`. |
 | `POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF` | same | The `job_workflow_ref` claim, `owner/name/.github/workflows/<file>@<ref>`. |
@@ -986,15 +988,20 @@ GitHub's public key set, so this adds one outbound call from the api to
   (`pilot release promotion writes are off: incomplete` or `invalid`), never a value. A fully blank lane is silent.
 - **What is checked:** a token signed by GitHub (RS256), issued by `https://token.actions.githubusercontent.com`
   for the configured audience, unexpired and at most 15 minutes old. A token that cannot be authenticated is 401.
-  A genuine token whose `repository`, `environment`, `ref` or `job_workflow_ref` differs from the pins is 403, and
+  A genuine token whose `repository`, `repository_id`, `repository_owner_id`, `environment`, `ref` or `job_workflow_ref` differs from the pins (or lacks one of them) is 403, and
   so is a register body that names another run than the token's.
 - **GitHub-side prerequisites:** the pins identify the workflow only together with settings this code cannot
   check: a required reviewer and `main`-only deployment branches on the promotion environment, a protected
   `main`, a `workflow_dispatch`-only trigger, and a run by a plain GitHub user account (the token's `actor` must
   be a login). The runbook lists them and says which hardening the owner may add.
+- **Deploy order (RT-1459):** the two numeric ids are required. Set `POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID` and
+  `POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID` in the host env file **before or together with** the deploy of
+  the api that reads them. A host that still has only the five pre-RT-1459 pins comes up healthy with the lane off
+  (`incomplete`), so register and withdraw answer 401 until the ids are set. The repository name alone no longer
+  suffices: a token from a renamed-and-reused repository carries the same names but another id.
 - **Who may activate:** a platform admin on the Console session, with a trusted `Origin`. The workflow cannot.
 - **Setup and the three steps:** `docs/operations/pos-pilot-release-bucket.md` section 7. The real environment
-  and workflow names are fixed by the promotion workflow slice; until then leave the five values blank.
+  and workflow names are fixed by the promotion workflow slice; until then leave the seven values blank.
 
 ### `PUBLIC_AUTH_RATE_LIMIT_KEY_SECRET` (RT-1043, RT-625 D4)
 
