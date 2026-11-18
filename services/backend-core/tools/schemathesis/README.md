@@ -48,8 +48,9 @@ the raw envelope to `$FUZZ_OUT/envelope-operator`.
 
 Phase 1 is **non-gating**: findings go to the job summary and
 `operator-5xx-baseline.json` (empty), and never fail the step; a run that could
-not execute still fails it. Promote it to a gate by making the step required
-once it has been green for a while. Run it locally with
+not execute still fails it. It runs nightly as its own job in
+`.github/workflows/api-fuzz-nightly.yml`, not on pull requests (RT-1467, D5).
+Promote it to a gate by making the step required once it has been green for a while. Run it locally with
 `bash tools/schemathesis/run.sh operator` after `stack-up.sh`.
 
 Operator mode passes `--suppress-health-check=filter_too_much` (RT-1387): the refund-tender
