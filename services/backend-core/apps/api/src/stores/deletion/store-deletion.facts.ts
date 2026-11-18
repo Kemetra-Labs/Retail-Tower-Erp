@@ -22,7 +22,7 @@ import type { PoolClient } from "pg";
 
 import { canonicalJson } from "../../idempotency/canonical-json";
 import { OPEN_COUNT_SESSION_STATES } from "../../inventory/count-sessions/count-sessions-setting.service";
-import { countStoreOpenShifts, readStoreOpenShifts } from "../../pos-shifts";
+import { countStoreOpenShifts, listStoreOpenShifts, readStoreOpenShifts } from "../../pos-shifts";
 
 export const STORE_HAS_OPEN_SHIFT = "store_has_open_shift";
 export const STORE_HAS_UNRETIRED_DEVICE = "store_has_unretired_device";
@@ -79,7 +79,8 @@ export interface StoreDeletionFacts {
     readonly shiftId: string;
     readonly openedAt: Date;
     readonly terminalLabel: string | null;
-    readonly forceCloseEligible: boolean;
+    /** Null when the facts were read without eligibility (`withEligibility: false`, the write paths). */
+    readonly forceCloseEligible: boolean | null;
   }>;
   readonly devices: ReadonlyArray<{
     readonly deviceId: string;
@@ -163,11 +164,22 @@ function queueOf(row: DeviceRow): StoreDeletionQueue | null {
   return { pending: row.pending, deadLetter: row.dead_letter, held: row.held };
 }
 
+export interface ReadStoreDeletionFactsOptions {
+  /**
+   * Judge each open shift's force-close eligibility (one stuck-verdict statement per shift). The preview
+   * states it, so it defaults to true. The write paths pass false: they refuse on the exact counts and
+   * fingerprint the shift ids only, so a verdict would be read under the store lock and discarded. The
+   * guards, the counts and the fingerprint are the same either way; `forceCloseEligible` is null.
+   */
+  readonly withEligibility?: boolean;
+}
+
 /** Read every fact one store deletion decides on, in the caller's transaction. */
 export async function readStoreDeletionFacts(
   client: PoolClient,
   store: StoreDeletionFacts["store"],
   tenantId: string,
+  options: ReadStoreDeletionFactsOptions = {},
 ): Promise<StoreDeletionFacts> {
   const storeId = store.storeId;
   const counted = await client.query<{
@@ -184,8 +196,14 @@ export async function readStoreDeletionFacts(
     unsyncedDevices: c?.unsynced_devices ?? 0,
     openCountSessions: c?.open_count_sessions ?? 0,
   };
-  // The open-shift list and each shift's eligibility come from the pos-shifts port: the Console's own stuck verdict.
-  const shifts = await readStoreOpenShifts(client, { tenantId, storeId }, { limit: MAX_SHIFTS, order: "oldest_first" });
+  // The open-shift list (and, for the preview, each shift's eligibility) come from the pos-shifts port:
+  // the Console's own stuck verdict.
+  const shiftScope = { tenantId, storeId };
+  const shiftOptions = { limit: MAX_SHIFTS, order: "oldest_first" } as const;
+  const shifts =
+    options.withEligibility === false
+      ? (await listStoreOpenShifts(client, shiftScope, shiftOptions)).map((r) => ({ ...r, forceCloseEligible: null }))
+      : await readStoreOpenShifts(client, shiftScope, shiftOptions);
   const devices = await client.query<DeviceRow>(DEVICES_SQL, [storeId, MAX_DEVICES]);
   const sessions = await client.query<{ id: string; state: string }>(
     `SELECT id, state FROM count_sessions

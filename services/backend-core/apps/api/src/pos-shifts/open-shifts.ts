@@ -54,6 +54,19 @@ export async function readStoreOpenShifts(
   return reads;
 }
 
+/**
+ * The same list WITHOUT the per-shift stuck verdict: no `readVerdict` statements. For a caller that
+ * only needs the shifts themselves (the deletion write paths take the ids for the fingerprint and
+ * refuse on the exact count, so they discard every verdict).
+ */
+export function listStoreOpenShifts(
+  client: PoolClient,
+  scope: { readonly tenantId: string; readonly storeId: string },
+  options: Pick<ReadStoreOpenShiftsOptions, "limit" | "order">,
+): Promise<OpenStoreShiftRecord[]> {
+  return listOpenStoreShifts(client, scope, options);
+}
+
 /** The exact number of open shifts of the store, with no cap: what a deletion guard decides on. */
 export function countStoreOpenShifts(client: PoolClient, storeId: string): Promise<number> {
   return countOpenStoreShifts(client, storeId);

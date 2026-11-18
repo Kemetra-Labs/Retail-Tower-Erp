@@ -9,7 +9,7 @@
  */
 import type { PoolClient } from "pg";
 
-import { countStoreOpenShifts, readStoreOpenShifts, STUCK_THRESHOLD_MINUTES } from "../../src/pos-shifts";
+import { countStoreOpenShifts, listStoreOpenShifts, readStoreOpenShifts, STUCK_THRESHOLD_MINUTES } from "../../src/pos-shifts";
 
 const TENANT = "0e170000-0000-4000-8000-0000000a0001";
 const STORE = "0e170000-0000-4000-8000-0000000a5001";
@@ -99,12 +99,21 @@ describe("readStoreOpenShifts", () => {
     expect(reads[1]!.cashierDisplayName).toBeNull();
 
     // One verdict statement per shift, the Console rule: threshold bound, NO caller token ($5 null).
+    // Each verdict is asked for ITS OWN shift: opened_at, threshold, cashier, store, no caller token, tenant, device.
     const verdictCalls = f.calls.slice(1);
     expect(verdictCalls).toHaveLength(4);
-    for (const c of verdictCalls) {
-      expect(c.params[1]).toBe(STUCK_THRESHOLD_MINUTES);
-      expect(c.params[4]).toBeNull();
-    }
+    verdictCalls.forEach((c, i) => {
+      const row = dbRow(i + 1);
+      expect(c.params).toEqual([
+        row["opened_at"],
+        STUCK_THRESHOLD_MINUTES,
+        row["opening_cashier_user_id"],
+        STORE,
+        null,
+        TENANT,
+        row["opening_device_id"],
+      ]);
+    });
     expect(f.overlapped()).toBe(false);
   });
 
@@ -125,6 +134,17 @@ describe("readStoreOpenShifts", () => {
     const [read] = await readStoreOpenShifts(client, { tenantId: TENANT, storeId: STORE }, { limit: 1, order: "oldest_first" });
     expect(read!.forceCloseEligible).toBe(false);
     expect(read!.verdict).toEqual({ stale: false, liveOperatorSession: true, liveCashierAdmission: true });
+  });
+});
+
+describe("listStoreOpenShifts", () => {
+  it("lists the same shifts without a single verdict statement", async () => {
+    const f = fakeClient([dbRow(1), dbRow(2)], []);
+    const list = await listStoreOpenShifts(f.client, { tenantId: TENANT, storeId: STORE }, { limit: 200, order: "oldest_first" });
+    expect(list.map((r) => r.shift.shiftId)).toEqual([dbRow(1)["shift_id"], dbRow(2)["shift_id"]]);
+    expect(list[0]).toMatchObject({ cashierDisplayName: "Cashier Cat", terminal: { label: "till-1", trustState: "active" } });
+    expect(list[0]).not.toHaveProperty("verdict");
+    expect(f.calls).toHaveLength(1); // the list statement only
   });
 });
 
