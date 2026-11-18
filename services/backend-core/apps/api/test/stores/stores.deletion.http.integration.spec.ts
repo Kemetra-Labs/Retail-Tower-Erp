@@ -522,12 +522,17 @@ describe("who may use the deletion surface (AC4)", () => {
   it("a non-member platform admin with NO support session deletes a store too (RT-1462); the cross-tenant row names no session", async () => {
     if (skip()) return;
     const cookie = await h.signInPlatformAdminDirect();
-    const p = await preview(cookie, STORE.platformDirect).expect(200);
-    const reauthToken = await h.grantFor(cookie, STORE.platformDirect, USERS.platform.password);
+    // Each request carries its own X-Request-Id (the API honours a well-formed one), so the cross-tenant rows
+    // below can be matched to the requests that caused them.
+    const ids = { preview: randomUUID(), reauth: randomUUID(), delete: randomUUID() };
+    const p = await preview(cookie, STORE.platformDirect).set("X-Request-Id", ids.preview).expect(200);
+    const reauthToken = await h.grantFor(cookie, STORE.platformDirect, USERS.platform.password, ids.reauth);
     await consoleDelete(cookie, STORE.platformDirect, {
       previewFingerprint: (p.body as { previewFingerprint: string }).previewFingerprint,
       reauthToken,
-    }).expect(200);
+    })
+      .set("X-Request-Id", ids.delete)
+      .expect(200);
     const rows = await auditRows(STORE.platformDirect);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.metadata).toMatchObject({
@@ -535,20 +540,18 @@ describe("who may use the deletion surface (AC4)", () => {
       actor_role: null,
       on_behalf_of: { tenant_id: ACME_ID, support_session_id: null, ticket_ref: null },
     });
-    // Exactly one row per request (preview, re-authentication, deletion): three distinct request ids, each
-    // with a single row, so two rows for one request and none for another cannot pass as three.
-    const access = await h.admin.query<{ request_id: string | null; n: number }>(
+    // Exactly one row per request (preview, re-authentication, deletion), matched by the id each request
+    // carried, so two rows for one request, or an unrelated row standing in for a missing one, cannot pass.
+    const access = await h.admin.query<{ request_id: string; n: number }>(
       `SELECT request_id, count(*)::int AS n FROM audit_events
         WHERE tenant_id = $1 AND actor_user_id = $2 AND action = 'platform.cross_tenant.accessed'
           AND metadata->>'support_session_id' IS NULL AND metadata->>'outcome' = 'succeeded'
+          AND request_id = ANY($3::uuid[])
         GROUP BY request_id`,
-      [ACME_ID, USERS.platform.id],
+      [ACME_ID, USERS.platform.id, Object.values(ids)],
     );
-    expect(access.rows).toHaveLength(3);
-    for (const row of access.rows) {
-      expect(row.request_id).not.toBeNull();
-      expect(row.n).toBe(1);
-    }
+    expect(access.rows.map((row) => row.request_id).sort()).toEqual(Object.values(ids).sort());
+    for (const row of access.rows) expect(row.n).toBe(1);
   });
 
   it("no session is 401", async () => {

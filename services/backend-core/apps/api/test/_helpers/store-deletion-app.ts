@@ -158,7 +158,7 @@ export interface Harness {
   /** RT-1462: sign in a platform admin and select acme as the active tenant, with NO support session. */
   signInPlatformAdminDirect(): Promise<string>;
   /** Re-enter the password, returning the grant token. Fails the test unless 200. */
-  grantFor(cookie: string, storeId: string, password: string): Promise<string>;
+  grantFor(cookie: string, storeId: string, password: string, requestId?: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -272,11 +272,10 @@ export async function startHarness(seed: (admin: Pool) => Promise<void>): Promis
     },
     // RT-1462: the tenant switch admits a non-member platform admin with NO support session.
     signInPlatformAdminDirect: () => signIn("platform"),
-    grantFor: async (cookie, storeId, password) => {
-      const res = await http()
-        .post("/api/v1/auth/reauth")
-        .set("Cookie", cookie)
-        .set(SAME_ORIGIN)
+    grantFor: async (cookie, storeId, password, requestId) => {
+      const req = http().post("/api/v1/auth/reauth").set("Cookie", cookie).set(SAME_ORIGIN);
+      // An optional X-Request-Id lets a spec match this request to its audit row.
+      const res = await (requestId === undefined ? req : req.set("X-Request-Id", requestId))
         .send({ purpose: "store_deletion", storeId, password })
         .expect(200);
       return (res.body as { reauthToken: string }).reauthToken;

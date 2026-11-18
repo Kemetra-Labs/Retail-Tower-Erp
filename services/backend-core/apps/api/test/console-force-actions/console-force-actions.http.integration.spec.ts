@@ -514,11 +514,15 @@ describe("consoleForceCloseShift: a platform admin acts on a customer's behalf (
     if (skip()) return;
     const w = await platformWorld();
     const shift = await seedShift(w);
-    expect((await openShifts(w.platformBare, w.store)).status).toBe(200);
-    const res = await close(w.platformBare, shift.shiftId, {
-      forcedReason: REASON,
-      previewFingerprint: (await preview(w.platformBare, shift.shiftId)).body.previewFingerprint,
-    });
+    // Each request carries its own X-Request-Id (the API honours a well-formed one), so the audit rows below
+    // can be matched to the requests that caused them.
+    const ids = { list: randomUUID(), preview: randomUUID(), close: randomUUID() };
+    expect((await openShifts(w.platformBare, w.store).set("X-Request-Id", ids.list)).status).toBe(200);
+    const fingerprint = (await preview(w.platformBare, shift.shiftId).set("X-Request-Id", ids.preview)).body.previewFingerprint;
+    const res = await close(w.platformBare, shift.shiftId, { forcedReason: REASON, previewFingerprint: fingerprint }).set(
+      "X-Request-Id",
+      ids.close,
+    );
     expect(res.status).toBe(201);
     const audits = await auditRows(w.tenant, shift.shiftId);
     expect(audits[0]!["metadata"]).toMatchObject({
@@ -531,10 +535,11 @@ describe("consoleForceCloseShift: a platform admin acts on a customer's behalf (
       [w.tenant, w.platformBareUser],
     );
     // list, preview (the fingerprint read) and close: exactly one row per request, none names a session.
-    // Three distinct request ids, one row each: two rows for one request and none for another cannot pass.
+    // Matched by the id each request carried: two rows for one request and none for another cannot pass.
     expect(rows.rowCount).toBe(3);
-    expect(new Set(rows.rows.map((row) => row.request_id)).size).toBe(3);
-    expect(rows.rows.every((row) => row.request_id !== null)).toBe(true);
+    for (const requestId of Object.values(ids)) {
+      expect(rows.rows.filter((row) => row.request_id === requestId)).toHaveLength(1);
+    }
     for (const row of rows.rows) {
       expect(row.metadata).toMatchObject({ actor_kind: "platform_admin", outcome: "succeeded", support_session_id: null, purpose: null });
     }
