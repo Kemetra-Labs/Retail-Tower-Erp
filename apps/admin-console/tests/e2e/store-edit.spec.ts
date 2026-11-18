@@ -13,7 +13,9 @@ const ctx = {
     id: "u1",
     email: "amal@northstar.eg",
     display_name: "Amal Saleh",
-    is_platform_admin: true,
+    // A plain tenant_admin: since RT-1462 a platform admin sees the store delete whatever their
+    // role, so this context must not be one for the "no delete" assertion below to mean anything.
+    is_platform_admin: false,
   },
   active_tenant: { id: "t1", name: "Northstar Retail" },
   active_store: null,
