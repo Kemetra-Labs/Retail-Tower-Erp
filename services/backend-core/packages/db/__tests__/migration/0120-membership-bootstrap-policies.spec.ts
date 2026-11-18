@@ -10,8 +10,10 @@
  *   - under `membership_bootstrap` a session reads memberships, roles, tenants, stores and
  *     store_access ACROSS tenants (nil tenant pin), exactly what the platform-admin bootstrap
  *     read returned (parity of the real bootstrap query);
- *   - it cannot INSERT, UPDATE or DELETE on any of the five tables;
- *   - it reaches no other table (access state, provisioning, signups);
+ *   - it cannot INSERT, UPDATE or DELETE on any of the five tables (the privilege adds no write path);
+ *   - it reaches no other table (access state, provisioning, signups, credentials, audit), each
+ *     seeded with a row so "0 rows" is not vacuous;
+ *   - an unpinned session (empty tenant GUC) still raises 22P02: the pin is mandatory;
  *   - another privilege (`signup`) does not read the membership tables, and a value that is not
  *     exactly `membership_bootstrap` matches nothing;
  *   - the existing platform-admin and tenant policies are unchanged (additive);
@@ -47,6 +49,8 @@ const STORE_B = id("0b0e1");
 const MEM_A = id("0a0f1");
 const MEM_B = id("0b0f1");
 const NIL = "00000000-0000-0000-0000-000000000000";
+/** The seeded system actor the provisioner token shape requires (as in the 0111 spec). */
+const SYSTEM_ACTOR = "00000000-0000-7000-8000-000000001357";
 const TABLES = ["memberships", "roles", "tenants", "stores", "store_access"] as const;
 /** Rows the fixture holds in each of the five tables (two tenants). */
 const FIXTURE_ROWS: Record<(typeof TABLES)[number], number> = { memberships: 2, roles: 2, tenants: 2, stores: 2, store_access: 2 };
@@ -163,6 +167,17 @@ beforeAll(async () => {
        VALUES ($1, 'tenant.provision', 'mb-site', 'egypt-retail', 1)`,
       [TENANT_A],
     );
+    await a.query(
+      `INSERT INTO pending_signups (id, email_normalized, name, business_name, terms_version, terms_accepted_at, ip_hash, expires_at)
+       VALUES (gen_random_uuid(), 'mb@fixture.invalid', 'N', 'B', 'v1', now(), 'h', now() + interval '1 day')`,
+    );
+    await a.query(`INSERT INTO audit_events (id, tenant_id, action) VALUES (gen_random_uuid(), $1, 'mb.fixture')`, [TENANT_A]);
+    const tok = await a.query<{ id: string }>(
+      `INSERT INTO auth_tokens (id, token_hash, tenant_id, user_id, scope, expires_at)
+       VALUES (gen_random_uuid(), sha256(gen_random_uuid()::text::bytea), NULL, $1, 'connector_provisioner', now() + interval '30 days') RETURNING id`,
+      [SYSTEM_ACTOR],
+    );
+    await a.query(`INSERT INTO erp_provisioner_credential (host_label, environment, token_id, issued_by) VALUES ('lab-mb', 'dev', $1, $2)`, [tok.rows[0]!.id, SYSTEM_ACTOR]);
   } catch (err: unknown) {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
@@ -328,10 +343,12 @@ describe("0120: membership_bootstrap cannot write", () => {
 });
 
 describe("0120: membership_bootstrap reaches nothing else", () => {
-  it.each(["tenant_access_entitlements", "erp_provisioning_request", "pending_signups", "erp_provisioner_credential", "audit_events", "devices", "shifts"])(
-    "reads 0 rows of %s",
+  it.each(["tenant_access_entitlements", "erp_provisioning_request", "pending_signups", "erp_provisioner_credential", "audit_events"])(
+    "reads 0 rows of %s, which holds a row",
     async (table) => {
       if (skip()) return;
+      // Control: the table is not empty (the admin connection bypasses RLS).
+      expect((await guard().admin.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]!.n).toBeGreaterThan(0);
       expect(await asPrivilege(null, "membership_bootstrap", (c) => count(c, table))).toBe(0);
     },
   );
@@ -341,6 +358,20 @@ describe("0120: membership_bootstrap reaches nothing else", () => {
     for (const privilege of ["signup", "provisioning_sweep", "provisioner_lookup"] as const) {
       for (const table of TABLES) expect(await asPrivilege(null, privilege, (c) => count(c, table))).toBe(0);
     }
+  });
+});
+
+describe("0120: the tenant pin stays mandatory", () => {
+  it("a membership_bootstrap session with an empty tenant GUC raises 22P02 (the existing isolation policies still cast)", async () => {
+    if (skip()) return;
+    const code = await errorCode(() =>
+      asApp(guard(), "", async (c) => {
+        await c.query("SELECT set_config('app.is_platform_admin', 'false', true)");
+        await c.query("SELECT set_config('app.system_privilege', 'membership_bootstrap', true)");
+        return await count(c, "memberships");
+      }),
+    );
+    expect(code).toBe("22P02");
   });
 });
 

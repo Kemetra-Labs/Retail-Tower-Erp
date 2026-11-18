@@ -25,9 +25,17 @@
 -- What does NOT change: no existing policy is altered or dropped; the platform-admin and tenant
 -- policies stay, so the old flag keeps working until the callers move (additive). No new policy
 -- names `app.is_platform_admin`, and no platform-admin policy names `app.system_privilege`. There is
--- NO INSERT, UPDATE or DELETE policy: a `membership_bootstrap` session cannot write anything. The
--- value is compared as text: a missing, empty or differently-cased value matches nothing (no cast,
--- no 22P02).
+-- NO INSERT, UPDATE or DELETE policy: the privilege adds no write path. (A session that is also
+-- pinned to a real tenant keeps that tenant's own writes through the existing `*_tenant_isolation`
+-- policies; the callers pin the nil tenant, as `runWithSystemPrivilege` does for `tenantId: null`.)
+-- The value is compared as text, so the NEW policies never cast: a missing, empty or differently-cased
+-- value matches nothing. The existing isolation policies are ORed with them and still cast
+-- `app.current_tenant` to uuid, so a session must pin a tenant (the nil tenant is enough); an
+-- unpinned one raises 22P02, exactly as it does today.
+--
+-- Deploy: `CREATE POLICY` takes ACCESS EXCLUSIVE on each table until COMMIT. These are hot tables
+-- (every authenticated request reads them), so `lock_timeout = '2s'` makes a blocked statement fail
+-- fast instead of queueing; run `migrate` outside peak traffic and retry if it times out.
 --
 -- No new table, so no grant change: the runtime role already holds these table grants.
 --

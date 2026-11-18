@@ -22,7 +22,8 @@
  *
  * No 0111 policy names `app.is_platform_admin`, so none of these sessions reaches a
  * platform-admin policy (the 0110 cross-tenant SELECT among them). A fence test pins
- * this file as the only setter and each value to its one call site.
+ * this file as the only setter and each narrow value (all but `membership_bootstrap`) to its one
+ * call site; `membership_bootstrap` is shared by the request bootstrap reads (RT-1457).
  */
 import type { Pool, PoolClient } from "pg";
 
