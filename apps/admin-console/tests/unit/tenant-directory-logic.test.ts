@@ -41,12 +41,12 @@ describe("filterTenants", () => {
 });
 
 describe("directoryRows", () => {
-  test("a tenant the caller is a member of offers the normal switch, not a support session", () => {
+  test("every row can be opened; only a tenant the caller is a member of is marked a member", () => {
     const rows = directoryRows(tenants, [{ tenant_id: "t2" }]);
-    expect(rows.map((r) => [r.id, r.action])).toEqual([
-      ["t1", "start"],
-      ["t2", "switch"],
-      ["t3", "start"],
+    expect(rows.map((r) => [r.id, r.member])).toEqual([
+      ["t1", false],
+      ["t2", true],
+      ["t3", false],
     ]);
   });
 

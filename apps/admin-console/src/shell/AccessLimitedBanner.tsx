@@ -1,3 +1,5 @@
+import { Banner } from "@/components/Banner";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1350 slice 5a: the "limited until activated" banner (design v6 D2). A tenant
  * created by self-signup is active but `restricted`: catalog, stores and members
@@ -8,8 +10,7 @@
  * 5xx, offline, a body outside the contract) renders nothing: a missing banner is
  * harmless, a false one would mislead the owner. No tenant, no request.
  */
-import { Banner } from "@/components/Banner";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { consoleGetTenantAccessEntitlement } from "@/lib/tenant-access-queries";
 import { useQuery } from "@tanstack/react-query";
@@ -37,7 +38,7 @@ export function AccessLimitedBanner(): React.JSX.Element | null {
   const t = useT();
   const { context } = useActiveContextValue();
   const tenantId = context?.active_tenant?.id;
-  const role = context?.active_role_code;
+  const role = roleCodeOf(context);
   const enabled = !!tenantId && READER_ROLES.includes(role ?? "");
   const query = useQuery<Access | null>({
     queryKey: ["tenant-access-entitlement", tenantId],

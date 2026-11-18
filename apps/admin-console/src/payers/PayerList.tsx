@@ -5,6 +5,7 @@ import { TableScrollRegion } from "@/components/DataTableScroll";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import { useSignOut } from "@/shell/useSignOut";
 /**
@@ -165,7 +166,7 @@ export function PayerList(): React.JSX.Element {
   const signOut = useSignOut();
   const { context } = useActiveContextValue();
   const rawTenant = context?.active_tenant ?? null;
-  const allowed = canReadPayers(context?.active_role_code);
+  const allowed = canReadPayers(roleCodeOf(context));
   const tenantId = allowed ? (rawTenant?.id ?? null) : null;
   const list = usePayerAccounts(tenantId, {});
   const { rows, hasMore, isLoading, refetch } = list;

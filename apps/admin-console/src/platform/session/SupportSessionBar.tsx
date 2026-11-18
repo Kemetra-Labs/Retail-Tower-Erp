@@ -151,7 +151,6 @@ function Identity({ controller }: Readonly<{ controller: SupportSessionControlle
           </bdi>
         </span>
       ) : null}
-      <span className="support-session-bar__chip">{t("platform.session.readOnly")}</span>
     </>
   );
 }

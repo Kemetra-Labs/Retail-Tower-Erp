@@ -1,10 +1,11 @@
+import { Banner } from "@/components/Banner";
+import { GatedButton } from "@/components/GatedButton";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-178 shared pieces for the two stock discrepancy surfaces: the scope read
  * from RF-1's active context, the no-tenant prompt, and the "Load more" pager.
  */
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import type { ScopeKey, StockDiscrepancyError } from "./useStockDiscrepancies";
 
@@ -25,7 +26,7 @@ function idOf(entity: { id?: string } | null | undefined): string | null {
 export function scopeFromContext(context: ActiveContext): DiscrepancyScope {
   return {
     scope: { tenantId: idOf(context?.active_tenant), activeStoreId: idOf(context?.active_store) },
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
     tenantName: context?.active_tenant?.name ?? null,
   };
 }

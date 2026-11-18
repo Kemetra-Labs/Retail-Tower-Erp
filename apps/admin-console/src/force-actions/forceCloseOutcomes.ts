@@ -35,7 +35,7 @@ export type ForceCloseOutcome =
 
 const KEY = {
   generic: "forceActions.close.error.generic",
-  readOnlySession: "forceActions.close.error.readOnlySession",
+  tenantUnavailable: "forceActions.close.error.tenantUnavailable",
   forbidden: "forceActions.close.error.forbidden",
   notAvailable: "forceActions.close.error.notAvailable",
   capReached: "forceActions.close.error.capReached",
@@ -71,8 +71,10 @@ function classify409(result: WrapperResult): ForceCloseOutcome {
 function classify403(result: WrapperResult): ForceCloseOutcome {
   const code = errorCodeOf(result.error);
   const requestId = errorRequestIdOf(result.error);
-  return code?.startsWith("support_session_")
-    ? { kind: "rejected", messageKey: KEY.readOnlySession, requestId }
+  // RT-1468: a platform admin enters any organization directly, so the one support-session
+  // refusal left is `support_session_required` (the organization no longer exists).
+  return code === "support_session_required"
+    ? { kind: "rejected", messageKey: KEY.tenantUnavailable, requestId }
     : { kind: "rejected", messageKey: KEY.forbidden, requestId };
 }
 

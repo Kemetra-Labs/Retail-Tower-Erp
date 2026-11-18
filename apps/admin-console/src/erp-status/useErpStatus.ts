@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-560 query hooks for the ERP connection & sync status surface. Read-only
  * queries over the five wrappers in `src/lib/erp-status-queries.ts`, keyed by
@@ -10,7 +11,7 @@
  * Errors are typed, never raw: a 404 is the API's non-disclosing refusal (an
  * out-of-scope store), a 403 a role refusal, a 401 an ended session.
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type ConnectorHealthList,
   type PageQuery,
@@ -50,7 +51,7 @@ export function useErpScope(): ErpScope {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     tenantName: context?.active_tenant?.name ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

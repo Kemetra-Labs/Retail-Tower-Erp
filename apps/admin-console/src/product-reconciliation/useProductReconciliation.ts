@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-727 query hooks for ERPNext product-master reconciliation. Reads are
  * cursor lists keyed by the active tenant (the surface has no store axis) and
@@ -8,7 +9,7 @@
  * outcome is returned as received. After any answer from the server the
  * surface's reads are invalidated, so the lists show the server's new truth.
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type BacklogClass,
   type BacklogItem,
@@ -51,7 +52,7 @@ export function useReconScope(): ReconScope {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     tenantName: context?.active_tenant?.name ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

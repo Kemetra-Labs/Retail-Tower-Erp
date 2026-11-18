@@ -171,8 +171,8 @@ describe("DownloadPos (RT-1304)", () => {
   test("AC5/AC7: each contract answer is its own state; a 500 never reads as S3", async () => {
     const cases: [ReturnType<typeof fail>, string][] = [
       [fail(401), t("devices.list.sessionExpired")],
-      [fail(403, "support_session_required"), t("platform.session.expiredBody.title")],
-      [fail(403, "support_session_expired"), t("platform.session.expiredBody.title")],
+      [fail(403, "support_session_required"), t("devices.download.tenantUnavailable")],
+      [fail(403, "support_session_expired"), t("devices.download.tenantUnavailable")],
       [fail(404, "not_found"), t("devices.download.notAllowed")],
       [fail(400, "validation_error"), t("devices.download.failed")],
       [fail(500, "system_failure"), t("devices.download.failed")],

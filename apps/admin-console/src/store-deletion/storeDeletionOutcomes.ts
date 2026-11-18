@@ -50,7 +50,7 @@ export interface DeleteResult extends WrapperResult {
 
 const KEY = {
   generic: "storeDeletion.error.generic",
-  readOnlySession: "storeDeletion.error.readOnlySession",
+  tenantUnavailable: "storeDeletion.error.tenantUnavailable",
   ownerOnly: "storeDeletion.error.ownerOnly",
   forbidden: "storeDeletion.error.forbidden",
   notAvailable: "storeDeletion.error.notAvailable",
@@ -92,7 +92,8 @@ function classify409(result: WrapperResult): DeletionOutcome {
 /** The refusal a 403 carries, for the delete and for the re-authentication alike. */
 function refusal403(result: WrapperResult): MessageKey {
   const code = errorCodeOf(result.error);
-  if (code?.startsWith("support_session_")) return KEY.readOnlySession;
+  // RT-1468: `support_session_required` now means the organization no longer exists.
+  if (code === "support_session_required") return KEY.tenantUnavailable;
   return code === "store_deletion_owner_only" ? KEY.ownerOnly : KEY.forbidden;
 }
 

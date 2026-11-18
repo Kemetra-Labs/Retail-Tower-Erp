@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-559 the Overview's reads (spec 009 §5.1–§5.2; P-5 is deferred, OD-009-3). Each uses an
  * operation that already exists in the generated client, through its existing
@@ -8,7 +9,7 @@
  * (stock discrepancies, shift closes); everything else asks the backend, and a
  * 403/404 omits the panel (§6.2).
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   FORCE_CLOSED_ACTION,
   forceClosedRows,
@@ -47,7 +48,7 @@ export function useOverviewSession(): OverviewSession {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     activeStoreId: context?.active_store?.id ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

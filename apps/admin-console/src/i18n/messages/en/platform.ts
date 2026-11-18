@@ -11,7 +11,6 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.session.purpose.incident": "Incident",
   "platform.session.purpose.onboarding": "Onboarding",
   "platform.session.ticket": "Ticket",
-  "platform.session.readOnly": "Read only",
   "platform.session.remaining": "{duration} left · until {time}",
   "platform.session.remainingUnderMinute": "Less than a minute left · until {time}",
   "platform.session.expiredAt": "Expired at {time}",
@@ -39,10 +38,10 @@ export const platform: MessagesOf<typeof ar> = {
     "It can't be renewed any further. To keep working, open a new support session and state the purpose.",
   "platform.session.notice.expired.title": "The support session expired",
   "platform.session.notice.expired.body":
-    "The session ran out without a renewal, so the organization's data is no longer shown. To keep working, open a new session from {directory}; it replaces this one. Or end the session if you're done.",
+    "The session ran out without a renewal. You can keep working in the organization, but new actions are no longer recorded under this session's purpose and ticket. To record them again, open a new session from {directory}; it replaces this one. Or end the session if you're done.",
   "platform.session.notice.expired.directory": "the Organizations page",
   "platform.session.notice.expired.bodyHere":
-    "The session ran out without a renewal, so the organization's data is no longer shown. To keep working, open a new session from the organizations list on this page; it replaces this one. Or end the session if you're done.",
+    "The session ran out without a renewal. New actions are no longer recorded under this session's purpose and ticket. To record them again, open a new session from the organizations list on this page; it replaces this one. Or end the session if you're done.",
 
   "platform.session.error.forbidden": "Your account can't change this session.",
   "platform.session.error.originRejected":
@@ -54,15 +53,11 @@ export const platform: MessagesOf<typeof ar> = {
     "Nothing changed in the organization, and its data is no longer shown. Open a new session from the Organizations page to keep working.",
   "platform.session.expiredBody.action": "Go to organizations",
 
-  "platform.session.readOnlyBody.title": "Read-only support session",
-  "platform.session.readOnlyBody.body":
-    "The session is active, but organization screens are not available inside a support session yet, so no organization data is shown and there is nothing to change here.",
-  "platform.session.readOnlyBody.action": "Go to organizations",
-
   "platform.tenants.title": "Organizations",
   "platform.tenants.sub":
-    "Every organization on the platform. Open a support session for one organization to look at it, read-only.",
-  "platform.tenants.suspendedNote": "A suspended organization opens in a read-only session.",
+    "Every organization on the platform. Open one to work in it, or start a support session to record a purpose and ticket with your actions.",
+  "platform.tenants.suspendedNote":
+    "A suspended organization opens like any other. Its own users stay locked out until it is reactivated.",
   "platform.tenants.search.label": "Search by organization name or slug",
   "platform.tenants.caption": "Organizations list",
   // RT-1021: the panel's own name, so it and the scrolling table region are not twins.
@@ -105,12 +100,13 @@ export const platform: MessagesOf<typeof ar> = {
     "That ticket reference isn't valid: start with a letter or digit, and use English letters, digits and . _ : # / - only, up to 64 characters.",
   "platform.start.scope.label": "Scope",
   "platform.start.scope.body":
-    "Read only: nothing in the organization is changed from a support session.",
+    "You work in the organization as usual. Every action you take is recorded with this session's purpose and ticket.",
   "platform.start.duration.label": "Duration",
   "platform.start.duration.body":
     "60 minutes, and it doesn't extend by itself. Each renewal extends it by up to 60 minutes, never past 8 hours from the start.",
   "platform.start.suspended.label": "Suspended organization",
-  "platform.start.suspended.body": "If the organization is suspended, the session is read-only.",
+  "platform.start.suspended.body":
+    "A suspended organization opens like any other. Its own users stay locked out until it is reactivated.",
   "platform.start.replaces": "You have a current support session. Starting this one ends it.",
   "platform.start.submit": "Start support session",
   "platform.start.error.forbidden":

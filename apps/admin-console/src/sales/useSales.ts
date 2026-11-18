@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-587 query hooks: a read-only infinite query over `consoleListSales` and a
  * detail query over `consoleGetSale`. Scope-keyed by the active tenant AND
@@ -9,7 +10,7 @@
  * Errors are typed, never raw: a 404 is the API's uniform non-disclosing
  * refusal, a 401 an expired session, a 400 a rejected query.
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type SaleDetail,
   type SaleListQuery,
@@ -40,7 +41,7 @@ export function useSaleScope(): SaleScope {
     tenantId: context?.active_tenant?.id ?? null,
     tenantName: context?.active_tenant?.name ?? null,
     activeStoreId: context?.active_store?.id ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

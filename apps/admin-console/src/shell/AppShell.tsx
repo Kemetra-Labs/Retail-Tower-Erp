@@ -9,6 +9,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * family attaches to. RT-270 (UX-09: no dead destinations): a destination is
  * listed only once it is built (`nav-model.ts`).
  */
+import { isPlatformAdminRole, roleCodeOf } from "@/context/effectiveRole";
 import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import { roleKey, useT } from "@/i18n";
 import {
@@ -35,27 +36,29 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
   const t = useT();
   const { context } = useActiveContextValue();
   const supportSession = useSupportSession();
-  // RT-781: inside a support session the shell shows no tenant surface, scope
-  // switcher or tenant navigation: no write control by construction (a UI
-  // safeguard, not a security control).
+  // RT-1468 (owner decision 2026-11-18): a support session no longer limits the shell. The
+  // tenant surface, scope switcher and navigation render as usual; the session only adds its
+  // bar. RT-781's read-only shell is gone.
   const inSession = supportSession !== null;
   const user = context?.user;
-  const roleCode = context?.active_role_code;
-  const roleLabel = roleCode ? t(roleKey(roleCode)) : undefined;
+  // A platform admin without a membership is gated as an owner (effectiveRole.ts) but
+  // labelled as what they are.
+  const roleCode = roleCodeOf(context);
+  const roleLabel = isPlatformAdminRole(context)
+    ? t(roleKey("platform_admin"))
+    : roleCode
+      ? t(roleKey(roleCode))
+      : undefined;
   // RT-455 (TR-6): the tracking entry waits for the server's summary.
-  const hasTrackedProducts = useTrackingSummary(
-    context?.active_tenant?.id ?? null,
-    roleCode,
-    !inSession,
-  );
+  const hasTrackedProducts = useTrackingSummary(context?.active_tenant?.id ?? null, roleCode, true);
   // RT-455 part 1 (OD-T4): and only while the tenant's tracked-selling switch is
   // on. Asked only once the summary has tracked products, as the entry needs both.
   const trackedSelling = useTrackedSellingQuery(
     context?.active_tenant?.id ?? null,
     roleCode,
-    !inSession && hasTrackedProducts === true,
+    hasTrackedProducts === true,
   );
-  const groups = tenantNav(roleCode, inSession, {
+  const groups = tenantNav(roleCode, {
     hasTrackedProducts,
     trackedSellingOn: trackedSellingOn(trackedSelling.data),
   });
@@ -71,13 +74,13 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         menuId={menuId}
         navigator={navigator}
         groups={groups}
-        withStores={!inSession}
+        withStores
         user={user}
         roleLabel={roleLabel}
-        accountLink={!inSession}
+        accountLink
       />
 
-      {/* RT-781: the support-session bar, only for a session-entered tenant. */}
+      {/* RT-781: the support-session bar, only while a support session is open. */}
       <div className="shell-session-slot">
         <SupportSessionBarSlot controller={supportSession} />
       </div>
@@ -85,9 +88,8 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         navLabel={t("shell.nav.label")}
         tag={t("app.productTag")}
         groups={groups}
-        scope={inSession ? null : <ScopeHeader />}
-        // A support session shows no tenant surface and sends no tenant request (RT-781).
-        systemStatus={!inSession && canReadErpStatus(roleCode)}
+        scope={<ScopeHeader />}
+        systemStatus={canReadErpStatus(roleCode)}
         onSignOut={onSignOut}
       />
 
@@ -105,10 +107,8 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         {/* RT-621: any 429 shows here, above the surface, without blocking it. */}
         <RateLimitBanner />
         {/* RT-1350 5a: a self-signup tenant is limited until a platform admin unlocks it. */}
-        {inSession ? null : <AccessLimitedBanner />}
-        <SupportSessionBoundary controller={supportSession} tenantShell>
-          {children}
-        </SupportSessionBoundary>
+        <AccessLimitedBanner />
+        <SupportSessionBoundary controller={supportSession}>{children}</SupportSessionBoundary>
       </ShellContent>
     </div>
   );

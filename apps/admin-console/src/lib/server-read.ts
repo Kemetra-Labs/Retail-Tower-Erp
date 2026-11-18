@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * One server read as a `Read<T>`, shared by the owner "force with impact preview" screens
  * (RT-1440 close-without-a-count, RT-1441 store deletion). Extracted from `useForceActions.ts`
@@ -8,7 +9,7 @@
  * server returns, so a cached answer must not cross a role change. The previews are snapshots,
  * read fresh on every open (`fresh`), never reused.
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { errorRequestIdOf } from "@/lib/write-outcome";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -24,7 +25,7 @@ function readErrorOf(status: number, error: unknown): ReadError {
 /** The scope every key carries: the active tenant and the role. */
 export function useReadScope(): { tenantId: string | null; role: string | null } {
   const { context } = useActiveContextValue();
-  return { tenantId: context?.active_tenant?.id ?? null, role: context?.active_role_code ?? null };
+  return { tenantId: context?.active_tenant?.id ?? null, role: roleCodeOf(context) };
 }
 
 /** A request that never got an answer (offline, aborted) reads as a failed read, so it can be retried. */

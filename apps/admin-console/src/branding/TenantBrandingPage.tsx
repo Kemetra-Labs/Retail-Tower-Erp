@@ -1,3 +1,10 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
+import { GatedButton } from "@/components/GatedButton";
+import { ListState } from "@/components/ListState";
+import { PageHeader } from "@/components/PageHeader";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-474 — «هوية المؤسسة» (`/tenants/:tenantId/branding`): upload, replace or
  * remove the tenant's one logo, and see before saving exactly what the POS will
@@ -9,13 +16,7 @@
  * 404, which also shows no-access. Every image check is Backend-Core's; the
  * previews are its renditions. Warnings never block saving.
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { BackArrow } from "@/components/BackArrow";
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
-import { PageHeader } from "@/components/PageHeader";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import type { TenantBranding } from "@/lib/tenant-branding-queries";
 import { useSignOut } from "@/shell/useSignOut";
@@ -267,8 +268,7 @@ export function TenantBrandingPage(): React.JSX.Element {
   const signOut = useSignOut();
   const { tenantId = "" } = useParams();
   const { context } = useActiveContextValue();
-  const allowed =
-    canManageLogo(context?.active_role_code) && context?.active_tenant?.id === tenantId;
+  const allowed = canManageLogo(roleCodeOf(context)) && context?.active_tenant?.id === tenantId;
   const read = useTenantBranding(tenantId, allowed);
 
   if (!allowed || read.result?.kind === "noAccess") return <NoAccess onSignOut={signOut} />;

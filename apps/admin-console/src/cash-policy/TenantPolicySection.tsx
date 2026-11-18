@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-389 tenant page section (AD-CASH-001 F6): the tenant's default shift
  * variance policy (`none`, or `limit` with amount and currency) and Apply Now.
@@ -6,7 +7,7 @@
  * rendered and nothing is requested. The read carries the concurrency token
  * for the publish; the server resolves and refuses, the UI renders.
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { useState } from "react";
 import { PolicyForm } from "./PolicyForm";
@@ -106,6 +107,6 @@ export function TenantPolicySection({
 }: Readonly<{ tenantId: string }>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
   const allowed =
-    canConfigurePolicy(context?.active_role_code) && context?.active_tenant?.id === tenantId;
+    canConfigurePolicy(roleCodeOf(context)) && context?.active_tenant?.id === tenantId;
   return allowed ? <TenantPolicyBody tenantId={tenantId} /> : null;
 }

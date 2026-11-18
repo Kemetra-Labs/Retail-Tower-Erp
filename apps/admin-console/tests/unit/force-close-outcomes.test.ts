@@ -76,10 +76,19 @@ describe("classifyForceCloseOutcome", () => {
     ).toMatchObject({ kind: "rejected", messageKey: "forceActions.close.error.generic" });
   });
 
-  it("403 in a support session says the session is read-only", () => {
+  it("403 support_session_required says the organization is no longer available (RT-1468)", () => {
     expect(
-      classifyForceCloseOutcome({ status: 403, error: err("support_session_read_only") }),
-    ).toMatchObject({ kind: "rejected", messageKey: "forceActions.close.error.readOnlySession" });
+      classifyForceCloseOutcome({ status: 403, error: err("support_session_required") }),
+    ).toMatchObject({ kind: "rejected", messageKey: "forceActions.close.error.tenantUnavailable" });
+  });
+
+  it("any other support-session 403 is a plain refusal, never 'read-only' (RT-1468)", () => {
+    for (const code of ["support_session_read_only", "support_session_expired"]) {
+      expect(classifyForceCloseOutcome({ status: 403, error: err(code) })).toMatchObject({
+        kind: "rejected",
+        messageKey: "forceActions.close.error.forbidden",
+      });
+    }
   });
 
   it("any other 403 (role, origin) is a plain refusal", () => {

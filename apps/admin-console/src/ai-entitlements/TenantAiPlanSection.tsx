@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-665 tenant page section (AD-AI-ENT-001 D-6; RT-644 ENT-AC1): a read-only
  * panel of the tenant's AI plan & usage. Owner / tenant_admin see the full view
@@ -15,7 +16,7 @@
  * `AppShell` used to list): it is on in development builds and off in a
  * production build until the runtime ships. `enabled` lets a test, or the release that turns it on, force it.
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { FullView, MinimalView } from "./AiPlanParts";
 import { AiPlanReadState } from "./AiPlanReadState";
@@ -59,7 +60,7 @@ export function TenantAiPlanSection({
   enabled = import.meta.env.DEV,
 }: Readonly<{ tenantId: string; enabled?: boolean }>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
-  const view = aiPlanViewFor(context?.active_role_code);
+  const view = aiPlanViewFor(roleCodeOf(context));
   const allowed = enabled && view !== undefined && context?.active_tenant?.id === tenantId;
   return allowed && view ? <AiPlanBody tenantId={tenantId} view={view} /> : null;
 }

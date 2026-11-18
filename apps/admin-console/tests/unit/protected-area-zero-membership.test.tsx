@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
  * RT-844: the `/` guard for a user with zero memberships. NoAccess is only for
- * a user who genuinely has none: a platform admin is sent to /platform, or into
- * the support session's tenant when one is active. Role x memberships x session.
+ * a user who genuinely has none: a platform admin is sent to /platform, or works
+ * in the organization they opened, with or without a support session (RT-1468,
+ * owner decision 2026-11-18). Role x memberships x session.
  */
 const getActiveContext = vi.fn();
 vi.mock("@/lib/client", async (importOriginal) => {
@@ -73,21 +74,21 @@ function mount(ctx: unknown): void {
   );
 }
 
-const sessionView = () => screen.findByRole("heading", { name: "Read-only support session" });
+const tenantSurface = () => screen.findByRole("heading", { name: "Tenant surface" });
 const noAccess = () => screen.findByRole("heading", { name: /no assigned access/i });
 const platformHome = () => screen.findByRole("heading", { name: "Organizations", level: 1 });
 
 beforeEach(() => getActiveContext.mockReset());
 
 describe("zero memberships at /", () => {
-  test("platform admin with an active session lands in the session's tenant view", async () => {
+  test("platform admin with an active session works in the session's tenant", async () => {
     mount({ user: admin, active_tenant: tenant, memberships: [], support_session: session() });
-    expect(await sessionView()).toBeDefined();
+    expect(await tenantSurface()).toBeDefined();
     expect(screen.queryByRole("heading", { name: /no assigned access/i })).toBeNull();
     expect(screen.getByRole("region", { name: "Support session" })).toBeDefined();
   });
 
-  test("platform admin with an expired session still sees the session shell, not no-access", async () => {
+  test("platform admin with an expired session keeps working, with the expired note", async () => {
     mount({
       user: admin,
       active_tenant: tenant,
@@ -95,14 +96,26 @@ describe("zero memberships at /", () => {
       support_session: session({ status: "expired" }),
     });
     expect(await screen.findByText("Support session expired.")).toBeDefined();
+    expect(await tenantSurface()).toBeDefined();
     expect(screen.queryByRole("heading", { name: /no assigned access/i })).toBeNull();
   });
 
   test.each([
-    ["no session, no active tenant", null, null],
-    ["a session but no active tenant", null, session()],
     ["an active tenant but no session", tenant, null],
     ["an active tenant that is not the session's tenant", tenant, session({ tenant_id: "t9" })],
+  ])(
+    "platform admin with %s works in that tenant directly (RT-1468)",
+    async (_case, active_tenant, support_session) => {
+      mount({ user: admin, active_tenant, memberships: [], support_session });
+      expect(await tenantSurface()).toBeDefined();
+      expect(screen.getByTestId("where").textContent).toBe("/");
+      expect(screen.queryByRole("heading", { name: /no assigned access/i })).toBeNull();
+    },
+  );
+
+  test.each([
+    ["no session, no active tenant", null, null],
+    ["a session but no active tenant", null, session()],
   ])(
     "platform admin with %s is sent to /platform",
     async (_case, active_tenant, support_session) => {
@@ -142,14 +155,15 @@ describe("memberships are unchanged", () => {
     expect(await screen.findByRole("heading", { name: "Tenant surface" })).toBeDefined();
   });
 
-  test("admin with a membership and a session: the session view (RT-781)", async () => {
+  test("admin with a membership and a session: the tenant surface under the session bar", async () => {
     mount({
       user: admin,
       active_tenant: tenant,
       memberships: [member("t1")],
       support_session: session(),
     });
-    expect(await sessionView()).toBeDefined();
+    expect(await tenantSurface()).toBeDefined();
+    expect(screen.getByRole("region", { name: "Support session" })).toBeDefined();
   });
 
   test("many memberships, no active tenant, no session: the scope gate", async () => {

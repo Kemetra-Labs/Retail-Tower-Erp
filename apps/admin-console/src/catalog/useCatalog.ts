@@ -1,3 +1,4 @@
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-765 query hooks: a read-only infinite query over `consoleListCatalogProducts`
  * and a query over the flat category list. Scope-keyed by the active tenant AND
@@ -10,7 +11,7 @@
  * session, a 400 a rejected query. A 429 is the generic retryable error: the
  * shell's rate-limit banner owns the countdown (RT-621).
  */
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type CatalogCategory,
   type CatalogListQuery,
@@ -55,7 +56,7 @@ export function useCatalogScope(): CatalogScope {
   return {
     ...tenantScope(context),
     ...storeScope(context),
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

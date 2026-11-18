@@ -143,7 +143,7 @@ export const storeDeletion = {
   "storeDeletion.reauth.rateLimited": "محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة.",
   "storeDeletion.reauth.unavailable": "تعذّر التحقق من كلمة المرور الآن. لم يُحذف شيء. حاول لاحقًا.",
   "storeDeletion.error.generic": "تعذّر حذف المتجر. لم يُحذف شيء.",
-  "storeDeletion.error.readOnlySession": "جلسة الدعم للقراءة فقط: لا يمكن الحذف منها.",
+  "storeDeletion.error.tenantUnavailable": "هذه المؤسسة لم تعد متاحة، فلم يُحذف المتجر.",
   "storeDeletion.error.ownerOnly": "حذف المتجر متاح لصاحب الحساب فقط.",
   "storeDeletion.error.forbidden": "لا تملك صلاحية حذف هذا المتجر.",
   "storeDeletion.error.notAvailable": "هذا الإجراء غير متاح لصلاحياتك، أو أن المتجر غير موجود.",

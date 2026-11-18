@@ -1,3 +1,7 @@
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
+import { PageHeader } from "@/components/PageHeader";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1440 (U1) A4 — Shifts closed without a count: a read-only list from the audit search
  * (`action=shift.force_closed`), newest first, with cursor continuation (UX-10.16). It shows who
@@ -5,10 +9,7 @@
  * reason stays on the fact and is not in the audit row (D5a), so there is no reason column. Times
  * carry an explicit zone (a cross-store view, UX-12.29). Nothing here writes.
  */
-import { BackArrow } from "@/components/BackArrow";
-import { Banner } from "@/components/Banner";
-import { PageHeader } from "@/components/PageHeader";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { DateTime, roleKey, useT } from "@/i18n";
 import { Machine } from "@/inventory/parts";
 import { listAuditEvents } from "@/lib/client";
@@ -140,7 +141,7 @@ export function ForceClosedPage(): React.JSX.Element {
   const [from] = useState(() => windowStart(Date.now()));
   const list = useForceClosedList(
     tenantId,
-    context?.active_role_code ?? null,
+    roleCodeOf(context),
     storeParam && UUID.test(storeParam) ? storeParam : null,
     from,
   );

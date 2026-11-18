@@ -1,3 +1,9 @@
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
+import { FormPage } from "@/components/FormPage";
+import { ListState } from "@/components/ListState";
+import { ScopePrompt } from "@/components/ScopePrompt";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1338 offer page (RT-286 S6): `/offers/new` creates, `/offers/:offerId` opens one. For a role
  * that may manage it is the editor (Save → Preview → Publish) with the facts and the lifecycle
@@ -11,12 +17,7 @@
  * The editor is keyed by the offer and its draft revision, so a saved, published or reloaded draft
  * remounts it on the server's answer: what is on screen is never older than the last answer.
  */
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
-import { FormPage } from "@/components/FormPage";
-import { ListState } from "@/components/ListState";
-import { ScopePrompt } from "@/components/ScopePrompt";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import { getLocale } from "@/i18n/locale";
 import type { Offer, OfferVersion } from "@/lib/offer-queries";
@@ -129,7 +130,7 @@ function usePageAccess(creating: boolean) {
   const membership = context?.memberships?.find((m) => m.tenant_id === tenantId) as
     | ScopeMembership
     | undefined;
-  const role = context?.active_role_code;
+  const role = roleCodeOf(context);
   const access = offerAccess(role, membership?.store_access_kind);
   return {
     tenant,

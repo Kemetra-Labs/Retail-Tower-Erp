@@ -29,6 +29,8 @@ export const downloadPos: MessagesOf<typeof ar> = {
   "devices.download.unavailable":
     "No POS download is available for your organization right now. If your organization is in the pilot, contact Kemetra support.",
   "devices.download.notAllowed": "Download POS is not available to you.",
+  "devices.download.tenantUnavailable":
+    "This organization is no longer available, so there is nothing to download.",
   "devices.download.failed":
     "The download link could not be prepared. No link was created. Try again. If it repeats, send the request ID to support.",
   "devices.download.notStarted":
