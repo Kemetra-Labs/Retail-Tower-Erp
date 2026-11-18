@@ -20,8 +20,8 @@ import { createHash } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
-import { canonicalJson } from "../../idempotency/canonical-json";
 import { listActiveWarehouseRefsOfStore } from "../../catalog";
+import { canonicalJson } from "../../common/hashing/canonical-json";
 import { readStoreDeviceFacts } from "../../device-health";
 import { countOpenCountSessionsOfStore, listOpenCountSessionsOfStore } from "../../inventory";
 import { listSpecificAccessMembersOfStore } from "../../memberships";

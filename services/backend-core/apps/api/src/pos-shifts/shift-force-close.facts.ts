@@ -22,7 +22,7 @@ import { createHash } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import { toStoreShift, type StoreShiftDbRow, type StoreShiftRow, type StuckVerdict } from "./shift-force-close.repository";
 
 export type TerminalTrustState = "active" | "revoked" | "retired";

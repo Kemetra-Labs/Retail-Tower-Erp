@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import type { AdmissionRequestInput } from "./dto";
 
 function sha256(value: string): Buffer {

@@ -36,7 +36,7 @@ import type { Pool, PoolClient } from "pg";
 
 import type { ForceActionAuditActor } from "../common/force-action-actor";
 import { MembershipRepository } from "../context/membership.repository";
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import { ShiftCashUpError } from "./shift-cash-up.errors";
 import type { ShiftWriteResult } from "./shift-cash-up.service";
 import { buildForceCloseAudit, readActorRole, type ForceCloseAudit } from "./shift-force-close.audit";

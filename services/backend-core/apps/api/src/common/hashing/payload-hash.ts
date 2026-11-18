@@ -6,7 +6,8 @@
  *
  * `canonicalJsonPayload` is one of three canonical-JSON serializers kept on
  * purpose (RT-1214); the others are `canonicalJson` in
- * `idempotency/canonical-json.ts` and in `ai-entitlements/revision-content.ts`.
+ * `common/hashing/canonical-json.ts` and `canonicalRevisionJson` in
+ * `ai-entitlements/revision-content.ts`.
  * Their bytes differ, and persisted hashes depend on each, so none may be
  * swapped for another.
  *

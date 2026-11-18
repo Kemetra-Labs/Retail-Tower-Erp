@@ -43,7 +43,6 @@
     "apps/api/src/platform-support-sessions -> apps/api/src/console-rate-limit",
     "apps/api/src/platform-support-sessions -> apps/api/src/context",
     "apps/api/src/pos-cashier-admissions -> apps/api/src/auth",
-    "apps/api/src/pos-cashier-admissions -> apps/api/src/idempotency",
     "apps/api/src/pos-cashier-admissions -> apps/api/src/pos-operators",
     "apps/api/src/pos-operators -> apps/api/src/auth",
     "apps/api/src/pos-operators -> apps/api/src/device-health",

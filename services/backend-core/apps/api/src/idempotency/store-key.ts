@@ -17,7 +17,7 @@
  * Tenant is a separate partition on the store and is not part of this string.
  * Metric `route` labels stay on the template (strategy.md §14.1).
  */
-import { canonicalJson } from "./canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 
 export type RouteParams = Readonly<Record<string, unknown>> | undefined;
 
