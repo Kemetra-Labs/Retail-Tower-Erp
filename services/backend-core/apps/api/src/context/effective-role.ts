@@ -24,7 +24,7 @@ export const PLATFORM_ADMIN_EFFECTIVE_ROLE = "owner";
 type CallerFlags = Pick<ResolvedContext, "isPlatformAdmin" | "source">;
 
 /** A platform admin on a cookie session. A token never qualifies (RT-132 D6). */
-export function isSessionPlatformAdmin(context: CallerFlags | null | undefined): boolean {
+export function isSessionPlatformAdminContext(context: CallerFlags | null | undefined): boolean {
   return context?.isPlatformAdmin === true && context.source === "session";
 }
 
@@ -33,7 +33,7 @@ export function effectiveRoleCode(
   context: CallerFlags | null | undefined,
   membershipRole: string | null,
 ): string | null {
-  return isSessionPlatformAdmin(context) ? PLATFORM_ADMIN_EFFECTIVE_ROLE : membershipRole;
+  return isSessionPlatformAdminContext(context) ? PLATFORM_ADMIN_EFFECTIVE_ROLE : membershipRole;
 }
 
 /**
@@ -45,7 +45,7 @@ export async function findCallerRoleCode(
   client: PoolClient,
   input: { readonly tenantId: string; readonly context: ResolvedContext },
 ): Promise<string | null> {
-  if (isSessionPlatformAdmin(input.context)) return PLATFORM_ADMIN_EFFECTIVE_ROLE;
+  if (isSessionPlatformAdminContext(input.context)) return PLATFORM_ADMIN_EFFECTIVE_ROLE;
   const userId = input.context.userId;
   return userId === null
     ? null

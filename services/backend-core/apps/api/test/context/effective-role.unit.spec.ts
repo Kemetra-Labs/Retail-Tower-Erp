@@ -10,7 +10,7 @@ import {
   PLATFORM_ADMIN_EFFECTIVE_ROLE,
   effectiveRoleCode,
   findCallerRoleCode,
-  isSessionPlatformAdmin,
+  isSessionPlatformAdminContext,
 } from "../../src/context/effective-role";
 import { callerStoreScope } from "../../src/context/operator-store-scope";
 import type { MembershipRepository } from "../../src/context/membership.repository";
@@ -44,14 +44,14 @@ function repo(role: string | null): Pick<MembershipRepository, "findRoleCodeForU
   return r;
 }
 
-describe("isSessionPlatformAdmin", () => {
+describe("isSessionPlatformAdminContext", () => {
   it.each([
     ["a session platform admin", context({ isPlatformAdmin: true }), true],
     ["a session member", context(), false],
     ["a token, even flagged", context({ isPlatformAdmin: true, source: "token" }), false],
     ["no context", undefined, false],
   ])("%s", (_case, ctx, expected) => {
-    expect(isSessionPlatformAdmin(ctx)).toBe(expected);
+    expect(isSessionPlatformAdminContext(ctx)).toBe(expected);
   });
 });
 

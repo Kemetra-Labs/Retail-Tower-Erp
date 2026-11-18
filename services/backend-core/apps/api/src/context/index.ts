@@ -6,5 +6,5 @@ export {
   PLATFORM_ADMIN_EFFECTIVE_ROLE,
   effectiveRoleCode,
   findCallerRoleCode,
-  isSessionPlatformAdmin,
+  isSessionPlatformAdminContext,
 } from "./effective-role";

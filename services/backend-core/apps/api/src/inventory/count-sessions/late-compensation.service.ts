@@ -48,7 +48,7 @@ import { PLATFORM_ADMIN_EFFECTIVE_ROLE } from '../../context';
 export interface CountCaller {
   readonly tenantId: string;
   readonly userId: string;
-  /** RT-1470: a session platform admin decides as an owner (`isSessionPlatformAdmin`). */
+  /** RT-1470: a session platform admin decides as an owner (`isSessionPlatformAdminContext`). */
   readonly isPlatformAdmin?: boolean;
 }
 

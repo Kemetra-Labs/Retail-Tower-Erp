@@ -80,7 +80,7 @@ const AUDIT_TARGET = 'count_session';
 export interface CountCaller {
   readonly tenantId: string;
   readonly userId: string;
-  /** RT-1470: a session platform admin decides as an owner (`isSessionPlatformAdmin`). */
+  /** RT-1470: a session platform admin decides as an owner (`isSessionPlatformAdminContext`). */
   readonly isPlatformAdmin?: boolean;
 }
 
