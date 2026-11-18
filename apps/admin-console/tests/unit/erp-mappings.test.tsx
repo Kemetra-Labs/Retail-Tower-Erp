@@ -510,21 +510,32 @@ describe("item mappings paging (RT-1458, UX-10.16 to UX-10.21)", () => {
     expect(await itemRowEl()).toBeTruthy();
   });
 
-  test("a continuation answered 400 is a rejected cursor: the retry reads the list again from the first page", async () => {
+  test("a continuation answered 400 is a rejected cursor: Retry drops every loaded page and reads from page 1, never a stored cursor again", async () => {
     api.tenantAdminListErpnextItemMappings
       .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(page2("cursor-2"))
       .mockResolvedValueOnce(failure(400))
-      .mockResolvedValueOnce(ok({ items: [itemRow()], nextCursor: null }));
+      .mockResolvedValueOnce(ok({ items: [itemRow()], nextCursor: "cursor-1b" }));
     renderPage();
     await itemRowEl();
     fireEvent.click(loadMoreButton() as HTMLElement);
+    await itemRowEl(REF_2);
+    fireEvent.click(loadMoreButton() as HTMLElement);
     const retry = await within(itemsPanel()).findByRole("button", { name: "Retry" });
     fireEvent.click(retry);
-    await waitFor(() => expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(3));
-    // The third call carries no stale cursor for the first page.
+    await waitFor(() => expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(4));
+    // Only the first page is read again: a refetch of the two loaded pages would make a fifth call here.
+    await waitFor(() => expect(loadMoreButton()).toBeTruthy());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(4);
+    // The fourth call is the first page again, with no cursor; the second page's rows are gone.
     expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
       limit: 100,
     });
+    await waitFor(() =>
+      expect(within(itemsPanel()).queryByRole("row", { name: new RegExp(REF_2) })).toBeNull(),
+    );
+    expect(await itemRowEl()).toBeTruthy();
   });
 
   test("a filter change starts again from the first page without the old cursor", async () => {

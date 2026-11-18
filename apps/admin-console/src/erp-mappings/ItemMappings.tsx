@@ -119,7 +119,8 @@ function ConfirmStep({
  * exists, and, if reading it failed, the failure with its action right here. The rows above were
  * proven by earlier answers and stay; no total or page number is shown, the contract has none.
  * A refusal keeps its own words (a 429 says to wait, a 401 that the session ended). A rejected
- * cursor (400) cannot be cured by asking for the same page again, so it reads the list afresh.
+ * cursor (400) cannot be cured by asking for the same page again, so it drops the loaded pages and
+ * reads the list from the first.
  */
 function LoadMore({
   list,
@@ -145,7 +146,7 @@ function LoadMore({
         op="listItems"
         failure={failure}
         action={
-          <RetryButton onRetry={failure.kind === "validation" ? list.retry : list.loadMore} />
+          <RetryButton onRetry={failure.kind === "validation" ? list.reload : list.loadMore} />
         }
       />
     );

@@ -80,6 +80,8 @@ export interface ListView<T> {
   moreFailure?: MappingFailure;
   /** Reads the next page. Ignored while one is in flight. */
   loadMore: () => void;
+  /** Drops every loaded page and reads from the first again (a rejected cursor cannot be cured otherwise). */
+  reload: () => void;
   /** A failure with nothing loaded. */
   failure?: MappingFailure;
   /** A re-read failed while earlier rows stay on screen. */
@@ -111,6 +113,7 @@ function listView<T>(
     hasMore: false,
     loadingMore: false,
     loadMore: () => undefined,
+    reload: () => void result.refetch(),
     failure: hasData ? undefined : failure,
     staleFailure: hasData ? failure : undefined,
     asOf: hasData ? result.dataUpdatedAt : undefined,
@@ -141,6 +144,7 @@ export function useItemMappings(
   enabled: boolean,
 ): ListView<ErpnextItemMapping> {
   const active = enabled && Boolean(tenantId);
+  const qc = useQueryClient();
   const query = useInfiniteQuery({
     queryKey: mappingQueryKeys.items(tenantId, state),
     enabled: active,
@@ -169,6 +173,8 @@ export function useItemMappings(
     loadMore: () => {
       if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
     },
+    reload: () =>
+      void qc.resetQueries({ queryKey: mappingQueryKeys.items(tenantId, state), exact: true }),
     failure: hasData ? undefined : failure,
     staleFailure: hasData && !continuationFailed ? failure : undefined,
     asOf: hasData ? query.dataUpdatedAt : undefined,
