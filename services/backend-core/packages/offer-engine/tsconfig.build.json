@@ -10,5 +10,5 @@
     "types": []
   },
   "include": ["src/**/*"],
-  "exclude": ["__tests__", "**/*.spec.ts"]
+  "exclude": ["**/*.spec.ts"]
 }

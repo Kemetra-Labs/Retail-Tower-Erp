@@ -2,7 +2,7 @@
  * RT-1378 (moved from the POS copy) — the return settlement refuses a sale line that breaks a capture
  * invariant (the golden vectors cover the settlement itself).
  */
-import { settleOfferReturn, type SaleOfferLine } from '../src/offer-return-settlement';
+import { settleOfferReturn, type SaleOfferLine } from '@data-pulse-2/offer-engine';
 
 const OFFER = { buyQuantity: 1, getQuantity: 1, percentOff: '40', maxApplicationsPerSale: null };
 

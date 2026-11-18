@@ -11,7 +11,7 @@ import {
   scaled,
   wholeUnits,
   formatColumnAmount,
-} from '../src/offer-decimal';
+} from '@data-pulse-2/offer-engine';
 
 describe('offer decimal', () => {
   it('scales a decimal string, accepting trailing zeros beyond the scale', () => {

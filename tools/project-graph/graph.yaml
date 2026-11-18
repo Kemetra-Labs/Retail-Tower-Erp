@@ -175,11 +175,12 @@ products:
         globs: [contracts-compat/**]
         jobs: ["@bc-full", contracts/check]
       # RT-1378: the one Offer Engine money evaluator (spec 048 §6, §9) that Backend-Core and the POS till
-      # both import. The POS builds it from source before its typecheck, tests, build and package, so a
-      # change here selects the POS suites and the packaged build as well as the whole BC suite.
+      # both import. The POS builds it from source (extending tsconfig.base.json) before its typecheck,
+      # tests, build and package, and Electron loads the built output, so a change here selects the POS
+      # suites, the packaged build and the Electron smoke as well as the whole BC suite.
       offer-engine:
-        globs: [packages/offer-engine/**]
-        jobs: ["@bc-full", "@pos-full", pos/package-windows, e2e/smoke]
+        globs: [packages/offer-engine/**, tsconfig.base.json]
+        jobs: ["@bc-full", "@pos-full", pos/package-windows, pos/e2e-electron, e2e/smoke]
       # No `low` tier for BC yet. §B.3.3 makes docs/**, specs/**, .specify/**,
       # *.md and images low ONLY if no code under apps/ packages/ tools/ quotes
       # the path (RT-582 rule, e.g. deploy/README.md read by release-images.spec.ts).
