@@ -1,0 +1,42 @@
+{
+  "threshold_bytes": 512000,
+  "pr_budget_bytes": 2097152,
+  "binary_extensions": [
+    "avif",
+    "gif",
+    "gz",
+    "jpeg",
+    "jpg",
+    "mov",
+    "mp4",
+    "pdf",
+    "png",
+    "tgz",
+    "webm",
+    "webp",
+    "zip",
+    "7z"
+  ],
+  "allowlist": {
+    "apps/admin-console/docs/design/_vision/vision-1/01-overview.png": 1318007,
+    "apps/admin-console/docs/design/_vision/vision-1/02-sales-monitor.png": 1441131,
+    "apps/admin-console/docs/design/_vision/vision-1/03-reconciliation.png": 1245555,
+    "apps/admin-console/docs/design/_vision/vision-1/04-catalog-inventory.png": 1280076,
+    "apps/admin-console/docs/design/_vision/vision-1/05-unknown-items.png": 1317763,
+    "apps/admin-console/docs/design/_vision/vision-1/06-stores-tenants.png": 1495450,
+    "apps/admin-console/docs/design/_vision/vision-1/07-users-roles.png": 1385341,
+    "apps/admin-console/docs/design/_vision/vision-1/08-audit-logs.png": 1393435,
+    "apps/admin-console/docs/design/_vision/vision-1/09-settings-integrations.png": 1370682,
+    "apps/admin-console/docs/design/_vision/vision-1/10-ai-studio.png": 1388417,
+    "apps/pos/docs/design/pos-v3.5/design-reference/assets/retail-tower-hero.png": 2089892,
+    "apps/pos/specs/022-pos-ui-v4-rescue/visual-references/01-visual-system.png": 1397183,
+    "apps/pos/specs/022-pos-ui-v4-rescue/visual-references/02-sign-in.png": 1263611,
+    "apps/pos/specs/022-pos-ui-v4-rescue/visual-references/03-sale-workspace.png": 1327243,
+    "apps/pos/specs/022-pos-ui-v4-rescue/visual-references/04-checkout-tender.png": 1281936,
+    "apps/pos/specs/022-pos-ui-v4-rescue/visual-references/05-sale-success.png": 1321930,
+    "services/backend-core/docs/assets/brand/exterior/retail-tower-os-exterior-hero.png": 2089892,
+    "services/backend-core/docs/assets/brand/interior/retail-tower-os-interior-command-view.png": 1920846,
+    "services/backend-core/docs/assets/brand/retail-tower-os-command-room.png": 1786963,
+    "services/backend-core/docs/assets/brand/retail-tower-os-hero-exterior.png": 2106476
+  }
+}

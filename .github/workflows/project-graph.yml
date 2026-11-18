@@ -34,9 +34,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # fetch-depth 2: HEAD plus its parents. On a pull request HEAD is the merge commit, so
+      # HEAD^1 is the base and `HEAD^1..HEAD` is exactly the change; on a push it is the previous
+      # commit of main. The size guard (RT-1460) diffs against it without fetching more.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -68,6 +72,16 @@ jobs:
 
       - name: Shared dependency guard (report mode)
         run: python .github/scripts/shared_deps.py check --repo "$GITHUB_WORKSPACE" --mode report
+
+      # RT-1460 (audit A-19): stop binaries (design captures) from growing the clone. Fails a change
+      # that adds or grows a binary over 500 KB outside LFS or the shrink-only grandfather list
+      # (tools/size-guard/config.json), or adds or grows more than 2 MiB of binaries at once. Never
+      # deletes anything. Going-forward rule: apps/pos/docs/design/README.md.
+      - name: Size guard logic tests
+        run: python -m unittest discover -s tools/size-guard -v
+
+      - name: Binary size guard
+        run: python tools/size-guard/size_guard.py check --repo "$GITHUB_WORKSPACE" --base HEAD^1
 
   # The job `name:` is the graph key (static rule 5): a literal, no expression, no `if:`, no
   # `paths:` filter. A selected job that is skipped fails the gate, so this always runs.
