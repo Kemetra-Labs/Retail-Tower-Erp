@@ -82,7 +82,9 @@ function SuspendOffer({
         <Banner
           variant="danger"
           message={t(
-            failed === "refused" ? "storeDeletion.zone.suspendFailed" : "storeDeletion.zone.suspendUnclear",
+            failed === "refused"
+              ? "storeDeletion.zone.suspendFailed"
+              : "storeDeletion.zone.suspendUnclear",
           )}
         />
       )}

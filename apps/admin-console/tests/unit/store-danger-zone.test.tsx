@@ -163,7 +163,9 @@ describe("StoreDangerZone", () => {
     await screen.findByRole("region", { name: "Delete the store" });
     fireEvent.click(screen.getByRole("button", { name: "Suspend store" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Suspend store" })[0]);
-    expect(await screen.findByText(/could not confirm whether the store was suspended/)).toBeTruthy();
+    expect(
+      await screen.findByText(/could not confirm whether the store was suspended/),
+    ).toBeTruthy();
     expect(screen.queryByText(/Nothing changed/)).toBeNull();
   });
 
