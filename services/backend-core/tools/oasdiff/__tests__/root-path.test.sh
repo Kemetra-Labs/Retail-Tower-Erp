@@ -5,6 +5,7 @@
 #
 # Usage: bash tools/oasdiff/__tests__/root-path.test.sh
 # Needs oasdiff on PATH (or OASDIFF=...) and node. Not wired into CI.
+# Includes the RT-1458 stale-entry cases: an inherited acknowledgement fails check.sh.
 # SCRIPT_SRC=<dir holding tools/oasdiff> tests another copy of the scripts.
 set -euo pipefail
 
@@ -76,8 +77,18 @@ for layout in standalone nested; do
   check=(bash -c 'cd "$1" && shift && "$@"' _ "$p" bash tools/oasdiff/check.sh)
   base="$(git -C "$p" rev-parse HEAD)"
 
+  # RT-1458 (A-11): an inherited acknowledgement (on the base and still in the head) is stale
+  # and fails the gate, with the message that says what to do. The fixture base carries one.
+  expect 1 'inherited entr.*remove them' "$layout: inherited acknowledgement fails the gate" -- "${check[@]}" "$base"
+  expect 1 'RT-801 fixture: inherited acknowledgement' "$layout: the stale line is named" -- "${check[@]}" "$base"
+  # Removing the inherited line is never stale: it is no longer in the head.
+  sed -i '/^RT-801 fixture: inherited acknowledgement$/d' "$p/tools/oasdiff/breaking-ignore.txt"
+  expect 0 'no unacknowledged' "$layout: removing the inherited line passes" -- "${check[@]}" "$base"
+  # A line added by this change is honoured (it is not on the base) and is not stale.
+  echo "RT-1458 fixture: added acknowledgement" >>"$p/tools/oasdiff/breaking-ignore.txt"
+  expect 0 'Acknowledged breaks added by this change' "$layout: an added line is honoured, not stale" -- "${check[@]}" "$base"
+  sed -i '/^RT-1458 fixture: added acknowledgement$/d' "$p/tools/oasdiff/breaking-ignore.txt"
   expect 0 'no unacknowledged' "$layout: unchanged contract passes" -- "${check[@]}" "$base"
-  expect 0 'inherited entr' "$layout: inherited acknowledgement is read from the base" -- "${check[@]}" "$base"
   # Run from an unrelated directory: the script must not depend on the caller's cwd.
   expect 0 'no unacknowledged' "$layout: cwd-independent" -- \
     bash -c 'cd "$1" && shift && "$@"' _ "$TMP" bash "$p/tools/oasdiff/check.sh" "$base"
@@ -85,6 +96,12 @@ for layout in standalone nested; do
   # Breaking change: drop /b from the head contract.
   sed -i '/^  \/b:/,$d' "$p/packages/contracts/openapi/api.yaml"
   expect 1 'api-path-removed|removed' "$layout: removed path fails the gate" -- "${check[@]}" "$base"
+  # RT-1458: a line added by this change that matches the real finding suppresses it, so the pass
+  # depends on check.sh handing the ignore file to oasdiff, not on the banner it prints.
+  echo "RT-1458 fixture consumer:none: in API GET /b api path removed without deprecation [api-path-removed-without-deprecation]." \
+    >>"$p/tools/oasdiff/breaking-ignore.txt"
+  expect 0 'no unacknowledged' "$layout: an added acknowledgement suppresses the real break" -- "${check[@]}" "$base"
+  sed -i '/^RT-1458 fixture consumer:none:/d' "$p/tools/oasdiff/breaking-ignore.txt"
   git -C "$p" checkout -q -- packages/contracts/openapi/api.yaml
 
   expect 1 'is not a commit' "$layout: unknown base ref fails closed" -- "${check[@]}" no-such-ref
