@@ -78,9 +78,22 @@ function iso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
 }
 
+type QueueColumns = Pick<DeviceHealthReadRow, "heartbeat_at" | "sale_queue_pending" | "sale_queue_dead_letter" | "sale_queue_held">;
+
+/**
+ * The one rule for an unknown sale queue (RT-1453: the fleet-health view and the store-deletion facts share it):
+ * a till has a queue only when it has a stored beat AND the beat carries all three counters. NULL counts (no beat,
+ * or a beat without a queue) are unknown, never zeros.
+ */
+export function hasStoredSaleQueue<T extends QueueColumns>(
+  row: T,
+): row is T & { readonly heartbeat_at: Date; readonly sale_queue_pending: number; readonly sale_queue_dead_letter: number; readonly sale_queue_held: number } {
+  return row.heartbeat_at !== null && row.sale_queue_pending !== null && row.sale_queue_dead_letter !== null && row.sale_queue_held !== null;
+}
+
 /** NULL counts (no beat, or a beat without a queue) are unknown: `null`, never zeros. */
 function saleQueueOf(row: DeviceHealthReadRow): SaleQueueViewBody | null {
-  if (row.heartbeat_at === null || row.sale_queue_pending === null || row.sale_queue_dead_letter === null || row.sale_queue_held === null) {
+  if (!hasStoredSaleQueue(row)) {
     return null;
   }
   return {

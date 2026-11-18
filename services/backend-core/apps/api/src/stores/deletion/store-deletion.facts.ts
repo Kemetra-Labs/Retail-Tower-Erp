@@ -20,9 +20,12 @@ import { createHash } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
+import { listActiveWarehouseRefsOfStore } from "../../catalog";
 import { canonicalJson } from "../../common/hashing/canonical-json";
 import { readStoreDeviceFacts } from "../../device-health";
 import { countOpenCountSessionsOfStore, listOpenCountSessionsOfStore } from "../../inventory";
+import { listSpecificAccessMembersOfStore } from "../../memberships";
+import { countOffersInPackOfStore } from "../../offers";
 import { countStoreOpenShifts, listStoreOpenShifts, readStoreOpenShifts } from "../../pos-shifts";
 
 export const STORE_HAS_OPEN_SHIFT = "store_has_open_shift";
@@ -153,30 +156,29 @@ export async function readStoreDeletionFacts(
       ? (await listStoreOpenShifts(client, shiftScope, shiftOptions)).map((r) => ({ ...r, forceCloseEligible: null }))
       : await readStoreOpenShifts(client, shiftScope, shiftOptions);
   const sessions = await listOpenCountSessionsOfStore(client, storeId, MAX_COUNT_SESSIONS);
-  const warehouses = await client.query<{ ref: string }>(
-    `SELECT erpnext_warehouse_ref AS ref FROM erpnext_warehouse_map
-      WHERE store_id = $1 AND retired_at IS NULL ORDER BY id LIMIT $2`,
-    [storeId, MAX_WAREHOUSES],
-  );
-  const members = await client.query<{ user_id: string; role_code: string }>(
-    `SELECT m.user_id, r.code AS role_code
-       FROM memberships m
-       JOIN roles r ON r.id = m.role_id AND r.tenant_id = m.tenant_id
-      WHERE m.deleted_at IS NULL
-        AND m.store_access_kind = 'specific'
-        AND EXISTS (SELECT 1 FROM store_access sa WHERE sa.membership_id = m.id AND sa.store_id = $1)
-        AND (SELECT count(*) FROM store_access sb
-               JOIN stores sst ON sst.id = sb.store_id AND sst.tenant_id = sb.tenant_id
-              WHERE sb.membership_id = m.id AND sst.deleted_at IS NULL) = 1
-      ORDER BY m.user_id
-      LIMIT $2`,
-    [storeId, MAX_MEMBERS],
-  );
-  const offers = await client.query<{ n: number }>(
-    `SELECT count(DISTINCT offer_id)::int AS n
-       FROM offer_pack_eligible_products WHERE store_id = $1 AND to_revision IS NULL`,
-    [storeId],
-  );
+  const warehouseRefs = await listActiveWarehouseRefsOfStore(client, storeId, MAX_WAREHOUSES);
+  // Single-store members: the memberships port says who has specific access to this store and to which
+  // stores; "only store" is decided here against the stores of this module (a deleted store does not count).
+  const candidates = await listSpecificAccessMembersOfStore(client, storeId);
+  const allStoreIds = [...new Set(candidates.flatMap((c) => c.storeIds))];
+  // No candidate, no read: a store with no specific-access member (the common case) costs no extra statement.
+  // The two reads are separate statements; a concurrent soft-delete of a member's other store between them can only
+  // make that member a single-store member, the state it would be in a moment later, and the store row is locked.
+  const liveStores =
+    allStoreIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await client.query<{ id: string }>(
+              `SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND deleted_at IS NULL`,
+              [allStoreIds, tenantId],
+            )
+          ).rows.map((r) => r.id),
+        );
+  const singleStoreMembers = candidates
+    .filter((c) => c.storeIds.filter((id) => liveStores.has(id)).length === 1)
+    .slice(0, MAX_MEMBERS);
+  const offersRebuiltCount = await countOffersInPackOfStore(client, storeId);
   return {
     counts,
     store,
@@ -186,17 +188,11 @@ export async function readStoreDeletionFacts(
       terminalLabel: r.terminal.label,
       forceCloseEligible: r.forceCloseEligible,
     })),
-    devices: deviceFacts.slice(0, MAX_DEVICES).map((d) => ({
-      deviceId: d.deviceId,
-      label: d.label,
-      trustState: d.trustState,
-      lastSeenAt: d.lastSeenAt,
-      queue: d.queue,
-    })),
+    devices: deviceFacts.slice(0, MAX_DEVICES),
     openCountSessions: sessions,
-    warehouseMappings: warehouses.rows.map((r) => r.ref),
-    singleStoreMembers: members.rows.map((r) => ({ userId: r.user_id, roleCode: r.role_code })),
-    offersRebuiltCount: offers.rows[0]?.n ?? 0,
+    warehouseMappings: warehouseRefs,
+    singleStoreMembers: singleStoreMembers.map((m) => ({ userId: m.userId, roleCode: m.roleCode })),
+    offersRebuiltCount,
   };
 }
 
