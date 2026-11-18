@@ -3,7 +3,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
-import { PaymentSurface } from '../../../../src/renderer/ui/payments/PaymentSurface.js';
+import {
+  PaymentSurface,
+  type PaymentSurfaceProps,
+} from '../../../../src/renderer/ui/payments/PaymentSurface.js';
 import { useOperatorSessionStore } from '../../../../src/renderer/stores/operator-session-store.js';
 import { usePaymentStore } from '../../../../src/renderer/stores/payment-store.js';
 import { useFeatureFlagsStore } from '../../../../src/renderer/stores/feature-flags-store.js';
@@ -54,7 +57,7 @@ function view(state: PaymentAttemptRendererView['state']): PaymentAttemptRendere
   };
 }
 
-function bridge(read: ReturnType<typeof vi.fn>): Parameters<typeof PaymentSurface>[0] {
+function bridge(read: ReturnType<typeof vi.fn>): PaymentSurfaceProps {
   return {
     _testBridge: {
       payments: {
@@ -67,7 +70,7 @@ function bridge(read: ReturnType<typeof vi.fn>): Parameters<typeof PaymentSurfac
         subscribe: vi.fn(),
       },
       tender: { apply: vi.fn(), reverse: vi.fn(), read: vi.fn() },
-    } as unknown as NonNullable<Parameters<typeof PaymentSurface>[0]>['_testBridge'],
+    } as unknown as NonNullable<PaymentSurfaceProps['_testBridge']>,
   };
 }
 

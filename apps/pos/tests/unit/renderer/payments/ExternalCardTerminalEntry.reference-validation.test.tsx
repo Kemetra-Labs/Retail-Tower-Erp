@@ -29,7 +29,7 @@ function setup(props: Partial<ComponentProps<typeof ExternalCardTerminalEntry>> 
       onConfirm={onConfirm}
     />,
   );
-  const refInput = screen.getByTestId('external-card-reference-input');
+  const refInput = screen.getByTestId<HTMLInputElement>('external-card-reference-input');
   const confirm = screen.getByTestId('external-card-confirm');
   return { ...view, onConfirm, refInput, confirm };
 }

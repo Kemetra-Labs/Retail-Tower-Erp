@@ -44,7 +44,6 @@ import '@testing-library/jest-dom/vitest';
 
 import { VoucherEntry } from '../../../../src/renderer/ui/payments/VoucherEntry.js';
 import type { TenderApplyRequest, TenderApplyResponse } from '../../../../src/shared/bridge-api.js';
-import type { RefusalReason } from '../../../../src/shared/payments/types.js';
 
 afterEach(() => {
   cleanup();
@@ -76,10 +75,13 @@ const ENVELOPE_REFUSAL_REASONS = [
   'tenant_isolation',
 ] as const;
 
+// `reason` is a plain string on purpose: the 8 voucher reasons include
+// `validation_failure`, which is not a member of the typed `RefusalReason`
+// union, and the component must collapse any refusal to the same copy.
 async function driveRefusal(
-  reason: RefusalReason,
+  reason: string,
 ): Promise<{ refusedNode: HTMLElement; container: HTMLElement }> {
-  const refused: TenderApplyResponse = { kind: 'refused', reason };
+  const refused = { kind: 'refused', reason } as TenderApplyResponse;
   const bridge = vi.fn<(req: TenderApplyRequest) => Promise<TenderApplyResponse>>(
     async () => await Promise.resolve(refused),
   );
