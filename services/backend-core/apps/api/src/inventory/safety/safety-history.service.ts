@@ -22,7 +22,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { runWithTenantContext, type TrackingHoldKind } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { HOLD_COLUMNS, toHoldBody, type HoldRow, type TrackingHoldBody } from './safety.common';
 import {
   decodeSafetyHistoryCursorOrReject,

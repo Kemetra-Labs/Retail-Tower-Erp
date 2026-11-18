@@ -18,7 +18,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 
 const PILOT_TENANT_ADDED_ACTION = "pos.pilot_tenant.added";
 const PILOT_TENANT_REMOVED_ACTION = "pos.pilot_tenant.removed";

@@ -36,7 +36,7 @@ import {
 } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { MembershipRepository } from "../../context/membership.repository";
 import type { ResolvedContext } from "../../context/types";
 import { applyPostingSignalToEffects } from "../../inventory/effect-integration/effect-integration.transitions";

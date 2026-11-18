@@ -57,7 +57,7 @@ import { createLogger } from "@data-pulse-2/shared";
 import cookieParser from "cookie-parser";
 import request from "supertest";
 
-import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/database";
 import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,

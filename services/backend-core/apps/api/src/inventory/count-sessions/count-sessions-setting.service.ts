@@ -24,7 +24,7 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { MembershipRepository } from '../../context/membership.repository';
 import { writeAudit } from '../position-events/position-event.writer';
 import { readBarrierInputs } from './count-barrier';

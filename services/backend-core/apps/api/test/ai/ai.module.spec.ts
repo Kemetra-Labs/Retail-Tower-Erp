@@ -13,7 +13,7 @@ import { Test } from "@nestjs/testing";
 import { Pool } from "pg";
 
 import { AiGatewayEntitlementPort } from "../../src/ai-entitlements/gateway-entitlement.port";
-import { PG_POOL } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 
 import { DisabledModelProvider } from "../../src/ai/adapters/disabled/disabled-model-provider";
 import { AiModule } from "../../src/ai/ai.module";

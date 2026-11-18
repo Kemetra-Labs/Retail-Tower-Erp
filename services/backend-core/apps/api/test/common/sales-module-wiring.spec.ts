@@ -13,7 +13,7 @@ import "reflect-metadata";
 
 import { Test } from "@nestjs/testing";
 
-import { PG_POOL } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { SalesModule } from "../../src/catalog/sales/sales.module";
 
 const fakePool = { query: jest.fn(), connect: jest.fn(), end: jest.fn() };

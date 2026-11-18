@@ -29,7 +29,8 @@ import { Module } from "@nestjs/common";
 import type { Pool } from "pg";
 import type request from "supertest";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../../../../src/auth/auth.module";
+import { AuthModule } from "../../../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/database";
 import { PosDeviceAuthGuard } from "../../../../src/auth/pos-device-auth.guard";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";
 import { SaleQuarantineController } from "../../../../src/catalog/sales/quarantine/sale-quarantine.controller";

@@ -45,7 +45,8 @@ import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../audit/audit-job.enqueuer";
 import { OutboxAuditEnqueuerModule } from "../audit/outbox-audit-enqueuer.module";
-import { AuthModule, PG_POOL, REDIS_CLIENT } from "../auth/auth.module";
+import { AuthModule, REDIS_CLIENT } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { createApiLogger } from "../common/api-logger";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { INFLIGHT_REDIS, InProgressMarker, type InflightRedis } from "./in-progress-marker";

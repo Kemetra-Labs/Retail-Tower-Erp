@@ -57,7 +57,7 @@ import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,
 } from "../../src/audit/audit-job.enqueuer";
-import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { ReadDownModule } from "../../src/catalog/read-down/read-down.module";
 import { SalesModule } from "../../src/catalog/sales/sales.module";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";

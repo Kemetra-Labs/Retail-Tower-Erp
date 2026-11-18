@@ -38,7 +38,7 @@ import {
 } from "../../src/auth/operator-token-verifier";
 import { PosShiftsModule } from "../../src/pos-shifts/pos-shifts.module";
 import { PosShiftsService } from "../../src/pos-shifts/pos-shifts.service";
-import { PG_POOL } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor, ROOT_LOGGER } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";

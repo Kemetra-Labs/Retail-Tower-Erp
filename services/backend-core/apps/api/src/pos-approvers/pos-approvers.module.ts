@@ -20,7 +20,8 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Logger } from "@data-pulse-2/shared";
 import type { Pool } from "pg";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
 import { createApiLogger } from "../common/api-logger";
 import { DeviceRepository } from "../pos-operators/device.repository";

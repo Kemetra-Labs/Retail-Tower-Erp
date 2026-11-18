@@ -27,7 +27,7 @@ import {
 import type { Pool } from "pg";
 
 import type { AuthedRequest } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/database-pools";
+import { PG_POOL } from "../database";
 import { assignRequestId } from "../common/request-id.interceptor";
 import { MembershipRepository } from "../context/membership.repository";
 import {

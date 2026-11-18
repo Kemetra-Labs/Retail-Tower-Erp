@@ -27,7 +27,7 @@ import type { Pool } from "pg";
 
 import { runWithTenantContext } from "@data-pulse-2/db";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { MembershipRepository } from "../../context/membership.repository";
 import type { TenantContextRequest } from "../../context/types";
 import {

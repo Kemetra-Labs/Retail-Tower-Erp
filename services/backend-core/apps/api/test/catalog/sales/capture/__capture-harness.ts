@@ -41,7 +41,7 @@ import {
   INFLIGHT_REDIS,
   InProgressMarker,
 } from "../../../../src/idempotency/in-progress-marker";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { PosOperatorAuthGuard } from "../../../../src/auth/pos-operator-auth.guard";
 import { PosOperatorEnvelopeSaleGuard } from "../../../../src/auth/pos-operator-envelope-sale.guard";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";

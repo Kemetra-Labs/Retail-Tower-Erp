@@ -111,7 +111,7 @@ import type { Pool, PoolClient } from "pg";
 import { runWithSystemPrivilege } from "@data-pulse-2/db";
 
 import type { Principal } from "./auth.guard";
-import { PG_POOL } from "./auth.module";
+import { PG_POOL } from "../database";
 import { MembershipRepository } from "../context/membership.repository";
 import type { TenantContextRequest } from "../context/types";
 import {
