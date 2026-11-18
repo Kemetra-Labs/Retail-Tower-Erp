@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 
 import type { PoolClient } from "pg";
 
-import { canonicalJson } from "../../idempotency/canonical-json";
+import { canonicalJson } from "../../common/hashing/canonical-json";
 import { readStoreDeviceFacts } from "../../device-health";
 import { countOpenCountSessionsOfStore, listOpenCountSessionsOfStore } from "../../inventory";
 import { countStoreOpenShifts, listStoreOpenShifts, readStoreOpenShifts } from "../../pos-shifts";

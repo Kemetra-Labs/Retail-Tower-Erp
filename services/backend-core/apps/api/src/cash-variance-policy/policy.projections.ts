@@ -18,7 +18,7 @@ import { z } from "zod";
 
 import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
 import { UUID_RE } from "../common/ids";
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import { revisionState, type ResolvedPolicy, type RevisionState } from "./policy-resolution";
 import type { PolicyValue } from "./policy-value";
 import type { RevisionKeyset, StoredRevision } from "./policy.repository";

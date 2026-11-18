@@ -54,7 +54,7 @@ import type { Pool, PoolClient } from "pg";
 
 import { OpenPolicyFlagger } from "../cash-variance-policy/policy-open-flags";
 import { deriveCloseApproval } from "../cash-variance-policy/policy-value";
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import type { ShiftCloseApproverUnverifiedReason } from "../observability/metrics/api.metrics";
 import type { DeviceScope } from "../pos-cashier-admissions/device-scope";
 import { closeFitsCurrency, isCashUpConsistent } from "../common/money/shift-cash-arithmetic";

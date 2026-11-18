@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { bodyFingerprint, composeTuple } from "../../src/idempotency/idempotency.interceptor";
-import { canonicalJson } from "../../src/idempotency/canonical-json";
+import { canonicalJson } from "../../src/common/hashing/canonical-json";
 
 describe("#614 canonical idempotency fingerprint", () => {
   it("hashes reordered object keys to the same fingerprint", () => {
