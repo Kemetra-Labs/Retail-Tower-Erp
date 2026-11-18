@@ -34,9 +34,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # fetch-depth 2: HEAD plus its parents. On a pull request HEAD is the merge commit, so
+      # HEAD^1 is the base and `HEAD^1..HEAD` is exactly the change; on a push it is the previous
+      # commit of main. The size guard (RT-1460) diffs against it without fetching more.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -68,6 +72,25 @@ jobs:
 
       - name: Shared dependency guard (report mode)
         run: python .github/scripts/shared_deps.py check --repo "$GITHUB_WORKSPACE" --mode report
+
+      # RT-1460 (audit A-19): stop binaries (design captures) from growing the clone. Fails a change
+      # that adds or grows a binary over 500 KiB outside LFS or the shrink-only grandfather list
+      # (tools/size-guard/config.json), or adds or grows more than 2 MiB of binaries at once. Never
+      # deletes anything. Going-forward rule: apps/pos/docs/design/README.md.
+      - name: Size guard logic tests
+        run: python -m unittest discover -s tools/size-guard -v
+
+      # Runs the BASE copy of the script (HEAD^1), so a change cannot edit the guard to pass itself;
+      # the PR's own copy runs only when the base has none yet (the PR that introduces it).
+      - name: Binary size guard
+        run: |
+          set -euo pipefail
+          guard=tools/size-guard/size_guard.py
+          if git cat-file -e "HEAD^1:$guard" 2>/dev/null; then
+            git show "HEAD^1:$guard" > "$RUNNER_TEMP/size_guard_base.py"
+            guard="$RUNNER_TEMP/size_guard_base.py"
+          fi
+          python "$guard" check --repo "$GITHUB_WORKSPACE" --base HEAD^1
 
       # RT-1455: the Connector subtree is published as the distribution mirror and pulled onto every
       # bench, so research and proof scripts live under docs/research/erpnext-connector/ at the repo
