@@ -151,7 +151,7 @@ async function openDrawer(page: Page, name: string, t: Tr) {
   return drawer;
 }
 
-test("directory: names and slugs only, the read-only note; axe light and dark, focus rings in forced colors", async ({
+test("directory: names and slugs only, the suspended note; axe light and dark, focus rings in forced colors", async ({
   page,
   t,
 }) => {
@@ -172,7 +172,23 @@ test("directory: names and slugs only, the read-only note; axe light and dark, f
   await expectNoAxeViolations(page, "directory dark");
   await page.emulateMedia({ forcedColors: "active" });
   await expectFocusRing(page.getByLabel(t("platform.tenants.search.label")), "search");
-  await expectFocusRing(rows.first().getByRole("button"), "row action");
+  // RT-1468: a non-member row carries two actions; both show a ring.
+  await expectFocusRing(
+    rows
+      .first()
+      .getByRole("button", {
+        name: t("platform.tenants.action.switchFor", { name: "أسواق الدلتا" }),
+      }),
+    "row action: open",
+  );
+  await expectFocusRing(
+    rows
+      .first()
+      .getByRole("button", {
+        name: t("platform.tenants.action.startFor", { name: "أسواق الدلتا" }),
+      }),
+    "row action: start session",
+  );
 });
 
 test("search is client-side over name and slug, with a no-match state", async ({ page, t }) => {
