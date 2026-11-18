@@ -30,7 +30,7 @@ import { AuthService } from "../../auth/auth.service";
 import { PG_POOL } from "../../auth/database-pools";
 import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../auth/rate-limit";
 import { StoresRepository } from "../stores.repository";
-import { ConsoleActionRateLimited } from "./console-429";
+import { ConsoleActionRateLimited } from "../../console-action-cap/console-429";
 import { type ReauthBinding, ReauthGrantStore, type ReauthPurpose } from "./reauth-grant.store";
 import { storeDeletionOwnerOnly, storeNotFound } from "./store-deletion.errors";
 

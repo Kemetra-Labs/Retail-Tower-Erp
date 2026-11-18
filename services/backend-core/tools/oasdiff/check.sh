@@ -13,7 +13,11 @@
 # Acknowledged breaks: only lines ADDED to breaking-ignore.txt by this change
 # (relative to <base-ref>) are honoured. Lines already on the base are inherited
 # acknowledgements for changes that have merged; they cannot match again and are
-# dropped, so a suppression never outlives the PR that introduced it.
+# dropped, so a suppression never outlives the PR that introduced it. A line that
+# is on the base AND still in the head is stale and FAILS the gate (RT-1458, the
+# same rule boundary-todo.yaml applies to stale entries). Deleting a line is
+# never stale: it is no longer in the head. A base without contracts has nothing
+# to compare and exits 0 before this check (the first-contract case).
 #
 # Each added line is also checked by consumer-impact.mjs (RT-674, report mode).
 set -euo pipefail
@@ -84,7 +88,11 @@ if [[ -s "$WORK/ignore.txt" ]]; then
 fi
 stale=$(grep -cxF -f "$WORK/base-ignore.txt" "$WORK/head-ignore.txt" 2>/dev/null || true)
 if [[ "${stale:-0}" -gt 0 ]]; then
-  echo "Note: $stale inherited entr(y/ies) in breaking-ignore.txt are no longer applied; remove them."
+  echo "::error::$stale inherited entr(y/ies) in breaking-ignore.txt are no longer applied; remove them." >&2
+  echo "Stale inherited entries (delete these lines from tools/oasdiff/breaking-ignore.txt;" >&2
+  echo "if the same break recurs in this change, reword the line, e.g. a new reason or Jira key, so it is a new entry):" >&2
+  grep -xF -f "$WORK/base-ignore.txt" "$WORK/head-ignore.txt" | sed 's/^/  /' >&2
+  exit 1
 fi
 
 # Consumer impact of the new acknowledgements (RT-674): each line must carry a

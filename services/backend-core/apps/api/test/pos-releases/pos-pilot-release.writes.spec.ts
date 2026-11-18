@@ -62,6 +62,8 @@ const PINS = {
   enabled: true,
   audience: "retail-tower-backend-core",
   repository: "Kemetra-Labs/Retail-Tower-Erp",
+  repositoryId: "1430288487",
+  repositoryOwnerId: "340160100",
   environment: "release-pos-pilot-promote",
   ref: "refs/heads/main",
   workflowRef: "Kemetra-Labs/Retail-Tower-Erp/.github/workflows/promote-pos-pilot.yml@refs/heads/main",
@@ -121,6 +123,8 @@ async function token(options: { claims?: Record<string, unknown>; audience?: str
   const now = Math.floor(Date.now() / 1000);
   return await new SignJWT({
     repository: PINS.repository,
+    repository_id: PINS.repositoryId,
+    repository_owner_id: PINS.repositoryOwnerId,
     environment: PINS.environment,
     ref: PINS.ref,
     job_workflow_ref: PINS.workflowRef,
@@ -217,6 +221,8 @@ describe("RT-1298 register: only the genuine promotion workflow writes", () => {
   });
 
   it.each([
+    ["the repository id (RT-1459)", { repository_id: "999999999" }],
+    ["the repository owner id (RT-1459)", { repository_owner_id: "999999999" }],
     ["the environment", { environment: "other-environment" }],
     ["the ref", { ref: "refs/heads/feature" }],
     ["the repository", { repository: "Kemetra-Labs/Other" }],

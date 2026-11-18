@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Catalog — ERPNext Item Mapping API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Spec 013 (product-master-from-erpnext) — the tenant-admin suggest/confirm
     review surface for the `erpnext_item_map` identity mapping
@@ -60,6 +60,14 @@ info:
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
 
+    **1.2.0-draft (RT-1458, audit A-17, additive).** The list operation gains the
+    optional `limit` (1 to 500) and `cursor` query parameters and a `nextCursor`
+    response property. Keyset order is `suggested_at DESC, id`. When `limit` is
+    absent the operation behaves as before (every active mapping, `nextCursor`
+    null), so existing callers are unaffected. Making a default limit apply when
+    `limit` is absent is a separate, later change that ships only after the
+    Admin-Console pages through the list.
+
 servers:
   - url: https://api.example.com
 
@@ -87,22 +95,52 @@ paths:
             type: string
             enum: [suggested, confirmed]
           description: Optional lifecycle filter. Omit for all active mappings.
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+          description: >
+            Page size (RT-1458). Omit to receive every active mapping in one
+            response, the behaviour before paging was added; a later contract
+            version will apply a default page size when this is absent.
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+          description: >
+            Opaque token from the previous page's `nextCursor` (RT-1458).
+            Clients MUST treat it as opaque. A token this operation did not
+            issue is `400 validation_error`. Combine it with the same `state`
+            and `limit` as the page that issued it.
       responses:
         "200":
-          description: The tenant's active mappings.
+          description: >
+            The tenant's active mappings, newest suggestion first
+            (`suggested_at DESC, id`).
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [items, nextCursor]
                 properties:
                   items:
                     type: array
                     items:
                       $ref: "#/components/schemas/ErpnextItemMapping"
+                  nextCursor:
+                    type: [string, "null"]
+                    description: >
+                      Pass as `cursor` to read the next page. `null` on the
+                      last page, and whenever `limit` was not sent.
         "400":
-          description: Bad request (invalid query param).
+          description: Bad request (invalid query param, or a `cursor` this operation did not issue).
           content:
             application/json:
               schema:

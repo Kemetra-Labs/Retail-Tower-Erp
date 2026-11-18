@@ -57,7 +57,7 @@ import {
 } from "./console-force-actions.dto";
 import type { ForceClosePreviewBody, OpenShiftListBody } from "./console-force-actions.projections";
 import { ConsoleForceActionsService, ConsoleStoreNotFoundError } from "./console-force-actions.service";
-import { ForceActionRateLimitedError } from "./force-action-cap";
+import { ForceActionRateLimitedError } from "../console-action-cap/force-action-cap";
 import { ForceActionAccessGuard, forceActionActor, type ForceActionRequest } from "./force-action-access.guard";
 
 /** The one 404 body of a missing store: equal to the guard's refusal (FR-ISO-4). */

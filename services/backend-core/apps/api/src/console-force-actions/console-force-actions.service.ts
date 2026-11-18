@@ -24,7 +24,7 @@ import { previewFingerprint, readForceCloseFacts, type ForceCloseFacts } from ".
 import { ShiftForceCloseRepository, toStoreShift, type StoreShiftRow } from "../pos-shifts/shift-force-close.repository";
 import { ShiftForceCloseService, type ConsoleForceClosedShiftProjection } from "../pos-shifts/shift-force-close.service";
 import { formatMoney } from "../pos-shifts/shift-money";
-import { enforceForceActionCap, insertForceActionAudit } from "./force-action-cap";
+import { enforceForceActionCap, insertForceActionAudit } from "../console-action-cap/force-action-cap";
 import {
   buildOpenShiftSummary,
   toOpenShiftListBody,

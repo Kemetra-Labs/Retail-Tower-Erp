@@ -10,25 +10,33 @@
  *                       S/I/U, user_consents S/I, and the one `restricted` entitlement
  *                       INSERT pinned to the new tenant;
  *   provisioning_sweep  the worker sweep: erp_provisioning_request S/U;
- *   provisioner_lookup  the provisioner bearer verifier: erp_provisioner_credential S.
+ *   provisioner_lookup  the provisioner bearer verifier: erp_provisioner_credential S;
+ *   membership_bootstrap (0120, RT-1457) the request bootstrap reads of the auth and context
+ *                       guards: SELECT only on memberships, roles, tenants, stores, store_access.
  *
  * Every other table is reached through the tenant pin (`tenantId`), exactly like a
- * tenant session. The setting holds one value at a time, so the three privileges
+ * tenant session. The setting holds one value at a time, so the privileges
  * are mutually exclusive. Like `runAsProvisioner` (RT-1358), this always opens the
  * transaction with `app.is_platform_admin = 'false'`, reads the settings back and
  * fails closed if they did not hold. It never sets `app.is_provisioner`.
  *
  * No 0111 policy names `app.is_platform_admin`, so none of these sessions reaches a
  * platform-admin policy (the 0110 cross-tenant SELECT among them). A fence test pins
- * this file as the only setter and each value to its one call site.
+ * this file as the only setter and each narrow value (all but `membership_bootstrap`) to its one
+ * call site; `membership_bootstrap` is shared by the request bootstrap reads (RT-1457).
  */
 import type { Pool, PoolClient } from "pg";
 
 import { runWithTenantContext } from "./tenant-context";
 
-export type SystemPrivilege = "signup" | "provisioning_sweep" | "provisioner_lookup";
+export type SystemPrivilege = "signup" | "provisioning_sweep" | "provisioner_lookup" | "membership_bootstrap";
 
-const PRIVILEGES: ReadonlySet<string> = new Set<SystemPrivilege>(["signup", "provisioning_sweep", "provisioner_lookup"]);
+const PRIVILEGES: ReadonlySet<string> = new Set<SystemPrivilege>([
+  "signup",
+  "provisioning_sweep",
+  "provisioner_lookup",
+  "membership_bootstrap",
+]);
 
 export interface SystemContext {
   /** The tenant to pin (tenant-scoped reads and writes), or null for none (the NIL tenant). */
