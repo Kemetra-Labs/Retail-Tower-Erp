@@ -12,7 +12,8 @@
 import { Module } from "@nestjs/common";
 import type { Pool } from "pg";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import { PosWriteRateLimitGuard } from "../auth/pos-write-rate-limit.guard";
 import { DeviceRepository } from "../pos-operators/device.repository";
 import { DeviceRotationAuthGuard } from "./device-rotation-auth.guard";

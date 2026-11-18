@@ -26,7 +26,7 @@ import { generateRawToken } from "@data-pulse-2/auth";
 import { newId } from "@data-pulse-2/shared";
 
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { AuthGuard } from "../../../../src/auth/auth.guard";
 import { AuthTokenRepository } from "../../../../src/auth/auth-token.repository";
 import { ConnectorAuthGuard } from "../../../../src/auth/connector-auth.guard";

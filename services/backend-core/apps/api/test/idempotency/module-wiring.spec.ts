@@ -8,7 +8,8 @@ import { firstValueFrom, of } from "rxjs";
 import { IdempotencyKeyStore, type Logger } from "@data-pulse-2/shared";
 
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../src/audit/audit-job.enqueuer";
-import { PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { ROOT_LOGGER } from "../../src/common/logging.interceptor";
 import { IDEMPOTENT_POLICY_KEY } from "../../src/idempotency/idempotent.decorator";
 import { IdempotencyInterceptor, IDEMPOTENCY_KEY_STORE } from "../../src/idempotency/idempotency.interceptor";

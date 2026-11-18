@@ -11,15 +11,14 @@
  * transaction advisory lock. The auth session's active tenant lives in
  * `sessions`, which only the auth lookup role may write (RT-143), so it is
  * updated in a second step AFTER the support-session transaction commits. A
- * failure between the two steps is safe in either direction: an opened
- * session whose tenant was not made active is "for another tenant" and admits
- * nothing, and an ended session whose tenant is still active is refused as
- * `support_session_required`.
+ * failure between the two steps is safe in either direction: since RT-1468 a
+ * session only attributes requests (the gate admits a platform admin with or
+ * without one), so an opened session whose tenant was not made active names
+ * nothing, and an ended session is simply no longer named on the rows.
  *
- * Tenant states (owner decision 2026-10-12, RT-414 comment 11737): active,
- * pending and suspended tenants can be entered (a suspended tenant's session
- * is read-only, enforced by `SupportSessionGate`); a soft-deleted or unknown
- * tenant is the one non-disclosing 404 (FR-ISO-4).
+ * Tenant states: active, pending and suspended tenants can be entered (since
+ * RT-1468 a suspended tenant is not read-only for a platform admin); a
+ * soft-deleted or unknown tenant is the one non-disclosing 404 (FR-ISO-4).
  */
 import {
   ConflictException,

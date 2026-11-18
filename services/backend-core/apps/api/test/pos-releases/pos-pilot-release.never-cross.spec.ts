@@ -272,7 +272,7 @@ describe("RT-1292 the resolver: who may call it", () => {
     expect(presigner.calls).toEqual([]);
   });
 
-  it("answers 403 support_session_required to a platform admin in tenant A with no membership and no support session, and admits them with one", async () => {
+  it("RT-1468: admits a platform admin in tenant A with no membership, with or without a support session", async () => {
     if (h.skipped()) return;
     const admin = h.env().admin;
     const session = "0190f5a2-3b4c-7d8e-9f01-000000009292";
@@ -286,11 +286,9 @@ describe("RT-1292 the resolver: who may call it", () => {
     await insertRelease(admin, RELEASE);
     await activate(admin, RELEASE_ID);
     await allowlist(admin, TENANT_A);
-    const refused = await h.get(LATEST, session);
-    expect(refused.status).toBe(403);
-    expect((refused.body as { error: { code: string } }).error.code).toBe("support_session_required");
-    expect(presigner.calls).toEqual([]);
-    expect(await audits(admin, ISSUED)).toEqual([]);
+    const direct = await h.get(LATEST, session);
+    expect(direct.status).toBe(200);
+    expect(direct.body).toMatchObject({ available: true, version: "1.4.0" });
     await grantSupportSession(admin, session, PLATFORM_ADMIN.id, TENANT_A);
     const admitted = await h.get(LATEST, session);
     expect(admitted.status).toBe(200);

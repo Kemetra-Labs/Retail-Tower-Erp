@@ -36,7 +36,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 
-import { AUTH_LOOKUP_POOL, PG_POOL } from "../auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import type { Pool } from "pg";
 import {
   type PairingCodeBindingRow,

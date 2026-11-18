@@ -79,7 +79,7 @@ import {
 } from "../../../../src/idempotency/in-progress-marker";
 import { UnknownItemsController } from "../../../../src/catalog/unknown-items/unknown-items.controller";
 import { UnknownItemsService } from "../../../../src/catalog/unknown-items/unknown-items.service";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import type { ResolvedContext } from "../../../../src/context/types";
 import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 

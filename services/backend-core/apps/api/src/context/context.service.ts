@@ -34,18 +34,17 @@
  *   - Platform-admin sessions bypass the per-tenant membership check
  *     (FR-TEN-6). `active_role_code` is `null` for platform admins
  *     unless they happen to have a normal membership too.
- *   - RT-414: a platform admin works in a tenant they are NOT a member of
- *     only through `openSupportSession`, EXCEPT the Console force actions
- *     (RT-1462, `PLATFORM_DIRECT_HANDLERS`). So `switchTenant` lets a platform
+ *   - RT-1468 (owner decision 2026-11-18): a platform admin works in any
+ *     existing tenant, member or not, with or without a support session
+ *     (which stays optional attribution). `switchTenant` lets a platform
  *     admin select any existing tenant (404 for one that does not exist) and
  *     ends any live support session of the auth session (`tenant_switched`)
- *     before switching; the response carries only the tenant summary a platform admin can already read, and every
- *     covered route still refuses a non-member without a session, so the
- *     switch alone opens nothing but the force-action routes.
- *     `switchStore` for a non-member platform admin goes through
- *     `SupportSessionGate` (one `platform.cross_tenant.accessed` row).
- *     `support_session` on the response is the caller's live support
- *     session for the active tenant, or null.
+ *     before switching; it is not a covered route, and the next request in
+ *     the tenant records a `platform.cross_tenant.accessed` row.
+ *     `switchStore` by a platform admin (member or not) goes through
+ *     `SupportSessionGate.admit` (one row). `support_session` on the
+ *     response is the caller's live support session for the active tenant,
+ *     or null.
  *
  * What this service does NOT do
  * -----------------------------
@@ -71,7 +70,7 @@ import {
 import type { Pool, PoolClient } from "pg";
 import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { SessionRepository } from "../auth/session.repository";
 import {
   SupportSessionGate,
@@ -316,27 +315,21 @@ export class ContextService {
   }
 
   /**
-   * RT-414: `switchActiveStore` is a covered route. A non-member platform
-   * admin needs an active support session for the active tenant; it stays
-   * admitted on a suspended tenant (navigation, not a tenant write).
+   * `switchActiveStore` is a covered route: a platform admin (member or not,
+   * RT-1468) is admitted and the request writes one cross-tenant row.
    */
   private async admitPlatformAdminStoreSwitch(
     principal: SessionPrincipal,
     tenantId: string,
     requestId: string | null,
   ): Promise<void> {
-    const member = await this.withBootstrapCtx((client) =>
-      this.memberships.hasLiveMembership(principal.userId, tenantId, client),
-    );
-    if (member) return;
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    await new SupportSessionGate(this.pool).enforce(tenantId, {
+    await new SupportSessionGate(this.pool).admit(tenantId, {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: "POST",
       route: SWITCH_STORE_ROUTE,
       requestId,
-      readOnlyExempt: true,
     });
   }
 

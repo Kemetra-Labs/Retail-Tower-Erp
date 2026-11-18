@@ -34,7 +34,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { OUTBOX_EVENT_TYPES, runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, QueryResult, QueryResultRow } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import {
   type ConnectorRegistrationFacts,
   type ConsoleSystemStatus,

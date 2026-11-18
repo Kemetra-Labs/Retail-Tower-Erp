@@ -35,7 +35,7 @@ import { runWithTenantContext, emit, OUTBOX_EVENT_TYPES, writeVoidEffects } from
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-report";
 import type {
   CaptureSaleReceiptDto,

@@ -53,7 +53,7 @@ import {
 } from "@data-pulse-2/db";
 // From database-pools (its source), not auth.module: AuthModule wires this
 // enqueuer (RT-124), so importing auth.module here would be a load-time cycle.
-import { PG_POOL } from "../auth/database-pools";
+import { PG_POOL } from "../database";
 import type { AuditJobEnqueuer } from "./audit-job.enqueuer";
 import type { AuditJobPayload } from "./audit-job.types";
 

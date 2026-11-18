@@ -28,7 +28,7 @@ import type { Pool, PoolClient } from "pg";
 import { emit, OUTBOX_EVENT_TYPES, runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { recordErpnextProductReconciliation } from "../../observability/metrics/api.metrics";
 import { ErpnextItemMapService } from "../erpnext-item-map/erpnext-item-map.service";
 import {

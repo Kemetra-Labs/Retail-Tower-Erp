@@ -66,7 +66,7 @@ import { runWithTenantContext, INVENTORY_STATUSES } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
 import type { Pool } from 'pg';
 
-import { PG_POOL } from '../auth/auth.module';
+import { PG_POOL } from '../database';
 import { formatQuantity, parseQuantity } from '../common/quantity/decimal-quantity';
 import {
   MOVEMENT_OCCURRED_AT_KEY_SQL,

@@ -1,8 +1,12 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — POS Pilot Release Registry and Latest-Pilot-Release Resolver API
-  version: "0.1.0"
+  version: "0.1.1"
   description: >
+    **0.1.1 (RT-1468, text only).** A platform admin is admitted with or
+    without a membership or support session; `SupportSessionRefused` now
+    means only a tenant that no longer exists. No wire change.
+
     Jira RT-1292 (Implementation, `[GATED: contract, migration]`), from the
     RT-1290 planning note (slice P1). The PILOT lane of POS distribution: a
     signed-in, allowlisted tenant may download the one current pilot release
@@ -102,9 +106,11 @@ paths:
         most 900 seconds). Otherwise `{ "available": false }`. The route takes
         no query parameter. A role outside owner, tenant_admin, store_manager,
         and no active membership, are the non-disclosing 404; a session with no
-        active tenant is 401 (`TenantContextGuard`); a platform admin without a
-        membership or a live support session is 403. An issued link writes one
-        `pos.pilot_release.download_link_issued` row; nothing else does.
+        active tenant is 401 (`TenantContextGuard`). A platform admin is
+        admitted with or without a membership or support session (RT-1468;
+        `platform-support-sessions.openapi.yaml` 1.4.0-draft), and the guard
+        writes one `platform.cross_tenant.accessed` row for the request. An
+        issued link writes one `pos.pilot_release.download_link_issued` row.
       responses:
         "200":
           description: The eligible release, or `available:false`.
@@ -463,8 +469,8 @@ components:
         console read it is verified by `SessionOnlyAdminGuard` →
         `TenantContextGuard` → `RolesGuard` with `@Roles("owner",
         "tenant_admin", "store_manager")`, as the pairing-code routes. A
-        platform admin passes the role check; without a membership it needs an
-        RT-414 support session (403 otherwise). On the platform routes the
+        platform admin passes the role check, with or without a membership or
+        support session (RT-1468). On the platform routes the
         session user must be a platform admin (`users.is_platform_admin`) and an
         unsafe request needs a trusted `Origin` (RT-430). A machine bearer, a
         POS `device` token or an `operatorAuthorization` envelope is 401.
@@ -858,11 +864,10 @@ components:
             $ref: "#/components/schemas/Error"
     SupportSessionRefused:
       description: >
-        403, `error.code` one of `support_session_required` or
-        `support_session_expired` (RT-414): a platform admin without a
-        membership in the active tenant and without a live support session for
-        it. Refused by the reused guard before the role check. No URL and no
-        audit row of this route.
+        403 `support_session_required`: since RT-1468 only a platform admin
+        whose active tenant no longer exists. Refused by the reused guard
+        before the role check, with one `platform.cross_tenant.accessed` row
+        and no URL. `support_session_expired` is no longer returned.
       content:
         application/json:
           schema:

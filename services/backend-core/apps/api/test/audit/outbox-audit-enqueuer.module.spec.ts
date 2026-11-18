@@ -35,7 +35,7 @@
 import { Test } from "@nestjs/testing";
 
 import { AuditModule } from "../../src/audit/audit.module";
-import { PG_POOL } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { AUDIT_JOB_ENQUEUER } from "../../src/audit/audit-job.enqueuer";
 import { OutboxAuditEnqueuer } from "../../src/audit/outbox-audit-enqueuer";
 import { NoOpAuditJobEnqueuer } from "../../src/audit/audit-job.enqueuer";

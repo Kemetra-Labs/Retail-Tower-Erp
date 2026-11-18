@@ -30,11 +30,8 @@ import request from "supertest";
 import { hashToken } from "@data-pulse-2/auth";
 
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
-import {
-  AlwaysAllowRedis,
-  AUTH_LOOKUP_POOL,
-  PG_POOL,
-} from "../../src/auth/auth.module";
+import { AlwaysAllowRedis } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { RateLimiter } from "../../src/auth/rate-limit";
 import { PosDeviceAuthGuard } from "../../src/auth/pos-device-auth.guard";
 import { DeviceRepository } from "../../src/pos-operators/device.repository";

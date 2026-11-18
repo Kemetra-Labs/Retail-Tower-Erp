@@ -57,7 +57,7 @@ import { generateRawToken, hashToken } from "@data-pulse-2/auth";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { hashVoucherCode } from "../vouchers-admin/voucher-code";
 import type {
   RedeemVoucherBody,

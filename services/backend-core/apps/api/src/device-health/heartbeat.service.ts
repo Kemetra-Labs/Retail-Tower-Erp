@@ -29,7 +29,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Logger } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { recordPosDeviceHeartbeat, type PosDeviceHeartbeatOutcome } from "../observability/metrics/api.metrics";
 import type { DeviceScope } from "../pos-cashier-admissions/device-scope";
 import type { HeartbeatReport } from "./dto";

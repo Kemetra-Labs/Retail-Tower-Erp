@@ -25,7 +25,7 @@ import { lockPostingFeedSequence, runWithTenantContext } from '@data-pulse-2/db'
 import { newId } from '@data-pulse-2/shared';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { InvalidCursorError } from '../../common/cursor/opaque-cursor';
 import { MembershipRepository } from '../../context/membership.repository';
 import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';

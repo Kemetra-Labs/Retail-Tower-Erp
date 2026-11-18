@@ -15,27 +15,21 @@
  *     membership's own authority, not the session's active store: a session that
  *     picked one store does not narrow what its membership may do);
  *   - a PLATFORM ADMIN (RT-1462, owner decision 2026-11-18), whether or not they
- *     are a member of the tenant, and without a support session: these handlers
- *     are in `PLATFORM_DIRECT_HANDLERS`, so `TenantContextGuard` admits a
- *     non-member through `SupportSessionGate.admitDirect` (one
- *     `platform.cross_tenant.accessed` row per request; a suspended tenant
- *     stays read-only). The tenant is the session's active tenant, never the
- *     request's. The action is recorded as `actor_kind: platform_admin`, on
- *     behalf of that tenant and, when a NON-MEMBER caller was admitted through
- *     a live support session, that session (`force-action-actor.ts`).
- *     A platform admin who IS a member is judged as on every route (owner
- *     decision 2026-11-18, kept as is): no `admitDirect`, so no cross-tenant
- *     row and no suspended-tenant read-only refusal, and `on_behalf_of` names no
- *     support session even if one is live. The action's own audit row still
- *     says `platform_admin`. Closing that gap is a separate decision.
+ *     are a member of the tenant, with or without a support session, suspended
+ *     tenant included (RT-1468): `TenantContextGuard` admits every platform
+ *     admin through `SupportSessionGate.admit` (one
+ *     `platform.cross_tenant.accessed` row per request). The tenant is the
+ *     session's active tenant, never the request's. The action is recorded as
+ *     `actor_kind: platform_admin`, on behalf of that tenant and, when the
+ *     caller holds a live support session for it, that session
+ *     (`force-action-actor.ts`).
  *
  * Everything else is the non-disclosing 404 (FR-ISO-4), the same body as
  * `RolesGuard`'s default: a `store_manager`, a `store_staff`, a `tenant_admin`
  * with specific-store access, and a caller whose tenant is not the shift's.
  *
- * What this does NOT change: every other covered route still needs a support
- * session for a non-member, and no platform-admin database context is opened
- * here: the caller's role is read under the TENANT's own RLS context.
+ * No platform-admin database context is opened here: the caller's role is read
+ * under the TENANT's own RLS context.
  */
 import {
   type CanActivate,
@@ -48,7 +42,7 @@ import {
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { type ForceActionAuditActor, platformAdminActor } from "../common/force-action-actor";
 import { MembershipRepository } from "../context/membership.repository";
 import type { TenantContextRequest } from "../context/types";

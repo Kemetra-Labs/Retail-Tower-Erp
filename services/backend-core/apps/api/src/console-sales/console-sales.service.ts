@@ -37,7 +37,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import type { SaleHistoryDetailRow } from "../catalog/sales/history/sale-history.projections";
 import type { SaleHistoryKeyset } from "../catalog/sales/history/sale-history.query";
 import { listQuery, loadDetail, SALE_SELECT_SQL, type SaleQuery } from "../catalog/sales/history/sale-history.reads";
