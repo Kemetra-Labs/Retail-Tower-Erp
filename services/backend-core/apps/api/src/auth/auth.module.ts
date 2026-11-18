@@ -39,14 +39,8 @@ import { Queue, type JobsOptions } from "bullmq";
 import { Pool } from "pg";
 import Redis from "ioredis";
 
-import {
-  AUTH_LOOKUP_POOL,
-  DatabasePoolBoundaryVerifier,
-  DatabasePoolLifecycle,
-  PG_POOL,
-  authLookupPoolFactory,
-  domainPoolFactory,
-} from "./database-pools";
+import { DatabasePoolBoundaryVerifier } from "./database-pools";
+import { AUTH_LOOKUP_POOL, DatabaseModule, PG_POOL } from "../database";
 
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
@@ -120,7 +114,6 @@ export function redisClientFactory(): RedisLike {
   return new IoredisIdempotencyAdapter(client);
 }
 
-export { AUTH_LOOKUP_POOL, PG_POOL } from "./database-pools";
 export const REDIS_CLIENT = "REDIS_CLIENT";
 
 /**
@@ -213,24 +206,17 @@ export class AlwaysAllowRedis implements RedisLike {
 }
 
 @Module({
+  // PG_POOL and AUTH_LOOKUP_POOL are provided and exported (globally) by DatabaseModule.
+  imports: [DatabaseModule],
   controllers: [AuthController],
   providers: [
     // RT-124: auth audits (sign-in ok/failed, …) take the same outbox-aware
     // path as the request graph, instead of always going straight to BullMQ.
-    // AuthModule owns PG_POOL, so it can wire this without a module cycle.
+    // PG_POOL comes from the global DatabaseModule (RT-1456 A-10).
     {
       provide: AUDIT_JOB_ENQUEUER,
       useFactory: (pool: Pool | null): AuditJobEnqueuer =>
         outboxOrLegacyAuditJobEnqueuerFactory(pool),
-      inject: [PG_POOL],
-    },
-    {
-      provide: PG_POOL,
-      useFactory: domainPoolFactory,
-    },
-    {
-      provide: AUTH_LOOKUP_POOL,
-      useFactory: authLookupPoolFactory,
       inject: [PG_POOL],
     },
     {
@@ -329,7 +315,6 @@ export class AlwaysAllowRedis implements RedisLike {
       ],
     },
     DatabasePoolBoundaryVerifier,
-    DatabasePoolLifecycle,
   ],
   exports: [
     AuthService,
@@ -340,11 +325,6 @@ export class AlwaysAllowRedis implements RedisLike {
     EXTERNAL_CREDENTIAL_PORT,
     SessionRepository,
     AuthTokenRepository,
-    // PG_POOL is exported so downstream modules (ContextModule, future
-    // tenant/store modules) can share the single connection pool
-    // rather than provisioning their own.
-    PG_POOL,
-    AUTH_LOOKUP_POOL,
     // EMAIL_JOB_ENQUEUER is exported so downstream modules (MembershipsModule)
     // can inject the enqueuer for invitation jobs without re-wiring it.
     EMAIL_JOB_ENQUEUER,

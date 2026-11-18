@@ -21,7 +21,7 @@ import { Test } from "@nestjs/testing";
 import { SalesController } from "../../../../src/catalog/sales/sales.controller";
 import { SalesService } from "../../../../src/catalog/sales/sales.service";
 import { SaleReturnsService } from "../../../../src/catalog/sales/sale-returns.service";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { OPERATOR_CONTEXT_RESOLVER } from "../../../../src/auth/operator-context-resolver";
 import { PosOperatorEnvelopeSaleGuard } from "../../../../src/auth/pos-operator-envelope-sale.guard";
 import { SaleCaptureAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";

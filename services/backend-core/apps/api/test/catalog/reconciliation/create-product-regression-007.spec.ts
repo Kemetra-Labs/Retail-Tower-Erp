@@ -37,7 +37,7 @@ import {
   type AuditJobEnqueuer,
 } from "../../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../../src/audit/audit-job.types";
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import type { ResolvedContext } from "../../../src/context/types";
 import { ReconciliationController } from "../../../src/catalog/reconciliation/reconciliation.controller";
 import { ReconciliationService } from "../../../src/catalog/reconciliation/reconciliation.service";

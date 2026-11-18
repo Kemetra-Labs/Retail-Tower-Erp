@@ -44,7 +44,7 @@ import {
   seedCatalogIsolationFixture,
 } from "../../__support__/isolation-harness";
 import { AUDIT_JOB_ENQUEUER } from "../../../../src/audit/audit-job.enqueuer";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { DashboardAuthGuard } from "../../../../src/auth/dashboard-auth.guard";
 import { PosOperatorAuthGuard } from "../../../../src/auth/pos-operator-auth.guard";
 import { RolesGuard } from "../../../../src/auth/roles.guard";

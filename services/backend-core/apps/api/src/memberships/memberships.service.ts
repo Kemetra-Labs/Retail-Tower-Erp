@@ -36,7 +36,7 @@ import {
   runWithTenantContext,
   type TenantContext,
 } from "@data-pulse-2/db";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import type { ResolvedContext } from "../context/types";
 import type { MembershipDetail } from "../context/membership.repository";
 import type { MembershipUpdateDto } from "./dto";

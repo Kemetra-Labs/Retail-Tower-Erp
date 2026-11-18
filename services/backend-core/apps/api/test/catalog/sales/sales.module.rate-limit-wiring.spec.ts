@@ -17,7 +17,7 @@ import "reflect-metadata";
 import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import { SalesModule } from "../../../src/catalog/sales/sales.module";
 import { PosWriteRateLimitGuard } from "../../../src/auth/pos-write-rate-limit.guard";
 

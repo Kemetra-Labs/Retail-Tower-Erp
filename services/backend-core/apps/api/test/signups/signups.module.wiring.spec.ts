@@ -15,7 +15,8 @@ import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER } from "../../src/audit/audit-job.enqueuer";
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { AuthService } from "../../src/auth/auth.service";
 import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT } from "../../src/auth/external-credential.port";

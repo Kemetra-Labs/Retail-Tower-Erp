@@ -21,7 +21,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { writeAudit } from '../position-events/position-event.writer';
 import { bumpSafetyRevision, lockTenantSafety, recordedRevision, recordSafetyChange } from './safety-revision';
 import {

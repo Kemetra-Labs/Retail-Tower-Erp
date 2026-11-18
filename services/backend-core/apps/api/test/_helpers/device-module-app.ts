@@ -18,7 +18,7 @@ import type { DynamicModule, INestApplication, Type } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 
-import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";

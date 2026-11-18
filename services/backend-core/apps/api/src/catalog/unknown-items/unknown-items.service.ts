@@ -71,7 +71,7 @@ import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,
 } from "../../audit/audit-job.enqueuer";
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import type { StoreScope } from "../../context/store-scope";
 import {
   recordUnknownItemCaptured,

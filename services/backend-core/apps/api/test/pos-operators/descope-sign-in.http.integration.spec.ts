@@ -20,7 +20,7 @@ import { createLogger } from "@data-pulse-2/shared";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";

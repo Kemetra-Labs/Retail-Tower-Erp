@@ -19,7 +19,8 @@ import type { Pool } from "pg";
 
 import type { Logger } from "@data-pulse-2/shared";
 
-import { AuthModule, PG_POOL } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { ContextModule } from "../context/context.module";
 import { readAiGatewayRuntime } from "../ai/gateway/ai-gateway.runtime";

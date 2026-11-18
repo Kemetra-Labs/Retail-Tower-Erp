@@ -21,7 +21,7 @@ import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { requirePlatformAdminSession } from "../auth/require-platform-admin";
 import { MembershipRepository } from "../context/membership.repository";
 import { AUDIT, insertProvisioningAudit } from "../erp-provisioning/provisioning-audit";

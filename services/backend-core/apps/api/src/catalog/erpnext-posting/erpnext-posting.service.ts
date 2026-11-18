@@ -21,7 +21,7 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { lockPostingFeedSequence, runWithTenantContext } from "@data-pulse-2/db";
 import {
   applyCountLineResults,

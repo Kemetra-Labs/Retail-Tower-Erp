@@ -16,7 +16,7 @@ import { CanActivate, ExecutionContext, Inject, Injectable, NotFoundException } 
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { MembershipRepository } from "../context/membership.repository";
 import type { ResolvedContext, TenantContextRequest } from "../context/types";
 import { UUID_RE_I } from "../common/ids";
