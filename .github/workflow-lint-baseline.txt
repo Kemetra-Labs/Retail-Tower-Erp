@@ -55,7 +55,6 @@ actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issu
 actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2012:info: Use find instead of ls to better handle non-alphanumeric filenames
 actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
 actionlint|.github/workflows/release-pos.yml|shellcheck|shellcheck reported issue in this script: SC2015:info: Note that A && B || C is not if-then-else. C may run when A is true
-zizmor|.github/workflows/backend-core.yml|obfuscation|obfuscated usage of GitHub Actions features: can be replaced by its static evaluation
 zizmor|.github/workflows/gate.yml|dangerous-triggers|use of fundamentally insecure workflow trigger: pull_request_target is almost always used insecurely
 zizmor|.github/workflows/gate.yml|dangerous-triggers|use of fundamentally insecure workflow trigger: workflow_run is almost always used insecurely
 zizmor|.github/workflows/release-admin-console.yml|cache-poisoning|runtime artifacts potentially vulnerable to a cache poisoning attack: omitting `package-manager-cache` enables caching
