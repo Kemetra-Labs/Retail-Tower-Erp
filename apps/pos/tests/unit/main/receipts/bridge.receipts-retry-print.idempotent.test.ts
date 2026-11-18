@@ -80,8 +80,13 @@ function seedSuccessPrint(db: SqlJsDatabase): void {
   );
 }
 
-function neverDispatcher(): Pick<PrintDispatcher, 'dispatchRetryPrint'> {
+/** `retryPrint` never reprints; `dispatchReprint` rejects so a stray call is loud. */
+const reprintNotExpected = (): Promise<never> =>
+  Promise.reject(new Error('dispatchReprint is not expected in a retryPrint test'));
+
+function neverDispatcher(): Pick<PrintDispatcher, 'dispatchRetryPrint' | 'dispatchReprint'> {
   return {
+    dispatchReprint: vi.fn(reprintNotExpected),
     dispatchRetryPrint: vi.fn(() =>
       Promise.resolve({
         result: { ok: true as const, render_path: 'escpos_direct' as const },
@@ -268,6 +273,7 @@ describe('receipts.retryPrint — gate refusals', () => {
       printEventsRepo: bindPrintEventsRepository(handle),
       printDispatcher: {
         dispatchRetryPrint: vi.fn(() => Promise.reject(new Error('db exploded'))),
+        dispatchReprint: vi.fn(reprintNotExpected),
       },
     });
     const res = await bridge.retryPrint({ sale_id: 'sale-1' as SaleId, idempotency_key: 'k' });

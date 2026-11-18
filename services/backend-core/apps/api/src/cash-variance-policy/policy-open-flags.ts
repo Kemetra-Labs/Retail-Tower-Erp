@@ -29,7 +29,7 @@ import type { PoolClient } from "pg";
 
 import type { FrozenPolicyFact, PolicyFlag } from "../pos-shifts/shift-frozen-policy";
 import { effectiveAt, type PolicyHistory, type ResolvedPolicy } from "./policy-resolution";
-import { scaled } from "../pos-shifts/shift-cash-arithmetic";
+import { scaled } from "../common/money/shift-cash-arithmetic";
 import { samePolicyValue, SYSTEM_DEFAULT, type PolicyValue } from "./policy-value";
 import { PolicyRepository, type StoredRevision } from "./policy.repository";
 

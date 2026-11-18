@@ -33,7 +33,10 @@ import {
 } from '../../../../src/main/sales/repositories/sales.repository.js';
 import { bindSaleSyncOutboxRepository } from '../../../../src/main/sync-outbox/sale-sync-outbox.repository.js';
 import { bindSaleNumberAllocator } from '../../../../src/main/sales/sale-number-allocator.js';
-import { createSaleAuditEmitter } from '../../../../src/main/sales/audit-emitter.js';
+import {
+  createSaleAuditEmitter,
+  type SaleAuditEvent,
+} from '../../../../src/main/sales/audit-emitter.js';
 import { deriveReceiptPayload } from '../../../../src/main/receipts/receipts-payload.js';
 import { renderReceipt } from '../../../../src/main/receipts/template-engine.js';
 import { buildCapturePayload } from '../../../../src/main/sales-sync/capture-payload.js';
@@ -69,7 +72,7 @@ beforeAll(async () => {
 });
 
 let db: SqlJsDatabase;
-let captured: Array<Record<string, unknown>>;
+let captured: SaleAuditEvent[];
 beforeEach(() => {
   db = new SQL.Database();
   db.exec('PRAGMA foreign_keys = ON;');

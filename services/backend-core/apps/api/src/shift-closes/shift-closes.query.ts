@@ -15,7 +15,7 @@
  */
 import { z } from "zod";
 
-import { canonicalInstant } from "../pos-shifts/shift-money";
+import { canonicalInstant } from "../common/money/shift-money";
 
 const UuidSchema = z
   .string()

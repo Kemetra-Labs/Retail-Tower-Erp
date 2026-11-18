@@ -18,6 +18,8 @@ export const storeDeletion = {
   "storeDeletion.zone.suspendConfirm":
     "إيقاف {name}؟ يمكنك إعادة تفعيله لاحقًا من صفحة تعديل المتجر.",
   "storeDeletion.zone.suspendFailed": "تعذّر إيقاف المتجر. لم يتغير شيء.",
+  "storeDeletion.zone.suspendUnclear":
+    "تعذّر التأكد من إيقاف المتجر. أعد تحميل الصفحة للتحقق من حالته.",
   // A2, verbatim.
   "storeDeletion.zone.delete": "حذف المتجر…",
 

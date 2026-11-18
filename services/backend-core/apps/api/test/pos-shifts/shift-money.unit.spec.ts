@@ -3,7 +3,7 @@
  * precision (#711 review note 4), minor-unit formatting for projections and
  * hashes (#712 review note 4), canonical instants for the payload hash.
  */
-import { canonicalInstant, fitsCurrencyPrecision, formatMoney } from "../../src/pos-shifts/shift-money";
+import { canonicalInstant, fitsCurrencyPrecision, formatMoney } from "../../src/common/money/shift-money";
 
 describe("fitsCurrencyPrecision — digits as written, never more than the ISO-4217 minor unit", () => {
   it.each([

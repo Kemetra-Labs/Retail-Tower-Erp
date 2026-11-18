@@ -16,7 +16,7 @@
  *   - Payload hashes use the same formatting, so "500" and "500.00" are the
  *     same fact.
  */
-import { minorUnitExponent } from "../catalog/sales/iso4217-minor-units";
+import { minorUnitExponent } from "./iso4217-minor-units";
 
 /** An exact-decimal amount (optionally signed) in an ISO-4217 currency. */
 export interface Money {

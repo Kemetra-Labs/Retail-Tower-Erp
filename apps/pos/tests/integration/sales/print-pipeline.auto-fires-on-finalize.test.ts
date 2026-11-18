@@ -128,9 +128,9 @@ describe('T240 — print dispatcher fires on finalize (success path)', () => {
 
     const rows = bindPrintEventsRepository(makeSqlJsHandle(db)).readBySale('sale-1');
     expect(rows).toHaveLength(1);
-    expect(rows[0].purpose).toBe('first_print');
-    expect(rows[0].outcome).toBe('success');
-    expect(rows[0].render_path).toBe('escpos_direct');
+    expect(rows[0]?.purpose).toBe('first_print');
+    expect(rows[0]?.outcome).toBe('success');
+    expect(rows[0]?.render_path).toBe('escpos_direct');
 
     const printed = events.find((e) => e.action_category === 'sale.receipt.printed');
     expect(printed).toBeDefined();
@@ -145,7 +145,7 @@ describe('T240 — print dispatcher fires on finalize (success path)', () => {
     await dispatcher.dispatchFirstPrint(payload(), CTX);
 
     const rows = bindPrintEventsRepository(makeSqlJsHandle(db)).readBySale('sale-1');
-    expect(rows[0].render_path).toBe('os_print');
+    expect(rows[0]?.render_path).toBe('os_print');
     const printed = events.find((e) => e.action_category === 'sale.receipt.printed');
     expect(printed?.payload.render_path).toBe('os_print');
   });
@@ -158,6 +158,6 @@ describe('T240 — print dispatcher fires on finalize (success path)', () => {
     const { result } = await dispatcher.dispatchFirstPrint(payload(), { ...CTX, session_id: null });
     expect(result.ok).toBe(true);
     const rows = bindPrintEventsRepository(makeSqlJsHandle(db)).readBySale('sale-1');
-    expect(rows[0].acting_operator_session_id).toBe('');
+    expect(rows[0]?.acting_operator_session_id).toBe('');
   });
 });

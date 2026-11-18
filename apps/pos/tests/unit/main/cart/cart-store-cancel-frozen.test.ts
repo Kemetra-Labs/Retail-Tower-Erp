@@ -11,7 +11,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { bindCartStore, type CartStore } from '../../../../src/main/cart/cart-store.js';
+import {
+  bindCartStore,
+  type CancelCartInput,
+  type CartStore,
+} from '../../../../src/main/cart/cart-store.js';
 import { makeSqlJsHandle } from './__helpers__/sql-js-handle.js';
 
 const __dirname0 = path.dirname(fileURLToPath(import.meta.url));
@@ -45,7 +49,7 @@ function setup(state: string): { db: SqlJsDatabase; store: CartStore } {
   return { db, store: bindCartStore(makeSqlJsHandle(db)) };
 }
 
-const cancel = {
+const cancel: CancelCartInput = {
   cart_id: 'cart-1',
   cancelled_at: NOW,
   cancellation_reason: 'manager_voided_post_handoff',

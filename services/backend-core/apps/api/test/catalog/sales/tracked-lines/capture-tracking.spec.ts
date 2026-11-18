@@ -51,7 +51,7 @@ import {
 } from "../capture/__capture-harness";
 import { TRACKED_SELLING_GATE } from "../../../../src/catalog/sales/tracked-lines/tracked-selling-gate";
 import { lockProductProfiles } from "../../../../src/catalog/sales/tracked-lines/capture-tracking";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { TrackingProfileService } from "../../../../src/catalog/tracking-profile/tracking-profile.service";
 
 const h: HarnessHandle = { harness: null, dockerSkipped: false };

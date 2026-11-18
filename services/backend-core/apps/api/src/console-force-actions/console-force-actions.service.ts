@@ -18,12 +18,20 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
-import { ShiftCashUpError } from "../pos-shifts/shift-cash-up.errors";
-import type { ShiftWriteResult } from "../pos-shifts/shift-cash-up.service";
-import { previewFingerprint, readForceCloseFacts, type ForceCloseFacts } from "../pos-shifts/shift-force-close.facts";
-import { ShiftForceCloseRepository, toStoreShift, type StoreShiftRow } from "../pos-shifts/shift-force-close.repository";
-import { ShiftForceCloseService, type ConsoleForceClosedShiftProjection } from "../pos-shifts/shift-force-close.service";
-import { formatMoney } from "../pos-shifts/shift-money";
+import { formatMoney } from "../common/money/shift-money";
+import {
+  previewFingerprint,
+  readForceCloseFacts,
+  readStoreOpenShifts,
+  ShiftCashUpError,
+  ShiftForceCloseRepository,
+  ShiftForceCloseService,
+  type ConsoleForceClosedShiftProjection,
+  type ForceCloseFacts,
+  type ShiftWriteResult,
+  type StoreShiftRow,
+} from "../pos-shifts";
+import type { ForceActionAuditActor } from "../common/force-action-actor";
 import { enforceForceActionCap, insertForceActionAudit } from "../console-action-cap/force-action-cap";
 import {
   buildOpenShiftSummary,
@@ -36,11 +44,11 @@ import {
 /** `GET /stores/{store_id}/open-shifts` is capped here, as the contract says. */
 const OPEN_SHIFT_LIMIT = 200;
 
-/** The tenant, the closing user, their role and the request id of a Console force close. */
+/** The tenant, the closing user, the admitted actor (kind, role, on-behalf-of) and the request id of a Console force close. */
 export interface ConsoleForceCloseInput {
   readonly tenantId: string;
   readonly actorUserId: string;
-  readonly actorRole: "owner" | "tenant_admin";
+  readonly actor: ForceActionAuditActor;
   readonly requestId: string | null;
 }
 
@@ -51,42 +59,6 @@ export class ConsoleStoreNotFoundError extends Error {
     this.name = "ConsoleStoreNotFoundError";
   }
 }
-
-interface OpenShiftDbRow {
-  shift_id: string;
-  tenant_id: string;
-  store_id: string;
-  opening_device_id: string;
-  opening_cashier_user_id: string;
-  opened_at: Date;
-  lifecycle_state: "open" | "closed" | "closed_forced";
-  source: "legacy" | "cash_up";
-  currency_code: string | null;
-  opening_float: string | null;
-  received_at: Date | null;
-  opened_on_terminal_label: string | null;
-  display_name: string | null;
-  last_seen_at: Date | null;
-  trust_state: "active" | "revoked" | "retired";
-}
-
-/** $1 tenant, $2 store, $3 limit. Newest first. */
-const OPEN_SHIFTS_SQL = `
-  SELECT s.shift_id, s.tenant_id, s.store_id, s.opening_device_id, s.opening_cashier_user_id,
-         s.opened_at, s.lifecycle_state, s.source, s.currency_code,
-         s.opening_float::text AS opening_float, s.received_at,
-         d.label AS opened_on_terminal_label,
-         NULLIF(btrim(u.display_name, E' \\t\\r\\n\\f'), '') AS display_name,
-         d.last_seen_at,
-         CASE WHEN d.retired_at IS NOT NULL THEN 'retired'
-              WHEN d.revoked_at IS NOT NULL THEN 'revoked'
-              ELSE 'active' END AS trust_state
-    FROM shifts s
-    JOIN users u ON u.id = s.opening_cashier_user_id
-    JOIN devices d ON d.id = s.opening_device_id AND d.tenant_id = s.tenant_id
-   WHERE s.tenant_id = $1 AND s.store_id = $2 AND s.lifecycle_state = 'open'
-   ORDER BY s.opened_at DESC, s.shift_id DESC
-   LIMIT $3`;
 
 @Injectable()
 export class ConsoleForceActionsService {
@@ -105,21 +77,20 @@ export class ConsoleForceActionsService {
         tenantId,
       ]);
       if (store.rowCount === 0) throw new ConsoleStoreNotFoundError();
-      const rows = (await client.query<OpenShiftDbRow>(OPEN_SHIFTS_SQL, [tenantId, storeId, OPEN_SHIFT_LIMIT])).rows;
+      // The open-shift read and each shift's verdict come from the pos-shifts port (RT-1453): the very
+      // SQL the POS force close, the preview and the write use.
+      const reads = await readStoreOpenShifts(
+        client,
+        { tenantId, storeId },
+        { limit: OPEN_SHIFT_LIMIT, order: "newest_first", thresholdMinutes: this.forceClose.thresholdMinutes },
+      );
       const now = (await client.query<{ now: Date }>("SELECT now() AS now")).rows[0]!.now;
-      const items: OpenShiftRow[] = [];
-      for (const row of rows) {
-        const shift = toStoreShift(row, false);
-        // One verdict per shift, the very SQL the POS force close and the write use.
-        // sequential: one pg client runs one statement at a time.
-        const verdict = await this.repo.readVerdict(client, shift, this.rule());
-        items.push({
-          shift,
-          cashierDisplayName: row.display_name,
-          terminal: { label: row.opened_on_terminal_label, lastSeenAt: row.last_seen_at, trustState: row.trust_state },
-          verdict,
-        });
-      }
+      const items: OpenShiftRow[] = reads.map((r) => ({
+        shift: r.shift,
+        cashierDisplayName: r.cashierDisplayName,
+        terminal: r.terminal,
+        verdict: r.verdict,
+      }));
       return toOpenShiftListBody({ storeId, evaluatedAt: now, thresholdMinutes: this.forceClose.thresholdMinutes, items });
     });
   }
@@ -189,8 +160,8 @@ export class ConsoleForceActionsService {
     shiftId: string,
     body: { readonly forcedReason: string; readonly previewFingerprint: string },
   ): Promise<ShiftWriteResult<ConsoleForceClosedShiftProjection>> {
-    const { tenantId, actorUserId, actorRole, requestId } = input;
-    return this.forceClose.forceCloseFromConsole({ tenantId, actorUserId, actorRole }, shiftId, body, {
+    const { tenantId, actorUserId, actor, requestId } = input;
+    return this.forceClose.forceCloseFromConsole({ tenantId, actorUserId, actor }, shiftId, body, {
       beforeRecord: (client) => enforceForceActionCap(client, tenantId),
       afterRecord: (client, event) =>
         insertForceActionAudit(client, {

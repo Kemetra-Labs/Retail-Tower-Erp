@@ -2,7 +2,7 @@
  * RT-1298: binding the promotion verifier from the environment. A fully blank
  * lane is silent and unbound (every workflow write is 401); a half-set or
  * malformed one is unbound with ONE warning that names a closed reason and never
- * a value; all five valid pins bind a verifier without any network call.
+ * a value; all seven valid pins bind a verifier without any network call.
  */
 import type { JWTVerifyGetKey } from "jose";
 
@@ -12,6 +12,8 @@ import { PromotionOidcVerifier } from "../../src/pos-pilot-releases/promotion-oi
 const PINS = {
   POS_PILOT_PROMOTION_OIDC_AUDIENCE: "retail-tower-backend-core",
   POS_PILOT_PROMOTION_OIDC_REPOSITORY: "Kemetra-Labs/Retail-Tower-Erp",
+  POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID: "1430288487",
+  POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID: "340160100",
   POS_PILOT_PROMOTION_OIDC_ENVIRONMENT: "release-pos-pilot-promote",
   POS_PILOT_PROMOTION_OIDC_REF: "refs/heads/main",
   POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF:
@@ -34,7 +36,7 @@ describe("RT-1298 promotion verifier binding", () => {
     expect(keySource).not.toHaveBeenCalled();
   });
 
-  it("binds a verifier, silently, when all five pins are valid", () => {
+  it("binds a verifier, silently, when all seven pins are valid", () => {
     const { verifier, warnings, keySource } = bind(PINS);
     expect(verifier).toBeInstanceOf(PromotionOidcVerifier);
     expect(warnings).toEqual([]);
@@ -46,6 +48,21 @@ describe("RT-1298 promotion verifier binding", () => {
     expect(verifier).toBeNull();
     expect(warnings).toEqual(["pilot release promotion writes are off: incomplete"]);
   });
+
+  it.each(["POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID", "POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID"])(
+    "stays unbound (RT-1459, fail closed) when %s is missing or not digits",
+    (name) => {
+      for (const [value, reason] of [
+        [undefined, "incomplete"],
+        ["", "incomplete"],
+        ["abc", "invalid"],
+      ] as const) {
+        const { verifier, warnings } = bind({ ...PINS, [name]: value });
+        expect(verifier).toBeNull();
+        expect(warnings).toEqual([`pilot release promotion writes are off: ${reason}`]);
+      }
+    },
+  );
 
   it("warns once with the reason `invalid` when a pin has the wrong shape", () => {
     const { verifier, warnings } = bind({ ...PINS, POS_PILOT_PROMOTION_OIDC_REF: "main" });

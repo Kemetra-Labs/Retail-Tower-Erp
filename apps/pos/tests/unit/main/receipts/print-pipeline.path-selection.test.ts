@@ -136,14 +136,15 @@ describe('T211 — both paths render from the same payload + same template', () 
     );
     await pipelineOs.render(payload());
 
-    const escposArg = (escpos.print as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-      escpos: Uint8Array;
-      html: string;
+    const firstPrintArg = (adapter: { print: unknown }): { escpos: Uint8Array; html: string } => {
+      const call = (adapter.print as ReturnType<typeof vi.fn>).mock.calls[0] as
+        | [{ escpos: Uint8Array; html: string }]
+        | undefined;
+      if (call === undefined) throw new Error('expected the adapter print to have been called');
+      return call[0];
     };
-    const osArg = (osPrint.print as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-      escpos: Uint8Array;
-      html: string;
-    };
+    const escposArg = firstPrintArg(escpos);
+    const osArg = firstPrintArg(osPrint);
 
     // Same payload → same template output → byte-identical user-visible content
     // across both paths (R-4 mitigation; AD-6 single-source invariant).

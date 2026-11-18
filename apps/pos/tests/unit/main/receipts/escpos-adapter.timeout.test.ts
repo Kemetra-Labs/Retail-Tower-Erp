@@ -10,7 +10,10 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { createEscposAdapter } from '../../../../src/main/receipts/escpos-adapter.js';
-import type { EscposTransport } from '../../../../src/main/receipts/escpos-adapter.js';
+import type {
+  EscposStatus,
+  EscposTransport,
+} from '../../../../src/main/receipts/escpos-adapter.js';
 
 const RENDERED = { escpos: new Uint8Array([0x1b, 0x40]), html: '<div>x</div>' };
 
@@ -20,7 +23,7 @@ describe('T221 — ESC/POS adapter timeout', () => {
     const transport: EscposTransport = {
       write: vi.fn(() => Promise.resolve()),
       // A poll that never settles — the timeout must win.
-      pollStatus: vi.fn(() => new Promise(() => {})),
+      pollStatus: vi.fn(() => new Promise<EscposStatus>(() => {})),
     };
     const adapter = createEscposAdapter({ transport, statusTimeoutMs: 500 });
 

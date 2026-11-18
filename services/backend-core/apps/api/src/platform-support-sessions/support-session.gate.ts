@@ -94,6 +94,13 @@ function isReadOnlyRefusal(input: {
   return UNSAFE_METHODS.has(input.method.toUpperCase());
 }
 
+/** The refusal of a direct (session-less) request, or `undefined` when it is admitted. */
+function directRefusal(tenant: TenantState, method: string): CrossTenantRefusal | undefined {
+  if (!tenant.exists) return "support_session_required";
+  if (isReadOnlyRefusal({ tenant, method, readOnlyExempt: false })) return "support_session_read_only";
+  return undefined;
+}
+
 export interface GateRequest {
   readonly authSessionId: string;
   readonly userId: string;
@@ -138,6 +145,37 @@ export class SupportSessionGate {
   }
 
   /**
+   * RT-1462: admit a non-member platform admin to a route that does not need a support session
+   * (`PLATFORM_DIRECT_HANDLERS`). Exactly one `platform.cross_tenant.accessed` row is written, in its own
+   * transaction that commits before a refusal is thrown, as `enforce` does: it names the caller's live
+   * support session for this tenant when there is one (so `on_behalf_of` can carry it), else none.
+   * A tenant that does not exist is refused like an unresolvable one (`support_session_required`), and a
+   * suspended tenant stays read-only for an unsafe method (`support_session_read_only`, RT-414 decision
+   * 2026-10-12): a platform admin does not write to a suspended tenant through this route either.
+   * Returns the live session, or null.
+   */
+  async admitDirect(tenantId: string, request: GateRequest): Promise<SupportSessionRecord | null> {
+    const verdict = await this.withPlatformCtx(async (client) => {
+      const found = await findLiveSupportSession(client, request.authSessionId);
+      const tenant = await readTenant(client, tenantId);
+      const live = found !== null && found.tenantId === tenantId && found.status === "active" ? found : null;
+      const reason = directRefusal(tenant, request.method);
+      await recordCrossTenantAccess(client, {
+        tenantId,
+        actorUserId: request.userId,
+        requestId: request.requestId,
+        method: request.method,
+        route: request.route,
+        session: live,
+        ...(reason === undefined ? {} : { reason }),
+      });
+      return { live, reason };
+    });
+    if (verdict.reason !== undefined) throw supportSessionRefusal(verdict.reason);
+    return verdict.live;
+  }
+
+  /**
    * A path tenant that is not a UUID or names no tenant (`listMembers`,
    * `updateTenant`): refused exactly like an existing non-member tenant
    * (FR-ISO-4), with its row platform-scoped (`tenant_id` null).
@@ -174,6 +212,32 @@ export class SupportSessionGate {
         method: request.method,
         route: request.route,
         session: decided.session,
+        reason: refusal,
+      });
+      return refusal;
+    });
+    return supportSessionRefusal(reason);
+  }
+
+  /**
+   * RT-1462: the origin refusal of a DIRECT route (no support session needed). It follows the contract's
+   * order like `recordOriginRefusal`: the tenant state first (a missing tenant is `support_session_required`,
+   * a suspended tenant's unsafe method `support_session_read_only`, exactly as `admitDirect` decides),
+   * else `origin_rejected`, and the row names the caller's live support session for this tenant when there is
+   * one. Returns the refusal the caller should throw.
+   */
+  async recordDirectOriginRefusal(tenantId: string, request: GateRequest): Promise<ForbiddenException> {
+    const reason = await this.withPlatformCtx(async (client) => {
+      const found = await findLiveSupportSession(client, request.authSessionId);
+      const tenant = await readTenant(client, tenantId);
+      const refusal = directRefusal(tenant, request.method) ?? "origin_rejected";
+      await recordCrossTenantAccess(client, {
+        tenantId,
+        actorUserId: request.userId,
+        requestId: request.requestId,
+        method: request.method,
+        route: request.route,
+        session: found !== null && found.tenantId === tenantId && found.status === "active" ? found : null,
         reason: refusal,
       });
       return refusal;

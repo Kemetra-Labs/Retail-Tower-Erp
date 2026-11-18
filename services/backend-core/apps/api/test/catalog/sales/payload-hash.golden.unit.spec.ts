@@ -6,7 +6,7 @@
  * change. The pinned fixture and literals live in
  * `_helpers/canonical-json-golden.ts`.
  */
-import { sha256CanonicalHex } from "../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../src/common/hashing/payload-hash";
 import {
   GOLDEN_FIXTURE,
   GOLDEN_SHA256_HEX,

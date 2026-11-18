@@ -11,7 +11,7 @@
  *     hashes differently, and so does any change to it.
  */
 import { DISCOUNT_REASON_CODES } from "../../../../src/catalog/sales/dto/capture-sale-request.dto";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import {
   CAPTURE_SCHEMA_VARIANTS,
   clearTenderFlags,

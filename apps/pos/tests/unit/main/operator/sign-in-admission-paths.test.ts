@@ -98,6 +98,7 @@ const paired: PairingStore = {
     }),
   persist: () => Promise.resolve(),
   clear: () => Promise.resolve(),
+  getCurrentTerminalId: () => 'term-1',
 };
 
 const signedInBackend = (operator_id: string) => ({
@@ -207,7 +208,14 @@ function takeoverHandler(sm: SessionManager, guard: SessionAdmission) {
     protoStore: store,
     sessionManager: sm,
     backend,
-    jwtHolder: { set: vi.fn(), get: vi.fn(() => null), clear: vi.fn() },
+    jwtHolder: {
+      set: vi.fn(),
+      get: vi.fn(() => null),
+      clear: vi.fn(),
+      clearAll: vi.fn(),
+      hasFreshMark: vi.fn(() => false),
+      consumeMark: vi.fn(() => false),
+    },
     auditEmitter: { emit: vi.fn() } as unknown as AuditEmitter,
     pairingStore: paired,
     deviceTokenAttestation: () => 'att',

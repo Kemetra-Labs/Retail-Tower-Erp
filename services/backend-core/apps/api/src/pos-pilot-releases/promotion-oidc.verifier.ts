@@ -10,7 +10,7 @@
  * Verdict (the contract's mapping): a token that cannot be authenticated is
  * `401` (missing, malformed, badly signed, expired, wrong issuer or audience,
  * key set unavailable); a genuine token whose claims do not match the pins in
- * `promotion-oidc.config.ts` (repository, environment, ref, workflow), or that
+ * `promotion-oidc.config.ts` (repository and its numeric ids, environment, ref, workflow), or that
  * lacks a usable actor or run id, is `403`. Nothing is thrown: every failure is
  * a verdict. The verdict carries only the actor, run id and repository, never
  * the token or its other claims (jose claim errors quote the payload, so they
@@ -64,10 +64,16 @@ export function createPromotionKeyResolver(url: URL = new URL(GITHUB_OIDC_JWKS_U
   });
 }
 
-/** True when the four claims GitHub stamps on the job equal the pins. */
+/**
+ * True when the six claims GitHub stamps on the job equal the pins. `repository_id` and
+ * `repository_owner_id` are the immutable numeric ids (RT-1459, audit A-13); GitHub sends
+ * them as strings, so a number or a missing claim never matches.
+ */
 function matchesPins(payload: JWTPayload, pins: Pins): boolean {
   return (
     payload["repository"] === pins.repository &&
+    payload["repository_id"] === pins.repositoryId &&
+    payload["repository_owner_id"] === pins.repositoryOwnerId &&
     payload["environment"] === pins.environment &&
     payload["ref"] === pins.ref &&
     payload["job_workflow_ref"] === pins.workflowRef

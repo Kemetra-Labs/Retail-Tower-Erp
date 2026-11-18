@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Catalog — ERPNext Item Mapping API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     Spec 013 (product-master-from-erpnext) — the tenant-admin suggest/confirm
     review surface for the `erpnext_item_map` identity mapping
@@ -63,10 +63,15 @@ info:
     **1.2.0-draft (RT-1458, audit A-17, additive).** The list operation gains the
     optional `limit` (1 to 500) and `cursor` query parameters and a `nextCursor`
     response property. Keyset order is `suggested_at DESC, id`. When `limit` is
-    absent the operation behaves as before (every active mapping, `nextCursor`
-    null), so existing callers are unaffected. Making a default limit apply when
-    `limit` is absent is a separate, later change that ships only after the
-    Admin-Console pages through the list.
+    absent the operation behaved as before (every active mapping, `nextCursor`
+    null), so existing callers were unaffected; 1.3.0-draft makes the default
+    apply.
+
+    **1.3.0-draft (RT-1458, audit A-17 PR 3c).** An omitted `limit` now means 100:
+    the response is the first page of at most 100 mappings and `nextCursor` leads
+    to the rest (it was every active mapping). The Admin-Console pages since the
+    change that adopted 1.2.0-draft and always sends `limit`; no other consumer
+    pins this contract. `limit` still accepts 1 to 500.
 
 servers:
   - url: https://api.example.com
@@ -102,10 +107,11 @@ paths:
             type: integer
             minimum: 1
             maximum: 500
+            default: 100
           description: >
-            Page size (RT-1458). Omit to receive every active mapping in one
-            response, the behaviour before paging was added; a later contract
-            version will apply a default page size when this is absent.
+            Page size (RT-1458). Omit for the default of 100; `nextCursor` in the
+            response leads to the next page. Before 1.3.0-draft an omitted `limit`
+            returned every active mapping in one response.
         - in: query
           name: cursor
           required: false
@@ -138,7 +144,7 @@ paths:
                     type: [string, "null"]
                     description: >
                       Pass as `cursor` to read the next page. `null` on the
-                      last page, and whenever `limit` was not sent.
+                      last page.
         "400":
           description: Bad request (invalid query param, or a `cursor` this operation did not issue).
           content:

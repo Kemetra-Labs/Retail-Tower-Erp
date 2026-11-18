@@ -4,7 +4,7 @@
  * unvalidated body, so neither may throw on a field's shape.
  */
 import { CaptureSaleRequestWithTendersSchema } from "../../../../src/catalog/sales/dto/capture-sale-request.dto";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { SalesController } from "../../../../src/catalog/sales/sales.controller";
 import {
   CAPTURE_HASH_EXCLUDED_FIELDS,

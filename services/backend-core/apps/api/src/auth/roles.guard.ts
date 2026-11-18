@@ -108,7 +108,7 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { Pool, PoolClient } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 
 import type { Principal } from "./auth.guard";
 import { PG_POOL } from "./auth.module";
@@ -129,12 +129,14 @@ export class RolesGuard implements CanActivate {
     private readonly memberships: MembershipRepository,
     /**
      * Optional: when present, the role-membership lookup runs inside
-     * `runWithTenantContext({ tenantId: NIL_UUID, isPlatformAdmin: true })`
-     * so `memberships`/`roles` RLS predicates resolve to the
-     * platform-admin OR-branch (the alternative — running on a plain
+     * `runWithSystemPrivilege({ tenantId: null, privilege: "membership_bootstrap" })`
+     * so `memberships`/`roles`/`tenants` RLS resolves to the SELECT-only
+     * `membership_bootstrap` policies of migration 0120 (RT-1457), never the
+     * platform-admin flag (the alternative — running on a plain
      * non-superuser pool — throws `invalid input syntax for type uuid: ""`
      * because `current_setting('app.current_tenant', true)` returns ''
-     * when unset and the RLS `::uuid` cast fails). Omitting this param
+     * when unset and the RLS `::uuid` cast fails; the helper pins the nil
+     * tenant, so the cast succeeds). Omitting this param
      * (unit tests that stub the repo) preserves the legacy plain-pool
      * fast path inside `MembershipRepository` itself.
      */
@@ -167,9 +169,10 @@ export class RolesGuard implements CanActivate {
     //   (4) platform-admin bypass for @Roles / @RolesFromParam;
     //   (5) tenant id from `RolesMetadata.tenantFrom`;
     //   (6) user id from the principal;
-    //   (7) membership + role check, in a platform-admin GUC context so
-    //       `memberships`/`roles` RLS predicates are satisfied on a
-    //       non-superuser pool (`app_test` in tests, `app_role` in prod).
+    //   (7) membership + role check, in the `membership_bootstrap` system-
+    //       privilege context so `memberships`/`roles` RLS predicates are
+    //       satisfied on a non-superuser pool (`app_test` in tests,
+    //       `app_role` in prod); it never sets the platform-admin flag.
     const decision = await decideTenantRoleGate(
       {
         principal,
@@ -197,12 +200,13 @@ export class RolesGuard implements CanActivate {
   }
 
   /**
-   * Run `work` inside a platform-admin GUC context so RLS-protected
-   * `memberships`/`roles` lookups succeed on a non-superuser app role.
+   * Run `work` inside the `membership_bootstrap` system-privilege context so
+   * RLS-protected `memberships`/`roles` lookups succeed on a non-superuser
+   * app role (RT-1457). It never sets the platform-admin flag.
    *
-   * Uses the nil UUID (all-zeros) as `tenantId` rather than null so the
-   * `::uuid` cast in the RLS predicate succeeds; access is granted via
-   * the `is_platform_admin = 'true'` OR-branch. Falls back to a plain
+   * `tenantId: null` pins the nil UUID (all-zeros), so the `::uuid` cast in
+   * the tenant RLS predicate succeeds and matches no real tenant; access is
+   * granted by the SELECT-only `membership_bootstrap` policies. Falls back to a plain
    * passthrough (no client) when `this.pool` is absent — unit tests
    * that construct the guard directly stub the repository entirely.
    */
@@ -212,9 +216,9 @@ export class RolesGuard implements CanActivate {
     if (!this.pool) {
       return await work(undefined);
     }
-    return await runWithTenantContext(
+    return await runWithSystemPrivilege(
       this.pool,
-      { tenantId: "00000000-0000-0000-0000-000000000000", isPlatformAdmin: true },
+      { tenantId: null, privilege: "membership_bootstrap" },
       (client) => work(client),
     );
   }

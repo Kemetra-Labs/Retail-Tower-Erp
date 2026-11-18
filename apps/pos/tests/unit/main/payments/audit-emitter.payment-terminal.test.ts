@@ -12,12 +12,21 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createPaymentAuditEmitter } from '../../../../src/main/payments/audit-emitter.js';
+import {
+  createPaymentAuditEmitter,
+  type PaymentAuditEvent,
+} from '../../../../src/main/payments/audit-emitter.js';
 import { deriveAttributionOperatorId } from '../../../../src/main/payments/audit-emitter.js';
+
+function firstEvent(events: readonly PaymentAuditEvent[]): PaymentAuditEvent {
+  const evt = events[0];
+  if (evt === undefined) throw new Error('no audit event captured');
+  return evt;
+}
 
 describe('T093 — payment.cancelled audit payload', () => {
   it('emits cancelled with operator + handoff correlation; no sensitive fields', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -37,7 +46,7 @@ describe('T093 — payment.cancelled audit payload', () => {
       session_id: 'sess-1',
     });
     expect(captured).toHaveLength(1);
-    const evt = captured[0] as Record<string, unknown>;
+    const evt = firstEvent(captured);
     expect(evt.action_category).toBe('payment.cancelled');
     const payload = evt.payload as Record<string, unknown>;
     expect(payload.attribution_operator_id).toBe('op-clerk-user-abc');
@@ -52,7 +61,7 @@ describe('T093 — payment.cancelled audit payload', () => {
 
 describe('T093 — payment.failed audit payload', () => {
   it('emits failed with failure_reason and operator attribution', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -72,7 +81,7 @@ describe('T093 — payment.failed audit payload', () => {
       originating_terminal_id: 'terminal-1',
       session_id: 'sess-1',
     });
-    const evt = captured[0] as Record<string, unknown>;
+    const evt = firstEvent(captured);
     expect(evt.action_category).toBe('payment.failed');
     const payload = evt.payload as Record<string, unknown>;
     expect(payload.failure_reason).toBe('tender_underpaid');

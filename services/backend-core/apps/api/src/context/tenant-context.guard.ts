@@ -41,8 +41,16 @@
  * without a membership row. Store-access validation still applies if
  * `activeStoreId` is set, falling back to the `'all'` branch.
  *
- * Support sessions (RT-414)
- * -------------------------
+ * Support sessions (RT-414; RT-1462 exemption)
+ * ---------------------------------------------
+ * RT-1462: for the six handlers in `PLATFORM_DIRECT_HANDLERS` (the Console force
+ * actions) the non-member case needs NO support session: `admitDirect` writes the
+ * same one `platform.cross_tenant.accessed` row, names the live session when
+ * there is one, and keeps a suspended tenant read-only. A platform admin who IS
+ * a member skips this (and `admitDirect`) on every route, these six included:
+ * no cross-tenant row, no suspended-tenant refusal (owner decision 2026-11-18,
+ * kept as is). Every other route is as below.
+ *
  * A platform admin with NO live membership in the active tenant (whatever
  * the tenant's status) is admitted only through an `active` support session
  * for exactly that tenant (`SupportSessionGate`): otherwise 403
@@ -76,8 +84,11 @@
  *
  * What this guard does NOT do
  * ---------------------------
- *   - Set the Postgres GUCs (`app.current_tenant`,
- *     `app.is_platform_admin`). That's the DB middleware's job (T155).
+ *   - Set the Postgres GUCs for the request's tenant context (the
+ *     current tenant and the platform-admin flag). That's the DB
+ *     middleware's job (T155). The bootstrap reads below use the
+ *     `membership_bootstrap` system privilege (RT-1457), never the
+ *     platform-admin flag.
  *   - Publish the context anywhere but `request.context`. Handlers and
  *     services read it from the request (RT-1203 removed the unused
  *     AsyncLocalStorage bridge).
@@ -94,7 +105,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
 import { PG_POOL } from "../auth/auth.module";
 import { SessionRepository } from "../auth/session.repository";
@@ -104,7 +115,7 @@ import {
 } from "../observability/metrics/api.metrics";
 import { assignRequestId } from "../common/request-id.interceptor";
 import { recordDbRlsContextFailure } from "../observability/metrics/db.metrics";
-import { routeTemplate } from "../platform-support-sessions/support-session.coverage";
+import { isPlatformDirect, routeTemplate } from "../platform-support-sessions/support-session.coverage";
 import {
   SupportSessionGate,
   supportSessionRefusal,
@@ -122,6 +133,11 @@ export interface RequestAccess {
   readonly route: string;
   /** Assigns the request id on first use (only a support-session row needs it). */
   readonly requestId: () => string | null;
+  /**
+   * RT-1462: the route is one a platform admin who is not a member may use WITHOUT a support session
+   * (`PLATFORM_DIRECT_HANDLERS`). Absent means no, so a caller that builds its own access stays covered.
+   */
+  readonly platformDirect?: boolean;
 }
 
 export { routeTemplate };
@@ -137,13 +153,13 @@ export class TenantContextGuard implements CanActivate {
     private readonly memberships: MembershipRepository,
     /**
      * Optional: when present, membership lookups inside `resolveSession`
-     * run inside `runWithTenantContext({ tenantId: NIL_UUID,
-     * isPlatformAdmin: true })` so RLS is satisfied even when the app
-     * pool is a non-superuser (`app_test` in tests, the production
-     * `app_role` in production). The nil UUID avoids the
-     * `invalid input syntax for type uuid: ""` error that occurs when
-     * `tenantId: null` maps to an empty GUC string that the `::uuid`
-     * cast cannot parse. Omitting this param (unit tests that stub the
+     * run inside `runWithSystemPrivilege({ tenantId: null, privilege:
+     * "membership_bootstrap" })` (RT-1457) so RLS is satisfied even when the
+     * app pool is a non-superuser (`app_test` in tests, the production
+     * `app_role` in production). The helper pins the nil UUID for a null
+     * tenant, which avoids the `invalid input syntax for type uuid: ""`
+     * error that an empty GUC string would raise at the `::uuid` cast.
+     * Omitting this param (unit tests that stub the
      * repo) falls back to the plain `this.db` surface.
      */
     @Optional() @Inject(PG_POOL) private readonly pool?: Pool,
@@ -159,6 +175,7 @@ export class TenantContextGuard implements CanActivate {
         method: request.method ?? "GET",
         route: routeTemplate(execCtx),
         requestId: () => assignRequestId(request, execCtx.switchToHttp().getResponse()),
+        platformDirect: isPlatformDirect(execCtx),
       });
       request.context = resolved;
       return true;
@@ -242,6 +259,7 @@ export class TenantContextGuard implements CanActivate {
     // routes never infer it from a null active store. Platform admins are
     // tenant-wide (FR-TEN-6).
     let storeAccess: StoreAccess = { kind: "all" };
+    let supportSession: ResolvedContext["supportSession"];
 
     if (!isPlatformAdmin) {
       // FR-CTX-2: validate active membership.
@@ -281,7 +299,7 @@ export class TenantContextGuard implements CanActivate {
         }
       });
     } else {
-      await this.admitPlatformAdmin(principal, tenantId, storeId, access);
+      supportSession = await this.admitPlatformAdmin(principal, tenantId, storeId, access);
     }
 
     return {
@@ -291,6 +309,7 @@ export class TenantContextGuard implements CanActivate {
       isPlatformAdmin,
       source: "session",
       storeAccess,
+      ...(supportSession === undefined ? {} : { supportSession }),
     };
   }
 
@@ -301,19 +320,22 @@ export class TenantContextGuard implements CanActivate {
    * check (no membership/access policy applies to platform admins). The
    * repo's 'all' branch does exactly that check; the synthetic membershipId
    * is never referenced by 'all'.
+   *
+   * Returns the support session that admitted a non-member (RT-1462: the force
+   * actions record it as "on behalf of"); `undefined` for a member.
    */
   private async admitPlatformAdmin(
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     storeId: string | null,
     access: RequestAccess,
-  ): Promise<void> {
+  ): Promise<ResolvedContext["supportSession"]> {
     let member = false;
     await this.withBootstrapCtx(async (client) => {
       member = await this.memberships.hasLiveMembership(principal.userId, tenantId, client);
     });
-    if (!member) await this.enforceSupportSession(principal, tenantId, access);
-    if (storeId === null) return;
+    const supportSession = member ? undefined : await this.enforceSupportSession(principal, tenantId, access);
+    if (storeId === null) return supportSession;
     await this.withBootstrapCtx(async (client) => {
       const ok = await this.memberships.canAccessStore(
         "00000000-0000-0000-0000-000000000000",
@@ -324,31 +346,38 @@ export class TenantContextGuard implements CanActivate {
       );
       if (!ok) throw notFound();
     });
+    return supportSession;
   }
 
   private async enforceSupportSession(
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     access: RequestAccess,
-  ): Promise<void> {
+  ): Promise<ResolvedContext["supportSession"]> {
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    await new SupportSessionGate(this.pool).enforce(tenantId, {
+    const gate = new SupportSessionGate(this.pool);
+    const request = {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: access.method,
       route: access.route,
       requestId: access.requestId(),
-    });
+    };
+    // RT-1462: a direct route needs no session; its live one, if any, is still recorded.
+    const session =
+      access.platformDirect === true ? await gate.admitDirect(tenantId, request) : await gate.enforce(tenantId, request);
+    return session === null ? undefined : { id: session.id, ticketRef: session.ticketRef };
   }
 
   /**
-   * Run `work` inside a platform-admin GUC context so RLS-protected
-   * membership/store tables are readable by a non-superuser app role.
+   * Run `work` inside the `membership_bootstrap` system-privilege context
+   * so RLS-protected membership/store tables are readable by a
+   * non-superuser app role (RT-1457). It never sets the platform-admin
+   * flag; the SELECT-only policies of migration 0120 grant the read.
    *
-   * Uses `runWithTenantContext(pool, { tenantId: null,
-   * isPlatformAdmin: true }, work)` — the null tenantId maps to `""`
-   * which fails the UUID cast in the RLS predicate, but the
-   * `is_platform_admin = 'true'` OR-branch satisfies it regardless.
+   * Uses `runWithSystemPrivilege(pool, { tenantId: null, privilege:
+   * "membership_bootstrap" }, work)` — the helper pins the nil UUID for a
+   * null tenant, so the UUID cast in the tenant RLS predicate succeeds.
    *
    * Falls back to a plain async-passthrough when `this.pool` is
    * undefined (unit-test callers that construct the guard without a
@@ -364,19 +393,18 @@ export class TenantContextGuard implements CanActivate {
       // Unit-test path: no real pool, repository is stubbed.
       return work(undefined);
     }
-    // Use the nil UUID (all-zeros) rather than null so the `::uuid` cast
-    // in RLS policies succeeds. `tenant_id = '00000000-…'` evaluates to
-    // `false` for every real tenant; access is granted via the
-    // `is_platform_admin = 'true'` OR-branch. Passing null would set the
-    // GUC to "" which throws `invalid input syntax for type uuid: ""`.
+    // `tenantId: null` makes the helper pin the nil UUID (all-zeros), so the
+    // `::uuid` cast in the tenant RLS policies succeeds and
+    // `tenant_id = '00000000-…'` is false for every real tenant; access is
+    // granted by the SELECT-only `membership_bootstrap` policies (0120).
     //
     // `return await` (not bare `return`) so that promise rejections are
     // caught by the try-catch below. Without `await`, a rejected promise
     // propagates after the try frame has exited.
     try {
-      return await runWithTenantContext(
+      return await runWithSystemPrivilege(
         this.pool,
-        { tenantId: "00000000-0000-0000-0000-000000000000", isPlatformAdmin: true },
+        { tenantId: null, privilege: "membership_bootstrap" },
         (client) => work(client),
       );
     } catch (err) {

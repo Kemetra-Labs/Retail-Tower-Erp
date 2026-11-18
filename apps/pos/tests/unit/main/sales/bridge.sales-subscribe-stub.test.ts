@@ -29,6 +29,8 @@ const STUB_SALES_REPO = {
   readById: () => null,
   findByNumber: () => null,
   findByHandoffActionId: () => null,
+  listByFinalizedRange: () => [],
+  listRecentInWindow: () => [],
 };
 const STUB_PRINT_REPO = {
   insert: () => {},
@@ -56,7 +58,7 @@ function bridgeWith(opts: { session?: typeof SESSION | null; projector?: BannerS
     salesRepo: STUB_SALES_REPO,
     printEventsRepo: STUB_PRINT_REPO,
     drawerEventsRepo: STUB_DRAWER_REPO,
-    bannerStateProjector: opts.projector,
+    ...(opts.projector === undefined ? {} : { bannerStateProjector: opts.projector }),
     newSubscriptionToken: () => 'tok-1',
   });
 }

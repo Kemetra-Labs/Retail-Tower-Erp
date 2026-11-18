@@ -63,6 +63,8 @@ function makeManagerSession(overrides?: Partial<OperatorSessionRecord>): Operato
     started_at: '2026-05-16T08:00:00.000Z',
     backend_session_id: 'b-mgr-1',
     last_activity_at: '2026-05-16T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
     ...overrides,
   };
 }
@@ -78,6 +80,8 @@ function makeCashierSession(overrides?: Partial<OperatorSessionRecord>): Operato
     started_at: '2026-05-16T08:00:00.000Z',
     backend_session_id: 'b-cash-1',
     last_activity_at: '2026-05-16T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
     ...overrides,
   };
 }
@@ -175,11 +179,14 @@ function readOutboxKinds(db: SqlJsDatabase, cart_id: string): string[] {
 describe('cart.void on frozen cart — always refused (S2 live — GREEN)', () => {
   it('refuses void even with attribution_operator_id — post-handoff cancel is a separate action', async () => {
     const f = await newFrozenCart();
-    const res = await f.handlers.void({
+    // A variable, not a fresh literal: the extra attribution field is deliberately
+    // sent to prove main ignores it, though it is not part of CartVoidRequest.
+    const request = {
       cart_id: f.cart_id,
       attribution_operator_id: f.managerSession.operator_id,
       idempotency_key: 'void-frozen-mgr-attr',
-    });
+    };
+    const res = await f.handlers.void(request);
     expect(res.kind).toBe('refused');
     if (res.kind === 'refused') expect(res.reason).toBe('frozen');
   });
@@ -277,7 +284,7 @@ describe('cart.cancelPostHandoff — manager-attributed cancel S3 contract (RED 
       idempotency_key: 'cancel-posthandoff-t057-d',
     });
     expect(f.emitFn).toHaveBeenCalledOnce();
-    const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+    const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
     expect(emittedEvent.action_category).toBe('cart.cancel.post_handoff');
     // Cashier is acting_operator (requester); manager is approving_supervisor.
     expect(emittedEvent.acting_operator_id).toBe(f.cashierSession.operator_id);
@@ -307,7 +314,7 @@ describe('cart.cancelPostHandoff — manager-attributed cancel S3 contract (RED 
       handoff_action_id: 'handoff-action-t057',
       idempotency_key: 'cancel-posthandoff-t057-user-id',
     });
-    const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+    const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
     expect(emittedEvent.approving_supervisor_id).toBe('user-mgr-1');
   });
 

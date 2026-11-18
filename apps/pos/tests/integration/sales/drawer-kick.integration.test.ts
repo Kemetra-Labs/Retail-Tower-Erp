@@ -271,6 +271,6 @@ describe('T312 / T313 — reprint + double-kick suppression (FR-053)', () => {
     // Still exactly one drawer row (the UNIQUE(sale_id) backstop was never even
     // reached because the readBySale guard short-circuited).
     const all = db.exec("SELECT COUNT(*) AS n FROM drawer_events WHERE sale_id='sale-1'");
-    expect(all[0].values[0][0]).toBe(1);
+    expect(all[0]?.values[0]?.[0]).toBe(1);
   });
 });

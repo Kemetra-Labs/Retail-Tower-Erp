@@ -95,7 +95,8 @@ const TRUST_STATE_SQL = `CASE WHEN d.retired_at IS NOT NULL THEN 'retired'
                             WHEN d.revoked_at IS NOT NULL THEN 'revoked'
                             ELSE 'active' END`;
 
-const SELECT_SQL = `
+/** The device joined with its health row and its channel's policy: the one read model of the fleet-health list and the store-deletion facts (RT-1453). */
+export const DEVICE_HEALTH_SELECT_SQL = `
   SELECT d.id AS device_id, d.store_id, d.label,
          ${TRUST_STATE_SQL} AS trust_state,
          d.last_seen_at AS activity_last_seen_at,
@@ -113,7 +114,7 @@ const SELECT_SQL = `
  * $4 trust state, $5 app version, $6 update channel, $7 after device id,
  * $8 limit.
  */
-const LIST_SQL = `${SELECT_SQL}
+const LIST_SQL = `${DEVICE_HEALTH_SELECT_SQL}
    WHERE d.tenant_id = $1::uuid
      AND ($2::uuid[] IS NULL OR d.store_id = ANY($2::uuid[]))
      AND ($3::uuid IS NULL OR d.store_id = $3::uuid)
@@ -128,7 +129,7 @@ const LIST_SQL = `${SELECT_SQL}
    LIMIT $8`;
 
 /** $1 tenant, $2 scoped store ids (null = tenant-wide), $3 device id. */
-const GET_SQL = `${SELECT_SQL}
+const GET_SQL = `${DEVICE_HEALTH_SELECT_SQL}
    WHERE d.tenant_id = $1::uuid
      AND ($2::uuid[] IS NULL OR d.store_id = ANY($2::uuid[]))
      AND d.id = $3::uuid`;

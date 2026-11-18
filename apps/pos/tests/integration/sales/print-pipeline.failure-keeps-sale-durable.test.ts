@@ -147,8 +147,8 @@ describe('T241 — print failure keeps the Sale durable', () => {
 
     const rows = bindPrintEventsRepository(makeSqlJsHandle(db)).readBySale('sale-9');
     expect(rows).toHaveLength(1);
-    expect(rows[0].outcome).toBe('failure');
-    expect(rows[0].failure_reason).toBe('printer_out_of_paper');
+    expect(rows[0]?.outcome).toBe('failure');
+    expect(rows[0]?.failure_reason).toBe('printer_out_of_paper');
 
     const failed = events.find((e) => e.action_category === 'sale.receipt.print_failed');
     expect(failed).toBeDefined();

@@ -308,7 +308,7 @@ describe('RT-541 — every input is validated in main', () => {
     });
   });
 
-  it.each([
+  it.each<[string, Record<string, unknown>]>([
     ['a malformed from_day', { from_day: '2026-10-1' }],
     ['a date-time from_day', { from_day: '2026-10-16T00:00:00Z' }],
     ['an impossible to_day', { to_day: '2026-02-30' }],
