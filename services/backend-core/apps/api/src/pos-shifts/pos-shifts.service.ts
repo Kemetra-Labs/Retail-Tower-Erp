@@ -19,13 +19,14 @@
  * NULL or blank one falls back to the email, so the list shows every shift
  * `forceCloseShift` (IS_STUCK_SQL) would accept.
  *
- * Membership and access checks use a transaction-local bootstrap RLS
- * context; the shifts query uses the resolved tenant context.
+ * Membership and access checks use the transaction-local
+ * `membership_bootstrap` system privilege (RT-1457); the shifts query uses
+ * the resolved tenant context.
  * users/devices have no RLS, so the JOIN works without extra context.
  */
 import { Injectable } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege, runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
 import { findUserByActiveLink } from "../auth/identity-link-lookup";
@@ -78,9 +79,9 @@ export class PosShiftsService {
 
     // 3. Find an active membership on the requested branch. The verified
     // user and branch IDs constrain this bootstrap read before authorization.
-    const membership = await runWithTenantContext(
+    const membership = await runWithSystemPrivilege(
       this.pool,
-      { tenantId: null, isPlatformAdmin: true },
+      { tenantId: null, privilege: "membership_bootstrap" },
       async (client) => {
         const membershipRow = await client.query<MembershipRow>(
           `SELECT m.id, m.tenant_id, m.store_access_kind, r.code AS role_code
