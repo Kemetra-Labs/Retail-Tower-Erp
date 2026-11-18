@@ -96,6 +96,12 @@ for layout in standalone nested; do
   # Breaking change: drop /b from the head contract.
   sed -i '/^  \/b:/,$d' "$p/packages/contracts/openapi/api.yaml"
   expect 1 'api-path-removed|removed' "$layout: removed path fails the gate" -- "${check[@]}" "$base"
+  # RT-1458: a line added by this change that matches the real finding suppresses it, so the pass
+  # depends on check.sh handing the ignore file to oasdiff, not on the banner it prints.
+  echo "RT-1458 fixture consumer:none: in API GET /b api path removed without deprecation [api-path-removed-without-deprecation]." \
+    >>"$p/tools/oasdiff/breaking-ignore.txt"
+  expect 0 'no unacknowledged' "$layout: an added acknowledgement suppresses the real break" -- "${check[@]}" "$base"
+  sed -i '/^RT-1458 fixture consumer:none:/d' "$p/tools/oasdiff/breaking-ignore.txt"
   git -C "$p" checkout -q -- packages/contracts/openapi/api.yaml
 
   expect 1 'is not a commit' "$layout: unknown base ref fails closed" -- "${check[@]}" no-such-ref

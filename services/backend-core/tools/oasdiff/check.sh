@@ -16,7 +16,8 @@
 # dropped, so a suppression never outlives the PR that introduced it. A line that
 # is on the base AND still in the head is stale and FAILS the gate (RT-1458, the
 # same rule boundary-todo.yaml applies to stale entries). Deleting a line is
-# never stale: it is no longer in the head.
+# never stale: it is no longer in the head. A base without contracts has nothing
+# to compare and exits 0 before this check (the first-contract case).
 #
 # Each added line is also checked by consumer-impact.mjs (RT-674, report mode).
 set -euo pipefail

@@ -99,12 +99,19 @@ them in the next PR: deleting a line is never stale, and the consumer-impact che
 (RT-674) still reads only the lines the PR adds. `breaking-ignore.txt` therefore
 holds only its header comments on `main` between breaking changes.
 
-One consequence: a PR that was green before another PR's acknowledgement merged
-can turn the `push` run on `main` red when it lands (its head then carries the
-inherited line, and `push` compares with the previous `main`). Delete the line in
-a fix-forward PR. A PR that adds an acknowledgement should therefore be followed by
-a PR that deletes it. If the same break recurs while its old line is still there,
-reword the line (a new reason or Jira key) so it is a new entry, not an inherited one.
+Two consequences while an acknowledgement is on `main`:
+
+- A PR that was green before another PR's acknowledgement merged can turn the `push`
+  run on `main` red when it lands (its head then carries the inherited line, and
+  `push` compares with the previous `main`). Delete the line in a fix-forward PR.
+- A PR cut before that acknowledgement merged is checked on its merge ref, which already
+  carries the line, so `check.sh` can name a line that is not on the PR branch. Merge the
+  current `main` into the branch first (a normal merge, no rebase), then delete the
+  reported line.
+
+A PR that adds an acknowledgement should therefore be followed at once by a PR that
+deletes it. If the same break recurs while its old line is still there, reword the line
+(a new reason or Jira key) so it is a new entry, not an inherited one.
 
 ## Known limits (RT-37)
 
