@@ -70,7 +70,11 @@ const UTC_TEXT = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
  * The shift joined to its opening cashier and opening terminal, and the two derived columns every
  * reader of that join shares (RT-1453: the single-shift facts below and the store's open-shift list
  * are one join, not two copies). `opening_cashier_user_id` and `opening_device_id` are NOT NULL
- * foreign keys, so the inner joins drop no shift.
+ * foreign keys, so the inner joins drop no shift. One latent edge: `devices` is joined on the
+ * shift's own tenant, and the schema alone does not force the device's tenant to match (migration
+ * 0036: the service does). A shift whose device belongs to another tenant would be counted by
+ * `countOpenStoreShifts` but not listed; nothing produces such a row today, and the count (the
+ * guard) stays right either way.
  */
 const SHIFT_WITH_CASHIER_AND_TERMINAL_FROM = `FROM shifts s
     JOIN users u ON u.id = s.opening_cashier_user_id
