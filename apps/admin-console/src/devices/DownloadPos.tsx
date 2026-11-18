@@ -60,11 +60,12 @@ function Outcome({
     case "not-found":
       return <Banner variant="info" message={t("devices.download.notAllowed")} />;
     case "support-session":
+      // RT-1468: a platform admin is admitted to any organization, so the one support-session
+      // refusal left is `support_session_required`: the organization no longer exists.
       return (
         <Banner
           variant="warning"
-          title={t("platform.session.expiredBody.title")}
-          message={t("platform.session.expiredBody.body")}
+          message={t("devices.download.tenantUnavailable")}
           requestId={state.requestId}
         />
       );

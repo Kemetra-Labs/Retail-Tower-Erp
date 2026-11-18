@@ -118,13 +118,16 @@ function serve(ctx: unknown): void {
   getActiveContext.mockResolvedValue({ status: 200, data: ctx });
 }
 
-/** A switch the server accepts: the re-read context has that tenant active. */
-function switchesTo(tenantId: string, name: string): void {
+/**
+ * A switch the server accepts: the re-read context has that tenant active. `member: false` is a
+ * platform admin's direct entry (RT-1468): no membership and no role, as Backend-Core answers.
+ */
+function switchesTo(tenantId: string, name: string, member = true): void {
   switchActiveTenant.mockImplementation(async () => {
     serve({
-      ...noSession([{ tenant_id: tenantId, tenant_name: name, role_code: "owner" }]),
+      ...noSession(member ? [{ tenant_id: tenantId, tenant_name: name, role_code: "owner" }] : []),
       active_tenant: { id: tenantId, name },
-      active_role_code: "owner",
+      active_role_code: member ? "owner" : null,
     });
     return { status: 200, data: {} };
   });
@@ -162,7 +165,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("directory states", () => {
-  test("rows: name and slug only, no status and no store counts, with the read-only note", async () => {
+  test("rows: name and slug only, no status and no store counts, with the suspended note", async () => {
     serve(noSession());
     mount();
     await heading();
@@ -174,7 +177,9 @@ describe("directory states", () => {
     expect(within(rows[0]).getByText("delta-markets")).toBeDefined();
     expect(screen.getByText("Showing 3 of 3")).toBeDefined();
     expect(
-      screen.getByText("A suspended organization opens in a read-only session."),
+      screen.getByText(
+        "A suspended organization opens like any other. Its own users stay locked out until it is reactivated.",
+      ),
     ).toBeDefined();
     const headers = within(await table())
       .getAllByRole("columnheader")
@@ -235,6 +240,20 @@ describe("row actions are completable (UX Addendum A3)", () => {
     await table();
     expect(screen.queryByRole("button", { name: "Start support session: Nile Pharma" })).toBeNull();
     expect(screen.getByText("You're a member")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Open organization: Nile Pharma" }));
+    await waitFor(() => expect(switchActiveTenant).toHaveBeenCalledWith(NILE));
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/"));
+    expect(openSupportSession).not.toHaveBeenCalled();
+  });
+
+  test("RT-1468: a tenant the caller is not a member of opens directly too, and still offers a session", async () => {
+    serve(noSession());
+    switchesTo(NILE, "Nile Pharma", false);
+    mount();
+    await table();
+    expect(
+      screen.getByRole("button", { name: "Start support session: Nile Pharma" }),
+    ).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Open organization: Nile Pharma" }));
     await waitFor(() => expect(switchActiveTenant).toHaveBeenCalledWith(NILE));
     await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/"));
@@ -357,8 +376,7 @@ describe("RT-1021 v4.0 surfaces", () => {
     serve(noSession());
     mount();
     const drawer = await openDrawer();
-    // The line names the kind of access only: the read-only fact lives in the body copy,
-    // so the header claims no API boundary (the API still admits tenant writes, P0-b).
+    // The line names the kind of access only; what the session records lives in the body copy.
     expect(drawer.querySelector(".drawer__scope")?.textContent).toBe("Support access");
   });
 });
@@ -369,9 +387,9 @@ describe("start drawer: validation and the request body", () => {
     mount();
     const drawer = await openDrawer();
     expect(drawer.getAttribute("aria-label")).toBe("Support session: Delta Markets");
-    expect(within(drawer).getByText(/Read only: nothing in the organization/)).toBeDefined();
+    expect(within(drawer).getByText(/You work in the organization as usual/)).toBeDefined();
     expect(within(drawer).getByText(/60 minutes/)).toBeDefined();
-    expect(within(drawer).getByText(/If the organization is suspended/)).toBeDefined();
+    expect(within(drawer).getByText(/A suspended organization opens like any other/)).toBeDefined();
     expect(within(drawer).getByText(/sees it in the audit log/)).toBeDefined();
     // DEC-1: no free-text reason field.
     expect(drawer.querySelectorAll("textarea")).toHaveLength(0);
@@ -448,7 +466,7 @@ describe("start drawer: validation and the request body", () => {
 });
 
 describe("start drawer: outcomes", () => {
-  test("201: re-reads the context, closes the drawer and shows the session bar, read-only", async () => {
+  test("201: re-reads the context, closes the drawer and shows the session bar, never read-only", async () => {
     serve(noSession());
     openSupportSession.mockImplementation(async () => {
       serve(inSession(DELTA, "Delta Markets"));
@@ -460,12 +478,12 @@ describe("start drawer: outcomes", () => {
     submit(drawer);
     const bar = await screen.findByRole("region", { name: "Support session" });
     expect(within(bar).getByText("Working in Delta Markets")).toBeDefined();
-    expect(within(bar).getByText("Read only")).toBeDefined();
+    expect(within(bar).queryByText("Read only")).toBeNull();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByTestId("where").textContent).toBe("/platform/tenants");
   });
 
-  test("suspended tenant: a 201 is the same read-only session; no not-available state, no break-glass", async () => {
+  test("suspended tenant: a 201 is the same session, not read-only; no not-available state, no break-glass", async () => {
     serve(noSession());
     openSupportSession.mockImplementation(async () => {
       serve(inSession(RAYAN, "Rayan Trading"));
@@ -476,7 +494,7 @@ describe("start drawer: outcomes", () => {
     fill(drawer, "customer_support");
     submit(drawer);
     const bar = await screen.findByRole("region", { name: "Support session" });
-    expect(within(bar).getByText("Read only")).toBeDefined();
+    expect(within(bar).queryByText("Read only")).toBeNull();
     expect(screen.queryByText("Organization not available")).toBeNull();
     expect(document.body.textContent?.toLowerCase()).not.toMatch(/break.?glass|emergency write/);
   });

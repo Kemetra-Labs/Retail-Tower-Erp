@@ -12,11 +12,11 @@ const SIGNALS = { hasTrackedProducts: true, trackedSellingOn: true } as const;
 const paths = (
   role: string,
   signals: { hasTrackedProducts?: boolean; trackedSellingOn?: boolean } = SIGNALS,
-) => tenantNav(role, false, signals).flatMap((g) => g.entries.map((e) => e.to));
+) => tenantNav(role, signals).flatMap((g) => g.entries.map((e) => e.to));
 
 describe("tenant navigation groups (RT-1291)", () => {
   test("an owner sees four groups, the first two with the new headings", () => {
-    const groups = tenantNav("owner", false, SIGNALS);
+    const groups = tenantNav("owner", SIGNALS);
     expect(groups.map((g) => g.id)).toEqual(["daily", "stock", "integration", "management"]);
     expect(groups.map((g) => g.heading)).toEqual([
       "shell.nav.section.daily",
@@ -27,7 +27,7 @@ describe("tenant navigation groups (RT-1291)", () => {
   });
 
   test("Daily and Stock and items hold the approved entries, in their old relative order", () => {
-    const groups = tenantNav("owner", false, SIGNALS);
+    const groups = tenantNav("owner", SIGNALS);
     const entries = (id: string) => groups.find((g) => g.id === id)?.entries.map((e) => e.to);
     expect(entries("daily")).toEqual(["/", "/sales", "/shift-closes", "/reports", "/devices"]);
     expect(entries("stock")).toEqual([
@@ -41,7 +41,7 @@ describe("tenant navigation groups (RT-1291)", () => {
   });
 
   test("Integration and Management are unchanged", () => {
-    const groups = tenantNav("owner", false, SIGNALS);
+    const groups = tenantNav("owner", SIGNALS);
     const entries = (id: string) => groups.find((g) => g.id === id)?.entries.map((e) => e.to);
     expect(entries("integration")).toEqual([
       "/erp-connection",
@@ -76,10 +76,16 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(paths("owner", {})).toHaveLength(20);
   });
 
-  test("a group left with no entry is dropped, and a support session lists no tenant group", () => {
-    const groupIds = (role: string) => tenantNav(role, false, SIGNALS).map((g) => g.id);
+  test("RT-1468: a platform admin gets the platform directory as the last group; nobody else does", () => {
+    const last = tenantNav("owner", { ...SIGNALS, platformAdmin: true }).at(-1);
+    expect(last?.id).toBe("platform");
+    expect(last?.entries.map((e) => e.to)).toEqual(["/platform/tenants"]);
+    expect(tenantNav("owner", SIGNALS).some((g) => g.id === "platform")).toBe(false);
+  });
+
+  test("a group left with no entry is dropped", () => {
+    const groupIds = (role: string) => tenantNav(role, SIGNALS).map((g) => g.id);
     // A role with no daily-operations entry still has Overview, so Daily stays; Stock goes.
     expect(groupIds("cashier")).toEqual(["daily", "integration", "management"]);
-    expect(tenantNav("owner", true, SIGNALS).map((g) => g.id)).toEqual(["platform"]);
   });
 });

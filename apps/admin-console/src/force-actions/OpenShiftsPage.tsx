@@ -10,6 +10,7 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { TrustBadge } from "@/devices/DeviceParts";
 import { DateTime, useT } from "@/i18n";
 import type { OpenShiftSummary } from "@/lib/force-action-queries";
@@ -123,7 +124,7 @@ export function OpenShiftsPage(): React.JSX.Element {
     target?.focus();
   }, [closing]);
   const canClose = canForceClose(
-    context?.active_role_code,
+    roleCodeOf(context),
     supportSession !== null,
     context?.user?.is_platform_admin === true,
   );

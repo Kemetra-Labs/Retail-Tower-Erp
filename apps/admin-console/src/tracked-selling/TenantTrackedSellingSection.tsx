@@ -20,6 +20,7 @@ import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { formatDateTime, useT } from "@/i18n";
 import type { TrackedSellingSetting } from "@/lib/tracked-selling-queries";
 import { PeopleNames, PersonRef } from "@/people/PersonRef";
@@ -407,7 +408,7 @@ export function TenantTrackedSellingSection({
   tenantId,
 }: Readonly<{ tenantId: string }>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
-  const role = context?.active_role_code;
+  const role = roleCodeOf(context);
   const view = trackedSellingViewFor(role);
   // Only for the tenant the session is in: the API reads the session's tenant.
   if (!view || !role || context?.active_tenant?.id !== tenantId) return null;

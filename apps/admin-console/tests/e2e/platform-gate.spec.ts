@@ -193,7 +193,7 @@ test("platform admin with no membership and no session at / lands on the platfor
   await expectNoAxeViolations(page, "zero-membership admin lands on platform");
 });
 
-test("platform admin with no membership and an active session at / stays in the session view", async ({
+test("platform admin with no membership and an active session at / works in the tenant", async ({
   page,
   t,
 }) => {
@@ -206,8 +206,12 @@ test("platform admin with no membership and an active session at / stays in the 
   });
   await page.goto("/");
   await expect(page).toHaveURL(/\/$/);
+  // RT-1468: the tenant shell renders as usual, under the session bar.
+  await expect(page.getByRole("region", { name: t("platform.session.region") })).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: t("platform.session.readOnlyBody.title") }),
+    page
+      .getByRole("navigation", { name: t("shell.nav.label") })
+      .getByRole("link", { name: t("shell.nav.stores") }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: t("auth.noAccess.title") })).toHaveCount(0);
   await expectNoAxeViolations(page, "zero-membership admin in support session");

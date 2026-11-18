@@ -6,6 +6,7 @@ import { FilterBar, FilterField } from "@/components/FilterBar";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import { formatDateTime } from "@/i18n/format";
 import { usePayerStores } from "@/payers/usePayerStores";
@@ -236,7 +237,7 @@ export function VoucherList(): React.JSX.Element {
   const queryClient = useQueryClient();
   const { context } = useActiveContextValue();
   const rawTenant = context?.active_tenant ?? null;
-  const allowed = canReadVouchers(context?.active_role_code);
+  const allowed = canReadVouchers(roleCodeOf(context));
   const tenantId = allowed ? (rawTenant?.id ?? null) : null;
   const [filters, setFilters] = useState<VoucherFilters>({});
   const list = useVoucherList(tenantId, filters);

@@ -10,6 +10,7 @@
  * shared clock gates every Load more / Retry (GatedButton).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type OnHand,
   type PageQuery,
@@ -41,7 +42,7 @@ export function useInventoryScope(): InventoryScope {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     activeStoreId: context?.active_store?.id ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

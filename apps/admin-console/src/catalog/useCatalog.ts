@@ -11,6 +11,7 @@
  * shell's rate-limit banner owns the countdown (RT-621).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type CatalogCategory,
   type CatalogListQuery,
@@ -55,7 +56,7 @@ export function useCatalogScope(): CatalogScope {
   return {
     ...tenantScope(context),
     ...storeScope(context),
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

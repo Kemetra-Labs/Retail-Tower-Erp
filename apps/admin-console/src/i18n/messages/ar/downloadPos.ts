@@ -33,6 +33,7 @@ export const downloadPos = {
   "devices.download.unavailable":
     "لا يتوفر تنزيل لنقطة البيع لمؤسستك الآن. إن كانت مؤسستك مشاركة في التجربة، تواصل مع دعم Kemetra.",
   "devices.download.notAllowed": "تنزيل نقطة البيع غير متاح لك.",
+  "devices.download.tenantUnavailable": "هذه المؤسسة لم تعد متاحة، فلا يوجد ما يُنزَّل.",
   "devices.download.failed":
     "تعذّر تجهيز رابط التنزيل. لم يُنشأ أي رابط. حاول مرة أخرى. إن تكرر الخطأ، أرسل رقم الطلب إلى الدعم.",
   "devices.download.notStarted":

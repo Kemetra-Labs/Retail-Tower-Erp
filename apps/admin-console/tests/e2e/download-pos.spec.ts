@@ -125,7 +125,7 @@ test("S4: without frame-src the frame is refused by the CSP and the tab still do
   expect(page.url()).not.toContain(SECRET_MARK);
 });
 
-test("S5 (AC 1, 17): a role outside the device roles reads S5; a support session never reaches the page; no call", async ({
+test("S5 (AC 1, 17): a role outside the device roles reads S5; so does a support session (O-2); no call", async ({
   page,
   t,
 }) => {
@@ -149,9 +149,9 @@ test("S5 (AC 1, 17): a role outside the device roles reads S5; a support session
     }),
   });
   await page.goto(PATH);
-  // In a support session the tenant shell shows its read-only body instead of any tenant
-  // route (SupportSessionBoundary), so the page never mounts; O-2 holds by construction.
-  await expect(page.getByText(t("platform.session.readOnlyBody.title"))).toBeVisible();
+  // RT-1468: the shell no longer replaces tenant routes in a session, so the page mounts and its
+  // own O-2 rule answers: no installer inside a support session, and no call.
+  await expect(page.getByText(t("devices.download.notAllowed"))).toBeVisible();
   await expect(page.getByRole("button", { name: t("devices.download.action") })).toHaveCount(0);
   expect(inSession.resolverCalls()).toBe(0);
 });

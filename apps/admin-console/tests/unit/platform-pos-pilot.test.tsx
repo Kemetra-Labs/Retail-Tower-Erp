@@ -160,11 +160,11 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("navigation and access", () => {
-  test("the platform nav lists the page; the in-session tenant nav does not", () => {
+  test("the platform nav lists the page; the tenant nav does not", () => {
     const platform = PLATFORM_NAV.flatMap((g) => g.entries.map((e) => e.to));
     expect(platform).toEqual(["/platform/tenants", "/platform/pos-pilot"]);
-    const session = tenantNav("owner", true).flatMap((g) => g.entries.map((e) => e.to));
-    expect(session).toEqual(["/platform/tenants"]);
+    const tenant = tenantNav("owner").flatMap((g) => g.entries.map((e) => e.to));
+    expect(tenant).not.toContain("/platform/pos-pilot");
   });
 
   test.each(["owner", "tenant_admin", "store_manager"])(

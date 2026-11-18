@@ -186,7 +186,13 @@ test("S5: a store manager has no Payer accounts entry and the URL shows no payer
   t,
 }) => {
   let listed = false;
-  await mockBase(page, { ...withTenant, active_role_code: "store_manager" });
+  // An ordinary store manager: since RT-1468 a platform admin gets the owner's UI whatever their
+  // membership role, so this user must not be one for "no payer entry" to hold.
+  await mockBase(page, {
+    ...withTenant,
+    user: { ...user, is_platform_admin: false },
+    active_role_code: "store_manager",
+  });
   await page.route("**/api/v1/settlement/payer-accounts**", (r) => {
     listed = true;
     return r.fulfill({ status: 200, contentType: "application/json", body: "{}" });

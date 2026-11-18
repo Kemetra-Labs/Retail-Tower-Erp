@@ -16,7 +16,6 @@ export const platform = {
   "platform.session.purpose.incident": "حادث",
   "platform.session.purpose.onboarding": "التهيئة",
   "platform.session.ticket": "التذكرة",
-  "platform.session.readOnly": "للقراءة فقط",
   "platform.session.remaining": "متبقٍّ: {duration} · حتى {time}",
   "platform.session.remainingUnderMinute": "متبقٍّ أقل من دقيقة · حتى {time}",
   "platform.session.expiredAt": "انتهت في {time}",
@@ -41,13 +40,13 @@ export const platform = {
   "platform.session.notice.expiringSoon.title": "تنتهي جلسة الدعم بعد أقل من دقيقة",
   "platform.session.notice.cap.title": "بلغت الجلسة حد التجديد",
   "platform.session.notice.cap.body":
-    "لا يمكن تجديدها أكثر. لمتابعة العمل افتح جلسة دعم جديدة واذكر الغرض.",
+    "لا يمكن تجديدها أكثر. يمكنك متابعة العمل، ولتسجيل إجراءاتك تحت غرض ورقم تذكرة افتح جلسة دعم جديدة.",
   "platform.session.notice.expired.title": "انتهت جلسة الدعم",
   "platform.session.notice.expired.body":
-    "انتهت مدة الجلسة دون تجديد، ولم تعد بيانات المؤسسة معروضة. لمتابعة العمل افتح جلسة جديدة من {directory}، وستحل محل هذه الجلسة. أو أنهِ الجلسة إن انتهيت.",
+    "انتهت مدة الجلسة دون تجديد. يمكنك متابعة العمل في المؤسسة، لكن الإجراءات الجديدة لم تعد تُسجَّل تحت غرض هذه الجلسة ورقم تذكرتها. لتسجيلها من جديد افتح جلسة جديدة من {directory}، وستحل محل هذه الجلسة. أو أنهِ الجلسة إن انتهيت.",
   "platform.session.notice.expired.directory": "صفحة المؤسسات",
   "platform.session.notice.expired.bodyHere":
-    "انتهت مدة الجلسة دون تجديد، ولم تعد بيانات المؤسسة معروضة. لمتابعة العمل افتح جلسة جديدة من قائمة المؤسسات في هذه الصفحة، وستحل محل هذه الجلسة. أو أنهِ الجلسة إن انتهيت.",
+    "انتهت مدة الجلسة دون تجديد. الإجراءات الجديدة لم تعد تُسجَّل تحت غرض هذه الجلسة ورقم تذكرتها. لتسجيلها من جديد افتح جلسة جديدة من قائمة المؤسسات في هذه الصفحة، وستحل محل هذه الجلسة. أو أنهِ الجلسة إن انتهيت.",
 
   "platform.session.error.forbidden": "لا يمكن لحسابك تغيير هذه الجلسة.",
   "platform.session.error.originRejected":
@@ -59,15 +58,11 @@ export const platform = {
     "لم يتغير شيء في المؤسسة، ولم تعد بياناتها معروضة. افتح جلسة جديدة من صفحة المؤسسات لمتابعة العمل.",
   "platform.session.expiredBody.action": "الانتقال إلى المؤسسات",
 
-  "platform.session.readOnlyBody.title": "جلسة دعم للقراءة فقط",
-  "platform.session.readOnlyBody.body":
-    "الجلسة نشطة، لكن شاشات المؤسسة غير متاحة داخل جلسة الدعم بعد، فلا تُعرض بيانات المؤسسة ولا يوجد ما يمكن تعديله هنا.",
-  "platform.session.readOnlyBody.action": "الانتقال إلى المؤسسات",
-
   "platform.tenants.title": "المؤسسات",
   "platform.tenants.sub":
-    "كل المؤسسات على المنصة. افتح جلسة دعم لمؤسسة واحدة لتطّلع عليها للقراءة فقط.",
-  "platform.tenants.suspendedNote": "المؤسسة الموقوفة تُفتح جلستها للقراءة فقط.",
+    "كل المؤسسات على المنصة. افتح مؤسسة للعمل فيها، أو ابدأ جلسة دعم لتسجيل غرض ورقم تذكرة مع إجراءاتك.",
+  "platform.tenants.suspendedNote":
+    "المؤسسة الموقوفة تُفتح مثل غيرها. يبقى مستخدموها ممنوعين من الدخول حتى يُعاد تفعيلها.",
   "platform.tenants.search.label": "ابحث باسم المؤسسة أو معرّفها",
   "platform.tenants.caption": "قائمة المؤسسات",
   // RT-1021: the panel's own name, so it and the scrolling table region are not twins.
@@ -109,12 +104,14 @@ export const platform = {
   "platform.start.ticket.invalid":
     "مرجع التذكرة غير صالح: ابدأ بحرف أو رقم، واستخدم حروفًا إنجليزية وأرقامًا و . _ : # / - فقط، حتى 64 حرفًا.",
   "platform.start.scope.label": "النطاق",
-  "platform.start.scope.body": "للقراءة فقط: لا يُعدَّل شيء في المؤسسة من جلسة الدعم.",
+  "platform.start.scope.body":
+    "تعمل في المؤسسة كالمعتاد. يُسجَّل كل إجراء تتخذه مع غرض هذه الجلسة ورقم تذكرتها.",
   "platform.start.duration.label": "المدة",
   "platform.start.duration.body":
     "60 دقيقة، ولا تُمدَّد تلقائيًا. كل تجديد يمدّها حتى 60 دقيقة، دون تجاوز 8 ساعات من بدء الجلسة.",
   "platform.start.suspended.label": "مؤسسة موقوفة",
-  "platform.start.suspended.body": "إن كانت المؤسسة موقوفة فالجلسة للقراءة فقط.",
+  "platform.start.suspended.body":
+    "المؤسسة الموقوفة تُفتح مثل غيرها. يبقى مستخدموها ممنوعين من الدخول حتى يُعاد تفعيلها.",
   "platform.start.replaces": "لديك جلسة دعم حالية. بدء هذه الجلسة يُنهي الجلسة الحالية.",
   "platform.start.submit": "بدء جلسة الدعم",
   "platform.start.error.forbidden": "لا يمكن لحسابك فتح جلسة دعم. لم تبدأ أي جلسة.",

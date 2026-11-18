@@ -196,7 +196,7 @@ describe("what it offers", () => {
     expect(optionNames()).toEqual([]);
   });
 
-  test("inside a support session it offers the platform link and no store", () => {
+  test("inside a support session it offers the tenant pages and stores as usual (RT-1468)", async () => {
     renderShell("owner", {
       support_session: {
         id: "11111111-1111-4111-8111-111111111111",
@@ -209,8 +209,8 @@ describe("what it offers", () => {
       },
     });
     fireEvent.click(trigger());
-    expect(optionNames()).toEqual(["Organizations"]);
-    expect(listStores).not.toHaveBeenCalled();
+    await screen.findByRole("option", { name: /New Cairo Mall/ });
+    expect(optionNames()).toContain("Overview");
   });
 
   test("filters pages and stores as the query changes, and says when nothing matches", async () => {

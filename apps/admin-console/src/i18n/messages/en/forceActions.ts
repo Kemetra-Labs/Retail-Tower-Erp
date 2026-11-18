@@ -117,8 +117,8 @@ export const forceActions: MessagesOf<typeof ar> = {
   "forceActions.close.successReplay":
     "This shift is already closed without a count. Nothing changed.",
   "forceActions.close.error.generic": "Could not close the shift. Nothing was recorded.",
-  "forceActions.close.error.readOnlySession":
-    "A support session is read-only: the shift cannot be closed from it.",
+  "forceActions.close.error.tenantUnavailable":
+    "This organization is no longer available, so the shift was not closed.",
   "forceActions.close.error.forbidden": "You do not have permission to close this shift.",
   "forceActions.close.error.notAvailable":
     "This action is not available for your access, or the shift does not exist.",

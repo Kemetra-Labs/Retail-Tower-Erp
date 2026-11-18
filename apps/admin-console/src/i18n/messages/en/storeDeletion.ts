@@ -127,8 +127,8 @@ export const storeDeletion: MessagesOf<typeof ar> = {
   "storeDeletion.reauth.unavailable":
     "Could not verify the password now. Nothing was deleted. Try again later.",
   "storeDeletion.error.generic": "Could not delete the store. Nothing was deleted.",
-  "storeDeletion.error.readOnlySession":
-    "A support session is read-only: the store cannot be deleted from it.",
+  "storeDeletion.error.tenantUnavailable":
+    "This organization is no longer available, so the store was not deleted.",
   "storeDeletion.error.ownerOnly": "Only the account owner can delete a store.",
   "storeDeletion.error.forbidden": "You do not have permission to delete this store.",
   "storeDeletion.error.notAvailable":

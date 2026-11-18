@@ -128,7 +128,8 @@ test("active session: the bar shows purpose, ticket, remaining time, renew and e
   await expect(region).toHaveAttribute("data-state", "active");
   await expect(region).toContainText("SUP-2291");
   await expect(region).toContainText("Delta Markets");
-  await expect(region).toContainText(t("platform.session.readOnly"));
+  // RT-1468: a session is no longer read-only, and the bar no longer says so.
+  await expect(region).not.toContainText(/read only/i);
   await expect(region.getByRole("button", { name: t("platform.session.renew") })).toBeEnabled();
   await expect(region.getByRole("button", { name: t("platform.session.end") })).toBeEnabled();
   await expectNoAxeViolations(page, "session bar active");
@@ -314,82 +315,47 @@ test("expired: only end remains; the platform directory keeps working; axe light
   await expectNoAxeViolations(page, "session bar expired dark");
 });
 
-test("expired in the tenant shell replaces the surface with the calm state; axe light and dark", async ({
+test("expired in the tenant shell keeps the surface; the bar says what changed; axe light and dark", async ({
   page,
   t,
 }) => {
   await mock(page, sessionContext(summary({ status: "expired", left: -MIN })));
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: t("platform.session.expiredBody.title"), level: 1 }),
-  ).toBeVisible();
-  await expect(overviewHeading(page, t)).toHaveCount(0);
-  await expect(
-    page.getByRole("link", { name: t("platform.session.expiredBody.action") }),
-  ).toHaveAttribute("href", "/platform/tenants");
-  await expectNoAxeViolations(page, "expired body");
-  await darkTheme(page);
-  await expectNoAxeViolations(page, "expired body dark");
-});
-
-test("mid-page: a refused tenant call after the page rendered re-reads the context and shows the expired state", async ({
-  page,
-  t,
-}) => {
-  // The page renders as a member-entered tenant; the session was opened and lapsed elsewhere.
-  const server = await mock(page, sessionContext(null));
-  await page.goto("/");
+  // RT-1468 (owner decision 2026-11-18): the admin keeps working after the session runs out.
   await expect(overviewHeading(page, t)).toBeVisible();
-  const readsBefore = server.contextCalls;
-
-  // The next tenant read is refused (403 support_session_expired); the re-read learns why.
-  server.tenantExpired = true;
-  server.context = sessionContext(summary({ status: "expired", left: -MIN }));
-  await page.getByRole("button", { name: t("overview.refresh") }).click();
-
-  await expect(
-    page.getByRole("heading", { name: t("platform.session.expiredBody.title"), level: 1 }),
-  ).toBeVisible();
-  await expect(overviewHeading(page, t)).toHaveCount(0);
   await expect(page.getByRole("region", { name: t("platform.session.region") })).toHaveAttribute(
     "data-state",
     "expired",
   );
-  // The surface's own generic 403 banner never shows.
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(server.contextCalls).toBeGreaterThan(readsBefore);
+  await expect(
+    page.getByRole("heading", { name: t("platform.session.expiredBody.title"), level: 1 }),
+  ).toHaveCount(0);
+  await expectNoAxeViolations(page, "expired session, tenant shell");
+  await darkTheme(page);
+  await expectNoAxeViolations(page, "expired session, tenant shell dark");
 });
 
-test("tenant shell in a session: read-only state, no tenant request, no write control; axe light and dark", async ({
+test("tenant shell in a session: the full tenant shell renders under the bar; axe light and dark", async ({
   page,
   t,
 }) => {
+  // RT-1468 (owner decision 2026-11-18): a support session no longer limits the shell.
   await mock(page, sessionContext(summary()));
-  const tenantCalls: string[] = [];
-  page.on("request", (r) => {
-    const path = new URL(r.url()).pathname;
-    // The context read and the Console's own telemetry config are not tenant reads.
-    const own = path === "/api/v1/context/me" || path.startsWith("/api/v1/console/telemetry/");
-    if (path.startsWith("/api/v1/") && !own) tenantCalls.push(path);
-  });
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: t("platform.session.readOnlyBody.title"), level: 1 }),
-  ).toBeVisible();
+  await expect(overviewHeading(page, t)).toBeVisible();
   const region = page.getByRole("region", { name: t("platform.session.region") });
   await expect(region.getByRole("button")).toHaveText([
     t("platform.session.renew"),
     t("platform.session.end"),
   ]);
-  await expect(page.locator("form, input, textarea, select")).toHaveCount(0);
-  await expect(page.locator("main").getByRole("button")).toHaveCount(0);
   await expect(
-    page.getByRole("navigation", { name: t("shell.nav.label") }).getByRole("link"),
-  ).toHaveCount(1);
-  expect(tenantCalls).toEqual([]);
-  await expectNoAxeViolations(page, "tenant shell read-only session");
+    page
+      .getByRole("navigation", { name: t("shell.nav.label") })
+      .getByRole("link", { name: t("shell.nav.stores") }),
+  ).toBeVisible();
+  await expectNoAxeViolations(page, "tenant shell in a session");
   await darkTheme(page);
-  await expectNoAxeViolations(page, "tenant shell read-only session dark");
+  await expectNoAxeViolations(page, "tenant shell in a session dark");
 });
 
 test("end: lands on the directory with the session gone and no tenant data left", async ({

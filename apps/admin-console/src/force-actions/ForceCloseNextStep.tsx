@@ -7,6 +7,7 @@
  * action is hidden, and the server would answer the uniform 404 anyway.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { Link } from "react-router";
 import { canForceClose } from "./forceCloseLogic";
@@ -28,11 +29,7 @@ export function ForceCloseNextStep({
   const { context } = useActiveContextValue();
   const inSupportSession = Boolean(context?.support_session);
   if (
-    !canForceClose(
-      context?.active_role_code,
-      inSupportSession,
-      context?.user?.is_platform_admin === true,
-    )
+    !canForceClose(roleCodeOf(context), inSupportSession, context?.user?.is_platform_admin === true)
   ) {
     return null;
   }

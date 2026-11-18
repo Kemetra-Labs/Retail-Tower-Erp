@@ -155,7 +155,7 @@ describe("compact shell drawer content", () => {
     expect(pressed).toEqual(["true", "true"]);
   });
 
-  test("inside a support session it lists only the platform link", () => {
+  test("inside a support session it lists the tenant pages as usual (RT-1468)", () => {
     activeContext.mockReturnValue(
       contextFor("owner", {
         support_session: {
@@ -175,7 +175,8 @@ describe("compact shell drawer content", () => {
       </MemoryRouter>,
     );
     const dialog = openDrawer();
-    expect(labels(dialog)).toEqual(["Organizations"]);
+    expect(labels(dialog)).toContain("Overview");
+    expect(labels(dialog)).toContain("Stores");
   });
 });
 

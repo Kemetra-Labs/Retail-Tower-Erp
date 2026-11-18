@@ -11,6 +11,7 @@
  * out-of-scope store), a 403 a role refusal, a 401 an ended session.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type ConnectorHealthList,
   type PageQuery,
@@ -50,7 +51,7 @@ export function useErpScope(): ErpScope {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     tenantName: context?.active_tenant?.name ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

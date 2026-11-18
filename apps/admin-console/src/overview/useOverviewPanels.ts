@@ -9,6 +9,7 @@
  * 403/404 omits the panel (§6.2).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   FORCE_CLOSED_ACTION,
   forceClosedRows,
@@ -47,7 +48,7 @@ export function useOverviewSession(): OverviewSession {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     activeStoreId: context?.active_store?.id ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

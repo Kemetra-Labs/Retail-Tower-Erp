@@ -9,6 +9,7 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { DateTime, roleKey, useT } from "@/i18n";
 import { Machine } from "@/inventory/parts";
 import { listAuditEvents } from "@/lib/client";
@@ -140,7 +141,7 @@ export function ForceClosedPage(): React.JSX.Element {
   const [from] = useState(() => windowStart(Date.now()));
   const list = useForceClosedList(
     tenantId,
-    context?.active_role_code ?? null,
+    roleCodeOf(context),
     storeParam && UUID.test(storeParam) ? storeParam : null,
     from,
   );

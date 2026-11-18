@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 1b4acef9ab8b00b50794e5926c0275ef9f432ef2
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 7ed49012933243e31658f58c080ac8c81422ae76
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -2014,7 +2014,7 @@ export namespace StoresSchema {
                     };
                     content?: never;
                 };
-                /** @description `reauth_required` (the grant is missing, expired, used, or for another session, store or purpose; one answer for every cause), `store_deletion_owner_only` (a `tenant_admin` who is not a platform admin), `origin_rejected` (RT-430), or a support-session refusal (`support_session_read_only` for a non-member platform admin on a suspended tenant; `support_session_required` for a tenant that does not exist). */
+                /** @description `reauth_required` (the grant is missing, expired, used, or for another session, store or purpose; one answer for every cause), `store_deletion_owner_only` (a `tenant_admin` who is not a platform admin), `origin_rejected` (RT-430), or `support_session_required` for a tenant that does not exist (the only support-session refusal left since RT-1468). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -14073,7 +14073,7 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 403 — only a platform-admin session without a live support session for the tenant (`support_session_required` / `support_session_expired`, RT-414). A caller without the role is a non-disclosing 404, never this 403 (RT-1081). */
+            /** @description 403 — only a platform-admin session whose active tenant no longer exists (`support_session_required`; since RT-1468 a platform admin is otherwise admitted with or without a support session, and `support_session_expired` is no longer returned). A caller without the role is a non-disclosing 404, never this 403 (RT-1081). */
             SupportSessionRefused: {
                 headers: {
                     [name: string]: unknown;
@@ -17090,7 +17090,7 @@ export namespace AiEntitlementsSchema {
             };
             /**
              * Read the tenant's AI entitlements (full or minimal view by role).
-             * @description `owner`, `tenant_admin` and a platform admin get the `full` view; `store_manager` gets the `minimal` view; every other caller gets the non-disclosing 404. A platform admin is admitted today by the existing `RolesGuard` platform-admin pass; once RT-414 ships, a platform admin who is not a member of the tenant also needs an active support session (see the API description). Read only: it reserves no quota and writes no audit event. No query parameter is accepted.
+             * @description `owner`, `tenant_admin` and a platform admin get the `full` view; `store_manager` gets the `minimal` view; every other caller gets the non-disclosing 404. A platform admin is admitted by the existing `RolesGuard` platform-admin pass, member or not and with or without a support session (RT-1468; see the API description). Read only: it reserves no quota and writes no audit event. No query parameter is accepted.
              */
             get: operations["consoleGetTenantAiEntitlements"];
             put?: never;
@@ -17956,7 +17956,7 @@ export namespace PlatformSupportSessionsSchema {
             put?: never;
             /**
              * Open a support session and enter a tenant.
-             * @description Opens a support session for `tenant_id`, then makes that tenant the auth session's active tenant (the active store is cleared). Any current support session of this auth session is ended first (`end_reason: replaced`), in the same transaction as the open. A suspended tenant opens a read-only session (see **Tenant state**). Writes `platform.support_session.opened`.
+             * @description Opens a support session for `tenant_id`, then makes that tenant the auth session's active tenant (the active store is cleared). Any current support session of this auth session is ended first (`end_reason: replaced`), in the same transaction as the open. A suspended tenant opens a session like any other (see **Tenant state**). Writes `platform.support_session.opened`.
              */
             post: operations["openSupportSession"];
             delete?: never;
@@ -18110,12 +18110,7 @@ export namespace PlatformSupportSessionsSchema {
                 /** @description On `ended` rows only. */
                 end_reason?: components["schemas"]["SupportSessionEndReason"];
             } & (unknown | unknown);
-            /**
-             * @description The route templates of the six operations a platform admin may use without a support session (RT-1462; `x-support-session-enforcement` `platform-direct-operations`).
-             * @enum {string}
-             */
-            PlatformDirectRoute: "/api/v1/stores/:store_id/open-shifts" | "/api/v1/shifts/:shift_id/force-close-preview" | "/api/v1/shifts/:shift_id/force-close" | "/api/v1/stores/:store_id/deletion-preview" | "/api/v1/stores/:store_id/deletion" | "/api/v1/auth/reauth";
-            /** @description Allowlisted `metadata` of a `platform.cross_tenant.accessed` row. The route is the template (for example `/api/v1/sales/:saleId`), never the concrete path, query string or body. A `succeeded` row has a support session and no `reason`; a `rejected` row always has a `reason`, and a `support_session_expired`, `support_session_read_only` or `origin_rejected` rejection also names the support session and its purpose. **RT-1462 exception:** on the six `platform-direct-operations` routes (`PlatformDirectRoute`) a non-member platform admin needs no support session, so a `succeeded`, `support_session_read_only` or `origin_rejected` row there may have `support_session_id` and `purpose` null (it still names the session when the caller holds a live one). The exception is bound to those route templates: on every other route a row without a session is only a `support_session_required` refusal. */
+            /** @description Allowlisted `metadata` of a `platform.cross_tenant.accessed` row. The route is the template (for example `/api/v1/sales/:saleId`), never the concrete path, query string or body. A `succeeded` row has no `reason`; a `rejected` row always has one. Since RT-1468 a support session is optional on every covered route, so `support_session_id` and `purpose` name the caller's live support session for the tenant when there is one and are null otherwise, on any route and any outcome, and they are null or non-null together. A `support_session_expired` row (written only before RT-1468) names the expired session. `support_session_expired` and `support_session_read_only` are no longer written; they remain valid for older rows. */
             CrossTenantAccessAuditMetadata: {
                 /** @constant */
                 actor_kind: "platform_admin";
@@ -18135,6 +18130,12 @@ export namespace PlatformSupportSessionsSchema {
                 /** @enum {string} */
                 method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
                 route: string;
+            } | {
+                support_session_id?: string;
+                purpose?: components["schemas"]["SupportPurpose"];
+            } | {
+                support_session_id?: null;
+                purpose?: null;
             };
             /** @description Canonical error envelope. */
             Error: {
@@ -18176,7 +18177,7 @@ export namespace PlatformSupportSessionsSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description not_found (404), non-disclosing: identical for a tenant that does not exist, a deleted tenant and one the caller may not enter (FR-ISO-4). A suspended tenant is not refused here: it opens a read-only support session (owner decision 2026-10-12, RT-414 comment 11737). */
+            /** @description not_found (404), non-disclosing: identical for a tenant that does not exist, a deleted tenant and one the caller may not enter (FR-ISO-4). A suspended tenant is not refused here: it opens a support session like any other (RT-1468). */
             TenantNotFound: {
                 headers: {
                     [name: string]: unknown;
@@ -18185,7 +18186,7 @@ export namespace PlatformSupportSessionsSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Cross-cutting refusal on every `TenantContextGuard` route for a platform admin in a non-member tenant (403): `support_session_required`, `support_session_expired`, `support_session_read_only` (an unsafe method on a suspended tenant), or `origin_rejected` (an unsafe method admitted by a support session with a failing `Origin`). Written as one `platform.cross_tenant.accessed` row with `outcome: rejected`. */
+            /** @description Cross-cutting refusal of a platform admin on a covered route (403): `support_session_required` (the tenant does not exist or is deleted) or `origin_rejected` (an unsafe method with a failing `Origin`). Written as one `platform.cross_tenant.accessed` row with `outcome: rejected`. `support_session_expired` and `support_session_read_only` are no longer returned since RT-1468. */
             SupportSessionRefused: {
                 headers: {
                     [name: string]: unknown;
@@ -20022,7 +20023,7 @@ export namespace PosPilotReleasesSchema {
             };
             /**
              * Get the current pilot POS release and a short-lived download URL.
-             * @description The current pilot release when it is eligible (see the info description), with a presigned S3 GET URL valid until `expiresAt` (at most 900 seconds). Otherwise `{ "available": false }`. The route takes no query parameter. A role outside owner, tenant_admin, store_manager, and no active membership, are the non-disclosing 404; a session with no active tenant is 401 (`TenantContextGuard`); a platform admin without a membership or a live support session is 403. An issued link writes one `pos.pilot_release.download_link_issued` row; nothing else does.
+             * @description The current pilot release when it is eligible (see the info description), with a presigned S3 GET URL valid until `expiresAt` (at most 900 seconds). Otherwise `{ "available": false }`. The route takes no query parameter. A role outside owner, tenant_admin, store_manager, and no active membership, are the non-disclosing 404; a session with no active tenant is 401 (`TenantContextGuard`). A platform admin is admitted with or without a membership or support session (RT-1468; `platform-support-sessions.openapi.yaml` 1.4.0-draft), and the guard writes one `platform.cross_tenant.accessed` row for the request. An issued link writes one `pos.pilot_release.download_link_issued` row.
              */
             get: operations["consolePilotGetLatestPosRelease"];
             put?: never;
@@ -20324,7 +20325,7 @@ export namespace PosPilotReleasesSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 403, `error.code` one of `support_session_required` or `support_session_expired` (RT-414): a platform admin without a membership in the active tenant and without a live support session for it. Refused by the reused guard before the role check. No URL and no audit row of this route. */
+            /** @description 403 `support_session_required`: since RT-1468 only a platform admin whose active tenant no longer exists. Refused by the reused guard before the role check, with one `platform.cross_tenant.accessed` row and no URL. `support_session_expired` is no longer returned. */
             SupportSessionRefused: {
                 headers: {
                     [name: string]: unknown;
@@ -23528,7 +23529,7 @@ export namespace ConsoleForceActionsSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 403 — `origin_rejected` (RT-430: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session refusal (`support_session_required` when the session's active tenant does not exist, or `support_session_read_only` for a non-member platform admin's unsafe method on a suspended tenant). Since RT-1462 no support session is needed on this surface, so an expired one is treated as absent and is never a refusal here. */
+            /** @description 403 — `origin_rejected` (RT-430: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session refusal (`support_session_required` when the session's active tenant does not exist). No support session is needed on this surface (RT-1462, RT-1468), so an expired one is treated as absent and is never a refusal here, and a suspended tenant is not read-only for a platform admin. */
             ForbiddenForce: {
                 headers: {
                     [name: string]: unknown;
@@ -23763,7 +23764,7 @@ export namespace ConsoleForceActionsSchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
-                /** @description `reauth_failed` (the generic refusal), `store_deletion_owner_only`, `origin_rejected` (RT-430), or a support-session refusal (`support_session_read_only` for a non-member platform admin on a suspended tenant; `support_session_required` for a tenant that does not exist). */
+                /** @description `reauth_failed` (the generic refusal), `store_deletion_owner_only`, `origin_rejected` (RT-430), or `support_session_required` for a tenant that does not exist (the only support-session refusal left since RT-1468). */
                 403: {
                     headers: {
                         [name: string]: unknown;

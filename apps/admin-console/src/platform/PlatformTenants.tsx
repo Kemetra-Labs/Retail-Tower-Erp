@@ -9,12 +9,13 @@ import { ListState } from "@/components/ListState";
  * client-side by name and slug (the contract has no filter).
  *
  * `TenantSummary` carries id, slug and name only, so the directory shows no
- * lifecycle status and no store counts (OQ-8): it says once, truthfully, that a
- * suspended organization opens read-only, and the server applies that at open.
+ * lifecycle status and no store counts (OQ-8).
  *
- * Each row offers the one action that can succeed (UX Addendum A3): a tenant
- * the caller is a member of gets the normal tenant switch, any other a support
- * session (`openSupportSession` would refuse a member with 409 `already_member`).
+ * RT-1468 (owner decisions 2026-11-18): every row opens the organization
+ * directly (`switchActiveTenant`, no support session needed, a suspended one
+ * included). A tenant the caller is not a member of also offers a support
+ * session, which records a purpose and ticket; a member is never offered one
+ * (`openSupportSession` would refuse with 409 `already_member`, UX Addendum A3).
  */
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
@@ -48,8 +49,8 @@ function RowAction({
   onSwitch: (tenantId: string) => void;
 }>) {
   const t = useT();
-  if (row.action === "switch") {
-    return (
+  return (
+    <span className="platform-directory__actions">
       <GatedButton
         className="btn-secondary"
         aria-label={t("platform.tenants.action.switchFor", { name: row.name })}
@@ -57,18 +58,18 @@ function RowAction({
       >
         {t("platform.tenants.action.switch")}
       </GatedButton>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className="btn-secondary"
-      aria-label={t("platform.tenants.action.startFor", { name: row.name })}
-      aria-haspopup="dialog"
-      onClick={() => onStart(row)}
-    >
-      {t("platform.tenants.action.start")}
-    </button>
+      {row.member ? null : (
+        <button
+          type="button"
+          className="btn-ghost"
+          aria-label={t("platform.tenants.action.startFor", { name: row.name })}
+          aria-haspopup="dialog"
+          onClick={() => onStart(row)}
+        >
+          {t("platform.tenants.action.start")}
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -101,7 +102,7 @@ function DirectoryTable({
               <td>
                 <span className="platform-directory__identity">
                   <span
-                    className={`platform-directory__tile${row.action === "switch" ? " platform-directory__tile--member" : ""}`}
+                    className={`platform-directory__tile${row.member ? " platform-directory__tile--member" : ""}`}
                     aria-hidden="true"
                   >
                     {initialOf(row.name)}
@@ -116,7 +117,7 @@ function DirectoryTable({
                       </bdi>
                     ) : null}
                   </span>
-                  {row.action === "switch" ? (
+                  {row.member ? (
                     <span className="platform-directory__member">
                       {t("platform.tenants.member")}
                     </span>

@@ -151,7 +151,7 @@ async function openDrawer(page: Page, name: string, t: Tr) {
   return drawer;
 }
 
-test("directory: names and slugs only, the read-only note; axe light and dark, focus rings in forced colors", async ({
+test("directory: names and slugs only, the suspended note; axe light and dark, focus rings in forced colors", async ({
   page,
   t,
 }) => {
@@ -172,7 +172,19 @@ test("directory: names and slugs only, the read-only note; axe light and dark, f
   await expectNoAxeViolations(page, "directory dark");
   await page.emulateMedia({ forcedColors: "active" });
   await expectFocusRing(page.getByLabel(t("platform.tenants.search.label")), "search");
-  await expectFocusRing(rows.first().getByRole("button"), "row action");
+  // RT-1468: a non-member row carries two actions; both show a ring.
+  await expectFocusRing(
+    rows.first().getByRole("button", {
+      name: t("platform.tenants.action.switchFor", { name: "أسواق الدلتا" }),
+    }),
+    "row action: open",
+  );
+  await expectFocusRing(
+    rows.first().getByRole("button", {
+      name: t("platform.tenants.action.startFor", { name: "أسواق الدلتا" }),
+    }),
+    "row action: start session",
+  );
 });
 
 test("search is client-side over name and slug, with a no-match state", async ({ page, t }) => {
@@ -259,7 +271,6 @@ for (const ticket of ["", "SUP-2291"]) {
     await drawer.getByRole("button", { name: t("platform.start.submit") }).click();
     const bar = page.getByRole("region", { name: t("platform.session.region") });
     await expect(bar).toHaveAttribute("data-state", "active");
-    await expect(bar).toContainText(t("platform.session.readOnly"));
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(server.opens).toHaveLength(1);
     const body = server.opens[0] as Record<string, unknown>;
@@ -271,7 +282,7 @@ for (const ticket of ["", "SUP-2291"]) {
   });
 }
 
-test("suspended tenant: the 201 opens the same read-only session; no not-available state, no break-glass", async ({
+test("suspended tenant: the 201 opens the same session, not read-only; no not-available state, no break-glass", async ({
   page,
   t,
 }) => {
@@ -286,8 +297,9 @@ test("suspended tenant: the 201 opens the same read-only session; no not-availab
   await drawer.getByLabel(t("platform.start.purpose.label")).selectOption("incident");
   await drawer.getByRole("button", { name: t("platform.start.submit") }).click();
   const bar = page.getByRole("region", { name: t("platform.session.region") });
-  await expect(bar).toContainText(t("platform.session.readOnly"));
   await expect(bar).toContainText("سوبرماركت الفجر");
+  // RT-1468: a suspended organization is no longer read-only for a platform admin.
+  await expect(bar).not.toContainText(/read only|للقراءة فقط/i);
   await expect(page.getByText(t("platform.start.notFound.title"))).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText(/break.?glass|كتابة طارئة/i);
 });
@@ -342,6 +354,25 @@ test("a tenant the caller is a member of offers the normal switch, never a suppo
       name: t("platform.tenants.action.startFor", { name: "Nile Pharma" }),
     }),
   ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: t("platform.tenants.action.switchFor", { name: "Nile Pharma" }) })
+    .click();
+  await expect(page).toHaveURL(/\/$/);
+  expect(server.switches).toEqual([{ tenant_id: NILE }]);
+  expect(server.opens).toHaveLength(0);
+});
+
+test("RT-1468: a tenant the caller is not a member of opens directly, and still offers a session", async ({
+  page,
+  t,
+}) => {
+  const server = await mock(page, noSession());
+  await openDirectory(page, t);
+  await expect(
+    page.getByRole("button", {
+      name: t("platform.tenants.action.startFor", { name: "Nile Pharma" }),
+    }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: t("platform.tenants.action.switchFor", { name: "Nile Pharma" }) })
     .click();

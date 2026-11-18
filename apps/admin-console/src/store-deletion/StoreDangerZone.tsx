@@ -12,6 +12,7 @@
 import { Banner } from "@/components/Banner";
 import { DetailPanel, PanelBody } from "@/components/DetailPanel";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { rf2QueryKeys } from "@/lib/rf2-queries";
 import { SuspendConfirm } from "@/stores/SuspendConfirm";
@@ -140,7 +141,7 @@ export function StoreDangerZone(props: Readonly<StoreDangerZoneProps>): React.JS
   const { context } = useActiveContextValue();
   if (
     !canDeleteStore(
-      context?.active_role_code,
+      roleCodeOf(context),
       Boolean(context?.support_session),
       context?.user?.is_platform_admin === true,
     )

@@ -243,12 +243,14 @@ describe("ForceCloseDialog", () => {
     consoleGetForceClosePreview.mockResolvedValue(preview());
     consoleForceCloseShift.mockResolvedValue({
       status: 403,
-      error: err("support_session_read_only"),
+      error: err("support_session_required"),
     });
     renderDialog();
     await fillAndAcknowledge();
     fireEvent.click(commitButton());
-    expect(await screen.findByText(/A support session is read-only/)).toBeTruthy();
+    expect(
+      await screen.findByText(/no longer available, so the shift was not closed/),
+    ).toBeTruthy();
     expect(screen.getByText(/req-9/)).toBeTruthy();
     expect(screen.queryByText(/The shift was closed without a count/)).toBeNull();
   });

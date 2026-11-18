@@ -4,6 +4,7 @@
  * read answers the uniform 404 to anyone else).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { Link } from "react-router";
 import { canForceClose } from "./forceCloseLogic";
@@ -15,7 +16,7 @@ export function OpenShiftsLink({
   const { context } = useActiveContextValue();
   if (
     !canForceClose(
-      context?.active_role_code,
+      roleCodeOf(context),
       Boolean(context?.support_session),
       context?.user?.is_platform_admin === true,
     )

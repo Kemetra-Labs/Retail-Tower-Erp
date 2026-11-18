@@ -9,6 +9,7 @@
  * surface's reads are invalidated, so the lists show the server's new truth.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type BacklogClass,
   type BacklogItem,
@@ -51,7 +52,7 @@ export function useReconScope(): ReconScope {
   return {
     tenantId: context?.active_tenant?.id ?? null,
     tenantName: context?.active_tenant?.name ?? null,
-    role: context?.active_role_code ?? null,
+    role: roleCodeOf(context),
   };
 }
 

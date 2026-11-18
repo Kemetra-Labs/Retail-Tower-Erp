@@ -11,7 +11,7 @@
  *  - Outcomes: 201, 400, 401, 403 (`forbidden`, `origin_rejected`), 404
  *    `TenantNotFound` (non-disclosing: unknown, deleted and forbidden look the
  *    same), 409 `already_member`, 429, 500. A suspended tenant is not refused:
- *    it opens a read-only session like any other 201.
+ *    it opens a session like any other 201 (not read-only since RT-1468).
  *
  * Client validation is a fail-fast guard only; the server stays authoritative.
  */

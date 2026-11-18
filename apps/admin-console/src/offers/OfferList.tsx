@@ -12,6 +12,7 @@ import { NoAccess } from "@/auth/NoAccess";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ScopePrompt } from "@/components/ScopePrompt";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf, storeAccessOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { usePayerStores } from "@/payers/usePayerStores";
 import type { ScopeMembership } from "@/shell/scope-stores";
@@ -34,7 +35,7 @@ export function OfferList(): React.JSX.Element {
   const membership = context?.memberships?.find((m) => m.tenant_id === tenant?.id) as
     | ScopeMembership
     | undefined;
-  const access = offerAccess(context?.active_role_code, membership?.store_access_kind);
+  const access = offerAccess(roleCodeOf(context), storeAccessOf(context, membership));
   const [filters, setFilters] = useState<OfferFilters>({});
   const list = useOfferList(tenant?.id ?? null, filters, access.canRead);
   const roster = usePayerStores(tenant?.id ?? null, access.canRead);
@@ -60,7 +61,7 @@ export function OfferList(): React.JSX.Element {
         subtitle={subtitle}
         actions={newButton}
       />
-      {access.tenantWide && context?.active_role_code !== "store_manager" ? null : (
+      {access.tenantWide && roleCodeOf(context) !== "store_manager" ? null : (
         <p className="field__hint">{t("offers.list.ownStoresNote")}</p>
       )}
       <OfferFilterBar onApply={setFilters} />

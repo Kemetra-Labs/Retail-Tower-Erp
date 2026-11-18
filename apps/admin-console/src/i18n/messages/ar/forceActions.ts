@@ -115,7 +115,7 @@ export const forceActions = {
   "forceActions.close.success": "أُغلقت الوردية دون عدّ. لم يُسجَّل مبلغ معدود ولا فرق.",
   "forceActions.close.successReplay": "هذه الوردية مغلقة دون عدّ بالفعل. لم يتغير شيء.",
   "forceActions.close.error.generic": "تعذّر إغلاق الوردية. لم يُسجَّل شيء.",
-  "forceActions.close.error.readOnlySession": "جلسة الدعم للقراءة فقط: لا يمكن الإغلاق منها.",
+  "forceActions.close.error.tenantUnavailable": "هذه المؤسسة لم تعد متاحة، فلم تُغلق الوردية.",
   "forceActions.close.error.forbidden": "لا تملك صلاحية إغلاق هذه الوردية.",
   "forceActions.close.error.notAvailable":
     "هذا الإجراء غير متاح لصلاحياتك، أو أن الوردية غير موجودة.",

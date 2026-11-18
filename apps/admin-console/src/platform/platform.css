@@ -157,6 +157,14 @@
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
 }
+/* RT-1468: "Open organization" for every row, plus "Start support session" for a non-member. */
+.platform-directory__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
 .platform-directory__member {
   display: inline-flex;
   align-items: center;

@@ -10,6 +10,7 @@
  */
 import { Banner } from "@/components/Banner";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { consoleGetTenantAccessEntitlement } from "@/lib/tenant-access-queries";
 import { useQuery } from "@tanstack/react-query";
@@ -37,7 +38,7 @@ export function AccessLimitedBanner(): React.JSX.Element | null {
   const t = useT();
   const { context } = useActiveContextValue();
   const tenantId = context?.active_tenant?.id;
-  const role = context?.active_role_code;
+  const role = roleCodeOf(context);
   const enabled = !!tenantId && READER_ROLES.includes(role ?? "");
   const query = useQuery<Access | null>({
     queryKey: ["tenant-access-entitlement", tenantId],

@@ -37,6 +37,7 @@ export const shell = {
   "shell.nav.section.daily": "اليومية",
   "shell.nav.section.stock": "المخزون والأصناف",
   "shell.nav.section.management": "الإدارة",
+  "shell.nav.section.platform": "المنصة",
   "shell.nav.tenants": "المؤسسات",
   "shell.nav.stores": "المتاجر",
   "shell.nav.operators": "المستخدمون",

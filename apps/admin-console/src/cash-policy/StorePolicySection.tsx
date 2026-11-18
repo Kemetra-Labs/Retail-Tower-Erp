@@ -14,6 +14,7 @@ import { InlineError } from "@/components/InlineError";
  * it refuses. Inheritance and stricter-only are the server's (K-9).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { DateTime, useT } from "@/i18n";
 import type {
   ActiveStoreOverride,
@@ -246,7 +247,7 @@ export function StorePolicySection({
   timeZone,
 }: Readonly<{ storeId: string; timeZone?: string }>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
-  const role = context?.active_role_code;
+  const role = roleCodeOf(context);
   if (!canReadStorePolicy(role)) return null;
   return (
     <StorePolicyBody

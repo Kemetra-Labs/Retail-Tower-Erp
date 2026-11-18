@@ -16,6 +16,7 @@
  * production build until the runtime ships. `enabled` lets a test, or the release that turns it on, force it.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { FullView, MinimalView } from "./AiPlanParts";
 import { AiPlanReadState } from "./AiPlanReadState";
@@ -59,7 +60,7 @@ export function TenantAiPlanSection({
   enabled = import.meta.env.DEV,
 }: Readonly<{ tenantId: string; enabled?: boolean }>): React.JSX.Element | null {
   const { context } = useActiveContextValue();
-  const view = aiPlanViewFor(context?.active_role_code);
+  const view = aiPlanViewFor(roleCodeOf(context));
   const allowed = enabled && view !== undefined && context?.active_tenant?.id === tenantId;
   return allowed && view ? <AiPlanBody tenantId={tenantId} view={view} /> : null;
 }

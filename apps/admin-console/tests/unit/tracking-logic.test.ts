@@ -87,7 +87,7 @@ describe("tracking roles (RT-455)", () => {
 
   test("tenantNav lists «tracking» after inventory only with both signals", () => {
     const entries = (signal?: boolean, ...rest: [on?: boolean]) =>
-      tenantNav("owner", false, {
+      tenantNav("owner", {
         hasTrackedProducts: signal,
         trackedSellingOn: rest.length === 0 ? true : rest[0],
       }).flatMap((g) => g.entries.map((e) => e.to));
@@ -97,12 +97,6 @@ describe("tracking roles (RT-455)", () => {
     expect(entries(true, undefined)).not.toContain("/tracking");
     const shown = entries(true);
     expect(shown.indexOf("/tracking")).toBe(shown.indexOf("/inventory") + 1);
-    // A support session lists no tenant destination at all.
-    expect(
-      tenantNav("owner", true, { hasTrackedProducts: true, trackedSellingOn: true }).flatMap(
-        (g) => g.entries,
-      ),
-    ).not.toContainEqual(expect.objectContaining({ to: "/tracking" }));
   });
 });
 

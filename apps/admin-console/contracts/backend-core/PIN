@@ -2,9 +2,9 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 1b4acef9ab8b00b50794e5926c0275ef9f432ef2
+commit: 7ed49012933243e31658f58c080ac8c81422ae76
 source: services/backend-core/packages/contracts/openapi
-file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
+file: ai-entitlements.openapi.yaml 01edba06941396df31cfca7e8c41aab85e783e6a
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
 file: auth.openapi.yaml 251e47b60becf178d51e39b2350e7e6a9e1509f3
 file: cash-variance-policy.openapi.yaml 0af127c7d43cb5bc87306dae6367960a428cacfb
@@ -16,29 +16,29 @@ file: catalog/stock-levels.yaml 609c88da00a3d5d8d3946a0157c1873f2a442db9
 file: catalog/tracking-profile.yaml 3b6817dbaa477f0288553e5b257388694630c1d5
 file: catalog/unknown-items.yaml 9efb256d61440b31401a0aaba63b6ee427269462
 file: connector/connector-admin.yaml 39496d0b0c6fcde87870d057cbe1d2837bb581f0
-file: console-force-actions.openapi.yaml 3e78fa55baa54ed42f545a7fa221ec67e9137551
+file: console-force-actions.openapi.yaml 821c4da344dec623a268acadc82a7f7d050df34c
 file: console-people.openapi.yaml e99a36ce1279a0fd0437feeca0a45c694a5a9444
 file: console-sales-by-store.openapi.yaml f49e6dfad81c252092be7c7e73790ecd63e65331
 file: console-sales-summary.openapi.yaml 97999c8a5412144dd83034865e2841843bd3fd73
 file: console-sales.openapi.yaml 187fcede888e3d4852f549fc8b60efad0eb055bc
 file: console-system-status.openapi.yaml c1400d88711bbeb638e162cb7f807b19012d335d
 file: console-telemetry.openapi.yaml 3c28599418ec7a749641b214886c08c2cc49a1ba
-file: context.openapi.yaml 7062ada0f645a518ad9e5fad8d75d3699f926aad
+file: context.openapi.yaml df5537f486afde62acf69ca554940d6a4d919a96
 file: devices.openapi.yaml 00e999747e20603f521537e2cc0c4a5f090038b4
 file: erpnext-connector/connector-health.yaml 53da3cbabd32da31d1bb2af8f2a256ef0a37538f
 file: erpnext-reconciliation/reconciliation.yaml 75f2867ba664e86667fc2bd33de1bd525a4fe39d
 file: erpnext-sync-ops/console-sync-ops.yaml 2681ab9969030d9dd4038177e2b474cdaf3f930b
-file: inventory/inventory.yaml f09b9877180705a8a835ef0ef97cc289b8be933f
+file: inventory/inventory.yaml e6dda52bc3737755aec3f6127a97373653c78cf4
 file: inventory/low-stock.yaml ba440d5fc42ca89d939a9abe9ca6c446417e8e72
 file: memberships.openapi.yaml 3aad5b26c9c162fb0e7dc685f5738e40431d92b1
 file: offers.openapi.yaml 84af9bd90e35cc3893dc29f40ba8e3e2199a502c
-file: platform-support-sessions.openapi.yaml 4e162ce20832485989848fac172bf3c0d3eaf15f
+file: platform-support-sessions.openapi.yaml ce461d8195891b69b64453dc5520cf66c60fe3a6
 file: pos-device-health.openapi.yaml 0550e9652e35a4a1fea103041208e3f0b0e6c66f
-file: pos-pilot-releases.openapi.yaml 9799a8be17445e5047aaf7f43b66c3a2c4b7ecb5
+file: pos-pilot-releases.openapi.yaml 46ff5251c77606e32dcbc0d6cb804d141bdf2273
 file: sale-sync-ops/sale-sync-ops.yaml a8174ea9015fb00f5f31032f87400c4694ac15a2
 file: settlement/settlement.yaml 5a6e568f0e087652c4d5d5d2d75c386d6e6f37bc
 file: shift-closes.openapi.yaml 4fe610244c7146936f635e8266d6f245149201d7
-file: stores.openapi.yaml b2ca24b5e304ef04726867bfe19aa185593bd8de
+file: stores.openapi.yaml fbb42d80207b4c445bc1a4b95a2cd7d2d0aed2b0
 file: tenant-access-entitlement.openapi.yaml 99debdd1faa166550e4e5d14aba1cc15302f9843
 file: tenant-branding.openapi.yaml 70e354bc2188882a433c67d557fac54cb8ccae1b
 file: tenants.openapi.yaml a615ab3f94dffacf8dbd989ddcc2c6dcf6697ed4

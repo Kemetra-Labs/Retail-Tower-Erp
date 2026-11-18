@@ -5,6 +5,7 @@
  * because the two previews need the full width (brief §2).
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { Link } from "react-router";
 import { canManageLogo } from "./brandingAccess";
@@ -14,8 +15,7 @@ export function TenantBrandingLink({
 }: Readonly<{ tenantId: string }>): React.JSX.Element | null {
   const t = useT();
   const { context } = useActiveContextValue();
-  const allowed =
-    canManageLogo(context?.active_role_code) && context?.active_tenant?.id === tenantId;
+  const allowed = canManageLogo(roleCodeOf(context)) && context?.active_tenant?.id === tenantId;
   if (!allowed) return null;
   return (
     <p className="logo-entry">

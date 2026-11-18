@@ -103,8 +103,9 @@ test("RT-1304 S5: not available to a staff role and in a support session", async
     }),
   });
   await page.goto(PATH);
-  // The tenant shell replaces every tenant route with its read-only body in a session.
-  await expect(page.getByText(t("platform.session.readOnlyBody.title"))).toBeVisible();
+  // RT-1468: the shell no longer replaces the page in a session, so the page's own O-2 rule
+  // shows: no installer is offered inside a support session.
+  await expect(page.getByText(t("devices.download.notAllowed"))).toBeVisible();
   await shot(page, "S5-support-session-shell", appLocale);
 });
 

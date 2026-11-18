@@ -7,7 +7,8 @@ import { NoAccess } from "@/auth/NoAccess";
  *  - loading                  → nothing yet (context resolving)
  *  - session lost (401, S5)   → redirect to SF-1 /signin
  *  - no memberships (S7)      → NoAccess; a platform admin goes to /platform, or
- *                               stays in their support session's tenant (RT-844)
+ *                               works in the organization they opened, with or
+ *                               without a support session (RT-844, RT-1468)
  *  - no active tenant (multi) → ScopeGate (S2)
  *  - active tenant resolved   → AppShell
  *
@@ -67,11 +68,11 @@ export function ProtectedArea(): React.JSX.Element | null {
   if (membershipCount === 0 && !inSupportSession(context)) {
     // RT-844: zero memberships is NoAccess only for a user with no other way in.
     // A platform admin has the console, so the screen never claims "no access".
-    return context.user?.is_platform_admin === true ? (
-      <Navigate to="/platform" replace />
-    ) : (
-      <NoAccess onSignOut={signOut} />
-    );
+    if (context.user?.is_platform_admin !== true) return <NoAccess onSignOut={signOut} />;
+    // RT-1468 (owner decision 2026-11-18): a platform admin who opened an organization
+    // directly (no membership, no support session) works in it; the server admits and
+    // records every request. With no organization open, the platform console is home.
+    if (!context.active_tenant) return <Navigate to="/platform" replace />;
   }
   if (!context.active_tenant) {
     return <ScopeGate />;

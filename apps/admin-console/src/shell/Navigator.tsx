@@ -162,7 +162,7 @@ function useStoreOptions(enabled: boolean): StoreOptions {
 
 export interface NavigatorDialogProps {
   groups: readonly NavGroup[];
-  /** Offer the stores in scope (the tenant shell, outside a support session). */
+  /** Offer the stores in scope (the tenant shell). */
   withStores: boolean;
   onClose: () => void;
 }

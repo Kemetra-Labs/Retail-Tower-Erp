@@ -14,6 +14,7 @@ import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { ScopePrompt } from "@/components/ScopePrompt";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { formatDateTime } from "@/i18n/format";
 import type { CatalogBrand } from "@/lib/brand-queries";
@@ -120,8 +121,8 @@ export function BrandList(): React.JSX.Element {
   const signOut = useSignOut();
   const { context } = useActiveContextValue();
   const tenant = context?.active_tenant ?? null;
-  const allowed = canReadBrands(context?.active_role_code);
-  const canManage = canManageBrands(context?.active_role_code);
+  const allowed = canReadBrands(roleCodeOf(context));
+  const canManage = canManageBrands(roleCodeOf(context));
   const list = useCatalogBrands(tenant?.id ?? null, allowed);
   const [editing, setEditing] = useState<Editing>({ kind: "none" });
 

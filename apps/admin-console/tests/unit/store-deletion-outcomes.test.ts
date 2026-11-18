@@ -74,16 +74,22 @@ describe("classifyDeletionOutcome", () => {
     });
   });
 
-  it("403 owner-only, a support session and any other refusal each have their own key", () => {
+  it("403 owner-only, a missing organization and any other refusal each have their own key", () => {
     expect(
       classifyDeletionOutcome({ status: 403, error: err("store_deletion_owner_only") }),
     ).toMatchObject({
       messageKey: "storeDeletion.error.ownerOnly",
     });
     expect(
+      classifyDeletionOutcome({ status: 403, error: err("support_session_required") }),
+    ).toMatchObject({
+      messageKey: "storeDeletion.error.tenantUnavailable",
+    });
+    // RT-1468: no session is read-only any more; a stray code is a plain refusal.
+    expect(
       classifyDeletionOutcome({ status: 403, error: err("support_session_read_only") }),
     ).toMatchObject({
-      messageKey: "storeDeletion.error.readOnlySession",
+      messageKey: "storeDeletion.error.forbidden",
     });
     expect(classifyDeletionOutcome({ status: 403, error: err("origin_rejected") })).toMatchObject({
       messageKey: "storeDeletion.error.forbidden",
@@ -165,16 +171,16 @@ describe("classifyReauthOutcome", () => {
     });
   });
 
-  it("owner-only, a support session, 404, 400 and 401 map to their own outcome", () => {
+  it("owner-only, a missing organization, 404, 400 and 401 map to their own outcome", () => {
     expect(
       classifyReauthOutcome({ status: 403, error: err("store_deletion_owner_only") }),
     ).toMatchObject({
       messageKey: "storeDeletion.error.ownerOnly",
     });
     expect(
-      classifyReauthOutcome({ status: 403, error: err("support_session_expired") }),
+      classifyReauthOutcome({ status: 403, error: err("support_session_required") }),
     ).toMatchObject({
-      messageKey: "storeDeletion.error.readOnlySession",
+      messageKey: "storeDeletion.error.tenantUnavailable",
     });
     expect(classifyReauthOutcome({ status: 404 })).toMatchObject({
       messageKey: "storeDeletion.error.notAvailable",
