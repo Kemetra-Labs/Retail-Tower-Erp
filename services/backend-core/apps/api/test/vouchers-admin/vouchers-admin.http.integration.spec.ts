@@ -35,6 +35,7 @@ import { LoggingInterceptor } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import * as voucherAudit from "../../src/vouchers-admin/vouchers-admin-audit";
 import { VouchersAdminModule } from "../../src/vouchers-admin/vouchers-admin.module";
+import { seedPlatformAdminSession } from "../_helpers/platform-admin-session";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 import { STORE_A_X, STORE_A_Y, STORE_B_X, TENANT_A, TENANT_B } from "../catalog/__support__/isolation-harness";
 import { bootScopedApp } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
@@ -70,8 +71,13 @@ let skipped = false;
 const logLines: string[] = [];
 let tenantACurrency = "";
 
+/** RT-1470: a platform admin with no membership in tenant A (direct entry from /platform). */
+const USER_PA = "0a000000-0000-7000-8000-0000014700a1";
+const SES_PA = "0a000000-0000-7000-8000-0000014700a2";
+
 async function seed(e: PgTestEnv): Promise<void> {
   await seedPayerMembers(e);
+  await seedPlatformAdminSession(e.admin, { userId: USER_PA, sessionId: SES_PA, email: "rt1470-pa-vouchers@example.test", tenantId: TENANT_A });
   await e.admin.query(
     `INSERT INTO stores (id, tenant_id, code, name, is_active, deleted_at) VALUES
        ($1, $3, 'AI', 'RT1108 inactive', false, NULL),
@@ -654,5 +660,23 @@ describe("the domain role's column grants on vouchers (test-harness precondition
     await expect(env!.app.query(`DELETE FROM vouchers WHERE false`)).rejects.toThrow(/permission denied/);
     await expect(env!.app.query(`DELETE FROM voucher_eligible_stores WHERE false`)).rejects.toThrow(/permission denied/);
     await expect(env!.app.query(`UPDATE voucher_eligible_stores SET store_id = store_id WHERE false`)).rejects.toThrow(/permission denied/);
+  });
+});
+
+describe("RT-1470: a platform admin with no membership decides as an owner", () => {
+  it("issues, lists, reads and cancels vouchers in the tenant, audited as themselves", async () => {
+    if (skip()) return;
+    const issued = await issueOk({ ...ALL, count: 1 }, SES_PA);
+    const id = issued.vouchers[0]!.voucher_id;
+    expect((await list(SES_PA)).status).toBe(200);
+    expect((await get(SES_PA, id)).status).toBe(200);
+    const cancelled = await cancel(SES_PA, id);
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body).toMatchObject({ voucher_id: id, status: "cancelled", already_cancelled: false });
+    const row = await env!.admin.query<{ cancelled_by_user_id: string }>(
+      `SELECT cancelled_by_user_id::text FROM vouchers WHERE id = $1`,
+      [id],
+    );
+    expect(row.rows[0]).toEqual({ cancelled_by_user_id: USER_PA });
   });
 });
