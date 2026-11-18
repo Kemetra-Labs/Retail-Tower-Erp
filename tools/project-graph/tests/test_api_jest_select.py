@@ -130,7 +130,8 @@ class SelectTests(unittest.TestCase):
 
     def test_n11_policy_tooling_root_unknown(self):
         self._assert_full(_m(".github/workflows/backend-core.yml"), "CLASS:policy")
-        self._assert_full(_m("tools/contracts-check/x.py"), "CLASS:tooling")
+        # RT-1467: tools/contracts-check/** now has its own narrowed class; size-guard is still `tooling`
+        self._assert_full(_m("tools/size-guard/x.py"), "CLASS:tooling")
         self._assert_full(_m("package.json"), "CLASS:root")
         self._assert_full(_m(BC + "apps/worker/src/x.ts"), "NOT_FAST_ELIGIBLE")
 
