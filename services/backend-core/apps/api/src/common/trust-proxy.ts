@@ -1,4 +1,4 @@
-import { resolveDeploymentEnvironment } from "../connector/deployment-environment";
+import { resolveDeploymentEnvironment } from "./deployment-environment";
 
 /**
  * RT-624 (RT-574 issue 5b) — `TRUST_PROXY` boot check.

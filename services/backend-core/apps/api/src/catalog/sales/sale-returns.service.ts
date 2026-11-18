@@ -40,7 +40,7 @@ import { PG_POOL } from "../../auth/auth.module";
 import { resolveReturnLandingStatus } from "../../inventory/position-events/position-events.service";
 import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-report";
 import type { RecordReturnRequestDto } from "./dto/record-return-request.dto";
-import { sha256CanonicalHex } from "./payload-hash";
+import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { insertReturnClawbacks, loadReturnClawbacks, settleReturnPromotions, type ReturnClawback } from "./sale-return-promotions";
 import { assertAllocationRules, assertOriginalTendersOfSale } from "./refund-allocation";
 import { isRefundSettleBeforePostEnabled } from "./refund-gates";

@@ -30,7 +30,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { compareCodeUnits } from "../../common/compare-code-units";
+import { compareCodeUnits } from "../compare-code-units";
 
 export function canonicalJsonPayload(value: unknown): string {
   if (value === null || typeof value !== "object") {

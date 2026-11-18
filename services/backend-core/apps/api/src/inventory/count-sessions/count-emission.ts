@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { parseQuantity } from '../decimal-quantity';
+import { parseQuantity } from '../../common/quantity/decimal-quantity';
 
 /** A Stock Reconciliation holds at most 100 rows (G6-6, posting-feed.yaml `CountPosting.lines`). */
 export const COUNT_CHUNK_MAX = 100;

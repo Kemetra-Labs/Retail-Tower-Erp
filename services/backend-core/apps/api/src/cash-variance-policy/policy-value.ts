@@ -11,7 +11,7 @@
  * limit frozen in another currency was flagged `policy_value_mismatch` at
  * open and is evaluated as frozen.
  */
-import { minorUnitExponent } from "../catalog/sales/iso4217-minor-units";
+import { minorUnitExponent } from "../common/money/iso4217-minor-units";
 import { scaled } from "../pos-shifts/shift-cash-arithmetic";
 import { formatMoney } from "../pos-shifts/shift-money";
 

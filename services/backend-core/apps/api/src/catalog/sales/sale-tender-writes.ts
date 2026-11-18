@@ -16,7 +16,7 @@ import { newId } from "@data-pulse-2/shared";
 import type { PoolClient } from "pg";
 
 import type { SaleTenderDto } from "./dto/capture-sale-request.dto";
-import { minorUnitExponent } from "./iso4217-minor-units";
+import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
 import { SaleTenderMismatchError, SaleTenderReplayConflictError, SaleVoucherTenderInvalidError } from "./sale-errors";
 
 /** RT-77: Σ tender amounts = posTotal exactly, in Postgres numeric; else 422. */

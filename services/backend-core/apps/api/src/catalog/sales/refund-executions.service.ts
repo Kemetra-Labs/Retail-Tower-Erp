@@ -31,7 +31,7 @@ import type {
   RecordRefundExecutionRequestDto,
   ReturnProvenanceQueryDto,
 } from "./dto/record-refund-execution-request.dto";
-import { sha256CanonicalHex } from "./payload-hash";
+import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import {
   findOrdinaryReturnByProvenance,
   listOrdinaryReturnIds,
