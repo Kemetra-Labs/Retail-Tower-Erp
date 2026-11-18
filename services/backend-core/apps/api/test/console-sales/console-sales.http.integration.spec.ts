@@ -212,14 +212,20 @@ describe("RT-562 console sales — role and store scope", () => {
     await expectNotFound(await get(detailPath(B_OCT02), SES_PLATFORM_OWNER_ACTIVE));
   });
 
-  it("a platform admin who is also a store_manager: tenant-wide (beyond the grant), narrowed by the active store", async () => {
+  it("RT-1470: a platform admin who is also a store_manager gets the owner rule: tenant-wide, not narrowed by the active store", async () => {
     if (skip()) return;
-    // The membership grants only X, but TenantContextGuard publishes `all` for a platform admin.
+    // The membership grants only X, but a session platform admin decides as an owner (RT-1470).
     expect(await refs(SES_PLATFORM_MANAGER, { store_id: STORE_A_Y, ...OCTOBER })).toEqual([Y_OCT02]);
     expect(await refs(SES_PLATFORM_MANAGER_ACTIVE, X_OCT)).toEqual(X_OCTOBER);
-    await expectNotFound(await get(LIST, SES_PLATFORM_MANAGER_ACTIVE, { store_id: STORE_A_Y, ...OCTOBER }));
-    await expectNotFound(await get(detailPath(Y_OCT02), SES_PLATFORM_MANAGER_ACTIVE));
+    expect(await refs(SES_PLATFORM_MANAGER_ACTIVE, { store_id: STORE_A_Y, ...OCTOBER })).toEqual([Y_OCT02]);
+    expect((await get(detailPath(Y_OCT02), SES_PLATFORM_MANAGER_ACTIVE)).status).toBe(200);
     await expectNotFound(await get(detailPath(B_OCT02), SES_PLATFORM_MANAGER));
+  });
+
+  it("RT-1470: a platform admin with an active store is not narrowed by it (the owner rule)", async () => {
+    if (skip()) return;
+    expect(await refs(SES_PLATFORM_ACTIVE, { store_id: STORE_A_Y, ...OCTOBER })).toEqual([Y_OCT02]);
+    expect((await get(detailPath(Y_OCT02), SES_PLATFORM_ACTIVE)).status).toBe(200);
   });
 
   it("an owner with an `all` grant reads a soft-deleted store; a specific grant of it does not", async () => {
@@ -232,7 +238,6 @@ describe("RT-562 console sales — role and store scope", () => {
     ["a store outside a specific owner's scope", SES_OWNER_SPEC, STORE_A_Y],
     ["a store outside a specific tenant_admin's scope", SES_ADMIN_SPEC, STORE_A_Y],
     ["a store outside a narrowed manager's scope", SES_MANAGER_ACTIVE, STORE_A_X],
-    ["a store outside a narrowed platform admin's scope", SES_PLATFORM_ACTIVE, STORE_A_Y],
     ["an empty scope", SES_ADMIN_EMPTY, STORE_A_X],
     ["another tenant's store (owner, all)", SES_OWNER_ALL, STORE_B_X],
     ["another tenant's store (platform admin)", SES_PLATFORM, STORE_B_X],
@@ -249,7 +254,6 @@ describe("RT-562 console sales — role and store scope", () => {
     ["a sale outside a specific owner's scope", SES_OWNER_SPEC, Y_OCT02],
     ["a deleted store's sale for a specific grant", SES_OWNER_SPEC, DEL_OCT02],
     ["a sale outside a narrowed manager's scope", SES_MANAGER_ACTIVE, X_OCT01],
-    ["a sale outside a narrowed platform admin's scope", SES_PLATFORM_ACTIVE, Y_OCT02],
     ["an empty scope", SES_ADMIN_EMPTY, X_OCT01],
     ["an absent sale", SES_OWNER_ALL, NO_SALE],
     ["store_staff", SES_STAFF, X_OCT01],
