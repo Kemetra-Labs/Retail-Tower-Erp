@@ -19,6 +19,8 @@
 #     can merge onto a newer main; the first test of the combination is the merged commit's
 #     push run on main.
 # Not done yet:
+#   - the no-bypass part of the S6 ruleset: ruleset 25821989 keeps an admin bypass
+#     (bypass_mode always) by owner decision (RT-578, solo maintainer);
 #   - RT-711 independent verification (P17/P19, latest-wins of multiple `required`
 #     check-runs per SHA). The App source pin and its anti-spoof canary no longer apply;
 #   - the delegated reviewer identity as approver, by numeric ID (MR-5, RT-870).
