@@ -207,8 +207,8 @@ describe("catalog/erpnext-item-map.yaml — list keyset paging (RT-1458)", () =>
     expect(param("cursor")?.schema?.type).toBe("string");
   });
 
-  it("applies NO default `limit` yet: omitting it keeps today's unpaged list (additive)", () => {
-    expect(param("limit")?.schema?.default).toBeUndefined();
+  it("states the default page size 100 for an omitted `limit` (RT-1458 PR 3c)", () => {
+    expect(param("limit")?.schema?.default).toBe(100);
   });
 
   it("the 200 response carries `items` and a nullable `nextCursor`", () => {
