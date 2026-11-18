@@ -1,8 +1,13 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.19.0-draft"
+  version: "1.20.0-draft"
   description: >
+    **1.20.0-draft (RT-1468, text only).** `SupportSessionRefused` now
+    describes the RT-1468 rule: a platform admin is admitted with or without
+    a support session, and 403 `support_session_required` means only that
+    the active tenant no longer exists. No wire change.
+
     Spec 009 Inventory & Stock Movement Ledger contract surface. Defines the
     Inventory source-of-truth domain the SaaS owns: an append-only
     `stock_movements` ledger and a derived (compute-on-read) on-hand balance.
@@ -4582,10 +4587,11 @@ components:
             $ref: "#/components/schemas/Error"
     SupportSessionRefused:
       description: >
-        403 — only a platform-admin session without a live support session
-        for the tenant (`support_session_required` /
-        `support_session_expired`, RT-414). A caller without the role is a
-        non-disclosing 404, never this 403 (RT-1081).
+        403 — only a platform-admin session whose active tenant no longer
+        exists (`support_session_required`; since RT-1468 a platform admin is
+        otherwise admitted with or without a support session, and
+        `support_session_expired` is no longer returned). A caller without the
+        role is a non-disclosing 404, never this 403 (RT-1081).
       content:
         application/json:
           schema:

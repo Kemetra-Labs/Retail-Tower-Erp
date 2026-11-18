@@ -7,8 +7,8 @@
  *
  *   platform admin                -> admitted (RT-1462, owner decision 2026-11-18), whether or not
  *                                    they are a tenant member and whatever role they hold there.
- *                                    These handlers are in `PLATFORM_DIRECT_HANDLERS`, so a
- *                                    non-member needs no support session (`TenantContextGuard`);
+ *                                    No support session is needed and a suspended tenant does
+ *                                    not refuse them (RT-1468, `TenantContextGuard`);
  *                                    the tenant is the session's active tenant. The row says
  *                                    `actor_kind: platform_admin`, on behalf of that tenant (and
  *                                    the support session, if the caller holds one);

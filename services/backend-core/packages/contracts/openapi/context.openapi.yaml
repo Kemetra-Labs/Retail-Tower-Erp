@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Active Context API
-  version: "1.3.0-draft"
+  version: "1.4.0-draft"
   description: >
     Server-side resolution and switching of active tenant + active store
     for an authenticated session. Per spec §6.6 and Q3 default A.
@@ -18,10 +18,17 @@ info:
     member or not, without a support session, so a platform admin can use the
     Console force actions (`console-force-actions.openapi.yaml` 1.1.0-draft)
     on a customer's tenant. The response carries only the tenant summary (id,
-    slug, name), which a platform admin can already read, and every
-    other covered route still refuses a non-member without a support session,
-    so the switch alone opens nothing else. A tenant that does not exist is
-    still 404. No schema change.
+    slug, name), which a platform admin can already read. A tenant that does
+    not exist is still 404. No schema change.
+
+    RT-1468 (1.4.0-draft, `[GATED: contract]`, owner decision 2026-11-18):
+    after the switch, a platform admin uses EVERY covered route of the tenant,
+    member or not, without a support session and also on a suspended tenant
+    (`platform-support-sessions.openapi.yaml` 1.4.0-draft); each request there
+    writes one `platform.cross_tenant.accessed` row. `switchActiveStore` by a
+    platform admin, member or not, writes one such row too. The switch itself
+    stays uncovered: it writes no row, and the next request in the tenant
+    does. No schema change.
 
 
     **1.2.0-draft (RT-620, additive).** Every cookieAuth operation may

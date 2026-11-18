@@ -549,22 +549,33 @@ describe.each(INACTIVE_STATES.filter((s) => s.label !== "soft-deleted"))(
       if (skip()) return;
       await setTenant(state);
       const admin = (await signIn(ADMIN)).cookie;
-      // RT-1462: selecting the tenant is admitted for a non-member platform admin (the Console force actions
-      // need it), but it opens nothing else: a covered route still needs a support session (RT-414).
+      // RT-1468: a non-member platform admin selects the tenant and uses it without a support session.
       await switchTenant(admin, SUBJECT).expect(200);
-      const noSession = await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(403);
-      expect(noSession.body.error.code).toBe("support_session_required");
+      await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(200);
+      // RT-1468 AC2: with no membership and NO support session, a suspended tenant admits a write, and the
+      // request writes one succeeded cross-tenant row that names no session.
+      if (state.label === "suspended") {
+        const rid = randomUUID();
+        await asSession(http().post("/api/v1/stores"), admin, rid)
+          .send({ code: "NS", name: "Written with no session" })
+          .expect(201);
+        const { rows } = await E().admin.query<{ metadata: Record<string, unknown> }>(
+          `SELECT metadata FROM audit_events WHERE request_id = $1 AND action = 'platform.cross_tenant.accessed'`,
+          [rid],
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.metadata).toMatchObject({ outcome: "succeeded", support_session_id: null, method: "POST" });
+      }
       await enterTenantAsPlatformAdmin(E().admin, ADMIN, SUBJECT);
       await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(200);
       await asSession(http().get(`/api/v1/tenants/${SUBJECT}`), admin, randomUUID()).expect(200);
       await asSession(http().get(`/api/v1/tenants/${SUBJECT}/members`), admin, randomUUID()).expect(200);
 
-      // RT-414 (comment 11737): a suspended tenant's support session is read-only.
+      // RT-1468: a suspended tenant is not read-only for a platform admin (the RT-414 rule is lifted).
       if (state.label === "suspended") {
-        const write = await asSession(http().post("/api/v1/stores"), admin, randomUUID())
-          .send({ code: "RO", name: "Read only" })
-          .expect(403);
-        expect(write.body.error.code).toBe("support_session_read_only");
+        await asSession(http().post("/api/v1/stores"), admin, randomUUID())
+          .send({ code: "RW", name: "Written while suspended" })
+          .expect(201);
       }
 
       // Still refused for the member until the admin reactivates.

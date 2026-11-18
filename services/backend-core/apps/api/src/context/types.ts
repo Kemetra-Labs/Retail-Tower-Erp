@@ -42,10 +42,10 @@ export interface ResolvedContext {
    */
   readonly storeAccess?: StoreAccess;
   /**
-   * RT-1462: the live support session that admitted a platform admin who is NOT a member of the
-   * tenant (RT-414). Set by `TenantContextGuard` only in that case; absent for every other
-   * caller. It is the session `SupportSessionGate` already read, so no new platform-admin
-   * database context is opened to learn it.
+   * RT-1462 / RT-1468: a platform admin's live support session for this tenant (member or not),
+   * when they hold one. Set by `TenantContextGuard` for a platform admin only; absent for every
+   * other caller and for a platform admin without one. It is the session `SupportSessionGate`
+   * already read, so no new platform-admin database context is opened to learn it.
    */
   readonly supportSession?: { readonly id: string; readonly ticketRef: string | null };
 }

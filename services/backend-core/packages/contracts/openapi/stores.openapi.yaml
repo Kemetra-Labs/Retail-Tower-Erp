@@ -4,10 +4,19 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Stores API
-  version: "1.4.0-draft"
+  version: "1.5.0-draft"
   description: >
     Store administration within the active tenant. Active tenant must be
     set on the session/token; otherwise endpoints return 401.
+
+
+    **1.5.0-draft (RT-1468, `[GATED: contract]`, owner decision 2026-11-18).**
+    Text only: every store operation behind `TenantContextGuard` admits a
+    platform admin, member or not, without a support session and also on a
+    suspended tenant (`platform-support-sessions.openapi.yaml` 1.4.0-draft);
+    each request writes one `platform.cross_tenant.accessed` row. The store
+    deletion's re-authentication, typed reason, preview fingerprint and D9
+    cap are unchanged. No wire change.
 
 
     **1.4.0-draft (RT-1462, `[GATED: contract]`; owner decision 2026-11-18,
@@ -17,8 +26,8 @@ info:
     a member of the tenant, whatever membership role they hold there, and,
     when they are not a member, WITHOUT a support session (the mechanism and
     its audit are in `console-force-actions.openapi.yaml` 1.1.0-draft, "No
-    support session on this surface"; a suspended tenant stays read-only for a
-    non-member). The four guards, the
+    support session on this surface"; RT-1468 in 1.5.0-draft also lifts the
+    suspended-tenant read-only rule). The four guards, the
     preview fingerprint, the typed reason, the re-authentication and the D9 cap
     apply unchanged. No wire change. The `store.deleted` audit metadata gains
     `actor_kind` and `on_behalf_of` (see Audit). A `tenant_admin` who is not a
@@ -508,10 +517,8 @@ paths:
             another session, store or purpose; one answer for every cause),
             `store_deletion_owner_only` (a `tenant_admin` who is not a platform
             admin), `origin_rejected`
-            (RT-430), or a support-session refusal
-            (`support_session_read_only` for a non-member platform admin on a
-            suspended tenant; `support_session_required` for a tenant that does
-            not exist).
+            (RT-430), or `support_session_required` for a tenant that does not
+            exist (the only support-session refusal left since RT-1468).
           content:
             application/json:
               schema:

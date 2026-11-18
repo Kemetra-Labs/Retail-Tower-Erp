@@ -52,8 +52,19 @@
  *   CS31  — clearStore: idempotent when activeStoreId already null
  *   CS32  — clearStore: updateActiveContext returns null → 401 UnauthorizedException
  */
+// RT-1468: a platform admin's store switch is recorded by `SupportSessionGate.admit`, which needs a
+// pool. The platform-admin tests pass a stub pool; the bootstrap helper stays a passthrough with no
+// client, and `admit` is spied.
+jest.mock("@data-pulse-2/db", () => ({
+  ...jest.requireActual("@data-pulse-2/db"),
+  runWithSystemPrivilege: jest.fn(async (_pool: unknown, _ctx: unknown, work: (client: unknown) => unknown) => work(undefined)),
+}));
+
 import "reflect-metadata";
 
+import type { Pool } from "pg";
+
+import { SupportSessionGate } from "../../src/platform-support-sessions/support-session.gate";
 import {
   BadRequestException,
   ConflictException,
@@ -278,6 +289,15 @@ const TOKEN_WITH_USER_NO_TENANT: Principal = {
 let sessions: FakeSessionRepository;
 let memberships: FakeMembershipRepository;
 let service: ContextService;
+
+/** The same service with a stub pool (RT-1468: a platform admin's store switch is recorded). */
+function withPool(): ContextService {
+  return new ContextService(
+    sessions as unknown as SessionRepository,
+    memberships as unknown as MembershipRepository,
+    {} as Pool,
+  );
+}
 
 beforeEach(() => {
   sessions = new FakeSessionRepository();
@@ -693,11 +713,15 @@ describe("CS24 — switchStore: non-admin, membership found, canAccessStore=true
 // ===========================================================================
 
 describe("CS25 — switchStore: platform admin, canAccessStore=true", () => {
-  it("calls canAccessStore with NIL membershipId and kind='all'; bypasses membership lookup", async () => {
+  it("calls canAccessStore with NIL membershipId and kind='all'; bypasses membership lookup; records via admit", async () => {
+    const admit = jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(null);
+    service = withPool();
     sessions.rows.push(activeSession({ activeTenantId: TENANT_ID }));
     memberships.isPlatformAdminResult = true;
     memberships.canAccessStoreResult = true;
     await service.switchStore(SESSION_PRINCIPAL, STORE_ID);
+    expect(admit).toHaveBeenCalledTimes(1);
+    admit.mockRestore();
     expect(memberships.findActiveMembershipCalls).toHaveLength(0);
     expect(memberships.canAccessStoreCalls[0]?.membershipId).toBe(NIL_UUID);
     expect(memberships.canAccessStoreCalls[0]?.kind).toBe("all");
@@ -711,12 +735,25 @@ describe("CS25 — switchStore: platform admin, canAccessStore=true", () => {
 
 describe("CS26 — switchStore: platform admin, canAccessStore=false", () => {
   it("throws NotFoundException when store does not belong to active tenant for admin", async () => {
+    const admit = jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(null);
+    service = withPool();
     sessions.rows.push(activeSession({ activeTenantId: TENANT_ID }));
     memberships.isPlatformAdminResult = true;
     memberships.canAccessStoreResult = false;
     await expect(
       service.switchStore(SESSION_PRINCIPAL, STORE_ID),
     ).rejects.toBeInstanceOf(NotFoundException);
+    admit.mockRestore();
+  });
+
+  it("RT-1468: without a pool a platform admin's store switch fails closed (nothing runs unrecorded)", async () => {
+    sessions.rows.push(activeSession({ activeTenantId: TENANT_ID }));
+    memberships.isPlatformAdminResult = true;
+    memberships.canAccessStoreResult = true;
+    await expect(service.switchStore(SESSION_PRINCIPAL, STORE_ID)).rejects.toMatchObject({
+      status: 403,
+      response: { code: "support_session_required" },
+    });
   });
 });
 
