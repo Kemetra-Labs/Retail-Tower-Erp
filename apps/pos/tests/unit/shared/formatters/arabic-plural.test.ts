@@ -51,7 +51,13 @@ describe('pluralAr', () => {
   });
 
   it('falls back to `other` when the category has no template (zero is optional)', () => {
-    const noZero = { ...FORMS, zero: undefined };
+    const noZero = {
+      one: FORMS.one,
+      two: FORMS.two,
+      few: FORMS.few,
+      many: FORMS.many,
+      other: FORMS.other,
+    };
     expect(pluralAr(0, noZero)).toBe('0 عملية (أخرى)');
   });
 

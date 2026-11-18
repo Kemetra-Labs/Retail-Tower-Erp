@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { AuditSync } from '../../../../src/main/audit/audit-sync.js';
 import type { AuditSyncStore, AuditSyncClient } from '../../../../src/main/audit/audit-sync.js';
-import type { AuditEvent } from '../../../../src/shared/audit/event-shape.js';
+import type { ActionCategory, AuditEvent } from '../../../../src/shared/audit/event-shape.js';
 
 /**
  * T042 — crash/restart durability (S3 integration).
@@ -64,7 +64,7 @@ function bindTestSyncStore(db: SqlJsDatabase): AuditSyncStore {
           acting_operator_id: r['acting_operator_id'] as string,
           session_id: (r['session_id'] as string | null | undefined) ?? null,
           shift_id: (r['shift_id'] as string | null | undefined) ?? null,
-          action_category: r['action_category'] as string,
+          action_category: r['action_category'] as ActionCategory,
           created_at: r['created_at'] as string,
           approving_supervisor_id:
             (r['approving_supervisor_id'] as string | null | undefined) ?? null,

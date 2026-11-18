@@ -15,7 +15,6 @@ import {
 import { SignOutHandler } from '../../../../src/main/operator/sign-out-handler.js';
 import { RosterHandler } from '../../../../src/main/operator/roster-handler.js';
 import { SessionManager } from '../../../../src/main/operator/session-manager.js';
-import { LifecycleCascade } from '../../../../src/main/operator/lifecycle-cascade.js';
 import {
   ProtoSessionStore,
   TakeoverHandler,
@@ -174,7 +173,6 @@ function wire(grantStore: OfflineGrantStore = store): Wired {
   });
   grants.setScope(SCOPE);
   const sessions = new SessionManager();
-  const cascade = new LifecycleCascade({ sessionManager: sessions, logger });
   const protoStore = new ProtoSessionStore();
   const backend = createBackendClient({ baseUrl: BASE, fetch: fetchImpl });
   const admissionClient = createCashierAdmissionClient({
@@ -185,9 +183,6 @@ function wire(grantStore: OfflineGrantStore = store): Wired {
   const admission: CashierAdmissionDeps = {
     client: admissionClient,
     grantSeam: grants.seam,
-    onDeviceRevoked: () => {
-      cascade.notifyTerminalRevoked();
-    },
   };
   const keeper = new CashierAdmissionKeeper({
     sessionManager: sessions,
@@ -257,7 +252,14 @@ function wire(grantStore: OfflineGrantStore = store): Wired {
       protoStore,
       sessionManager: sessions,
       backend,
-      jwtHolder: { set: vi.fn(), get: vi.fn(() => null), clear: vi.fn() },
+      jwtHolder: {
+        set: vi.fn(),
+        get: vi.fn(() => null),
+        clear: vi.fn(),
+        clearAll: vi.fn(),
+        hasFreshMark: vi.fn(() => false),
+        consumeMark: vi.fn(() => false),
+      },
       auditEmitter,
       pairingStore,
       deviceTokenAttestation: () => DEVICE_TOKEN,

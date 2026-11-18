@@ -78,6 +78,17 @@ function manager(over: Partial<OperatorSessionRecord> = {}): OperatorSessionReco
   };
 }
 
+/** A manager session with one optional field truly absent (not set to `undefined`). */
+function managerWithout(
+  field: 'manager_user_id' | 'recovery_of',
+  over: Partial<OperatorSessionRecord> = {},
+): OperatorSessionRecord {
+  const record = manager(over);
+  if (field === 'manager_user_id') delete record.manager_user_id;
+  else delete record.recovery_of;
+  return record;
+}
+
 let raw: SqlJsDatabase;
 let pins: ManagerPinStore;
 let approvals: ManagerApprovalService;
@@ -227,8 +238,11 @@ let handle: ReturnType<typeof handleFor>;
 const recoveryRef: { current: ManagerRecovery | null } = { current: null };
 
 /** The recovery service over the real stack; a test may swap a dependency. */
-function buildRecovery(over: Partial<ManagerRecoveryDeps> = {}): ManagerRecovery {
-  const built = createManagerRecovery({
+function buildRecovery(
+  over: Partial<ManagerRecoveryDeps> = {},
+  options: { readonly defaultClock?: boolean } = {},
+): ManagerRecovery {
+  const deps: ManagerRecoveryDeps = {
     db: handle,
     getSession: () => current,
     resolveTerminalId: () => TERMINAL,
@@ -239,7 +253,9 @@ function buildRecovery(over: Partial<ManagerRecoveryDeps> = {}): ManagerRecovery
     endRecoverySession,
     clock: () => new Date(NOW),
     ...over,
-  });
+  };
+  if (options.defaultClock === true) delete deps.clock;
+  const built = createManagerRecovery(deps);
   recoveryRef.current = built;
   return built;
 }
@@ -391,7 +407,7 @@ describe('approval.listApprovers for recovery', () => {
   });
 
   it('offers nobody to a session without a captured manager id', () => {
-    current = manager({ manager_user_id: undefined });
+    current = managerWithout('manager_user_id');
     expect(approvals.listApprovers({ actionKind: 'recovery.cancel_held_cart' })).toEqual({
       kind: 'approvers',
       approvers: [],
@@ -705,7 +721,7 @@ describe('recovery — who may recover', () => {
 
   it('never lets an operator recover their own sale from a new session', async () => {
     insertCart('cart-held', 'editing');
-    const session = manager({ operator_id: CASHIER_OP, recovery_of: undefined });
+    const session = managerWithout('recovery_of', { operator_id: CASHIER_OP });
     current = session;
     expect(recovery.resolvers.completeAttempt({ subjectRef: attemptId, session })).toBeNull();
     await expect(
@@ -746,7 +762,7 @@ describe('recovery.listHeld — what it lists', () => {
 
   it('shows card tender as card, and uses the real clock by default', async () => {
     await payByCard(2_000);
-    const unclocked = buildRecovery({ clock: undefined });
+    const unclocked = buildRecovery({}, { defaultClock: true });
     const view = unclocked.listHeld();
     expect(view.kind === 'held' && view.stuck).toMatchObject({
       cash_minor: PAID,
@@ -870,7 +886,7 @@ describe('recovery.completeAttempt — refusals and failures', () => {
         idempotency_key: 'k-rest',
       });
     expect(rest.kind).toBe('ok');
-    current = manager({ recovery_of: undefined });
+    current = managerWithout('recovery_of');
     const id = await approve('recovery.complete_attempt', attemptId);
     await expect(
       recovery.completeAttempt({ payment_attempt_id: attemptId, approval_id: id }),
