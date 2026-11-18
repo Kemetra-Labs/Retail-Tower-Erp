@@ -6,8 +6,7 @@
  * the order sent, which breaks price ties (§6 step 2).
  */
 import { minorUnitExponent } from "../common/money/iso4217-minor-units";
-import { OfferDecimalError } from "./evaluator/offer-decimal";
-import { evaluateOffer, type CartLine, type EvaluatorOffer } from "./evaluator/offer-evaluator";
+import { evaluateOffer, OfferDecimalError, type CartLine, type EvaluatorOffer } from "@data-pulse-2/offer-engine";
 import { OfferRefusedError } from "./offer-errors";
 import type { OfferPreviewBody } from "./offers.dto";
 

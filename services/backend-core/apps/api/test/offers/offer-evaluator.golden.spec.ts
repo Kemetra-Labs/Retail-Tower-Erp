@@ -15,10 +15,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { formatMinor, scaled, wholeUnits } from "../../src/offers/evaluator/offer-decimal";
-import { evaluateOffer, type CartLine, type Evaluation, type EvaluatorOffer } from "../../src/offers/evaluator/offer-evaluator";
+import { evaluateOffer, formatMinor, scaled, settleOfferReturn, wholeUnits, type CartLine, type Evaluation, type EvaluatorOffer, type SaleOfferLine } from "@data-pulse-2/offer-engine";
 import { allocateReturnPromotion, type AllocationLine } from "../../src/offers/evaluator/offer-return-allocation";
-import { settleOfferReturn, type SaleOfferLine } from "../../src/offers/evaluator/offer-return-settlement";
 
 interface VectorOffer { buyQuantity: number; getQuantity: number; percentOff: string; maxApplicationsPerSale: number | null }
 interface EvaluateVector {

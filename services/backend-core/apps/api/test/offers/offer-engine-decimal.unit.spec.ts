@@ -1,8 +1,8 @@
 /**
- * RT-1339 (RT-286 S7) — the exact-decimal helpers of the POS offer evaluator: parsing,
- * the refusals, and formatting (no float anywhere).
+ * RT-1378 — the exact-decimal helpers of the shared Offer Engine: parsing, the refusals,
+ * and formatting (no float anywhere). Moved from the POS copy; `formatColumnAmount` came from
+ * the Backend-Core copy.
  */
-import { describe, expect, it } from 'vitest';
 import {
   OfferDecimalError,
   formatMinor,
@@ -10,7 +10,8 @@ import {
   percentOf,
   scaled,
   wholeUnits,
-} from '../offer-decimal.js';
+  formatColumnAmount,
+} from '@data-pulse-2/offer-engine';
 
 describe('offer decimal', () => {
   it('scales a decimal string, accepting trailing zeros beyond the scale', () => {
@@ -53,5 +54,13 @@ describe('offer decimal', () => {
   it('multiplies unit price by quantity in minor units', () => {
     expect(grossMinor('10.00', '3', 2)).toBe(3_000n);
     expect(grossMinor('10.00', '1.5', 2)).toBe(1_500n);
+  });
+
+  it('formats a column amount at scale 4, for any minor unit', () => {
+    expect(formatColumnAmount(8_000n, 2)).toBe('80.0000');
+    expect(formatColumnAmount(5n, 2)).toBe('0.0500');
+    expect(formatColumnAmount(0n, 2)).toBe('0.0000');
+    expect(formatColumnAmount(7n, 0)).toBe('7.0000');
+    expect(formatColumnAmount(1_234n, 3)).toBe('1.2340');
   });
 });
