@@ -41,16 +41,18 @@
  * without a membership row. Store-access validation still applies if
  * `activeStoreId` is set, falling back to the `'all'` branch.
  *
- * Support sessions (RT-414)
- * -------------------------
- * A platform admin with NO live membership in the active tenant (whatever
- * the tenant's status) is admitted only through an `active` support session
- * for exactly that tenant (`SupportSessionGate`): otherwise 403
- * `support_session_required` / `support_session_expired` /
- * `support_session_read_only` (a suspended tenant). Each such request writes
- * one `platform.cross_tenant.accessed` row. A platform admin who IS a member
- * resolves exactly as before. Without a pool (unit tests) the non-member case
- * fails closed with `support_session_required`.
+ * Platform admins in a tenant (RT-1468)
+ * -------------------------------------
+ * RT-1468 (owner decision 2026-11-18): a platform admin is admitted to the
+ * active tenant whether or not they are a member, with or without a support
+ * session, and also when the tenant is suspended. Every such request (member
+ * or not) goes through `SupportSessionGate.admit`, which writes one
+ * `platform.cross_tenant.accessed` row naming the live support session for the
+ * tenant when there is one, and refuses only a tenant that no longer exists
+ * (403 `support_session_required`). The live session is published as
+ * `ctx.supportSession` (the force actions record it as "on behalf of").
+ * Without a pool (unit tests) a platform admin fails closed with
+ * `support_session_required`: no platform-admin request runs unrecorded.
  *
  * Token principals
  * ----------------
@@ -99,7 +101,7 @@ import {
 import type { Pool, PoolClient } from "pg";
 import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { SessionRepository } from "../auth/session.repository";
 import {
   recordCrossTenantRejection,
@@ -119,11 +121,11 @@ import type {
   TenantContextRequest,
 } from "./types";
 
-/** The request facts the RT-414 audit row records (never the concrete path). */
+/** The request facts the cross-tenant audit row records (never the concrete path). */
 export interface RequestAccess {
   readonly method: string;
   readonly route: string;
-  /** Assigns the request id on first use (only a support-session row needs it). */
+  /** Assigns the request id on first use (only a cross-tenant row needs it). */
   readonly requestId: () => string | null;
 }
 
@@ -245,6 +247,7 @@ export class TenantContextGuard implements CanActivate {
     // routes never infer it from a null active store. Platform admins are
     // tenant-wide (FR-TEN-6).
     let storeAccess: StoreAccess = { kind: "all" };
+    let supportSession: ResolvedContext["supportSession"];
 
     if (!isPlatformAdmin) {
       // FR-CTX-2: validate active membership.
@@ -284,7 +287,7 @@ export class TenantContextGuard implements CanActivate {
         }
       });
     } else {
-      await this.admitPlatformAdmin(principal, tenantId, storeId, access);
+      supportSession = await this.admitPlatformAdmin(principal, tenantId, storeId, access);
     }
 
     return {
@@ -294,29 +297,30 @@ export class TenantContextGuard implements CanActivate {
       isPlatformAdmin,
       source: "session",
       storeAccess,
+      ...(supportSession === undefined ? {} : { supportSession }),
     };
   }
 
   /**
-   * Platform admin: RT-414 first (a member passes as before; a non-member
-   * needs an active support session for `tenantId`, and the gate records the
-   * request), then, with an active store, only the store-belongs-to-tenant
-   * check (no membership/access policy applies to platform admins). The
-   * repo's 'all' branch does exactly that check; the synthetic membershipId
-   * is never referenced by 'all'.
+   * Platform admin: the cross-tenant record first (RT-1468: admitted member or
+   * not, no support session needed, suspended tenant included; the gate
+   * records the request and refuses only a tenant that no longer exists),
+   * then, with an active store, only the store-belongs-to-tenant check (no
+   * membership/access policy applies to platform admins). The repo's 'all'
+   * branch does exactly that check; the synthetic membershipId is never
+   * referenced by 'all'.
+   *
+   * Returns the caller's live support session for this tenant (the force
+   * actions record it as "on behalf of"), or `undefined`.
    */
   private async admitPlatformAdmin(
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     storeId: string | null,
     access: RequestAccess,
-  ): Promise<void> {
-    let member = false;
-    await this.withBootstrapCtx(async (client) => {
-      member = await this.memberships.hasLiveMembership(principal.userId, tenantId, client);
-    });
-    if (!member) await this.enforceSupportSession(principal, tenantId, access);
-    if (storeId === null) return;
+  ): Promise<ResolvedContext["supportSession"]> {
+    const supportSession = await this.recordPlatformAdmin(principal, tenantId, access);
+    if (storeId === null) return supportSession;
     await this.withBootstrapCtx(async (client) => {
       const ok = await this.memberships.canAccessStore(
         "00000000-0000-0000-0000-000000000000",
@@ -327,21 +331,23 @@ export class TenantContextGuard implements CanActivate {
       );
       if (!ok) throw notFound();
     });
+    return supportSession;
   }
 
-  private async enforceSupportSession(
+  private async recordPlatformAdmin(
     principal: Extract<Principal, { kind: "session" }>,
     tenantId: string,
     access: RequestAccess,
-  ): Promise<void> {
+  ): Promise<ResolvedContext["supportSession"]> {
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    await new SupportSessionGate(this.pool).enforce(tenantId, {
+    const session = await new SupportSessionGate(this.pool).admit(tenantId, {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: access.method,
       route: access.route,
       requestId: access.requestId(),
     });
+    return session === null ? undefined : { id: session.id, ticketRef: session.ticketRef };
   }
 
   /**

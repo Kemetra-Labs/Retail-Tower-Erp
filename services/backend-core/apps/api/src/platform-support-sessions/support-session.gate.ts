@@ -1,39 +1,33 @@
 /**
- * SupportSessionGate — the RT-414 cross-cutting enforcement point.
+ * SupportSessionGate — the cross-cutting record of a platform admin acting in a tenant.
  *
- * A platform admin acting in a tenant they are NOT an active member of is
- * admitted to a covered route only when their auth session has an `active`
- * support session for exactly that tenant (platform-support-sessions.openapi.yaml,
- * `x-support-session-enforcement`). Callers check membership first; this gate
- * runs only for the non-member case.
+ * RT-1468 (owner decision 2026-11-18, RT-1468 comment 17463: "the platform admin is the superior in
+ * this system; he does not need permissions or obstacles"): a platform admin is ADMITTED to every
+ * covered route of any existing tenant, member or not, with or without a support session, and also
+ * on a suspended tenant. RT-414's "an active support session is required" and its suspended-tenant
+ * read-only rule no longer apply. The support session stays: it is optional attribution (purpose
+ * and ticket) and the banner.
  *
- * Decision, in the contract's order:
- *   1. no live support session, it is for another tenant, or the tenant is
- *      gone                                    → 403 `support_session_required`
- *   2. `expires_at` has passed                 → 403 `support_session_expired`
- *   3. the tenant is suspended and the method is unsafe (owner decision
- *      2026-10-12, RT-414 comment 11737: a suspended tenant's support session
- *      is read-only), unless the route is exempt (`updateTenant` with a
- *      status-only body, so the platform can reactivate it;
- *      `switchActiveStore`, navigation only)
- *                                              → 403 `support_session_read_only`
- *   4. otherwise admitted.
+ * What the gate still does, for every platform-admin request on a covered route
+ * (platform-support-sessions.openapi.yaml, `x-support-session-enforcement`):
+ *   1. the tenant does not exist (or is soft-deleted) → 403 `support_session_required`
+ *      (the wire code is kept: it is the existing non-disclosing answer, FR-ISO-4);
+ *   2. otherwise admitted.
+ * Every decision writes exactly one `platform.cross_tenant.accessed` row, in its own transaction
+ * that commits BEFORE a refusal is thrown. A failure to write it fails the request (500): no
+ * platform-admin request on a covered route runs unaudited. The row names the caller's live
+ * support session when it is `active` and for exactly this tenant; an expired one, or one for
+ * another tenant, is absent.
  *
- * Every decision writes exactly one `platform.cross_tenant.accessed` row, in
- * its own transaction that commits BEFORE a refusal is thrown. A failure to
- * write it fails the request (500): no covered request runs unaudited.
- * Passive expiry writes nothing else (it is computed from `expires_at`).
+ * `support_session_expired` and `support_session_read_only` are no longer returned. They stay in
+ * `CrossTenantRefusal` because audit rows written before RT-1468 carry them.
  *
- * RLS: the lookups and the audit insert run under the platform-admin GUC
- * (the bootstrap context every guard uses for membership reads). The route
- * handler still runs with `isPlatformAdmin: false` inside the tenant (RT-142),
- * which this gate does not touch.
+ * RLS: the lookups and the audit insert run under the support-session context (the same site as
+ * before; no new platform-admin site, RT-1389 / RT-1457). The route handler still runs with
+ * `isPlatformAdmin: false` inside the tenant (RT-142), which this gate does not touch.
  */
 import { ForbiddenException } from "@nestjs/common";
-import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool, PoolClient } from "pg";
-
-import { hasLiveMembership } from "../context/membership.repository";
 
 import { withSupportSessionCtx } from "./support-session.lifecycle";
 import {
@@ -44,10 +38,10 @@ import {
 } from "./support-session.store";
 import { UUID_RE_I } from "../common/ids";
 
-const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
 const REFUSAL_MESSAGES: Readonly<Record<CrossTenantRefusal, string>> = {
-  support_session_required: "An active support session for this tenant is required",
+  // RT-1468: the code is kept (wire compatibility, FR-ISO-4) but it now means only that the tenant is
+  // gone, so the message no longer tells the caller to open a support session.
+  support_session_required: "This tenant is not available",
   support_session_expired: "The support session has expired; open a new one",
   support_session_read_only: "The support session is read-only for this tenant",
   origin_rejected: "Request origin is not allowed",
@@ -57,43 +51,6 @@ export function supportSessionRefusal(reason: CrossTenantRefusal): ForbiddenExce
   return new ForbiddenException({ code: reason, message: REFUSAL_MESSAGES[reason] });
 }
 
-export interface TenantState {
-  readonly exists: boolean;
-  readonly suspended: boolean;
-}
-
-/** Pure decision (steps 1-3 above); `undefined` means admitted. */
-export function decideSupportSession(input: {
-  readonly session: SupportSessionRecord | null;
-  readonly tenantId: string;
-  readonly tenant: TenantState;
-  readonly method: string;
-  readonly readOnlyExempt: boolean;
-}): CrossTenantRefusal | undefined {
-  if (!sessionCoversTenant(input)) return "support_session_required";
-  if (input.session.status !== "active") return "support_session_expired";
-  if (isReadOnlyRefusal(input)) return "support_session_read_only";
-  return undefined;
-}
-
-function sessionCoversTenant(input: {
-  readonly session: SupportSessionRecord | null;
-  readonly tenantId: string;
-  readonly tenant: TenantState;
-}): input is typeof input & { readonly session: SupportSessionRecord } {
-  return input.tenant.exists && input.session?.tenantId === input.tenantId;
-}
-
-/** A suspended tenant's support session admits only safe methods, unless exempt. */
-function isReadOnlyRefusal(input: {
-  readonly tenant: TenantState;
-  readonly method: string;
-  readonly readOnlyExempt: boolean;
-}): boolean {
-  if (!input.tenant.suspended || input.readOnlyExempt) return false;
-  return UNSAFE_METHODS.has(input.method.toUpperCase());
-}
-
 export interface GateRequest {
   readonly authSessionId: string;
   readonly userId: string;
@@ -101,46 +58,49 @@ export interface GateRequest {
   /** Route template, never the concrete path. */
   readonly route: string;
   readonly requestId: string | null;
-  /** Unsafe methods stay admitted on a suspended tenant (see header). */
-  readonly readOnlyExempt?: boolean;
 }
 
-export interface GateVerdict {
-  readonly session: SupportSessionRecord | null;
-  readonly reason: CrossTenantRefusal | undefined;
+/** The caller's live support session when it is `active` and for exactly `tenantId`, else null. */
+function liveSessionFor(
+  found: SupportSessionRecord | null,
+  tenantId: string,
+): SupportSessionRecord | null {
+  return found !== null && found.tenantId === tenantId && found.status === "active" ? found : null;
 }
 
 export class SupportSessionGate {
   constructor(private readonly pool: Pool) {}
 
   /**
-   * Admit or refuse a non-member platform admin in `tenantId`. Returns the
-   * admitting support session; throws 403 after recording a refusal.
+   * Admit a platform admin (member or not) in `tenantId` and record the request. Returns the live
+   * support session for this tenant, or null; throws 403 `support_session_required` (after
+   * recording it) when the tenant does not exist.
    */
-  async enforce(tenantId: string, request: GateRequest): Promise<SupportSessionRecord> {
+  async admit(tenantId: string, request: GateRequest): Promise<SupportSessionRecord | null> {
     const verdict = await this.withPlatformCtx(async (client) => {
-      const decided = await this.decide(client, tenantId, request);
+      const live = liveSessionFor(await findLiveSupportSession(client, request.authSessionId), tenantId);
+      const reason: CrossTenantRefusal | undefined = (await tenantExists(client, tenantId))
+        ? undefined
+        : "support_session_required";
       await recordCrossTenantAccess(client, {
         tenantId,
         actorUserId: request.userId,
         requestId: request.requestId,
         method: request.method,
         route: request.route,
-        session: decided.session,
-        ...(decided.reason === undefined ? {} : { reason: decided.reason }),
+        session: live,
+        ...(reason === undefined ? {} : { reason }),
       });
-      return decided;
+      return { live, reason };
     });
-    if (verdict.reason !== undefined || verdict.session === null) {
-      throw supportSessionRefusal(verdict.reason ?? "support_session_required");
-    }
-    return verdict.session;
+    if (verdict.reason !== undefined) throw supportSessionRefusal(verdict.reason);
+    return verdict.live;
   }
 
   /**
    * A path tenant that is not a UUID or names no tenant (`listMembers`,
-   * `updateTenant`): refused exactly like an existing non-member tenant
-   * (FR-ISO-4), with its row platform-scoped (`tenant_id` null).
+   * `updateTenant`): refused exactly like a missing tenant (FR-ISO-4), with its
+   * row platform-scoped (`tenant_id` null).
    */
   async refuseUnresolvable(request: GateRequest): Promise<never> {
     await this.withPlatformCtx((client) =>
@@ -158,32 +118,29 @@ export class SupportSessionGate {
   }
 
   /**
-   * RT-430 refused an unsafe request's `Origin` before any tenant logic ran.
-   * Record the row the contract's order would have produced: the support-session
-   * refusal when the session does not admit the request, else `origin_rejected`.
-   * Returns the refusal the caller should throw.
+   * RT-430 refused an unsafe request's `Origin` before any tenant logic ran. Record the row the
+   * contract's order would have produced: `support_session_required` when the tenant does not
+   * exist, else `origin_rejected`, naming the live support session for this tenant when there is
+   * one. Returns the refusal the caller should throw.
    */
   async recordOriginRefusal(tenantId: string, request: GateRequest): Promise<ForbiddenException> {
     const reason = await this.withPlatformCtx(async (client) => {
-      const decided = await this.decide(client, tenantId, request);
-      const refusal = decided.reason ?? "origin_rejected";
+      const live = liveSessionFor(await findLiveSupportSession(client, request.authSessionId), tenantId);
+      const refusal: CrossTenantRefusal = (await tenantExists(client, tenantId))
+        ? "origin_rejected"
+        : "support_session_required";
       await recordCrossTenantAccess(client, {
         tenantId,
         actorUserId: request.userId,
         requestId: request.requestId,
         method: request.method,
         route: request.route,
-        session: decided.session,
+        session: live,
         reason: refusal,
       });
       return refusal;
     });
     return supportSessionRefusal(reason);
-  }
-
-  /** Whether `userId` has a live membership in `tenantId`, whatever the tenant status. */
-  async isMember(member: { readonly userId: string; readonly tenantId: string }): Promise<boolean> {
-    return await this.withPlatformCtx((client) => hasLiveMembership(drizzle(client), member));
   }
 
   /**
@@ -199,35 +156,14 @@ export class SupportSessionGate {
     });
   }
 
-  private async decide(
-    client: PoolClient,
-    tenantId: string,
-    request: GateRequest,
-  ): Promise<GateVerdict> {
-    const session = await findLiveSupportSession(client, request.authSessionId);
-    const tenant = await readTenant(client, tenantId);
-    const reason = decideSupportSession({
-      session,
-      tenantId,
-      tenant,
-      method: request.method,
-      readOnlyExempt: request.readOnlyExempt === true,
-    });
-    return { session, reason };
-  }
-
   private withPlatformCtx<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
     return withSupportSessionCtx(this.pool, work);
   }
 }
 
-
-async function readTenant(client: PoolClient, tenantId: string): Promise<TenantState> {
-  if (!UUID_RE_I.test(tenantId)) return { exists: false, suspended: false };
-  const { rows } = await client.query<{ status: string }>(
-    `SELECT status FROM tenants WHERE id = $1 AND deleted_at IS NULL`,
-    [tenantId],
-  );
-  const row = rows[0];
-  return { exists: row !== undefined, suspended: row?.status === "suspended" };
+/** Whether `tenantId` names a tenant that is not soft-deleted (its status does not matter, RT-1468). */
+async function tenantExists(client: PoolClient, tenantId: string): Promise<boolean> {
+  if (!UUID_RE_I.test(tenantId)) return false;
+  const { rows } = await client.query(`SELECT 1 FROM tenants WHERE id = $1 AND deleted_at IS NULL`, [tenantId]);
+  return rows.length > 0;
 }

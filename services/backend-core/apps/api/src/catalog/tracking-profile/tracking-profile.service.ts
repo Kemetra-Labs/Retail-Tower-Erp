@@ -46,7 +46,7 @@ import type { PoolClient, Pool } from "pg";
 import { runWithTenantContext, type TrackingMode } from "@data-pulse-2/db";
 import type { Logger } from "@data-pulse-2/shared";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import {
   bumpSafetyRevision,

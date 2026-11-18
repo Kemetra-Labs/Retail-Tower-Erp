@@ -20,7 +20,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-report";
 import {
   allocate,

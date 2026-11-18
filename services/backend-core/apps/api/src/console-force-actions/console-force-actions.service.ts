@@ -17,9 +17,9 @@ import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
+import { formatMoney } from "../common/money/shift-money";
 import {
-  formatMoney,
   previewFingerprint,
   readForceCloseFacts,
   readStoreOpenShifts,
@@ -31,6 +31,7 @@ import {
   type ShiftWriteResult,
   type StoreShiftRow,
 } from "../pos-shifts";
+import type { ForceActionAuditActor } from "../common/force-action-actor";
 import { enforceForceActionCap, insertForceActionAudit } from "../console-action-cap/force-action-cap";
 import {
   buildOpenShiftSummary,
@@ -43,11 +44,11 @@ import {
 /** `GET /stores/{store_id}/open-shifts` is capped here, as the contract says. */
 const OPEN_SHIFT_LIMIT = 200;
 
-/** The tenant, the closing user, their role and the request id of a Console force close. */
+/** The tenant, the closing user, the admitted actor (kind, role, on-behalf-of) and the request id of a Console force close. */
 export interface ConsoleForceCloseInput {
   readonly tenantId: string;
   readonly actorUserId: string;
-  readonly actorRole: "owner" | "tenant_admin";
+  readonly actor: ForceActionAuditActor;
   readonly requestId: string | null;
 }
 
@@ -159,8 +160,8 @@ export class ConsoleForceActionsService {
     shiftId: string,
     body: { readonly forcedReason: string; readonly previewFingerprint: string },
   ): Promise<ShiftWriteResult<ConsoleForceClosedShiftProjection>> {
-    const { tenantId, actorUserId, actorRole, requestId } = input;
-    return this.forceClose.forceCloseFromConsole({ tenantId, actorUserId, actorRole }, shiftId, body, {
+    const { tenantId, actorUserId, actor, requestId } = input;
+    return this.forceClose.forceCloseFromConsole({ tenantId, actorUserId, actor }, shiftId, body, {
       beforeRecord: (client) => enforceForceActionCap(client, tenantId),
       afterRecord: (client, event) =>
         insertForceActionAudit(client, {

@@ -19,7 +19,7 @@ import "reflect-metadata";
 
 import { Test } from "@nestjs/testing";
 
-import { PG_POOL } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { PosShiftsModule } from "../../src/pos-shifts/pos-shifts.module";
 import { PosAuditEventsModule } from "../../src/pos-audit-events/pos-audit-events.module";
 import { PosOperatorsModule } from "../../src/pos-operators/pos-operators.module";

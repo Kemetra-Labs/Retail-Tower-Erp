@@ -34,14 +34,17 @@
  *   - Platform-admin sessions bypass the per-tenant membership check
  *     (FR-TEN-6). `active_role_code` is `null` for platform admins
  *     unless they happen to have a normal membership too.
- *   - RT-414: a platform admin enters a tenant they are NOT a member of
- *     only through `openSupportSession`. `switchTenant` refuses that case
- *     with 403 `support_session_required`, and ends any live support
- *     session of the auth session (`tenant_switched`) before switching.
- *     `switchStore` for a non-member platform admin goes through
- *     `SupportSessionGate` (one `platform.cross_tenant.accessed` row).
- *     `support_session` on the response is the caller's live support
- *     session for the active tenant, or null.
+ *   - RT-1468 (owner decision 2026-11-18): a platform admin works in any
+ *     existing tenant, member or not, with or without a support session
+ *     (which stays optional attribution). `switchTenant` lets a platform
+ *     admin select any existing tenant (404 for one that does not exist) and
+ *     ends any live support session of the auth session (`tenant_switched`)
+ *     before switching; it is not a covered route, and the next request in
+ *     the tenant records a `platform.cross_tenant.accessed` row.
+ *     `switchStore` by a platform admin (member or not) goes through
+ *     `SupportSessionGate.admit` (one row). `support_session` on the
+ *     response is the caller's live support session for the active tenant,
+ *     or null.
  *
  * What this service does NOT do
  * -----------------------------
@@ -67,7 +70,7 @@ import {
 import type { Pool, PoolClient } from "pg";
 import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { SessionRepository } from "../auth/session.repository";
 import {
   SupportSessionGate,
@@ -172,7 +175,7 @@ export class ContextService {
         if (!membership) throw notFound();
       });
     } else {
-      await this.assertPlatformAdminMayEnter(principal, tenantId);
+      await this.assertPlatformAdminMayEnter(tenantId);
     }
 
     await this.endSupportSessionOnSwitch(principal, requestId);
@@ -286,19 +289,14 @@ export class ContextService {
 
   /**
    * Platform admin switching tenant: the tenant must exist (a typo'd UUID
-   * would otherwise set a non-existent active tenant), and — RT-414 — the
-   * admin must be a member: a non-member enters only through a support
-   * session.
+   * would otherwise set a non-existent active tenant). RT-1462: a non-member
+   * is admitted too, without a support session (see the header): the session
+   * is required by every covered route except the force actions.
    */
-  private async assertPlatformAdminMayEnter(
-    principal: SessionPrincipal,
-    tenantId: string,
-  ): Promise<void> {
+  private async assertPlatformAdminMayEnter(tenantId: string): Promise<void> {
     await this.withBootstrapCtx(async (client) => {
       const tenantSummary = await this.memberships.findTenantSummary(tenantId, client);
       if (!tenantSummary) throw notFound();
-      const member = await this.memberships.hasLiveMembership(principal.userId, tenantId, client);
-      if (!member) throw supportSessionRefusal("support_session_required");
     });
   }
 
@@ -317,27 +315,21 @@ export class ContextService {
   }
 
   /**
-   * RT-414: `switchActiveStore` is a covered route. A non-member platform
-   * admin needs an active support session for the active tenant; it stays
-   * admitted on a suspended tenant (navigation, not a tenant write).
+   * `switchActiveStore` is a covered route: a platform admin (member or not,
+   * RT-1468) is admitted and the request writes one cross-tenant row.
    */
   private async admitPlatformAdminStoreSwitch(
     principal: SessionPrincipal,
     tenantId: string,
     requestId: string | null,
   ): Promise<void> {
-    const member = await this.withBootstrapCtx((client) =>
-      this.memberships.hasLiveMembership(principal.userId, tenantId, client),
-    );
-    if (member) return;
     if (!this.pool) throw supportSessionRefusal("support_session_required");
-    await new SupportSessionGate(this.pool).enforce(tenantId, {
+    await new SupportSessionGate(this.pool).admit(tenantId, {
       authSessionId: principal.sessionId,
       userId: principal.userId,
       method: "POST",
       route: SWITCH_STORE_ROUTE,
       requestId,
-      readOnlyExempt: true,
     });
   }
 

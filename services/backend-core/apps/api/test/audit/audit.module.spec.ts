@@ -37,7 +37,7 @@ import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,
 } from "../../src/audit/audit-job.enqueuer";
-import { PG_POOL } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 
 // ---------------------------------------------------------------------------
 // Fake controller — one @Auditable route + one plain route

@@ -25,7 +25,8 @@ import addFormats from "ajv-formats";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AUTH_LOOKUP_POOL, PG_POOL, REDIS_CLIENT } from "../../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../src/database";
 import type { RedisLike } from "../../../src/auth/rate-limit";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { RequestIdInterceptor } from "../../../src/common/request-id.interceptor";

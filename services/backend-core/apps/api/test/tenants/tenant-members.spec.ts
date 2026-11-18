@@ -39,7 +39,8 @@ import cookieParser from "cookie-parser";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import {
   EMAIL_JOB_ENQUEUER,
   NoOpEmailJobEnqueuer,
@@ -502,14 +503,14 @@ describe("GET /tenants/:id/members — platform admin → 200 (RT-414: with a su
     expect(res.body).toEqual([]);
   });
 
-  it("without a support session for the path tenant → 403 support_session_required", async () => {
+  it("RT-1468: without a support session for the path tenant a platform admin is admitted", async () => {
     if (maybeSkip()) return;
     const cookie = await signIn(ALICE_EMAIL, ALICE_PASS);
     await enterTenantAsPlatformAdmin(pool!, ALICE_ID, ACME_ID);
     const res = await http()
       .get(`/api/v1/tenants/${GLOBEX_ID}/members`)
       .set("Cookie", cookie)
-      .expect(403);
-    expect(res.body.error.code).toBe("support_session_required");
+      .expect(200);
+    expect(Array.isArray(res.body)).toBe(true);
   });
 });

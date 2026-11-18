@@ -30,7 +30,16 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { SessionRow, StoreAccessKind } from "@data-pulse-2/db/schema";
+import type { Pool } from "pg";
 import type { Principal } from "../../src/auth/auth.guard";
+import { SupportSessionGate } from "../../src/platform-support-sessions/support-session.gate";
+
+// RT-1468: a platform admin's store switch is recorded by `SupportSessionGate.admit`, which needs a pool;
+// the bootstrap helper stays a passthrough with no client.
+jest.mock("@data-pulse-2/db", () => ({
+  ...jest.requireActual("@data-pulse-2/db"),
+  runWithSystemPrivilege: jest.fn(async (_pool: unknown, _ctx: unknown, work: (client: unknown) => unknown) => work(undefined)),
+}));
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type {
   MembershipRepository,
@@ -376,14 +385,11 @@ describe("ContextService.switchTenant", () => {
     expect(memberships.findActiveMembershipCalls).toHaveLength(0);
   });
 
-  it("refuses a NON-member platform admin with 403 support_session_required (RT-414)", async () => {
+  it("admits a NON-member platform admin without a support session (RT-1462: the force actions need none)", async () => {
     memberships.isPlatformAdminResult = true;
     memberships.hasLiveMembershipResult = false;
-    await expect(service.switchTenant(SESSION_PRINCIPAL, TENANT_ID)).rejects.toMatchObject({
-      status: 403,
-      response: { code: "support_session_required" },
-    });
-    expect(sessions.updates).toHaveLength(0);
+    await service.switchTenant(SESSION_PRINCIPAL, TENANT_ID);
+    expect(sessions.updates).toHaveLength(1);
   });
 
   it("throws 404 when the platform admin requests a non-existent tenant", async () => {
@@ -474,13 +480,21 @@ describe("ContextService.switchStore", () => {
     expect(memberships.canAccessStoreCalls[0]?.kind).toBe("specific");
   });
 
-  it("platform admin: only validates store-belongs-to-tenant via the 'all' branch", async () => {
+  it("platform admin: only validates store-belongs-to-tenant via the 'all' branch, recorded via admit (RT-1468)", async () => {
+    const admit = jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(null);
+    service = new ContextService(
+      sessions as unknown as SessionRepository,
+      memberships as unknown as MembershipRepository,
+      {} as Pool,
+    );
     sessions.rows.push(activeSession({ activeTenantId: TENANT_ID }));
     memberships.isPlatformAdminResult = true;
     memberships.canAccessStoreResult = true;
     await service.switchStore(SESSION_PRINCIPAL, STORE_ID);
     expect(memberships.canAccessStoreCalls[0]?.kind).toBe("all");
     expect(memberships.findActiveMembershipCalls).toHaveLength(0);
+    expect(admit).toHaveBeenCalledTimes(1);
+    admit.mockRestore();
   });
 
   it("throws 404 when no membership in the active tenant (cross-tenant active state)", async () => {

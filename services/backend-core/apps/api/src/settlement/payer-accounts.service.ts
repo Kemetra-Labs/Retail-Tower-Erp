@@ -20,7 +20,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { resolveStoreScope, type StoreScope } from "../context/store-scope";
 import type { ResolvedContext } from "../context/types";
 import type {

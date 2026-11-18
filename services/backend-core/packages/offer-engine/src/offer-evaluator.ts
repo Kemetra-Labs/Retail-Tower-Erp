@@ -1,12 +1,14 @@
 /**
- * RT-1339 (RT-286 S7) — the POS Offer Engine evaluator, spec 048 §6.
+ * The Offer Engine evaluator — spec 048 §6 (Jira RT-1337, RT-286 S4; one shared
+ * copy since RT-1378).
  *
  * `evaluateOffer(input)` is PURE and deterministic: its inputs are the cart and
  * one offer version's parameters. It reads no clock, no network and no catalog
- * (OD-6: eligibility arrives as a flag per line, resolved from the Pack's
- * materialised eligible set). It is the same algorithm as Backend-Core's
- * `offers/evaluator/offer-evaluator.ts`, and both are proven against the same
- * golden vectors (`__tests__/offers-golden-vectors.json`).
+ * (OD-6: eligibility arrives as a flag per line, resolved from the materialised
+ * eligible set). The till (POS) and Backend-Core, for the preview simulation and
+ * capture's server-side re-evaluation (OD-9), both import this one module, and it
+ * is proven against the golden vectors in
+ * `services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json`.
  *
  *   1. Eligible units: every eligible line expands into quantity-1 units. A
  *      line with a manual discount (OD-5) or a non-whole quantity (F-9) never
@@ -27,7 +29,7 @@ import {
   percentOf,
   scaled,
   wholeUnits,
-} from './offer-decimal.js';
+} from './offer-decimal';
 
 /** The parameters of one `buy_x_get_y_percent` version that the evaluation uses. */
 export interface EvaluatorOffer {

@@ -34,6 +34,7 @@ function okBridge(): ReceiptsBridgeAPI {
         render_path: 'escpos_direct' as const,
       }),
     ),
+    manualOverride: vi.fn(),
   };
 }
 
@@ -72,8 +73,8 @@ describe('T431 — ReprintAffordance invocation', () => {
     const calls = (bridge.reprint as ReturnType<typeof vi.fn>).mock.calls as Array<
       [{ idempotency_key: string }]
     >;
-    expect(calls[0][0].idempotency_key).toBe('key-1');
-    expect(calls[1][0].idempotency_key).toBe('key-2');
+    expect(calls[0]?.[0].idempotency_key).toBe('key-1');
+    expect(calls[1]?.[0].idempotency_key).toBe('key-2');
   });
 
   it('is keyboard-operable (Enter triggers reprint)', async () => {
@@ -115,6 +116,7 @@ describe('T431 — ReprintAffordance invocation', () => {
       preview: vi.fn(),
       retryPrint: vi.fn(),
       reprint: vi.fn(() => Promise.reject(new Error('ipc boom'))),
+      manualOverride: vi.fn(),
     };
     render(
       <ReprintAffordance

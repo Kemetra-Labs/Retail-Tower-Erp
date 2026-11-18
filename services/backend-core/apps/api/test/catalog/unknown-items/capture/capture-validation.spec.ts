@@ -78,7 +78,7 @@ import request from "supertest";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
 import { UnknownItemsController } from "../../../../src/catalog/unknown-items/unknown-items.controller";
 import { UnknownItemsService } from "../../../../src/catalog/unknown-items/unknown-items.service";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import type { ResolvedContext } from "../../../../src/context/types";
 import { DashboardAuthGuard } from "../../../../src/auth/dashboard-auth.guard";
 import { PosOperatorAuthGuard } from "../../../../src/auth/pos-operator-auth.guard";

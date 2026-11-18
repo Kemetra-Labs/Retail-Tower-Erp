@@ -31,7 +31,7 @@ function setup(props: Partial<ComponentProps<typeof CashEntry>> = {}) {
       {...(props.onDraftChange ? { onDraftChange: props.onDraftChange } : {})}
     />,
   );
-  const input = screen.getByTestId('cash-entry-amount-input');
+  const input = screen.getByTestId<HTMLInputElement>('cash-entry-amount-input');
   const confirm = screen.getByTestId('cash-entry-confirm');
   return { ...view, onConfirm, input, confirm };
 }

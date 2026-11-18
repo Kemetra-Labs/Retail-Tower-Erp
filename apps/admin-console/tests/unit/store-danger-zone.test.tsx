@@ -42,11 +42,16 @@ import { StoreDetail } from "@/stores/StoreDetail";
 
 const STORE = "0198a0c4-0000-7000-8000-000000000a01";
 
-function ctx(role: string | undefined, supportSession: unknown = null): Record<string, unknown> {
+function ctx(
+  role: string | undefined,
+  supportSession: unknown = null,
+  isPlatformAdmin = false,
+): Record<string, unknown> {
   return {
     active_tenant: { id: "t1", name: "Northstar Retail" },
     active_role_code: role,
     support_session: supportSession,
+    user: { is_platform_admin: isPlatformAdmin },
   };
 }
 
@@ -189,6 +194,20 @@ describe("StoreDangerZone", () => {
     await screen.findByRole("heading", { name: "Dubai Mall", level: 1 });
     expect(deleteButton()).toBeNull();
     expect(previewStoreDeletion).not.toHaveBeenCalled();
+  });
+
+  // RT-1462 (owner decision 2026-11-18): the server admits a platform admin whatever their role in the
+  // tenant, with or without a support session, so the delete control follows.
+  test.each([
+    ["a tenant_admin member", "tenant_admin", null],
+    ["no membership", undefined, null],
+    ["no membership, inside a support session", undefined, { id: "ss-1" }],
+  ])("a platform admin with %s sees the delete control", async (_label, role, session) => {
+    context = ctx(role, session, true);
+    readStore.mockResolvedValue(storeBody());
+    renderPage();
+    await screen.findByRole("region", { name: "Delete the store" });
+    expect(deleteButton()).not.toBeNull();
   });
 
   test("after the delete, Back to stores returns to the store list and the store is not read again", async () => {

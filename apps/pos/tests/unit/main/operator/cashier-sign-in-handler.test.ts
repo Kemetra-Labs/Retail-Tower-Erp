@@ -136,6 +136,7 @@ function makePairedStore(): PairingStore {
       }),
     persist: () => Promise.resolve(),
     clear: () => Promise.resolve(),
+    getCurrentTerminalId: () => TERMINAL,
   };
 }
 
@@ -144,6 +145,7 @@ function makeUnpairedStore(): PairingStore {
     getStatus: () => Promise.resolve({ kind: 'unpaired' }),
     persist: () => Promise.resolve(),
     clear: () => Promise.resolve(),
+    getCurrentTerminalId: () => null,
   };
 }
 
@@ -196,6 +198,7 @@ describe('CashierSignInHandler — terminal not paired', () => {
       getStatus: () => Promise.resolve({ kind: 'invalid', reason: 'decrypt_failed' }),
       persist: () => Promise.resolve(),
       clear: () => Promise.resolve(),
+      getCurrentTerminalId: () => null,
     };
     const handler = makeHandler({ pairingStore: store });
     const result = await handler.signIn(makeRequest());

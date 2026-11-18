@@ -70,13 +70,12 @@ function pairedBridge(): PairingBridgeAPI {
   };
 }
 
-function refused<T>(): () => Promise<T> {
-  return () => Promise.resolve({ kind: 'refused', category: 'invalid_input' } as T);
-}
+const refused = () =>
+  Promise.resolve({ kind: 'refused' as const, category: 'invalid_input' as const });
 
 function operatorBridge(): OperatorBridgeAPI {
   return {
-    signIn: vi.fn(refused()),
+    signIn: vi.fn(refused),
     signOut: vi.fn(() => Promise.resolve({ kind: 'signed_out' as const })),
     getCurrentSession: vi.fn(() => Promise.resolve(null)),
     _reportActivity: vi.fn(),
@@ -87,15 +86,26 @@ function operatorBridge(): OperatorBridgeAPI {
       Promise.resolve({ kind: 'refused' as const, category: 'not_signed_in' as const }),
     ),
     listBranchRoster: vi.fn(() => Promise.resolve({ kind: 'roster' as const, cashiers: [] })),
-    confirmTakeover: vi.fn(refused()),
+    confirmTakeover: vi.fn(refused),
     cancelTakeover: vi.fn(() => Promise.resolve({ kind: 'cancelled' as const })),
-    resetCashierPin: vi.fn(refused()),
-    provisionCashierPin: vi.fn(refused()),
-    unlockCashier: vi.fn(refused()),
-    forceCloseShift: vi.fn(refused()),
+    resetCashierPin: vi.fn(refused),
+    provisionCashierPin: vi.fn(refused),
+    unlockCashier: vi.fn(refused),
+    unlockSession: vi.fn(refused),
+    getLockState: vi.fn(() =>
+      Promise.resolve({
+        state: 'active' as const,
+        locked_at: null,
+        role: null,
+        display_name: null,
+        summary: null,
+      }),
+    ),
+    onSessionStateChanged: vi.fn(() => () => undefined),
+    forceCloseShift: vi.fn(refused),
     listStuckShifts: vi.fn(() => Promise.resolve({ kind: 'stuck_shifts' as const, shifts: [] })),
     dismissShiftClosedNotice: vi.fn(() => Promise.resolve()),
-  } as OperatorBridgeAPI;
+  };
 }
 
 interface ApiFixture {

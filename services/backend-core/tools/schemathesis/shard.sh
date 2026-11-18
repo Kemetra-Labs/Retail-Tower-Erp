@@ -2,8 +2,8 @@
 # One shard of the sharded Schemathesis PR job, and its fan-in (RT-809).
 #
 #   shard.sh plan        inventory (run.sh inventory) -> plan -> this shard's units
-#   shard.sh run <mode>  run.sh gate|report over this shard's units only; records the exit
-#                        code in $WS/<mode>.rc and fails with it
+#   shard.sh run gate    run.sh gate over this shard's units only (RT-1467: gate only); records
+#                        the exit code in $WS/gate.rc and fails with it
 #   shard.sh collect     assemble the artifact: SHA, plan, exit codes, manifests, findings;
 #                        withheld, and the step failed, if a credential appears in it
 #   shard.sh fanin       regenerate the inventory at this SHA and check the downloaded
@@ -47,8 +47,10 @@ plan() {
 }
 
 run_mode() {
-  local mode="${1:?usage: run gate|report}" rc
-  [[ "$mode" == gate || "$mode" == report ]] || fail "unknown mode: $mode"
+  # RT-1467 (CI-03): PR shards run the gate only. The non-gating report runs unsharded in
+  # api-fuzz-nightly.yml (run.sh report), so the fan-in no longer expects it.
+  local mode="${1:?usage: run gate}" rc
+  [[ "$mode" == gate ]] || fail "unknown mode for a shard: $mode (only gate is sharded)"
   [[ -s "$WS/units.txt" ]] || fail "no units for this shard (did plan run?)"
   set +e
   SHARD_UNITS="$WS/units.txt" bash "$HERE/run.sh" "$mode"
@@ -64,8 +66,7 @@ collect() {
   rm -rf "$ARTIFACT"
   mkdir -p "$ARTIFACT"
   git -C "$ROOT" rev-parse HEAD >"$ARTIFACT/sha.txt"
-  for f in "$WS/plan.txt" "$WS/gate.rc" "$WS/report.rc" "$FUZZ_OUT/manifest-gate.txt" "$FUZZ_OUT/manifest-report.txt" \
-    "$FUZZ_OUT/gate.md" "$FUZZ_OUT/report.md"; do
+  for f in "$WS/plan.txt" "$WS/gate.rc" "$FUZZ_OUT/manifest-gate.txt" "$FUZZ_OUT/gate.md"; do
     if [[ -f "$f" ]]; then cp "$f" "$ARTIFACT/"; fi
   done
 
@@ -107,5 +108,5 @@ case "${1:-}" in
   run) run_mode "${2:-}" ;;
   collect) collect ;;
   fanin) fanin ;;
-  *) echo "usage: $0 plan|run gate|run report|collect|fanin" >&2; exit 2 ;;
+  *) echo "usage: $0 plan|run gate|collect|fanin" >&2; exit 2 ;;
 esac

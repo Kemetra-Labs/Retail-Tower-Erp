@@ -1,8 +1,12 @@
 openapi: 3.1.0
 info:
   title: Backend-Core — AI Entitlements API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
+    **1.2.0-draft (RT-1468, text only).** A platform admin reads the
+    entitlement member or not and with or without a support session; the
+    opt-out write still requires an `owner` membership. No wire change.
+
     Jira RT-662 (RT-644 follow-up ENT-BC1, Epic RT-641): the contract for the
     tenant AI entitlement read, the tenant owner's per-feature opt-out write
     (D-5), the closed set of AI decision reason codes and the server-internal
@@ -72,9 +76,10 @@ info:
     plan is never evaluated for it (layer 3 before layer 6). A platform
     admin (`users.is_platform_admin`) is admitted to the read by the
     existing `RolesGuard` platform-admin pass, in the session's tenant, and
-    gets the full view for support; when the RT-414 support session ships
-    (`platform-support-sessions.openapi.yaml`), a platform admin who is not
-    a member of the tenant needs an active support session for it. Reading
+    gets the full view for support, member or not and with or without a
+    support session (RT-1468, `platform-support-sessions.openapi.yaml`
+    1.4.0-draft; the request writes one `platform.cross_tenant.accessed`
+    row). Reading
     consumes no tenant AI feature (D-6, K-6).
 
     The opt-out write is `owner` only (D-5): `tenant_admin`, `store_manager`,
@@ -201,10 +206,9 @@ paths:
       description: >
         `owner`, `tenant_admin` and a platform admin get the `full` view;
         `store_manager` gets the `minimal` view; every other caller gets the
-        non-disclosing 404. A platform admin is admitted today by the
-        existing `RolesGuard` platform-admin pass; once RT-414 ships, a
-        platform admin who is not a member of the tenant also needs an
-        active support session (see the API description). Read
+        non-disclosing 404. A platform admin is admitted by the existing
+        `RolesGuard` platform-admin pass, member or not and with or without
+        a support session (RT-1468; see the API description). Read
         only: it reserves no quota and writes no audit event. No query
         parameter is accepted.
       responses:

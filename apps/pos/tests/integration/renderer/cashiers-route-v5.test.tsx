@@ -36,7 +36,9 @@ function pairedBridge(): PairingBridgeAPI {
 const refused = () =>
   Promise.resolve({ kind: 'refused' as const, category: 'invalid_input' as const });
 
-function operatorBridge(list: OperatorBridgeAPI['listCashierPinStatus']): OperatorBridgeAPI {
+function operatorBridge(
+  list: NonNullable<OperatorBridgeAPI['listCashierPinStatus']>,
+): OperatorBridgeAPI {
   return {
     signIn: vi.fn(refused),
     signOut: vi.fn(() => Promise.resolve({ kind: 'signed_out' as const })),
@@ -52,6 +54,17 @@ function operatorBridge(list: OperatorBridgeAPI['listCashierPinStatus']): Operat
     unlockCashier: vi.fn(refused),
     forceCloseShift: vi.fn(refused),
     listStuckShifts: vi.fn(refused),
+    unlockSession: vi.fn(refused),
+    getLockState: vi.fn(() =>
+      Promise.resolve({
+        state: 'active' as const,
+        locked_at: null,
+        role: null,
+        display_name: null,
+        summary: null,
+      }),
+    ),
+    onSessionStateChanged: vi.fn(() => () => undefined),
     dismissShiftClosedNotice: vi.fn(() => Promise.resolve()),
     listCashierPinStatus: list,
   };

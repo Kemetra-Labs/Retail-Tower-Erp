@@ -13,7 +13,8 @@ import type { Pool } from "pg";
 
 import { OutboxAuditEnqueuerModule } from "../audit/outbox-audit-enqueuer.module";
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../audit/audit-job.enqueuer";
-import { AuthModule, AUTH_LOOKUP_POOL, PG_POOL } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import { AuthService } from "../auth/auth.service";
 import { EMAIL_JOB_ENQUEUER, type EmailJobEnqueuer } from "../auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "../auth/external-credential.port";

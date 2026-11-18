@@ -8,7 +8,7 @@
  * `Origin`, support session, owner gate, console limit) and body validation:
  *
  *   3. the store in the caller's tenant, not deleted (404); a `tenant_admin` (403
- *      `store_deletion_owner_only`);
+ *      `store_deletion_owner_only`). A platform admin (RT-1462) passes this step like an owner;
  *   4. the failed-attempt budget, 5 per 15 minutes per user, read BEFORE any password is
  *      verified (429 `reauth_rate_limited`); the reserved hit is given back on a success and on
  *      an outage, so only wrong guesses count;
@@ -17,8 +17,9 @@
  *   6. the grant (200).
  *
  * The password lives in this call's stack only: it is never logged, stored, audited or returned.
- * The audit rows `auth.reauth.granted` and `auth.reauth.refused` carry `purpose` and `store_id`
- * only.
+ * The audit rows `auth.reauth.granted` and `auth.reauth.refused` carry `purpose` and `store_id`,
+ * and, for a platform admin only, `actor_kind` and `on_behalf_of` (RT-1462). The password is the
+ * CALLER's own, as for an owner: a platform admin re-enters their own password, never the customer's.
  */
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
@@ -27,10 +28,11 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { createLogger, newId, type Logger } from "@data-pulse-2/shared";
 
 import { AuthService } from "../../auth/auth.service";
-import { PG_POOL } from "../../auth/database-pools";
+import { PG_POOL } from "../../database";
 import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../auth/rate-limit";
 import { StoresRepository } from "../stores.repository";
 import { ConsoleActionRateLimited } from "../../console-action-cap/console-429";
+import { auditFieldsOf, type ForceActionAuditActor } from "../../common/force-action-actor";
 import { type ReauthBinding, ReauthGrantStore, type ReauthPurpose } from "./reauth-grant.store";
 import { storeDeletionOwnerOnly, storeNotFound } from "./store-deletion.errors";
 
@@ -53,8 +55,8 @@ export interface ReauthInput {
   readonly storeId: string;
   readonly purpose: ReauthPurpose;
   readonly password: string;
-  /** The caller's role in the tenant, as the guard read it. */
-  readonly role: string | null;
+  /** The admitted caller, as `StoreDeletionOwnerGuard` published it (kind, role, on-behalf-of). */
+  readonly actor: ForceActionAuditActor;
   readonly requestId: string | null;
 }
 
@@ -129,7 +131,7 @@ export class ConsoleReauthService {
       this.stores.findById(client, input.storeId),
     );
     if (!store) throw storeNotFound();
-    if (input.role !== "owner") throw storeDeletionOwnerOnly();
+    if (input.actor.kind === "tenant_admin") throw storeDeletionOwnerOnly();
   }
 
   /**
@@ -173,7 +175,11 @@ export class ConsoleReauthService {
             input.storeId,
             action,
             input.requestId,
-            JSON.stringify({ purpose: input.purpose, store_id: input.storeId }),
+            JSON.stringify({
+              purpose: input.purpose,
+              store_id: input.storeId,
+              ...(input.actor.kind === "platform_admin" ? auditFieldsOf(input.actor) : {}),
+            }),
           ],
         ),
       );

@@ -18,6 +18,7 @@
     "@aws-sdk/s3-request-presigner": "3.1156.0",
     "@data-pulse-2/auth": "workspace:*",
     "@data-pulse-2/db": "workspace:*",
+    "@data-pulse-2/offer-engine": "workspace:*",
     "@data-pulse-2/shared": "workspace:*",
     "@nestjs/common": "11.1.19",
     "@nestjs/core": "11.1.19",

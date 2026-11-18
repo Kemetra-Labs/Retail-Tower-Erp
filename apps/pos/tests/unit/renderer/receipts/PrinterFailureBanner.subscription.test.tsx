@@ -15,7 +15,16 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 import { PrinterFailureBanner } from '../../../../src/renderer/ui/receipts/PrinterFailureBanner.js';
-import type { ReceiptsBridgeAPI, SalesBridgeAPI } from '../../../../src/shared/bridge-api.js';
+import type {
+  ReceiptsBridgeAPI,
+  SalesBridgeAPI,
+  SalesSubscribeResponse,
+} from '../../../../src/shared/bridge-api.js';
+import type { BannerState } from '../../../../src/shared/sales/types.js';
+
+const NO_BANNER: BannerState = { printer_failure: null, drawer_failure: null };
+
+type SubscribeOk = Extract<SalesSubscribeResponse, { kind: 'ok'; banner_state: BannerState }>;
 
 const FAILURE = {
   sale_id: 'sale-1',
@@ -24,7 +33,7 @@ const FAILURE = {
 };
 
 function noopReceiptsBridge(): ReceiptsBridgeAPI {
-  return { preview: vi.fn(), retryPrint: vi.fn() };
+  return { preview: vi.fn(), retryPrint: vi.fn(), reprint: vi.fn(), manualOverride: vi.fn() };
 }
 
 function salesBridgeStub(token: { kind: 'ok' | 'refused' }): Partial<SalesBridgeAPI> {
@@ -32,7 +41,7 @@ function salesBridgeStub(token: { kind: 'ok' | 'refused' }): Partial<SalesBridge
     subscribe: vi.fn(() =>
       Promise.resolve(
         token.kind === 'ok'
-          ? { kind: 'ok' as const, subscription_token: 'sub-1' }
+          ? { kind: 'ok' as const, subscription_token: 'sub-1', banner_state: NO_BANNER }
           : { kind: 'refused' as const, reason: 'not_implemented' as const },
       ),
     ),
@@ -170,7 +179,13 @@ describe('T261 — PrinterFailureBanner subscribes to banner_state', () => {
 
   it('swallows an unsubscribe REJECTION on unmount cleanup — no crash', async () => {
     const sales: Partial<SalesBridgeAPI> = {
-      subscribe: vi.fn(() => Promise.resolve({ kind: 'ok' as const, subscription_token: 'sub-1' })),
+      subscribe: vi.fn(() =>
+        Promise.resolve({
+          kind: 'ok' as const,
+          subscription_token: 'sub-1',
+          banner_state: NO_BANNER,
+        }),
+      ),
       unsubscribe: vi.fn(() => Promise.reject(new Error('unsub boom'))),
     };
     const { unmount } = render(
@@ -196,11 +211,11 @@ describe('T261 — PrinterFailureBanner subscribes to banner_state', () => {
   it('unsubscribes a token that resolves AFTER unmount (orphan cleanup, CodeRabbit #281)', async () => {
     // subscribe resolves only after we trigger it — so cleanup runs first and
     // the late token would otherwise leak with no unsubscribe ever issued.
-    let resolveSubscribe: (r: { kind: 'ok'; subscription_token: string }) => void = () => {};
+    let resolveSubscribe: (r: SubscribeOk) => void = () => {};
     const sales: Partial<SalesBridgeAPI> = {
       subscribe: vi.fn(
         () =>
-          new Promise<{ kind: 'ok'; subscription_token: string }>((resolve) => {
+          new Promise<SubscribeOk>((resolve) => {
             resolveSubscribe = resolve;
           }),
       ),
@@ -221,7 +236,7 @@ describe('T261 — PrinterFailureBanner subscribes to banner_state', () => {
     unmount();
     // Now the subscription resolves late with a token — the orphan-cleanup arm
     // must immediately unsubscribe it.
-    resolveSubscribe({ kind: 'ok', subscription_token: 'late-token' });
+    resolveSubscribe({ kind: 'ok', subscription_token: 'late-token', banner_state: NO_BANNER });
     await waitFor(() => {
       expect(sales.unsubscribe).toHaveBeenCalledWith(
         expect.objectContaining({ subscription_token: 'late-token' }),
@@ -233,11 +248,11 @@ describe('T261 — PrinterFailureBanner subscribes to banner_state', () => {
     // Same orphan path as above, but the late unsubscribe REJECTS. The inner
     // .catch on the cancelled-guard unsubscribe must hold so the late rejection
     // never surfaces as an unhandled promise rejection.
-    let resolveSubscribe: (r: { kind: 'ok'; subscription_token: string }) => void = () => {};
+    let resolveSubscribe: (r: SubscribeOk) => void = () => {};
     const sales: Partial<SalesBridgeAPI> = {
       subscribe: vi.fn(
         () =>
-          new Promise<{ kind: 'ok'; subscription_token: string }>((resolve) => {
+          new Promise<SubscribeOk>((resolve) => {
             resolveSubscribe = resolve;
           }),
       ),
@@ -255,7 +270,7 @@ describe('T261 — PrinterFailureBanner subscribes to banner_state', () => {
       expect(sales.subscribe).toHaveBeenCalled();
     });
     unmount(); // cancelled === true before subscribe resolves
-    resolveSubscribe({ kind: 'ok', subscription_token: 'late-token' });
+    resolveSubscribe({ kind: 'ok', subscription_token: 'late-token', banner_state: NO_BANNER });
     await waitFor(() => {
       expect(sales.unsubscribe).toHaveBeenCalledWith(
         expect.objectContaining({ subscription_token: 'late-token' }),

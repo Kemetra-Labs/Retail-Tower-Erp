@@ -4,9 +4,8 @@
  * and each reward then gives back 80.00. Subtracting the recorded clawback alone would read the last return's D_held
  * as 80 - 160 = -80 and give back 160.00 on an 80.00 discount (CodeRabbit on #550).
  */
-import { formatMinor } from "../../src/offers/evaluator/offer-decimal";
+import { formatMinor, settleOfferReturn, type SaleOfferLine } from "@data-pulse-2/offer-engine";
 import { replayReturns, type HistoryLine, type HistoryStep } from "../../src/offers/evaluator/offer-return-history";
-import { settleOfferReturn, type SaleOfferLine } from "../../src/offers/evaluator/offer-return-settlement";
 
 const OFFER = { buyQuantity: 1, getQuantity: 2, percentOff: "40", maxApplicationsPerSale: null };
 const T = "t";

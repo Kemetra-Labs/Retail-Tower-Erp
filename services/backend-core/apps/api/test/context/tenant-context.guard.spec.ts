@@ -21,6 +21,17 @@
  *   - token w/ tenantId              → no membership query
  *   - null-tenant token              → 401, no context (RT-149)
  */
+// RT-1468: every platform admin is recorded by `SupportSessionGate.admit`, which needs a pool. The
+// platform-admin block below uses a stub pool; the bootstrap helpers stay passthroughs with no client.
+jest.mock("@data-pulse-2/db", () => ({
+  ...jest.requireActual("@data-pulse-2/db"),
+  runWithTenantContext: jest.fn(async (_pool: unknown, _ctx: unknown, work: (client: unknown) => unknown) => work(undefined)),
+  runWithSystemPrivilege: jest.fn(async (_pool: unknown, _ctx: unknown, work: (client: unknown) => unknown) => work(undefined)),
+}));
+
+import type { Pool } from "pg";
+import { SupportSessionGate } from "../../src/platform-support-sessions/support-session.gate";
+
 import {
   type ExecutionContext,
   NotFoundException,
@@ -143,7 +154,9 @@ function activeSession(overrides: Partial<SessionRow> = {}): SessionRow {
 function makeRequest(
   principal: Principal | undefined,
 ): TenantContextRequest {
-  const r: Partial<TenantContextRequest> = {};
+  // Headers as a real Express request has them: a platform admin's request is assigned a request id
+  // for its cross-tenant row (RT-1468).
+  const r: Partial<TenantContextRequest> = { headers: {} };
   if (principal) r.principal = principal;
   return r as TenantContextRequest;
 }
@@ -152,7 +165,7 @@ function makeContext(request: AuthedRequest): ExecutionContext {
   return {
     switchToHttp: () => ({
       getRequest: <T>() => request as unknown as T,
-      getResponse: <T>() => ({}) as T,
+      getResponse: <T>() => ({ setHeader: () => undefined }) as T,
       getNext: <T>() => ({}) as T,
     }),
   } as unknown as ExecutionContext;
@@ -360,6 +373,16 @@ describe("TenantContextGuard — session principal: store-access", () => {
 });
 
 describe("TenantContextGuard — platform-admin session", () => {
+  beforeEach(() => {
+    jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(null);
+    guard = new TenantContextGuard(
+      sessions as unknown as SessionRepository,
+      memberships as unknown as MembershipRepository,
+      {} as Pool,
+    );
+  });
+  afterEach(() => jest.restoreAllMocks());
+
   it("bypasses membership validation (FR-TEN-6)", async () => {
     sessions.row = activeSession({ activeStoreId: null });
     memberships.isPlatformAdminResult = true;

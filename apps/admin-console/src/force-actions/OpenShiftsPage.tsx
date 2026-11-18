@@ -122,7 +122,11 @@ export function OpenShiftsPage(): React.JSX.Element {
     restoreFocus.current = null;
     target?.focus();
   }, [closing]);
-  const canClose = canForceClose(context?.active_role_code, supportSession !== null);
+  const canClose = canForceClose(
+    context?.active_role_code,
+    supportSession !== null,
+    context?.user?.is_platform_admin === true,
+  );
 
   const header = (
     <PageHeader

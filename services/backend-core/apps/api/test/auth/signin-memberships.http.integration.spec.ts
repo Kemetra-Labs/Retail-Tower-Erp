@@ -20,7 +20,8 @@ import request from "supertest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../src/common/logging.interceptor";

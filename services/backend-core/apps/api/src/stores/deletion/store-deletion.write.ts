@@ -10,12 +10,14 @@
  * The audit metadata (`stores.openapi.yaml`, "Audit"): `channel` (`console` | `api`),
  * `actor_role`, `reason` (null on the `api` path), `preview_fingerprint` (null on the `api`
  * path), `before` (name, code, is_active, device_count, open_shift_count) and `after`
- * (deleted_at). The reason is stored here and never written to an application log.
+ * (deleted_at). RT-1462: a Console deletion also carries `actor_kind` and `on_behalf_of`
+ * (`force-action-actor.ts`). The reason is stored here and never written to an application log.
  */
 import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
+import { auditFieldsOf, type ForceActionAuditActor } from "../../common/force-action-actor";
 import { rebuildOfferPackForStoreChange } from "../../offers";
 import { storeNotFound } from "./store-deletion.errors";
 import type { StoreDeletionFacts } from "./store-deletion.facts";
@@ -27,6 +29,8 @@ export interface StoreDeletionAudit {
   readonly channel: "console" | "api";
   readonly actorUserId: string | null;
   readonly actorRole: string | null;
+  /** The Console actor (RT-1462); absent on the `api` path. */
+  readonly actor?: ForceActionAuditActor;
   readonly requestId: string | null;
   readonly reason: string | null;
   readonly previewFingerprint: string | null;
@@ -49,6 +53,7 @@ export async function deleteStoreWithAudit(
     store_id: storeId,
     channel: audit.channel,
     actor_role: audit.actorRole,
+    ...(audit.actor === undefined ? {} : auditFieldsOf(audit.actor)),
     reason: audit.reason,
     preview_fingerprint: audit.previewFingerprint,
     before: {

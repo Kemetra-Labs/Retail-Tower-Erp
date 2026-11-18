@@ -40,6 +40,8 @@ function okReceiptsBridge(): ReceiptsBridgeAPI {
         printed_at: '2026-05-27T10:00:09.000Z',
       }),
     ),
+    reprint: vi.fn(),
+    manualOverride: vi.fn(),
   };
 }
 

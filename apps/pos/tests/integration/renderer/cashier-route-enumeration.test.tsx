@@ -100,6 +100,19 @@ function makeOperatorBridge(overrides?: Partial<OperatorBridgeAPI>): OperatorBri
     listStuckShifts: vi.fn(() =>
       Promise.resolve({ kind: 'refused' as const, category: 'role_mismatch' as const }),
     ),
+    unlockSession: vi.fn(() =>
+      Promise.resolve({ kind: 'refused' as const, category: 'invalid_input' as const }),
+    ),
+    getLockState: vi.fn(() =>
+      Promise.resolve({
+        state: 'active' as const,
+        locked_at: null,
+        role: null,
+        display_name: null,
+        summary: null,
+      }),
+    ),
+    onSessionStateChanged: vi.fn(() => () => undefined),
     dismissShiftClosedNotice: vi.fn(() => Promise.resolve()),
     ...overrides,
   };

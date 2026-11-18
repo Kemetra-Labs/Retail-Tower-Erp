@@ -1,20 +1,24 @@
 /**
- * RT-1339 (RT-286 S7) — the POS evaluator against EVERY golden vector of the
- * shared file (E1–E8, X1–X9, R1–R9, S1–S3). The file is a byte-identical copy of
- * `services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json`
- * (`contracts/check` `identical:`), so POS and Backend-Core pass the same cases.
+ * RT-1378 (first written for RT-1339, RT-286 S7) — the till runs EVERY golden vector (E1–E8,
+ * X1–X9, R1–R9, S1–S3) through the shared Offer Engine package it actually imports
+ * (`@data-pulse-2/offer-engine`, the same module Backend-Core runs). There is ONE copy of the
+ * vector file, `services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json`;
+ * the package's own suite and Backend-Core's specs read it too.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { formatMinor, scaled, wholeUnits } from '../offer-decimal.js';
 import {
   evaluateOffer,
+  formatMinor,
+  scaled,
+  settleOfferReturn,
+  wholeUnits,
   type CartLine,
   type Evaluation,
   type EvaluatorOffer,
-} from '../offer-evaluator.js';
-import { settleOfferReturn, type SaleOfferLine } from '../offer-return-settlement.js';
+  type SaleOfferLine,
+} from '@data-pulse-2/offer-engine';
 
 interface VectorOffer {
   buyQuantity: number;
@@ -69,7 +73,13 @@ interface Vectors {
 }
 
 const vectors = JSON.parse(
-  readFileSync(resolve(__dirname, 'offers-golden-vectors.json'), 'utf8'),
+  readFileSync(
+    resolve(
+      __dirname,
+      '../../../../../../services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json',
+    ),
+    'utf8',
+  ),
 ) as Vectors;
 
 const offerOf = (o: VectorOffer): EvaluatorOffer => ({
@@ -152,7 +162,7 @@ function expectStep(sale: Sale, s: ReturnType<typeof settle>, e: StepExpected): 
   expect(outcome).toBe(e.outcome);
 }
 
-describe('POS offer evaluator — golden vectors (spec 048 §6)', () => {
+describe('POS through the shared offer engine — golden vectors (spec 048 §6)', () => {
   it('covers every vector of the file', () => {
     expect(vectors.evaluate).toHaveLength(17);
     expect(vectors.returns).toHaveLength(9);
@@ -174,7 +184,7 @@ describe('POS offer evaluator — golden vectors (spec 048 §6)', () => {
   });
 });
 
-describe('POS return settlement — golden vectors (spec 048 §9)', () => {
+describe('POS through the shared return settlement — golden vectors (spec 048 §9)', () => {
   it.each(vectors.returns.map((v) => [v.id, v] as const))('%s', (_id, v) => {
     const s = settle(v, v.returned, { units: new Map(), clawbacks: 0n });
     expectStep(v, s, v.expected);

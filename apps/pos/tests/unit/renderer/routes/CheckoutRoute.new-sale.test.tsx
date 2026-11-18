@@ -234,7 +234,7 @@ describe('CheckoutRoute — New sale wiring', () => {
     expect(useDrawerNoticeStore.getState().active).toBeNull();
   });
 
-  it.each(['external_card_terminal', 'internal_voucher'])(
+  it.each(['external_card_terminal', 'internal_voucher'] as const)(
     'RT-241 (D-B1, Codex P2 on #579): a %s completion does not carry an earlier cash sale’s drawer notice',
     async (tenderType) => {
       const user = userEvent.setup();

@@ -41,7 +41,7 @@ import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 
 import { assertIdempotencyRedisRetains } from "../../idempotency/require-retaining-redis";
 
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import { DashboardAuthGuard } from "../../../src/auth/dashboard-auth.guard";
 import { PosOperatorEnvelopeSaleGuard } from "../../../src/auth/pos-operator-envelope-sale.guard";
 import { PosWriteRateLimitGuard } from "../../../src/auth/pos-write-rate-limit.guard";

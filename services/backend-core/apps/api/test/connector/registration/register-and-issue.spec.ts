@@ -34,7 +34,7 @@ import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 import request from "supertest";
 
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import { RolesGuard } from "../../../src/auth/roles.guard";
 import { SessionOnlyAdminGuard } from "../../../src/auth/session-only-admin.guard";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";

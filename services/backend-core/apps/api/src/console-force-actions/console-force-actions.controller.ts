@@ -10,8 +10,8 @@
  * Guards, in order: `SessionOnlyAdminGuard` (a human cookie session only; a
  * cookie write without a trusted `Origin` is 403 `origin_rejected`, RT-430),
  * `TenantContextGuard` (the tenant, the membership, the support-session gate),
- * `ForceActionAccessGuard` (owner or tenant_admin with all-store access; every
- * other caller the non-disclosing 404; a support session never admits a write).
+ * `ForceActionAccessGuard` (owner or tenant_admin with all-store access, or a
+ * platform admin, RT-1462; every other caller the non-disclosing 404).
  * Then, for the write only, `@Idempotent("required")` (the shared
  * `IdempotencyInterceptor`, after the guards and before the body pipe: a
  * same-key replay is answered before validation, the fingerprint and the cap),
@@ -112,7 +112,7 @@ export class ConsoleForceActionsController {
           {
             tenantId: actor.tenantId,
             actorUserId: actor.userId,
-            actorRole: actor.role,
+            actor,
             requestId: request.requestId ?? null,
           },
           shiftId,

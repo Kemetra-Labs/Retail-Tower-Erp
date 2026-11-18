@@ -63,7 +63,7 @@ import {
   type TenantContext,
 } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import {
   MembershipRepository,
   type MembershipDetail,
