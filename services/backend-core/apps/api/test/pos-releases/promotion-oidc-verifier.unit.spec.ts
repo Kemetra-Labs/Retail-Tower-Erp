@@ -25,6 +25,8 @@ const CONFIG = {
   enabled: true,
   audience: "retail-tower-backend-core",
   repository: "Kemetra-Labs/Retail-Tower-Erp",
+  repositoryId: "1430288487",
+  repositoryOwnerId: "340160100",
   environment: "release-pos-pilot-promote",
   ref: "refs/heads/main",
   workflowRef: "Kemetra-Labs/Retail-Tower-Erp/.github/workflows/promote-pos-pilot.yml@refs/heads/main",
@@ -32,6 +34,8 @@ const CONFIG = {
 
 const CLAIMS = {
   repository: CONFIG.repository,
+  repository_id: CONFIG.repositoryId,
+  repository_owner_id: CONFIG.repositoryOwnerId,
   environment: CONFIG.environment,
   ref: CONFIG.ref,
   job_workflow_ref: CONFIG.workflowRef,
@@ -122,6 +126,11 @@ describe("RT-1298 PromotionOidcVerifier", () => {
 
   it.each([
     ["the repository", { repository: "Kemetra-Labs/Another-Repo" }],
+    // RT-1459: a renamed-and-reused repository carries the same names but a different immutable id.
+    ["the repository id, with the right repository name", { repository_id: "999999999" }],
+    ["the repository owner id, with the right repository name", { repository_owner_id: "999999999" }],
+    ["a repository id that is a number, not GitHub's string", { repository_id: 1430288487 }],
+    ["a repository owner id that is a number, not GitHub's string", { repository_owner_id: 340160100 }],
     ["the environment", { environment: "some-other-environment" }],
     ["the ref", { ref: "refs/heads/feature" }],
     ["the workflow", { job_workflow_ref: "Kemetra-Labs/Retail-Tower-Erp/.github/workflows/other.yml@refs/heads/main" }],
@@ -129,7 +138,7 @@ describe("RT-1298 PromotionOidcVerifier", () => {
     expect(await verifier.verify(await sign(keys, { claims }))).toEqual({ ok: false, status: 403 });
   });
 
-  it.each(["repository", "environment", "ref", "job_workflow_ref"])(
+  it.each(["repository", "repository_id", "repository_owner_id", "environment", "ref", "job_workflow_ref"])(
     "answers 403 for a genuine token without the %s claim",
     async (claim) => {
       const claims = { ...CLAIMS, [claim]: undefined };

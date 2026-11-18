@@ -61,6 +61,8 @@ function makeManagerSession(overrides?: Partial<OperatorSessionRecord>): Operato
     started_at: '2026-05-16T08:00:00.000Z',
     backend_session_id: 'b-mgr-1',
     last_activity_at: '2026-05-16T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
     ...overrides,
   };
 }
@@ -177,7 +179,7 @@ describe('cart.discountPlaceholders.add — above-threshold with manager attribu
         idempotency_key: 'dp-t061-c',
       });
       expect(f.emitFn).toHaveBeenCalledOnce();
-      const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+      const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
       expect(emittedEvent.action_category).toBe('cart.discount.manager_authorized');
     },
   );
@@ -191,7 +193,7 @@ describe('cart.discountPlaceholders.add — above-threshold with manager attribu
       idempotency_key: 'dp-t061-d',
     });
     // RED until T070.
-    const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+    const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
     expect(emittedEvent.acting_operator_id).toBe(f.managerSession.operator_id);
     expect(emittedEvent.approving_supervisor_id).toBe(MANAGER_ID);
   });
@@ -205,7 +207,7 @@ describe('cart.discountPlaceholders.add — above-threshold with manager attribu
       idempotency_key: 'dp-t061-e',
     });
     // RED until T070.
-    const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+    const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
     expect(emittedEvent.payload['cart_id']).toBe(f.cart_id);
     expect(emittedEvent.payload['cart_line_id']).toBe(f.line_id);
   });
@@ -219,7 +221,7 @@ describe('cart.discountPlaceholders.add — above-threshold with manager attribu
       idempotency_key: 'dp-t061-f',
     });
     // RED until T070.
-    const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+    const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
     expect(emittedEvent.acting_operator_id).toBeTruthy();
     expect(emittedEvent.originating_terminal_id).toBeTruthy();
     expect(emittedEvent.created_at).toBeTruthy();
@@ -236,7 +238,7 @@ describe('cart.discountPlaceholders.add — above-threshold with manager attribu
       idempotency_key: 'dp-t061-g',
     });
     // RED until T070.
-    const emittedEvent = f.emitFn.mock.calls[0][0] as AuditEvent;
+    const emittedEvent = f.emitFn.mock.calls[0]?.[0] as AuditEvent;
     const forbiddenKeys = ['pin', 'password', 'clerk_jwt', 'device_token', 'token', 'secret'];
     for (const key of forbiddenKeys) {
       expect(key in emittedEvent.payload).toBe(false);

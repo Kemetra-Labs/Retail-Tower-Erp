@@ -1,12 +1,14 @@
-jest.mock("@data-pulse-2/db", () => ({
-  runWithTenantContext: jest.fn(async (pool: Pool, _ctx: unknown, fn: (c: unknown) => unknown) => fn({ query: (...args: unknown[]) => (pool.query as jest.Mock)(...args) })),
-}));
+jest.mock("@data-pulse-2/db", () => {
+  const run = async (pool: Pool, _ctx: unknown, fn: (c: unknown) => unknown): Promise<unknown> =>
+    fn({ query: (...args: unknown[]) => (pool.query as jest.Mock)(...args) });
+  return { runWithTenantContext: jest.fn(run), runWithSystemPrivilege: jest.fn(run) };
+});
 
 import "reflect-metadata";
 
 import type { Pool } from "pg";
 import type { Logger } from "@data-pulse-2/shared";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege, runWithTenantContext } from "@data-pulse-2/db";
 import { PosShiftsService } from "../../src/pos-shifts/pos-shifts.service";
 import type { OperatorTokenVerifier } from "../../src/auth/operator-token-verifier";
 
@@ -172,11 +174,15 @@ describe("PosShiftsService.getStuck — happy path (all-access)", () => {
 
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;
-    expect(runWithTenantContext).toHaveBeenNthCalledWith(
-      1, pool, { tenantId: null, isPlatformAdmin: true }, expect.any(Function),
+    // RT-1457: the membership lookup runs on the narrow system privilege, never the platform-admin flag;
+    // the shifts read runs in the resolved tenant context.
+    expect(runWithSystemPrivilege).toHaveBeenCalledTimes(1);
+    expect(runWithSystemPrivilege).toHaveBeenCalledWith(
+      pool, { tenantId: null, privilege: "membership_bootstrap" }, expect.any(Function),
     );
-    expect(runWithTenantContext).toHaveBeenNthCalledWith(
-      2, pool, { tenantId: TENANT_ID, isPlatformAdmin: false }, expect.any(Function),
+    expect(runWithTenantContext).toHaveBeenCalledTimes(1);
+    expect(runWithTenantContext).toHaveBeenCalledWith(
+      pool, { tenantId: TENANT_ID, isPlatformAdmin: false }, expect.any(Function),
     );
     expect(result.body.kind).toBe("ok");
     expect(Array.isArray(result.body.shifts)).toBe(true);

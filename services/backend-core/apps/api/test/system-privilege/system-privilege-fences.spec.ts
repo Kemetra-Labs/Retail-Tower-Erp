@@ -5,6 +5,8 @@
  *     platform admin and never sets `app.is_provisioner`;
  *   - each privilege value is used by exactly its one path (signup, provisioner lookup, sweep);
  *   - those three paths never set the platform-admin flag again;
+ *   - (RT-1457) the request bootstrap reads of the five BOOTSTRAP files run on `membership_bootstrap`, set
+ *     only through that single setter; the two guards never name the platform-admin flag at all;
  *   - RATCHET: every other production site that sets the platform-admin flag is on an explicit
  *     allowlist. A new site fails here unless this list changes in the same PR; a removed one
  *     fails until it is taken off the list (so the list only shrinks on purpose). The list is
@@ -37,6 +39,20 @@ const PATHS = {
   provisioning_sweep: "packages/db/src/helpers/erp-provisioning-sweep.ts",
 } as const;
 
+/** RT-1457: the request bootstrap callers of the shared `membership_bootstrap` privilege (migration 0120). */
+const BOOTSTRAP_FILES = [
+  "apps/api/src/auth/roles.guard.ts",
+  "apps/api/src/auth/signin-memberships.ts",
+  "apps/api/src/context/context.service.ts",
+  "apps/api/src/context/tenant-context.guard.ts",
+  "apps/api/src/pos-shifts/pos-shifts.service.ts",
+] as const;
+/** The two guards that run on every authenticated request. */
+const REQUEST_GUARDS = ["apps/api/src/auth/roles.guard.ts", "apps/api/src/context/tenant-context.guard.ts"] as const;
+
+/** Source without comments, so a doc comment cannot hide or fake a code use. */
+const code = (p: string): string => read(p).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:\\])\/\/.*$/gm, "$1");
+
 const PLATFORM_ADMIN = /isPlatformAdmin:\s*true|set_config\(\s*'app\.is_platform_admin',\s*'true'/;
 
 /** The production sites that still set the platform-admin flag (RT-1389 ratchet; shrink only). */
@@ -44,10 +60,6 @@ const PLATFORM_ADMIN_ALLOWLIST = [
   "apps/api/src/ai-entitlements/entitlement-grants.ts",
   "apps/api/src/audit/audit.repository.ts",
   "apps/api/src/audit/outbox-audit-enqueuer.ts",
-  "apps/api/src/auth/roles.guard.ts",
-  "apps/api/src/auth/signin-memberships.ts",
-  "apps/api/src/context/context.service.ts",
-  "apps/api/src/context/tenant-context.guard.ts",
   "apps/api/src/device-health/version-policy.service.ts",
   "apps/api/src/erp-provisioning/provisioner-credential.service.ts",
   "apps/api/src/erp-provisioning/provisioning-feed.service.ts",
@@ -57,7 +69,6 @@ const PLATFORM_ADMIN_ALLOWLIST = [
   "apps/api/src/platform-support-sessions/support-session.lifecycle.ts",
   "apps/api/src/pos-pilot-releases/pilot-release-registry.service.ts",
   "apps/api/src/pos-pilot-releases/pilot-tenants.service.ts",
-  "apps/api/src/pos-shifts/pos-shifts.service.ts",
   "apps/api/src/tenant-access-entitlement/access-entitlement.service.ts",
   "apps/api/src/tenants/tenants.service.ts",
   "apps/worker/src/ai-usage/reservation-sweep.repository.ts",
@@ -97,6 +108,33 @@ describe("system privilege fences (RT-1389)", () => {
 
   it("every other production platform-admin site is on the allowlist, and the allowlist names no site that is gone", () => {
     expect(naming(PLATFORM_ADMIN)).toEqual([...PLATFORM_ADMIN_ALLOWLIST].sort());
+  });
+
+  it("membership_bootstrap is used by exactly the five request-bootstrap files, and only through the single setter (RT-1457)", () => {
+    // Code only (comments stripped): a doc comment alone cannot satisfy or fake the fence.
+    const usedInCode = files
+      .map(rel)
+      .filter((f) => /privilege:\s*"membership_bootstrap"/.test(code(f)))
+      .sort();
+    expect(usedInCode).toEqual([...BOOTSTRAP_FILES].sort());
+    expect(naming(/set_config\(\s*'app\.system_privilege'/)).toEqual([SETTER]);
+  });
+
+  it.each(BOOTSTRAP_FILES)("%s never sets the platform-admin flag and reads through runWithSystemPrivilege (RT-1457)", (file) => {
+    expect(read(file)).not.toMatch(PLATFORM_ADMIN);
+    expect(code(file)).toMatch(/runWithSystemPrivilege\(/); // a call, not only the import
+  });
+
+  it.each(REQUEST_GUARDS)("%s never sets isPlatformAdmin: true or names app.is_platform_admin in code (RT-1457)", (file) => {
+    const src = code(file);
+    expect(src).not.toMatch(/isPlatformAdmin:\s*true/);
+    expect(src).not.toMatch(/app\.is_platform_admin/);
+    expect(src).not.toMatch(/runWithTenantContext\(/);
+  });
+
+  it("the allowlist no longer carries any of the five bootstrap files and has shrunk to 27 (RT-1457; it only shrinks)", () => {
+    expect(PLATFORM_ADMIN_ALLOWLIST).toHaveLength(27);
+    for (const file of BOOTSTRAP_FILES) expect(PLATFORM_ADMIN_ALLOWLIST).not.toContain(file);
   });
 
   it("no privilege path uses the provisioner context", () => {

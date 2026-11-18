@@ -6,12 +6,13 @@
  * hold no privilege on `tenants` (RT-213), which the read joins, and its
  * provisioning template grants nothing on `memberships`. The
  * tables are row-level secured and no tenant is active yet at sign-in, so the
- * read runs in the same platform-admin bootstrap context that
- * `ContextService` uses for `GET /api/v1/context/me` (nil tenant id +
- * `is_platform_admin`), filtered to the signing-in user's own memberships,
- * in a single query (no per-membership store-id lookups).
+ * read runs in the same `membership_bootstrap` system-privilege context that
+ * `ContextService` uses for `GET /api/v1/context/me` (nil tenant id, SELECT
+ * only, never the platform-admin flag; RT-1457), filtered to the signing-in
+ * user's own memberships, in a single query (no per-membership store-id
+ * lookups).
  */
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 import { MembershipRepository } from "../context/membership.repository";
 import type { SignInMembership } from "./dto";
@@ -22,10 +23,10 @@ export function signInMembershipsReader(domainPool: Pool): SignInMembershipsRead
   const memberships = new MembershipRepository(domainPool);
   return async (userId) => {
     // tenantId null maps to the nil tenant id; access comes from the
-    // platform-admin flag, and the query itself is limited to `userId`.
-    const summaries = await runWithTenantContext(
+    // `membership_bootstrap` policies, and the query itself is limited to `userId`.
+    const summaries = await runWithSystemPrivilege(
       domainPool,
-      { tenantId: null, isPlatformAdmin: true },
+      { tenantId: null, privilege: "membership_bootstrap" },
       (client) => memberships.listTenantRolesForUser(userId, client),
     );
     return summaries.map((m) => ({

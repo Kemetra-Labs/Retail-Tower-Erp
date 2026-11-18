@@ -1,0 +1,273 @@
+{
+  "version": 1,
+  "_comment": "RT-1453. The ONE place that declares the Backend-Core api module map: which top-level apps/api/src directory owns which database table, which modules are cross-cutting, and any extra public file. Read by check.mjs (pnpm lint:module-boundaries). A module's public surface is its index.ts and its *.module.ts; add a file to publicFiles only as an explicit, reviewed exception. Moving a table or a module (RT-1456) is a one-line edit here; a stale directory name fails the check. Every table the db migrations create must be owned here, listed in sharedTables, or listed in unownedTables (an explicit, reviewed 'nobody checks this one yet'); the check fails on a new migration table that is none of them, and on a mapped table no migration creates.",
+  "shared": [
+    "common",
+    "observability"
+  ],
+  "sharedTables": [],
+  "modules": {
+    "ai-entitlements": {
+      "tables": [
+        "ai_plan_catalog",
+        "ai_plan_catalog_features",
+        "ai_plan_catalog_meters",
+        "ai_usage_counters",
+        "ai_usage_ledger",
+        "tenant_ai_entitlements",
+        "tenant_ai_feature_opt_outs"
+      ]
+    },
+    "audit": {
+      "tables": [
+        "audit_events"
+      ]
+    },
+    "auth": {
+      "tables": [
+        "auth_tokens",
+        "external_identity_links",
+        "sessions",
+        "users"
+      ]
+    },
+    "cash-variance-policy": {
+      "tables": [
+        "cash_variance_policy_revisions"
+      ]
+    },
+    "cashier-suspensions": {
+      "tables": [
+        "cashier_suspensions"
+      ]
+    },
+    "catalog": {
+      "tables": [
+        "catalog_change_log",
+        "erp_stock_import_findings",
+        "erp_stock_import_pages",
+        "erp_stock_import_row_resolutions",
+        "erp_stock_import_rows",
+        "erp_stock_import_runs",
+        "erpnext_item_map",
+        "erpnext_posting_resolution",
+        "erpnext_posting_status",
+        "erpnext_product_reconciliation_repair_attempt",
+        "erpnext_product_reconciliation_result",
+        "erpnext_product_reconciliation_run",
+        "erpnext_reconciliation_repair_attempt",
+        "erpnext_reconciliation_result",
+        "erpnext_reconciliation_run",
+        "erpnext_tracking_map",
+        "erpnext_warehouse_map",
+        "global_products",
+        "inventory_anchor_lines",
+        "inventory_anchors",
+        "price_history",
+        "product_aliases",
+        "product_stock_levels",
+        "refund_executions",
+        "sale_approval_uses",
+        "sale_credit_reversal_tenders",
+        "sale_credit_reversals",
+        "sale_line_findings",
+        "sale_line_promotions",
+        "sale_lines",
+        "sale_quarantine_items",
+        "sale_refunds",
+        "sale_reprints",
+        "sale_responsibilities",
+        "sale_return_lines",
+        "sale_return_promotion_clawbacks",
+        "sale_return_tenders",
+        "sale_returns",
+        "sale_sync_deadletters",
+        "sale_tenders",
+        "sale_voids",
+        "sales",
+        "store_product_overrides",
+        "tenant_product_brands",
+        "tenant_product_categories",
+        "tenant_products",
+        "tracked_line_validations",
+        "unknown_items"
+      ]
+    },
+    "connector": {
+      "tables": [
+        "connector_registration"
+      ]
+    },
+    "connector-health": {
+      "tables": [
+        "connector_health"
+      ]
+    },
+    "device-health": {
+      "tables": [
+        "device_health",
+        "pos_version_policy"
+      ]
+    },
+    "devices": {
+      "tables": [
+        "devices"
+      ]
+    },
+    "erp-provisioning": {
+      "tables": [
+        "erp_provisioner_credential",
+        "erp_provisioning_request",
+        "erp_provisioning_step_log"
+      ]
+    },
+    "idempotency": {
+      "tables": [
+        "idempotency_keys"
+      ]
+    },
+    "inventory": {
+      "tables": [
+        "count_late_compensations",
+        "count_late_event_findings",
+        "count_observations",
+        "count_posting_lines",
+        "count_session_expected",
+        "count_session_lines",
+        "count_sessions",
+        "inventory_effect_integration",
+        "inventory_identity_anchor_lines",
+        "inventory_identity_anchors",
+        "inventory_position_events",
+        "inventory_recalls",
+        "inventory_safety_changes",
+        "stock_counts",
+        "stock_locations",
+        "stock_movements",
+        "tenant_inventory_safety_revisions",
+        "tenant_inventory_settings",
+        "tracking_holds",
+        "tracking_identities",
+        "tracking_identity_births",
+        "tracking_identity_expiry_corrections",
+        "tracking_resolution_lines",
+        "tracking_resolutions"
+      ]
+    },
+    "memberships": {
+      "tables": [
+        "invitations",
+        "memberships",
+        "permissions",
+        "role_permissions",
+        "roles",
+        "store_access"
+      ]
+    },
+    "offers": {
+      "tables": [
+        "offer_pack_eligible_products",
+        "offer_pack_revisions",
+        "offer_pack_store_revisions",
+        "offer_pauses",
+        "offer_version_rules",
+        "offer_version_stores",
+        "offer_versions",
+        "offers"
+      ]
+    },
+    "outbox": {
+      "tables": [
+        "outbox_events"
+      ]
+    },
+    "platform-support-sessions": {
+      "tables": [
+        "platform_support_sessions"
+      ]
+    },
+    "pos-cashier-admissions": {
+      "tables": [
+        "cashier_admission_requests",
+        "cashier_admissions"
+      ]
+    },
+    "pos-pilot-releases": {
+      "tables": [
+        "pos_pilot_release_registry",
+        "pos_pilot_tenant_allowlist"
+      ]
+    },
+    "pos-shifts": {
+      "tables": [
+        "shift_cash_movements",
+        "shift_close_approver_checks",
+        "shift_forced_closes",
+        "shift_refund_claims",
+        "shifts"
+      ]
+    },
+    "pos-terminal-pairing": {
+      "tables": [
+        "pairing_codes"
+      ]
+    },
+    "settlement": {
+      "tables": [
+        "claim",
+        "claim_receivables",
+        "payer_account",
+        "payment_application",
+        "receivable",
+        "reconciliation_result",
+        "remittance"
+      ]
+    },
+    "shift-closes": {
+      "tables": [
+        "shift_closes"
+      ]
+    },
+    "signups": {
+      "tables": [
+        "pending_signups",
+        "user_consents"
+      ]
+    },
+    "stores": {
+      "tables": [
+        "stores"
+      ]
+    },
+    "tenant-access-entitlement": {
+      "tables": [
+        "tenant_access_entitlements"
+      ]
+    },
+    "tenant-branding": {
+      "tables": [
+        "tenant_branding_revisions",
+        "tenant_logo_renditions",
+        "tenant_logos"
+      ]
+    },
+    "tenants": {
+      "tables": [
+        "tenants"
+      ]
+    },
+    "vouchers-admin": {
+      "tables": [
+        "voucher_eligible_stores",
+        "vouchers"
+      ]
+    },
+    "vouchers-pos": {
+      "tables": [
+        "voucher_redemption_intents",
+        "voucher_redemptions"
+      ]
+    }
+  },
+  "unownedTables": []
+}

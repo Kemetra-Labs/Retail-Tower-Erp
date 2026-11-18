@@ -2,14 +2,14 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: ba1008bf0775a47010454cc4149b19847c9f3713
+commit: c521784d51428761c077ce97df1eec39bf051bd7
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml e099a32ca5b928339bface70d76b64aa0acee786
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
 file: auth.openapi.yaml 251e47b60becf178d51e39b2350e7e6a9e1509f3
 file: cash-variance-policy.openapi.yaml 0af127c7d43cb5bc87306dae6367960a428cacfb
 file: catalog/console-catalog.yaml c7580b1e8dc5abfafdef3b7e68dc4819429c98f5
-file: catalog/erpnext-item-map.yaml 467bf860f4d00028fc4cd476d1959b93c9ce52a2
+file: catalog/erpnext-item-map.yaml 3f1ab89295e52275a501e32f94892a953db7ba77
 file: catalog/erpnext-warehouse-map.yaml d2db8f505c0879a7b2c6e4c866985670e07da46a
 file: catalog/product-reconciliation.yaml c66f63f605930e33aa33fe0e259581ae3c92d3e1
 file: catalog/stock-levels.yaml 609c88da00a3d5d8d3946a0157c1873f2a442db9
