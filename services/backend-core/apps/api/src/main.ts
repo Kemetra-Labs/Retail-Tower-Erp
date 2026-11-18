@@ -23,7 +23,7 @@ import { connectorSnapshotCallerAuthorizer } from "./auth/connector-snapshot-pre
 import { posDeviceCallerAuthorizer } from "./auth/device-body-preauth";
 import { DeviceRepository } from "./pos-operators/device.repository";
 import { SessionRepository } from "./auth/session.repository";
-import { assertDeploymentEnvironmentConfigured } from "./connector/deployment-environment";
+import { assertDeploymentEnvironmentConfigured } from "./common/deployment-environment";
 import { loadOpenApiContracts } from "./openapi/loader";
 import { logoUploadPassthrough } from "./tenant-branding/logo-body";
 

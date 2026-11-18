@@ -28,7 +28,7 @@ import { type AuthedRequest, readBearerToken } from "../auth/auth.guard";
 import { AuthTokenRepository } from "../auth/auth-token.repository";
 import { PG_POOL } from "../auth/database-pools";
 import { recordAuthFailure } from "../observability/metrics/api.metrics";
-import { resolveDeploymentEnvironment } from "../connector/deployment-environment";
+import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 
 const PROVISIONER_SCOPE = "connector_provisioner";
 

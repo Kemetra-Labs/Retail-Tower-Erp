@@ -11,7 +11,7 @@ import { runWithTenantContext } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
 import type { Pool } from 'pg';
 
-import { parseQuantity } from './decimal-quantity';
+import { parseQuantity } from '../common/quantity/decimal-quantity';
 import { toMovementBody } from './inventory.mappers';
 import {
   MOVEMENT_COLUMN_NAMES,

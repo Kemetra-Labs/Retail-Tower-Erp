@@ -15,7 +15,7 @@ import { ServiceUnavailableException } from "@nestjs/common";
 import { newId } from "@data-pulse-2/shared";
 import type { PoolClient } from "pg";
 
-import { resolveDeploymentEnvironment } from "../connector/deployment-environment";
+import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 import { AUDIT, insertProvisioningAudit } from "./provisioning-audit";
 import { deriveSiteName, SYSTEM_ACTOR_USER_ID, TEMPLATE_ID, TEMPLATE_VERSION } from "./provisioning.config";
 import { insertRequest, readActiveTenantRequest, type RequestRow } from "./provisioning-request.repository";

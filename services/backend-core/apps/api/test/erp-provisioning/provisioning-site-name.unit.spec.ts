@@ -5,7 +5,7 @@
  * compares those two with the contract). The pattern and the length are read from the contract
  * itself, so this fails if either side moves without the other.
  */
-import { DEPLOYMENT_ENVIRONMENTS } from "../../src/connector/deployment-environment";
+import { DEPLOYMENT_ENVIRONMENTS } from "../../src/common/deployment-environment";
 import { deriveSiteName } from "../../src/erp-provisioning/provisioning.config";
 import { allContracts, contractDocument } from "../_helpers/openapi-contract";
 

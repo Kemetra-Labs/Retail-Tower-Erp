@@ -12,7 +12,7 @@ import {
   type PricedLineDiscountInput,
   type PricedLineInput,
 } from "../../../../src/catalog/sales/sale-line-pricing";
-import { minorUnitExponent } from "../../../../src/catalog/sales/iso4217-minor-units";
+import { minorUnitExponent } from "../../../../src/common/money/iso4217-minor-units";
 
 function line(overrides: Partial<PricedLineInput> = {}): PricedLineInput {
   return { unitPrice: "3.33", quantity: "3", lineAmount: "9.99", currencyCode: "EGP", ...overrides };

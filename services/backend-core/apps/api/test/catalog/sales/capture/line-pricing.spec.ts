@@ -16,7 +16,7 @@ import {
   seedPreInvariantSale,
   type HarnessHandle,
 } from "./__capture-harness";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 
 const TENDERS_FLAG = "POS_SALE_TENDERS_ENABLED";
 const h: HarnessHandle = { harness: null, dockerSkipped: false };

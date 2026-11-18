@@ -48,7 +48,7 @@ import { PG_POOL } from '../../auth/auth.module';
 import { MembershipRepository } from '../../context/membership.repository';
 import { callerStoreScope, scopeStoreIds } from '../../context/operator-store-scope';
 import type { ResolvedContext } from '../../context/types';
-import { formatQuantity, parseQuantity } from '../decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
 
 /** Contract `ActiveTrackingHoldFinding`. */
 export interface ActiveTrackingHoldFinding {

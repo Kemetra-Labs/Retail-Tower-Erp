@@ -6,7 +6,7 @@
  * capture body changes; the characterization matrix checks the same literals
  * against the stored `sales.payload_hash` column.
  */
-import { sha256CanonicalHex } from "../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../src/common/hashing/payload-hash";
 import { CaptureSaleRequestWithTendersSchema } from "../../../src/catalog/sales/dto/capture-sale-request.dto";
 import { CAPTURE_HASH_VECTORS } from "./__support__/capture-hash-golden";
 

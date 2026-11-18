@@ -34,7 +34,7 @@ import {
   type AllocationLine,
 } from "../../offers/evaluator/offer-return-allocation";
 import { settleOfferReturn, type SaleOfferLine } from "../../offers/evaluator/offer-return-settlement";
-import { minorUnitExponent } from "./iso4217-minor-units";
+import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
 import { replaySaleReturns } from "./sale-return-history";
 import { PromotionClawbackExceedsRefundError } from "./sale-reversal";
 

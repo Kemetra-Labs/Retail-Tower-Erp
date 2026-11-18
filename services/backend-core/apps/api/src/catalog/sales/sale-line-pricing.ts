@@ -24,7 +24,7 @@
  * currency's ISO-4217 exponent (0–4, never above MONEY_SCALE); a currency with
  * none cannot conform (Jira RT-105 comment 10537, gap 2).
  */
-import { minorUnitExponent } from "./iso4217-minor-units";
+import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
 
 export interface PricedLineDiscountInput {
   readonly kind: "percent" | "amount";

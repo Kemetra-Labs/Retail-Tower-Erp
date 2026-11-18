@@ -7,7 +7,7 @@
  * here therefore runs on arbitrary JSON and never throws on a field's shape:
  * a field that is missing or malformed gives `null`, never a refused upload.
  */
-import { sha256CanonicalHex } from "../payload-hash";
+import { sha256CanonicalHex } from "../../../common/hashing/payload-hash";
 
 /**
  * The fields `captureSale` leaves out of `payload_hash` (RT-1206; the

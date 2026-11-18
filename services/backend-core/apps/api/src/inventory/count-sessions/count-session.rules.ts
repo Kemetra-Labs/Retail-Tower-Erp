@@ -11,7 +11,7 @@
  * slices (and `needs_attention` by a late event after approval); no command
  * here leaves `approved`.
  */
-import { formatQuantity, parseQuantity } from '../decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
 
 export const COUNT_SESSION_STATES = [
   'open',

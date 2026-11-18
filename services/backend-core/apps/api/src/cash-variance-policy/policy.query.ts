@@ -11,7 +11,7 @@
  */
 import { z } from "zod";
 
-import { minorUnitExponent } from "../catalog/sales/iso4217-minor-units";
+import { minorUnitExponent } from "../common/money/iso4217-minor-units";
 
 const UuidSchema = z
   .string()

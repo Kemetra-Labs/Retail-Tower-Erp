@@ -61,7 +61,7 @@ import {
   insertTenders,
 } from "./sale-tender-writes";
 import { insertSaleHeader, insertSaleLines } from "./sale-capture-writes";
-import { sha256CanonicalHex } from "./payload-hash";
+import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { reverseVoucherTendersOfVoidedSale } from "./sale-void-vouchers";
 import { findLinePricingViolation } from "./sale-line-pricing";
 import { planSalePromotions, writeSalePromotions, type PromotionPlan } from "./sale-promotions";

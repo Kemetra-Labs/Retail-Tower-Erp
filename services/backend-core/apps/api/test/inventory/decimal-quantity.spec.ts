@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { formatQuantity, parseQuantity } from '../../src/inventory/decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../src/common/quantity/decimal-quantity';
 
 describe('numeric(19,4) inventory quantities', () => {
   it('round-trips all legal digits without floating-point loss', () => {
