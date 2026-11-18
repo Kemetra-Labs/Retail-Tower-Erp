@@ -39,6 +39,7 @@ import {
   type TenantPolicyBody,
 } from "./policy.projections";
 import { PolicyRepository } from "./policy.repository";
+import { findCallerRoleCode } from "../context";
 
 /** A store outside the caller's scope, of another tenant, deleted or absent → 404. */
 export class PolicyStoreNotFoundError extends Error {
@@ -133,7 +134,8 @@ export class CashVariancePolicyService {
   }
 
   private async actor(client: PoolClient, input: PublishInput) {
-    const roleCode = await this.memberships.findRoleCodeForUserInTenant(input.actorUserId, input.tenantId, client);
+    // RT-1470: a session platform admin decides as an owner, member or not.
+    const roleCode = await findCallerRoleCode(this.memberships, client, input);
     return { tenantId: input.tenantId, actorUserId: input.actorUserId, roleCode, requestId: input.requestId };
   }
 

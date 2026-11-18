@@ -39,6 +39,7 @@ import request from "supertest";
 import { ConsoleCatalogModule } from "../../../src/catalog/console-catalog/console-catalog.module";
 import { IDEMPOTENCY_KEY_STORE, IdempotencyInterceptor } from "../../../src/idempotency/idempotency.interceptor";
 import { INFLIGHT_REDIS, InProgressMarker } from "../../../src/idempotency/in-progress-marker";
+import { seedPlatformAdminSession } from "../../_helpers/platform-admin-session";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../../_helpers/postgres-container";
 import { allContracts, contractDocument } from "../../_helpers/openapi-contract";
 import {
@@ -62,6 +63,9 @@ type ProductId = string;
 type StoreId = string;
 type IdTag = string;
 type SessionHeader = string;
+
+const USER_PA = "0a000000-0000-7000-8000-0000014700b1";
+const SES_PA = "0a000000-0000-7000-8000-0000014700b2";
 type RequestPath = string;
 type ErrorCode = string;
 type HttpStatus = number;
@@ -134,6 +138,8 @@ beforeAll(async () => {
     env = await startPgEnv();
     await applyAllUpAndCreateAppRole(env);
     await seedConsoleCatalogFixture(env);
+    // RT-1470: a platform admin with no membership in tenant A (direct entry from /platform).
+    await seedPlatformAdminSession(env.admin, { userId: USER_PA, sessionId: SES_PA, email: "rt1470-pa-catalog@example.test", tenantId: TENANT_A });
     await env.admin.query(`INSERT INTO users (id, email) VALUES ($1, 'rt738-actor@example.test')`, [ACTOR]);
     // A value tenant B holds and tenant A does not: identifiers are tenant-isolated.
     await env.admin.query(
@@ -725,5 +731,28 @@ describe("console catalog writes — store overrides", () => {
     ]);
     expect(audit.every((r) => typeof r.actor_user_id === "string")).toBe(true);
     expect(await audits(priced)).toEqual([]);
+  });
+});
+
+describe("RT-1470: a platform admin with no membership decides as an owner", () => {
+  it("edits a product and sets an owner-only store override (tax category) in any store", async () => {
+    if (skip()) return;
+    const id = await seedProduct({ price: "5.0000" });
+    const edited = await ok(
+      await send("patch", product(id), SES_PA, { expectedUpdatedAt: await updatedAt(id), name: "RT1470 Renamed" }),
+      200,
+    );
+    expect(edited.summary).toMatchObject({ name: "RT1470 Renamed" });
+    const set = await ok(
+      await send("put", override(id, STORE_A_Y), SES_PA, { expectedUpdatedAt: null, taxCategory: "zero" }),
+      200,
+    );
+    expect(set.storeOverrides).toEqual([expect.objectContaining({ storeId: STORE_A_Y, taxCategory: "zero" })]);
+  });
+
+  it("still cannot reach another tenant's product (the identical 404)", async () => {
+    if (skip()) return;
+    const res = await send("patch", product(P_B), SES_PA, { expectedUpdatedAt: new Date().toISOString(), name: "RT1470 Hijack" });
+    expect(res.status).toBe(404);
   });
 });

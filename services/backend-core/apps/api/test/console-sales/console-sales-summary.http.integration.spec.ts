@@ -301,7 +301,7 @@ describe("RT-649 sales summary — scope and isolation", () => {
     ["store_manager, specific (X + Y)", SES_MANAGER, [STORE_A_X, STORE_A_Y]],
     ["store_manager, Y active (narrowed)", SES_MANAGER_ACTIVE, [STORE_A_Y]],
     ["platform admin, no active store", SES_PLATFORM, [STORE_A_X, STORE_A_Y, S_DELETED]],
-    ["platform admin, X active", SES_PLATFORM_ACTIVE, [STORE_A_X]],
+    ["platform admin, X active (not narrowed: the owner rule, RT-1470)", SES_PLATFORM_ACTIVE, [STORE_A_X, STORE_A_Y, S_DELETED]],
     ["tenant_admin with no live store", SES_ADMIN_EMPTY, []],
   ])("%s: the stores and totals of its scope only", async (_label, session, stores) => {
     if (skip()) return;

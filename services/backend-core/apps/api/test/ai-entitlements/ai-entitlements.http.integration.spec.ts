@@ -13,8 +13,8 @@
  *   request (T8); the kill switch makes features unavailable with no reason;
  *   an unreadable store is 503 `entitlement_unavailable`.
  *
- *   consolePutTenantAiFeatureOptOut — owner only (a platform admin or a
- *   tenant_admin is the 404, D-5); the contract's check order; subtract-only
+ *   consolePutTenantAiFeatureOptOut — the owner and, since RT-1470, a session
+ *   platform admin (a tenant_admin is the 404, D-5); the contract's check order; subtract-only
  *   (an opt-in never exceeds the plan: 422 `not_entitled`); same state writes
  *   nothing; a stale `expectedOptOutVersion` is 409; one audit row per change;
  *   idempotent replay.
@@ -48,6 +48,7 @@ import {
   TENANT_A,
   TENANT_B,
   USER_OWNER,
+  USER_PA_ADMIN,
 } from "./__support__/http-fixture";
 
 const view = (tenantId: string): string => `/api/v1/tenants/${tenantId}/ai/entitlements`;
@@ -216,9 +217,9 @@ describe("PUT opt-out (D-5)", () => {
   const off = (expected: number, reason = "data governance") => ({ expectedOptOutVersion: expected, optedOut: true, reason });
   const on = (expected: number) => ({ expectedOptOutVersion: expected, optedOut: false, reason: "back on" });
 
-  it("is the same 404 for tenant_admin, store_manager, store_staff, a platform admin and another tenant, writing nothing", async () => {
+  it("is the same 404 for tenant_admin, store_manager, store_staff and another tenant, writing nothing", async () => {
     if (skip()) return;
-    for (const session of [SES_ADMIN, SES_MANAGER, SES_STAFF, SES_PA_ADMIN]) expectNotFound(await put(optOut(TENANT_A, F_ASK), session, off(0)));
+    for (const session of [SES_ADMIN, SES_MANAGER, SES_STAFF]) expectNotFound(await put(optOut(TENANT_A, F_ASK), session, off(0)));
     expectNotFound(await put(optOut(TENANT_A, F_ASK), SES_OWNER_B, off(0)));
     expectNotFound(await put(optOut(TENANT_B, F_ASK), SES_OWNER, off(0)));
     expect(await auditCount()).toBe(0);
@@ -275,5 +276,20 @@ describe("PUT opt-out (D-5)", () => {
     expect(body).toMatchObject({ optOutVersion: 3, entitlementVersion: 1 });
     expect(feature(body, F_ASK)).toMatchObject({ availability: "available", optOut: { optedOut: false } });
     expect(await auditCount()).toBe(3);
+  });
+
+  it("RT-1470: a session platform admin (here also a tenant_admin member) writes an opt-out like the owner, audited as themselves", async () => {
+    if (skip()) return;
+    const res = await put(optOut(TENANT_A, F_ASK), SES_PA_ADMIN, off(3, "platform support")).expect(200);
+    expect((res.body as FullView).optOutVersion).toBe(4);
+    expect(feature(res.body as FullView, F_ASK)).toMatchObject({ optOut: { optedOut: true } });
+    const audit = await h.env().admin.query(
+      `SELECT actor_user_id FROM audit_events WHERE tenant_id = $1 AND action = $2 ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+      [TENANT_A, OPT_OUT_CHANGED],
+    );
+    expect(audit.rows).toEqual([{ actor_user_id: USER_PA_ADMIN }]);
+    // Still subtract-only: the platform admin cannot opt in past the plan.
+    expectError(await put(optOut(TENANT_A, F_DOCTOR), SES_PA_ADMIN, on(4)), 422, "not_entitled");
+    await put(optOut(TENANT_A, F_ASK), SES_PA_ADMIN, on(4)).expect(200);
   });
 });

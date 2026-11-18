@@ -1,12 +1,14 @@
 /**
  * AiOwnerMembershipGuard — RT-664 (AD-AI-ENT-001 D-5): the opt-out write is
- * the tenant OWNER's only.
+ * the tenant OWNER's, and since RT-1470 also a session platform admin's.
  *
- * `@Roles("owner")` alone is not enough: `RolesGuard` admits a platform admin
- * on any `@Roles` route, and a platform write path would turn the
- * tenant-authored opt-out source into a grant path. This guard runs after
- * `RolesGuard` and requires an active `owner` membership of the session's
- * tenant, whatever the platform flag. It also refuses a `{tenant_id}` that is
+ * RT-1470 (owner decision 2026-11-18, recorded on RT-1470): the platform admin
+ * is the superior in this system, so a session platform admin may change a
+ * tenant's opt-outs like its owner, member or not. A bearer token never
+ * qualifies (RT-132 D6). The write stays subtract-only against the plan: an
+ * opt-in never exceeds what the plan grants (422 `not_entitled`), so this is
+ * no grant path. Everyone else still needs an active `owner` membership of the
+ * session's tenant. It also refuses a `{tenant_id}` that is
  * a well-formed id of another tenant. Both refusals are the same
  * non-disclosing 404, raised before the idempotency interceptor stores a key
  * (contract check order step 1). A malformed `{tenant_id}` passes to the
@@ -17,6 +19,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
 import { PG_POOL } from "../database";
+import { isSessionPlatformAdminContext } from "../context";
 import { MembershipRepository } from "../context/membership.repository";
 import type { ResolvedContext, TenantContextRequest } from "../context/types";
 import { UUID_RE_I } from "../common/ids";
@@ -53,6 +56,7 @@ export class AiOwnerMembershipGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<GuardRequest>();
     const member = sessionMember(request.context) ?? refuse();
     if (namesAnotherTenant(request, member.tenantId)) refuse();
+    if (isSessionPlatformAdminContext(request.context)) return true;
     const role = await runWithTenantContext(this.pool, { tenantId: member.tenantId, isPlatformAdmin: false }, (client) =>
       this.memberships.findRoleCodeForUserInTenant(member.userId, member.tenantId, client),
     );

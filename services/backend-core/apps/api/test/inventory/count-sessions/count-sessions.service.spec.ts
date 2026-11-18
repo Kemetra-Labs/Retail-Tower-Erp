@@ -467,6 +467,24 @@ describe('approval policy (AC5)', () => {
   });
 });
 
+describe('RT-1470: a session platform admin decides as an owner on the owner-only exception', () => {
+  it('admits a platform admin whatever the membership role; the same caller without the flag is refused', async () => {
+    if (skipped()) return;
+    role = 'store_manager';
+    expect(await code(service.getSelfApprovalException(as(COUNTER)))).toBe('count_self_approval_owner_only');
+    const platformAdmin: CountCaller = { ...as(COUNTER), isPlatformAdmin: true };
+    expect(await service.setSelfApprovalException(platformAdmin, true, 'platform support')).toMatchObject({
+      enabled: true,
+      reason: 'platform support',
+      changedBy: COUNTER,
+    });
+    expect((await service.getSelfApprovalException(platformAdmin)).enabled).toBe(true);
+    // No membership at all is the same: the flag alone decides.
+    role = null as unknown as string;
+    expect((await service.getSelfApprovalException(platformAdmin)).enabled).toBe(true);
+  });
+});
+
 describe('approval writes the corrections once (AC6)', () => {
   it('appends count_correction effects, links them to ONE chunk (pending), and a replay writes nothing', async () => {
     if (skipped()) return;
