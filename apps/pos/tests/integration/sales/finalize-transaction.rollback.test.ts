@@ -171,6 +171,7 @@ describe('T053 — AD-2 finalize-transaction rollback discipline', () => {
         throw new Error('simulated audit emit failure');
       },
       emitSaleFinalizationRefused: () => {},
+      emitSaleNumberDayRuleSwitched: () => {},
       emitRaw: () => {},
     };
     const finalize = bindFinalizeTransaction({

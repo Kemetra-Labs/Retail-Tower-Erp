@@ -26,7 +26,10 @@ import { bindFinalizeTransaction } from '../../../../src/main/sales/finalize-tra
 import { bindSalesRepository } from '../../../../src/main/sales/repositories/sales.repository.js';
 import { bindSaleSyncOutboxRepository } from '../../../../src/main/sync-outbox/sale-sync-outbox.repository.js';
 import { bindSaleNumberAllocator } from '../../../../src/main/sales/sale-number-allocator.js';
-import { createSaleAuditEmitter } from '../../../../src/main/sales/audit-emitter.js';
+import {
+  createSaleAuditEmitter,
+  type SaleAuditEvent,
+} from '../../../../src/main/sales/audit-emitter.js';
 import { makeSqlJsHandle } from '../cart/__helpers__/sql-js-handle.js';
 
 const __dirnameForFile = path.dirname(fileURLToPath(import.meta.url));
@@ -53,7 +56,7 @@ beforeAll(async () => {
 });
 
 let db: SqlJsDatabase;
-let captured: Array<Record<string, unknown>>;
+let captured: SaleAuditEvent[];
 
 beforeEach(() => {
   db = new SQL.Database();

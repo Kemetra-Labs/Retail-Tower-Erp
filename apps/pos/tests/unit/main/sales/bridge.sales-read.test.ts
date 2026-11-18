@@ -23,6 +23,8 @@ import { bindSalesRepository } from '../../../../src/main/sales/repositories/sal
 import { bindPrintEventsRepository } from '../../../../src/main/sales/repositories/print-events.repository.js';
 import { bindDrawerEventsRepository } from '../../../../src/main/sales/repositories/drawer-events.repository.js';
 import { makeSqlJsHandle } from '../cart/__helpers__/sql-js-handle.js';
+import type { SalesReadRequest } from '../../../../src/shared/bridge-api.js';
+import type { SaleId } from '../../../../src/shared/sales/types.js';
 
 const __dirnameForFile = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirnameForFile, '..', '..', '..', '..');
@@ -97,7 +99,7 @@ describe('T070 — sales.read: gating', () => {
   it('refuses with no_session when no active session', async () => {
     seedSale();
     const bridge = buildBridge(null);
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('no_session');
@@ -105,7 +107,7 @@ describe('T070 — sales.read: gating', () => {
 
   it('refuses with sale_not_found when sale_id unknown', async () => {
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'does-not-exist' });
+    const result = await bridge.read({ sale_id: 'does-not-exist' as SaleId });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('sale_not_found');
@@ -114,7 +116,7 @@ describe('T070 — sales.read: gating', () => {
   it('refuses with tenant_isolation when session tenant mismatches sale tenant', async () => {
     seedSale({ tenant_id: 'tenant-OTHER' });
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('tenant_isolation');
@@ -123,7 +125,7 @@ describe('T070 — sales.read: gating', () => {
   it('refuses with tenant_isolation when session terminal mismatches sale terminal', async () => {
     seedSale({ terminal_id: 'terminal-OTHER' });
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('tenant_isolation');
@@ -134,7 +136,7 @@ describe('T070 — sales.read: success payload shape', () => {
   it('returns the sale with main-only fields stripped', async () => {
     seedSale();
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
 
@@ -152,7 +154,7 @@ describe('T070 — sales.read: success payload shape', () => {
   it('includes tender_lines_summary parsed from JSON', async () => {
     seedSale();
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(result.sale.tender_lines_summary).toEqual([
@@ -163,7 +165,7 @@ describe('T070 — sales.read: success payload shape', () => {
   it('omits latest_print_event and latest_drawer_event when no rows exist (S1 reality)', async () => {
     seedSale();
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(result.sale.latest_print_event).toBeUndefined();
@@ -184,7 +186,7 @@ describe('T070 — sales.read: success payload shape', () => {
        )`,
     );
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(result.sale.latest_print_event).toBeDefined();
@@ -217,7 +219,7 @@ describe('T070 — sales.read: success payload shape', () => {
        )`,
     );
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(result.sale.latest_drawer_event).toBeDefined();
@@ -232,7 +234,7 @@ describe('T073 — sales.read: forbidden-field-in-request guard', () => {
     const result = await bridge.read({
       sale_id: 'sale-1',
       pan: 'TEST_PAN_TOKEN_NOT_A_REAL_CARD', // forbidden key (synthetic non-numeric token per CR4 on PR #266)
-    } as unknown as { sale_id: string });
+    } as unknown as SalesReadRequest);
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('forbidden_field_in_request');
@@ -244,7 +246,7 @@ describe('T073 — sales.read: forbidden-field-in-request guard', () => {
     const result = await bridge.read({
       sale_id: 'sale-1',
       voucher_redemption_intent_token: 'TOKEN',
-    } as unknown as { sale_id: string });
+    } as unknown as SalesReadRequest);
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('forbidden_field_in_request');
@@ -258,7 +260,7 @@ describe('T073 — sales.read: forbidden-field-in-request guard', () => {
     const result = await bridge.read({
       sale_id: 'sale-1',
       pin: '1234',
-    } as unknown as { sale_id: string });
+    } as unknown as SalesReadRequest);
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('forbidden_field_in_request');
@@ -273,7 +275,7 @@ describe('T073 — sales.read: forbidden-field-in-request guard', () => {
     type Cyclic = { sale_id: string; self?: Cyclic };
     const cyclic: Cyclic = { sale_id: 'sale-1' };
     cyclic.self = cyclic;
-    const result = await bridge.read(cyclic as unknown as { sale_id: string });
+    const result = await bridge.read(cyclic as unknown as SalesReadRequest);
     // No forbidden keys, no isolation issues — read succeeds.
     expect(result.kind).toBe('ok');
   });
@@ -284,7 +286,7 @@ describe('T073 — sales.read: forbidden-field-in-request guard', () => {
     const result = await bridge.read({
       sale_id: 'sale-1',
       items: [{ pan: 'TEST_PAN_TOKEN_NOT_A_REAL_CARD' }],
-    } as unknown as { sale_id: string });
+    } as unknown as SalesReadRequest);
     expect(result.kind).toBe('refused');
     if (result.kind !== 'refused') return;
     expect(result.reason).toBe('forbidden_field_in_request');
@@ -299,7 +301,7 @@ describe('T073 — sales.read: forbidden-field-in-request guard', () => {
     const result = await bridge.read({
       sale_id: 'sale-1',
       hint: ['clean', 'strings'],
-    } as unknown as { sale_id: string });
+    } as unknown as SalesReadRequest);
     expect(result.kind).toBe('ok');
   });
 });
@@ -319,7 +321,7 @@ describe('T070 — sales.read: latest_print_event with duplicate_copy_sequence_n
        )`,
     );
     const bridge = buildBridge();
-    const result = await bridge.read({ sale_id: 'sale-1' });
+    const result = await bridge.read({ sale_id: 'sale-1' as SaleId });
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;
     expect(result.sale.latest_print_event?.duplicate_copy_sequence_number).toBe(2);
