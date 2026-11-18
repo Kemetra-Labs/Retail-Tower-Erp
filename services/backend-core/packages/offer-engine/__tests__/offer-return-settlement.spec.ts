@@ -1,9 +1,8 @@
 /**
- * RT-1339 (RT-286 S7) — the return settlement refuses a sale line that breaks a capture
+ * RT-1378 (moved from the POS copy) — the return settlement refuses a sale line that breaks a capture
  * invariant (the golden vectors cover the settlement itself).
  */
-import { describe, expect, it } from 'vitest';
-import { settleOfferReturn, type SaleOfferLine } from '../offer-return-settlement.js';
+import { settleOfferReturn, type SaleOfferLine } from '../src/offer-return-settlement';
 
 const OFFER = { buyQuantity: 1, getQuantity: 1, percentOff: '40', maxApplicationsPerSale: null };
 
@@ -51,11 +50,13 @@ describe('settleOfferReturn invariants', () => {
   });
 
   it('names the invariant error', () => {
+    let caught: unknown;
     try {
       settle({ quantity: '1.5' });
-      expect.unreachable();
     } catch (err) {
-      expect((err as Error).name).toBe('OfferReturnInvariantError');
+      caught = err;
     }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).name).toBe('OfferReturnInvariantError');
   });
 });

@@ -51,6 +51,9 @@ importers:
       '@data-pulse-2/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@data-pulse-2/offer-engine':
+        specifier: workspace:*
+        version: link:../../packages/offer-engine
       '@data-pulse-2/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -261,6 +264,24 @@ importers:
       '@types/pg':
         specifier: 8.20.0
         version: 8.20.0
+      jest:
+        specifier: 29.7.0
+        version: 29.7.0(@types/node@24.19.2)
+      ts-jest:
+        specifier: 29.2.5
+        version: 29.2.5(@babel/core@7.29.0)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.0))(jest@29.7.0(@types/node@24.19.2))(typescript@5.9.3)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/offer-engine:
+    devDependencies:
+      '@types/jest':
+        specifier: 29.5.14
+        version: 29.5.14
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
       jest:
         specifier: 29.7.0
         version: 29.7.0(@types/node@24.19.2)

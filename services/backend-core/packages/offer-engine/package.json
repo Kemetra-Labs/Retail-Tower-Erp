@@ -1,0 +1,30 @@
+{
+  "name": "@data-pulse-2/offer-engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The one Offer Engine money evaluator (spec 048 section 6 and 9), shared by Backend-Core and the POS till. Pure: no I/O, no clock, no database, no UI.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "jest --passWithNoTests",
+    "lint": "tsc -p tsconfig.build.json --noEmit --incremental false"
+  },
+  "devDependencies": {
+    "@types/jest": "29.5.14",
+    "@types/node": "24.19.2",
+    "jest": "29.7.0",
+    "ts-jest": "29.2.5",
+    "typescript": "5.9.3"
+  }
+}

@@ -19,8 +19,7 @@
  * be applied for want of proof (`unproven`, `stale`, or `online_only` offline), the
  * plan says `unavailable_offline` so the cart can show «العرض غير متاح بدون اتصال».
  */
-import { evaluateOffer, type CartLine } from '../../shared/offers/offer-evaluator.js';
-import { formatMinor } from '../../shared/offers/offer-decimal.js';
+import { evaluateOffer, formatMinor, type CartLine } from '@data-pulse-2/offer-engine';
 import {
   NO_PROMOTIONS,
   promotionTotalMinor,

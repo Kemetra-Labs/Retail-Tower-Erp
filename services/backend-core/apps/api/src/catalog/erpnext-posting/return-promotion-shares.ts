@@ -26,7 +26,7 @@
  */
 import type { PoolClient } from "pg";
 
-import { formatColumnAmount, scaled } from "../../offers/evaluator/offer-decimal";
+import { formatColumnAmount, scaled } from "@data-pulse-2/offer-engine";
 import {
   allocateReturnPromotion,
   allocationLineOf,

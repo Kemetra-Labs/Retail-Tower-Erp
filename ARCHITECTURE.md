@@ -19,7 +19,7 @@ Integration path: `POS / Admin-Console -> Backend-Core -> ERPNext-Connector -> E
 
 | From | To | Only through |
 | --- | --- | --- |
-| pos | backend-core | `services/backend-core/packages/contracts/openapi/**` |
+| pos | backend-core | `services/backend-core/packages/contracts/openapi/**`, and the one Offer Engine exception below (`.../packages/offer-engine/**`, `.../packages/contracts/fixtures/offers/**`) |
 | admin-console | backend-core | `services/backend-core/packages/contracts/openapi/**` |
 | erpnext-connector | backend-core | `.../openapi/erpnext-connector/**`, `.../openapi/connector/**` (`kind: semantic`: the Connector mirrors these DTOs in Python) |
 
@@ -55,7 +55,7 @@ Anything it cannot compare fails. It does not compare Connector field types or i
 
 ## Release model (MR-1, MR-3)
 
-Each product keeps its own version and release tag: `pos/vX.Y.Z`, `admin-console/vX.Y.Z`, `backend-core/vX.Y.Z`, `erpnext-connector/vX.Y.Z`. POS also has a separate pilot tag, `pos-pilot/vX.Y.Z` (`release-pos-pilot.yml`, RT-1294), so a pilot installer and a lab installer never share a release. There is no lockstep version and no shared runtime package across products. Each product has a root release workflow (`.github/workflows/release-<product>.yml`, RT-871), started only by its own tag or by a manual dispatch that defaults to a dry-run. Every run builds the product's artifact and writes a release manifest (`.github/release/manifest.py`): source SHA, product tree hash, artifact digests, contract snapshot and CI URL. Publish jobs sit behind per-product environments (`release-<product>`; POS also has a signing environment, `release-pos-sign`, and the pilot lane its own `release-pos-pilot` and `release-pos-pilot-sign`) that admit only that product's tags.
+Each product keeps its own version and release tag: `pos/vX.Y.Z`, `admin-console/vX.Y.Z`, `backend-core/vX.Y.Z`, `erpnext-connector/vX.Y.Z`. POS also has a separate pilot tag, `pos-pilot/vX.Y.Z` (`release-pos-pilot.yml`, RT-1294), so a pilot installer and a lab installer never share a release. There is no lockstep version and no shared runtime package across products, with one narrow exception (RT-1378, owner decision 2026-11-13): the pure Offer Engine money evaluator, `services/backend-core/packages/offer-engine`, which Backend-Core and the POS till both import so a discount rule is changed in one place (it replaced two copies). It stays inside the Backend-Core workspace and Docker build context; the POS builds it from source (`npm run build:offer-engine`, run by `pretest`, `pretypecheck`, `prelint` and `prebuild:main`) and links it with an npm `file:` dependency, so the POS stays on npm. The package must stay pure (no I/O, clock, database or UI); it is not a general shared library, and no other product path may be added to the graph edge. Each product has a root release workflow (`.github/workflows/release-<product>.yml`, RT-871), started only by its own tag or by a manual dispatch that defaults to a dry-run. Every run builds the product's artifact and writes a release manifest (`.github/release/manifest.py`): source SHA, product tree hash, artifact digests, contract snapshot and CI URL. Publish jobs sit behind per-product environments (`release-<product>`; POS also has a signing environment, `release-pos-sign`, and the pilot lane its own `release-pos-pilot` and `release-pos-pilot-sign`) that admit only that product's tags.
 
 What publishes today (RT-717 is still open):
 

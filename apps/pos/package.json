@@ -12,6 +12,11 @@
     "dev:vite": "vite --port 5173 --strictPort",
     "dev:electron": "node scripts/dev-electron.cjs",
     "dev": "concurrently --names \"vite,electron\" -c \"cyan,yellow\" \"npm run dev:vite\" \"npm run dev:electron\"",
+    "build:offer-engine": "tsc -p ../../services/backend-core/packages/offer-engine/tsconfig.build.json",
+    "pretest": "npm run build:offer-engine",
+    "pretypecheck": "npm run build:offer-engine",
+    "prelint": "npm run build:offer-engine",
+    "prebuild:main": "npm run build:offer-engine",
     "build:renderer": "vite build",
     "build:preload": "vite build --config vite.config.preload.ts",
     "build:main": "npm run build:preload && tsc -p tsconfig.main.json && tsx scripts/stamp-build-identity.ts",
@@ -32,6 +37,7 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
+    "@data-pulse-2/offer-engine": "file:../../services/backend-core/packages/offer-engine",
     "@sentry/electron": "^7.20.1",
     "@tanstack/react-query": "^5.100.8",
     "argon2": "0.44.0",
