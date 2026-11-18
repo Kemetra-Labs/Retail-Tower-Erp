@@ -5,7 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Logger } from 'pino';
 
-import { createCartBridgeHandlers } from '../../../../src/main/cart/wire-cart-handlers.js';
+import {
+  createCartBridgeHandlers,
+  type CartHandlersDeps,
+} from '../../../../src/main/cart/wire-cart-handlers.js';
 import { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
 import { isShippedApp } from '../../../../src/main/app/shipped-app.js';
 import { makeSqlJsHandle } from './__helpers__/sql-js-handle.js';
@@ -66,6 +69,19 @@ function makeTestAuditEmitter(): AuditEmitter {
   return new AuditEmitter({ insertIgnore: () => {} });
 }
 
+// Required by the factory (post-handoff cancel guard, RT-26 Checkout Back, RT-443
+// approvals); these tests only create carts and add lines, so no payment exists
+// and none of the three is ever reached.
+const PAYMENT_DEPS = {
+  cartPaymentStatus: () => 'none',
+  releaseCheckoutPayment: () => ({ kind: 'blocked' }),
+  checkoutReturnAllowed: () => false,
+  approvals: { consume: () => ({ kind: 'refused', reason: 'approval_invalid' }) },
+} satisfies Pick<
+  CartHandlersDeps,
+  'cartPaymentStatus' | 'releaseCheckoutPayment' | 'checkoutReturnAllowed' | 'approvals'
+>;
+
 function freshDb(): SqlJsDatabase {
   const db = new SQL.Database();
   for (const sql of MIGRATIONS) db.run(sql);
@@ -83,6 +99,8 @@ function makeSession(): OperatorSessionRecord {
     started_at: '2026-05-14T08:00:00.000Z',
     backend_session_id: 'bsess-wiring',
     last_activity_at: '2026-05-14T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
@@ -101,6 +119,7 @@ describe('production cart wiring (T100 regression)', () => {
       logger: makeTestLogger(),
       auditEmitter: makeTestAuditEmitter(),
       isPackaged: true,
+      ...PAYMENT_DEPS,
     });
 
     const result = await handlers.create({ idempotency_key: 'ikey-t100-wiring' });
@@ -121,9 +140,9 @@ describe('production cart wiring (T100 regression)', () => {
     stmt.free();
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].cart_id).toBe(cartId);
+    expect(rows[0]?.cart_id).toBe(cartId);
     // CartState.empty is the initial state for a newly-created cart.
-    expect(rows[0].state).toBe('empty');
+    expect(rows[0]?.state).toBe('empty');
   });
 });
 
@@ -142,6 +161,7 @@ describe('dev fixture resolver wiring matrix (Option B)', () => {
       logger: makeTestLogger(),
       auditEmitter: makeTestAuditEmitter(),
       isPackaged: false,
+      ...PAYMENT_DEPS,
     });
 
     const createResult = await handlers.create({ idempotency_key: 'ikey-t100-fixture-dev' });
@@ -173,7 +193,7 @@ describe('dev fixture resolver wiring matrix (Option B)', () => {
     stmt.free();
 
     expect(rows).toHaveLength(1);
-    expect(rows[0].item_ref).toBe('SKU-PARA-500');
+    expect(rows[0]?.item_ref).toBe('SKU-PARA-500');
   });
 
   it('does NOT wire fixture resolver when isPackaged=true, even with POS_PULSE_DEV_ITEM_RESOLVER=1', async () => {
@@ -190,6 +210,7 @@ describe('dev fixture resolver wiring matrix (Option B)', () => {
       logger: makeTestLogger(),
       auditEmitter: makeTestAuditEmitter(),
       isPackaged: true,
+      ...PAYMENT_DEPS,
     });
 
     const createResult = await handlers.create({ idempotency_key: 'ikey-t100-fixture-pkg' });
@@ -222,6 +243,7 @@ describe('dev fixture resolver wiring matrix (Option B)', () => {
       logger: makeTestLogger(),
       auditEmitter: makeTestAuditEmitter(),
       isPackaged: isShippedApp({ isPackaged: false, appPath: 'C:\\copy\\resources\\app.asar' }),
+      ...PAYMENT_DEPS,
     });
 
     const createResult = await handlers.create({ idempotency_key: 'ikey-rt165-renamed' });
@@ -251,6 +273,7 @@ describe('dev fixture resolver wiring matrix (Option B)', () => {
       logger: makeTestLogger(),
       auditEmitter: makeTestAuditEmitter(),
       isPackaged: false,
+      ...PAYMENT_DEPS,
     });
 
     const createResult = await handlers.create({ idempotency_key: 'ikey-t100-fixture-noflag' });

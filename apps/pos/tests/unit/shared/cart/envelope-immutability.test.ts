@@ -111,7 +111,7 @@ describe('freezeEnvelope — immutability (T077)', () => {
     const frozen = freezeEnvelope(makeEnvelope({ lines: [makeLine()] }));
     expect(() => {
       'use strict';
-      (frozen.lines[0] as Record<string, unknown>)['quantity'] = 999;
+      (frozen.lines[0] as unknown as Record<string, unknown>)['quantity'] = 999;
     }).toThrow();
   });
 
@@ -119,7 +119,8 @@ describe('freezeEnvelope — immutability (T077)', () => {
     const frozen = freezeEnvelope(makeEnvelope({ discount_placeholders: [makeDiscount()] }));
     expect(() => {
       'use strict';
-      (frozen.discount_placeholders[0] as Record<string, unknown>)['placeholder_kind'] = 'mutated';
+      (frozen.discount_placeholders[0] as unknown as Record<string, unknown>)['placeholder_kind'] =
+        'mutated';
     }).toThrow();
   });
 

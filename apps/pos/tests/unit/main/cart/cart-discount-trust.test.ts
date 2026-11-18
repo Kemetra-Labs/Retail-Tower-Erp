@@ -162,6 +162,8 @@ function session(role: OperatorSessionRecord['role']): OperatorSessionRecord {
     started_at: T0,
     backend_session_id: 'b',
     last_activity_at: T0,
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
