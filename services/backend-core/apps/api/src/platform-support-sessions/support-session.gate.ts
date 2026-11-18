@@ -39,7 +39,9 @@ import {
 import { UUID_RE_I } from "../common/ids";
 
 const REFUSAL_MESSAGES: Readonly<Record<CrossTenantRefusal, string>> = {
-  support_session_required: "An active support session for this tenant is required",
+  // RT-1468: the code is kept (wire compatibility, FR-ISO-4) but it now means only that the tenant is
+  // gone, so the message no longer tells the caller to open a support session.
+  support_session_required: "This tenant is not available",
   support_session_expired: "The support session has expired; open a new one",
   support_session_read_only: "The support session is read-only for this tenant",
   origin_rejected: "Request origin is not allowed",

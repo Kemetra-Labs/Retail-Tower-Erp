@@ -556,6 +556,20 @@ describe.each(INACTIVE_STATES.filter((s) => s.label !== "soft-deleted"))(
       // RT-1468: a non-member platform admin selects the tenant and uses it without a support session.
       await switchTenant(admin, SUBJECT).expect(200);
       await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(200);
+      // RT-1468 AC2: with no membership and NO support session, a suspended tenant admits a write, and the
+      // request writes one succeeded cross-tenant row that names no session.
+      if (state.label === "suspended") {
+        const rid = randomUUID();
+        await asSession(http().post("/api/v1/stores"), admin, rid)
+          .send({ code: "NS", name: "Written with no session" })
+          .expect(201);
+        const { rows } = await E().admin.query<{ metadata: Record<string, unknown> }>(
+          `SELECT metadata FROM audit_events WHERE request_id = $1 AND action = 'platform.cross_tenant.accessed'`,
+          [rid],
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.metadata).toMatchObject({ outcome: "succeeded", support_session_id: null, method: "POST" });
+      }
       await enterTenantAsPlatformAdmin(E().admin, ADMIN, SUBJECT);
       await asSession(http().get("/api/v1/stores"), admin, randomUUID()).expect(200);
       await asSession(http().get(`/api/v1/tenants/${SUBJECT}`), admin, randomUUID()).expect(200);
