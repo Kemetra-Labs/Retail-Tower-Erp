@@ -31,6 +31,7 @@ import type {
   PaymentsReadResponse,
   PaymentsStartResponse,
   PaymentsSubscribeResponse,
+  TenderApplyRequest,
   TenderApplyResponse,
   TenderReadResponse,
   TenderReverseResponse,
@@ -71,7 +72,9 @@ function mkDeps() {
     paymentsCancel: vi.fn(() => Promise.resolve(refusedCancel)),
     paymentsSubscribe: vi.fn(() => Promise.resolve(refusedSubscribe)),
     paymentsRead: vi.fn(() => Promise.resolve(refusedRead)),
-    tenderApply: vi.fn(() => Promise.resolve(refusedApply)),
+    tenderApply: vi.fn<(req: TenderApplyRequest) => Promise<TenderApplyResponse>>(() =>
+      Promise.resolve(refusedApply),
+    ),
     tenderReverse: vi.fn(() => Promise.resolve(refusedReverse)),
     tenderRead: vi.fn(() => Promise.resolve(refusedTenderRead)),
   };

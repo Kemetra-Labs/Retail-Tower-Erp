@@ -1,13 +1,13 @@
 // @vitest-environment node
 import { PassThrough } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import pino from 'pino';
+import pino, { type Logger } from 'pino';
 
 import { createPairingLog } from '../main/pairing/log.js';
 import { createPairingService } from '../main/pairing/service.js';
 import { TransportError } from '../main/pairing/network.js';
 import type { PairingStore } from '../main/pairing/store.js';
-import type { Network } from '../main/pairing/network.js';
+import type { Network, PairResult, PairSuccessBody } from '../main/pairing/network.js';
 
 /**
  * 002-terminal-pairing T062 (US6) — cross-process redaction test.
@@ -41,19 +41,22 @@ vi.mock('@sentry/electron/main', () => ({
 const SUBMITTED_CODE = 'SUPER-SECRET-PAIR-CODE-XYZ-9999';
 const RETURNED_TOKEN = 'opaque-device-token-LEAKED-abcdef';
 
-const SUCCESS_BODY = {
+const SUCCESS_BODY: PairSuccessBody = {
   device_token: RETURNED_TOKEN,
   tenant_id: 'tenant-A',
   branch_id: 'branch-B',
   terminal_id: 'terminal-C',
   terminal_label: 'Counter 1',
+  branch_name: 'Branch B',
+  branch_address: '1 Test Street',
+  tenant_tax_registration_id: 'TAX-0001',
 };
 
 interface Streams {
   lines: () => string[];
 }
 
-function makeCapturingPinoLogger(): { logger: ReturnType<typeof pino>; streams: Streams } {
+function makeCapturingPinoLogger(): { logger: Logger; streams: Streams } {
   const stream = new PassThrough();
   const buf: Buffer[] = [];
   stream.on('data', (chunk: Buffer) => buf.push(chunk));
@@ -88,7 +91,7 @@ function makeCapturingPinoLogger(): { logger: ReturnType<typeof pino>; streams: 
   };
 }
 
-function makeStore(opts: { withPriorState?: boolean } = {}): PairingStore {
+function makeStore(opts: { withPriorState?: boolean | undefined } = {}): PairingStore {
   const priorPaired = opts.withPriorState
     ? {
         kind: 'paired' as const,
@@ -104,6 +107,9 @@ function makeStore(opts: { withPriorState?: boolean } = {}): PairingStore {
     persist: vi.fn(() => Promise.resolve()),
     clear: vi.fn(() => Promise.resolve()),
     getStatus: vi.fn(() => Promise.resolve(priorPaired)),
+    getCurrentTerminalId: vi.fn(() =>
+      priorPaired.kind === 'paired' ? priorPaired.terminal_id : null,
+    ),
   };
 }
 
@@ -114,7 +120,7 @@ function makeNetwork(
     | { type: 'transport'; timed_out: boolean },
 ): Network {
   return {
-    pair: vi.fn(() => {
+    pair: vi.fn((): Promise<PairResult> => {
       if (result.type === 'success') {
         return Promise.resolve({ ok: true as const, status: 200 as const, body: SUCCESS_BODY });
       }

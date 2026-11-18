@@ -42,7 +42,7 @@ const BASE_SCOPE: PinScope = {
   cashier_clerk_user_id: 'user_clerk_001',
 };
 
-function scopedRow(overrides: Partial<PinScope> = {}): ScopedPinRow {
+function scopedRow(overrides: Partial<ScopedPinRow> = {}): ScopedPinRow {
   return { ...pinRow, ...BASE_SCOPE, ...overrides };
 }
 
