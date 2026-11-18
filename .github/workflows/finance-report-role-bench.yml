@@ -1,5 +1,5 @@
 # RT-1449 (RT-1448 blueprint v2, Step 0): run the finance-report role proof on a throwaway ERPNext v16
-# bench. The proof script is integrations/erpnext-connector/docs/research/rt-1449-finance-report-role/
+# bench. The proof script is docs/research/erpnext-connector/rt-1449-finance-report-role/
 # finance_report_role_proof.py; it is research evidence only and no product code imports it.
 #
 # Manual only: workflow_dispatch, no schedule, push or pull_request trigger, so it never feeds `required`
@@ -44,7 +44,7 @@ env:
   ERPNEXT_REF: v16.51.0
   BENCH_VERSION: "5.31.0"
   SITE: proof_site
-  PROOF_DIR: integrations/erpnext-connector/docs/research/rt-1449-finance-report-role
+  PROOF_DIR: docs/research/erpnext-connector/rt-1449-finance-report-role
 
 jobs:
   proof:
