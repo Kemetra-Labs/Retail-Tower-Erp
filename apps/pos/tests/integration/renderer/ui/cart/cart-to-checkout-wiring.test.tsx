@@ -105,6 +105,19 @@ function operatorBridge(): OperatorBridgeAPI {
     unlockCashier: vi.fn(() =>
       Promise.resolve({ kind: 'refused' as const, category: 'invalid_input' as const }),
     ),
+    unlockSession: vi.fn(() =>
+      Promise.resolve({ kind: 'refused' as const, category: 'invalid_input' as const }),
+    ),
+    getLockState: vi.fn(() =>
+      Promise.resolve({
+        state: 'active' as const,
+        locked_at: null,
+        role: null,
+        display_name: null,
+        summary: null,
+      }),
+    ),
+    onSessionStateChanged: vi.fn(() => () => undefined),
     forceCloseShift: vi.fn(() =>
       Promise.resolve({ kind: 'refused' as const, category: 'invalid_input' as const }),
     ),
