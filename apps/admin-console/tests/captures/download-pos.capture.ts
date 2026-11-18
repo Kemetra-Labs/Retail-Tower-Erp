@@ -103,8 +103,9 @@ test("RT-1304 S5: not available to a staff role and in a support session", async
     }),
   });
   await page.goto(PATH);
-  // RT-1468: in a session the page renders as usual, under the support-session bar.
-  await expect(page.getByRole("button", { name: t("devices.download.action") })).toBeVisible();
+  // RT-1468: the shell no longer replaces the page in a session, so the page's own O-2 rule
+  // shows: no installer is offered inside a support session.
+  await expect(page.getByText(t("devices.download.notAllowed"))).toBeVisible();
   await shot(page, "S5-support-session-shell", appLocale);
 });
 
