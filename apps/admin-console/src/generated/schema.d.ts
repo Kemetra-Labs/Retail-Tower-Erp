@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ c521784d51428761c077ce97df1eec39bf051bd7
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 1b4acef9ab8b00b50794e5926c0275ef9f432ef2
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -841,7 +841,7 @@ export namespace ContextSchema {
                 };
             };
             responses: {
-                /** @description Active tenant switched. Active store is cleared. Any current support session has ended, so `support_session` is null. */
+                /** @description Active tenant switched. Active store is cleared. Any current support session has ended (`end_reason: tenant_switched`), so `support_session` is null. */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -852,7 +852,7 @@ export namespace ContextSchema {
                         };
                     };
                 };
-                /** @description `support_session_required` (RT-414): the caller is a platform admin and not an active member of this existing tenant. Enter it with `openSupportSession` instead. Never returned to a user who is not a platform admin. A successful switch ends any current support session (`end_reason: tenant_switched`). Also `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+                /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1368,7 +1368,7 @@ export namespace StoresSchema {
              *
              *     **A snapshot, not a reservation.** The delete decides again in its own transaction. A device's counters are as of its last stored heartbeat, not live, and a fact a till has not synced cannot be seen (`caveats`). The fingerprint is the opaque server digest described in `console-force-actions.openapi.yaml`; here it covers the store's name, code and active flag, the open shifts (ids and states), every device (id, trust state, queue counters; not the heartbeat time), the open Count Session ids, the warehouse mappings, the single-store members, and the tenant.
              *
-             *     Owner only (D1): a `tenant_admin` is 403 `store_deletion_owner_only`; any other role, another tenant's store, a deleted store and an unknown id are the non-disclosing 404.
+             *     Owner only (D1), or a platform admin (RT-1462): a `tenant_admin` who is not a platform admin is 403 `store_deletion_owner_only`; any other role, another tenant's store, a deleted store and an unknown id are the non-disclosing 404.
              */
             get: operations["previewStoreDeletion"];
             put?: never;
@@ -1391,10 +1391,10 @@ export namespace StoresSchema {
             get?: never;
             put?: never;
             /**
-             * Delete the store, after the impact preview and a re-authentication. Owner only.
+             * Delete the store, after the impact preview and a re-authentication. Owner, or a platform admin.
              * @description RT-1437 A2, D1, D2b, D3, D4a, D7a. Soft-deletes the store: the same effect as `softDeleteStore`, with the guards, the typed reason, the preview fingerprint, the re-authentication grant and the audit row. The evaluation order, the four guards and the audit metadata are in the contract description.
              *
-             *     **Owner only.** The request needs a `reauthToken` from `consoleReauthenticate` (purpose `store_deletion`, this store, 5 minutes, single use, bound to this session). `reason` is required, 1 to 200 characters, no PII; it is recorded in the `store.deleted` audit event and never logged. The 409 `error.details.blockers` lists every guard that holds. Irreversible (D7a): nothing restores the store.
+             *     **Owner, or a platform admin (RT-1462).** The request needs a `reauthToken` from `consoleReauthenticate` (purpose `store_deletion`, this store, 5 minutes, single use, bound to this session). `reason` is required, 1 to 200 characters, no PII; it is recorded in the `store.deleted` audit event and never logged. The 409 `error.details.blockers` lists every guard that holds. Irreversible (D7a): nothing restores the store.
              *     **Idempotency.** `Idempotency-Key` is REQUIRED. A same-key retry replays the stored 200 with `Idempotent-Replayed: true`, before the grant, the fingerprint and the cap are looked at. A new key after a successful delete is 404.
              */
             post: operations["consoleDeleteStore"];
@@ -1951,7 +1951,7 @@ export namespace StoresSchema {
                     };
                     content?: never;
                 };
-                /** @description `store_deletion_owner_only` (a `tenant_admin`). */
+                /** @description `store_deletion_owner_only` (a `tenant_admin` who is not a platform admin). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2014,7 +2014,7 @@ export namespace StoresSchema {
                     };
                     content?: never;
                 };
-                /** @description `reauth_required` (the grant is missing, expired, used, or for another session, store or purpose; one answer for every cause), `store_deletion_owner_only` (a `tenant_admin`), `origin_rejected` (RT-430), or a support-session refusal (`support_session_required`, `support_session_expired`, `support_session_read_only`). */
+                /** @description `reauth_required` (the grant is missing, expired, used, or for another session, store or purpose; one answer for every cause), `store_deletion_owner_only` (a `tenant_admin` who is not a platform admin), `origin_rejected` (RT-430), or a support-session refusal (`support_session_read_only` for a non-member platform admin on a suspended tenant; `support_session_required` for a tenant that does not exist). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2023,7 +2023,7 @@ export namespace StoresSchema {
                         "application/json": components["schemas"]["StoreDeletionError"];
                     };
                 };
-                /** @description Not found / no access (a role outside the owner, another tenant's store, an unknown or already deleted store). */
+                /** @description Not found / no access (a role outside the owner, the platform admin and the `tenant_admin` refused by the 403 above, another tenant's store, an unknown or already deleted store). */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -9853,7 +9853,7 @@ export namespace ErpnextItemMapSchema {
                 query?: {
                     /** @description Optional lifecycle filter. Omit for all active mappings. */
                     state?: "suggested" | "confirmed";
-                    /** @description Page size (RT-1458). Omit to receive every active mapping in one response, the behaviour before paging was added; a later contract version will apply a default page size when this is absent. */
+                    /** @description Page size (RT-1458). Omit for the default of 100; `nextCursor` in the response leads to the next page. Before 1.3.0-draft an omitted `limit` returned every active mapping in one response. */
                     limit?: number;
                     /** @description Opaque token from the previous page's `nextCursor` (RT-1458). Clients MUST treat it as opaque. A token this operation did not issue is `400 validation_error`. Combine it with the same `state` and `limit` as the page that issued it. */
                     cursor?: string;
@@ -9872,7 +9872,7 @@ export namespace ErpnextItemMapSchema {
                     content: {
                         "application/json": {
                             items: components["schemas"]["ErpnextItemMapping"][];
-                            /** @description Pass as `cursor` to read the next page. `null` on the last page, and whenever `limit` was not sent. */
+                            /** @description Pass as `cursor` to read the next page. `null` on the last page. */
                             nextCursor: string | null;
                         };
                     };
@@ -18110,7 +18110,12 @@ export namespace PlatformSupportSessionsSchema {
                 /** @description On `ended` rows only. */
                 end_reason?: components["schemas"]["SupportSessionEndReason"];
             } & (unknown | unknown);
-            /** @description Allowlisted `metadata` of a `platform.cross_tenant.accessed` row. The route is the template (for example `/api/v1/sales/:saleId`), never the concrete path, query string or body. A `succeeded` row has a support session and no `reason`; a `rejected` row always has a `reason`, and a `support_session_expired`, `support_session_read_only` or `origin_rejected` rejection also names the support session and its purpose. */
+            /**
+             * @description The route templates of the six operations a platform admin may use without a support session (RT-1462; `x-support-session-enforcement` `platform-direct-operations`).
+             * @enum {string}
+             */
+            PlatformDirectRoute: "/api/v1/stores/:store_id/open-shifts" | "/api/v1/shifts/:shift_id/force-close-preview" | "/api/v1/shifts/:shift_id/force-close" | "/api/v1/stores/:store_id/deletion-preview" | "/api/v1/stores/:store_id/deletion" | "/api/v1/auth/reauth";
+            /** @description Allowlisted `metadata` of a `platform.cross_tenant.accessed` row. The route is the template (for example `/api/v1/sales/:saleId`), never the concrete path, query string or body. A `succeeded` row has a support session and no `reason`; a `rejected` row always has a `reason`, and a `support_session_expired`, `support_session_read_only` or `origin_rejected` rejection also names the support session and its purpose. **RT-1462 exception:** on the six `platform-direct-operations` routes (`PlatformDirectRoute`) a non-member platform admin needs no support session, so a `succeeded`, `support_session_read_only` or `origin_rejected` row there may have `support_session_id` and `purpose` null (it still names the session when the caller holds a live one). The exception is bound to those route templates: on every other route a row without a session is only a `support_session_required` refusal. */
             CrossTenantAccessAuditMetadata: {
                 /** @constant */
                 actor_kind: "platform_admin";
@@ -23175,7 +23180,7 @@ export namespace ConsoleForceActionsSchema {
              * List every open shift of a store with its eligibility verdict.
              * @description RT-1437 A1, D6. Every shift of the store whose lifecycle state is `open`, newest first, each with its verdict: stale, a live operator session, a live cashier admission, and the resulting blockers. Unlike the POS `GET /api/pos/v1/shifts/stuck` (which does not change), it lists shifts that are not eligible and the shift of a manager who is signed in elsewhere. The Console reader has no POS envelope, so the live-operator-session predicate counts every active `pos_operator` session of the opening cashier on the store, with no exception. The verdict is the same one `consoleForceCloseShift` evaluates, judged at `evaluatedAt`. A shift whose opening cashier has no display name is listed (RT-1438), with `displayName: null`.
              *
-             *     Owner or `tenant_admin` with all-store access; every other caller is the non-disclosing 404. A store of another tenant, a deleted store and an unknown id are the same 404. At most one shift is open per device, so the list is short; it carries no cursor and is capped at 200.
+             *     Owner or `tenant_admin` with all-store access, or a platform admin (RT-1462); every other caller is the non-disclosing 404. A store of another tenant, a deleted store and an unknown id are the same 404. At most one shift is open per device, so the list is short; it carries no cursor and is capped at 200.
              */
             get: operations["consoleListOpenShifts"];
             put?: never;
@@ -23231,7 +23236,7 @@ export namespace ConsoleForceActionsSchema {
              *
              *     **Eligibility** is the POS predicate evaluated at the call: the shift is open, older than the staleness threshold, its opening cashier has no active `pos_operator` session on the store (no caller exception: the Console reader has no envelope session), and its opening terminal holds no live cashier admission. Otherwise 409 `shift_not_stuck`, whose `error.details.blockers` lists every predicate that failed, so a live drawer is never closed from the Console.
              *
-             *     **Roles (D1).** Owner or `tenant_admin` with all-store access. Every other caller, including a `store_manager`, is the non-disclosing 404; no caller reaches this operation as `platform_admin` or inside a support session. **Re-authentication (D2a):** none, the typed reason only.
+             *     **Roles (D1, amended by RT-1462).** Owner or `tenant_admin` with all-store access, or a platform admin (a member or not, with or without a support session). Every other caller, including a `store_manager`, is the non-disclosing 404. **Re-authentication (D2a):** none, the typed reason only.
              *
              *     **Idempotency.** `Idempotency-Key` is REQUIRED (the shared interceptor, keyed on the verified user). The natural key is the shift with the hash of `forcedReason`, never the actor, the channel or the fingerprint: the same close sent again under another key, by another user, from the Console or a POS, is a `200` replay of the recorded fact. The evaluation order is in the contract description.
              *
@@ -23261,7 +23266,7 @@ export namespace ConsoleForceActionsSchema {
              *
              *     **The grant.** On success the response carries an opaque `reauthToken`, valid for 5 minutes (`expiresAt`), single use, and bound to the calling session, the user, the `purpose` and the `storeId`. The password is never part of the destructive request: the deletion carries only the token, so the password is never in an idempotency fingerprint or a replay record (the shared `IdempotencyInterceptor` hashes and stores the whole request body for 72 hours). The grant is consumed by the write that succeeds; a deletion refused for another reason (a guard, a stale preview) leaves it valid until it expires. A same-key replay never needs it.
              *
-             *     **Refusals.** A wrong password, an unverifiable provider answer, a token that fails verification and a subject mismatch are ONE generic 403 `reauth_failed`; they cannot be told apart, so the response cannot be used to probe the password. It is never 401, because the Console treats a 401 as session loss. Failed attempts are counted per user, 5 per 15 minutes, as `changePassword` counts them (a success does not count); past that the answer is 429 `reauth_rate_limited` with `Retry-After`. A provider outage is 503 `identity_provider_unavailable` (an outage is not a wrong password). For `store_deletion` only the tenant `owner` may obtain a grant: a `tenant_admin` is 403 `store_deletion_owner_only`, and any other role, another tenant's store and an unknown store are the non-disclosing 404. Support sessions and `platform_admin` are refused as on every write here.
+             *     **Refusals.** A wrong password, an unverifiable provider answer, a token that fails verification and a subject mismatch are ONE generic 403 `reauth_failed`; they cannot be told apart, so the response cannot be used to probe the password. It is never 401, because the Console treats a 401 as session loss. Failed attempts are counted per user, 5 per 15 minutes, as `changePassword` counts them (a success does not count); past that the answer is 429 `reauth_rate_limited` with `Retry-After`. A provider outage is 503 `identity_provider_unavailable` (an outage is not a wrong password). For `store_deletion` the tenant `owner` or, since RT-1462, a platform admin may obtain a grant (with their OWN password): a `tenant_admin` is 403 `store_deletion_owner_only`, and any other role, another tenant's store and an unknown store are the non-disclosing 404.
              *
              *     **Evaluation order.** The password is the LAST thing checked, so no caller who fails an earlier step can use this endpoint to test a password:
              *
@@ -23272,8 +23277,9 @@ export namespace ConsoleForceActionsSchema {
              *       2. Body validation (400 `validation_error`).
              *
              *       3. The store and the role: the store in the caller's tenant, not
-             *          deleted (404); a role outside owner and `tenant_admin` (404); a
-             *          `tenant_admin` (403 `store_deletion_owner_only`).
+             *          deleted (404); a role outside owner and `tenant_admin` (404, a
+             *          platform admin passes whatever role they hold); a `tenant_admin`
+             *          (403 `store_deletion_owner_only`).
              *
              *       4. The failed-attempt budget (429 `reauth_rate_limited`), read before
              *          any password is verified, so a user over budget is refused without
@@ -23522,7 +23528,7 @@ export namespace ConsoleForceActionsSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 403 — `origin_rejected` (RT-430: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session refusal (`support_session_required`, `support_session_expired`, `support_session_read_only`): no write on this surface is admitted in a support session. */
+            /** @description 403 — `origin_rejected` (RT-430: the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session refusal (`support_session_required` when the session's active tenant does not exist, or `support_session_read_only` for a non-member platform admin's unsafe method on a suspended tenant). Since RT-1462 no support session is needed on this surface, so an expired one is treated as absent and is never a refusal here. */
             ForbiddenForce: {
                 headers: {
                     [name: string]: unknown;
@@ -23632,6 +23638,15 @@ export namespace ConsoleForceActionsSchema {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                /** @description `support_session_required`: the active tenant of a platform admin who is not a member no longer exists (for example it was deleted), so the direct-route gate refuses before the handler runs. An unknown or foreign resource in a valid active tenant stays 404. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
                 404: components["responses"]["NotFound"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
@@ -23659,6 +23674,15 @@ export namespace ConsoleForceActionsSchema {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                /** @description `support_session_required`: the active tenant of a platform admin who is not a member no longer exists (for example it was deleted), so the direct-route gate refuses before the handler runs. An unknown or foreign resource in a valid active tenant stays 404. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
                 404: components["responses"]["NotFound"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
@@ -23739,7 +23763,7 @@ export namespace ConsoleForceActionsSchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
-                /** @description `reauth_failed` (the generic refusal), `store_deletion_owner_only`, `origin_rejected` (RT-430), or a support-session refusal (`support_session_required`, `support_session_expired`, `support_session_read_only`). */
+                /** @description `reauth_failed` (the generic refusal), `store_deletion_owner_only`, `origin_rejected` (RT-430), or a support-session refusal (`support_session_read_only` for a non-member platform admin on a suspended tenant; `support_session_required` for a tenant that does not exist). */
                 403: {
                     headers: {
                         [name: string]: unknown;

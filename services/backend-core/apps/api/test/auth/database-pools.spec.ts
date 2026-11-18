@@ -1,12 +1,7 @@
 import type { Pool } from "pg";
 
-import {
-  AUTH_LOOKUP_FORBIDDEN_GRANTS,
-  AUTH_LOOKUP_REQUIRED_GRANTS,
-  DOMAIN_FORBIDDEN_COLUMN_GRANTS,
-  authLookupPoolFactory,
-  verifyDatabasePoolBoundary,
-} from "../../src/auth/database-pools";
+import { AUTH_LOOKUP_FORBIDDEN_GRANTS, AUTH_LOOKUP_REQUIRED_GRANTS, DOMAIN_FORBIDDEN_COLUMN_GRANTS, verifyDatabasePoolBoundary } from "../../src/auth/database-pools";
+import { authLookupPoolFactory } from "../../src/database/database-pools";
 import { routineGrantScripts, scriptColumnGrants, scriptGrants } from "../_helpers/domain-grant-scripts";
 
 const ORIGINAL_ENV = { ...process.env };

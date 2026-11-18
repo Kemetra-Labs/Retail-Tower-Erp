@@ -27,7 +27,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { writeAudit } from '../position-events/position-event.writer';
 import { placementMoves, releaseMoves } from './hold-move.rules';
 import { moveHeldPositions } from './hold-quantity';

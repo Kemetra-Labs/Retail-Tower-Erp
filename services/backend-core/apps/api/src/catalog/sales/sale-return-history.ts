@@ -6,7 +6,7 @@
  */
 import type { PoolClient } from "pg";
 
-import { scaled, wholeUnits } from "../../offers/evaluator/offer-decimal";
+import { scaled, wholeUnits } from "@data-pulse-2/offer-engine";
 import { replayReturns, type HistoryLine, type HistoryStep, type ReplayResult } from "../../offers/evaluator/offer-return-history";
 
 /** A promoted line of a sale that does not divide into whole units (never reachable from valid data). */

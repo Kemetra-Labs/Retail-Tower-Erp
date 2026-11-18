@@ -28,7 +28,8 @@ import { Test } from "@nestjs/testing";
 import { Pool } from "pg";
 
 import { generateRawToken, hashToken } from "@data-pulse-2/auth";
-import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT } from "../../src/auth/external-credential.port";
 import { OPERATOR_TOKEN_VERIFIER } from "../../src/auth/operator-token-verifier";

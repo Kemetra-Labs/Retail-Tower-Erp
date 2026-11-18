@@ -271,10 +271,11 @@ cmp -s "$TMP/shard-0/ws/plan.txt" "$TMP/shard-3/ws/plan.txt" && pass "every shar
 
 for i in 0 1 2 3; do
   shard "$i" run gate >"$TMP/gate-$i.out" 2>&1 || fail "shard $i gate failed" "$(tail -n 6 "$TMP/gate-$i.out")"
-  shard "$i" run report >"$TMP/report-$i.out" 2>&1 || fail "shard $i report failed" "$(tail -n 6 "$TMP/report-$i.out")"
   shard "$i" collect >"$TMP/collect-$i.out" 2>&1 || fail "shard $i collect failed" "$(tail -n 6 "$TMP/collect-$i.out")"
 done
-ls "$TMP/shard-0/ws/artifact" | tr '\n' ' ' | grep -q 'gate.rc.*manifest-gate.txt.*plan.txt.*report.rc.*sha.txt' && pass "artifact holds plan, SHA, exit codes and manifests only" || fail "unexpected artifact content: $(ls "$TMP/shard-0/ws/artifact")"
+ls "$TMP/shard-0/ws/artifact" | tr '\n' ' ' | grep -q 'gate.rc.*manifest-gate.txt.*plan.txt.*sha.txt' && pass "artifact holds plan, SHA, exit code and manifest only" || fail "unexpected artifact content: $(ls "$TMP/shard-0/ws/artifact")"
+ls "$TMP/shard-0/ws/artifact" | grep -q report && fail "a PR shard artifact holds report output (RT-1467: gate only)" || pass "no report output in a PR shard artifact"
+expect 1 'only gate is sharded' "shard.sh refuses to run report mode (RT-1467)" -- shard 0 run report
 if [[ -z "$(find "$TMP"/shard-?/ws/artifact -name '*.txt' -newer "$TMP/units.txt" -name '[a-z]*-owner-*' 2>/dev/null)" ]]; then pass "no raw per-file log is published"; fi
 
 DL="$TMP/downloaded"
@@ -295,8 +296,8 @@ assemble
 printf 'gate owner x.yaml 0 0 9 a\n' >>"$DL/schemathesis-shard-0/manifest-gate.txt"
 expect 1 'x.yaml \(owner\) ran 1 times \(in inventory: False\)' "fan-in fails on an unexpected contract file" -- fanin success
 assemble
-sed -i '1d' "$DL/schemathesis-shard-3/manifest-report.txt"
-expect 1 'report: .* ran 0 times' "fan-in fails on a missing contract file" -- fanin success
+sed -i '1d' "$DL/schemathesis-shard-3/manifest-gate.txt"
+expect 1 'gate: .* ran 0 times' "fan-in fails on a missing contract file" -- fanin success
 
 # ---- secret guard ---------------------------------------------------------------
 cp -R "$TMP/shard-0/out/." "$TMP/shard-0/out2" 2>/dev/null || true
@@ -304,7 +305,7 @@ echo "curl -H 'Cookie: dp2_session=$(cat "$FUZZ_OUT/cookie-owner")'" >"$TMP/shar
 expect 1 'a credential appeared in a file to publish' "collect withholds the artifact when a cookie is in a findings file" -- shard 0 collect
 [[ ! -e "$TMP/shard-0/ws/artifact" ]] && pass "the artifact directory is removed" || fail "artifact directory still present"
 echo "### clean finding" >"$TMP/shard-0/out/gate.md"
-printf 'redis0123456789abcdef0123456789' >>"$TMP/shard-0/out/report.md"
+printf 'redis0123456789abcdef0123456789' >>"$TMP/shard-0/out/gate.md"
 expect 1 'a credential appeared' "collect withholds the artifact when a stack password is in a findings file" -- shard 0 collect
 
 if [[ "$fails" -gt 0 ]]; then

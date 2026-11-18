@@ -20,7 +20,11 @@ import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
 import { PrinterFailureBanner } from '../../../../src/renderer/ui/receipts/PrinterFailureBanner.js';
-import type { ReceiptsBridgeAPI } from '../../../../src/shared/bridge-api.js';
+import type {
+  ReceiptsBridgeAPI,
+  ReceiptsManualOverrideResponse,
+  ReceiptsRetryPrintResponse,
+} from '../../../../src/shared/bridge-api.js';
 
 function retryBridge(): ReceiptsBridgeAPI {
   return {
@@ -166,7 +170,7 @@ describe('T262 — affordance gating', () => {
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: 'إعادة المحاولة' }));
-    const call = (bridge.retryPrint as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+    const call = (bridge.retryPrint as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
       idempotency_key: string;
     };
     expect(call.idempotency_key).toBe('fixed-key-1');
@@ -176,6 +180,8 @@ describe('T262 — affordance gating', () => {
     const rejecting: ReceiptsBridgeAPI = {
       preview: vi.fn(),
       retryPrint: vi.fn(() => Promise.reject(new Error('ipc boom'))),
+      reprint: vi.fn(),
+      manualOverride: vi.fn(),
     };
     render(
       <PrinterFailureBanner
@@ -201,6 +207,7 @@ describe('T262 — affordance gating', () => {
     const rejecting: ReceiptsBridgeAPI = {
       preview: vi.fn(),
       retryPrint: vi.fn(),
+      reprint: vi.fn(),
       manualOverride: vi.fn(() => Promise.reject(new Error('ipc boom'))),
     };
     render(
@@ -241,10 +248,11 @@ describe('T262 — affordance gating', () => {
       preview: vi.fn(),
       retryPrint: vi.fn(
         () =>
-          new Promise((resolve) => {
+          new Promise<ReceiptsRetryPrintResponse>((resolve) => {
             resolveRetry = resolve;
           }),
       ),
+      reprint: vi.fn(),
       manualOverride: vi.fn(),
     };
     render(
@@ -324,7 +332,7 @@ describe('T262 — affordance gating', () => {
       reprint: vi.fn(),
       manualOverride: vi.fn(
         () =>
-          new Promise((resolve) => {
+          new Promise<ReceiptsManualOverrideResponse>((resolve) => {
             resolveManual = resolve;
           }),
       ),

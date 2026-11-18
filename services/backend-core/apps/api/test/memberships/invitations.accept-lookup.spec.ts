@@ -26,7 +26,8 @@ import { Test } from "@nestjs/testing";
 import { Pool } from "pg";
 
 import { hashPassword, generateRawToken, hashToken } from "@data-pulse-2/auth";
-import { AuthModule, PG_POOL, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { PG_POOL } from "../../src/database";
 import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { ContextModule } from "../../src/context/context.module";
 import { MembershipsModule } from "../../src/memberships/memberships.module";

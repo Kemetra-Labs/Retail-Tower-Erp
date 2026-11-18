@@ -22,6 +22,12 @@ module.exports = {
       },
     ],
   },
+  // RT-1378: the shared Offer Engine package is run from its source here, so the api Jest lanes that
+  // build only a few named workspaces (bc/db-integration, the CircleCI and Depot api runs) do not
+  // need packages/offer-engine/dist. Production and typecheck still use the built dist.
+  moduleNameMapper: {
+    "^@data-pulse-2/offer-engine$": "<rootDir>/../../packages/offer-engine/src/index.ts",
+  },
   // RT-815: one shared Postgres per run; each spec file clones its own
   // database from a migrated template (test/_helpers/postgres-container.ts).
   globalSetup: "<rootDir>/test/_helpers/jest-global-setup.ts",

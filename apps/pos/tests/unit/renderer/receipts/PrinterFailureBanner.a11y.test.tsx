@@ -22,7 +22,7 @@ const FAILURE = {
 };
 
 function noopReceiptsBridge(): ReceiptsBridgeAPI {
-  return { preview: vi.fn(), retryPrint: vi.fn() };
+  return { preview: vi.fn(), retryPrint: vi.fn(), reprint: vi.fn(), manualOverride: vi.fn() };
 }
 
 afterEach(() => {

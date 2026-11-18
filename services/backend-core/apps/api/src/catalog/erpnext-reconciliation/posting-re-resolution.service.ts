@@ -24,7 +24,7 @@ import type { Pool, PoolClient } from "pg";
 
 import { lockPostingFeedSequence, runWithTenantContext } from "@data-pulse-2/db";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { MembershipRepository } from "../../context/membership.repository";
 import { RepairNotFoundError, type RepairPostingInput } from "./erpnext-reconciliation.service";
 import { freezeOperatorResolution, insertAuditEvent, isStoreWritable } from "./posting-resolution.writer";

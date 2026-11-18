@@ -1,22 +1,19 @@
 /**
- * PathTenantSupportSessionGuard — RT-414 enforcement on the two path-tenant
+ * PathTenantSupportSessionGuard — the cross-tenant record on the two path-tenant
  * routes that reach one tenant's data without `TenantContextGuard`:
  * `listMembers` (`GET /api/v1/tenants/{tenant_id}/members`) and `updateTenant`
  * (`PATCH /api/v1/tenants/{tenant_id}`) (owner decision 6, 2026-10-12).
  *
- * Mounted BEFORE `RolesGuard` (whose platform-admin bypass would otherwise
- * admit any tenant) and before the handler's UUID pipe:
+ * Mounted BEFORE `RolesGuard` and before the handler's UUID pipe:
  *
  *   - not a cookie session, or not a platform admin → pass; `RolesGuard`
  *     decides as before;
- *   - a platform admin with a live membership in the path tenant → pass;
  *   - a path segment that is not a UUID or names no tenant → 403
- *     `support_session_required`, identical to an existing non-member tenant
- *     (FR-ISO-4), with a platform-scoped row (`tenant_id` null);
- *   - otherwise `SupportSessionGate` (the active support session must be for
- *     exactly this tenant). On a suspended tenant `updateTenant` is admitted
- *     only for a status-only body, so the platform can reactivate it; any
- *     other field is refused `support_session_read_only`.
+ *     `support_session_required` (FR-ISO-4), with a platform-scoped row
+ *     (`tenant_id` null);
+ *   - otherwise `SupportSessionGate.admit`: since RT-1468 every platform admin
+ *     (member or not, no support session needed, suspended tenant included) is
+ *     admitted and the request writes one `platform.cross_tenant.accessed` row.
  */
 import {
   type CanActivate,
@@ -27,15 +24,10 @@ import {
 import type { Pool } from "pg";
 
 import type { AuthedRequest } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/database-pools";
+import { PG_POOL } from "../database";
 import { assignRequestId } from "../common/request-id.interceptor";
 import { MembershipRepository } from "../context/membership.repository";
-import {
-  PATH_TENANT_HANDLERS,
-  handlerKey,
-  readOnlyExemptFor,
-  routeTemplate,
-} from "./support-session.coverage";
+import { PATH_TENANT_HANDLERS, handlerKey, routeTemplate } from "./support-session.coverage";
 import { SupportSessionGate, type GateRequest } from "./support-session.gate";
 
 @Injectable()
@@ -60,8 +52,8 @@ export class PathTenantSupportSessionGuard implements CanActivate {
     if (!(await this.gate.tenantRowExists(tenantId))) {
       return this.gate.refuseUnresolvable(gateRequest);
     }
-    if (await this.gate.isMember({ userId: principal.userId, tenantId })) return true;
-    await this.gate.enforce(tenantId, gateRequest);
+    // RT-1468: every platform admin (member or not) is admitted and recorded.
+    await this.gate.admit(tenantId, gateRequest);
     return true;
   }
 }
@@ -82,7 +74,6 @@ function describeRequest(
       method: request.method ?? "GET",
       route: routeTemplate(execCtx),
       requestId: assignRequestId(request, execCtx.switchToHttp().getResponse()),
-      readOnlyExempt: target ? readOnlyExemptFor(target, request.body) : false,
     },
   };
 }

@@ -57,7 +57,7 @@ import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,
 } from "../../audit/audit-job.enqueuer";
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { ErpnextWarehouseMapRow } from "./dto/erpnext-warehouse-mapping.dto";
 

@@ -15,7 +15,7 @@
 #                  platform groups (ops.py, same image and mounts as a run) and run nothing.
 #                  The shard plan is computed from this, never from a hardcoded list.
 #
-# SHARD_UNITS=<file> (RT-809, gate and report only): run only the contract files listed
+# SHARD_UNITS=<file> (RT-809, gate and report only; the PR shards use gate only, RT-1467): run only the contract files listed
 # there, one "<group> <file>" per line, and write a line per file run to
 # $FUZZ_OUT/manifest-<mode>.txt for the fan-in (tools/schemathesis/shards.py). Without it
 # nothing below changes. With it, BASELINE_UPDATE and operator mode are rejected, and so

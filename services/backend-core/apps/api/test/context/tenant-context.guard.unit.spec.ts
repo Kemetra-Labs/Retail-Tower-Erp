@@ -31,10 +31,22 @@
  *   TCG16 — RT-669: session non-admin → membership read refuses a non-active tenant (404);
  *           platform admin never consults tenant status (D-a)
  */
+// RT-1468: every platform admin is recorded by `SupportSessionGate.admit`, which needs a pool. The
+// platform-admin tests below pass a stub pool; the bootstrap helpers stay passthroughs with no client
+// (the same `undefined` client the no-pool path gives), and `admit` is spied per test file.
+jest.mock("@data-pulse-2/db", () => ({
+  ...jest.requireActual("@data-pulse-2/db"),
+  runWithTenantContext: jest.fn(async (_pool: unknown, _ctx: unknown, work: (client: unknown) => unknown) => work(undefined)),
+  runWithSystemPrivilege: jest.fn(async (_pool: unknown, _ctx: unknown, work: (client: unknown) => unknown) => work(undefined)),
+}));
+
 import "reflect-metadata";
 
 import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import type { ExecutionContext } from "@nestjs/common";
+import type { Pool } from "pg";
+
+import { SupportSessionGate } from "../../src/platform-support-sessions/support-session.gate";
 
 import type { Principal } from "../../src/auth/auth.guard";
 import type { SessionRepository } from "../../src/auth/session.repository";
@@ -101,6 +113,8 @@ function makeGuard(opts: {
   listGrantedStoreIds?: jest.Mock;
   isTenantActive?: jest.Mock;
   hasLiveMembership?: jest.Mock;
+  /** RT-1468: a platform admin needs a pool (the gate records every request); omit it for other callers. */
+  pool?: Pool;
 } = {}) {
   const fakeSessions = {
     findActiveById: opts.sessionFindActive ?? jest.fn().mockResolvedValue(null),
@@ -118,9 +132,20 @@ function makeGuard(opts: {
     fakeSessions as unknown as SessionRepository,
     fakeMemberships as unknown as MembershipRepository,
     // NO pool → withBootstrapCtx uses the passthrough (unit-test) path
+    opts.pool,
   );
   return { guard, fakeSessions, fakeMemberships };
 }
+
+const STUB_POOL = {} as Pool;
+
+beforeEach(() => {
+  jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(null);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // ExecutionContext factory
@@ -344,9 +369,11 @@ describe("TCG11 — platform admin: no store", () => {
       isPlatformAdmin:      jest.fn().mockResolvedValue(true),
       findActiveMembership,
       canAccessStore,
+      pool:                 STUB_POOL,
     });
 
     const ctx = await guard.resolve(sessionPrincipal());
+    expect(SupportSessionGate.prototype.admit).toHaveBeenCalledTimes(1);
     expect(ctx).toEqual({
       userId: USER_ID,
       tenantId: TENANT_ID,
@@ -361,11 +388,11 @@ describe("TCG11 — platform admin: no store", () => {
 });
 
 // ---------------------------------------------------------------------------
-// TCG11b — RT-414: a NON-member platform admin needs a support session; with
-// no pool the guard cannot check one, so it fails closed.
+// TCG11b — RT-1468: every platform admin request is recorded by the gate; with
+// no pool the guard cannot record it, so it fails closed.
 // ---------------------------------------------------------------------------
 
-describe("TCG11b — RT-414: non-member platform admin without a pool", () => {
+describe("TCG11b — RT-1468: platform admin without a pool", () => {
   it("refuses with 403 support_session_required and never validates the store", async () => {
     const canAccessStore = jest.fn().mockResolvedValue(true);
     const { guard } = makeGuard({
@@ -397,6 +424,7 @@ describe("TCG12 — platform admin: store set, access granted", () => {
       isPlatformAdmin:      jest.fn().mockResolvedValue(true),
       findActiveMembership,
       canAccessStore,
+      pool:                 STUB_POOL,
     });
 
     const ctx = await guard.resolve(sessionPrincipal());
@@ -423,6 +451,7 @@ describe("TCG13 — platform admin: store set, access denied", () => {
       sessionFindActive: jest.fn().mockResolvedValue(makeSession({ activeStoreId: STORE_ID })),
       isPlatformAdmin:   jest.fn().mockResolvedValue(true),
       canAccessStore:    jest.fn().mockResolvedValue(false),
+      pool:              STUB_POOL,
     });
     await expect(guard.resolve(sessionPrincipal())).rejects.toBeInstanceOf(
       NotFoundException,
@@ -508,6 +537,7 @@ describe("TCG16 — RT-669: session branch", () => {
       sessionFindActive: jest.fn().mockResolvedValue(makeSession()),
       isPlatformAdmin: jest.fn().mockResolvedValue(true),
       isTenantActive,
+      pool: STUB_POOL,
     });
     const ctx = await guard.resolve(sessionPrincipal());
     expect(ctx.isPlatformAdmin).toBe(true);

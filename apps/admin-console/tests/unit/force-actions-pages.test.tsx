@@ -167,7 +167,7 @@ describe("OpenShiftsPage", () => {
     expect(screen.queryByRole("button", { name: /without a count/ })).toBeNull();
   });
 
-  test("the action is hidden inside a support session, even for an owner", async () => {
+  test("the action is hidden inside a support session, even for an owner who is not a platform admin", async () => {
     supportSession.mockReturnValue({ id: "ss-1" });
     consoleListOpenShifts.mockResolvedValue(
       list([shift("0198a0c4-0000-7000-8000-000000000b01", { eligible: true })]),
@@ -175,6 +175,20 @@ describe("OpenShiftsPage", () => {
     renderOpenShifts();
     await screen.findByText("Can be closed without a count now.");
     expect(screen.queryByRole("button", { name: /without a count/ })).toBeNull();
+  });
+
+  // RT-1462 (owner decision 2026-11-18): the server admits a platform admin inside a support session.
+  test("a platform admin inside a support session sees the action", async () => {
+    activeContext.mockReturnValue({
+      context: { ...asRole("store_manager").context, user: { is_platform_admin: true } },
+    });
+    supportSession.mockReturnValue({ id: "ss-1" });
+    consoleListOpenShifts.mockResolvedValue(
+      list([shift("0198a0c4-0000-7000-8000-000000000b01", { eligible: true })]),
+    );
+    renderOpenShifts();
+    await screen.findByText("Can be closed without a count now.");
+    expect(screen.getAllByRole("button", { name: /without a count/ }).length).toBeGreaterThan(0);
   });
 
   test("no open shift is said so", async () => {

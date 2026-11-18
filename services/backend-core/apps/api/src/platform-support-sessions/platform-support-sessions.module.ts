@@ -8,7 +8,8 @@
 import { Module } from "@nestjs/common";
 import type { Pool } from "pg";
 
-import { AuthModule, PG_POOL } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { SessionRepository } from "../auth/session.repository";
 import { ContextModule } from "../context/context.module";
 import { MembershipRepository } from "../context/membership.repository";

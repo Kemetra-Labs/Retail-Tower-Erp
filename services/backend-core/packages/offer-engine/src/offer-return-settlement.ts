@@ -1,11 +1,10 @@
 /**
- * RT-1339 (RT-286 S7) — return clawback, spec 048 §9, multi-return form. PURE.
+ * Return clawback — spec 048 §9, multi-return form (Jira RT-1337, RT-1339, RT-286 S4 and S7;
+ * one shared copy since RT-1378). PURE.
  *
- * The same rule Backend-Core's `recordReturn` applies
- * (`offers/evaluator/offer-return-settlement.ts`), proven against the same golden
- * vectors. Backend-Core is the authority: the till uses this only to PREDICT the
- * clawback or refusal before it asks Backend-Core, and shows Backend-Core's answer
- * when it differs.
+ * The rule Backend-Core's `recordReturn` applies, proven against the golden vectors.
+ * Backend-Core is the authority: a till may use this only to PREDICT the clawback or
+ * refusal before it asks Backend-Core, and shows Backend-Core's answer when it differs.
  *
  * A return uses the FROZEN offer version and unit prices of the sale. For one
  * offer version O, counting every earlier return of the sale:
@@ -24,8 +23,8 @@ import {
   totalDiscountOf,
   type EvaluatorOffer,
   type OfferUnit,
-} from './offer-evaluator.js';
-import { scaled, wholeUnits } from './offer-decimal.js';
+} from './offer-evaluator';
+import { scaled, wholeUnits } from './offer-decimal';
 
 /** One sale line that cites offer version O (its `promotion` fact), as frozen at capture. */
 export interface SaleOfferLine {

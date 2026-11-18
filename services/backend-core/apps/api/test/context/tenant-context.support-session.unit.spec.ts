@@ -1,13 +1,16 @@
 /**
- * RT-1462 — `TenantContextGuard` publishes the support session that admitted a non-member platform
- * admin (`ResolvedContext.supportSession`), so the force actions can record "on behalf of" without
- * opening a second platform-admin database context.
+ * RT-1468 — `TenantContextGuard` admits every platform admin in the active tenant (member or not, with or
+ * without a support session) through `SupportSessionGate.admit`, and publishes the live support session it
+ * returns (`ResolvedContext.supportSession`), so the force actions record "on behalf of" without opening a
+ * second platform-admin database context.
  *
- * No database: `runWithTenantContext` and `runWithSystemPrivilege` are passthroughs and `SupportSessionGate.enforce` is spied. Pins:
- *   - a non-member platform admin: the context carries `{ id, ticketRef }` of the session the gate returned;
- *   - a platform admin who IS a member: the gate is never asked and the key is absent;
- *   - a non-platform-admin member: the key is absent;
- *   - the existing refusals are unchanged (the gate's 403 propagates).
+ * No database: `runWithTenantContext` and `runWithSystemPrivilege` are passthroughs and
+ * `SupportSessionGate.admit` is spied. Pins:
+ *   - a platform admin, member or not: exactly one `admit` call (one cross-tenant row), the live session's
+ *     `{ id, ticketRef }` published, no key when there is none;
+ *   - no membership lookup decides a platform admin's admission any more;
+ *   - a non-platform-admin member: the gate is never asked and the key is absent;
+ *   - a refusal of the gate (a tenant that no longer exists) propagates.
  */
 jest.mock("@data-pulse-2/db", () => ({
   ...jest.requireActual("@data-pulse-2/db"),
@@ -38,7 +41,10 @@ const principal: Extract<Principal, { kind: "session" }> = {
   userId: USER_ID,
 } as Extract<Principal, { kind: "session" }>;
 
-function guardWith(opts: { isPlatformAdmin: boolean; member: boolean }): TenantContextGuard {
+function setup(opts: { isPlatformAdmin: boolean; member: boolean }): {
+  guard: TenantContextGuard;
+  memberships: { hasLiveMembership: jest.Mock };
+} {
   const sessions = {
     findActiveById: jest.fn().mockResolvedValue({ id: SESSION_ID, activeTenantId: TENANT_ID, activeStoreId: null }),
   } as unknown as SessionRepository;
@@ -47,90 +53,82 @@ function guardWith(opts: { isPlatformAdmin: boolean; member: boolean }): TenantC
     hasLiveMembership: jest.fn().mockResolvedValue(opts.member),
     findActiveMembership: jest.fn().mockResolvedValue({ membershipId: "m1", storeAccessKind: "all" }),
     canAccessStore: jest.fn().mockResolvedValue(true),
-  } as unknown as MembershipRepository;
-  return new TenantContextGuard(sessions, memberships, {} as Pool);
+  };
+  return {
+    guard: new TenantContextGuard(sessions, memberships as unknown as MembershipRepository, {} as Pool),
+    memberships,
+  };
 }
 
 function record(ticketRef: string | null): SupportSessionRecord {
   return { id: SUPPORT_ID, ticketRef, tenantId: TENANT_ID } as unknown as SupportSessionRecord;
 }
 
-describe("TenantContextGuard publishes the admitting support session (RT-1462)", () => {
+const ACCESS = { method: "POST", route: "/api/v1/stores", requestId: () => "rid-1" };
+
+describe("TenantContextGuard admits every platform admin through SupportSessionGate.admit (RT-1468)", () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it("a non-member platform admin: the context carries the session id and ticket reference", async () => {
-    const enforce = jest.spyOn(SupportSessionGate.prototype, "enforce").mockResolvedValue(record("RT-4242"));
-    const ctx = await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal);
+  it.each([
+    ["not a member", false],
+    ["a member", true],
+  ])("a platform admin who is %s: one admit call, the live session published", async (_label, member) => {
+    const admit = jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(record("RT-4242"));
+    const { guard, memberships } = setup({ isPlatformAdmin: true, member });
+    const ctx = await guard.resolve(principal, ACCESS);
+    expect(ctx).toMatchObject({ tenantId: TENANT_ID, isPlatformAdmin: true });
     expect(ctx.supportSession).toEqual({ id: SUPPORT_ID, ticketRef: "RT-4242" });
-    expect(enforce).toHaveBeenCalledTimes(1);
+    expect(admit).toHaveBeenCalledTimes(1);
+    expect(admit).toHaveBeenCalledWith(TENANT_ID, {
+      authSessionId: SESSION_ID,
+      userId: USER_ID,
+      method: "POST",
+      route: "/api/v1/stores",
+      requestId: "rid-1",
+    });
+    // Membership no longer decides a platform admin's admission.
+    expect(memberships.hasLiveMembership).not.toHaveBeenCalled();
   });
 
   it("a session with no ticket reference publishes ticketRef null", async () => {
-    jest.spyOn(SupportSessionGate.prototype, "enforce").mockResolvedValue(record(null));
-    const ctx = await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal);
+    jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(record(null));
+    const ctx = await setup({ isPlatformAdmin: true, member: false }).guard.resolve(principal, ACCESS);
     expect(ctx.supportSession).toEqual({ id: SUPPORT_ID, ticketRef: null });
   });
 
-  it("a platform admin who is a member: no gate call, no supportSession key", async () => {
-    const enforce = jest.spyOn(SupportSessionGate.prototype, "enforce");
-    const ctx = await guardWith({ isPlatformAdmin: true, member: true }).resolve(principal);
-    expect(enforce).not.toHaveBeenCalled();
+  it("no live session: admitted, and the context carries no supportSession key", async () => {
+    jest.spyOn(SupportSessionGate.prototype, "admit").mockResolvedValue(null);
+    const ctx = await setup({ isPlatformAdmin: true, member: false }).guard.resolve(principal, ACCESS);
+    expect(ctx).toMatchObject({ tenantId: TENANT_ID, isPlatformAdmin: true });
     expect("supportSession" in ctx).toBe(false);
   });
 
-  it("an ordinary member: no supportSession key", async () => {
-    const ctx = await guardWith({ isPlatformAdmin: false, member: true }).resolve(principal);
+  it("an ordinary member: the gate is never asked and no supportSession key", async () => {
+    const admit = jest.spyOn(SupportSessionGate.prototype, "admit");
+    const ctx = await setup({ isPlatformAdmin: false, member: true }).guard.resolve(principal, ACCESS);
+    expect(admit).not.toHaveBeenCalled();
     expect("supportSession" in ctx).toBe(false);
   });
 
-  describe("a direct route (RT-1462): no support session is needed", () => {
-    const direct = { method: "POST", route: "/api/v1/shifts/:shift_id/force-close", requestId: () => null, platformDirect: true };
-
-    it("a non-member platform admin is admitted through admitDirect, never enforce; the live session, if any, is published", async () => {
-      const enforce = jest.spyOn(SupportSessionGate.prototype, "enforce");
-      const admitDirect = jest.spyOn(SupportSessionGate.prototype, "admitDirect").mockResolvedValue(record("RT-4242"));
-      const ctx = await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, direct);
-      expect(ctx.supportSession).toEqual({ id: SUPPORT_ID, ticketRef: "RT-4242" });
-      expect(admitDirect).toHaveBeenCalledTimes(1);
-      expect(enforce).not.toHaveBeenCalled();
-    });
-
-    it("with no live session the context carries none (on_behalf_of then names the tenant only)", async () => {
-      jest.spyOn(SupportSessionGate.prototype, "admitDirect").mockResolvedValue(null);
-      const ctx = await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, direct);
-      expect(ctx).toMatchObject({ tenantId: TENANT_ID, isPlatformAdmin: true });
-      expect("supportSession" in ctx).toBe(false);
-    });
-
-    it("a refusal of admitDirect (a suspended tenant's write, a missing tenant) propagates", async () => {
-      jest
-        .spyOn(SupportSessionGate.prototype, "admitDirect")
-        .mockRejectedValue(new ForbiddenException({ code: "support_session_read_only", message: "x" }));
-      await expect(guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, direct)).rejects.toMatchObject({
-        status: 403,
-        response: { code: "support_session_read_only" },
-      });
-    });
-
-    it("a route that is NOT direct still enforces the support session", async () => {
-      const enforce = jest.spyOn(SupportSessionGate.prototype, "enforce").mockResolvedValue(record(null));
-      const admitDirect = jest.spyOn(SupportSessionGate.prototype, "admitDirect");
-      await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, { ...direct, platformDirect: false });
-      await guardWith({ isPlatformAdmin: true, member: false }).resolve(principal, {
-        method: "GET",
-        route: "/api/v1/stores",
-        requestId: () => null,
-      });
-      expect(enforce).toHaveBeenCalledTimes(2);
-      expect(admitDirect).not.toHaveBeenCalled();
-    });
-  });
-
-  it("the gate's refusal still propagates (no session, no context)", async () => {
+  it("the gate's refusal (a tenant that no longer exists) propagates", async () => {
     jest
-      .spyOn(SupportSessionGate.prototype, "enforce")
+      .spyOn(SupportSessionGate.prototype, "admit")
       .mockRejectedValue(new ForbiddenException({ code: "support_session_required", message: "x" }));
-    await expect(guardWith({ isPlatformAdmin: true, member: false }).resolve(principal)).rejects.toMatchObject({
+    await expect(setup({ isPlatformAdmin: true, member: false }).guard.resolve(principal, ACCESS)).rejects.toMatchObject({
+      status: 403,
+      response: { code: "support_session_required" },
+    });
+  });
+
+  it("without a pool a platform admin fails closed (no request runs unrecorded)", async () => {
+    const sessions = {
+      findActiveById: jest.fn().mockResolvedValue({ id: SESSION_ID, activeTenantId: TENANT_ID, activeStoreId: null }),
+    } as unknown as SessionRepository;
+    const memberships = {
+      isPlatformAdmin: jest.fn().mockResolvedValue(true),
+      hasLiveMembership: jest.fn().mockResolvedValue(true),
+    } as unknown as MembershipRepository;
+    await expect(new TenantContextGuard(sessions, memberships).resolve(principal, ACCESS)).rejects.toMatchObject({
       status: 403,
       response: { code: "support_session_required" },
     });

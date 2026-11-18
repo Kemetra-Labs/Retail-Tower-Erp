@@ -106,7 +106,7 @@ describe('ForcedCloseForm — submit payload correctness', () => {
     await user.type(screen.getByLabelText(SHIFT_COPY.countLabel), '500');
     await user.click(screen.getByRole('button', COMMIT));
     expect(onSubmit).toHaveBeenCalledOnce();
-    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
       forced_close_reason: ForcedCloseReason;
       annotation?: string;
     };
@@ -131,7 +131,7 @@ describe('ForcedCloseForm — submit payload correctness', () => {
     await user.type(screen.getByLabelText(SHIFT_COPY.countLabel), '500');
     await user.click(screen.getByRole('button', COMMIT));
     expect(onSubmit).toHaveBeenCalledOnce();
-    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
       forced_close_reason: ForcedCloseReason;
       annotation?: string;
     };
@@ -146,7 +146,7 @@ describe('ForcedCloseForm — submit payload correctness', () => {
     await user.click(screen.getByDisplayValue('terminal_failure'));
     await user.type(screen.getByLabelText(SHIFT_COPY.countLabel), '500');
     await user.click(screen.getByRole('button', COMMIT));
-    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
       forced_close_reason: ForcedCloseReason;
       annotation?: string;
     };
@@ -160,7 +160,7 @@ describe('ForcedCloseForm — submit payload correctness', () => {
     await user.click(screen.getByDisplayValue('cashier_illness'));
     await user.type(screen.getByLabelText(SHIFT_COPY.countLabel), '500');
     await user.click(screen.getByRole('button', COMMIT));
-    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<
+    const payload = (onSubmit as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as Record<
       string,
       unknown
     >;

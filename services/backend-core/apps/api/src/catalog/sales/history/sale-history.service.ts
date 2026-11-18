@@ -19,7 +19,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
-import { PG_POOL } from "../../../auth/auth.module";
+import { PG_POOL } from "../../../database";
 import { toSaleHistoryItem, type SaleHistoryDetail, type SaleHistoryRow } from "./sale-history.projections";
 import { decodeSaleHistoryCursor, encodeSaleHistoryCursor } from "./sale-history.query";
 import { listQuery, loadDetail, SALE_SELECT_SQL } from "./sale-history.reads";

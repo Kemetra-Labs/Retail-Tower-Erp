@@ -27,7 +27,7 @@
  * Both outputs are non-negative whole minor units and add up exactly to their totals.
  */
 
-import { scaled, wholeUnits } from "./offer-decimal";
+import { scaled, wholeUnits } from "@data-pulse-2/offer-engine";
 
 /** A stored return or sale line breaks an invariant the capture guard enforces (never reachable from valid data). */
 export class ReturnPromotionInvariantError extends Error {

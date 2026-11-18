@@ -14,7 +14,8 @@ import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { Pool } from "pg";
 import type { Logger } from "@data-pulse-2/shared";
 
-import { AUTH_LOOKUP_POOL, PG_POOL, REDIS_CLIENT } from "../auth/auth.module";
+import { REDIS_CLIENT } from "../auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import type { RedisLike } from "../auth/rate-limit";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 

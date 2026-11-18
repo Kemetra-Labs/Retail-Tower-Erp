@@ -37,7 +37,7 @@ import addFormats from "ajv-formats";
 import type { Pool } from "pg";
 import request from "supertest";
 
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { PosOperatorEnvelopeSaleGuard } from "../../../../src/auth/pos-operator-envelope-sale.guard";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";
 import { PosPayersController } from "../../../../src/catalog/sales/payers/pos-payers.controller";

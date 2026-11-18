@@ -1,8 +1,9 @@
 /**
- * RT-414 support-session units: the gate's decision table, the refusal
- * envelope, route coverage, and the audit metadata builders (allowlist, no
- * other-tenant session on a `support_session_required` row). Docker-free;
- * the HTTP + RLS behavior is platform-support-sessions.http.integration.spec.ts.
+ * RT-414 support-session units: the refusal envelope, route coverage, and the
+ * audit metadata builders (allowlist, no other-tenant session on a
+ * `support_session_required` row). The gate's admission (RT-1468) is
+ * support-session.direct.unit.spec.ts. Docker-free; the HTTP + RLS behavior is
+ * platform-support-sessions.http.integration.spec.ts.
  */
 import "reflect-metadata";
 
@@ -10,15 +11,8 @@ import { Controller, Get, Patch, Post, UseGuards } from "@nestjs/common";
 import type { ExecutionContext } from "@nestjs/common";
 import type { PoolClient } from "pg";
 
-import {
-  coveredTarget,
-  readOnlyExemptFor,
-  routeTemplate,
-} from "../../src/platform-support-sessions/support-session.coverage";
-import {
-  decideSupportSession,
-  supportSessionRefusal,
-} from "../../src/platform-support-sessions/support-session.gate";
+import { coveredTarget, routeTemplate } from "../../src/platform-support-sessions/support-session.coverage";
+import { supportSessionRefusal } from "../../src/platform-support-sessions/support-session.gate";
 import {
   recordCrossTenantAccess,
   recordSupportSessionChange,
@@ -49,51 +43,6 @@ function record(overrides: Partial<SupportSessionRecord> = {}): SupportSessionRe
   };
 }
 
-const ACTIVE_TENANT = { exists: true, suspended: false };
-const SUSPENDED_TENANT = { exists: true, suspended: true };
-
-describe("decideSupportSession (RT-414 contract order)", () => {
-  const base = { tenantId: TENANT, tenant: ACTIVE_TENANT, method: "GET", readOnlyExempt: false };
-
-  it("admits an active session for exactly this tenant", () => {
-    expect(decideSupportSession({ ...base, session: record() })).toBeUndefined();
-    expect(decideSupportSession({ ...base, method: "POST", session: record() })).toBeUndefined();
-  });
-
-  it("requires a session: none, another tenant's, or a gone tenant", () => {
-    expect(decideSupportSession({ ...base, session: null })).toBe("support_session_required");
-    expect(decideSupportSession({ ...base, session: record({ tenantId: OTHER }) })).toBe(
-      "support_session_required",
-    );
-    expect(
-      decideSupportSession({ ...base, tenant: { exists: false, suspended: false }, session: record() }),
-    ).toBe("support_session_required");
-  });
-
-  it("refuses an expired session before the read-only rule", () => {
-    expect(decideSupportSession({ ...base, session: record({ status: "expired" }) })).toBe(
-      "support_session_expired",
-    );
-    expect(
-      decideSupportSession({
-        ...base,
-        tenant: SUSPENDED_TENANT,
-        method: "POST",
-        session: record({ status: "expired" }),
-      }),
-    ).toBe("support_session_expired");
-  });
-
-  it("makes a suspended tenant read-only unless the route is exempt", () => {
-    const suspended = { ...base, tenant: SUSPENDED_TENANT, session: record() };
-    expect(decideSupportSession({ ...suspended, method: "GET" })).toBeUndefined();
-    expect(decideSupportSession({ ...suspended, method: "head" })).toBeUndefined();
-    for (const method of ["POST", "PUT", "PATCH", "delete"]) {
-      expect(decideSupportSession({ ...suspended, method })).toBe("support_session_read_only");
-    }
-    expect(decideSupportSession({ ...suspended, method: "PATCH", readOnlyExempt: true })).toBeUndefined();
-  });
-});
 
 describe("supportSessionRefusal", () => {
   it("is a 403 with the stable code and a non-disclosing message", () => {
@@ -155,36 +104,14 @@ function ctx(cls: object, handler: string): ExecutionContext {
 
 describe("coveredTarget / routeTemplate", () => {
   it("covers TenantContextGuard routes on the active tenant", () => {
-    expect(coveredTarget(ctx(StoresController, "read"))).toEqual({
-      kind: "active-tenant",
-      readOnlyExempt: false,
-    });
+    expect(coveredTarget(ctx(StoresController, "read"))).toEqual({ kind: "active-tenant" });
     expect(routeTemplate(ctx(StoresController, "read"))).toBe("/api/v1/stores/:store_id");
   });
 
-  it("covers the path tenants and switchActiveStore, with their read-only exemptions", () => {
-    expect(coveredTarget(ctx(TenantsController, "listMembers"))).toEqual({
-      kind: "path-tenant",
-      param: "id",
-      readOnlyExempt: false,
-    });
-    expect(coveredTarget(ctx(TenantsController, "update"))).toMatchObject({ readOnlyExempt: "status-only" });
-    expect(coveredTarget(ctx(ContextController, "switchStore"))).toEqual({
-      kind: "active-tenant",
-      readOnlyExempt: true,
-    });
-  });
-
-  it("exempts updateTenant on a suspended tenant only for a status-only body", () => {
-    const update = coveredTarget(ctx(TenantsController, "update"))!;
-    expect(readOnlyExemptFor(update, { status: "active" })).toBe(true);
-    expect(readOnlyExemptFor(update, { status: "active", name: "x" })).toBe(false);
-    expect(readOnlyExemptFor(update, { name: "x" })).toBe(false);
-    expect(readOnlyExemptFor(update, {})).toBe(false);
-    expect(readOnlyExemptFor(update, undefined)).toBe(false);
-    expect(readOnlyExemptFor(update, ["status"])).toBe(false);
-    expect(readOnlyExemptFor(coveredTarget(ctx(ContextController, "switchStore"))!, undefined)).toBe(true);
-    expect(readOnlyExemptFor(coveredTarget(ctx(StoresController, "read"))!, { status: "x" })).toBe(false);
+  it("covers the path tenants and switchActiveStore", () => {
+    expect(coveredTarget(ctx(TenantsController, "listMembers"))).toEqual({ kind: "path-tenant", param: "id" });
+    expect(coveredTarget(ctx(TenantsController, "update"))).toEqual({ kind: "path-tenant", param: "id" });
+    expect(coveredTarget(ctx(ContextController, "switchStore"))).toEqual({ kind: "active-tenant" });
   });
 
   it("leaves platform-scope and context reads uncovered", () => {

@@ -25,7 +25,7 @@ import type { Pool, PoolClient } from "pg";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { recordSettlementReceivable } from "../observability/metrics/api.metrics";
 import { decideReconciliation, type ReconcileOutcome } from "./reconcile-decision";
 import { insertSettlementAudit } from "./transactional-audit";

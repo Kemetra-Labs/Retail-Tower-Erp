@@ -30,7 +30,7 @@ import request from "supertest";
 import { hashToken } from "@data-pulse-2/auth";
 
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { PosDeviceAuthGuard } from "../../../../src/auth/pos-device-auth.guard";
 import { DeviceRepository } from "../../../../src/pos-operators/device.repository";
 import { ReadDownController } from "../../../../src/catalog/read-down/read-down.controller";

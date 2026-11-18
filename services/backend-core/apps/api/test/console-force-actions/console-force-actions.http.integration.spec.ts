@@ -20,7 +20,7 @@
  *      admin is ADMITTED (RT-1462: a member whatever their role, a non-member
  *      with or without a support session), recorded as `actor_kind:
  *      platform_admin` on behalf of the tenant and the session, with one
- *      `platform.cross_tenant.accessed` row per request when they are a non-member;
+ *      `platform.cross_tenant.accessed` row per request (since RT-1468 member or not);
  *   4. a stale `previewFingerprint` is 409 `preview_stale`; the replay (same key,
  *      or the same close under another key with a stale fingerprint) is 200 and
  *      writes nothing;

@@ -36,7 +36,7 @@ import request from "supertest";
 import { AuditEmitterInterceptor } from "../../../src/audit/audit-emitter.interceptor";
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../../src/audit/audit-job.types";
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import { DashboardAuthGuard } from "../../../src/auth/dashboard-auth.guard";
 import { ROLES_METADATA_KEY, type RolesMetadata } from "../../../src/auth/roles.decorator";
 import { RolesGuard } from "../../../src/auth/roles.guard";

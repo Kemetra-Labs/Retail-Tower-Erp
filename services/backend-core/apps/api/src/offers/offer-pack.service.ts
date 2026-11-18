@@ -21,8 +21,8 @@ import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
 import { canonicalJson } from "../common/hashing/canonical-json";
+import { PG_POOL } from "../database";
 import { resolveWindow } from "./offer-schedule";
 import type { OfferDefinition } from "./offers.dto";
 import { dbNow, loadVersions } from "./offers.repository";

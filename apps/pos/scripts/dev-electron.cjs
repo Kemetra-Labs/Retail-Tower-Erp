@@ -91,6 +91,13 @@ waitOn(
     // cannot prevent contextBridge.exposeInMainWorld from running.
     console.log('[dev-electron] Bundling preload (Vite CJS)...');
     runLocalBin('vite', 'vite', ['build', '--config', 'vite.config.preload.ts']);
+    // RT-1378 — the shared Offer Engine package (services/backend-core/packages/offer-engine) is
+    // imported by main as a built dependency, so build it before compiling main.
+    console.log('[dev-electron] Building the shared offer engine package...');
+    runLocalBin('typescript', 'tsc', [
+      '-p',
+      '../../services/backend-core/packages/offer-engine/tsconfig.build.json',
+    ]);
     console.log('[dev-electron] Compiling main process (ESM)...');
     runLocalBin('typescript', 'tsc', ['-p', 'tsconfig.main.json']);
     // RT-719 — a dev session reports an UNKNOWN build identity: Vite serves a live-edited

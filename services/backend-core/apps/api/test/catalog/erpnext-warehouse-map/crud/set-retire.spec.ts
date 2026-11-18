@@ -47,7 +47,7 @@ import {
 } from "../../../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../../../src/audit/audit-job.types";
 import { DashboardAuthGuard } from "../../../../src/auth/dashboard-auth.guard";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { RolesGuard } from "../../../../src/auth/roles.guard";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
 import { TenantContextGuard } from "../../../../src/context/tenant-context.guard";

@@ -113,9 +113,7 @@ identical:
       - apps/pos/src/main/observability/__tests__/rt879-redaction-vectors.json
       - apps/admin-console/tests/unit/rt879-redaction-vectors.json
       - integrations/erpnext-connector/retail_tower_erpnext_connector/tests/rt879-redaction-vectors.json
-  # RT-286 S5 / RT-1339: the Offer Engine golden vectors (spec 048 §6 and §9), consumed by the Backend-Core
-  # evaluator and by the POS evaluator, which must pass the very same file.
-  - name: Offer Engine golden vectors
-    paths:
-      - services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json
-      - apps/pos/src/shared/offers/__tests__/offers-golden-vectors.json
+  # The Offer Engine golden vectors (spec 048 §6 and §9) are no longer a group here: since RT-1378 there
+  # is one evaluator (services/backend-core/packages/offer-engine) and ONE copy of the file,
+  # services/backend-core/packages/contracts/fixtures/offers/golden-vectors.json, which Backend-Core, the
+  # package and the POS tests all read.

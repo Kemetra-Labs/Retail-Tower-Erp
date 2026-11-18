@@ -42,6 +42,10 @@ import type { SignOutHandler } from '../../../src/main/operator/sign-out-handler
 import type { RosterHandler } from '../../../src/main/operator/roster-handler.js';
 import type { InactivityMonitor } from '../../../src/main/operator/inactivity-monitor.js';
 import type { TakeoverHandler } from '../../../src/main/operator/takeover-handler.js';
+import type { ForcedCloseHandler } from '../../../src/main/operator/forced-close-handler.js';
+import type { StuckShiftsHandler } from '../../../src/main/operator/stuck-shifts-handler.js';
+import type { BackendClient } from '../../../src/main/operator/backend-client.js';
+import type { PinManagementHandlerDeps } from '../../../src/main/operator/pin-management.js';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -63,6 +67,8 @@ function makeManagerSession(): OperatorSessionRecord {
     backend_session_id: 'be-1',
     started_at: new Date().toISOString(),
     last_activity_at: new Date().toISOString(),
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
@@ -78,8 +84,20 @@ function makePairedStore(): PairingStore {
         paired_at: 0,
       }),
     ),
+    getCurrentTerminalId: vi.fn(() => TERMINAL),
     persist: vi.fn(),
     clear: vi.fn(),
+  };
+}
+
+/**
+ * `backend` and `jwtHolder` only serve the provision path (roster lookup); the
+ * reset and unlock paths under test never reach them.
+ */
+function makePinBackendDeps(): Pick<PinManagementHandlerDeps, 'backend' | 'jwtHolder'> {
+  return {
+    backend: {} as unknown as BackendClient,
+    jwtHolder: { get: vi.fn(() => null), consumeMark: vi.fn(() => false), clear: vi.fn() },
   };
 }
 
@@ -141,6 +159,7 @@ function buildEnv(
   const auditEmitter: AuditEmitter = { emit } as unknown as AuditEmitter;
   const db = makeDb(lockout_until);
   const pinManagementHandler = new PinManagementHandler({
+    ...makePinBackendDeps(),
     db,
     safeStorage: makeStorage(),
     sessionManager: { getCurrent: vi.fn(() => session) } as unknown as SessionManager,
@@ -166,6 +185,8 @@ function buildEnv(
       cancelTakeover: vi.fn(),
     } as unknown as TakeoverHandler,
     pinManagementHandler,
+    forcedCloseHandler: { forceCloseShift: vi.fn() } as unknown as ForcedCloseHandler,
+    stuckShiftsHandler: { listStuckShifts: vi.fn() } as unknown as StuckShiftsHandler,
   });
 
   const invoke = (channel: string, req: unknown): Promise<unknown> => {
@@ -183,6 +204,7 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
   it('channel is registered', () => {
     const { ipcMain, handlers } = makeIpcMain();
     const pinManagementHandler = new PinManagementHandler({
+      ...makePinBackendDeps(),
       db: makeDb(null),
       safeStorage: makeStorage(),
       sessionManager: {
@@ -208,6 +230,8 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
         cancelTakeover: vi.fn(),
       } as unknown as TakeoverHandler,
       pinManagementHandler,
+      forcedCloseHandler: { forceCloseShift: vi.fn() } as unknown as ForcedCloseHandler,
+      stuckShiftsHandler: { listStuckShifts: vi.fn() } as unknown as StuckShiftsHandler,
     });
     expect(handlers.has(OPERATOR_IPC_CHANNELS.UNLOCK_CASHIER)).toBe(true);
   });
@@ -224,7 +248,7 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
     expect(result.audit_event_id).toBe(event_id);
 
     expect(emit).toHaveBeenCalledOnce();
-    const evt = emit.mock.calls[0][0] as AuditEvent;
+    const evt = emit.mock.calls[0]?.[0] as AuditEvent;
     expect(evt.action_category).toBe('cashier.pin.unlock');
     expect(evt.acting_operator_id).toBe(MANAGER_OP_ID);
   });
@@ -238,7 +262,7 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
     expect(result).toMatchObject({ kind: 'refused', category: 'state_invalid' });
     // Support trail — audit event is still emitted
     expect(emit).toHaveBeenCalledOnce();
-    const evt = emit.mock.calls[0][0] as AuditEvent;
+    const evt = emit.mock.calls[0]?.[0] as AuditEvent;
     expect(evt.action_category).toBe('cashier.pin.unlock');
   });
 
@@ -263,6 +287,7 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
     };
     const emit = vi.fn();
     const handler = new PinManagementHandler({
+      ...makePinBackendDeps(),
       db,
       safeStorage: makeStorage(),
       sessionManager: {
@@ -308,7 +333,7 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
       event_id: randomUUID(),
       target_cashier_id: CASHIER_ID,
     });
-    const evt = emit.mock.calls[0][0] as AuditEvent;
+    const evt = emit.mock.calls[0]?.[0] as AuditEvent;
     const payloadKeys = Object.keys(evt.payload);
     expect(payloadKeys).not.toContain('pin');
     expect(payloadKeys).not.toContain('new_pin');
@@ -323,7 +348,7 @@ describe('T062 — operator:unlock-cashier IPC (manager unlock integration)', ()
       event_id: randomUUID(),
       target_cashier_id: CASHIER_ID,
     });
-    const evt = emit.mock.calls[0][0] as AuditEvent;
+    const evt = emit.mock.calls[0]?.[0] as AuditEvent;
     expect(evt.acting_operator_id).toBe(MANAGER_OP_ID);
   });
 

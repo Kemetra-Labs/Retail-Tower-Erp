@@ -10,7 +10,7 @@ import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER } from "../../src/audit/audit-job.enqueuer";
 import { OutboxAuditEnqueuer } from "../../src/audit/outbox-audit-enqueuer";
-import { PG_POOL } from "../../src/auth/database-pools";
+import { PG_POOL } from "../../src/database";
 import { AuthModule } from "../../src/auth/auth.module";
 
 function enqueuerProvider(): FactoryProvider {

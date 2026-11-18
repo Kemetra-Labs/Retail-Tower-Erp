@@ -19,7 +19,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/database-pools";
+import { PG_POOL } from "../database";
 import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 import type { OutcomeBody, ProvisioningRequestItem, PullQuery, StepAckBody } from "./dto/provisioning.dto";
 import { AUDIT, insertProvisioningAudit } from "./provisioning-audit";

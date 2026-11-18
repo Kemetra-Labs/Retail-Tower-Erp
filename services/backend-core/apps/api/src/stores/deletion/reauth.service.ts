@@ -28,7 +28,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { createLogger, newId, type Logger } from "@data-pulse-2/shared";
 
 import { AuthService } from "../../auth/auth.service";
-import { PG_POOL } from "../../auth/database-pools";
+import { PG_POOL } from "../../database";
 import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../auth/rate-limit";
 import { StoresRepository } from "../stores.repository";
 import { ConsoleActionRateLimited } from "../../console-action-cap/console-429";

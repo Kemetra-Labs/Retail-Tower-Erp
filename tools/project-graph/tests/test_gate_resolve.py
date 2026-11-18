@@ -322,6 +322,16 @@ class GateNotApplicableWiringTests(unittest.TestCase):
         run = _pr_step()["run"]
         self.assertNotIn("${{", run, "event values must reach the shell via env vars")
 
+    def test_main_push_runs_start_no_gate(self):
+        # RT-1467 (CI-04): workflow_run of a push to main must not start a gate run, and the
+        # evaluate job keeps its own PR-only guard as a second line of defence.
+        workflow = _workflow()
+        on = workflow.get("on", workflow.get(True))  # PyYAML reads a bare `on:` key as True
+        self.assertEqual(on["workflow_run"].get("branches-ignore"), ["main"])
+        self.assertNotIn("branches", on["workflow_run"])
+        cond = str(workflow["jobs"]["evaluate"]["if"])
+        self.assertIn("github.event.workflow_run.event == 'pull_request'", cond)
+
     def test_not_applicable_is_workflow_run_only(self):
         run = _pr_step()["run"]
         late = run.index('if [ "$EVENT" = "workflow_run" ]; then')

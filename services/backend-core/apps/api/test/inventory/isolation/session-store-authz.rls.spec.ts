@@ -30,7 +30,8 @@ import cookieParser from "cookie-parser";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../../../src/auth/auth.module";
+import { AuthModule } from "../../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../src/database";
 import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../../src/auth/email-job.enqueuer";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../../src/common/logging.interceptor";
