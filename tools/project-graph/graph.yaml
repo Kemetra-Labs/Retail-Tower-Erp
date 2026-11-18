@@ -43,6 +43,7 @@ jobs:
   boundary-check: .github/workflows/project-graph.yml
   dependency-review: .github/workflows/project-graph.yml
   contracts/check: .github/workflows/contracts.yml
+  port/rt-control-room: .github/workflows/port-plugins.yml
 
 job_groups:
   pos-full: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test]
@@ -265,6 +266,17 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # secrets). It never feeds `required` and no product suite can test it, so like .circleci/** it selects
   # only contracts/check and stays a policy change (approval, fingerprint). Precedence 0 beats policy's 1.
   depot: { precedence: 0, globs: [.depot/**], selects: [contracts/check], policy_change: true }
+  # RT-1467 (CI-09): tools/contracts-check/** is the consumer-contract checker. contracts/check is the
+  # only graph job that runs it (contracts.yml: unit tests, consumer check, system gate G4). bc/oasdiff
+  # is a deliberate extra the ticket asks for: it never reads this folder, but both judge breaking
+  # changes with the Backend-Core rules (config.yaml reads services/backend-core/tools/oasdiff/
+  # severity-levels.txt), so a checker change runs next to the Backend-Core gate. The oasdiff pin
+  # itself lives in the policy-class workflows. Precedence 1 beats tooling's 2; no glob overlaps `policy`.
+  contracts_tooling: { precedence: 1, globs: [tools/contracts-check/**], selects: [contracts/check, bc/oasdiff] }
+  # RT-1395 / RT-1467 (CI-10): the read-only Port widget. No product suite runs it; its own job
+  # (port-plugins.yml) runs its tests, rebuilds dist/index.html and fails on a stale committed build.
+  # Only this plugin: a sibling under tools/port-plugins/ still falls to `tooling` (all jobs).
+  port_plugin: { precedence: 1, globs: [tools/port-plugins/rt-control-room/**], selects: [port/rt-control-room] }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }
@@ -281,7 +293,9 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # RT-578 (CI Modernization PR-1): the two root prose files select no job. Precedence 3 beats
   # root's 4, so they never fall through to the "*" catch-all below. No code, workflow or build
   # reads them (RT-578 PR evidence); a new root file still hits `root` and selects everything.
-  rootdocs: { precedence: 3, globs: [README.md, ARCHITECTURE.md], selects: [] }
+  # RT-1467 (CI-09): CLAUDE.md, the agents' operating instructions, joins them: no build, test or
+  # workflow reads it, and it was touched in 13 merges since 2026-11-04, each selecting everything.
+  rootdocs: { precedence: 3, globs: [README.md, ARCHITECTURE.md, CLAUDE.md], selects: [] }
   root:    { precedence: 4, globs: ["*"], selects: all }
 
 edges:   # allowed cross-product references; anything else is a boundary violation
