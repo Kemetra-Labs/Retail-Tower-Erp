@@ -13,11 +13,12 @@
 #     with an APPROVED review by that login carrying the attestation line below;
 #   - root workflows define every graph.yaml job and every non-always job is plan-guarded
 #     (static rules 5 and 5b; tests/test_real_tree.py).
+#   - the main ruleset requires `required` (RT-866, ruleset 25821989). "Require branches to
+#     be up to date" is deliberately off during the development stage (owner decision
+#     2026-11-05, RT-1238). The gate evaluates against the PR's base SHA, so a green result
+#     can merge onto a newer main; the first test of the combination is the merged commit's
+#     push run on main.
 # Not done yet:
-#   - a main ruleset that requires `required`, plus "require branches to be up to date"
-#     (the S6 no-bypass ruleset, RT-866, open).
-#     The gate evaluates against the PR's base SHA, so without "up to date" a green result
-#     could merge onto a newer main;
 #   - RT-711 independent verification (P17/P19, latest-wins of multiple `required`
 #     check-runs per SHA). The App source pin and its anti-spoof canary no longer apply;
 #   - the delegated reviewer identity as approver, by numeric ID (MR-5, RT-870).
