@@ -14,11 +14,20 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createPaymentAuditEmitter } from '../../../../src/main/payments/audit-emitter.js';
+import {
+  createPaymentAuditEmitter,
+  type PaymentAuditEvent,
+} from '../../../../src/main/payments/audit-emitter.js';
+
+function firstEvent(events: readonly PaymentAuditEvent[]): PaymentAuditEvent {
+  const evt = events[0];
+  if (evt === undefined) throw new Error('no audit event captured');
+  return evt;
+}
 
 describe('T092 — payment.settled audit payload', () => {
   it('emits the full tender breakdown with external_reference redacted to *****', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: { write: (evt) => captured.push(evt) },
     });
@@ -28,6 +37,7 @@ describe('T092 — payment.settled audit payload', () => {
       handoff_action_id: 'handoff-1',
       settled_at: '2026-05-22T10:00:05.000Z',
       attribution_operator_id: 'op-clerk-user-abc',
+      selling_operator_display_name: 'Layla Hassan',
       tenant_id: 'tenant-1',
       branch_id: 'branch-1',
       originating_terminal_id: 'terminal-1',
@@ -52,7 +62,7 @@ describe('T092 — payment.settled audit payload', () => {
       ],
     });
     expect(captured).toHaveLength(1);
-    const evt = captured[0] as Record<string, unknown>;
+    const evt = firstEvent(captured);
     expect(evt.action_category).toBe('payment.settled');
     const payload = evt.payload as Record<string, unknown>;
     expect(payload.payment_attempt_id).toBe('pa-1');
@@ -78,7 +88,7 @@ describe('T092 — payment.settled audit payload', () => {
     // persisted into the payment.settled payload at confirm-time — sourced
     // from the live session, where it is the only place the name exists.
     // Ahmed's persist-at-settlement decision (2026-05-29).
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: { write: (evt) => captured.push(evt) },
     });
@@ -104,13 +114,13 @@ describe('T092 — payment.settled audit payload', () => {
         },
       ],
     });
-    const evt = captured[0] as Record<string, unknown>;
+    const evt = firstEvent(captured);
     const payload = evt.payload as Record<string, unknown>;
     expect(payload.selling_operator_display_name).toBe('Layla Hassan');
   });
 
   it('omits change_due_minor on non-cash lines', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {
@@ -124,6 +134,7 @@ describe('T092 — payment.settled audit payload', () => {
       handoff_action_id: 'handoff-1',
       settled_at: '2026-05-22T10:00:05.000Z',
       attribution_operator_id: 'op-abc',
+      selling_operator_display_name: 'Layla Hassan',
       tenant_id: 'tenant-1',
       branch_id: 'branch-1',
       originating_terminal_id: 'terminal-1',
@@ -138,7 +149,7 @@ describe('T092 — payment.settled audit payload', () => {
         },
       ],
     });
-    const evt0 = captured[0] as Record<string, unknown>;
+    const evt0 = firstEvent(captured);
     const lines = (evt0.payload as Record<string, unknown>).tender_lines as Array<
       Record<string, unknown>
     >;
@@ -146,7 +157,7 @@ describe('T092 — payment.settled audit payload', () => {
   });
 
   it('refuses payloads containing forbidden field names anywhere in the tree', () => {
-    const captured: Array<Record<string, unknown>> = [];
+    const captured: PaymentAuditEvent[] = [];
     const emitter = createPaymentAuditEmitter({
       sink: {
         write: (e) => {

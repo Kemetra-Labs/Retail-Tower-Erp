@@ -18,6 +18,7 @@
  * Wave 3 RED. F-A4B-004 finding closure: this is the implementation-
  * stage redaction test the brief asks for.
  */
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 
 import { redeemVoucher } from '../../../../../src/main/payments/voucher-authority-client/redeem.js';
@@ -81,7 +82,7 @@ function flattenLoggerCalls(logger: ReturnType<typeof makeLogger>): string {
         try {
           all.push(typeof arg === 'string' ? arg : JSON.stringify(arg));
         } catch {
-          all.push(String(arg));
+          all.push(inspect(arg));
         }
       }
     }

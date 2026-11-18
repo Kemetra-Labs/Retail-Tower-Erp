@@ -445,7 +445,7 @@ describe('T066 — 006 Slice 3a migrations', () => {
         // F-W5D-001.
         'manager_force_failed',
       ];
-      for (let i = 0; i < reasons.length; i += 1) {
+      for (const [i, reason] of reasons.entries()) {
         const idx = String(i);
         expect(() => {
           insertAttempt(db, {
@@ -453,7 +453,7 @@ describe('T066 — 006 Slice 3a migrations', () => {
             terminal_id: `terminal-${idx}`,
             state: 'failed',
             failed_at: '2026-05-22T10:05:00.000Z',
-            failure_reason: reasons[i],
+            failure_reason: reason,
           });
         }).not.toThrow();
       }
