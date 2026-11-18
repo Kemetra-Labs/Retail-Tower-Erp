@@ -174,19 +174,15 @@ test("directory: names and slugs only, the suspended note; axe light and dark, f
   await expectFocusRing(page.getByLabel(t("platform.tenants.search.label")), "search");
   // RT-1468: a non-member row carries two actions; both show a ring.
   await expectFocusRing(
-    rows
-      .first()
-      .getByRole("button", {
-        name: t("platform.tenants.action.switchFor", { name: "أسواق الدلتا" }),
-      }),
+    rows.first().getByRole("button", {
+      name: t("platform.tenants.action.switchFor", { name: "أسواق الدلتا" }),
+    }),
     "row action: open",
   );
   await expectFocusRing(
-    rows
-      .first()
-      .getByRole("button", {
-        name: t("platform.tenants.action.startFor", { name: "أسواق الدلتا" }),
-      }),
+    rows.first().getByRole("button", {
+      name: t("platform.tenants.action.startFor", { name: "أسواق الدلتا" }),
+    }),
     "row action: start session",
   );
 });
