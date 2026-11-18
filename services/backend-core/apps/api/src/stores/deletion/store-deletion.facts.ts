@@ -161,14 +161,20 @@ export async function readStoreDeletionFacts(
   // stores; "only store" is decided here against the stores of this module (a deleted store does not count).
   const candidates = await listSpecificAccessMembersOfStore(client, storeId);
   const allStoreIds = [...new Set(candidates.flatMap((c) => c.storeIds))];
-  const liveStores = new Set(
-    (
-      await client.query<{ id: string }>(
-        `SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND deleted_at IS NULL`,
-        [allStoreIds, tenantId],
-      )
-    ).rows.map((r) => r.id),
-  );
+  // No candidate, no read: a store with no specific-access member (the common case) costs no extra statement.
+  // The two reads are separate statements; a concurrent soft-delete of a member's other store between them can only
+  // make that member a single-store member, the state it would be in a moment later, and the store row is locked.
+  const liveStores =
+    allStoreIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await client.query<{ id: string }>(
+              `SELECT id FROM stores WHERE id = ANY($1::uuid[]) AND tenant_id = $2 AND deleted_at IS NULL`,
+              [allStoreIds, tenantId],
+            )
+          ).rows.map((r) => r.id),
+        );
   const singleStoreMembers = candidates
     .filter((c) => c.storeIds.filter((id) => liveStores.has(id)).length === 1)
     .slice(0, MAX_MEMBERS);
