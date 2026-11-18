@@ -51,7 +51,9 @@ function recordingWindows(): {
   };
 }
 
-function printOnce(print: ReturnType<typeof createOsPrintTransport>): Promise<[boolean, string?]> {
+function printOnce(
+  print: ReturnType<typeof createOsPrintTransport>,
+): Promise<[boolean, string | undefined]> {
   return new Promise((resolve) => {
     print('<div class="receipt">x</div>', (success, reason) => {
       resolve([success, reason]);
@@ -194,7 +196,9 @@ describe('RT-886 — printer_source on sale.receipt.printed', () => {
     };
     const d = createPrintDispatcher({
       pipeline,
-      printEventsRepo: { insert: (row) => rows.push(row) } as unknown as PrintEventsRepository,
+      printEventsRepo: {
+        insert: (row: unknown) => rows.push(row),
+      } as unknown as PrintEventsRepository,
       auditEmitter: {
         emitRaw: (e: { action_category: string; payload: Record<string, unknown> }) => {
           emitted.push(e);
