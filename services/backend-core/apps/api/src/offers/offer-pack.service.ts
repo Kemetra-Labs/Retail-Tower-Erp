@@ -22,6 +22,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import { resolveWindow } from "./offer-schedule";
 import type { OfferDefinition } from "./offers.dto";
 import { dbNow, loadVersions } from "./offers.repository";
@@ -55,20 +56,6 @@ export interface OfferPackBody {
   readonly storeTimezone: string;
   readonly currencyCode: string;
   readonly offers: ReadonlyArray<PackOfferBody>;
-}
-
-/** Canonical JSON: object keys sorted at every level, no whitespace. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    return `{${Object.keys(o)
-      .filter((k) => o[k] !== undefined)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
 }
 
 /** The strong ETag of a Pack: the quoted lowercase hex SHA-256 of the canonical body without `issuedAt`. */

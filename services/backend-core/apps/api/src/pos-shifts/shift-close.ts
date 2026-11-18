@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 
 import type { CloseApproval } from "../cash-variance-policy/policy-value";
-import { canonicalJson } from "../idempotency/canonical-json";
+import { canonicalJson } from "../common/hashing/canonical-json";
 import { CASH_UP_AMOUNT_FIELDS } from "./shift-cash-arithmetic";
 import type { CloseShiftFact } from "./shift-cash-up.dto";
 import {

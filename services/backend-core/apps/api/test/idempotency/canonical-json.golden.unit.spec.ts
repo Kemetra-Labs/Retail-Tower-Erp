@@ -7,11 +7,11 @@
  */
 import { createHash } from "node:crypto";
 
-import { canonicalInstant as revisionInstant, canonicalJson as revisionJson } from "../../src/ai-entitlements/revision-content";
+import { canonicalInstant as revisionInstant, canonicalRevisionJson as revisionJson } from "../../src/ai-entitlements/revision-content";
+import { canonicalJson } from "../../src/common/hashing/canonical-json";
 import { canonicalJsonPayload } from "../../src/common/hashing/payload-hash";
-import { canonicalJson } from "../../src/idempotency/canonical-json";
-import { canonicalJson as countJson, countBody, payloadHash as countPayloadHash } from "../../src/inventory/count-sessions/count-emission";
-import { canonicalJson as offerJson, packEtag, type OfferPackBody } from "../../src/offers/offer-pack.service";
+import { countBody, payloadHash as countPayloadHash } from "../../src/inventory/count-sessions/count-emission";
+import { packEtag, type OfferPackBody } from "../../src/offers/offer-pack.service";
 import { canonicalInstant as shiftInstant } from "../../src/pos-shifts/shift-money";
 import { bodyFingerprint } from "../../src/idempotency/idempotency.interceptor";
 import {
@@ -19,6 +19,7 @@ import {
   GOLDEN_SHA256_HEX,
   GOLDEN_STRING,
 } from "../_helpers/canonical-json-golden";
+import { legacyCountCanonicalJson as countJson, legacyOfferCanonicalJson as offerJson } from "../_helpers/canonical-json-legacy";
 
 describe("idempotency canonicalJson golden bytes", () => {
   it("pins the literal's sha256 (guards the golden constants themselves)", () => {
@@ -143,6 +144,7 @@ describe("RT-1456 A-09 caller payloads: the persisted bytes", () => {
 
   it("count posting body: canonical string and feed payloadHash", () => {
     expect(countJson(count())).toBe(COUNT_CANON);
+    expect(canonicalJson(count())).toBe(COUNT_CANON); // the shared function the caller now uses
     expect(countPayloadHash(count())).toBe(COUNT_HASH);
     expect(createHash("sha256").update(COUNT_CANON).digest("hex")).toBe(COUNT_HASH);
   });
@@ -150,6 +152,7 @@ describe("RT-1456 A-09 caller payloads: the persisted bytes", () => {
   it("offer pack: canonical body (no issuedAt) and strong ETag", () => {
     const { issuedAt: _issuedAt, ...rest } = pack;
     expect(offerJson(rest)).toBe(PACK_CANON);
+    expect(canonicalJson(rest)).toBe(PACK_CANON); // the shared function the caller now uses
     expect(packEtag(pack)).toBe(`"${PACK_SHA}"`);
     expect(createHash("sha256").update(PACK_CANON).digest("hex")).toBe(PACK_SHA);
   });
@@ -170,5 +173,55 @@ describe("RT-1456 A-09 canonicalInstant: two stored formats, kept apart", () => 
 
   it("ai-entitlements also takes a Date", () => {
     expect(revisionInstant(new Date("2026-10-05T08:00:00.123Z"))).toBe("2026-10-05T08:00:00.123Z");
+  });
+});
+
+describe("RT-1456 A-09 the fold: shared canonicalJson equals the frozen count-emission and offer-pack copies", () => {
+  it("on every JSON-shaped vector", () => {
+    for (let i = 0; i < 5; i++) {
+      const value = VALUES[i]!();
+      expect(canonicalJson(value)).toBe(countJson(value));
+      expect(canonicalJson(value)).toBe(offerJson(value));
+    }
+  });
+
+  it("where they differ, only on undefined and Date (the old output was not valid JSON for undefined)", () => {
+    expect(canonicalJson([1, undefined, 2])).toBe("[1,null,2]"); // old copies: "[1,,2]"
+    expect(canonicalJson({ a: 1, u: undefined })).toBe('{"a":1}'); // count copy wrote `"u":undefined`
+    expect(canonicalJson({ when: new Date("2026-11-18T10:00:00.123Z") })).toBe('{"when":"2026-11-18T10:00:00.123Z"}'); // old: {"when":{}}
+  });
+
+  it("on 2000 seeded generated JSON-shaped values", () => {
+    let seed = 0x9e3779b9;
+    const rnd = (n: number): number => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed % n;
+    };
+    const KEYS = ["a", "B", "z", "10", "9", "", "ключ", "\uFF5E", "\u{1F600}", "k\u0000", 'q"', "é"];
+    const STRINGS = ["", "x", "Ünï", "\u2028", 'a"b\\c', "\u{1F600}", "line\nbreak"];
+    const gen = (depth: number): unknown => {
+      const kind = rnd(depth > 3 ? 5 : 7);
+      switch (kind) {
+        case 0: return null;
+        case 1: return rnd(2) === 0;
+        case 2: return [0, -0.5, 1, 1e21, 1e-7, 123456789.123456][rnd(6)];
+        case 3: return STRINGS[rnd(STRINGS.length)];
+        case 4: return rnd(100);
+        case 5: return Array.from({ length: rnd(4) }, () => gen(depth + 1));
+        default: {
+          const o: Record<string, unknown> = {};
+          for (let n = rnd(5); n > 0; n--) o[KEYS[rnd(KEYS.length)]!] = gen(depth + 1);
+          return o;
+        }
+      }
+    };
+    for (let i = 0; i < 2000; i++) {
+      const value = gen(0);
+      const shared = canonicalJson(value);
+      expect(shared).toBe(countJson(value));
+      expect(shared).toBe(offerJson(value));
+      expect(shared).toBe(canonicalJsonPayload(value));
+      expect(() => JSON.parse(shared)).not.toThrow(); // always valid JSON
+    }
   });
 });

@@ -10,7 +10,7 @@ import {
 } from "../../src/ai-entitlements/ai-entitlements.tokens";
 import { AiEntitlementChecker } from "../../src/ai-entitlements/entitlement-checker";
 import { ledgerTelemetry } from "../../src/ai-entitlements/gateway-entitlement.port";
-import { canonicalJson, revisionContentHash, toOverrideJson } from "../../src/ai-entitlements/revision-content";
+import { canonicalRevisionJson as canonicalJson, revisionContentHash, toOverrideJson } from "../../src/ai-entitlements/revision-content";
 import { unavailableLogger } from "../../src/ai-entitlements/unavailable-log";
 import { usageOutcome, usageTelemetry } from "../../src/ai/gateway/ai-gateway.settlement";
 
