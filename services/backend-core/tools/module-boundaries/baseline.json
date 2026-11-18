@@ -713,7 +713,6 @@
     "apps/api/src/platform-support-sessions/platform-support-sessions.service.ts -> apps/api/src/auth/auth.guard.ts": 1,
     "apps/api/src/platform-support-sessions/platform-support-sessions.service.ts -> apps/api/src/auth/session.repository.ts": 1,
     "apps/api/src/platform-support-sessions/platform-support-sessions.service.ts -> apps/api/src/context/membership.repository.ts": 1,
-    "apps/api/src/platform-support-sessions/support-session.gate.ts -> apps/api/src/context/membership.repository.ts": 1,
     "apps/api/src/pos-approvers/approver-eligibility.service.ts -> apps/api/src/pos-cashier-admissions/device-scope.ts": 1,
     "apps/api/src/pos-approvers/approver-eligibility.ts -> apps/api/src/pos-cashier-admissions/device-scope.ts": 1,
     "apps/api/src/pos-approvers/approver-eligibility.ts -> apps/api/src/pos-shifts/shift-close-approver.ts": 1,

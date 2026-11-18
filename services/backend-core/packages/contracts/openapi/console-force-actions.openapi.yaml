@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Console Force Actions API (shifts and re-authentication)
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     RT-1444 (C1 of RT-1437; `[GATED: contract]`, owner decisions D1 to D10
     approved 2026-11-16, Confluence RETAIL page 80084994, RT-1437 comment
@@ -49,37 +49,32 @@ info:
     tenant's shift and an unknown id are the same non-disclosing 404
     (`RolesGuard` default `denyAs: 404`, FR-ISO-4). **A platform admin is
     admitted (RT-1462, amending D1),** whether or not they are a member of the
-    tenant, whatever membership role they hold there, and, when they are not a
-    member, without a support session (see below). The tenant comes from the
+    tenant, whatever membership role they hold there, with or without a
+    support session, and also on a suspended tenant (see below). The tenant
+    comes from the
     session's active tenant, never from the request (§II, §XII). Every cookie
     write must carry a trusted `Origin` (RT-430), else 403 `origin_rejected`.
 
 
-    **No support session on this surface (owner decision 2026-11-18).** A
-    platform admin who is NOT a tenant member needs no support session for the
-    operations of this surface or for the store deletion (`stores.openapi.yaml`
-    1.4.0-draft): they select the tenant with `switchActiveTenant`
-    (`context.openapi.yaml` 1.3.0-draft, which now admits a platform admin for
-    any existing tenant) and call the operation. Each such request writes one
-    `platform.cross_tenant.accessed` row (`actor_kind: platform_admin`,
+    **No support session on this surface (owner decisions 2026-11-18; RT-1462,
+    extended by RT-1468 in 1.2.0-draft).** A platform admin, member of the
+    tenant or not, needs no support session for the operations of this
+    surface or for the store deletion (`stores.openapi.yaml`): they select the
+    tenant with `switchActiveTenant` (`context.openapi.yaml`) and call the
+    operation, on an active, pending or suspended tenant (RT-1468 lifts the
+    suspended-tenant read-only rule for a platform admin). Each request writes
+    one `platform.cross_tenant.accessed` row (`actor_kind: platform_admin`,
     `support_session_id` null, or the caller's live support session for the
-    tenant when they hold one), exactly as a covered request inside a session
-    does, so no NON-MEMBER platform-admin request here is unrecorded. This lifts
-    the support-session requirement (RT-414) for exactly these operations and
-    nothing else: every other covered route still needs a support session, and
-    a suspended tenant stays read-only for a non-member platform admin
-    (403 `support_session_read_only` on an unsafe method).
+    tenant when they hold one), member or not, so no platform-admin request
+    here is unrecorded, and `on_behalf_of` names that live support session
+    for a member as well (`platform-support-sessions.openapi.yaml`
+    1.4.0-draft applies the same to every covered route).
 
-    **A platform admin who IS a tenant member (owner decision 2026-11-18: keep
-    as is).** The direct-route gate applies to non-members only, so a member is
-    judged exactly as on every route: the tenant's status is not checked
-    against a member (a suspended tenant is not read-only for them), no
-    `platform.cross_tenant.accessed` row is written, and `on_behalf_of` names no
-    support session (`support_session_id` null) even if the account holds a live
-    one. The force action's own audit row (`shift.force_closed`,
-    `store.deleted`) still records `actor_kind: platform_admin`, so the action is
-    never unrecorded. Closing this gap (a cross-tenant row and the suspended
-    read-only refusal for members on these six routes) is a separate decision.
+
+    **1.2.0-draft (RT-1468).** Text only: a platform admin who is a member now
+    writes the cross-tenant row and has `on_behalf_of` name their live support
+    session, and a suspended tenant is no longer read-only for a platform
+    admin. No wire change.
 
 
     **Preview, then confirm, then re-check (principle 2).** The preview is a
@@ -669,10 +664,9 @@ paths:
         "403":
           description: >
             `reauth_failed` (the generic refusal), `store_deletion_owner_only`,
-            `origin_rejected` (RT-430), or a support-session refusal
-            (`support_session_read_only` for a non-member platform admin on a
-            suspended tenant; `support_session_required` for a tenant that does
-            not exist).
+            `origin_rejected` (RT-430), or `support_session_required` for a
+            tenant that does not exist (the only support-session refusal left
+            since RT-1468).
           content:
             application/json:
               schema:
@@ -1163,10 +1157,9 @@ components:
         `dp2_session` cookie and its `Origin` header is missing, or is neither the
         API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session
         refusal (`support_session_required` when the session's active tenant does
-        not exist, or `support_session_read_only` for a non-member platform
-        admin's unsafe method on a suspended tenant). Since RT-1462 no support
-        session is needed on this surface, so an expired one is treated as
-        absent and is never a refusal here.
+        not exist). No support session is needed on this surface (RT-1462,
+        RT-1468), so an expired one is treated as absent and is never a refusal
+        here, and a suspended tenant is not read-only for a platform admin.
       content:
         application/json:
           schema:

@@ -393,29 +393,26 @@ describe("RT-414 support sessions — callers", () => {
 // Enforcement, audit and lifecycle
 // ---------------------------------------------------------------------------
 describe("RT-414 support sessions — enforcement and audit", () => {
-  it("switchActiveTenant admits a non-member platform admin (RT-1462), and every covered route still refuses without a session", async () => {
+  it("RT-1468: after switchActiveTenant a non-member platform admin uses a covered route without a support session", async () => {
     if (dockerSkipped) return;
     const admin = await signIn(ADMIN);
     await post("/api/v1/context/tenant", admin).send({ tenant_id: ACME }).expect(200);
-    const res = await get("/api/v1/stores", admin).expect(403);
-    expect(errorCode(res)).toBe("support_session_required");
+    await get("/api/v1/stores", admin).expect(200);
   });
 
-  it("refuses a tenant-scoped request without a support session, with one rejected row", async () => {
+  it("RT-1468: admits a tenant-scoped request without a support session, with one succeeded row naming none", async () => {
     if (dockerSkipped) return;
     const admin = await signIn(ADMIN);
     await forceActiveTenant(admin, ACME);
     const rid = randomUUID();
-    const res = await get("/api/v1/stores", admin, rid).expect(403);
-    expect(errorCode(res)).toBe("support_session_required");
+    await get("/api/v1/stores", admin, rid).expect(200);
     const row = await crossTenantRowFor(rid);
     expect(row.tenant_id).toBe(ACME);
     expect(row.actor_user_id).toBe(ADMIN);
     expect(row.actor_label).toBe("platform_support");
     expect(row.metadata).toEqual({
       actor_kind: "platform_admin",
-      outcome: "rejected",
-      reason: "support_session_required",
+      outcome: "succeeded",
       support_session_id: null,
       purpose: null,
       method: "GET",
@@ -484,7 +481,7 @@ describe("RT-414 support sessions — enforcement and audit", () => {
       expect(validateAccess(read.metadata)).toBe(true);
     });
 
-    it("covers switchActiveStore and the path tenant (this tenant only)", async () => {
+    it("covers switchActiveStore and the path tenant; another tenant is admitted too, naming no session (RT-1468)", async () => {
       if (dockerSkipped) return;
       const storeRid = randomUUID();
       await post("/api/v1/context/store", admin, storeRid).send({ store_id: ACME_STORE }).expect(200);
@@ -492,11 +489,12 @@ describe("RT-414 support sessions — enforcement and audit", () => {
       const membersRid = randomUUID();
       await get(`/api/v1/tenants/${ACME}/members`, admin, membersRid).expect(200);
       expect((await crossTenantRowFor(membersRid)).metadata["route"]).toBe("/api/v1/tenants/:id/members");
+      // The session is for ACME, so on OTHER it is absent: admitted, and the row names no session.
       const otherRid = randomUUID();
-      expect(errorCode(await get(`/api/v1/tenants/${OTHER}/members`, admin, otherRid).expect(403))).toBe(
-        "support_session_required",
-      );
-      expect((await crossTenantRowFor(otherRid)).tenant_id).toBe(OTHER);
+      await get(`/api/v1/tenants/${OTHER}/members`, admin, otherRid).expect(200);
+      const otherRow = await crossTenantRowFor(otherRid);
+      expect(otherRow.tenant_id).toBe(OTHER);
+      expect(otherRow.metadata).toMatchObject({ outcome: "succeeded", support_session_id: null, purpose: null });
     });
 
     it("refuses an admitted unsafe request with a foreign Origin (origin_rejected), audited", async () => {
@@ -527,7 +525,7 @@ describe("RT-414 support sessions — enforcement and audit", () => {
       expect(validateChange(renewRows[0]!.metadata)).toBe(true);
     });
 
-    it("refuses an expired session server-side; it cannot be renewed and shows as expired", async () => {
+    it("an expired session blocks nothing (RT-1468) and is no longer named; it cannot be renewed and shows as expired", async () => {
       if (dockerSkipped) return;
       await shiftSession(
         sessionId,
@@ -535,9 +533,10 @@ describe("RT-414 support sessions — enforcement and audit", () => {
          renewed_at = NULL, expires_at = now() - interval '1 minute'`,
       );
       const expiredRid = randomUUID();
-      expect(errorCode(await get("/api/v1/stores", admin, expiredRid).expect(403))).toBe("support_session_expired");
+      await get("/api/v1/stores", admin, expiredRid).expect(200);
       const expiredRow = await crossTenantRowFor(expiredRid);
-      expect(expiredRow.metadata).toMatchObject({ reason: "support_session_expired", support_session_id: sessionId, purpose: "incident" });
+      expect(expiredRow.metadata).toMatchObject({ outcome: "succeeded", support_session_id: null, purpose: null });
+      expect(expiredRow.metadata).not.toHaveProperty("reason");
       expect(validateAccess(expiredRow.metadata)).toBe(true);
       expect(errorCode(await post(`${BASE}/current/renew`, admin).expect(409))).toBe("support_session_expired");
       expect(body(await get(`${BASE}/current`, admin).expect(200))["support_session"]).toMatchObject({ status: "expired" });
@@ -624,14 +623,23 @@ describe("RT-414 support sessions — enforcement and audit", () => {
     expect(b.rows[0].end_reason).toBe("signed_out");
   });
 
-  it("leaves a member platform admin unchanged: no support session, no row", async () => {
+  it("RT-1468: a member platform admin is recorded too, one succeeded row per request", async () => {
     if (dockerSkipped) return;
     const memberAdmin = await signIn(MEMBER_ADMIN);
     await post("/api/v1/context/tenant", memberAdmin).send({ tenant_id: ACME }).expect(200);
-    const rid = randomUUID();
-    await get("/api/v1/stores", memberAdmin, rid).expect(200);
-    await get(`/api/v1/tenants/${ACME}/members`, memberAdmin, rid).expect(200);
-    expect((await rowsFor(rid)).filter((r) => r.action === "platform.cross_tenant.accessed")).toEqual([]);
+    const storesRid = randomUUID();
+    await get("/api/v1/stores", memberAdmin, storesRid).expect(200);
+    const membersRid = randomUUID();
+    await get(`/api/v1/tenants/${ACME}/members`, memberAdmin, membersRid).expect(200);
+    for (const [rid, route] of [
+      [storesRid, "/api/v1/stores"],
+      [membersRid, "/api/v1/tenants/:id/members"],
+    ] as const) {
+      const rows = (await rowsFor(rid)).filter((r) => r.action === "platform.cross_tenant.accessed");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.metadata).toMatchObject({ outcome: "succeeded", support_session_id: null, route });
+      expect(validateAccess(rows[0]!.metadata)).toBe(true);
+    }
   });
 
   it("refuses an unresolvable path tenant like a non-member, with a platform-scoped row", async () => {
@@ -647,49 +655,34 @@ describe("RT-414 support sessions — enforcement and audit", () => {
     }
   });
 
-  it("opens a suspended tenant read-only, but lets the platform reactivate it (status-only PATCH)", async () => {
+  it("RT-1468: a suspended tenant is not read-only for a platform admin: writes are admitted and recorded", async () => {
     if (dockerSkipped) return;
     const admin = await signIn(ADMIN);
     const id = String(body(await open(admin, PAUSED).expect(201))["id"]);
     await get("/api/v1/stores", admin).expect(200);
 
     const writeRid = randomUUID();
-    const write = await post("/api/v1/stores", admin, writeRid).send({ code: "RO1", name: "Read only" }).expect(403);
-    expect(errorCode(write)).toBe("support_session_read_only");
+    await post("/api/v1/stores", admin, writeRid).send({ code: "RW1", name: "Written while suspended" }).expect(201);
     const row = await crossTenantRowFor(writeRid);
-    expect(row.metadata).toMatchObject({ outcome: "rejected", reason: "support_session_read_only", support_session_id: id, method: "POST" });
+    expect(row.metadata).toMatchObject({ outcome: "succeeded", support_session_id: id, method: "POST" });
+    expect(row.metadata).not.toHaveProperty("reason");
     expect(validateAccess(row.metadata)).toBe(true);
 
-    // updateTenant changing anything but status is a write: refused, audited.
-    const renameRid = randomUUID();
-    const rename = await http()
-      .patch(`/api/v1/tenants/${PAUSED}`)
-      .set("Cookie", admin)
-      .set(SAME_ORIGIN)
-      .set("x-request-id", renameRid)
-      .send({ status: "active", name: "Renamed" })
-      .expect(403);
-    expect(errorCode(rename)).toBe("support_session_read_only");
-    expect((await crossTenantRowFor(renameRid)).metadata).toMatchObject({
-      reason: "support_session_read_only",
-      route: "/api/v1/tenants/:id",
-      method: "PATCH",
-    });
-
-    // A status-only PATCH (reactivation) is admitted, and still audited.
-    const reactivateRid = randomUUID();
+    // updateTenant with any field is admitted on a suspended tenant too, and still audited.
+    const patchRid = randomUUID();
     await http()
       .patch(`/api/v1/tenants/${PAUSED}`)
-      .set("x-request-id", reactivateRid)
       .set("Cookie", admin)
       .set(SAME_ORIGIN)
-      .send({ status: "active" })
+      .set("x-request-id", patchRid)
+      .send({ status: "active", name: "Renamed" })
       .expect(200);
     const { rows } = await E().admin.query(`SELECT status, name FROM tenants WHERE id = $1`, [PAUSED]);
-    expect(rows[0]).toEqual({ status: "active", name: "Paused" });
-    expect((await crossTenantRowFor(reactivateRid)).metadata).toMatchObject({
+    expect(rows[0]).toEqual({ status: "active", name: "Renamed" });
+    expect((await crossTenantRowFor(patchRid)).metadata).toMatchObject({
       outcome: "succeeded",
       support_session_id: id,
+      route: "/api/v1/tenants/:id",
       method: "PATCH",
     });
     await post(`${BASE}/current/end`, admin).expect(200);
@@ -713,19 +706,19 @@ describe("RT-414 support sessions — Origin refusal audit", () => {
     return (await rowsFor(rid)).filter((r) => r.action === "platform.cross_tenant.accessed");
   }
 
-  it("no support session for the tenant → support_session_required (the contract's order), audited", async () => {
+  it("RT-1468: no support session for the tenant → origin_rejected, audited with no session", async () => {
     if (dockerSkipped) return;
     const admin = await signIn(ADMIN);
     await forceActiveTenant(admin, ACME);
     const rid = randomUUID();
     const res = await foreignPost("/api/v1/stores", admin, rid).send({ code: "O1", name: "x" }).expect(403);
-    expect(errorCode(res)).toBe("support_session_required");
+    expect(errorCode(res)).toBe("origin_rejected");
     const row = await crossTenantRowFor(rid);
-    expect(row.metadata).toMatchObject({ reason: "support_session_required", support_session_id: null, method: "POST" });
+    expect(row.metadata).toMatchObject({ reason: "origin_rejected", support_session_id: null, method: "POST" });
     expect(validateAccess(row.metadata)).toBe(true);
   });
 
-  it("an expired support session → support_session_expired, audited with the session", async () => {
+  it("RT-1468: an expired support session → origin_rejected, the expired session not named", async () => {
     if (dockerSkipped) return;
     const admin = await signIn(ADMIN);
     const id = String(body(await open(admin, ACME).expect(201))["id"]);
@@ -736,8 +729,8 @@ describe("RT-414 support sessions — Origin refusal audit", () => {
     );
     const rid = randomUUID();
     const res = await foreignPost("/api/v1/stores", admin, rid).send({ code: "O2", name: "x" }).expect(403);
-    expect(errorCode(res)).toBe("support_session_expired");
-    expect((await crossTenantRowFor(rid)).metadata).toMatchObject({ reason: "support_session_expired", support_session_id: id });
+    expect(errorCode(res)).toBe("origin_rejected");
+    expect((await crossTenantRowFor(rid)).metadata).toMatchObject({ reason: "origin_rejected", support_session_id: null });
     await post(`${BASE}/current/end`, admin).expect(200);
   });
 
@@ -757,16 +750,21 @@ describe("RT-414 support sessions — Origin refusal audit", () => {
     expect((await crossTenantRowFor(rid)).tenant_id).toBeNull();
   });
 
-  it("everyone else keeps the plain RT-430 refusal and writes no row", async () => {
+  it("RT-1468: a member platform admin's Origin refusal is recorded too", async () => {
     if (dockerSkipped) return;
-    // A member platform admin.
     const memberAdmin = await signIn(MEMBER_ADMIN);
     await post("/api/v1/context/tenant", memberAdmin).send({ tenant_id: ACME }).expect(200);
     const memberRid = randomUUID();
     expect(errorCode(await foreignPost("/api/v1/stores", memberAdmin, memberRid).send({ code: "O3", name: "x" }).expect(403))).toBe(
       "origin_rejected",
     );
-    expect(await crossTenantRows(memberRid)).toEqual([]);
+    const rows = await crossTenantRows(memberRid);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.metadata).toMatchObject({ outcome: "rejected", reason: "origin_rejected", support_session_id: null });
+  });
+
+  it("everyone else keeps the plain RT-430 refusal and writes no row", async () => {
+    if (dockerSkipped) return;
 
     // A tenant member who is not a platform admin.
     const owner = await signIn(OWNER);

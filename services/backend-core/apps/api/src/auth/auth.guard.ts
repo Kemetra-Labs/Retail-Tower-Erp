@@ -224,7 +224,6 @@ export class AuthGuard implements CanActivate {
       activeTenantId: session.activeTenantId,
       method: request.method,
       params: (request.params ?? {}) as Record<string, string | undefined>,
-      body: request.body as unknown,
       requestId: assignRequestId(request, context.switchToHttp().getResponse()),
     });
     return refusal ?? plain;

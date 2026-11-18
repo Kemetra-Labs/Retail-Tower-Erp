@@ -72,9 +72,9 @@ const RUNTIME_OPS: Array<[Node, string, string, string]> = [
 const NEW_OPS: Array<[Node, string, string, string]> = RUNTIME_OPS;
 
 describe("console force actions contract (RT-1444)", () => {
-  it("is 1.1.0-draft (RT-1462, platform admin admitted); stores moved to 1.4.0-draft", () => {
-    expect(force["info"].version).toBe("1.1.0-draft");
-    expect(stores["info"].version).toBe("1.4.0-draft");
+  it("is 1.2.0-draft (RT-1468, platform admin admitted member or not, suspended tenant included); stores moved to 1.5.0-draft", () => {
+    expect(force["info"].version).toBe("1.2.0-draft");
+    expect(stores["info"].version).toBe("1.5.0-draft");
   });
 
   it.each(RUNTIME_OPS)("%#: is a runtime cookieAuth operation (RT-1439 and RT-1445 lifted the contract-only marker)", (doc, path, method, id) => {
