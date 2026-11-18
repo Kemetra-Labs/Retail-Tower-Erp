@@ -64,13 +64,22 @@ info:
     `platform.cross_tenant.accessed` row (`actor_kind: platform_admin`,
     `support_session_id` null, or the caller's live support session for the
     tenant when they hold one), exactly as a covered request inside a session
-    does, so no platform-admin request here is unrecorded. This lifts the
-    support-session requirement (RT-414) for exactly these operations and
+    does, so no NON-MEMBER platform-admin request here is unrecorded. This lifts
+    the support-session requirement (RT-414) for exactly these operations and
     nothing else: every other covered route still needs a support session, and
     a suspended tenant stays read-only for a non-member platform admin
-    (403 `support_session_read_only` on an unsafe method). A platform admin who
-    IS a tenant member is judged as on every route (the tenant's status is not
-    checked against a member).
+    (403 `support_session_read_only` on an unsafe method).
+
+    **A platform admin who IS a tenant member (owner decision 2026-11-18: keep
+    as is).** The direct-route gate applies to non-members only, so a member is
+    judged exactly as on every route: the tenant's status is not checked
+    against a member (a suspended tenant is not read-only for them), no
+    `platform.cross_tenant.accessed` row is written, and `on_behalf_of` names no
+    support session (`support_session_id` null) even if the account holds a live
+    one. The force action's own audit row (`shift.force_closed`,
+    `store.deleted`) still records `actor_kind: platform_admin`, so the action is
+    never unrecorded. Closing this gap (a cross-tenant row and the suspended
+    read-only refusal for members on these six routes) is a separate decision.
 
 
     **Preview, then confirm, then re-check (principle 2).** The preview is a

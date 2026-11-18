@@ -46,8 +46,10 @@
  * RT-1462: for the six handlers in `PLATFORM_DIRECT_HANDLERS` (the Console force
  * actions) the non-member case needs NO support session: `admitDirect` writes the
  * same one `platform.cross_tenant.accessed` row, names the live session when
- * there is one, and keeps a suspended tenant read-only. Every other route is as
- * below.
+ * there is one, and keeps a suspended tenant read-only. A platform admin who IS
+ * a member skips this (and `admitDirect`) on every route, these six included:
+ * no cross-tenant row, no suspended-tenant refusal (owner decision 2026-11-18,
+ * kept as is). Every other route is as below.
  *
  * A platform admin with NO live membership in the active tenant (whatever
  * the tenant's status) is admitted only through an `active` support session
