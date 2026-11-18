@@ -23,7 +23,7 @@
 // written `from -> to`. A new such edge fails even inside a group that already cycles, so a
 // baselined tangle cannot grow; fixing an edge makes its baseline line stale (shrink with --update).
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -93,7 +93,7 @@ export function runtimeSpecifiers(sourceText, fileName = "x.ts") {
       ts.isStringLiteral(node.moduleReference.expression)
     ) {
       found.push(node.moduleReference.expression.text);
-    } else if (ts.isCallExpression(node) && node.arguments.length >= 1 && ts.isStringLiteral(node.arguments[0])) {
+    } else if (ts.isCallExpression(node) && node.arguments.length >= 1 && ts.isStringLiteralLike(node.arguments[0])) {
       const callee = node.expression;
       if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === "require")) {
         found.push(node.arguments[0].text);

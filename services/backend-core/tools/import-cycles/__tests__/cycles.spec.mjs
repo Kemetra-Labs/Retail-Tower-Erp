@@ -34,11 +34,12 @@ test("runtimeSpecifiers: runtime imports count, type-only ones do not", () => {
     import eq = require("./equals");
     const lazy = () => import("./dynamic");
     const r = require("./required");
+    const t = () => import(\`./template\`);
     import { z } from "@nestjs/common";
   `;
   assert.deepEqual(
     runtimeSpecifiers(src).sort(),
-    ["./default", "./named", "./side-effect", "./ns", "./mixed", "./reexport", "./star", "./equals", "./dynamic", "./required", "@nestjs/common"].sort(),
+    ["./default", "./named", "./side-effect", "./ns", "./mixed", "./reexport", "./star", "./equals", "./dynamic", "./required", "./template", "@nestjs/common"].sort(),
   );
 });
 
