@@ -31,7 +31,7 @@ import {
   type FrozenPolicyDbColumns,
   type RecordedFrozenPolicy,
 } from "../pos-shifts/shift-frozen-policy";
-import { formatMoney } from "../pos-shifts/shift-money";
+import { formatMoney } from "../common/money/shift-money";
 
 // ---------------------------------------------------------------------------
 // Cursor

@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 
 import type { CloseApproval } from "../cash-variance-policy/policy-value";
 import { canonicalJson } from "../idempotency/canonical-json";
-import { CASH_UP_AMOUNT_FIELDS } from "./shift-cash-arithmetic";
+import { CASH_UP_AMOUNT_FIELDS } from "../common/money/shift-cash-arithmetic";
 import type { CloseShiftFact } from "./shift-cash-up.dto";
 import {
   ShiftCloseNotAppliedError,
@@ -16,7 +16,7 @@ import {
   type ShiftCloseFact,
   type ShiftLifecycleState,
 } from "./shift-cash-up.repository";
-import { canonicalInstant, formatMoney } from "./shift-money";
+import { canonicalInstant, formatMoney } from "../common/money/shift-money";
 
 /**
  * sha256 of the canonical close: amounts at the shift currency's minor unit

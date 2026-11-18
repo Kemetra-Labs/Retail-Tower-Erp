@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { PolicyValue } from "../cash-variance-policy/policy-value";
 import { renderPolicyValue } from "../cash-variance-policy/policy-value";
 import { minorUnitExponent } from "../common/money/iso4217-minor-units";
-import { formatMoney } from "./shift-money";
+import { formatMoney } from "../common/money/shift-money";
 
 export type FrozenPolicySource = "system" | "tenant" | "store" | "fallback";
 export type PolicyFlag = "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch";
