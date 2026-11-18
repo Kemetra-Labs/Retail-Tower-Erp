@@ -21,7 +21,7 @@ import {
   tenantAdminSetErpnextWarehouseMapping,
   tenantAdminSuggestErpnextItemMapping,
 } from "@/lib/erp-mapping-queries";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type MappingFailure,
   type MappingOp,
@@ -72,6 +72,14 @@ async function read<P>(op: MappingOp, call: () => Promise<MappingResult<P>>): Pr
 export interface ListView<T> {
   rows: T[];
   isLoading: boolean;
+  /** Another page exists after the rows shown (the last page's `nextCursor`). */
+  hasMore: boolean;
+  /** The next page is being read. */
+  loadingMore: boolean;
+  /** Reading the next page failed; the rows already shown are proven and stay. */
+  moreFailure?: MappingFailure;
+  /** Reads the next page. Ignored while one is in flight. */
+  loadMore: () => void;
   /** A failure with nothing loaded. */
   failure?: MappingFailure;
   /** A re-read failed while earlier rows stay on screen. */
@@ -100,11 +108,31 @@ function listView<T>(
   return {
     rows: result.data?.items ?? [],
     isLoading: enabled && result.isLoading,
+    hasMore: false,
+    loadingMore: false,
+    loadMore: () => undefined,
     failure: hasData ? undefined : failure,
     staleFailure: hasData ? failure : undefined,
     asOf: hasData ? result.dataUpdatedAt : undefined,
     retry: () => void result.refetch(),
   };
+}
+
+/** Rows asked for per page of the item list (the contract allows 1 to 500). */
+const ITEM_PAGE_SIZE = 100;
+
+/** The rows of every loaded page, each id once: a keyset page never repeats a row. */
+function itemRows(pages: { items: ErpnextItemMapping[] }[] | undefined): ErpnextItemMapping[] {
+  const seen = new Set<string>();
+  const rows: ErpnextItemMapping[] = [];
+  for (const page of pages ?? []) {
+    for (const row of page.items) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      rows.push(row);
+    }
+  }
+  return rows;
 }
 
 export function useItemMappings(
@@ -113,14 +141,38 @@ export function useItemMappings(
   enabled: boolean,
 ): ListView<ErpnextItemMapping> {
   const active = enabled && Boolean(tenantId);
-  const result = useQuery({
+  const query = useInfiniteQuery({
     queryKey: mappingQueryKeys.items(tenantId, state),
     enabled: active,
-    queryFn: () =>
-      read("listItems", () => tenantAdminListErpnextItemMappings(state === "" ? undefined : state)),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      read("listItems", () =>
+        tenantAdminListErpnextItemMappings(state === "" ? undefined : state, {
+          cursor: pageParam,
+          limit: ITEM_PAGE_SIZE,
+        }),
+      ),
+    // A missing or null `nextCursor` (the last page, or a server that does not page) ends the list.
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     retry: false,
   });
-  return listView(result, active);
+  const failure = failureOf(query.error);
+  const continuationFailed = query.isFetchNextPageError;
+  const hasData = query.data !== undefined;
+  return {
+    rows: itemRows(query.data?.pages),
+    isLoading: active && query.isLoading,
+    hasMore: Boolean(query.hasNextPage),
+    loadingMore: query.isFetchingNextPage,
+    moreFailure: continuationFailed ? failure : undefined,
+    loadMore: () => {
+      if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
+    },
+    failure: hasData ? undefined : failure,
+    staleFailure: hasData && !continuationFailed ? failure : undefined,
+    asOf: hasData ? query.dataUpdatedAt : undefined,
+    retry: () => void query.refetch(),
+  };
 }
 
 export function useWarehouseMappings(

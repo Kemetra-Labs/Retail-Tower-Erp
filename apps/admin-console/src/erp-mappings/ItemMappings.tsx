@@ -1,3 +1,5 @@
+import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 /**
  * RT-725 ERPNext item mappings (`catalog/erpnext-item-map.yaml`): the tenant's
  * active mappings, filterable to the review queue (`state=suggested`), with
@@ -112,6 +114,41 @@ function ConfirmStep({
   );
 }
 
+/**
+ * The boundary under the table (UX-10.16, .18): "Load more" while the server says another page
+ * exists, and, if reading it failed, the failure with a retry right here. The rows above were
+ * proven by earlier answers and stay; no total or page number is shown, the contract has none.
+ */
+function LoadMore({
+  list,
+}: Readonly<{ list: ListView<ErpnextItemMapping> }>): React.JSX.Element | null {
+  const t = useT();
+  if (list.moreFailure) {
+    const requestId = "requestId" in list.moreFailure ? list.moreFailure.requestId : undefined;
+    return (
+      <Banner
+        variant="warning"
+        message={t("erp.map.items.continuation.failed")}
+        requestId={requestId}
+        action={<RetryButton onRetry={list.loadMore} />}
+      />
+    );
+  }
+  if (!list.hasMore) return null;
+  return (
+    <div className="surface__actions">
+      <BusyButton
+        type="button"
+        className="btn-secondary"
+        onClick={list.loadMore}
+        busy={list.loadingMore}
+      >
+        {t("erp.map.items.loadMore")}
+      </BusyButton>
+    </div>
+  );
+}
+
 function ItemRow({
   row,
   onAction,
@@ -200,42 +237,45 @@ function ItemTable({
   }
   if (list.rows.length === 0) return <ListState state="empty" emptyMessage={t(emptyKey)} />;
   return (
-    <TableScrollRegion>
-      {(captionId) => (
-        <table className="data-table">
-          <caption id={captionId} className="data-table__caption">
-            {t("erp.map.items.title")}
-          </caption>
-          <thead>
-            <tr>
-              {cols.map((col) => (
-                <th key={col.key} scope="col">
-                  {col.header}
-                </th>
+    <>
+      <TableScrollRegion>
+        {(captionId) => (
+          <table className="data-table">
+            <caption id={captionId} className="data-table__caption">
+              {t("erp.map.items.title")}
+            </caption>
+            <thead>
+              <tr>
+                {cols.map((col) => (
+                  <th key={col.key} scope="col">
+                    {col.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.rows.map((row) => (
+                <ItemRowGroup
+                  key={row.id}
+                  row={row}
+                  tenantId={tenantId}
+                  action={action?.row.id === row.id ? action : null}
+                  colSpan={cols.length}
+                  onAction={setAction}
+                  onClose={() => setAction(null)}
+                  onDone={(done) => {
+                    setAction(null);
+                    if (done.kind === "retire") onRetired(done.row);
+                    else onConfirmed();
+                  }}
+                />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {list.rows.map((row) => (
-              <ItemRowGroup
-                key={row.id}
-                row={row}
-                tenantId={tenantId}
-                action={action?.row.id === row.id ? action : null}
-                colSpan={cols.length}
-                onAction={setAction}
-                onClose={() => setAction(null)}
-                onDone={(done) => {
-                  setAction(null);
-                  if (done.kind === "retire") onRetired(done.row);
-                  else onConfirmed();
-                }}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
-    </TableScrollRegion>
+            </tbody>
+          </table>
+        )}
+      </TableScrollRegion>
+      <LoadMore list={list} />
+    </>
   );
 }
 

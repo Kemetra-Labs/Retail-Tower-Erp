@@ -198,6 +198,9 @@ export const erp: MessagesOf<typeof ar> = {
   "erp.map.items.empty": "No active item mappings.",
   "erp.map.items.emptySuggested": "No suggestions waiting for review.",
   "erp.map.items.emptyConfirmed": "No confirmed item mappings.",
+  "erp.map.items.loadMore": "Load more",
+  "erp.map.items.continuation.failed":
+    "Could not load more item mappings. The mappings above are kept.",
   "erp.map.items.filter": "State",
   "erp.map.items.filter.label": "Filter item mappings",
   "erp.map.items.filter.all": "All active mappings",

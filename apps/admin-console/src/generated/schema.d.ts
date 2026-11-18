@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ ba1008bf0775a47010454cc4149b19847c9f3713
+// Source: Kemetra-Labs/Retail-Tower-Erp @ c521784d51428761c077ce97df1eec39bf051bd7
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -9853,6 +9853,10 @@ export namespace ErpnextItemMapSchema {
                 query?: {
                     /** @description Optional lifecycle filter. Omit for all active mappings. */
                     state?: "suggested" | "confirmed";
+                    /** @description Page size (RT-1458). Omit to receive every active mapping in one response, the behaviour before paging was added; a later contract version will apply a default page size when this is absent. */
+                    limit?: number;
+                    /** @description Opaque token from the previous page's `nextCursor` (RT-1458). Clients MUST treat it as opaque. A token this operation did not issue is `400 validation_error`. Combine it with the same `state` and `limit` as the page that issued it. */
+                    cursor?: string;
                 };
                 header?: never;
                 path?: never;
@@ -9860,7 +9864,7 @@ export namespace ErpnextItemMapSchema {
             };
             requestBody?: never;
             responses: {
-                /** @description The tenant's active mappings. */
+                /** @description The tenant's active mappings, newest suggestion first (`suggested_at DESC, id`). */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -9868,10 +9872,12 @@ export namespace ErpnextItemMapSchema {
                     content: {
                         "application/json": {
                             items: components["schemas"]["ErpnextItemMapping"][];
+                            /** @description Pass as `cursor` to read the next page. `null` on the last page, and whenever `limit` was not sent. */
+                            nextCursor: string | null;
                         };
                     };
                 };
-                /** @description Bad request (invalid query param). */
+                /** @description Bad request (invalid query param, or a `cursor` this operation did not issue). */
                 400: {
                     headers: {
                         [name: string]: unknown;
