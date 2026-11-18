@@ -59,9 +59,14 @@ on:
     types: [completed]
     # RT-1467 (CI-04): a push to main has no PR to gate (`evaluate` skips it below), so do not
     # start a gate run for it at all; that removed about 14 skipped gate runs per merge.
-    # Accepted residual: a fork PR whose head branch is named `main` gets no workflow_run
-    # gate, only the pull_request_target one, so its `required` stays fail-closed (pending);
-    # a label toggle after its product runs finish re-evaluates it.
+    # Accepted residual (owner decision 2026-11-18, RT-1467): a fork PR whose head branch is
+    # named `main` gets no workflow_run gate, only the pull_request_target one, so:
+    #  - its `required` stays fail-closed (pending) until a label toggle after its product runs
+    #    finish re-evaluates it;
+    #  - once green, a later re-run of a product job that fails does NOT re-evaluate it, so
+    #    `required` can stay green over a failed job. Toggle a label to re-evaluate before
+    #    merging such a PR; the merge rule (CLAUDE.md, newest `required` on the head) does not
+    #    catch this case on its own.
     branches-ignore: [main]
 
 permissions:
