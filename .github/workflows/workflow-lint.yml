@@ -24,6 +24,13 @@
 # (pgraph privileges). zizmor runs `--offline`, so no token reaches it; the online-only audits
 # (known-vulnerable-actions, impostor-commit, ref-confusion) do not run.
 #
+# `--strict-collection` makes zizmor exit 1 on a workflow it cannot parse (without it zizmor warns,
+# skips the file and exits 0, so the file would go unaudited); 1 is outside the allowed codes, so the
+# step fails closed. The job name `workflow-lint/report` is kept on purpose: renaming it would change
+# the check context. actionlint's `run:` findings come from the runner image's shellcheck (0.9.0 on
+# ubuntu-24.04 when the baseline was generated; the install step prints the version): if an image
+# update changes it, regenerate the baseline.
+#
 # Known false positive handled here: actionlint (1.7.12 and its main branch, 2026-11) does not know
 # the job-level `concurrency.queue` key that GitHub accepts (mirror-erpnext-connector.yml publish
 # job, `queue: max`). The `-ignore` regex below drops exactly that message and nothing else.
@@ -110,10 +117,10 @@ jobs:
           bin="$RUNNER_TEMP/bin"
           plain="$RUNNER_TEMP/zizmor.txt"
           json="$RUNNER_TEMP/zizmor.json"
-          "$bin/zizmor" --offline --no-progress --color never --quiet --format plain \
+          "$bin/zizmor" --offline --no-progress --color never --quiet --strict-collection --format plain \
             .github/workflows > "$plain" 2>&1 || true
           rc=0
-          "$bin/zizmor" --offline --no-progress --color never --quiet --format json \
+          "$bin/zizmor" --offline --no-progress --color never --quiet --strict-collection --format json \
             .github/workflows > "$json" || rc=$?
           cat "$plain"
           python3 .github/scripts/workflow_lint_baseline.py check --tool zizmor --rc "$rc" \

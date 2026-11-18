@@ -16,6 +16,11 @@ audit (zizmor `ident`, actionlint `kind`) and the message has no line or column 
 only moves a finding never churns the baseline. The same line may repeat; findings are counted, so a
 second identical finding in a file is new. `#` lines and blank lines are comments.
 
+Known limits: findings are matched by (file, rule, message) and counted, so one PR that fixes a finding
+and adds another with the same rule and message in the same file nets to zero and passes (adding one
+without fixing one still fails). The messages of the shellcheck findings come from the runner image's
+shellcheck: a runner-image update that changes it means regenerating the baseline.
+
 Fail closed: a tool exit code that is not one of its documented "findings" codes, unreadable JSON, or a
 missing baseline is a failure, never "no findings". Stdlib only, so it runs on the runner's system
 Python with no setup step. Adding a line to the baseline is a policy change (`.github/**`) that the
@@ -42,7 +47,7 @@ HEADER = """\
 # moving a finding does not change it; an identical finding repeated in a file is listed repeatedly.
 # Regenerate after fixing (the tools are pinned in .github/workflows/workflow-lint.yml):
 #   actionlint -no-color -format '{{json .}}' -ignore 'unexpected key "queue" for "concurrency" section' > al.json
-#   zizmor --offline --no-progress --color never --quiet --format json .github/workflows > zz.json
+#   zizmor --offline --no-progress --color never --quiet --strict-collection --format json .github/workflows > zz.json
 #   python3 .github/scripts/workflow_lint_baseline.py generate --actionlint al.json --zizmor zz.json \\
 #     > .github/workflow-lint-baseline.txt
 """
@@ -180,7 +185,11 @@ def render(tool, rc, current, baseline, new, stale, plain_lines):
 
 def cmd_check(args):
     if args.rc not in OK_CODES[args.tool]:
-        print(f"{args.tool} exited {args.rc}, which is not a lint result (want one of {sorted(OK_CODES[args.tool])}): failing closed", file=sys.stderr)
+        message = f"{args.tool} exited {args.rc}, which is not a lint result (want one of {sorted(OK_CODES[args.tool])}): failing closed"
+        print(message, file=sys.stderr)
+        if args.summary:
+            with open(args.summary, "a", encoding="utf-8") as handle:
+                handle.write(f"### {args.tool}: FAILED, the tool did not lint\n\n{message}\n")
         return 1
     current = normalise(args.tool, args.findings)
     baseline = read_baseline(args.baseline, args.tool)

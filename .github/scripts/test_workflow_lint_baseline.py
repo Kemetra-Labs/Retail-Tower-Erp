@@ -127,6 +127,22 @@ class Check(Case):
                          "--baseline", os.path.join(self.dir.name, "missing.txt")])
         self.assertEqual(code, 1)
 
+    def test_every_documented_findings_code_is_accepted_and_a_tool_failure_is_in_the_summary(self):
+        for rc in (10, 11, 12, 13, 14):
+            self.assertEqual(self.check("zizmor", rc, [], [])[0], 0, rc)
+        for rc in (0, 1):
+            self.assertEqual(self.check("actionlint", rc, [], [])[0], 0, rc)
+        summary = os.path.join(self.dir.name, "fail.md")
+        self.assertEqual(self.check("zizmor", 1, [], [], summary=summary)[0], 1)
+        with open(summary, encoding="utf-8") as handle:
+            self.assertIn("FAILED, the tool did not lint", handle.read())
+
+    def test_input_shapes_that_cannot_be_read_fail_closed(self):
+        no_primary = {"ident": "x", "desc": "d", "ignored": False, "locations": [{"symbolic": {"kind": "Hidden", "key": {}}}]}
+        self.assertEqual(self.check("zizmor", 14, [no_primary], [])[0], 1)
+        self.assertEqual(self.check("actionlint", 1, [{"filepath": "f.yml", "kind": "expression"}], [])[0], 1)
+        self.assertEqual(self.check("zizmor", 14, [{"desc": "no ident"}], [])[0], 1)
+
     def test_a_malformed_baseline_line_fails(self):
         self.assertEqual(self.check("zizmor", 0, [], ["not a baseline line"])[0], 1)
         self.assertEqual(self.check("zizmor", 0, [], ["zizmor|only|three"])[0], 1)
