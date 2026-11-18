@@ -4,9 +4,10 @@
  * optional `ticket_ref` only. The free-text «سبب الوصول» field of the frame is
  * dropped (DEC-1): `OpenSupportSessionRequest` is `additionalProperties: false`.
  *
- * The scope text says only what is true at this pin: the session is read-only
- * in the Console, lasts 60 minutes, renews explicitly up to 8 hours, and a
- * suspended tenant is read-only at the API too. It makes no claim about hidden
+ * The scope text says only what is true at this pin (RT-1468): the session
+ * records its purpose and ticket with every action, is not read-only, lasts 60
+ * minutes, renews explicitly up to 8 hours, and a suspended tenant opens like
+ * any other. It makes no claim about hidden
  * amounts (D4 is not backed server-side yet, RT-777 OQ-4) and offers no
  * break-glass (P0-b has no contract).
  *

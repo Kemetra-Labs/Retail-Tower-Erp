@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1440 (U1): the next step on the device impact panel. A retire, replace or move blocked by an
  * open shift (`unresolved_cash_session`), or a retire of a revoked device blocked by its custody
@@ -7,6 +6,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * verdict is shown and the close-without-a-count dialog opens. Anyone else sees nothing here: the
  * action is hidden, and the server would answer the uniform 404 anyway.
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { Link } from "react-router";

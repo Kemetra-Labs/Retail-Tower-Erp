@@ -2,9 +2,8 @@
  * RT-781 (RT-777 S2): the support-session bar, under the top bar of the
  * `/platform` shell and of the tenant shell. It is the ONLY place that shows the
  * purpose, ticket reference, remaining time, renew and end (design frames 21-24
- * and 46). It offers no break-glass and no write control on tenant data: the two
- * buttons act on the session itself, and the UI safeguard for the rest is that
- * nothing else is rendered here (RT-777 section 1.2 item 6, not a security control).
+ * and 46). It offers no break-glass: its two buttons act on the session itself.
+ * Since RT-1468 the session no longer limits the tenant shell around it.
  *
  * States: active, expiring, cap reached, expired. When the cap is reached the
  * renew button stays rendered but `aria-disabled` with its reason (DS-R17). When

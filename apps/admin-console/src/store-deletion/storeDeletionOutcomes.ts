@@ -16,7 +16,7 @@
  *   409 other                        → rejected (nothing deleted by this request)
  *   403 reauth_required              → reauthRequired: the grant is gone (one answer for every cause)
  *   403 store_deletion_owner_only    → rejected: the owner only
- *   403 support_session_*            → rejected: a support session is read-only
+ *   403 support_session_required     → rejected: the organization is no longer available (RT-1468)
  *   403, 404, 429, 400               → rejected, one catalog key each
  *   425, 5xx, no answer              → retryable: the delete may already be recorded
  *   401                              → session

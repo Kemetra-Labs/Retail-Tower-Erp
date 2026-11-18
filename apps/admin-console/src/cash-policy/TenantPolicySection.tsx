@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-389 tenant page section (AD-CASH-001 F6): the tenant's default shift
  * variance policy (`none`, or `limit` with amount and currency) and Apply Now.
@@ -7,6 +6,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * rendered and nothing is requested. The read carries the concurrency token
  * for the publish; the server resolves and refuses, the UI renders.
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { useState } from "react";

@@ -14,7 +14,7 @@
  *   409 shift_force_closed       → settled: a force close (a till or another owner) got there first
  *   409 shift_closed             → settled: the till closed it with a cash-up first
  *   409 idempotency_key_conflict → rejected (nothing recorded by this request)
- *   403 support_session_*        → rejected: a support session is read-only
+ *   403 support_session_required → rejected: the organization is no longer available (RT-1468)
  *   403, 404, 429, 400           → rejected, one catalog key each
  *   425, 5xx, no answer          → retryable: the close may already be recorded
  *   401                          → session

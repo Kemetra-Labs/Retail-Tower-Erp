@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-665 tenant page section (AD-AI-ENT-001 D-6; RT-644 ENT-AC1): a read-only
  * panel of the tenant's AI plan & usage. Owner / tenant_admin see the full view
@@ -16,6 +15,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * `AppShell` used to list): it is on in development builds and off in a
  * production build until the runtime ships. `enabled` lets a test, or the release that turns it on, force it.
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { FullView, MinimalView } from "./AiPlanParts";

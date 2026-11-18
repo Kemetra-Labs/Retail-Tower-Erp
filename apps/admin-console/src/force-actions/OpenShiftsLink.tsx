@@ -1,9 +1,9 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1440 (U1): the store page's entry to the store's open shifts (RT-1437 A1). Shown to an owner
  * or tenant_admin outside a support session only; the server stays authoritative (the open-shifts
  * read answers the uniform 404 to anyone else).
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { Link } from "react-router";

@@ -1,5 +1,3 @@
-import { Banner } from "@/components/Banner";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1350 slice 5a: the "limited until activated" banner (design v6 D2). A tenant
  * created by self-signup is active but `restricted`: catalog, stores and members
@@ -10,6 +8,8 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * 5xx, offline, a body outside the contract) renders nothing: a missing banner is
  * harmless, a false one would mislead the owner. No tenant, no request.
  */
+import { Banner } from "@/components/Banner";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { consoleGetTenantAccessEntitlement } from "@/lib/tenant-access-queries";

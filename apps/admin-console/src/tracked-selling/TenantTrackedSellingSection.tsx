@@ -1,7 +1,3 @@
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { ListState } from "@/components/ListState";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-455 part 1 tenant page section: the tenant's tracked-selling switch
  * (`getTrackedSellingSetting` / `setTrackedSellingSetting`, `inventory.yaml`
@@ -20,6 +16,10 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * The server decides every state; this section renders it and sends the
  * command. Nothing here evaluates a precondition.
  */
+import { Banner } from "@/components/Banner";
+import { GatedButton } from "@/components/GatedButton";
+import { ListState } from "@/components/ListState";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { formatDateTime, useT } from "@/i18n";
 import type { TrackedSellingSetting } from "@/lib/tracked-selling-queries";

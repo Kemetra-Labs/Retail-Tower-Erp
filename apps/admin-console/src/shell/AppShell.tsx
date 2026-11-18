@@ -59,6 +59,7 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
     hasTrackedProducts === true,
   );
   const groups = tenantNav(roleCode, {
+    platformAdmin: user?.is_platform_admin === true,
     hasTrackedProducts,
     trackedSellingOn: trackedSellingOn(trackedSelling.data),
   });

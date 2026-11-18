@@ -1,7 +1,3 @@
-import { NoAccess } from "@/auth/NoAccess";
-import { ListHeaderBand } from "@/components/ListHeaderBand";
-import { ScopePrompt } from "@/components/ScopePrompt";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1338 offers list (RT-286 S6): the active tenant's offers, newest first, with state, schedule,
  * store scope and current version. Filtered by derived state; archived offers leave the default
@@ -12,6 +8,10 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * role gets NoAccess and nothing is requested; no active tenant → a scope prompt. Errors show
  * catalog copy and the request id, never the server's words. A failed "Load more" keeps the rows.
  */
+import { NoAccess } from "@/auth/NoAccess";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
+import { ScopePrompt } from "@/components/ScopePrompt";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { usePayerStores } from "@/payers/usePayerStores";

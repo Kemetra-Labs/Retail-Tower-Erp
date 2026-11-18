@@ -1,6 +1,3 @@
-import { Banner } from "@/components/Banner";
-import { DetailPanel, PanelBody } from "@/components/DetailPanel";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1441 (U2) — the store «danger zone» on the store detail page (RT-1437 A2): the owner's way to
  * remove a store, in the order the decision record asks for. Suspending comes FIRST, as the
@@ -12,6 +9,9 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * control: the server answers 403 `store_deletion_owner_only` or the uniform 404 to anyone else. Nothing is read
  * while the page loads: the preview is requested only once the dialog opens.
  */
+import { Banner } from "@/components/Banner";
+import { DetailPanel, PanelBody } from "@/components/DetailPanel";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { rf2QueryKeys } from "@/lib/rf2-queries";

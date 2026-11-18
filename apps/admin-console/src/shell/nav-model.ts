@@ -53,6 +53,8 @@ export interface NavSignals {
   readonly hasTrackedProducts?: boolean;
   /** `getTrackedSellingSetting` answered on; undefined or false hides tracking (OD-T4). */
   readonly trackedSellingOn?: boolean;
+  /** RT-1468: a platform admin gets the way back to the platform directory. */
+  readonly platformAdmin?: boolean;
 }
 
 type Gate = (role: string | null | undefined, signals: NavSignals) => boolean;
@@ -194,13 +196,21 @@ export const PLATFORM_NAV: readonly NavGroup[] = [
   },
 ];
 
+/** RT-1468: the platform directory, listed last in the tenant shell for a platform admin. */
+const PLATFORM_RETURN: NavGroup = {
+  id: "platform",
+  heading: "shell.nav.section.platform",
+  entries: [{ label: "platform.nav.tenants", to: "/platform/tenants", icon: "tenant" }],
+};
+
 /** The tenant shell's groups for a role; a group left with no entry is dropped. */
 export function tenantNav(role: string | null | undefined, signals: NavSignals = {}): NavGroup[] {
-  return TENANT_NAV.map((group) => ({
+  const groups = TENANT_NAV.map((group) => ({
     id: group.id,
     heading: group.heading,
     entries: group.entries
       .filter((entry) => entry.canRead(role, signals))
       .map(({ canRead: _gate, ...entry }) => entry),
   })).filter((group) => group.entries.length > 0);
+  return signals.platformAdmin ? [...groups, PLATFORM_RETURN] : groups;
 }

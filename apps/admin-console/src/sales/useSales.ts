@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-587 query hooks: a read-only infinite query over `consoleListSales` and a
  * detail query over `consoleGetSale`. Scope-keyed by the active tenant AND
@@ -10,6 +9,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * Errors are typed, never raw: a 404 is the API's uniform non-disclosing
  * refusal, a 401 an expired session, a 400 a rejected query.
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type SaleDetail,

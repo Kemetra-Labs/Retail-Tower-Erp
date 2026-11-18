@@ -1,7 +1,3 @@
-import { BackArrow } from "@/components/BackArrow";
-import { Banner } from "@/components/Banner";
-import { PageHeader } from "@/components/PageHeader";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1440 (U1) — The open shifts of one store (RT-1437 A1, D6): every shift still open with the
  * SERVER's verdict and its reason as persistent text (UX-05.14, UX-11.11), and, for an eligible
@@ -10,6 +6,10 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * stays authoritative and answers the uniform 404 to anyone else, shown as "not available".
  * Nothing here judges a shift: eligible, stale and blockers are the server's fields.
  */
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
+import { PageHeader } from "@/components/PageHeader";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { TrustBadge } from "@/devices/DeviceParts";
 import { DateTime, useT } from "@/i18n";

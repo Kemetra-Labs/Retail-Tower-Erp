@@ -76,6 +76,13 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(paths("owner", {})).toHaveLength(20);
   });
 
+  test("RT-1468: a platform admin gets the platform directory as the last group; nobody else does", () => {
+    const last = tenantNav("owner", { ...SIGNALS, platformAdmin: true }).at(-1);
+    expect(last?.id).toBe("platform");
+    expect(last?.entries.map((e) => e.to)).toEqual(["/platform/tenants"]);
+    expect(tenantNav("owner", SIGNALS).some((g) => g.id === "platform")).toBe(false);
+  });
+
   test("a group left with no entry is dropped", () => {
     const groupIds = (role: string) => tenantNav(role, SIGNALS).map((g) => g.id);
     // A role with no daily-operations entry still has Overview, so Daily stays; Stock goes.

@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * One server read as a `Read<T>`, shared by the owner "force with impact preview" screens
  * (RT-1440 close-without-a-count, RT-1441 store deletion). Extracted from `useForceActions.ts`
@@ -9,6 +8,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * server returns, so a cached answer must not cross a role change. The previews are snapshots,
  * read fresh on every open (`fresh`), never reused.
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { errorRequestIdOf } from "@/lib/write-outcome";
 import { useQuery } from "@tanstack/react-query";

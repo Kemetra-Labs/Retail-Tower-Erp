@@ -1,10 +1,10 @@
-import { Banner } from "@/components/Banner";
-import { GatedButton } from "@/components/GatedButton";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-178 shared pieces for the two stock discrepancy surfaces: the scope read
  * from RF-1's active context, the no-tenant prompt, and the "Load more" pager.
  */
+import { Banner } from "@/components/Banner";
+import { GatedButton } from "@/components/GatedButton";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import type { ScopeKey, StockDiscrepancyError } from "./useStockDiscrepancies";

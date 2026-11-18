@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-728 query hooks for the inventory read views: a store's movement ledger
  * (keyset paged, newest first), its stock locations, one product's on-hand at
@@ -10,6 +9,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * (`retry: false`); a 429 carries the server's wait for the banner, and the
  * shared clock gates every Load more / Retry (GatedButton).
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type OnHand,

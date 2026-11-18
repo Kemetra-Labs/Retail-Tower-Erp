@@ -36,6 +36,7 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.nav.section.daily": "Daily",
   "shell.nav.section.stock": "Stock and items",
   "shell.nav.section.management": "Management",
+  "shell.nav.section.platform": "Platform",
   "shell.nav.tenants": "Tenants",
   "shell.nav.stores": "Stores",
   "shell.nav.operators": "Operators",

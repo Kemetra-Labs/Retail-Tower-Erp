@@ -1,4 +1,3 @@
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-371 query hooks: a read-only infinite query over `consoleListDevices` and a
  * detail query over `consoleGetDevice`. Scope-keyed by the active tenant AND
@@ -11,6 +10,7 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * Errors are typed, never raw: a 404 is the API's uniform non-disclosing
  * refusal, a 401 an expired session, a 400 a rejected filter.
  */
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
   type DeviceDetail,

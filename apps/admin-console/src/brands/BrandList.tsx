@@ -1,10 +1,3 @@
-import { NoAccess } from "@/auth/NoAccess";
-import { Banner } from "@/components/Banner";
-import { TableScrollRegion } from "@/components/DataTableScroll";
-import { ListHeaderBand } from "@/components/ListHeaderBand";
-import { ListState } from "@/components/ListState";
-import { ScopePrompt } from "@/components/ScopePrompt";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 /**
  * RT-1338 brands page (RT-286 S6): the tenant's flat brand list, next to the items it classifies.
  * Brands are created and renamed here; the product form assigns one (`brandId`) and the item list
@@ -14,6 +7,13 @@ import { useActiveContextValue } from "@/context/ActiveContextProvider";
  * are hidden for a store_manager; Backend-Core stays the authority). No active tenant → a scope
  * prompt; any other role gets NoAccess and nothing is requested.
  */
+import { NoAccess } from "@/auth/NoAccess";
+import { Banner } from "@/components/Banner";
+import { TableScrollRegion } from "@/components/DataTableScroll";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
+import { ListState } from "@/components/ListState";
+import { ScopePrompt } from "@/components/ScopePrompt";
+import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { formatDateTime } from "@/i18n/format";
