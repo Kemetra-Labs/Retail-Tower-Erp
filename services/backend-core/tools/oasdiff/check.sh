@@ -88,7 +88,8 @@ fi
 stale=$(grep -cxF -f "$WORK/base-ignore.txt" "$WORK/head-ignore.txt" 2>/dev/null || true)
 if [[ "${stale:-0}" -gt 0 ]]; then
   echo "::error::$stale inherited entr(y/ies) in breaking-ignore.txt are no longer applied; remove them." >&2
-  echo "Stale inherited entries (delete these lines from tools/oasdiff/breaking-ignore.txt):" >&2
+  echo "Stale inherited entries (delete these lines from tools/oasdiff/breaking-ignore.txt;" >&2
+  echo "if the same break recurs in this change, reword the line, e.g. a new reason or Jira key, so it is a new entry):" >&2
   grep -xF -f "$WORK/base-ignore.txt" "$WORK/head-ignore.txt" | sed 's/^/  /' >&2
   exit 1
 fi
