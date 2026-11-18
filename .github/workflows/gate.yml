@@ -57,7 +57,8 @@ on:
     # RT-1467 (CI-04): a push to main has no PR to gate (`evaluate` skips it below), so do not
     # start a gate run for it at all; that removed about 14 skipped gate runs per merge.
     # Accepted residual: a fork PR whose head branch is named `main` gets no workflow_run
-    # gate, only the pull_request_target one, so its `required` stays fail-closed.
+    # gate, only the pull_request_target one, so its `required` stays fail-closed (pending);
+    # a label toggle after its product runs finish re-evaluates it.
     branches-ignore: [main]
 
 permissions:
