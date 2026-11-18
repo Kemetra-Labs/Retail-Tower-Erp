@@ -996,7 +996,7 @@ GitHub's public key set, so this adds one outbound call from the api to
   be a login). The runbook lists them and says which hardening the owner may add.
 - **Deploy order (RT-1459):** the two numeric ids are required. Set `POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID` and
   `POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID` in the host env file **before or together with** the deploy of
-  the api that reads them. A host that still has only the five older pins comes up healthy with the lane off
+  the api that reads them. A host that still has only the five pre-RT-1459 pins comes up healthy with the lane off
   (`incomplete`), so register and withdraw answer 401 until the ids are set. The repository name alone no longer
   suffices: a token from a renamed-and-reused repository carries the same names but another id.
 - **Who may activate:** a platform admin on the Console session, with a trusted `Origin`. The workflow cannot.

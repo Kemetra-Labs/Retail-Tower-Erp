@@ -196,8 +196,9 @@ withdraw that one first with a `withdraw` run, or promote with `replace_current`
 are the allowlist (`PUT /api/v1/platform/pos-pilot-tenants/{tenantId}`, also a platform admin).
 
 **What the pins do and do not prove.** GitHub's issuer is shared by every repository, so the pins are what make a
-token yours: the exact `repository`, the `environment` the job runs in, the `ref`, and the `job_workflow_ref`
-(the workflow file at that ref). Each is an exact, case-sensitive match against the claim as GitHub writes it
+token yours: the exact `repository`, its immutable numeric ids `repository_id` and `repository_owner_id`
+(RT-1459), the `environment` the job runs in, the `ref`, and the `job_workflow_ref` (the workflow file at that
+ref). Each is an exact, case-sensitive match against the claim as GitHub writes it
 (the environment name too); a case mismatch is a 403 and the api never says why. They are sufficient only with
 the GitHub-side settings that this code cannot check, so before the first registration confirm:
 
@@ -211,9 +212,9 @@ the GitHub-side settings that this code cannot check, so before the first regist
   Enterprise Managed User login with an underscore is refused (403, or 400 for `approvedBy`);
 - the workflow file name has no spaces (a pin with a space is refused at boot as `invalid`).
 
-The `repository` is matched by name. If the organisation or repository were ever deleted or renamed and the
-name re-registered by someone else, their repository would satisfy the pin: keep the names reserved. Pinning
-the immutable `repository_id` and `repository_owner_id` claims as well is a cheap hardening the owner can ask for.
+The names alone are not trusted: `repository_id` and `repository_owner_id` are pinned as well (RT-1459). GitHub
+never reuses those ids, so a repository re-created under a freed or renamed name does not satisfy the pins. Keep
+the names reserved anyway: `job_workflow_ref` and the Console are name-based.
 
 **Key rotation.** GitHub rotates its signing keys; the api fetches the key set on first use, caches it for 10
 minutes, and refetches an unknown key at most every 30 seconds. A genuine token signed by a brand-new key that
