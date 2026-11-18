@@ -158,6 +158,47 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertEqual(self.graph.classify(".depot/scripts/patch-evidence.sh")[:2], ("class", "depot"))
         self.assertEqual(self.graph.classify(".depotx/a.yml")[0], "unknown")
 
+    def test_rt_control_room_selects_only_its_own_job(self):
+        # RT-1395 / RT-1467 (CI-10): the Port plugin's own job, plus the always jobs; no product suite
+        for path in ("tools/port-plugins/rt-control-room/src/App.tsx",
+                     "tools/port-plugins/rt-control-room/dist/index.html",
+                     "tools/port-plugins/rt-control-room/package-lock.json"):
+            with self.subTest(path=path):
+                plan = _plan(path)
+                self.assertFalse(plan["select_all"])
+                self.assertFalse(plan["policy_change"])
+                self.assertEqual(set(plan["needed_jobs"]), self.always | {"port/rt-control-room"})
+
+    def test_a_sibling_port_plugin_still_selects_all(self):
+        plan = _plan("tools/port-plugins/rt-architecture-map/src/a.ts")
+        self.assertTrue(plan["select_all"])
+        self.assertEqual(set(plan["needed_jobs"]), self.graph.all_jobs)
+
+    def test_contracts_check_tooling_selects_the_contract_jobs_only(self):
+        # RT-1467 (CI-09): the consumer-contract checker is run by contracts/check; bc/oasdiff shares its oasdiff pin
+        plan = _plan("tools/contracts-check/contracts_check/cli.py")
+        self.assertFalse(plan["select_all"])
+        self.assertFalse(plan["policy_change"])
+        self.assertEqual(set(plan["needed_jobs"]), self.always | {"contracts/check", "bc/oasdiff"})
+
+    def test_root_claude_md_selects_nothing_but_other_root_files_still_select_all(self):
+        # RT-1467 (CI-09): the agents' instructions are prose; a new root file still hits `root`
+        plan = _plan("CLAUDE.md")
+        self.assertFalse(plan["select_all"])
+        self.assertEqual(set(plan["needed_jobs"]), self.always)
+        for path in ("Makefile", "claude.md", "AGENTS.md"):
+            with self.subTest(path=path):
+                self.assertTrue(_plan(path)["select_all"])
+
+    def test_narrowed_tools_never_cover_the_policy_tools(self):
+        for path in ("tools/project-graph/pgraph/evaluate.py", "tools/ci-gate/x.md", "tools/agent-broker/a.py"):
+            with self.subTest(path=path):
+                self.assertEqual(self.graph.classify(path)[:2], ("class", "policy"))
+        self.assertEqual(self.graph.classify("tools/contracts-check/x.py")[:2], ("class", "contracts_tooling"))
+        self.assertEqual(self.graph.classify("tools/port-plugins/rt-control-room/x")[:2], ("class", "port_plugin"))
+        self.assertEqual(self.graph.classify("tools/port-plugins/rt-control-roomx/a")[:2], ("class", "tooling"))
+        self.assertEqual(self.graph.classify("tools/release/x.py")[:2], ("class", "tooling"))
+
     def test_plan_reports_where_the_diff_starts(self):
         plan = _plan("apps/pos/src/a.ts")
         self.assertEqual(plan["diff_base"], plan["base_sha"])
