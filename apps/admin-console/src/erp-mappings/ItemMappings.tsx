@@ -10,6 +10,8 @@
  * suggestion). There is no free-text product field. Product ids are shown as
  * received in the table: resolving a name for every row is out of scope.
  */
+import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { SelectFilterBar } from "@/components/FilterBar";
@@ -112,6 +114,58 @@ function ConfirmStep({
   );
 }
 
+/**
+ * The boundary under the table (UX-10.16, .18): "Load more" while the server says another page
+ * exists, and, if reading it failed, the failure with its action right here. The rows above were
+ * proven by earlier answers and stay; no total or page number is shown, the contract has none.
+ * A refusal keeps its own words (a 429 says to wait, a 401 that the session ended). A rejected
+ * cursor (400) cannot be cured by asking for the same page again, so it drops the loaded pages and
+ * reads the list from the first.
+ */
+function LoadMore({
+  list,
+}: Readonly<{ list: ListView<ErpnextItemMapping> }>): React.JSX.Element | null {
+  const t = useT();
+  const failure = list.moreFailure;
+  if (failure) {
+    if (failure.kind === "unavailable") {
+      return <FailureBanner op="listItems" failure={failure} />;
+    }
+    if (failure.kind === "failed") {
+      return (
+        <Banner
+          variant="warning"
+          message={t("erp.map.items.continuation.failed")}
+          requestId={failure.requestId}
+          action={<RetryButton onRetry={list.loadMore} />}
+        />
+      );
+    }
+    return (
+      <FailureBanner
+        op="listItems"
+        failure={failure}
+        action={
+          <RetryButton onRetry={failure.kind === "validation" ? list.reload : list.loadMore} />
+        }
+      />
+    );
+  }
+  if (!list.hasMore) return null;
+  return (
+    <div className="surface__actions">
+      <BusyButton
+        type="button"
+        className="btn-secondary"
+        onClick={list.loadMore}
+        busy={list.loadingMore}
+      >
+        {t("erp.loadMore")}
+      </BusyButton>
+    </div>
+  );
+}
+
 function ItemRow({
   row,
   onAction,
@@ -200,42 +254,45 @@ function ItemTable({
   }
   if (list.rows.length === 0) return <ListState state="empty" emptyMessage={t(emptyKey)} />;
   return (
-    <TableScrollRegion>
-      {(captionId) => (
-        <table className="data-table">
-          <caption id={captionId} className="data-table__caption">
-            {t("erp.map.items.title")}
-          </caption>
-          <thead>
-            <tr>
-              {cols.map((col) => (
-                <th key={col.key} scope="col">
-                  {col.header}
-                </th>
+    <>
+      <TableScrollRegion>
+        {(captionId) => (
+          <table className="data-table">
+            <caption id={captionId} className="data-table__caption">
+              {t("erp.map.items.title")}
+            </caption>
+            <thead>
+              <tr>
+                {cols.map((col) => (
+                  <th key={col.key} scope="col">
+                    {col.header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {list.rows.map((row) => (
+                <ItemRowGroup
+                  key={row.id}
+                  row={row}
+                  tenantId={tenantId}
+                  action={action?.row.id === row.id ? action : null}
+                  colSpan={cols.length}
+                  onAction={setAction}
+                  onClose={() => setAction(null)}
+                  onDone={(done) => {
+                    setAction(null);
+                    if (done.kind === "retire") onRetired(done.row);
+                    else onConfirmed();
+                  }}
+                />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {list.rows.map((row) => (
-              <ItemRowGroup
-                key={row.id}
-                row={row}
-                tenantId={tenantId}
-                action={action?.row.id === row.id ? action : null}
-                colSpan={cols.length}
-                onAction={setAction}
-                onClose={() => setAction(null)}
-                onDone={(done) => {
-                  setAction(null);
-                  if (done.kind === "retire") onRetired(done.row);
-                  else onConfirmed();
-                }}
-              />
-            ))}
-          </tbody>
-        </table>
-      )}
-    </TableScrollRegion>
+            </tbody>
+          </table>
+        )}
+      </TableScrollRegion>
+      <LoadMore list={list} />
+    </>
   );
 }
 

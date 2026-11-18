@@ -122,6 +122,11 @@ function classifyCommon(
   }
 }
 
+/** A 4xx the server decided on. 408 and 425 are a proxy or timing answer: the request may still be recorded. */
+export function isDefiniteRefusal(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 425;
+}
+
 export function classifyDeletionOutcome(result: DeleteResult): DeletionOutcome {
   if (result.status === 200) return { kind: "deleted", replay: result.replayed === true };
   const common = classifyCommon(
@@ -134,8 +139,8 @@ export function classifyDeletionOutcome(result: DeleteResult): DeletionOutcome {
   );
   if (common) return common;
   if (result.status === 409) return classify409(result);
-  // 425, every 5xx and a lost answer (status 0): the delete may already be recorded.
-  return result.status >= 400 && result.status < 500 && result.status !== 425
+  // 408, 425, every 5xx and a lost answer (status 0): the delete may already be recorded.
+  return isDefiniteRefusal(result.status)
     ? rejected(KEY.generic, result)
     : { kind: "retryable", requestId: errorRequestIdOf(result.error) };
 }

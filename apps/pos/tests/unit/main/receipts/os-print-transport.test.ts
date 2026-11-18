@@ -233,7 +233,7 @@ describe('T200 — createOsPrintTransport (orchestration over injected seams)', 
       createPrintWindow: () => win,
       listPrinters: () => Promise.resolve([]),
     });
-    const result = await new Promise<{ ok: boolean; reason?: string }>((resolve) => {
+    const result = await new Promise<{ ok: boolean; reason: string | undefined }>((resolve) => {
       transport(HTML, (ok, reason) => {
         resolve({ ok, reason });
       });

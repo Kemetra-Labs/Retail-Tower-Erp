@@ -1,7 +1,7 @@
 # RT-1340 — OD-11 proof: how a promotion clawback posts on an ERPNext v16 credit note
 
 **Jira:** RT-1340 (RT-286 slice S8). **Decision:** spec 048 OD-11
-([decision record](../../../../../services/backend-core/specs/048-offer-engine-v1/decision-record.md#od-11--how-a-clawback-is-posted-to-erpnext)).
+([decision record](../../../../services/backend-core/specs/048-offer-engine-v1/decision-record.md#od-11--how-a-clawback-is-posted-to-erpnext)).
 **Run:** 2026-11-12. **Evidence class:** local disposable bench, never the lab hosts or the rt9 tenant.
 
 ## Bench
