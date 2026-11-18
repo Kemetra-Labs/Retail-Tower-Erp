@@ -65,7 +65,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
 import { PG_POOL } from "../auth/auth.module";
 import { SessionRepository } from "../auth/session.repository";
@@ -126,8 +126,9 @@ export class ContextService {
     private readonly memberships: MembershipRepository,
     /**
      * Optional: when present, RLS-protected membership/store lookups run
-     * inside `runWithTenantContext({ tenantId: null, isPlatformAdmin: true })`
-     * so a non-superuser app role can read those tables. Omitting it
+     * inside `runWithSystemPrivilege({ tenantId: null, privilege:
+     * "membership_bootstrap" })` (RT-1457) so a non-superuser app role can
+     * read those tables. Omitting it
      * (unit tests that construct `ContextService` directly) falls back to
      * the plain-pool surface of `MembershipRepository` — those callers
      * always stub the repo anyway.
@@ -460,19 +461,18 @@ export class ContextService {
   }
 
   /**
-   * Run `work` inside a platform-admin GUC context so RLS-protected
-   * membership/store/tenant tables are readable by a non-superuser app
-   * role.
+   * Run `work` inside the `membership_bootstrap` system-privilege context
+   * so RLS-protected membership/store/tenant tables are readable by a
+   * non-superuser app role (RT-1457). It never sets the platform-admin
+   * flag; the SELECT-only policies of migration 0120 grant the read.
    *
-   * Uses `runWithTenantContext(pool, { tenantId: NIL_UUID,
-   * isPlatformAdmin: true }, work)`. The nil UUID (all-zeros) is a
-   * valid UUID that matches no real tenant, so `tenant_id = NIL_UUID`
-   * evaluates to `false` for every row and the
-   * `is_platform_admin = 'true'` OR-branch grants access. Using
-   * `tenantId: null` would set the GUC to `""`, causing
-   * `invalid input syntax for type uuid: ""` when the RLS predicate
-   * attempts the `::uuid` cast — PostgreSQL does not short-circuit `OR`
-   * before evaluating sub-expressions that throw.
+   * Uses `runWithSystemPrivilege(pool, { tenantId: null, privilege:
+   * "membership_bootstrap" }, work)`. For a null tenant the helper pins
+   * the nil UUID (all-zeros), a valid UUID that matches no real tenant,
+   * so the tenant RLS predicate evaluates to `false` for every row
+   * instead of failing the `::uuid` cast on an empty GUC string
+   * (`invalid input syntax for type uuid: ""`; PostgreSQL does not
+   * short-circuit `OR` before evaluating sub-expressions that throw).
    *
    * Falls back to calling `work(undefined)` when `this.pool` is absent
    * (unit tests). In that scenario `MembershipRepository` methods fall
@@ -484,16 +484,14 @@ export class ContextService {
     if (!this.pool) {
       return await work(undefined);
     }
-    // Use the nil UUID (all-zeros) rather than null/empty-string so the
-    // `::uuid` cast in RLS policies succeeds. The comparison
-    // `tenant_id = '00000000-…'` evaluates to `false` for every real
-    // tenant, so access is granted exclusively via the
-    // `is_platform_admin = 'true'` OR-branch. Passing null would set the
-    // GUC to "" which throws `invalid input syntax for type uuid: ""` at
-    // the cast site before PostgreSQL can short-circuit the OR.
-    return await runWithTenantContext(
+    // `tenantId: null` makes the helper pin the nil UUID (all-zeros) rather
+    // than an empty string, so the `::uuid` cast in the tenant RLS policies
+    // succeeds and `tenant_id = '00000000-…'` is false for every real
+    // tenant; access is granted exclusively by the SELECT-only
+    // `membership_bootstrap` policies (0120).
+    return await runWithSystemPrivilege(
       this.pool,
-      { tenantId: "00000000-0000-0000-0000-000000000000", isPlatformAdmin: true },
+      { tenantId: null, privilege: "membership_bootstrap" },
       (client) => work(client),
     );
   }

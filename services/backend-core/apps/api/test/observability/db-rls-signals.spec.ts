@@ -11,11 +11,11 @@
  *      - Pool/migration gauges have expected labels.
  *   3. Emission helpers are callable without a MetricReader.
  *   4. `TenantContextGuard.withBootstrapCtx` emits `db_rls_context_failure_total`
- *      when `runWithTenantContext` rejects with a non-HttpException (DB
+ *      when `runWithSystemPrivilege` rejects with a non-HttpException (DB
  *      bootstrap failure), but NOT for NotFoundException (application-level).
  *
  * Scope: in-process, no Testcontainers, no live DB. DB bootstrap failures
- * are simulated by mocking `runWithTenantContext` from `@data-pulse-2/db`.
+ * are simulated by mocking `runWithSystemPrivilege` from `@data-pulse-2/db`.
  * The OTel Meter is a no-op in this context.
  *
  * Constitution §VII / FR-B-002 / FR-B-006 / FR-B-009 / T463 / T471 / T476.
@@ -23,7 +23,7 @@
 
 // Mock @data-pulse-2/db before any imports that may load the module.
 jest.mock("@data-pulse-2/db", () => ({
-  runWithTenantContext: jest.fn(
+  runWithSystemPrivilege: jest.fn(
     async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
   ),
 }));
@@ -32,7 +32,7 @@ import "reflect-metadata";
 
 import { NotFoundException } from "@nestjs/common";
 import type { Pool } from "pg";
-import { runWithTenantContext } from "@data-pulse-2/db";
+import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import { ALLOWED_METRIC_LABELS, FORBIDDEN_METRIC_LABELS, validateMetricLabels } from "@data-pulse-2/shared";
 
 import {
@@ -244,8 +244,8 @@ describe("T476 — TenantContextGuard emits db_rls_context_failure_total on DB e
   beforeEach(() => {
     jest.clearAllMocks();
     recordSpy = jest.spyOn(dbMetrics, "recordDbRlsContextFailure");
-    // Default mock: runWithTenantContext calls the work function (normal path).
-    (runWithTenantContext as jest.Mock).mockImplementation(
+    // Default mock: runWithSystemPrivilege calls the work function (normal path).
+    (runWithSystemPrivilege as jest.Mock).mockImplementation(
       async (_pool: unknown, _ctx: unknown, fn: (client: unknown) => unknown) => fn({}),
     );
   });
@@ -254,9 +254,9 @@ describe("T476 — TenantContextGuard emits db_rls_context_failure_total on DB e
     jest.restoreAllMocks();
   });
 
-  it("emits db_rls_context_failure_total when runWithTenantContext rejects with a plain Error", async () => {
+  it("emits db_rls_context_failure_total when runWithSystemPrivilege rejects with a plain Error", async () => {
     // Simulate a DB bootstrap failure (e.g., connection refused, GUC cast error).
-    (runWithTenantContext as jest.Mock).mockRejectedValueOnce(
+    (runWithSystemPrivilege as jest.Mock).mockRejectedValueOnce(
       new Error("FATAL: connection refused"),
     );
 
@@ -285,7 +285,7 @@ describe("T476 — TenantContextGuard emits db_rls_context_failure_total on DB e
   it("does NOT emit db_rls_context_failure_total for NotFoundException (application-level)", async () => {
     // NotFoundException from the work function (e.g., membership not found)
     // is an application-level rejection, NOT a DB bootstrap failure.
-    (runWithTenantContext as jest.Mock).mockRejectedValueOnce(new NotFoundException("Not Found"));
+    (runWithSystemPrivilege as jest.Mock).mockRejectedValueOnce(new NotFoundException("Not Found"));
 
     const fakeSessions = {
       findActiveById: jest.fn().mockResolvedValue(fakeSession),
@@ -311,7 +311,7 @@ describe("T476 — TenantContextGuard emits db_rls_context_failure_total on DB e
 
   it("does NOT emit db_rls_context_failure_total when pool is absent (unit-test path)", async () => {
     // When pool is undefined, withBootstrapCtx calls work(undefined) directly.
-    // No runWithTenantContext involved → no DB failure possible.
+    // No runWithSystemPrivilege involved → no DB failure possible.
     const fakeSessions = {
       findActiveById: jest.fn().mockResolvedValue(fakeSession),
     } as unknown as SessionRepository;
@@ -334,7 +334,7 @@ describe("T476 — TenantContextGuard emits db_rls_context_failure_total on DB e
 
   it("re-throws the original error so the guard pipeline still rejects", async () => {
     const dbError = new Error("db_rls_context: GUC cast failed");
-    (runWithTenantContext as jest.Mock).mockRejectedValueOnce(dbError);
+    (runWithSystemPrivilege as jest.Mock).mockRejectedValueOnce(dbError);
 
     const fakeSessions = {
       findActiveById: jest.fn().mockResolvedValue(fakeSession),
