@@ -5,6 +5,7 @@ import { PinManagementHandler } from '../../../../src/main/operator/pin-manageme
 import type { PinManagementHandlerDeps } from '../../../../src/main/operator/pin-management.js';
 import type { SessionManager } from '../../../../src/main/operator/session-manager.js';
 import type { OperatorSessionRecord } from '../../../../src/main/operator/session-manager.js';
+import type { BackendClient } from '../../../../src/main/operator/backend-client.js';
 import type { PairingStore } from '../../../../src/main/pairing/store.js';
 import type { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
 import type { AuditEvent } from '../../../../src/shared/audit/event-shape.js';
@@ -31,6 +32,8 @@ function makeManagerSession(): OperatorSessionRecord {
     backend_session_id: 'be-sess-1',
     started_at: new Date().toISOString(),
     last_activity_at: new Date().toISOString(),
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
@@ -45,6 +48,8 @@ function makeCashierSession(): OperatorSessionRecord {
     backend_session_id: '',
     started_at: new Date().toISOString(),
     last_activity_at: new Date().toISOString(),
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
@@ -66,6 +71,7 @@ function makePairedStore(terminal_id = TERMINAL): PairingStore {
     ),
     persist: vi.fn(),
     clear: vi.fn(),
+    getCurrentTerminalId: vi.fn(() => terminal_id),
   };
 }
 
@@ -74,6 +80,17 @@ function makeUnpairedStore(): PairingStore {
     getStatus: vi.fn(() => Promise.resolve({ kind: 'unpaired' as const })),
     persist: vi.fn(),
     clear: vi.fn(),
+    getCurrentTerminalId: vi.fn(() => null),
+  };
+}
+
+function makeBackend(): BackendClient {
+  return {
+    signIn: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
+    signOut: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
+    listRoster: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
+    confirmTakeover: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
+    getStuckShifts: vi.fn(() => Promise.resolve({ kind: 'no_connection' as const })),
   };
 }
 
@@ -137,6 +154,13 @@ function makeDeps(
     sessionManager: makeSessionManager(makeManagerSession()),
     pairingStore: makePairedStore(),
     auditEmitter: emitter,
+    // The reset / provision-free paths under test never read the roster or the JWT.
+    backend: makeBackend(),
+    jwtHolder: {
+      get: vi.fn(() => null),
+      consumeMark: vi.fn(() => false),
+      clear: vi.fn(),
+    },
     ...overrides,
     emit,
   };
@@ -225,7 +249,7 @@ describe('PinManagementHandler.resetCashierPin', () => {
     await handler.resetCashierPin({ event_id, target_cashier_id: CASHIER_ID, new_pin: '9999' });
 
     expect(emit).toHaveBeenCalledOnce();
-    const emitted = emit.mock.calls[0][0] as AuditEvent;
+    const emitted = emit.mock.calls[0]?.[0] as AuditEvent;
     expect(emitted.action_category).toBe('cashier.pin.reset');
     expect(emitted.acting_operator_id).toBe(MANAGER_OP_ID);
     expect(emitted.event_id).toBe(event_id);
@@ -329,7 +353,7 @@ describe('PinManagementHandler.unlockCashier', () => {
     expect(result).toMatchObject({ kind: 'refused', category: 'state_invalid' });
     // Audit event still emitted (support trail)
     expect(emit).toHaveBeenCalledOnce();
-    const emitted = emit.mock.calls[0][0] as AuditEvent;
+    const emitted = emit.mock.calls[0]?.[0] as AuditEvent;
     expect(emitted.action_category).toBe('cashier.pin.unlock');
   });
 
@@ -368,7 +392,7 @@ describe('PinManagementHandler.unlockCashier', () => {
     await handler.unlockCashier({ event_id, target_cashier_id: CASHIER_ID });
 
     expect(emit).toHaveBeenCalledOnce();
-    const emitted = emit.mock.calls[0][0] as AuditEvent;
+    const emitted = emit.mock.calls[0]?.[0] as AuditEvent;
     expect(emitted.action_category).toBe('cashier.pin.unlock');
     expect(emitted.acting_operator_id).toBe(MANAGER_OP_ID);
     expect(emitted.event_id).toBe(event_id);
@@ -384,7 +408,7 @@ describe('PinManagementHandler.unlockCashier', () => {
     const handler = new PinManagementHandler(deps);
     await handler.unlockCashier({ event_id: randomUUID(), target_cashier_id: CASHIER_ID });
 
-    const emitted = emit.mock.calls[0][0] as AuditEvent;
+    const emitted = emit.mock.calls[0]?.[0] as AuditEvent;
     const payloadKeys = Object.keys(emitted.payload);
     expect(payloadKeys).not.toContain('pin');
     expect(payloadKeys).not.toContain('new_pin');
