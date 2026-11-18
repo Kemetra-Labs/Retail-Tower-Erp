@@ -69,6 +69,15 @@ jobs:
       - name: Shared dependency guard (report mode)
         run: python .github/scripts/shared_deps.py check --repo "$GITHUB_WORKSPACE" --mode report
 
+      # RT-1455: the Connector subtree is published as the distribution mirror and pulled onto every
+      # bench, so research and proof scripts live under docs/research/erpnext-connector/ at the repo
+      # root. This fails when a research directory or a docs/ script appears under the Connector tree.
+      - name: Connector research guard logic tests
+        run: python -m unittest discover -s .github/scripts -p 'test_connector_research_guard.py' -v
+
+      - name: Connector research guard
+        run: python .github/scripts/connector_research_guard.py check --repo "$GITHUB_WORKSPACE"
+
   # The job `name:` is the graph key (static rule 5): a literal, no expression, no `if:`, no
   # `paths:` filter. A selected job that is skipped fails the gate, so this always runs.
   dependency-review:
