@@ -16,10 +16,13 @@ decision was a 5xx gate plus report-only contract checks.
 
 ## What runs
 
-| Step | Check | Effect |
-| --- | --- | --- |
-| Gate | `not_a_server_error` | **Fails the PR** on any 5xx not listed in `5xx-baseline.json` |
-| Report | `positive_data_acceptance` | Findings **never fail the PR.** Lists requests the contract allows but the server rejects, in the job summary, except those in `report-baseline.json` |
+| Step | Check | Where | Effect |
+| --- | --- | --- | --- |
+| Gate | `not_a_server_error` | PR shards and nightly | **Fails the PR** on any 5xx not listed in `5xx-baseline.json` |
+| Report | `positive_data_acceptance` | nightly only (RT-1467) | Findings **never fail a run.** Lists requests the contract allows but the server rejects, in the job summary, except those in `report-baseline.json` |
+
+The PR shards run the gate only since RT-1467 (CI-03): the report never gated a PR and took about
+a third of each shard's time.
 
 Either step **fails if Schemathesis could not run** a contract file (schema
 load, network or tool error), so a broken check never looks green.
@@ -45,8 +48,10 @@ the raw envelope to `$FUZZ_OUT/envelope-operator`.
 
 Phase 1 is **non-gating**: findings go to the job summary and
 `operator-5xx-baseline.json` (empty), and never fail the step; a run that could
-not execute still fails it. Promote it to a gate by making the step required
-once it has been green for a while. Run it locally with
+not execute still fails it. It runs nightly as its own job in
+`.github/workflows/api-fuzz-nightly.yml`, not on pull requests (RT-1467, D5).
+Promoting it to a gate is a separate owner decision: it would move back into a
+graph-selected PR job once it has been green for a while. Run it locally with
 `bash tools/schemathesis/run.sh operator` after `stack-up.sh`.
 
 Operator mode passes `--suppress-health-check=filter_too_much` (RT-1387): the refund-tender

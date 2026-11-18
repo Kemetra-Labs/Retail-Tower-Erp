@@ -17,8 +17,9 @@ ties to the lowest index. A unit with no timing gets the median, so a new contra
 on a shard; a timing for a unit that no longer exists is ignored.
 
 Fan-in layout (one directory per shard, written by shard.sh collect):
-  <ws>/schemathesis-shard-<i>/{sha.txt, plan.txt, gate.rc, report.rc,
-                               manifest-gate.txt, manifest-report.txt, gate.md, report.md}
+  <ws>/schemathesis-shard-<i>/{sha.txt, plan.txt, gate.rc, manifest-gate.txt, gate.md}
+The PR shards run the gate mode only (RT-1467, CI-03). The non-gating report mode
+(positive_data_acceptance) runs in api-fuzz-nightly.yml, which calls run.sh directly, unsharded.
 A manifest line is "<mode> <group> <file> <exit> <errored 0|1> <generated> <id,id,...>" and is
 written by run.sh itself. Everything that cannot be read or parsed is a problem, never a pass.
 
@@ -37,7 +38,7 @@ import tempfile
 from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
 GROUPS = ("owner", "platform")
-MODES = ("gate", "report")
+MODES = ("gate",)  # RT-1467: report mode moved to the nightly only
 ARTIFACT_PREFIX = "schemathesis-shard-"
 DEFAULT_OVERHEAD_SECONDS = 120  # stack + clone per shard, RT-786 comment 13307
 
@@ -319,7 +320,6 @@ def summary_lines(fan: FanIn) -> List[str]:
     }
     inv_lines = sorted(" ".join([g, f, *ids]) for g, f, ids in fan.inventory)
     gate_counts = [f"{g} {f} {fan.gen['gate'].get((g, f), ('-',))[0]}" for g, f in sorted(fan.want)]
-    findings = [f"{g} {f}" for g, f in sorted(fan.want) if fan.gen["report"].get((g, f), (0, 0))[1] != 0]
     return [
         f"# Schemathesis, {fan.shards} shard(s), merged (RT-809)",
         "",
@@ -328,9 +328,8 @@ def summary_lines(fan: FanIn) -> List[str]:
         f"- inventory: {len(fan.want)} (group, file) units, {total} operations "
         f"(owner {per_group['owner'][0]} files / {per_group['owner'][1]} ops, "
         f"platform {per_group['platform'][0]} files / {per_group['platform'][1]} ops), digest {digest(inv_lines)}",
-        f"- covered operations: gate {covered_operations(fan, 'gate')}, report {covered_operations(fan, 'report')}",
+        f"- covered operations: {', '.join(f'{m} {covered_operations(fan, m)}' for m in MODES)}",
         f"- gate generated-counts digest: {digest(gate_counts)}",
-        f"- report files with findings ({len(findings)}), digest {digest(findings)}: {', '.join(findings) or 'none'}",
         f"- planned seconds per shard (model): {', '.join(f'{x:.0f}' for x in fan.load)}",
     ]
 
@@ -338,17 +337,13 @@ def summary_lines(fan: FanIn) -> List[str]:
 def table_lines(fan: FanIn) -> List[str]:
     lines = [
         "",
-        "| shard | group | file | ops | gate generated | gate exit | report generated | report exit |",
-        "|---|---|---|---|---|---|---|---|",
+        "| shard | group | file | ops | gate generated | gate exit |",
+        "|---|---|---|---|---|---|",
     ]
     for row in fan.rows:
         key = (row.group, row.file)
         gate_generated, gate_exit = fan.gen["gate"].get(key, ("-", "-"))
-        report_generated, report_exit = fan.gen["report"].get(key, ("-", "-"))
-        lines.append(
-            f"| {row.shard} | {row.group} | {row.file} | {len(row.ids)} | {gate_generated} | {gate_exit} "
-            f"| {report_generated} | {report_exit} |"
-        )
+        lines.append(f"| {row.shard} | {row.group} | {row.file} | {len(row.ids)} | {gate_generated} | {gate_exit} |")
     return lines
 
 

@@ -13,11 +13,14 @@
 #     with an APPROVED review by that login carrying the attestation line below;
 #   - root workflows define every graph.yaml job and every non-always job is plan-guarded
 #     (static rules 5 and 5b; tests/test_real_tree.py).
+#   - the main ruleset requires `required` (RT-866, ruleset 25821989). "Require branches to
+#     be up to date" is deliberately off during the development stage (owner decision
+#     2026-11-05, RT-1238). The gate evaluates against the PR's base SHA, so a green result
+#     can merge onto a newer main; the first test of the combination is the merged commit's
+#     push run on main.
 # Not done yet:
-#   - a main ruleset that requires `required`, plus "require branches to be up to date"
-#     (the S6 no-bypass ruleset, RT-866, open).
-#     The gate evaluates against the PR's base SHA, so without "up to date" a green result
-#     could merge onto a newer main;
+#   - the no-bypass part of the S6 ruleset: ruleset 25821989 keeps an admin bypass
+#     (bypass_mode always) by owner decision (RT-578, solo maintainer);
 #   - RT-711 independent verification (P17/P19, latest-wins of multiple `required`
 #     check-runs per SHA). The App source pin and its anti-spoof canary no longer apply;
 #   - the delegated reviewer identity as approver, by numeric ID (MR-5, RT-870).
@@ -54,6 +57,12 @@ on:
   workflow_run:
     workflows: [pos, admin-console, backend-core, erpnext-connector, contracts, e2e, project-graph]
     types: [completed]
+    # RT-1467 (CI-04): a push to main has no PR to gate (`evaluate` skips it below), so do not
+    # start a gate run for it at all; that removed about 14 skipped gate runs per merge.
+    # Accepted residual: a fork PR whose head branch is named `main` gets no workflow_run
+    # gate, only the pull_request_target one, so its `required` stays fail-closed (pending);
+    # a label toggle after its product runs finish re-evaluates it.
+    branches-ignore: [main]
 
 permissions:
   contents: read

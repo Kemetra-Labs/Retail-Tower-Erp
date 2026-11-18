@@ -237,19 +237,18 @@ jobs:
     # 25 minutes (RT-845): api-only since the db + worker suites moved to bc/db-package. Measured
     # on this repo's 2-core runner on PR #14 (RT-841): setup about 1 minute + api 15.0 minutes.
     # The product keeps 40 until it has more measurements; this repo uses its own measurement.
-    # RT-949: +5 minutes for the shadow steps (full history fetch, selector capped at 3 minutes,
-    # report), so the shadow can never push the unchanged API run past the job timeout.
     # RT-1256: 45 covers the verifier's 40-minute wait for the CircleCI status plus setup.
     timeout-minutes: 45
-    # RT-949: read-only scopes for the shadow selector's evidence (workflow runs, jobs, check-runs).
-    # RT-1256: statuses: read for the CircleCI commit status the verifier judges.
+    # RT-1256: statuses: read for the CircleCI commit status the verifier judges. actions: read and
+    # checks: read were added for the RT-949 shadow selector (retired by RT-1467); they stay because
+    # tools/project-graph/tests/test_circleci_gate.py pins this exact read-only set.
     permissions:
       contents: read
       actions: read
       checks: read
       statuses: read
     steps:
-      # fetch-depth 0 (RT-949): the shadow selector diffs the PR's own commits and the base history.
+      # fetch-depth 0: the RT-1256 step below reads the trusted base (git archive, git diff).
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -384,67 +383,6 @@ jobs:
           --filter @data-pulse-2/worker
           run build
 
-      # RT-949 Phase 1 (design RT-946 c14579): SHADOW ONLY. These steps report which API specs a
-      # fast mode would have run; they never change this job's result (continue-on-error), the
-      # full run below, its coverage gate or `required`. This job already runs PR code (the tests),
-      # so the selector runs from the checked-out tree here; Phase 2 would move it to the plan job's
-      # trusted base archive. Any error or doubt becomes mode=full in the report.
-      - name: Set up Python (shadow selector)
-        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request'
-        continue-on-error: true
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-
-      - name: Impact selection (shadow) - anchor, changed paths, related specs
-        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request'
-        continue-on-error: true
-        timeout-minutes: 3
-        working-directory: .
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/api-jest-shadow"
-          mkdir -p "$out"
-          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$PR_NUMBER" =~ ^[0-9]+$ ]]
-          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/project-graph/requirements.txt
-          # Candidates, newest first: up to 10 PR commits, then the merge-base on main.
-          mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
-          { git rev-list --max-count=10 "$HEAD_SHA" "^$mb" | jq -R '{sha: ., event: "pull_request"}'
-            jq -n --arg s "$mb" '{sha: $s, event: "push"}'; } | jq -s '.' > "$out/candidates.json"
-          # REST dumps per candidate, as files (a failed call leaves a file missing => mode=full).
-          for sha in $(jq -r '.[].sha' "$out/candidates.json"); do
-            [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
-            d="$out/$sha"
-            mkdir -p "$d"
-            gh api --paginate "repos/$REPO/actions/runs?head_sha=$sha&per_page=100" \
-              --jq '.workflow_runs[] | select(.path == ".github/workflows/backend-core.yml")' | jq -s '.' > "$d/runs.json" \
-              || { rm -f "$d/runs.json"; continue; }
-            gh api --paginate "repos/$REPO/commits/$sha/check-runs?check_name=bc/db-integration&per_page=100" \
-              --jq '.check_runs[]' | jq -s '.' > "$d/checks.json" || { rm -f "$d/checks.json"; continue; }
-            for id in $(jq -r '.[].id' "$d/runs.json"); do
-              [[ "$id" =~ ^[0-9]+$ ]]
-              gh api --paginate "repos/$REPO/actions/runs/$id/jobs?filter=all&per_page=100" \
-                --jq '.jobs[]' | jq -s '.' > "$d/job-$id.json" || { rm -f "$d/job-$id.json"; break; }
-            done
-          done
-          (cd tools/project-graph && python -m pgraph api-jest-select --repo "$GITHUB_WORKSPACE" \
-            --base "$BASE_SHA" --head "$HEAD_SHA" --event pull_request --repo-name "$REPO" \
-            --pr-number "$PR_NUMBER" --evidence-dir "$out" --out "$out/selection.json")
-          cd services/backend-core/apps/api
-          # A failed listing leaves total.txt absent, so the report shows "?" rather than 0.
-          if all="$(pnpm exec jest --listTests)"; then grep -c . <<<"$all" > "$out/total.txt" || true; fi
-          : > "$out/selected.txt"
-          if [ "$(jq -r .mode "$out/selection.json")" = fast ]; then
-            mapfile -t files < <(jq -r --arg w "$GITHUB_WORKSPACE" '.files[] | $w + "/" + .' "$out/selection.json")
-            pnpm exec jest --listTests --findRelatedTests "${files[@]}" > "$out/selected.txt"
-          fi
-
       - name: Pre-pull postgres:16-alpine
         if: steps.mode.outputs.mode == 'github'
         run: docker pull postgres:16-alpine
@@ -466,48 +404,11 @@ jobs:
       # 39408180851). The product's public repo runs the same step on a larger hosted runner and
       # passed 14 of 14 recent runs. Raising V8's heap limit is an environmental deviation, not a
       # test change; that it matches the headroom of the public runner is reasoned, not proven.
-      # RT-949: --json --outputFile only writes the per-spec results for the shadow report below;
-      # the run, its coverage thresholds and its exit code are unchanged.
       - name: Test @data-pulse-2/api (RLS + audit + auth suites)
         if: steps.mode.outputs.mode == 'github'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-        run: |
-          mkdir -p "$RUNNER_TEMP/api-jest-shadow"
-          pnpm --filter @data-pulse-2/api test -- --coverage --forceExit --json \
-            --outputFile="$RUNNER_TEMP/api-jest-shadow/results.json"
-
-      - name: Impact selection (shadow) - report selected vs failing specs
-        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request' && !cancelled()
-        continue-on-error: true
-        timeout-minutes: 2
-        working-directory: tools/project-graph
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/api-jest-shadow"
-          python -m pgraph api-jest-report --selection "$out/selection.json" --selected "$out/selected.txt" \
-            --total "$out/total.txt" --results "$out/results.json" > "$out/report.json"
-          cat "$out/report.json"
-          {
-            echo "### API Jest impact selection (shadow, RT-949): advisory, the full suite ran"
-            jq -r '"mode: `\(.mode)`, reason: `\(.reason)`, anchor: `\(.anchor // "none")`",
-                   "selected: \(.selected)/\(.total // "?"), failing in the full run: \(.failing // "?")",
-                   "misses (failing but not selected): \(if .misses == null then "n/a" else (.misses | length | tostring) end)\(if .flag then ", flag: `" + .flag + "`" else "" end)"' "$out/report.json"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload the shadow selection (RT-950 evidence)
-        if: steps.mode.outputs.mode == 'github' && github.event_name == 'pull_request' && !cancelled()
-        continue-on-error: true
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: api-jest-shadow
-          path: |
-            ${{ runner.temp }}/api-jest-shadow/selection.json
-            ${{ runner.temp }}/api-jest-shadow/selected.txt
-            ${{ runner.temp }}/api-jest-shadow/total.txt
-            ${{ runner.temp }}/api-jest-shadow/report.json
-          if-no-files-found: warn
-          retention-days: 30
+        run: pnpm --filter @data-pulse-2/api test -- --coverage --forceExit
 
       # RT-901: hand the api lcov (Jest's default reporters include lcov) to sonar.yml, which scans
       # each push to main. A push-only, credential-free upload that cannot change this job's
@@ -708,16 +609,17 @@ jobs:
 
   # Sharded 4 ways by the product (RT-809). Every shard boots its own ephemeral Backend-Core
   # stack on its own runner (fresh Postgres + Redis, throwaway owner and platform sessions, no
-  # worker), then runs Schemathesis over its share of the cookieAuth contract files: the gate
-  # (not_a_server_error, fails on any 5xx not in tools/schemathesis/5xx-baseline.json) and the
-  # report (positive_data_acceptance, never fails the job). Either step fails if Schemathesis
-  # could not run. The plan is computed from ops.py at this SHA, and the fan-in below proves the
-  # shards ran every file exactly once.
+  # worker), then runs the Schemathesis gate over its share of the cookieAuth contract files
+  # (not_a_server_error, fails on any 5xx not in tools/schemathesis/5xx-baseline.json, or if
+  # Schemathesis could not run). The plan is computed from ops.py at this SHA, and the fan-in
+  # below proves the shards ran every file exactly once. RT-1467 (CI-03): the non-gating report
+  # (positive_data_acceptance) no longer runs here; it runs in api-fuzz-nightly.yml, so PR
+  # shards spend their time on the gate only.
   #
   # To change the shard count, change the matrix and SHARD_TOTAL in BOTH jobs together.
   # The name is an expression, so it is not a graph job key and never equals bc/schemathesis.
   # Timeouts are the product's, not yet measured on this repo's 2-core runner (job 30 minutes;
-  # steps 10, 20 and 15).
+  # steps 10 and 20).
   #
   # Image layer cache (RT-578, RT-917 comment 14404): the api and migrate images are built here
   # with Buildx and the GitHub Actions cache, then stack-up.sh runs with SKIP_BUILD=1. Only
@@ -793,12 +695,6 @@ jobs:
         timeout-minutes: 20
         run: bash tools/schemathesis/shard.sh run gate
 
-      # Findings never fail this step; it fails only if Schemathesis could not run.
-      - name: "Report (non-gating findings): positive_data_acceptance"
-        if: always()
-        timeout-minutes: 15
-        run: bash tools/schemathesis/shard.sh run report
-
       # Plan, manifests, exit codes, SHA and findings only: no raw logs (their curl
       # reproductions carry the session cookie) and nothing if a credential shows up in them.
       # Runs before the teardown removes $RUNNER_TEMP/api-fuzz.
@@ -829,7 +725,7 @@ jobs:
 
   # Fail-closed fan-in: the single job named bc/schemathesis. It fails unless all shard jobs
   # succeeded and the shards' artifacts prove that every (group, contract file, operationIds)
-  # of the inventory regenerated here ran exactly once in gate and in report, at this SHA, with
+  # of the inventory regenerated here ran exactly once in the gate, at this SHA, with
   # no unbaselined 5xx. `!cancelled()` keeps it reporting when a shard failed.
   bc-schemathesis:
     name: bc/schemathesis
@@ -871,80 +767,3 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           overwrite: true
-
-  # RT-612 phase 1 (owner decision 2026-11-05, confirmed 2026-11-06): the operator-envelope
-  # surface. `run.sh operator` fuzzes the operatorAuthorization (POS envelope) operations with
-  # not_a_server_error and the envelope that stack-up.sh mints. It is NON-GATING three ways:
-  #  - run.sh operator exits 0 on findings (they go to the job summary); it fails only when
-  #    Schemathesis could not run;
-  #  - `continue-on-error: true` on the job, so even that failure never fails the workflow;
-  #  - the name is an expression, so it is not a graph key: it is never in plan.json
-  #    `needed_jobs`, the `required` aggregator lists it as not_selected, and no graph job
-  #    needs it (bc/schemathesis and its fan-in are unchanged).
-  # It runs whenever the graph selects bc/schemathesis, on its own runner and stack, so it adds
-  # no time to the shards. Images are built from the shards' layer cache (read only; this job
-  # never writes the cache). Promoting it to a gate is a separate owner decision.
-  bc-schemathesis-operator:
-    name: ${{ 'schemathesis operator (non-gating)' }}
-    needs: plan
-    if: contains(fromJSON(needs.plan.outputs.jobs), 'bc/schemathesis')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    continue-on-error: true
-    env:
-      FUZZ_PROJECT: api-fuzz
-    steps:
-      - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          persist-credentials: false
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Build api image (layer cache, read only)
-        timeout-minutes: 10
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: services/backend-core
-          target: api
-          tags: api-fuzz-api:local
-          load: true
-          push: false
-          provenance: false
-          cache-from: type=gha,scope=bc-st-api
-
-      - name: Build migrate image (layer cache, read only)
-        timeout-minutes: 10
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: services/backend-core
-          target: migrate
-          tags: api-fuzz-migrate:local
-          load: true
-          push: false
-          provenance: false
-          cache-from: type=gha,scope=bc-st-migrate
-
-      - name: Start ephemeral stack
-        timeout-minutes: 10
-        env:
-          SKIP_BUILD: "1"
-        run: bash tools/schemathesis/stack-up.sh
-
-      # Findings never fail this step (see the job comment); it fails only if Schemathesis
-      # could not run. The step summary carries the findings, never the envelope.
-      - name: "Operator envelope (non-gating): not_a_server_error"
-        timeout-minutes: 15
-        run: bash tools/schemathesis/run.sh operator
-
-      - name: Tear down
-        if: always()
-        run: |
-          out="$RUNNER_TEMP/api-fuzz"
-          if [ -f "$out/stack.env" ]; then
-            set -a; . "$out/stack.env"; set +a
-            export API_IMAGE=api-fuzz-api:local
-            docker compose -p "$FUZZ_PROJECT" -f tools/schemathesis/compose.yml down -v
-          fi
-          rm -rf "$out"
