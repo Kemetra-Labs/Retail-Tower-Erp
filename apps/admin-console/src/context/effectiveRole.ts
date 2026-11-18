@@ -24,6 +24,17 @@ export function isPlatformAdminRole(context: RoleContext | null | undefined): bo
   return context?.user?.is_platform_admin === true && context?.active_tenant != null;
 }
 
+/**
+ * The store scope the UI assumes. A platform admin with an organization open reaches every store
+ * (TenantContextGuard admits them to all stores, whatever the membership), so "all".
+ */
+export function storeAccessOf(
+  context: RoleContext | null | undefined,
+  membership: { store_access_kind?: "all" | "specific" } | null | undefined,
+): "all" | "specific" | undefined {
+  return isPlatformAdminRole(context) ? "all" : membership?.store_access_kind;
+}
+
 export function roleCodeOf(context: RoleContext | null | undefined): string | null {
   if (isPlatformAdminRole(context)) return PLATFORM_ADMIN_UI_ROLE;
   return context?.active_role_code ?? null;

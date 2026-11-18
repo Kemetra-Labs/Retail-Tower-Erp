@@ -17,7 +17,7 @@ import { FormPage } from "@/components/FormPage";
 import { ListState } from "@/components/ListState";
 import { ScopePrompt } from "@/components/ScopePrompt";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
-import { roleCodeOf } from "@/context/effectiveRole";
+import { roleCodeOf, storeAccessOf } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import { getLocale } from "@/i18n/locale";
 import type { Offer, OfferVersion } from "@/lib/offer-queries";
@@ -131,7 +131,7 @@ function usePageAccess(creating: boolean) {
     | ScopeMembership
     | undefined;
   const role = roleCodeOf(context);
-  const access = offerAccess(role, membership?.store_access_kind);
+  const access = offerAccess(role, storeAccessOf(context, membership));
   return {
     tenant,
     tenantId,

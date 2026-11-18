@@ -118,13 +118,16 @@ function serve(ctx: unknown): void {
   getActiveContext.mockResolvedValue({ status: 200, data: ctx });
 }
 
-/** A switch the server accepts: the re-read context has that tenant active. */
-function switchesTo(tenantId: string, name: string): void {
+/**
+ * A switch the server accepts: the re-read context has that tenant active. `member: false` is a
+ * platform admin's direct entry (RT-1468): no membership and no role, as Backend-Core answers.
+ */
+function switchesTo(tenantId: string, name: string, member = true): void {
   switchActiveTenant.mockImplementation(async () => {
     serve({
-      ...noSession([{ tenant_id: tenantId, tenant_name: name, role_code: "owner" }]),
+      ...noSession(member ? [{ tenant_id: tenantId, tenant_name: name, role_code: "owner" }] : []),
       active_tenant: { id: tenantId, name },
-      active_role_code: "owner",
+      active_role_code: member ? "owner" : null,
     });
     return { status: 200, data: {} };
   });
@@ -245,7 +248,7 @@ describe("row actions are completable (UX Addendum A3)", () => {
 
   test("RT-1468: a tenant the caller is not a member of opens directly too, and still offers a session", async () => {
     serve(noSession());
-    switchesTo(NILE, "Nile Pharma");
+    switchesTo(NILE, "Nile Pharma", false);
     mount();
     await table();
     expect(

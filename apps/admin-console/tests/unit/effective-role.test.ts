@@ -1,4 +1,4 @@
-import { isPlatformAdminRole, roleCodeOf } from "@/context/effectiveRole";
+import { isPlatformAdminRole, roleCodeOf, storeAccessOf } from "@/context/effectiveRole";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -55,5 +55,14 @@ describe("roleCodeOf", () => {
   test("no context, no role", () => {
     expect(roleCodeOf(null)).toBeNull();
     expect(isPlatformAdminRole(undefined)).toBe(false);
+  });
+});
+
+describe("storeAccessOf", () => {
+  test("a platform admin reaches every store whatever the membership; others keep theirs", () => {
+    const specific = { store_access_kind: "specific" as const };
+    expect(storeAccessOf({ user: admin, active_tenant: tenant }, specific)).toBe("all");
+    expect(storeAccessOf({ user: plain, active_tenant: tenant }, specific)).toBe("specific");
+    expect(storeAccessOf({ user: plain, active_tenant: tenant }, undefined)).toBeUndefined();
   });
 });

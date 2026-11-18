@@ -35,7 +35,7 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.session.notice.expiringSoon.title": "The support session ends in under a minute",
   "platform.session.notice.cap.title": "The session reached its renewal limit",
   "platform.session.notice.cap.body":
-    "It can't be renewed any further. To keep working, open a new support session and state the purpose.",
+    "It can't be renewed any further. You can keep working; to keep recording your actions under a purpose and ticket, open a new support session.",
   "platform.session.notice.expired.title": "The support session expired",
   "platform.session.notice.expired.body":
     "The session ran out without a renewal. You can keep working in the organization, but new actions are no longer recorded under this session's purpose and ticket. To record them again, open a new session from {directory}; it replaces this one. Or end the session if you're done.",
