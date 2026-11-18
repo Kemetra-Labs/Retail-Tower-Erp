@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 
 import { canonicalJson } from "../idempotency/canonical-json";
-import type { StoreShiftRow, StuckVerdict } from "./shift-force-close.repository";
+import { toStoreShift, type StoreShiftDbRow, type StoreShiftRow, type StuckVerdict } from "./shift-force-close.repository";
 
 export type TerminalTrustState = "active" | "revoked" | "retired";
 
@@ -67,6 +67,20 @@ interface FactsDbRow {
 const UTC_TEXT = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
 
 /**
+ * The shift joined to its opening cashier and opening terminal, and the two derived columns every
+ * reader of that join shares (RT-1453: the single-shift facts below and the store's open-shift list
+ * are one join, not two copies). `opening_cashier_user_id` and `opening_device_id` are NOT NULL
+ * foreign keys, so the inner joins drop no shift.
+ */
+const SHIFT_WITH_CASHIER_AND_TERMINAL_FROM = `FROM shifts s
+    JOIN users u ON u.id = s.opening_cashier_user_id
+    JOIN devices d ON d.id = s.opening_device_id AND d.tenant_id = s.tenant_id`;
+const CASHIER_DISPLAY_NAME_SQL = `NULLIF(btrim(u.display_name, E' \\t\\r\\n\\f'), '')`;
+const TERMINAL_TRUST_STATE_SQL = `CASE WHEN d.retired_at IS NOT NULL THEN 'retired'
+              WHEN d.revoked_at IS NOT NULL THEN 'revoked'
+              ELSE 'active' END`;
+
+/**
  * $1 shift, $2 tenant. One statement, so one snapshot of the facts. The cash
  * facts exist for a `cash_up` shift only (a legacy shift never opened with
  * one): the movements are counted for it, and null stays null (unknown). The
@@ -76,12 +90,10 @@ const UTC_TEXT = `'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'`;
  * shift's drawer: the same drawer, the same period, recorded as reported.
  */
 const FACTS_SQL = `
-  SELECT NULLIF(btrim(u.display_name, E' \\t\\r\\n\\f'), '') AS display_name,
+  SELECT ${CASHIER_DISPLAY_NAME_SQL} AS display_name,
          d.label,
          d.last_seen_at,
-         CASE WHEN d.retired_at IS NOT NULL THEN 'retired'
-              WHEN d.revoked_at IS NOT NULL THEN 'revoked'
-              ELSE 'active' END AS trust_state,
+         ${TERMINAL_TRUST_STATE_SQL} AS trust_state,
          CASE WHEN s.source = 'cash_up' THEN mv.n END AS cash_movement_count,
          CASE WHEN s.source = 'cash_up' THEN mv.last_received_at END AS last_cash_movement_received_at,
          CASE WHEN s.source = 'cash_up'
@@ -94,9 +106,7 @@ const FACTS_SQL = `
            WHERE r.tenant_id = s.tenant_id AND r.store_id = s.store_id
              AND r.shift_ref = s.shift_id) AS refund_execution_count,
          now() AS evaluated_at
-    FROM shifts s
-    JOIN users u ON u.id = s.opening_cashier_user_id
-    JOIN devices d ON d.id = s.opening_device_id AND d.tenant_id = s.tenant_id
+    ${SHIFT_WITH_CASHIER_AND_TERMINAL_FROM}
     LEFT JOIN LATERAL (
       SELECT count(*)::int AS n, max(m.received_at) AS last_received_at
         FROM shift_cash_movements m
@@ -124,6 +134,65 @@ export async function readForceCloseFacts(client: PoolClient, shift: StoreShiftR
       lastCashMovementReceivedAtUtc: row.last_cash_movement_received_at_utc,
     },
   };
+}
+
+/** One open shift of a store with the cashier and terminal facts the list and the deletion preview state. */
+export interface OpenStoreShiftRecord {
+  readonly shift: StoreShiftRow;
+  readonly cashierDisplayName: string | null;
+  readonly terminal: {
+    readonly label: string | null;
+    readonly lastSeenAt: Date | null;
+    readonly trustState: TerminalTrustState;
+  };
+}
+
+type OpenStoreShiftDbRow = StoreShiftDbRow & {
+  display_name: string | null;
+  last_seen_at: Date | null;
+  trust_state: TerminalTrustState;
+};
+
+const OPEN_STORE_SHIFTS_SELECT = `
+  SELECT s.shift_id, s.tenant_id, s.store_id, s.opening_device_id, s.opening_cashier_user_id,
+         s.opened_at, s.lifecycle_state, s.source, s.currency_code,
+         s.opening_float::text AS opening_float, s.received_at,
+         d.label AS opened_on_terminal_label,
+         ${CASHIER_DISPLAY_NAME_SQL} AS display_name,
+         d.last_seen_at,
+         ${TERMINAL_TRUST_STATE_SQL} AS trust_state
+    ${SHIFT_WITH_CASHIER_AND_TERMINAL_FROM}
+   WHERE s.tenant_id = $1 AND s.store_id = $2 AND s.lifecycle_state = 'open'`;
+/** $1 tenant, $2 store, $3 limit. Two constant statements: the order is never interpolated from input. */
+const OPEN_STORE_SHIFTS_NEWEST_SQL = `${OPEN_STORE_SHIFTS_SELECT}
+   ORDER BY s.opened_at DESC, s.shift_id DESC
+   LIMIT $3`;
+const OPEN_STORE_SHIFTS_OLDEST_SQL = `${OPEN_STORE_SHIFTS_SELECT}
+   ORDER BY s.opened_at, s.shift_id
+   LIMIT $3`;
+
+/** The open shifts of one store of the tenant, capped at `limit`, in the caller's transaction (no lock). */
+export async function listOpenStoreShifts(
+  client: PoolClient,
+  scope: { readonly tenantId: string; readonly storeId: string },
+  options: { readonly limit: number; readonly order: "newest_first" | "oldest_first" },
+): Promise<OpenStoreShiftRecord[]> {
+  const sql = options.order === "newest_first" ? OPEN_STORE_SHIFTS_NEWEST_SQL : OPEN_STORE_SHIFTS_OLDEST_SQL;
+  const r = await client.query<OpenStoreShiftDbRow>(sql, [scope.tenantId, scope.storeId, options.limit]);
+  return r.rows.map((row) => ({
+    shift: toStoreShift(row, false),
+    cashierDisplayName: row.display_name,
+    terminal: { label: row.opened_on_terminal_label, lastSeenAt: row.last_seen_at, trustState: row.trust_state },
+  }));
+}
+
+/** Every open shift of the store: the exact count a deletion guard decides on (no row limit). */
+export async function countOpenStoreShifts(client: PoolClient, storeId: string): Promise<number> {
+  const r = await client.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM shifts WHERE store_id = $1 AND lifecycle_state = 'open'`,
+    [storeId],
+  );
+  return r.rows[0]?.n ?? 0;
 }
 
 /** Bumped only when the digest's inputs change; clients never interpret the digest. */

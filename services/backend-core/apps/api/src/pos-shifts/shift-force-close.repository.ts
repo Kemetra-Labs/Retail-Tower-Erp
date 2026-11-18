@@ -112,7 +112,7 @@ export class ForceCloseNotAppliedError extends Error {
   }
 }
 
-interface StoreShiftDbRow {
+export interface StoreShiftDbRow {
   shift_id: string;
   tenant_id: string;
   store_id: string;
