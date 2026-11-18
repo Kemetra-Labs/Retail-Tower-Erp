@@ -24,7 +24,7 @@ import {
   STORE_A_Y,
   type HarnessHandle,
 } from "./__capture-harness";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 
 const spy = new SpyAuditEnqueuer();
 const h: HarnessHandle = { harness: null, dockerSkipped: false };

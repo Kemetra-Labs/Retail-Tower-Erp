@@ -33,7 +33,7 @@ import {
   TENANT_A,
   type HarnessHandle,
 } from './__count-harness';
-import { formatQuantity, parseQuantity } from '../../../src/inventory/decimal-quantity';
+import { formatQuantity, parseQuantity } from '../../../src/common/quantity/decimal-quantity';
 
 const h: HarnessHandle = { harness: null, dockerSkipped: false };
 

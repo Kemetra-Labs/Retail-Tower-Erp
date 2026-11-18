@@ -21,7 +21,7 @@ import type { Pool, PoolClient } from "pg";
 
 import type { Principal } from "../auth/auth.guard";
 import { PG_POOL } from "../auth/database-pools";
-import { resolveDeploymentEnvironment } from "../connector/deployment-environment";
+import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 import { MembershipRepository } from "../context/membership.repository";
 import { requirePlatformAdminSession } from "../auth/require-platform-admin";
 import { AUDIT, insertProvisioningAudit } from "./provisioning-audit";

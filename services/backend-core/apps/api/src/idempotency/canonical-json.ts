@@ -1,7 +1,7 @@
 /**
  * Request canonical JSON (RT-1214). One of three canonical-JSON serializers
  * kept on purpose; the others are `canonicalJsonPayload` in
- * `catalog/sales/payload-hash.ts` and `canonicalJson` in
+ * `common/hashing/payload-hash.ts` and `canonicalJson` in
  * `ai-entitlements/revision-content.ts`. Do not merge them.
  *
  * Why it differs: it follows `JSON.stringify` semantics for request bodies —

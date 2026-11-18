@@ -13,7 +13,7 @@
 import { ZodError } from "zod";
 
 import { CaptureSaleRequestPipe } from "../../../../src/catalog/sales/dto/capture-sale-request.pipe";
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 
 const TENDERS_FLAG = "POS_SALE_TENDERS_ENABLED";
 const SAME_METHOD_FLAG = "POS_SALE_TENDERS_SAME_METHOD_ENABLED";

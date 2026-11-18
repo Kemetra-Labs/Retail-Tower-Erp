@@ -5,7 +5,7 @@
  * `settlement/unit/receivable-request-hash.vectors.golden.spec.ts`; these pin
  * the exact string so a stray byte shows as a readable diff.
  */
-import { canonicalJsonPayload } from "../../../src/catalog/sales/payload-hash";
+import { canonicalJsonPayload } from "../../../src/common/hashing/payload-hash";
 import {
   GOLDEN_FIXTURE,
   GOLDEN_STRING,

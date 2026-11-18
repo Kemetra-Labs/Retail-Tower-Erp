@@ -153,11 +153,11 @@ A release reaches the Console in three separate, audited steps. Registering neve
 | Activate | A platform admin | The Console session cookie and a trusted `Origin` | `pos.pilot_release.activated` |
 | Withdraw | The promotion workflow, in its `withdraw` mode, or a promotion with `replace_current` (section 9) | Its GitHub OIDC token | `pos.pilot_release.withdrawn` |
 
-**Pins.** Set the five `POS_PILOT_PROMOTION_OIDC_*` values on the host (section 3 shows where; none is a
+**Pins.** Set the seven `POS_PILOT_PROMOTION_OIDC_*` values on the host (section 3 shows where; none is a
 secret). They must equal what GitHub puts in the token of the promotion job: the audience the workflow
-requests, the repository, the protected approval environment of the job, the ref, and the
-`job_workflow_ref`. The promotion workflow fixes the real environment and workflow names (section 9 lists the
-values), and its withdraw jobs use the very same five, so withdrawing needs no new pin. Leave them blank until you
+requests, the repository, its immutable numeric ids (`repository_id` and `repository_owner_id`, RT-1459),
+the protected approval environment of the job, the ref, and the `job_workflow_ref`. The promotion workflow fixes the real environment and workflow names (section 9 lists the
+values), and its withdraw jobs use the very same seven, so withdrawing needs no new pin. Leave them blank until you
 mean to use the workflow, and every workflow write is 401. Check the api log at boot: there must be
 no `pilot release promotion writes are off` line once you mean them to be on.
 
@@ -196,8 +196,9 @@ withdraw that one first with a `withdraw` run, or promote with `replace_current`
 are the allowlist (`PUT /api/v1/platform/pos-pilot-tenants/{tenantId}`, also a platform admin).
 
 **What the pins do and do not prove.** GitHub's issuer is shared by every repository, so the pins are what make a
-token yours: the exact `repository`, the `environment` the job runs in, the `ref`, and the `job_workflow_ref`
-(the workflow file at that ref). Each is an exact, case-sensitive match against the claim as GitHub writes it
+token yours: the exact `repository`, its immutable numeric ids `repository_id` and `repository_owner_id`
+(RT-1459), the `environment` the job runs in, the `ref`, and the `job_workflow_ref` (the workflow file at that
+ref). Each is an exact, case-sensitive match against the claim as GitHub writes it
 (the environment name too); a case mismatch is a 403 and the api never says why. They are sufficient only with
 the GitHub-side settings that this code cannot check, so before the first registration confirm:
 
@@ -211,9 +212,9 @@ the GitHub-side settings that this code cannot check, so before the first regist
   Enterprise Managed User login with an underscore is refused (403, or 400 for `approvedBy`);
 - the workflow file name has no spaces (a pin with a space is refused at boot as `invalid`).
 
-The `repository` is matched by name. If the organisation or repository were ever deleted or renamed and the
-name re-registered by someone else, their repository would satisfy the pin: keep the names reserved. Pinning
-the immutable `repository_id` and `repository_owner_id` claims as well is a cheap hardening the owner can ask for.
+The names alone are not trusted: `repository_id` and `repository_owner_id` are pinned as well (RT-1459). GitHub
+never reuses those ids, so a repository re-created under a freed or renamed name does not satisfy the pins. Keep
+the names reserved anyway: `job_workflow_ref` and the Console are name-based.
 
 **Key rotation.** GitHub rotates its signing keys; the api fetches the key set on first use, caches it for 10
 minutes, and refetches an unknown key at most every 30 seconds. A genuine token signed by a brand-new key that
@@ -230,7 +231,7 @@ checked for shape: replay detection is by content. A retry of a withdrawn releas
 | Register answers 403 | A pin differs from the token's claim, or the body's `promotionRunUrl` names another run or repository. The api never says which. |
 | Activate answers 409 `release_current_exists` | Another release is current: withdraw it first (section 9, `withdraw` mode), or promote the new release with `replace_current`. |
 | A `replace_current` run answers 409 `release_not_newer` | The new version is not higher than the current one. Nothing was withdrawn; ship a higher version. |
-| Withdraw answers 401 or 403 | A pin on the host differs from the token's claims or is unset (the same five as register). The api never says which. |
+| Withdraw answers 401 or 403 | A pin on the host differs from the token's claims or is unset (the same seven as register). The api never says which. |
 | Withdraw answers 404 `not_found` | No release has this id. Copy it from the Console release list, not from memory (section 9). |
 | The tenant still gets `{ "available": false }` after activation | The tenant is not on the allowlist, the pin, bucket or S3 key (section 3) is blank, or the release was withdrawn. |
 
@@ -315,13 +316,16 @@ the two live jobs; with `replace_current`, the replacement runs inside `register
    | `POS_PILOT_API_BASE_URL` | the Backend-Core origin the register call goes to: `https://host`, no path, no trailing slash, and reachable from GitHub-hosted runners |
    | `POS_PILOT_PROMOTION_OIDC_AUDIENCE` | the audience the register token is requested for (never `sts.amazonaws.com`) |
 
-4. **The five pins on the Backend-Core host** (section 3), each equal to what GitHub puts in the register job's
-   token. Until all five are set, every register is a 401:
+4. **The seven pins on the Backend-Core host** (section 3), each equal to what GitHub puts in the register job's
+   token. Until all seven are set, every register is a 401. Set the two numeric ids (RT-1459) before or together
+   with the deploy of the api that reads them:
 
    | Pin | Value |
    |---|---|
    | `POS_PILOT_PROMOTION_OIDC_AUDIENCE` | the same string as the variable of that name above |
    | `POS_PILOT_PROMOTION_OIDC_REPOSITORY` | `Kemetra-Labs/Retail-Tower-Erp` |
+   | `POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID` | `1430288487`, the `repository_id` of the repository (`gh api repos/Kemetra-Labs/Retail-Tower-Erp --jq .id`) |
+   | `POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID` | `340160100`, the `repository_owner_id` of the organisation (`gh api repos/Kemetra-Labs/Retail-Tower-Erp --jq .owner.id`) |
    | `POS_PILOT_PROMOTION_OIDC_ENVIRONMENT` | `release-pos-pilot-promote` |
    | `POS_PILOT_PROMOTION_OIDC_REF` | `refs/heads/main` |
    | `POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF` | `Kemetra-Labs/Retail-Tower-Erp/.github/workflows/promote-pos-pilot.yml@refs/heads/main` |
@@ -409,10 +413,10 @@ A bad upload cannot be fixed in place: ship a higher version.
 | `... answered 503, not 200` (Backend-Core check) | The API is down or not ready, or `POS_PILOT_API_BASE_URL` is wrong. Nothing was uploaded. |
 | `already exists, so the one-shot write was refused` | This version is already in the bucket. If an earlier run's `register` failed, use Re-run failed jobs of THAT run; if its `upload` failed after the put, see "If something fails after the upload" above. |
 | `the actor ... is not a GitHub login` | The run was started by an app or bot. Start it as a person; nothing was uploaded. |
-| `register` answers 401 or 403 | One of the five pins on the host differs from the token's claims, or is unset. Fix the host, then Re-run failed jobs. |
+| `register` answers 401 or 403 | One of the seven pins on the host differs from the token's claims, or is unset. Fix the host, then Re-run failed jobs. |
 | `register` answers 409 | The registry already holds this version, hash or key with other values. It never overwrites. |
 | `release_id ... is not a release id` or `tag ... is not pos-pilot/vX.Y.Z` in `withdraw/check` | The input is malformed. Nothing was sent. Copy the id from the Console list. |
-| `withdraw/live` answers 401 or 403 | One of the five pins on the host differs from the token's claims, or is unset. Fix the host, then run the job again: nothing was withdrawn. |
+| `withdraw/live` answers 401 or 403 | One of the seven pins on the host differs from the token's claims, or is unset. Fix the host, then run the job again: nothing was withdrawn. |
 | `withdraw/live` answers 404 `not_found` | No release has this id. Nothing was withdrawn. |
 | `WITHDREW release ..., which is version X, not Y` | The id belongs to another version than `tag`. It is withdrawn for good and cannot be reversed: tell the owner, and ship the version that is needed as a higher version. |
 | `answered 200 but not with release ... now withdrawn` | The answer is not the requested release. Do not trust the run: read the release in the Console. |

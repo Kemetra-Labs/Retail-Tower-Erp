@@ -30,12 +30,17 @@ const SETTLED: EmitPaymentSettledInput = {
 };
 
 function setup(outcome: ConfirmOutcome) {
-  const transaction = vi.fn(<T extends (...args: never[]) => unknown>(fn: T): T => fn);
+  const transaction = vi.fn();
   const confirm = vi.fn(() => outcome);
   const recordSellingOperatorDisplayName = vi.fn();
   const auditEmitter = makeAuditEmitterDouble();
   const committer = createSettlementCommitter({
-    db: { transaction },
+    db: {
+      transaction: (fn) => {
+        transaction(fn);
+        return fn;
+      },
+    },
     paymentAttemptFsm: { confirm },
     attemptsRepo: { recordSellingOperatorDisplayName },
     auditEmitter,

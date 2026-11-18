@@ -50,6 +50,18 @@ describe("ERPNext mapping wrappers (RT-725)", () => {
     });
   });
 
+  test("list items: a page cursor and size are sent as query parameters, only when given (RT-1458)", async () => {
+    GET.mockResolvedValue(answer(200, { items: [], nextCursor: null }));
+    await tenantAdminListErpnextItemMappings(undefined, { limit: 100 });
+    expect(GET).toHaveBeenLastCalledWith("/api/v1/catalog/erpnext-item-mappings", {
+      params: { query: { limit: 100 } },
+    });
+    await tenantAdminListErpnextItemMappings("confirmed", { cursor: "opaque-token", limit: 100 });
+    expect(GET).toHaveBeenLastCalledWith("/api/v1/catalog/erpnext-item-mappings", {
+      params: { query: { state: "confirmed", cursor: "opaque-token", limit: 100 } },
+    });
+  });
+
   test("suggest posts the product id and the reference only", async () => {
     POST.mockResolvedValue(answer(201, { id: ID }));
     const body = { tenant_product_id: PRODUCT, erpnext_item_ref: "ITEM-1" };

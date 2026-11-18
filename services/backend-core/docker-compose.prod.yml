@@ -168,9 +168,13 @@ services:
       POS_PILOT_RELEASE_S3_ACCESS_KEY_ID: ${POS_PILOT_RELEASE_S3_ACCESS_KEY_ID:-}
       POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY: ${POS_PILOT_RELEASE_S3_SECRET_ACCESS_KEY:-}
       # RT-1298: the pins of the promotion workflow's GitHub OIDC token (register and withdraw a
-      # pilot release). Not secrets: all five must be set or every workflow write is 401. No `:?`.
+      # pilot release). Not secrets: all seven must be set or every workflow write is 401. No `:?`.
+      # RT-1459: the two numeric ids are GitHub's immutable `repository_id` and `repository_owner_id`; set them
+      # before or together with the deploy of this change, or promotion writes turn off (fail closed).
       POS_PILOT_PROMOTION_OIDC_AUDIENCE: ${POS_PILOT_PROMOTION_OIDC_AUDIENCE:-}
       POS_PILOT_PROMOTION_OIDC_REPOSITORY: ${POS_PILOT_PROMOTION_OIDC_REPOSITORY:-}
+      POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID: ${POS_PILOT_PROMOTION_OIDC_REPOSITORY_ID:-}
+      POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID: ${POS_PILOT_PROMOTION_OIDC_REPOSITORY_OWNER_ID:-}
       POS_PILOT_PROMOTION_OIDC_ENVIRONMENT: ${POS_PILOT_PROMOTION_OIDC_ENVIRONMENT:-}
       POS_PILOT_PROMOTION_OIDC_REF: ${POS_PILOT_PROMOTION_OIDC_REF:-}
       POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF: ${POS_PILOT_PROMOTION_OIDC_WORKFLOW_REF:-}

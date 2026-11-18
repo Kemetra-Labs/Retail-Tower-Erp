@@ -33,7 +33,7 @@ import {
   ReturnPromotionInvariantError,
   type AllocationLine,
 } from "../../offers/evaluator/offer-return-allocation";
-import { minorUnitExponent } from "../sales/iso4217-minor-units";
+import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
 import { replaySaleReturns } from "../sales/sale-return-history";
 
 /** The `NonNegativeDecimalAmount` scale of the feed (4 fractional digits). */

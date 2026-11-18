@@ -10,7 +10,7 @@ import { runWithTenantContext } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
 import type { Pool } from 'pg';
 
-import { formatQuantity, parseQuantity } from './decimal-quantity';
+import { formatQuantity, parseQuantity } from '../common/quantity/decimal-quantity';
 import { asNotPosted, toMovementBody } from './inventory.mappers';
 import {
   MOVEMENT_COLUMNS,

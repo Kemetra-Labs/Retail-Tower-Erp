@@ -10,7 +10,8 @@
  *   - first page / next page / last page, and a walk that equals the full list exactly once
  *   - limit equal to the row count (no phantom next page)
  *   - `state` combined with the cursor
- *   - no `limit`: the whole list and `nextCursor: null` (additive: today's behaviour)
+ *   - no `limit` (PR 3c): the default page of 100 and a `nextCursor` to the rest; the tenant has more than
+ *     100 active rows here (a bulk seed), so the default is what bounds the response
  *   - invalid cursor / limit are 400
  *   - a cursor never crosses tenants (RLS scopes the continuation)
  */
@@ -44,8 +45,13 @@ const TENANT_B = ITEM_MAP_FIXTURE_IDS.tenantB;
 const ACTOR_A = ITEM_MAP_FIXTURE_IDS.actorA;
 const BASE_URL = "/api/v1/catalog/erpnext-item-mappings";
 
-const mapId = (n: number): string => `0c000000-0000-7000-8000-00000d1458${String(n).padStart(2, "0")}`;
-const productId = (n: number): string => `0a000000-0000-7000-8000-00000d1458${String(n).padStart(2, "0")}`;
+const mapId = (n: number): string => `0c000000-0000-7000-8000-00000d145${String(n).padStart(3, "0")}`;
+const productId = (n: number): string => `0a000000-0000-7000-8000-00000d145${String(n).padStart(3, "0")}`;
+/** The default page size when `limit` is absent (the contract's `default`). */
+const DEFAULT_LIMIT = 100;
+/** Rows added in bulk so the tenant has more active mappings than one default page. */
+const BULK_FIRST = 101;
+const BULK_COUNT = 105;
 
 /** [n, suggested_at, state] — n 1..3 tie to the microsecond, 4 is one microsecond newer. */
 const SEEDED: ReadonlyArray<readonly [number, string, "suggested" | "confirmed"]> = [
@@ -133,6 +139,24 @@ beforeAll(async () => {
     [RETIRED_ID, TENANT_A, productId(8), ACTOR_A],
   );
 
+  // BULK_COUNT more suggested rows, all older than the seeded ones (one second apart, ids ascending).
+  await env.admin.query(
+    `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by)
+     SELECT ('0a000000-0000-7000-8000-00000d145' || lpad(n::text, 3, '0'))::uuid, $1, 'RT-1458 bulk widget ' || n,
+            'standard', $2, $2
+       FROM generate_series($3::int, $3::int + $4::int - 1) AS n`,
+    [TENANT_A, ACTOR_A, BULK_FIRST, BULK_COUNT],
+  );
+  await env.admin.query(
+    `INSERT INTO erpnext_item_map
+       (id, tenant_id, tenant_product_id, erpnext_item_ref, state, suggestion_source, suggested_by, suggested_at, version)
+     SELECT ('0c000000-0000-7000-8000-00000d145' || lpad(n::text, 3, '0'))::uuid, $1,
+            ('0a000000-0000-7000-8000-00000d145' || lpad(n::text, 3, '0'))::uuid, 'ERP-BULK-' || n,
+            'suggested', 'manual', $2, '2025-01-01T00:00:00Z'::timestamptz + (n || ' seconds')::interval, 1
+       FROM generate_series($3::int, $3::int + $4::int - 1) AS n`,
+    [TENANT_A, ACTOR_A, BULK_FIRST, BULK_COUNT],
+  );
+
   const localEnv = env;
   contextGuard = new ConfigurableContextGuard();
   const moduleRef = await Test.createTestingModule({
@@ -189,7 +213,7 @@ async function walk(query: Record<string, string | number>): Promise<Page[]> {
     const page: Page = await getPage(cursor === null ? query : { ...query, cursor });
     pages.push(page);
     cursor = page.nextCursor;
-  } while (cursor !== null && pages.length < 100);
+  } while (cursor !== null && pages.length < 400);
   return pages;
 }
 
@@ -205,7 +229,8 @@ async function activeOrder(tenantId: string, state?: string): Promise<string[]> 
   return rows.map((r) => r.id);
 }
 
-const seeded = (ids: string[]): string[] => ids.filter((id) => id.startsWith("0c000000-0000-7000-8000-00000d1458"));
+const SEEDED_IDS = new Set(SEEDED_ORDER);
+const seeded = (ids: string[]): string[] => ids.filter((id) => SEEDED_IDS.has(id));
 
 describe("RT-1458 A-17 — GET erpnext-item-mappings keyset paging", () => {
   it("first page, next page and last page of limit=3", async () => {
@@ -254,20 +279,34 @@ describe("RT-1458 A-17 — GET erpnext-item-mappings keyset paging", () => {
     }
   });
 
-  it("without `limit` it returns every active mapping and a null nextCursor (unchanged behaviour)", async () => {
+  it("without `limit` it returns the default page of 100 and a nextCursor, and the cursor reaches the rest", async () => {
     if (dockerSkipped) return;
-    const page = await getPage({});
-    expect(page.items.map((i) => i.id)).toEqual(await activeOrder(TENANT_A));
-    expect(page.nextCursor).toBeNull();
+    const order = await activeOrder(TENANT_A);
+    expect(order.length).toBeGreaterThan(DEFAULT_LIMIT);
+    const first = await getPage({});
+    expect(first.items.map((i) => i.id)).toEqual(order.slice(0, DEFAULT_LIMIT));
+    expect(typeof first.nextCursor).toBe("string");
+    const rest = await getPage({ cursor: first.nextCursor as string });
+    expect(rest.items.map((i) => i.id)).toEqual(order.slice(DEFAULT_LIMIT));
+    expect(rest.nextCursor).toBeNull();
   });
 
-  it("a cursor without `limit` returns the remainder after that row", async () => {
+  it("an explicit limit still wins over the default, up to 500", async () => {
+    if (dockerSkipped) return;
+    const order = await activeOrder(TENANT_A);
+    const page = await getPage({ limit: 500 });
+    expect(page.items.map((i) => i.id)).toEqual(order);
+    expect(page.nextCursor).toBeNull();
+    expect((await getPage({ limit: 7 })).items).toHaveLength(7);
+  });
+
+  it("a cursor without `limit` returns one default page after that row", async () => {
     if (dockerSkipped) return;
     const first = await getPage({ limit: 2 });
-    const rest = await getPage({ cursor: first.nextCursor as string });
+    const next = await getPage({ cursor: first.nextCursor as string });
     const order = await activeOrder(TENANT_A);
-    expect(rest.items.map((i) => i.id)).toEqual(order.slice(2));
-    expect(rest.nextCursor).toBeNull();
+    expect(next.items.map((i) => i.id)).toEqual(order.slice(2, 2 + DEFAULT_LIMIT));
+    expect(next.nextCursor).not.toBeNull();
   });
 
   it("rejects a cursor this operation did not issue with 400 validation_error", async () => {

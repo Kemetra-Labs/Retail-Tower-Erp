@@ -135,7 +135,7 @@ never charges the customer in V1.
 **Decided: A** (2026-11-12, RT-1340). The owner delegated the choice on 2026-11-11 ("I delegate you to decide and
 choose recommended", RT-286 comment 16658), with the rule: implement A if it posts exactly on ERPNext v16, else B if
 B does, else stop. The bench proof is in
-[`integrations/erpnext-connector/docs/research/rt-1340-od11/`](../../../../integrations/erpnext-connector/docs/research/rt-1340-od11/README.md)
+[`docs/research/erpnext-connector/rt-1340-od11/`](../../../../docs/research/erpnext-connector/rt-1340-od11/README.md)
 (Frappe v16.52.0, ERPNext v16.51.0). That was a local disposable bench with the `connector/bench` pins. The lab's ERP
 image is built from the same ERPNext 16.51.0, but the proof did not run on the lab hosts. The lab run is RT-1341 step 5,
 once A is implemented; the owner may revisit the choice then. Results:

@@ -42,6 +42,8 @@ const SESSION: OperatorSessionRecord = {
   started_at: '2026-11-03T08:00:00.000Z',
   backend_session_id: 'b-1',
   last_activity_at: '2026-11-03T08:00:00.000Z',
+  lock_state: 'active',
+  locked_at: null,
 };
 
 /** Any `SKU-<n>` resolves, so tests can add as many distinct items as they need. */

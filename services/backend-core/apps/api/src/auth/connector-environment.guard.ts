@@ -19,7 +19,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
-import { resolveDeploymentEnvironment } from "../connector/deployment-environment";
+import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 import type { AuthedRequest } from "./auth.guard";
 
 @Injectable()

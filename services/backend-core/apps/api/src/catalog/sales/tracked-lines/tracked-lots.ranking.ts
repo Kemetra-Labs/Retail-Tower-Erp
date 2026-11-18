@@ -8,7 +8,7 @@
  * into the contract's `TrackedLotRow`s (1-based `fefoRank` under `suggest`,
  * null under `off`; the advisory position as an exact decimal string).
  */
-import { formatQuantity, parseQuantity } from "../../../inventory/decimal-quantity";
+import { formatQuantity, parseQuantity } from "../../../common/quantity/decimal-quantity";
 
 export type FefoPolicy = "off" | "suggest";
 

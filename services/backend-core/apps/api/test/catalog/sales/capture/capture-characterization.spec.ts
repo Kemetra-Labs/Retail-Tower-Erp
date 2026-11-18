@@ -25,7 +25,7 @@
  *      is answered before any first-capture refusal (assertFirstCaptureAccepted
  *      ordering).
  */
-import { sha256CanonicalHex } from "../../../../src/catalog/sales/payload-hash";
+import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import {
   startCaptureHarness,
   stopCaptureHarness,

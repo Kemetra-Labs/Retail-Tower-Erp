@@ -67,7 +67,7 @@ import { newId } from '@data-pulse-2/shared';
 import type { Pool } from 'pg';
 
 import { PG_POOL } from '../auth/auth.module';
-import { formatQuantity, parseQuantity } from './decimal-quantity';
+import { formatQuantity, parseQuantity } from '../common/quantity/decimal-quantity';
 import {
   MOVEMENT_OCCURRED_AT_KEY_SQL,
   StockMovementCursorError,

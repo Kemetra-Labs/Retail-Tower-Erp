@@ -6,7 +6,7 @@
  * used by `src/main/observability/sentry-main.ts`. Local to the
  * voucher-authority-client test directory; not exported beyond it.
  */
-import { vi } from 'vitest';
+import { vi, type Mock } from 'vitest';
 
 import type { PosPaymentsVouchers } from '../../../../../src/shared/api-types.js';
 
@@ -48,18 +48,20 @@ function stringifyInput(input: RequestInfo | URL): string {
   return input.url;
 }
 
+type LogCall = (fields: Record<string, unknown>, msg: string) => void;
+
 export interface TestLogger {
-  warn: ReturnType<typeof vi.fn>;
-  info: ReturnType<typeof vi.fn>;
-  error: ReturnType<typeof vi.fn>;
+  warn: Mock<LogCall>;
+  info: Mock<LogCall>;
+  error: Mock<LogCall>;
 }
 
 /** pino-style `(fields, msg)` logger with `vi.fn` spies. */
 export function makeLogger(): TestLogger {
   return {
-    warn: vi.fn(),
-    info: vi.fn(),
-    error: vi.fn(),
+    warn: vi.fn<LogCall>(),
+    info: vi.fn<LogCall>(),
+    error: vi.fn<LogCall>(),
   };
 }
 

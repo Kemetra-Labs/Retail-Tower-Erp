@@ -101,7 +101,7 @@ describe('T030 — 008 Slice 1b sales.* bridge contract', () => {
       // Compile-time assertion via type satisfaction: a stub conforming to
       // the contract must be assignable to `Pick<PreloadBridgeAPI, 'sales'>`.
       const stub: Pick<PreloadBridgeAPI, 'sales'> = {
-        sales: undefined as SalesBridgeAPI | undefined,
+        sales: undefined as unknown as SalesBridgeAPI,
       };
       // Runtime assertion to keep this test from being elided as dead code.
       expect('sales' in stub).toBe(true);
@@ -295,6 +295,7 @@ describe('T030 — 008 Slice 1b sales.* bridge contract', () => {
       const resp: SalesSubscribeResponse = {
         kind: 'ok',
         subscription_token: 'tok-abc',
+        recent: null,
       };
       expect(resp.subscription_token).toBe('tok-abc');
     });
@@ -325,6 +326,7 @@ describe('T030 — 008 Slice 1b sales.* bridge contract', () => {
         subtotal_minor: 19925,
         total_tax_minor: 2450,
         total_change_due_minor: 75,
+        lines: [],
         tender_lines_summary: [],
         settled_at: '2026-05-27T08:42:18.000Z',
         finalized_at: '2026-05-27T08:42:18.500Z',
@@ -349,6 +351,7 @@ describe('T030 — 008 Slice 1b sales.* bridge contract', () => {
         subtotal_minor: 19925,
         total_tax_minor: 2450,
         total_change_due_minor: 75,
+        lines: [],
         tender_lines_summary: [],
         settled_at: '2026-05-27T08:42:18.000Z',
         finalized_at: '2026-05-27T08:42:18.500Z',

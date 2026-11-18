@@ -39,7 +39,7 @@ import {
   type StoredCreditReversal,
 } from "./credit-sale-reversal.store";
 import type { CreditSaleReversalRequestDto } from "./dto/credit-sale-reversal-request.dto";
-import { sha256CanonicalHex } from "./payload-hash";
+import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { TerminalEventProvenanceConflictError } from "./sale-errors";
 import { priceReturnLines, type PricedLine } from "./sale-returns.service";
 import { lockSaleForReversal, readReversalState, SaleAlreadyReversedError, type LockedSale } from "./sale-reversal";

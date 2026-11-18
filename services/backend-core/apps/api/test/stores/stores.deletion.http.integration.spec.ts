@@ -536,6 +536,30 @@ describe("previewStoreDeletion (AC5)", () => {
     expect(auditAfter.rows[0].n).toBe(auditBefore.rows[0].n);
   });
 
+  it("an open shift is force-close eligible only when no live cashier admission holds the terminal (the Console verdict, RT-1453)", async () => {
+    if (skip()) return;
+    const owner = await h.signIn("owner");
+    const eligibleOf = async (): Promise<boolean> => {
+      const res = await preview(owner, STORE.shiftOnly).expect(200);
+      return (res.body as { openShifts: Array<{ forceCloseEligible: boolean }> }).openShifts[0]!.forceCloseEligible;
+    };
+    expect(await eligibleOf()).toBe(true); // opened 2026-10-05: stale, nobody live
+
+    // A live cashier admission on the opening terminal: not eligible.
+    const admissionId = randomUUID();
+    await h.admin.query(
+      `INSERT INTO cashier_admissions (id, tenant_id, store_id, user_id, device_id, mode, expires_at)
+       VALUES ($1, $2, $3, $4, $5, 'online', now() + interval '1 hour')`,
+      [admissionId, ACME_ID, STORE.shiftOnly, USERS.owner.id, DEVICE.shiftOnly],
+    );
+    try {
+      expect(await eligibleOf()).toBe(false);
+    } finally {
+      await h.admin.query(`DELETE FROM cashier_admissions WHERE id = $1`, [admissionId]);
+    }
+    expect(await eligibleOf()).toBe(true);
+  });
+
   it("a device that never reported its queue has queue null (unknown, never zero)", async () => {
     if (skip()) return;
     const owner = await h.signIn("owner");

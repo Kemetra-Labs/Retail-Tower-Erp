@@ -18,7 +18,7 @@ import { standingFinding } from "../../pos-shifts/shift-close-approver";
 import { ShiftStoreUserReader, type ApproverStanding } from "../../pos-shifts/shift-store-user";
 import type { CreditReversalRefundTenderDto } from "./dto/credit-sale-reversal-request.dto";
 import type { VoidApprovalDto } from "./dto/record-void-request.dto";
-import { minorUnitExponent } from "./iso4217-minor-units";
+import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
 import { VOID_APPROVAL_SKEW_MS } from "./void-approval";
 
 /** The envelope operator is not a live owner / tenant_admin / store_manager of the store → 403. */

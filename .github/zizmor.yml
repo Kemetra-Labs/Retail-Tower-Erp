@@ -1,37 +1,32 @@
-# zizmor configuration (RT-1410). Read by the report-mode `workflow-lint` job
+# zizmor configuration (RT-1410). Read by the `workflow-lint` job
 # (.github/workflows/workflow-lint.yml); zizmor finds it by local discovery at the repo root.
 # Every entry needs a reason and evidence. Prefer fixing the workflow over adding an entry here.
+#
+# RT-1459: no line-scoped ignores are kept here any more. A `file:line` ignore reappears as a finding
+# when an unrelated edit shifts the line, which turns the baseline-gated job red on a pure move. The
+# nine `cache-poisoning` findings that were ignored by line are now baselined instead, without line
+# numbers and counted (.github/workflow-lint-baseline.txt), so a tenth one still fails the job.
+#
+# cache-poisoning on actions/setup-node in the release workflows: a false positive, proven from logs.
+#
+# zizmor flags setup-node in a release workflow unless `package-manager-cache: false` is set,
+# because setup-node v5+ turns on npm caching by itself when package.json's `packageManager`
+# (or `devEngines.packageManager`) names npm. setup-node reads that field only from
+# `$GITHUB_WORKSPACE/package.json` (src/main.ts, getNameFromPackageManagerField), and this repo
+# has no root package.json, so auto-caching cannot turn on. None of these steps sets `cache:`.
+#
+# Evidence (2026-11-15): the setup-node v6.5.0 step logs only the hosted-toolcache Node lookup
+# ("Found in cache @ .../hostedtoolcache/...") and never "Detected npm as the package manager",
+# "Cache restored" or "Cache not found", and no Post step saves a cache, in:
+#   release-pos-pilot  run 43618063888 (pos-pilot/v0.1.5; stands in for release-pos: same
+#                      apps/pos, same Windows image, same setup-node pin)
+#   release-pos        run 42524766776 (pos/v0.1.3; older setup-node pin 49933ea, same result)
+#   release-backend-core run 43630208622 (backend-core/v0.14.0)
+#   release-admin-console run 43631366015 (admin-console/v0.11.0)
+#
+# These findings were ignored line by line (each entry was the step's `uses:` line); an inline
+# `# zizmor: ignore` comment was not used because it would replace the `# v6.5.0` pin comment that
+# zizmor and Renovate read. Now they are baselined (see above). Revisit if a root package.json is
+# ever added: the findings would then be real and the baseline lines should be fixed, not kept.
 
-rules:
-  # cache-poisoning on actions/setup-node in the release workflows: a false positive, proven from logs.
-  #
-  # zizmor flags setup-node in a release workflow unless `package-manager-cache: false` is set,
-  # because setup-node v5+ turns on npm caching by itself when package.json's `packageManager`
-  # (or `devEngines.packageManager`) names npm. setup-node reads that field only from
-  # `$GITHUB_WORKSPACE/package.json` (src/main.ts, getNameFromPackageManagerField), and this repo
-  # has no root package.json, so auto-caching cannot turn on. None of these steps sets `cache:`.
-  #
-  # Evidence (2026-11-15): the setup-node v6.5.0 step logs only the hosted-toolcache Node lookup
-  # ("Found in cache @ .../hostedtoolcache/...") and never "Detected npm as the package manager",
-  # "Cache restored" or "Cache not found", and no Post step saves a cache, in:
-  #   release-pos-pilot  run 43618063888 (pos-pilot/v0.1.5; stands in for release-pos: same
-  #                      apps/pos, same Windows image, same setup-node pin)
-  #   release-pos        run 42524766776 (pos/v0.1.3; older setup-node pin 49933ea, same result)
-  #   release-backend-core run 43630208622 (backend-core/v0.14.0)
-  #   release-admin-console run 43631366015 (admin-console/v0.11.0)
-  #
-  # Line-scoped on purpose (each entry is the step's `uses:` line): a moved line makes the
-  # finding reappear in the report instead of hiding a new one. An inline `# zizmor: ignore`
-  # comment is not used because it would replace the `# v6.5.0` pin comment that zizmor and
-  # Renovate read. Revisit if a root package.json is ever added.
-  cache-poisoning:
-    ignore:
-      - release-pos.yml:141
-      - release-pos.yml:222
-      - release-pos.yml:278
-      - release-pos-pilot.yml:139
-      - release-pos-pilot.yml:237
-      - release-pos-pilot.yml:297
-      - release-backend-core.yml:133
-      - release-backend-core.yml:385
-      - release-admin-console.yml:119
+rules: {}

@@ -188,6 +188,45 @@ class ConnectorCase(unittest.TestCase):
         f = self.by_subject(self.check(spec=SPEC.replace("{1,15}(", "{1,12}(", 1)), "_AMOUNT_RE")
         self.assertEqual(f.status, FAIL)
 
+    # RT-1458 (A-12): an integer module constant mapped under `lengths` must equal the schema's maxLength.
+    LENGTH_MODULE = MODULE + "\n_REF_MAX = 6\n"
+    LENGTH_SPEC = SPEC.replace("reference: {type: string, pattern: '^[A-Z0-9]{1,6}$'}",
+                               "reference: {type: string, pattern: '^[A-Z0-9]{1,6}$', maxLength: 6}")
+    LENGTH_ENTRY = {**ENTRY, "lengths": {"_REF_MAX": "Tender/properties/reference"}}
+
+    def test_length_equal_to_max_length_passes(self):
+        findings = self.check(module=self.LENGTH_MODULE, spec=self.LENGTH_SPEC, entry=self.LENGTH_ENTRY)
+        self.assert_no_fail(findings)
+        f = self.by_subject(findings, "_REF_MAX")
+        self.assertEqual(f.status, OK)
+        self.assertIn("maxLength 6", f.message)
+
+    def test_length_differing_from_max_length_fails(self):
+        f = self.by_subject(self.check(module=self.LENGTH_MODULE.replace("_REF_MAX = 6", "_REF_MAX = 63"),
+                                       spec=self.LENGTH_SPEC, entry=self.LENGTH_ENTRY), "_REF_MAX")
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("length mismatch", f.message)
+        self.assertIn("63", f.message)
+
+    def test_contract_max_length_change_fails(self):
+        f = self.by_subject(self.check(module=self.LENGTH_MODULE, spec=self.LENGTH_SPEC.replace("maxLength: 6", "maxLength: 128"),
+                                       entry=self.LENGTH_ENTRY), "_REF_MAX")
+        self.assertEqual(f.status, FAIL)
+
+    def test_length_without_schema_max_length_fails(self):
+        f = self.by_subject(self.check(module=self.LENGTH_MODULE, entry=self.LENGTH_ENTRY), "_REF_MAX")
+        self.assertEqual(f.status, FAIL)
+        self.assertIn("no maxLength", f.message)
+
+    def test_length_constant_must_be_an_integer_literal(self):
+        for body in ("_REF_MAX = 3 + 3", "_REF_MAX = '6'", "_REF_MAX = True"):
+            f = self.by_subject(self.check(module=MODULE + "\n" + body + "\n", spec=self.LENGTH_SPEC,
+                                           entry=self.LENGTH_ENTRY), "_REF_MAX")
+            self.assertEqual(f.status, FAIL, body)
+            self.assertIn("integer literal", f.message)
+        missing = self.by_subject(self.check(module=MODULE, spec=self.LENGTH_SPEC, entry=self.LENGTH_ENTRY), "_REF_MAX")
+        self.assertEqual(missing.status, FAIL)
+
     def test_unclassified_constant_fails(self):
         f = self.by_subject(self.check(module=MODULE + '\nNEW_SET = frozenset({"a"})\n'), "NEW_SET")
         self.assertEqual(f.status, FAIL)

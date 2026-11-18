@@ -21,7 +21,7 @@ import { z } from "zod";
 
 import type { PolicyValue } from "../cash-variance-policy/policy-value";
 import { renderPolicyValue } from "../cash-variance-policy/policy-value";
-import { minorUnitExponent } from "../catalog/sales/iso4217-minor-units";
+import { minorUnitExponent } from "../common/money/iso4217-minor-units";
 import { formatMoney } from "./shift-money";
 
 export type FrozenPolicySource = "system" | "tenant" | "store" | "fallback";

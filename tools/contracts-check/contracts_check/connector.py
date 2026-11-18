@@ -7,6 +7,8 @@ never imported. Compared with `components/schemas` of the contract:
   patterns  a mapped `re.compile` must be the schema `pattern`; `\\d` counts as `[0-9]` only
             under `re.ASCII` (JSON Schema patterns are ECMA-262, whose `\\d` is ASCII), and no
             other flag is allowed
+  lengths   a mapped module-level integer literal must equal the schema `maxLength` (RT-1458: the
+            provisioner's `_MAX_SITE_NAME` against the `siteName` schema)
   fields    for each class with `from_wire` / `to_wire`, named like its schema:
               - every field it reads or emits must be a schema property
               - a field it reads by bare subscript (no `.get` of the same field in that
@@ -101,7 +103,12 @@ class Module:
         self.functions = {s.name: s for s in tree.body if isinstance(s, ast.FunctionDef)}
         self.classes = {s.name: s for s in tree.body if isinstance(s, ast.ClassDef)}
         self.enums, self.patterns, self.unresolved = {}, {}, {}
+        self.ints, self.non_ints = {}, set()
         for name, value in _module_assignments(tree):
+            if isinstance(value, ast.Constant) and type(value.value) is int:
+                self.ints[name] = value.value
+            else:
+                self.non_ints.add(name)
             if _is_frozenset_call(value):
                 strings = _str_set(value)
                 if strings is not None and all(isinstance(e, ast.Constant) for e in value.args[0].elts):
@@ -422,6 +429,24 @@ def check_module(repo, entry, contracts_root):
                               "(use \\Z or fullmatch to match the contract exactly)")
         else:
             add(const, OK, f"= {pointer} {want!r}")
+
+    for const, pointer in sorted((entry.get("lengths") or {}).items()):
+        if const not in module.ints:
+            why = "is not an integer literal" if const in module.non_ints else "not found in the module"
+            add(const, FAIL, f"mapped length constant {why}: it must be a plain integer literal to be compared")
+            continue
+        try:
+            node = schema_node(schemas, pointer)
+        except ModelError as exc:
+            add(const, FAIL, f"schema {pointer}: {exc}")
+            continue
+        want = node.get("maxLength") if isinstance(node, dict) else None
+        if type(want) is not int:
+            add(const, FAIL, f"schema {pointer} has no maxLength")
+        elif module.ints[const] != want:
+            add(const, FAIL, f"length mismatch with {pointer}: connector {module.ints[const]}, contract maxLength {want}")
+        else:
+            add(const, OK, f"= {pointer} maxLength {want}")
 
     for const in sorted(set(local) - set(module.enums) - set(module.patterns)):
         add(const, FAIL, "listed under local but not found in the module (stale config)")
