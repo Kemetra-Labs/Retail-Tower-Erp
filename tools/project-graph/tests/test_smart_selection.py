@@ -175,7 +175,7 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertEqual(set(plan["needed_jobs"]), self.graph.all_jobs)
 
     def test_contracts_check_tooling_selects_the_contract_jobs_only(self):
-        # RT-1467 (CI-09): the consumer-contract checker is run by contracts/check; bc/oasdiff shares its oasdiff pin
+        # RT-1467 (CI-09): contracts/check runs the checker; bc/oasdiff is the ticket's deliberate extra
         plan = _plan("tools/contracts-check/contracts_check/cli.py")
         self.assertFalse(plan["select_all"])
         self.assertFalse(plan["policy_change"])

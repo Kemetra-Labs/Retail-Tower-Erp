@@ -266,10 +266,12 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # secrets). It never feeds `required` and no product suite can test it, so like .circleci/** it selects
   # only contracts/check and stays a policy change (approval, fingerprint). Precedence 0 beats policy's 1.
   depot: { precedence: 0, globs: [.depot/**], selects: [contracts/check], policy_change: true }
-  # RT-1467 (CI-09): tools/contracts-check/** is the consumer-contract checker. Only contracts/check
-  # runs it (contracts.yml), and bc/oasdiff runs the same pinned oasdiff on the Backend-Core side, so
-  # it selects those two instead of every product suite. Precedence 1 beats tooling's 2; no glob
-  # overlaps `policy`.
+  # RT-1467 (CI-09): tools/contracts-check/** is the consumer-contract checker. contracts/check is the
+  # only graph job that runs it (contracts.yml: unit tests, consumer check, system gate G4). bc/oasdiff
+  # is a deliberate extra the ticket asks for: it never reads this folder, but both judge breaking
+  # changes with the Backend-Core rules (config.yaml reads services/backend-core/tools/oasdiff/
+  # severity-levels.txt), so a checker change runs next to the Backend-Core gate. The oasdiff pin
+  # itself lives in the policy-class workflows. Precedence 1 beats tooling's 2; no glob overlaps `policy`.
   contracts_tooling: { precedence: 1, globs: [tools/contracts-check/**], selects: [contracts/check, bc/oasdiff] }
   # RT-1395 / RT-1467 (CI-10): the read-only Port widget. No product suite runs it; its own job
   # (port-plugins.yml) runs its tests, rebuilds dist/index.html and fails on a stale committed build.
