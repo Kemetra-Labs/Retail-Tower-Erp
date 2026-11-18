@@ -34,7 +34,7 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.decorator";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import { Idempotent } from "../../idempotency/idempotent.decorator";
-import { ConsoleActionRateLimited, consoleRateLimited } from "./console-429";
+import { ConsoleActionRateLimited, consoleRateLimited } from "../../console-action-cap/console-429";
 import { ConsoleReauthService, type ReauthGrantBody } from "./reauth.service";
 import {
   ReauthRequestSchema,

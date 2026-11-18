@@ -24,7 +24,7 @@ import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
-import { ConsoleActionRateLimited } from "../stores/deletion/console-429";
+import { ConsoleActionRateLimited } from "./console-429";
 
 const FORCE_ACTION_CAP = 10;
 const FORCE_ACTION_WINDOW_SECONDS = 3600;
@@ -34,7 +34,7 @@ const COUNTED_FORCE_ACTIONS = ["shift.force_closed", "store.deleted"] as const;
 
 /**
  * The 429 `force_action_rate_limited`: the tenant's hourly cap is spent. It is a
- * `ConsoleActionRateLimited` (the one console 429 family, `stores/deletion/console-429`), so the
+ * `ConsoleActionRateLimited` (the one console 429 family, `console-action-cap/console-429`), so the
  * store-deletion controller's catch and the force-close controller's catch both handle it.
  */
 export class ForceActionRateLimitedError extends ConsoleActionRateLimited {
