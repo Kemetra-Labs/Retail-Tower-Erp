@@ -158,21 +158,17 @@ class NamedJobClassTests(unittest.TestCase):
         self.assertEqual(self.graph.classify(".depot/scripts/patch-evidence.sh")[:2], ("class", "depot"))
         self.assertEqual(self.graph.classify(".depotx/a.yml")[0], "unknown")
 
-    def test_rt_control_room_selects_only_its_own_job(self):
-        # RT-1395 / RT-1467 (CI-10): the Port plugin's own job, plus the always jobs; no product suite
+    def test_frozen_port_plugins_select_no_product_job(self):
+        # RT-1467 (CI-10): Port work is paused; the plugins are frozen code that nothing builds or tests
         for path in ("tools/port-plugins/rt-control-room/src/App.tsx",
                      "tools/port-plugins/rt-control-room/dist/index.html",
-                     "tools/port-plugins/rt-control-room/package-lock.json"):
+                     "tools/port-plugins/rt-control-room/package-lock.json",
+                     "tools/port-plugins/rt-architecture-map/src/a.ts"):
             with self.subTest(path=path):
                 plan = _plan(path)
                 self.assertFalse(plan["select_all"])
                 self.assertFalse(plan["policy_change"])
-                self.assertEqual(set(plan["needed_jobs"]), self.always | {"port/rt-control-room"})
-
-    def test_a_sibling_port_plugin_still_selects_all(self):
-        plan = _plan("tools/port-plugins/rt-architecture-map/src/a.ts")
-        self.assertTrue(plan["select_all"])
-        self.assertEqual(set(plan["needed_jobs"]), self.graph.all_jobs)
+                self.assertEqual(set(plan["needed_jobs"]), self.always)
 
     def test_contracts_check_tooling_selects_the_contract_jobs_only(self):
         # RT-1467 (CI-09): contracts/check runs the checker; bc/oasdiff is the ticket's deliberate extra
@@ -195,8 +191,8 @@ class NamedJobClassTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.graph.classify(path)[:2], ("class", "policy"))
         self.assertEqual(self.graph.classify("tools/contracts-check/x.py")[:2], ("class", "contracts_tooling"))
-        self.assertEqual(self.graph.classify("tools/port-plugins/rt-control-room/x")[:2], ("class", "port_plugin"))
-        self.assertEqual(self.graph.classify("tools/port-plugins/rt-control-roomx/a")[:2], ("class", "tooling"))
+        self.assertEqual(self.graph.classify("tools/port-plugins/rt-control-room/x")[:2], ("class", "port_plugins"))
+        self.assertEqual(self.graph.classify("tools/port-pluginsx/a")[:2], ("class", "tooling"))
         self.assertEqual(self.graph.classify("tools/release/x.py")[:2], ("class", "tooling"))
 
     def test_plan_reports_where_the_diff_starts(self):
