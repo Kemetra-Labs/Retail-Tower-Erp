@@ -85,6 +85,7 @@ function pairedAt(terminalId: string): PairingStore {
         terminal_label: 'T',
         paired_at: 0,
       }),
+    getCurrentTerminalId: () => terminalId,
     persist: () => Promise.resolve(),
     clear: () => Promise.resolve(),
   };

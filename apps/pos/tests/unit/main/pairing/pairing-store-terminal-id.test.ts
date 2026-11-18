@@ -42,7 +42,9 @@ function makeDb(assignment: TerminalAssignmentRow | null): PairingStoreDb {
     readAssignment: vi.fn(() => assignment),
     writeAssignment: vi.fn(),
     deleteAssignment: vi.fn(),
-    transaction: vi.fn(<T>(fn: () => T): T => fn()),
+    markDeviceRevoked: vi.fn(),
+    clearDeviceRevoked: vi.fn(),
+    transaction: <T>(fn: () => T): T => fn(),
   };
 }
 

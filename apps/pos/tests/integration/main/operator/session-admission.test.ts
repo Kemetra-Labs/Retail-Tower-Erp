@@ -155,13 +155,19 @@ function who(operator_id: string): { operator_id: string; role: 'cashier' | 'man
   return { operator_id, role: operator_id === MANAGER ? 'manager' : 'cashier' };
 }
 
-const CANDIDATES = [
+const CANDIDATES: readonly (readonly [label: string, operator_id: string])[] = [
   ['another cashier', OTHER_CASHIER],
   ['another manager', MANAGER],
-] as const;
+];
+
+/** The owner plus every other candidate (the owner is the incumbent session). */
+const OWNER_AND_CANDIDATES: readonly (readonly [label: string, operator_id: string])[] = [
+  ['the owner', OWNER],
+  ...CANDIDATES,
+];
 
 describe('RT-444 §4 — terminal holds nothing', () => {
-  it.each([['the owner', OWNER], ...CANDIDATES])('admits %s', (_label, operator_id) => {
+  it.each(OWNER_AND_CANDIDATES)('admits %s', (_label, operator_id) => {
     const h = harness();
     expect(h.admission.admit(who(operator_id))).toEqual({ kind: 'admitted' });
     expect(h.ends).toEqual([]);
@@ -169,15 +175,12 @@ describe('RT-444 §4 — terminal holds nothing', () => {
 });
 
 describe('RT-444 §4 — held carts only, or zero funds', () => {
-  it.each([['the owner', OWNER], ...CANDIDATES])(
-    'held drafts never block: admits %s',
-    (_label, operator_id) => {
-      insertCart('held-1', 'dead-session');
-      expect(harness().admission.admit(who(operator_id))).toEqual({ kind: 'admitted' });
-    },
-  );
+  it.each(OWNER_AND_CANDIDATES)('held drafts never block: admits %s', (_label, operator_id) => {
+    insertCart('held-1', 'dead-session');
+    expect(harness().admission.admit(who(operator_id))).toEqual({ kind: 'admitted' });
+  });
 
-  it.each([['the owner', OWNER], ...CANDIDATES])(
+  it.each(OWNER_AND_CANDIDATES)(
     'a started attempt with no tender is not live tender: admits %s',
     (_label, operator_id) => {
       insertStartedAttempt('dead-session', null);

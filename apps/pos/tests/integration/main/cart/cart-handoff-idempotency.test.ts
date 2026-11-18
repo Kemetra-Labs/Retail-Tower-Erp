@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { CartBridgeHandlers, type ItemRefResolver } from '../../../../src/main/cart/cart-bridge.js';
 import { bindCartStore } from '../../../../src/main/cart/cart-store.js';
 import type { OperatorSessionRecord } from '../../../../src/main/operator/session-manager.js';
-import type { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
+import { AuditEmitter } from '../../../../src/main/audit/audit-emitter.js';
 import type { AuditEvent } from '../../../../src/shared/audit/event-shape.js';
 import { makeSqlJsHandle } from '../../../unit/main/cart/__helpers__/sql-js-handle.js';
 
@@ -51,17 +51,19 @@ function makeSession(): OperatorSessionRecord {
     started_at: '2026-05-17T08:00:00.000Z',
     backend_session_id: 'b',
     last_activity_at: '2026-05-17T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 
 function makeAuditCapture(): { emitter: AuditEmitter; events: AuditEvent[] } {
   const events: AuditEvent[] = [];
   return {
-    emitter: {
-      emit: (e) => {
+    emitter: new AuditEmitter({
+      insertIgnore: (e) => {
         events.push(e);
       },
-    },
+    }),
     events,
   };
 }

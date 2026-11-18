@@ -54,6 +54,8 @@ function session(): OperatorSessionRecord {
     started_at: '2026-05-14T08:00:00.000Z',
     backend_session_id: 'b',
     last_activity_at: '2026-05-14T08:00:00.000Z',
+    lock_state: 'active',
+    locked_at: null,
   };
 }
 

@@ -229,6 +229,7 @@ function wire(opts: { deviceToken?: string } = {}): {
         terminal_label: 'T1',
         paired_at: 0,
       }),
+    getCurrentTerminalId: () => 'term-1',
     persist: () => Promise.resolve(),
     clear: () => Promise.resolve(),
   };
@@ -281,7 +282,14 @@ function wire(opts: { deviceToken?: string } = {}): {
       protoStore,
       sessionManager: sessions,
       backend,
-      jwtHolder: { set: vi.fn(), get: vi.fn(() => null), clear: vi.fn() },
+      jwtHolder: {
+        set: vi.fn(),
+        get: vi.fn(() => null),
+        clear: vi.fn(),
+        clearAll: vi.fn(),
+        hasFreshMark: vi.fn(() => false),
+        consumeMark: vi.fn(() => false),
+      },
       auditEmitter,
       pairingStore,
       deviceTokenAttestation: () => DEVICE_TOKEN,

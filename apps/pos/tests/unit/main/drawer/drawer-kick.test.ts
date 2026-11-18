@@ -163,7 +163,7 @@ describe('drawer-kick dispatcher — T310 gating + T321 ack (cash-inclusive)', (
       terminal_id: 'terminal-1',
     });
     expect(h.audits).toHaveLength(1);
-    expect(h.audits[0].action_category).toBe('sale.drawer.opened');
+    expect(h.audits[0]?.action_category).toBe('sale.drawer.opened');
   });
 
   it('writes a failed row + sale.drawer.failed with last_successful_open_at on a kick fault', async () => {
@@ -178,8 +178,8 @@ describe('drawer-kick dispatcher — T310 gating + T321 ack (cash-inclusive)', (
       failure_reason: 'printer_dk_failure',
       last_successful_open_at_for_terminal: '2026-05-27T08:30:00.000Z',
     });
-    expect(h.audits[0].action_category).toBe('sale.drawer.failed');
-    expect(h.audits[0].payload).toMatchObject({
+    expect(h.audits[0]?.action_category).toBe('sale.drawer.failed');
+    expect(h.audits[0]?.payload).toMatchObject({
       failure_reason: 'printer_dk_failure',
       last_successful_open_at_for_terminal: '2026-05-27T08:30:00.000Z',
     });
@@ -191,7 +191,7 @@ describe('drawer-kick dispatcher — T310 gating + T321 ack (cash-inclusive)', (
       lastOpen: null,
     });
     await h.dispatcher.dispatchOnFirstPrintSuccess(ctx());
-    expect(h.inserted[0].last_successful_open_at_for_terminal).toBeNull();
+    expect(h.inserted[0]?.last_successful_open_at_for_terminal).toBeNull();
   });
 
   it('degrades a transport that throws to a failed row (never crosses the finalize seam)', async () => {
@@ -199,7 +199,7 @@ describe('drawer-kick dispatcher — T310 gating + T321 ack (cash-inclusive)', (
     h.kick.mockRejectedValueOnce(new Error('usb boom'));
     await expect(h.dispatcher.dispatchOnFirstPrintSuccess(ctx())).resolves.toBeUndefined();
     expect(h.inserted[0]).toMatchObject({ outcome: 'failed', failure_reason: 'os_error' });
-    expect(h.audits[0].action_category).toBe('sale.drawer.failed');
+    expect(h.audits[0]?.action_category).toBe('sale.drawer.failed');
   });
 });
 
@@ -221,10 +221,10 @@ describe('drawer-kick dispatcher — RT-531 no drawer configured (cash drawer is
       terminal_id: 'terminal-1',
     });
     expect(h.audits).toHaveLength(1);
-    expect(h.audits[0].action_category).toBe('sale.drawer.suppressed');
-    expect(h.audits[0].payload).toMatchObject({
+    expect(h.audits[0]?.action_category).toBe('sale.drawer.suppressed');
+    expect(h.audits[0]?.payload).toMatchObject({
       sale_id: 'sale-1',
-      drawer_event_id: h.inserted[0].drawer_event_id,
+      drawer_event_id: h.inserted[0]?.drawer_event_id,
       suppression_reason: 'no_drawer_configured',
     });
   });
@@ -233,7 +233,7 @@ describe('drawer-kick dispatcher — RT-531 no drawer configured (cash drawer is
     const h = harness({ kickResult: NO_DRAWER, lastOpen: '2026-05-27T08:30:00.000Z' });
     await h.dispatcher.dispatchOnFirstPrintSuccess(ctx());
     expect(h.audits.map((a) => a.action_category)).not.toContain('sale.drawer.failed');
-    expect(h.inserted[0].last_successful_open_at_for_terminal).toBeNull();
+    expect(h.inserted[0]?.last_successful_open_at_for_terminal).toBeNull();
   });
 
   it('keeps one row per sale (FR-053): a repeat after the suppressed row is a no-op', async () => {
@@ -265,7 +265,7 @@ describe('drawer-kick dispatcher — RT-531 no drawer configured (cash drawer is
         failure_reason,
         last_successful_open_at_for_terminal: '2026-05-27T08:30:00.000Z',
       });
-      expect(h.audits[0].action_category).toBe('sale.drawer.failed');
+      expect(h.audits[0]?.action_category).toBe('sale.drawer.failed');
     },
   );
 
@@ -291,8 +291,8 @@ describe('drawer-kick dispatcher — T311 cashless suppression', () => {
       suppression_reason: 'cashless_tender_mix',
       failure_reason: null,
     });
-    expect(h.audits[0].action_category).toBe('sale.drawer.suppressed');
-    expect(h.audits[0].payload).toMatchObject({ suppression_reason: 'cashless_tender_mix' });
+    expect(h.audits[0]?.action_category).toBe('sale.drawer.suppressed');
+    expect(h.audits[0]?.payload).toMatchObject({ suppression_reason: 'cashless_tender_mix' });
   });
 });
 
@@ -359,7 +359,7 @@ describe('drawer-kick dispatcher — T340 audit redaction', () => {
       lastOpen: '2026-05-27T08:30:00.000Z',
     });
     await h.dispatcher.dispatchOnFirstPrintSuccess(ctx());
-    expect(h.audits[0].payload.last_successful_open_at_for_terminal).toBe(
+    expect(h.audits[0]?.payload.last_successful_open_at_for_terminal).toBe(
       '2026-05-27T08:30:00.000Z',
     );
   });
