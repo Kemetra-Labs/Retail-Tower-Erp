@@ -1,5 +1,3 @@
-import { Banner } from "@/components/Banner";
-import { BusyButton } from "@/components/BusyButton";
 /**
  * RT-725 ERPNext item mappings (`catalog/erpnext-item-map.yaml`): the tenant's
  * active mappings, filterable to the review queue (`state=suggested`), with
@@ -12,6 +10,8 @@ import { BusyButton } from "@/components/BusyButton";
  * suggestion). There is no free-text product field. Product ids are shown as
  * received in the table: resolving a name for every row is out of scope.
  */
+import { Banner } from "@/components/Banner";
+import { BusyButton } from "@/components/BusyButton";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { SelectFilterBar } from "@/components/FilterBar";
@@ -116,21 +116,37 @@ function ConfirmStep({
 
 /**
  * The boundary under the table (UX-10.16, .18): "Load more" while the server says another page
- * exists, and, if reading it failed, the failure with a retry right here. The rows above were
+ * exists, and, if reading it failed, the failure with its action right here. The rows above were
  * proven by earlier answers and stay; no total or page number is shown, the contract has none.
+ * A refusal keeps its own words (a 429 says to wait, a 401 that the session ended). A rejected
+ * cursor (400) cannot be cured by asking for the same page again, so it reads the list afresh.
  */
 function LoadMore({
   list,
 }: Readonly<{ list: ListView<ErpnextItemMapping> }>): React.JSX.Element | null {
   const t = useT();
-  if (list.moreFailure) {
-    const requestId = "requestId" in list.moreFailure ? list.moreFailure.requestId : undefined;
+  const failure = list.moreFailure;
+  if (failure) {
+    if (failure.kind === "unavailable") {
+      return <FailureBanner op="listItems" failure={failure} />;
+    }
+    if (failure.kind === "failed") {
+      return (
+        <Banner
+          variant="warning"
+          message={t("erp.map.items.continuation.failed")}
+          requestId={failure.requestId}
+          action={<RetryButton onRetry={list.loadMore} />}
+        />
+      );
+    }
     return (
-      <Banner
-        variant="warning"
-        message={t("erp.map.items.continuation.failed")}
-        requestId={requestId}
-        action={<RetryButton onRetry={list.loadMore} />}
+      <FailureBanner
+        op="listItems"
+        failure={failure}
+        action={
+          <RetryButton onRetry={failure.kind === "validation" ? list.retry : list.loadMore} />
+        }
       />
     );
   }
@@ -143,7 +159,7 @@ function LoadMore({
         onClick={list.loadMore}
         busy={list.loadingMore}
       >
-        {t("erp.map.items.loadMore")}
+        {t("erp.loadMore")}
       </BusyButton>
     </div>
   );

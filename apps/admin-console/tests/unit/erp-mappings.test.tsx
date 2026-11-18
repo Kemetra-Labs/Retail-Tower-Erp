@@ -496,6 +496,37 @@ describe("item mappings paging (RT-1458, UX-10.16 to UX-10.21)", () => {
     });
   });
 
+  test("a continuation refused with 429 says to wait, in the kind's own words, and keeps the rows", async () => {
+    api.tenantAdminListErpnextItemMappings
+      .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(failure(429, 30));
+    renderPage();
+    await itemRowEl();
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    const panel = itemsPanel();
+    expect(
+      await within(panel).findByText("Too many requests. Wait 30 seconds, then try again."),
+    ).toBeTruthy();
+    expect(await itemRowEl()).toBeTruthy();
+  });
+
+  test("a continuation answered 400 is a rejected cursor: the retry reads the list again from the first page", async () => {
+    api.tenantAdminListErpnextItemMappings
+      .mockResolvedValueOnce(page1())
+      .mockResolvedValueOnce(failure(400))
+      .mockResolvedValueOnce(ok({ items: [itemRow()], nextCursor: null }));
+    renderPage();
+    await itemRowEl();
+    fireEvent.click(loadMoreButton() as HTMLElement);
+    const retry = await within(itemsPanel()).findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(api.tenantAdminListErpnextItemMappings).toHaveBeenCalledTimes(3));
+    // The third call carries no stale cursor for the first page.
+    expect(api.tenantAdminListErpnextItemMappings).toHaveBeenLastCalledWith(undefined, {
+      limit: 100,
+    });
+  });
+
   test("a filter change starts again from the first page without the old cursor", async () => {
     api.tenantAdminListErpnextItemMappings.mockResolvedValueOnce(page1());
     renderPage();

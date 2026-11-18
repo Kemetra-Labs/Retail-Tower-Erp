@@ -200,7 +200,6 @@ export const erp = {
   "erp.map.items.empty": "لا يوجد ربط أصناف نشط.",
   "erp.map.items.emptySuggested": "لا توجد اقتراحات بانتظار المراجعة.",
   "erp.map.items.emptyConfirmed": "لا يوجد ربط أصناف مؤكَّد.",
-  "erp.map.items.loadMore": "تحميل المزيد",
   "erp.map.items.continuation.failed":
     "تعذّر تحميل المزيد من ربط الأصناف. يبقى الربط المعروض أعلاه كما هو.",
   "erp.map.items.filter": "الحالة",

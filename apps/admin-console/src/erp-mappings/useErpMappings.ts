@@ -157,7 +157,8 @@ export function useItemMappings(
     retry: false,
   });
   const failure = failureOf(query.error);
-  const continuationFailed = query.isFetchNextPageError;
+  // A retry of the failed page is in flight: show the busy button again, not the old failure.
+  const continuationFailed = query.isFetchNextPageError && !query.isFetchingNextPage;
   const hasData = query.data !== undefined;
   return {
     rows: itemRows(query.data?.pages),
