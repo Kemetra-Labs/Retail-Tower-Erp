@@ -2,8 +2,8 @@
 # One shard of the sharded Schemathesis PR job, and its fan-in (RT-809).
 #
 #   shard.sh plan        inventory (run.sh inventory) -> plan -> this shard's units
-#   shard.sh run <mode>  run.sh gate|report over this shard's units only; records the exit
-#                        code in $WS/<mode>.rc and fails with it
+#   shard.sh run gate    run.sh gate over this shard's units only (RT-1467: gate only); records
+#                        the exit code in $WS/gate.rc and fails with it
 #   shard.sh collect     assemble the artifact: SHA, plan, exit codes, manifests, findings;
 #                        withheld, and the step failed, if a credential appears in it
 #   shard.sh fanin       regenerate the inventory at this SHA and check the downloaded
