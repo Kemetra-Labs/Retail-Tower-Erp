@@ -31,7 +31,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { anyJsonObject, decodeOpaque, encodeOpaque } from "../../common/cursor/opaque-cursor";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { recordCatalogUnpricedIssue } from "../../observability/metrics/api.metrics";

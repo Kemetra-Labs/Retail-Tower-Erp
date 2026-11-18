@@ -71,7 +71,7 @@ import {
 import type { Pool, PoolClient } from "pg";
 import { runWithSystemPrivilege } from "@data-pulse-2/db";
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { SessionRepository } from "../auth/session.repository";
 import {
   SupportSessionGate,

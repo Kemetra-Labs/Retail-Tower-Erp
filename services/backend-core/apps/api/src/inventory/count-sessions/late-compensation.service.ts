@@ -23,7 +23,7 @@ import {
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { MembershipRepository } from '../../context/membership.repository';
 import { writeAudit } from '../position-events/position-event.writer';
 import { assertCountSessionsEnabled, loadSession, type FindingCompensation } from './count-session.store';

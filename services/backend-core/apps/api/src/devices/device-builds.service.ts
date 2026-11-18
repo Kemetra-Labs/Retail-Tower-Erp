@@ -25,7 +25,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { MembershipRepository } from "../context/membership.repository";
 import { scopeStoreIds } from "../context/operator-store-scope";
 import { resolveDeviceCaller, storeInCallerScope, type ScopedInput } from "./device-caller";

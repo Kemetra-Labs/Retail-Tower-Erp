@@ -29,7 +29,7 @@ import type { Pool } from "pg";
 import request from "supertest";
 
 import { DashboardAuthGuard } from "../../../src/auth/dashboard-auth.guard";
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import { RolesGuard } from "../../../src/auth/roles.guard";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { isPostgresInputError } from "../../../src/common/postgres-input-error";

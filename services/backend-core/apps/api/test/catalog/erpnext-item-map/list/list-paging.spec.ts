@@ -23,7 +23,7 @@ import type { Pool } from "pg";
 import request from "supertest";
 
 import { AUDIT_JOB_ENQUEUER } from "../../../../src/audit/audit-job.enqueuer";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { DashboardAuthGuard } from "../../../../src/auth/dashboard-auth.guard";
 import { RolesGuard } from "../../../../src/auth/roles.guard";
 import { ErpnextItemMapController } from "../../../../src/catalog/erpnext-item-map/erpnext-item-map.controller";

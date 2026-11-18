@@ -33,7 +33,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { MembershipRepository } from "../context/membership.repository";
 import { insertAiAudit, REVISION_PUBLISHED_ACTION, USAGE_ADJUSTED_ACTION } from "./ai-entitlements-audit";
 import { ChainConflictError, EntitlementRepository } from "./entitlement.repository";

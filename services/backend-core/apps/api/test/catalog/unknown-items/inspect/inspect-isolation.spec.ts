@@ -34,7 +34,7 @@ import {
 } from "../../__support__/seed-unknown-items";
 import { UnknownItemsService } from "../../../../src/catalog/unknown-items/unknown-items.service";
 import { UnknownItemsController } from "../../../../src/catalog/unknown-items/unknown-items.controller";
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";
 import type { ResolvedContext } from "../../../../src/context/types";
 import { DashboardAuthGuard } from "../../../../src/auth/dashboard-auth.guard";

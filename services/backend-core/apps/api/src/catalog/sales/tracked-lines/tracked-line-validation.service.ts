@@ -31,7 +31,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { TrackedLineRefusalReason, TrackedLineSelection } from "@data-pulse-2/db/schema";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../../auth/auth.module";
+import { PG_POOL } from "../../../database";
 import { effectiveFefoPolicy, type OrderedLotRow } from "./tracked-lots.ranking";
 import {
   LOTS_SQL,

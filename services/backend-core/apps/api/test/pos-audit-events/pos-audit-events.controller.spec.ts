@@ -37,7 +37,7 @@ import {
   type OperatorTokenVerifier,
 } from "../../src/auth/operator-token-verifier";
 import { PosAuditEventsModule } from "../../src/pos-audit-events/pos-audit-events.module";
-import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor, ROOT_LOGGER } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";

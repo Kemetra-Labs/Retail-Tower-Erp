@@ -19,7 +19,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { PG_POOL } from '../../auth/auth.module';
+import { PG_POOL } from '../../database';
 import { writeAudit } from '../position-events/position-event.writer';
 
 /** H8: the Safety TTL while the tenant has not set one (15 minutes). */

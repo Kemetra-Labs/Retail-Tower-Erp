@@ -39,7 +39,7 @@ import {
   type OutboxDeadLetterRecord,
 } from "@data-pulse-2/db";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import {
   encodeCursor,
   type OutboxAdminCursor,

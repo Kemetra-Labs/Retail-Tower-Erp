@@ -29,7 +29,7 @@ import request from "supertest";
 
 import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 
-import { PG_POOL } from "../../../src/auth/auth.module";
+import { PG_POOL } from "../../../src/database";
 import { RolesGuard } from "../../../src/auth/roles.guard";
 import { SessionOnlyAdminGuard } from "../../../src/auth/session-only-admin.guard";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";

@@ -31,7 +31,7 @@ import {
   INFLIGHT_REDIS,
   InProgressMarker,
 } from '../../../src/idempotency/in-progress-marker';
-import { PG_POOL } from '../../../src/auth/auth.module';
+import { PG_POOL } from '../../../src/database';
 import { DashboardAuthGuard } from '../../../src/auth/dashboard-auth.guard';
 import { RolesGuard } from '../../../src/auth/roles.guard';
 import { TenantContextGuard } from '../../../src/context/tenant-context.guard';

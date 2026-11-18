@@ -20,7 +20,7 @@ import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
 import type { Principal } from "../auth/auth.guard";
-import { PG_POOL } from "../auth/database-pools";
+import { PG_POOL } from "../database";
 import { resolveDeploymentEnvironment } from "../common/deployment-environment";
 import { MembershipRepository } from "../context/membership.repository";
 import { requirePlatformAdminSession } from "../auth/require-platform-admin";

@@ -23,7 +23,8 @@ import { Module } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 import type { Pool } from "pg";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 
 import { operatorTokenVerifierFactory } from "../auth/identity-provider.factory";
 import {

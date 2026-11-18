@@ -51,7 +51,7 @@ import { emit, OUTBOX_EVENT_TYPES, runWithTenantContext } from "@data-pulse-2/db
 import { deterministicId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { PG_POOL } from "../../auth/auth.module";
+import { PG_POOL } from "../../database";
 import { compareCodeUnits } from "../../common/compare-code-units";
 import {
   BIN_VIEW_MAX_WINDOWS,

@@ -15,7 +15,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { and, eq, isNull } from "drizzle-orm";
 import { runWithTenantContext, type TenantContext } from "@data-pulse-2/db";
 
-import { PG_POOL } from "../auth/auth.module";
+import { PG_POOL } from "../database";
 import { AuthService } from "../auth/auth.service";
 import {
   EXTERNAL_CREDENTIAL_PORT,

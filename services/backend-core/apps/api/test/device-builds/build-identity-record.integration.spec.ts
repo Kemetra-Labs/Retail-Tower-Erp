@@ -39,7 +39,8 @@ import { hashToken } from "@data-pulse-2/auth";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AUTH_LOOKUP_POOL, AuthModule, PG_POOL } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { PosDeviceAuthGuard } from "../../src/auth/pos-device-auth.guard";
 import { DeviceBearer, ReportsBuildIdentity } from "../../src/auth/route-auth";
 import { recordPosBuildIdentityReport } from "../../src/observability/metrics/api.metrics";

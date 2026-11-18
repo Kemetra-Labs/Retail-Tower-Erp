@@ -11,7 +11,7 @@ import "reflect-metadata";
 
 import { Test } from "@nestjs/testing";
 
-import { PG_POOL } from "../../../../src/auth/auth.module";
+import { PG_POOL } from "../../../../src/database";
 import { AUDIT_JOB_ENQUEUER } from "../../../../src/audit/audit-job.enqueuer";
 import { RolesGuard } from "../../../../src/auth/roles.guard";
 import { ErpnextReconciliationModule } from "../../../../src/catalog/erpnext-reconciliation/erpnext-reconciliation.module";
