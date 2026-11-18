@@ -16,7 +16,7 @@ import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
-import { rebuildOfferPackForStoreChange } from "../../offers/offer-pack.rebuild";
+import { rebuildOfferPackForStoreChange } from "../../offers";
 import { storeNotFound } from "./store-deletion.errors";
 import type { StoreDeletionFacts } from "./store-deletion.facts";
 import type { StoresRepository } from "../stores.repository";

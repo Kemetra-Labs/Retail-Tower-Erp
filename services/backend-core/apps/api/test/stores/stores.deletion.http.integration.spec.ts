@@ -560,6 +560,45 @@ describe("previewStoreDeletion (AC5)", () => {
     expect(await eligibleOf()).toBe(true);
   });
 
+  it("a member is a single-store member only when this is their only LIVE store (RT-1453: decided against the stores table)", async () => {
+    if (skip()) return;
+    const owner = await h.signIn("owner");
+    const roleId = (await h.admin.query<{ id: string }>(`SELECT id FROM roles WHERE tenant_id = $1 AND code = 'store_manager'`, [ACME_ID])).rows[0]!.id;
+    const liveStore = randomUUID();
+    const deletedStore = randomUUID();
+    await h.admin.query(`INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $3, 'SM-live', 'SM live'), ($2, $3, 'SM-gone', 'SM gone')`, [liveStore, deletedStore, ACME_ID]);
+    await h.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [deletedStore]);
+    const members: Array<{ user: string; membership: string }> = [];
+    const addMember = async (email: string, storeIds: string[]): Promise<string> => {
+      const user = randomUUID();
+      const membership = randomUUID();
+      await h.admin.query(`INSERT INTO users (id, email, password_hash, is_platform_admin) VALUES ($1, $2, NULL, false)`, [user, email]);
+      await h.admin.query(`INSERT INTO memberships (id, tenant_id, user_id, role_id, store_access_kind) VALUES ($1, $2, $3, $4, 'specific')`, [membership, ACME_ID, user, roleId]);
+      for (const storeId of storeIds) {
+        await h.admin.query(`INSERT INTO store_access (membership_id, store_id, tenant_id) VALUES ($1, $2, $3)`, [membership, storeId, ACME_ID]);
+      }
+      members.push({ user, membership });
+      return user;
+    };
+    try {
+      const twoLive = await addMember("two-live@example.com", [STORE.allBlockers, liveStore]);
+      const withDeleted = await addMember("with-deleted@example.com", [STORE.allBlockers, deletedStore]);
+      const res = await preview(owner, STORE.allBlockers).expect(200);
+      const ids = (res.body as { singleStoreMembers: Array<{ userId: string }> }).singleStoreMembers.map((m) => m.userId);
+      expect(ids).toContain(CLERK_ID); // only store
+      expect(ids).toContain(withDeleted); // its other store is deleted: this is its only live store
+      expect(ids).not.toContain(twoLive); // another live store: not single-store
+      expect(ids).toEqual([...ids].sort()); // by user id
+    } finally {
+      for (const m of members) {
+        await h.admin.query(`DELETE FROM store_access WHERE membership_id = $1`, [m.membership]);
+        await h.admin.query(`DELETE FROM memberships WHERE id = $1`, [m.membership]);
+        await h.admin.query(`DELETE FROM users WHERE id = $1`, [m.user]);
+      }
+      await h.admin.query(`DELETE FROM stores WHERE id = ANY($1::uuid[])`, [[liveStore, deletedStore]]);
+    }
+  });
+
   it("a device that never reported its queue has queue null (unknown, never zero)", async () => {
     if (skip()) return;
     const owner = await h.signIn("owner");
