@@ -27,11 +27,19 @@ let compiled: {
   registry: typeof import("../../src/auth/grant-registry");
 };
 
-/** Compile with the build tsconfig into `outDir` (inside apps/api so Node resolves its node_modules). */
-function compile(into: string): void {
-  const configPath = join(apiRoot, "tsconfig.build.json");
-  const parsed = ts.parseJsonConfigFileContent(ts.readConfigFile(configPath, ts.sys.readFile).config, ts.sys, apiRoot);
-  const options: ts.CompilerOptions = { ...parsed.options, outDir: into, incremental: false, noEmit: false };
+/**
+ * Compile with the build tsconfig of `root` into `into` (inside apps/api so Node resolves its node_modules),
+ * or, with no `into`, into that tsconfig's own outDir.
+ */
+function compile(into: string | undefined, root: string = apiRoot): void {
+  const configPath = join(root, "tsconfig.build.json");
+  const parsed = ts.parseJsonConfigFileContent(ts.readConfigFile(configPath, ts.sys.readFile).config, ts.sys, root);
+  const options: ts.CompilerOptions = {
+    ...parsed.options,
+    ...(into === undefined ? {} : { outDir: into }),
+    incremental: false,
+    noEmit: false,
+  };
   delete options.tsBuildInfoFile;
   // Every file the real build compiles (all of src/**): the fragments are loaded
   // by directory, not imported, so compiling only the import graph would miss them.
@@ -84,6 +92,9 @@ const SCRIPT_GRANTS: ReadonlySet<string> = new Set(routineGrantScripts().flatMap
 const SCRIPT_COLUMN_GRANTS: ReadonlySet<string> = new Set(routineGrantScripts().flatMap((s) => scriptColumnGrants(s)));
 
 beforeAll(() => {
+  // RT-1378: tsc resolves `@data-pulse-2/offer-engine` through the package's built `dist`, and the lanes
+  // that run this spec build only a few named workspaces. Build the pure package first (as `pnpm build` does).
+  compile(undefined, resolve(apiRoot, "..", "..", "packages", "offer-engine"));
   outDir = mkdtempSync(join(apiRoot, ".rt812-compiled-"));
   compile(outDir);
   // Plain Node require (not Jest's module registry): exactly what `node dist/main.js` does.
