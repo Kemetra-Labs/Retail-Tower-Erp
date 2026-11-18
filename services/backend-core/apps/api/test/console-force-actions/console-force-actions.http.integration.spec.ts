@@ -526,12 +526,15 @@ describe("consoleForceCloseShift: a platform admin acts on a customer's behalf (
       actor_role: null,
       on_behalf_of: { tenant_id: w.tenant, support_session_id: null, ticket_ref: null },
     });
-    const rows = await admin().query<{ metadata: Record<string, unknown> }>(
-      `SELECT metadata FROM audit_events WHERE tenant_id = $1 AND action = 'platform.cross_tenant.accessed' AND actor_user_id = $2`,
+    const rows = await admin().query<{ request_id: string | null; metadata: Record<string, unknown> }>(
+      `SELECT request_id, metadata FROM audit_events WHERE tenant_id = $1 AND action = 'platform.cross_tenant.accessed' AND actor_user_id = $2`,
       [w.tenant, w.platformBareUser],
     );
     // list, preview (the fingerprint read) and close: exactly one row per request, none names a session.
+    // Three distinct request ids, one row each: two rows for one request and none for another cannot pass.
     expect(rows.rowCount).toBe(3);
+    expect(new Set(rows.rows.map((row) => row.request_id)).size).toBe(3);
+    expect(rows.rows.every((row) => row.request_id !== null)).toBe(true);
     for (const row of rows.rows) {
       expect(row.metadata).toMatchObject({ actor_kind: "platform_admin", outcome: "succeeded", support_session_id: null, purpose: null });
     }

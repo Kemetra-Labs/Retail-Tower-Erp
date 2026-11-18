@@ -294,6 +294,16 @@ paths:
                           blockers: [live_cashier_admission]
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >
+            `support_session_required`: the active tenant of a platform admin who
+            is not a member no longer exists (for example it was deleted), so the
+            direct-route gate refuses before the handler runs. An unknown or
+            foreign resource in a valid active tenant stays 404.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -391,6 +401,16 @@ paths:
                     evaluatedAt: "2026-11-16T22:40:00Z"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >
+            `support_session_required`: the active tenant of a platform admin who
+            is not a member no longer exists (for example it was deleted), so the
+            direct-route gate refuses before the handler runs. An unknown or
+            foreign resource in a valid active tenant stays 404.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -1133,10 +1153,11 @@ components:
         403 — `origin_rejected` (RT-430: the request is authenticated by the
         `dp2_session` cookie and its `Origin` header is missing, or is neither the
         API's own origin nor listed in `ALLOWED_ORIGINS`), or a support-session
-        refusal (`support_session_required`, `support_session_expired`, or
-        `support_session_read_only` for a non-member platform admin's unsafe
-        method on a suspended tenant). Since RT-1462 no support session is
-        needed on this surface.
+        refusal (`support_session_required` when the session's active tenant does
+        not exist, or `support_session_read_only` for a non-member platform
+        admin's unsafe method on a suspended tenant). Since RT-1462 no support
+        session is needed on this surface, so an expired one is treated as
+        absent and is never a refusal here.
       content:
         application/json:
           schema:

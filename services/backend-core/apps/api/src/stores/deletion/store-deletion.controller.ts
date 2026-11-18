@@ -32,7 +32,7 @@ import { SessionOnlyAdminGuard } from "../../auth/session-only-admin.guard";
 import { Roles } from "../../auth/roles.decorator";
 import { RolesGuard } from "../../auth/roles.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import type { ForceActionAuditActor } from "../../console-action-cap/force-action-actor";
+import type { ForceActionAuditActor } from "../../common/force-action-actor";
 import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.decorator";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import { Idempotent } from "../../idempotency/idempotent.decorator";

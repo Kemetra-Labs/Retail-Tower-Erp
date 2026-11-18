@@ -21,7 +21,7 @@ import {
   auditFieldsOf,
   type ForceActionAuditActor,
   type ForceActionAuditFields,
-} from "../console-action-cap/force-action-actor";
+} from "../common/force-action-actor";
 import type { MembershipRepository } from "../context/membership.repository";
 import type { StoreShiftRow } from "./shift-force-close.repository";
 

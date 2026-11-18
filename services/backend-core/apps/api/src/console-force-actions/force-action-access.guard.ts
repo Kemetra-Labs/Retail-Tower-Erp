@@ -44,7 +44,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
 import { PG_POOL } from "../auth/auth.module";
-import { type ForceActionAuditActor, platformAdminActor } from "../console-action-cap/force-action-actor";
+import { type ForceActionAuditActor, platformAdminActor } from "../common/force-action-actor";
 import { MembershipRepository } from "../context/membership.repository";
 import type { TenantContextRequest } from "../context/types";
 

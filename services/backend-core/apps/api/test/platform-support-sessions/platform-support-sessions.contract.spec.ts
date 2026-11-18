@@ -505,8 +505,12 @@ describe("context contract — additive RT-414 changes", () => {
   it("keeps the non-disclosing 404; the platform-only 403 is lifted for the switch by RT-1462 (1.3.0-draft)", () => {
     const responses = switchOp().responses ?? {};
     expect(responses["404"]?.description).toMatch(/Same response for both/);
-    expect(responses["403"]?.description).toContain("support_session_required");
-    expect(responses["403"]?.description).toMatch(/until RT-1462/);
+    // The 403 is only the origin refusal now; the history (the old refusal, the lift) lives in the version note.
+    expect(responses["403"]?.description).toContain("origin_rejected");
+    expect(responses["403"]?.description).not.toContain("support_session_required");
+    expect(contextDoc.info?.description).toMatch(/RT-1462 \(1\.3\.0-draft/);
+    expect(contextDoc.info?.description).toContain("support_session_required");
+    expect(responses["200"]?.description).toContain("tenant_switched");
   });
 
   it("adds a nullable support_session summary to ContextResponse", () => {

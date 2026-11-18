@@ -34,7 +34,7 @@ import { createHash } from "node:crypto";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
-import type { ForceActionAuditActor } from "../console-action-cap/force-action-actor";
+import type { ForceActionAuditActor } from "../common/force-action-actor";
 import { MembershipRepository } from "../context/membership.repository";
 import { canonicalJson } from "../idempotency/canonical-json";
 import { ShiftCashUpError } from "./shift-cash-up.errors";

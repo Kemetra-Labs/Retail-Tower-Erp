@@ -31,7 +31,7 @@ import {
   type ShiftWriteResult,
   type StoreShiftRow,
 } from "../pos-shifts";
-import type { ForceActionAuditActor } from "../console-action-cap/force-action-actor";
+import type { ForceActionAuditActor } from "../common/force-action-actor";
 import { enforceForceActionCap, insertForceActionAudit } from "../console-action-cap/force-action-cap";
 import {
   buildOpenShiftSummary,

@@ -65,7 +65,8 @@ info:
 
     A covered route admits a platform admin acting in a non-member tenant only
     when the caller's auth session has an `active` support session for exactly
-    that tenant. Otherwise the request is refused server-side, before the
+    that tenant (except the `platform-direct-operations` named above, which need
+    none and treat an expired or absent session alike). Otherwise the request is refused server-side, before the
     handler runs, with the `SupportSessionRefused` response (403):
 
       - `support_session_required` — no support session, it has ended, or it is
@@ -109,8 +110,9 @@ info:
     (RT-414 decision 2). An expired support session cannot be renewed: the
     operator opens a new one and states the purpose again. Until then it keeps
     the active tenant on the auth session, so the Console can show "expired"
-    and offer "enter again" or "leave", and every tenant-scoped request is
-    refused. A support session ends on `endSupportSession`, on sign-out or
+    and offer "enter again" or "leave", and every tenant-scoped request that
+    requires a support session is refused (the `platform-direct-operations`
+    need none, so an expired session does not block them). A support session ends on `endSupportSession`, on sign-out or
     revocation of its auth session, when the auth session switches tenant, and
     when a new support session is opened.
 

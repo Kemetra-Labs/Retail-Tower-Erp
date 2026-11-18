@@ -262,6 +262,8 @@ describe("consoleDeleteStore: a clean store", () => {
     expect(rows[0]!.metadata).toMatchObject({
       channel: "console",
       actor_role: "owner",
+      actor_kind: "owner",
+      on_behalf_of: null,
       reason: "Branch closed",
       preview_fingerprint: previewFingerprint,
       before: { name: "D-cleanConsole", code: "D-cleanConsole", is_active: true, device_count: 0, open_shift_count: 0 },
@@ -533,22 +535,20 @@ describe("who may use the deletion surface (AC4)", () => {
       actor_role: null,
       on_behalf_of: { tenant_id: ACME_ID, support_session_id: null, ticket_ref: null },
     });
-    const access = await h.admin.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM audit_events
+    // Exactly one row per request (preview, re-authentication, deletion): three distinct request ids, each
+    // with a single row, so two rows for one request and none for another cannot pass as three.
+    const access = await h.admin.query<{ request_id: string | null; n: number }>(
+      `SELECT request_id, count(*)::int AS n FROM audit_events
         WHERE tenant_id = $1 AND actor_user_id = $2 AND action = 'platform.cross_tenant.accessed'
-          AND metadata->>'support_session_id' IS NULL AND metadata->>'outcome' = 'succeeded'`,
+          AND metadata->>'support_session_id' IS NULL AND metadata->>'outcome' = 'succeeded'
+        GROUP BY request_id`,
       [ACME_ID, USERS.platform.id],
     );
-    expect(access.rows[0]!.n).toBe(3); // exactly one row per request: preview, re-authentication, deletion
-  });
-
-  it("the owner's own deletion still says owner, on behalf of no one", async () => {
-    if (skip()) return;
-    expect((await auditRows(STORE.cleanConsole))[0]!.metadata).toMatchObject({
-      actor_kind: "owner",
-      actor_role: "owner",
-      on_behalf_of: null,
-    });
+    expect(access.rows).toHaveLength(3);
+    for (const row of access.rows) {
+      expect(row.request_id).not.toBeNull();
+      expect(row.n).toBe(1);
+    }
   });
 
   it("no session is 401", async () => {

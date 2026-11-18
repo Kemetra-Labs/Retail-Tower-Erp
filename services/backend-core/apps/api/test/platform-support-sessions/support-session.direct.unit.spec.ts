@@ -172,9 +172,10 @@ describe("PLATFORM_DIRECT_HANDLERS (RT-1462)", () => {
   });
 
   it("no other handler is direct: the store CRUD routes still need a support session", () => {
-    for (const handler of ["create", "update", "list", "get"]) {
+    for (const handler of ["create", "update", "list", "read", "softDelete"]) {
       const fn = (StoresController.prototype as unknown as Record<string, unknown>)[handler];
-      if (typeof fn !== "function") continue;
+      // A renamed or removed handler must fail here, not silently skip its check.
+      expect(typeof fn).toBe("function");
       const execCtx = { getClass: () => StoresController, getHandler: () => fn } as unknown as ExecutionContext;
       expect(isPlatformDirect(execCtx)).toBe(false);
     }

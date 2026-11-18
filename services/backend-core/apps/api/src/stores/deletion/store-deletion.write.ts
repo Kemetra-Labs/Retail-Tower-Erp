@@ -17,7 +17,7 @@ import type { PoolClient } from "pg";
 
 import { newId } from "@data-pulse-2/shared";
 
-import { auditFieldsOf, type ForceActionAuditActor } from "../../console-action-cap/force-action-actor";
+import { auditFieldsOf, type ForceActionAuditActor } from "../../common/force-action-actor";
 import { rebuildOfferPackForStoreChange } from "../../offers/offer-pack.rebuild";
 import { storeNotFound } from "./store-deletion.errors";
 import type { StoreDeletionFacts } from "./store-deletion.facts";

@@ -21,8 +21,8 @@ info:
     non-member). The four guards, the
     preview fingerprint, the typed reason, the re-authentication and the D9 cap
     apply unchanged. No wire change. The `store.deleted` audit metadata gains
-    `actor_kind` and `on_behalf_of` (see Audit). A `tenant_admin` is still
-    refused `store_deletion_owner_only`.
+    `actor_kind` and `on_behalf_of` (see Audit). A `tenant_admin` who is not a
+    platform admin is still refused `store_deletion_owner_only`.
 
 
     **1.3.0-draft (RT-1444, C1 of RT-1437; `[GATED: contract]`, owner decisions
@@ -82,7 +82,8 @@ info:
 
       1. The guards: authentication (401), `Origin` and the support-session
          gate (403), role (owner, or a platform admin since RT-1462; a
-         `tenant_admin` is 403 `store_deletion_owner_only`, any other role is
+         `tenant_admin` who is not a platform admin is 403
+         `store_deletion_owner_only`, any other role is
          the non-disclosing 404), the console rate limit (429
          `rate_limited`).
 
@@ -363,8 +364,8 @@ paths:
         the tenant.
 
 
-        Owner only (D1), or a platform admin (RT-1462): a `tenant_admin` is 403
-        `store_deletion_owner_only`; any other role, another tenant's store, a
+        Owner only (D1), or a platform admin (RT-1462): a `tenant_admin` who is
+        not a platform admin is 403 `store_deletion_owner_only`; any other role, another tenant's store, a
         deleted store and an unknown id are the non-disclosing 404.
       responses:
         "200":
@@ -425,7 +426,7 @@ paths:
         "401":
           description: No active tenant.
         "403":
-          description: "`store_deletion_owner_only` (a `tenant_admin`)."
+          description: "`store_deletion_owner_only` (a `tenant_admin` who is not a platform admin)."
           content:
             application/json:
               schema:
@@ -505,7 +506,8 @@ paths:
           description: >
             `reauth_required` (the grant is missing, expired, used, or for
             another session, store or purpose; one answer for every cause),
-            `store_deletion_owner_only` (a `tenant_admin`), `origin_rejected`
+            `store_deletion_owner_only` (a `tenant_admin` who is not a platform
+            admin), `origin_rejected`
             (RT-430), or a support-session refusal
             (`support_session_read_only` for a non-member platform admin on a
             suspended tenant; `support_session_required` for a tenant that does
@@ -516,8 +518,9 @@ paths:
                 $ref: "#/components/schemas/StoreDeletionError"
         "404":
           description: >
-            Not found / no access (a role outside the owner and the platform
-            admin, another tenant's store, an unknown or already deleted store).
+            Not found / no access (a role outside the owner, the platform admin
+            and the `tenant_admin` refused by the 403 above, another tenant's
+            store, an unknown or already deleted store).
         "409":
           $ref: "#/components/responses/StoreDeletionConflict"
         "425":

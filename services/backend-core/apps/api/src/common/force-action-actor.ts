@@ -17,7 +17,14 @@
  *
  * `actor_role` keeps its meaning (the caller's membership role in the tenant, or null).
  */
-import type { ResolvedContext } from "../context/types";
+
+/**
+ * The part of the resolved request context the actor reads. Structural, so `common/` imports no domain module
+ * (RT-1453 module boundaries; `common` stays out of every import cycle): `ResolvedContext` satisfies it.
+ */
+export interface ForceActionContext {
+  readonly supportSession?: { readonly id: string; readonly ticketRef: string | null };
+}
 
 export type ForceActionActorKind = "owner" | "tenant_admin" | "platform_admin";
 
@@ -44,7 +51,7 @@ export interface ForceActionAuditFields {
 }
 
 /** A platform admin's actor: always `platform_admin`, on behalf of the session's tenant. */
-export function platformAdminActor(ctx: ResolvedContext, tenantId: string, role: string | null): ForceActionAuditActor {
+export function platformAdminActor(ctx: ForceActionContext, tenantId: string, role: string | null): ForceActionAuditActor {
   return {
     kind: "platform_admin",
     role,
