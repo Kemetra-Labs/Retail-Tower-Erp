@@ -22,6 +22,7 @@ and the recommendations do not change any numbered Catalog decision (276–460) 
 | OD-14 | Change Set: interim batch vs wait for the primitive | **A**: interim, aligned to spec 042 | S2, S5 |
 | OD-15 | Arabic-Indic digits in barcode / PLU | **A**: error | S1 |
 | OD-16 | GTIN check digit | **A**: warning only | S1 |
+| OD-17 | `is_active = false` through import | **A**: allowed, stated in the preview | S1 |
 
 ## OD-1 — Stable source key (decision 420)
 
@@ -117,8 +118,9 @@ npm registry, read 2026-11-19: `csv-parse` 7.0.3 (updated 2026-09), `read-excel-
 
 The console writes store values as sent. Spreadsheet cells often carry stray spaces.
 
-- **A (recommended).** Trim leading and trailing whitespace of every cell before validation, and report the count as a
-  notice. Identifiers with outer whitespace are invalid on `main` anyway (F-5 pattern), so trimming makes them usable
+- **A (recommended).** Trim leading and trailing whitespace (Unicode `White_Space`, NBSP included, plus the bidi marks
+  U+200E, U+200F, U+061C) of every cell before validation, and report the count as a notice. Such a character left
+  inside an identifier is an error. Identifiers with outer whitespace are invalid on `main` anyway (F-5 pattern), so trimming makes them usable
   without changing any stored-byte rule.
 - **B.** Never trim; such cells are errors. Faithful, but most real files would fail on invisible characters.
 
@@ -134,7 +136,7 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 ## OD-12 — Approval before publish (404)
 
 - **A (recommended).** No approval step in V1 beyond the role and the consequence-aware confirm. The batch keeps an
-  approval hook (state `ready` → `published`) so the RT-284 policy engine, or the shared primitive's approval hook, can
+  approval hook (the reserved `pending_approval` / `approved` states between `validated` and `published`) so the RT-284 policy engine, or the shared primitive's approval hook, can
   require independent approval later.
 - **B.** Require a second owner / tenant_admin approval above a threshold (for example > 500 updates). Needs a policy
   setting and a pending-approval surface.
@@ -144,14 +146,15 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 - **A (recommended).** Batch-level events (upload, map, validate, each review decision, publish, cancel, expire) plus the
   existing per-product and per-identifier audit actions at publish, each carrying `import_batch_id` and row number.
   Consistent with "catalogue writes are audited per mutation" (console-catalog.yaml, O-6).
-- **B.** Batch-level events only, with the staged rows as the detail. Fewer audit rows (up to about 10,000 per batch
-  under A), but the product's audit history would not show the change.
+- **B.** Batch-level events only, with the staged rows as the detail. Fewer audit rows (under A a 5,000-row batch can
+  write about 40,000: one product write plus up to seven identifier adds per row), but the product's audit history would not show the change.
 
 ## OD-14 — Change Set primitive
 
-- **A (recommended).** Build the interim batch now (spec §9, §10) with spec 042's state names, `version`,
-  `previewHash` and publish-lock pattern, so it can move into `change_sets` (domain `catalog`) when RT-1484 lands. If the
-  primitive is on `main` when S2 starts, use it instead (a Planning check of the built primitive first).
+- **A (recommended).** Build the interim batch now (spec §9, §10) with spec 042's state names, `version` /
+  `409 version_conflict`, `previewHash` and publish-lock pattern, so it can move into `change_sets` (domain `catalog`)
+  when RT-1484 lands. The check is made once, when S1 and S2 reach Definition of Ready: if the primitive is on `main`
+  then, use it instead (a Planning check of the built primitive first).
 - **B.** Block import on RT-1484 and a catalogue-domain change set. Fully aligned with 400 / O-5, but ties onboarding to
   the Pricing runtime schedule.
 
@@ -168,3 +171,13 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 - **A (recommended).** A digits-only barcode of length 8, 12, 13 or 14 with a wrong GS1 check digit is a **warning**
   (it may be a store-internal code that only looks like a GTIN).
 - **B.** Error. Stops typos, also stops legitimate internal codes.
+
+## OD-17 — Deactivating products through import
+
+`is_active = false` on Update takes a product off every till at the next delta (the read-down sellable projection needs
+the product active). It is the only way an import can remove something from sale.
+
+- **A (recommended).** Allowed. The preview lists the count and the products ("N products will be taken off the
+  tills"), and the publish confirm repeats it. A merchant often marks discontinued lines in the same spreadsheet.
+- **B.** Ignore `is_active` on Update (Create only). Safer against a wrong column mapping; deactivation stays a
+  per-product edit.
