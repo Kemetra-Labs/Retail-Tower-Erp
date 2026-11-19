@@ -481,8 +481,9 @@ type RedeemSweepOutcome =
  * reasons (`FAILURE_REASONS` / the `payment_attempts.failure_reason` CHECK / `RefusalReason`).
  * Those reach the attempt result as themselves; every other refusal (`validation_failure`,
  * `intent_token_*`, ...) and every `authority_unreachable` stays `dependency_unavailable`.
- * No new reason, migration or renderer copy: the renderer reads the attempt back and shows
- * its one generic refusal (F-A4B-003).
+ * No new reason or migration. The renderer reads the attempt back and, from this confirm
+ * answer's reason, shows the voucher fact (`voucher-refusal-copy.ts`; RT-1331, owner decision
+ * 2026-11-19, superseding F-A4B-003's single generic line).
  */
 const REDEEM_REFUSALS_AS_FAILURE = [
   'voucher_not_found',

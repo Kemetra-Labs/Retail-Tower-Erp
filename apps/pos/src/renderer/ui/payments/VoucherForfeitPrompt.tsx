@@ -14,10 +14,11 @@ import { formatCheckoutMoney } from './format-checkout-money.js';
  * (cancel) takes focus, sits at the inline-start, and the commit at the inline-end (POS
  * action slots). The amount is LTR-isolated machine data inside an Arabic sentence.
  *
- * PLACEHOLDER COPY: the owner / legal decision on forfeiting an unused voucher balance
- * is still open, so the wording (and whether the flag may be turned on at all) waits on
- * it. Shape follows UX-12: what, safety, action. The consequence is stated as a fact and
- * never as "cannot be undone": reversing the sale restores the voucher whole.
+ * Owner decision (chat, 2026-11-19): forfeiting the unused balance is allowed, so decision
+ * 1A stands and this prompt is the cashier's confirmation of it. The wording below is
+ * proposed copy for the owner to review (no governing page defines it). Shape follows UX-12:
+ * what, safety, action. The consequence is stated as a fact and never as "cannot be undone":
+ * reversing the sale restores the voucher whole.
  *
  * SECURITY (V-A contract, RT-1098 c16402): the forfeited amount is the one voucher value
  * allowed on the wire, for this prompt only. It is rendered here and never logged.

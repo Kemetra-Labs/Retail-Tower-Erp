@@ -384,10 +384,11 @@ function mapClosedRefusal(
       return code;
     // Validation-failure / idempotency / intent-token / redemption codes
     // are out-of-band for the cashier-facing surface — the cashier sees
-    // the generic "voucher cannot be used" copy. Map to voucher_not_found
-    // (closed enum on the bridge response per
-    // F-A4B-003: 8→1 generic copy mapping). The structured V-A code
-    // continues to flow into Sentry/audit via the V-A client's logger.
+    // the "unknown code" line. Map to voucher_not_found (closed enum on
+    // the bridge response; F-A4B-001's closed set, and RT-1331's
+    // `voucher-refusal-copy.ts`, which supersedes F-A4B-003's single
+    // generic line). The structured V-A code continues to flow into
+    // Sentry/audit via the V-A client's logger.
     default:
       return 'voucher_not_found';
   }

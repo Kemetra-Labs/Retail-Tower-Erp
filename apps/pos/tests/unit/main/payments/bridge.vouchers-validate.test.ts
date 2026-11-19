@@ -344,7 +344,7 @@ describe('T220 — vouchers.validate bridge handler', () => {
     expect(await handler(validRequest())).toEqual({ kind: 'refused', reason });
   });
 
-  it('maps out-of-band V-A codes (validation_failure) to voucher_not_found (F-A4B-003 8→1 mapping)', async () => {
+  it('maps out-of-band V-A codes (validation_failure) to voucher_not_found (out-of-band codes read as an unknown code; RT-1331)', async () => {
     const { handler } = setup({
       validateOutcome: { kind: 'refused', reason: 'validation_failure' },
     });
