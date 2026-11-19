@@ -829,3 +829,78 @@ class TestSharedRules:
 			tf.post_transfer_work_item(
 				sale_like, client=_Client(), store=_Store(), port=_Port(), site_tz=_CAIRO, uom_map=_UOMS
 			)
+
+
+class TestRetryOfAnAlreadyPostedLegEchoesBeforeAnyLiveStateCheck:
+	"""RT-1514 review: the provenance lookup comes FIRST. A document that exists is echoed (after a read-back),
+	even when the live site state it was posted against has since moved on."""
+
+	def _posted_receipt(self):
+		return _existing(
+			outgoing_stock_entry=_DISPATCH_DOC,
+			add_to_transit=False,
+			posting_date="2026-11-21",
+			posting_time="13:00:00.000000",
+			rows=(_row(_PANADOL, None, "6", _TRANSIT, _DEST),),
+		)
+
+	def test_a_receipt_that_took_the_last_quantity_is_echoed_not_rejected_as_an_over_receipt(self):
+		port = _Port()
+		port.docs = [self._posted_receipt()]
+		# ERPNext already counted this receipt in the dispatch row when it submitted: 10 of 10 transferred.
+		port.dispatch = _dispatch_facts(
+			rows=(tf.DispatchRow(1, "d-row-1", _PANADOL, None, "10", "10", _TRANSIT, LINE1),)
+		)
+		outcome, client, _, _ = _run(_receive(), port)
+		assert outcome == "posted"
+		assert port.submitted == []
+		assert client.last["documentRef"]["name"] == "MAT-STE-2026-00099"
+
+	def test_a_posted_dispatch_is_echoed_even_if_its_source_warehouse_has_since_been_frozen(self):
+		port = _Port()
+		port.docs = [_existing()]
+		port.warehouse_problems[_SRC] = "frozen"
+		outcome, _, _, _ = _run(_dispatch(), port)
+		assert outcome == "posted"
+		assert port.submitted == []
+
+	def test_a_posted_dispatch_is_echoed_even_if_its_item_or_batch_state_changed(self):
+		port = _Port()
+		port.docs = [_existing()]
+		port.facts.pop(_PANADOL)
+		port.batch_problems[(_AMOXIL, _BATCH)] = "Batch expired"
+		outcome, _, _, _ = _run(_dispatch(), port)
+		assert outcome == "posted"
+
+	def test_a_posted_receipt_is_echoed_even_if_the_dispatch_document_can_no_longer_be_read(self):
+		port = _Port()
+		port.docs = [self._posted_receipt()]
+		port.dispatch = None
+		outcome, _, _, _ = _run(_receive(), port)
+		assert outcome == "posted"
+		assert port.submitted == []
+
+	def test_a_reconciliation_decision_does_not_need_the_live_checks_either(self):
+		port = _Port()
+		port.docs = [_existing(rows=_dispatch_rows()[:1])]
+		port.warehouse_problems[_SRC] = "frozen"
+		outcome, _, _, _ = _run(_dispatch(), port)
+		assert outcome == "reconciliation_required"
+
+	def test_the_live_checks_still_refuse_a_leg_that_has_no_document_yet(self):
+		port = _Port()
+		port.warehouse_problems[_SRC] = "frozen"
+		outcome, _, _, _ = _run(_dispatch(), port)
+		assert outcome == "permanently_rejected"
+		assert port.submitted == []
+
+
+class TestDispatchRowsFollowLineSeq:
+	"""RT-1514 review: the contract says ``lineSeq`` IS the dispatch Stock Entry row ``idx``."""
+
+	def test_the_payload_rows_are_in_line_seq_order_whatever_the_wire_order(self):
+		wire = _dispatch(lambda t: t["lines"].reverse())
+		_, _, port, _ = _run(wire)
+		first, second = port.submitted[0]["items"]
+		assert (first["item_code"], first["rt_transfer_line_ref"]) == (_PANADOL, LINE1)
+		assert (second["item_code"], second["rt_transfer_line_ref"]) == (_AMOXIL, LINE2)

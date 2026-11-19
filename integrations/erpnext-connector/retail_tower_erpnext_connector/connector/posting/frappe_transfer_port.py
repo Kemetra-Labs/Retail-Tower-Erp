@@ -24,6 +24,8 @@ comment 17800) and are NOT yet proven on a bench:
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import frappe
 
 from ..schema import index_present
@@ -291,15 +293,15 @@ class FrappeTransferPort:
 		bundle = entry.get("serial_and_batch_bundle")
 		if not bundle:
 			return [LedgerRow(item, warehouse, str(entry["actual_qty"]), entry.get("batch_no") or None)]
-		sign = -1 if float(entry["actual_qty"]) < 0 else 1
-		per_batch: dict[str | None, float] = {}
+		sign = -1 if Decimal(str(entry["actual_qty"])) < 0 else 1
+		per_batch: dict[str | None, Decimal] = {}
 		for e in frappe.get_all(
 			"Serial and Batch Entry", filters={"parent": bundle}, fields=["batch_no", "qty"]
 		):
-			per_batch[e["batch_no"] or None] = per_batch.get(e["batch_no"] or None, 0.0) + abs(
-				float(e["qty"])
-			)
-		# The sign comes from the ledger entry, never from the bundle entry (its sign convention is not proven).
+			batch = e["batch_no"] or None
+			per_batch[batch] = per_batch.get(batch, Decimal(0)) + abs(Decimal(str(e["qty"])))
+		# The sign comes from the ledger entry, never from the bundle entry (its sign convention is not proven),
+		# and the sum is exact: a float sum would turn a correctly posted leg into a false mismatch.
 		return [LedgerRow(item, warehouse, str(sign * qty), batch) for batch, qty in per_batch.items()]
 
 	def commit(self) -> None:

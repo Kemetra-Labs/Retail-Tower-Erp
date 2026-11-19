@@ -168,3 +168,26 @@ def test_the_submit_failure_mapper_is_the_shared_one(glue):
 	port_module = importlib.import_module(f"{_PKG}.frappe_transfer_port")
 	count_port = importlib.import_module(f"{_PKG}.frappe_count_port")
 	assert port_module.classify_submit_failure is count_port.classify_submit_failure
+
+
+def test_the_batch_read_back_sums_exactly_and_takes_the_sign_from_the_ledger_entry(glue):
+	"""RT-1514 review: a float sum of 0.1 and 0.2 is 0.30000000000000004, a false mismatch on a posted leg."""
+	port_module = importlib.import_module(f"{_PKG}.frappe_transfer_port")
+	entries = [
+		{
+			"item_code": "AMOXIL-12",
+			"warehouse": "Store A - RT",
+			"actual_qty": "-0.3",
+			"batch_no": None,
+			"serial_and_batch_bundle": "SBB-1",
+		}
+	]
+	bundle = [{"batch_no": "AMX-2611", "qty": "0.1"}, {"batch_no": "AMX-2611", "qty": "0.2"}]
+
+	def get_all(doctype, **kwargs):
+		return entries if doctype == "Stock Ledger Entry" else bundle
+
+	glue.fake_frappe.get_all = get_all
+	(row,) = port_module.FrappeTransferPort().read_back("MAT-STE-1")
+	assert (row.item_code, row.warehouse, row.batch) == ("AMOXIL-12", "Store A - RT", "AMX-2611")
+	assert row.actual_qty == "-0.3"  # exact, and negative because the ledger entry is an outward movement

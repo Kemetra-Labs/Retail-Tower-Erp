@@ -183,7 +183,15 @@ class TransferErpPort(Protocol):
 
 @dataclass(frozen=True)
 class _Leg:
-	"""One posting intent: the rows it expects on the document and the payload that creates it."""
+	"""One posting intent.
+
+	``rows``, ``add_to_transit`` and ``outgoing`` are derived from the work item ALONE: they are what the lookup of
+	an existing document and the ledger verification compare against, so a document that already exists is judged
+	without touching the live site state it was posted against (a receipt's own submit already moved the dispatch
+	row's ``transferred_qty``; a warehouse may since have been frozen). ``build`` is the part that needs the live
+	site: it validates (raising the typed refusal) and then returns the payload. It runs only when a NEW document is
+	about to be created.
+	"""
 
 	rows: tuple[TransferRow, ...]
 	add_to_transit: bool
@@ -290,37 +298,40 @@ def _header(company: str, stamp: SiteStamp, source_system: str, external_id: str
 	}
 
 
-def _plan_dispatch(
-	body: TransferDispatchPosting, port: TransferErpPort, stamp: SiteStamp, company: str, uom_map: UomMap
-) -> _Leg:
-	facts = port.item_facts(sorted({line.item_code for line in body.lines}))
-	for line in body.lines:
-		_item_problem(line.item_code, facts.get(line.item_code), line.batch, line.unit, uom_map)
-		if line.batch is not None:
-			problem = port.batch_problem(line.item_code, line.batch, stamp)
-			if problem:
-				raise _refuse("batch_invalid", f"Batch {line.batch!r} of {line.item_code!r}: {problem}")
-	problem = port.warehouse_problem(body.source_warehouse, company)
-	if problem:
-		raise _refuse("unmapped_bucket", f"source warehouse {body.source_warehouse!r}: {problem}")
-	problem = port.transit_warehouse_problem(body.transit_warehouse, company)
-	if problem:
-		raise _refuse("unmapped_bucket", f"transit warehouse {body.transit_warehouse!r}: {problem}")
+def _dispatch_leg(body: TransferDispatchPosting, port: TransferErpPort, uom_map: UomMap) -> _Leg:
+	# Rows follow ``lineSeq``: the contract says it IS the dispatch Stock Entry row ``idx``, which a receipt names.
+	lines = sorted(body.lines, key=lambda line: line.line_seq)
 	rows = tuple(
 		TransferRow(line.item_code, line.batch, line.quantity, body.source_warehouse, body.transit_warehouse)
-		for line in body.lines
+		for line in lines
 	)
-	uoms = {line.item_code: facts[line.item_code].stock_uom or line.unit for line in body.lines}
 
 	def build(company: str, stamp: SiteStamp, source_system: str, external_id: str) -> dict:
+		facts = port.item_facts(sorted({line.item_code for line in lines}))
+		for line in lines:
+			_item_problem(line.item_code, facts.get(line.item_code), line.batch, line.unit, uom_map)
+			if line.batch is not None:
+				problem = port.batch_problem(line.item_code, line.batch, stamp)
+				if problem:
+					raise _refuse("batch_invalid", f"Batch {line.batch!r} of {line.item_code!r}: {problem}")
+		problem = port.warehouse_problem(body.source_warehouse, company)
+		if problem:
+			raise _refuse("unmapped_bucket", f"source warehouse {body.source_warehouse!r}: {problem}")
+		problem = port.transit_warehouse_problem(body.transit_warehouse, company)
+		if problem:
+			raise _refuse("unmapped_bucket", f"transit warehouse {body.transit_warehouse!r}: {problem}")
 		doc = _header(company, stamp, source_system, external_id)
 		doc.update(
 			add_to_transit=1,
 			from_warehouse=body.source_warehouse,
 			to_warehouse=body.transit_warehouse,
 			items=[
-				_row_payload(row, uoms[row.item_code], {"rt_transfer_line_ref": line.transfer_line_ref})
-				for row, line in zip(rows, body.lines, strict=True)
+				_row_payload(
+					row,
+					facts[line.item_code].stock_uom or line.unit,
+					{"rt_transfer_line_ref": line.transfer_line_ref},
+				)
+				for row, line in zip(rows, lines, strict=True)
 			],
 		)
 		return doc
@@ -392,34 +403,32 @@ def _remaining_problem(body: TransferReceivePosting, by_idx: dict[int, DispatchR
 			)
 
 
-def _plan_receive(
-	body: TransferReceivePosting, port: TransferErpPort, stamp: SiteStamp, company: str, uom_map: UomMap
-) -> _Leg:
-	_dispatch_problem(
-		dispatch := port.dispatch_document(body.dispatch_document), body.dispatch_document, company
-	)
-	assert dispatch is not None
-	facts = port.item_facts(sorted({line.item_code for line in body.lines}))
-	by_idx = {row.idx: row for row in dispatch.rows}
-	for line in body.lines:
-		_item_problem(line.item_code, facts.get(line.item_code), line.batch, line.unit, uom_map)
-		_link_problem(line, by_idx.get(line.dispatch_line_seq), body.transit_warehouse)
-	_remaining_problem(body, by_idx)
-	problem = port.warehouse_problem(body.destination_warehouse, company)
-	if problem:
-		raise _refuse("unmapped_bucket", f"destination warehouse {body.destination_warehouse!r}: {problem}")
-	problem = port.transit_warehouse_problem(body.transit_warehouse, company)
-	if problem:
-		raise _refuse("unmapped_bucket", f"transit warehouse {body.transit_warehouse!r}: {problem}")
+def _receive_leg(body: TransferReceivePosting, port: TransferErpPort, uom_map: UomMap) -> _Leg:
 	rows = tuple(
 		TransferRow(
 			line.item_code, line.batch, line.quantity, body.transit_warehouse, body.destination_warehouse
 		)
 		for line in body.lines
 	)
-	uoms = {line.item_code: facts[line.item_code].stock_uom or line.unit for line in body.lines}
 
 	def build(company: str, stamp: SiteStamp, source_system: str, external_id: str) -> dict:
+		dispatch = port.dispatch_document(body.dispatch_document)
+		_dispatch_problem(dispatch, body.dispatch_document, company)
+		assert dispatch is not None
+		facts = port.item_facts(sorted({line.item_code for line in body.lines}))
+		by_idx = {row.idx: row for row in dispatch.rows}
+		for line in body.lines:
+			_item_problem(line.item_code, facts.get(line.item_code), line.batch, line.unit, uom_map)
+			_link_problem(line, by_idx.get(line.dispatch_line_seq), body.transit_warehouse)
+		_remaining_problem(body, by_idx)
+		problem = port.warehouse_problem(body.destination_warehouse, company)
+		if problem:
+			raise _refuse(
+				"unmapped_bucket", f"destination warehouse {body.destination_warehouse!r}: {problem}"
+			)
+		problem = port.transit_warehouse_problem(body.transit_warehouse, company)
+		if problem:
+			raise _refuse("unmapped_bucket", f"transit warehouse {body.transit_warehouse!r}: {problem}")
 		doc = _header(company, stamp, source_system, external_id)
 		doc.update(
 			outgoing_stock_entry=dispatch.name,
@@ -428,7 +437,7 @@ def _plan_receive(
 			items=[
 				_row_payload(
 					row,
-					uoms[row.item_code],
+					facts[line.item_code].stock_uom or line.unit,
 					{
 						"ste_detail": by_idx[line.dispatch_line_seq].row_name,
 						"against_stock_entry": dispatch.name,
@@ -440,7 +449,7 @@ def _plan_receive(
 		)
 		return doc
 
-	return _Leg(rows=rows, add_to_transit=False, outgoing=dispatch.name, build=build)
+	return _Leg(rows=rows, add_to_transit=False, outgoing=body.dispatch_document, build=build)
 
 
 def _row_keys(rows: tuple[TransferRow, ...]) -> list[tuple[str, str, str, str, Decimal]]:
@@ -620,10 +629,12 @@ def _post(
 		return acker.transient()  # the unique provenance index is absent: pause, never post unguarded
 	company = port.company()
 	leg = (
-		_plan_dispatch(dispatch, port, stamp, company, uom_map)  # type: ignore[arg-type]
+		_dispatch_leg(dispatch, port, uom_map)  # type: ignore[arg-type]
 		if work_item.kind == "transfer_dispatch"
-		else _plan_receive(receipt, port, stamp, company, uom_map)  # type: ignore[arg-type]
+		else _receive_leg(receipt, port, uom_map)  # type: ignore[arg-type]
 	)
+	# The lookup of an existing document comes BEFORE any live-site check: a retry of a leg that already posted is
+	# echoed (after a read-back), never rejected because the site moved on since (RT-1514 review).
 	docs = port.existing_documents(work_item.source_system, work_item.external_id)
 	decision = classify_existing(docs, leg, stamp)
 	if decision.action != "proceed":
