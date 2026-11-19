@@ -890,6 +890,28 @@ A script without the marker, such as the owner-gated
   `lock_timeout` 2s. Its down migration drops both tables and so discards every
   pending signup and consent record.
 
+- **Migration `0121_pricing_core` (RT-1151, RT-282 PR-05).** Run
+  [`sql/pricing-domain-grants.sql`](sql/pricing-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  the seven Retail Pricing tables (`change_sets`, `price_books`, `price_zones`,
+  `pricing_revisions`, `pricing_revision_stores`, `price_zone_memberships`,
+  `price_events`), plus column-level `UPDATE` only on `change_sets` (the
+  lifecycle columns), `price_books (name)`, `price_zones (name, retired_at,
+  retired_by_user_id, retire_reason)`, and `price_zone_memberships` /
+  `price_events (state, ended_in_revision)`; the boot check reads the columns
+  from `domainRequiredColumns`. Pricing revisions and the Store fan-out get no
+  `UPDATE`: they are append-only, and a 0121 trigger refuses `UPDATE`, `DELETE`
+  and `TRUNCATE` on them for every role; every other pricing table refuses
+  `DELETE` and `TRUNCATE`. No `DELETE` policy on any of the seven: never grant
+  `DELETE` or `TRUNCATE`, nor a wider `UPDATE`. Without the grants the API
+  refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no
+  privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0121 creates seven new,
+  empty tables (no backfill, no change to any existing table) and needs no
+  maintenance window. Its down migration refuses while any Change Set or Price
+  Book is stored. No runtime reads or writes the tables until RT-1484.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

@@ -26,8 +26,14 @@ export interface AuditSyncBackoffPolicy {
 export const AUDIT_SYNC_BACKOFF_POLICY: AuditSyncBackoffPolicy = { baseMs: 5_000, maxMs: 300_000 };
 export const AUDIT_SYNC_INTERVAL_MS = 15_000;
 
+/**
+ * What the loop reads of a flush: only its kind. RT-1490 reuses this loop for
+ * the unknown-item capture drain, whose outcomes carry no audit counts.
+ */
+type ScheduledFlushOutcome = Pick<AuditFlushOutcome, 'kind'>;
+
 export interface ScheduleAuditSyncInput {
-  readonly flush: () => Promise<AuditFlushOutcome>;
+  readonly flush: () => Promise<ScheduledFlushOutcome>;
   /** Sets what the sync's `isStopped` reads. Synchronous and idempotent. */
   readonly latchStopped: () => void;
   readonly intervalMs: number;
@@ -44,7 +50,7 @@ export function backoffDelay(policy: AuditSyncBackoffPolicy, failures: number): 
   return Math.min(policy.maxMs, policy.baseMs * 2 ** exp);
 }
 
-function backsOff(outcome: AuditFlushOutcome): boolean {
+function backsOff(outcome: ScheduledFlushOutcome): boolean {
   return outcome.kind === 'undelivered' || outcome.kind === 'retry';
 }
 
@@ -70,7 +76,7 @@ export function scheduleAuditSync(input: ScheduleAuditSyncInput): () => void {
 
   const tick = async (): Promise<void> => {
     timer = null;
-    let outcome: AuditFlushOutcome;
+    let outcome: ScheduledFlushOutcome;
     try {
       outcome = await input.flush();
     } catch (err: unknown) {

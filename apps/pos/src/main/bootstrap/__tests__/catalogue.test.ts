@@ -55,6 +55,10 @@ vi.mock('../../pairing/device-auth-detector.js', () => ({
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
 // RT-1339: the Offer Pack read-down rides this wiring; it has its own test (`offers.test.ts`).
 vi.mock('../offers.js', () => ({ registerOffers: vi.fn() }));
+// RT-1490: the unknown-item capture has its own test (`unknown-item-capture.test.ts`).
+const reportUnknown = vi.hoisted(() => vi.fn());
+const registerUnknownItemCapture = vi.hoisted(() => vi.fn());
+vi.mock('../unknown-item-capture.js', () => ({ registerUnknownItemCapture }));
 
 import { registerCatalogue } from '../catalogue.js';
 import type { CatalogueDeps } from '../catalogue.js';
@@ -286,6 +290,16 @@ describe('registerCatalogue (RT-893 extraction 3)', () => {
       tenant_id: 'tenant-1',
       branch_id: 'branch-1',
     });
+  });
+
+  it('wires the unknown-item capture with the same deps and gives its hook to the bridge (RT-1490)', async () => {
+    registerUnknownItemCapture.mockReturnValue(reportUnknown);
+    const h = makeHarness(UNPAIRED);
+    await registerCatalogue(h.deps);
+    expect(registerUnknownItemCapture).toHaveBeenCalledWith(h.deps);
+    expect(
+      (callArg(m.createCatalogueBridge, 0) as { onBarcodeNotFound: unknown }).onBarcodeNotFound,
+    ).toBe(reportUnknown);
   });
 
   it('gives the bridge the product repo and tenant-scoped freshness reads', async () => {

@@ -270,5 +270,13 @@
       ]
     }
   },
-  "unownedTables": []
+  "unownedTables": [
+    "change_sets",
+    "price_books",
+    "price_events",
+    "price_zone_memberships",
+    "price_zones",
+    "pricing_revision_stores",
+    "pricing_revisions"
+  ]
 }
