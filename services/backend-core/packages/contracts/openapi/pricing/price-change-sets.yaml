@@ -255,7 +255,10 @@ paths:
         Replaces the given fields (`items` is replaced as a whole) of a set in
         `draft` or `validated`, increments `version` and leaves it in `draft`;
         a stored preview is discarded. Other states are `409
-        change_set_invalid_state`. Roles `owner` / `tenant_admin`.
+        change_set_invalid_state`. A `rollback` set's items are generated from
+        its target (spec 042 §8) and cannot be replaced: `items` on a rollback
+        set is `409 change_set_invalid_state` (its `title` and `reason` can
+        change). Roles `owner` / `tenant_admin`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -418,7 +421,9 @@ paths:
         Moves a `validated` set to `pending_approval`, or straight to
         `approved` when it is not sensitive (self-approval of a non-sensitive
         set, spec 042 §7). The author acknowledges every rounded helper price
-        (`acknowledgedFindings`, spec 041 §6). Blocking lines are `422
+        (`rounded_price`, spec 041 §6) in `acknowledgedFindings`; when the set
+        goes straight to `approved`, the submit is also the approval and must
+        list every `replaces` and `invalidates_dependent` finding too. Blocking lines are `422
         blocking_findings`; a missing acknowledgement is `422
         acknowledgement_required`; a stale validation is `409
         stale_validation` (the set returns to `draft`). An `emergency` set
@@ -758,7 +763,10 @@ components:
       schema:
         type: boolean
     RetryAfterInProgress:
-      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      description: >
+        Seconds to wait before retrying a 425 with the same `Idempotency-Key`
+        and body. The shared `IdempotencyInterceptor` always sends it.
+      required: true
       schema:
         type: integer
         minimum: 1
@@ -840,8 +848,12 @@ components:
       description: An authored signed percentage with up to two decimals, e.g. `-12.50` (at most 999.99).
     DeltaPercent:
       type: string
-      pattern: '^-?[0-9]{1,13}(\.[0-9]{1,2})?$'
-      description: A computed signed percentage change with two decimals; unbounded above (0.01 to 100.00 is `999900.00`).
+      pattern: '^-?[0-9]{1,22}(\.[0-9]{1,2})?$'
+      description: >
+        A computed signed percentage change with two decimals (0.01 to 100.00
+        is `999900.00`). 22 integer digits hold the largest increase between
+        two positive `DecimalPrice` values (0.0001 to 999999999999999.9999 is
+        just under 1e21 percent); a decrease is never below -100.00.
     RevisionNo:
       type: integer
       format: int64
@@ -1190,11 +1202,15 @@ components:
         type: string
         enum: [replaces, invalidates_dependent, rounded_price]
       description: >
-        Explicit acknowledgement of the preview's findings that need one: every
-        kind present in the stored preview must be listed (spec 042 §5:
-        `replaces`, `invalidates_dependent`; spec 041 §6: a helper price
-        `rounded_price` half-up). A missing one is `422
-        acknowledgement_required`.
+        Explicit acknowledgement of the preview's findings that need one (spec
+        042 §5: `replaces`, `invalidates_dependent`; spec 041 §6: a helper
+        price `rounded_price` half-up). Which kinds a request must list depends
+        on the transition: `submit` lists every `rounded_price` kind present in
+        the stored preview, plus every `replaces` and `invalidates_dependent`
+        kind when it moves a non-sensitive set straight to `approved`;
+        `approve` lists every `replaces` and `invalidates_dependent` kind
+        present. A missing one is `422 acknowledgement_required`; listing a
+        kind the preview does not hold is allowed.
     SubmitPriceChangeSetRequest:
       type: object
       additionalProperties: false
@@ -1386,7 +1402,13 @@ components:
           items:
             $ref: "#/components/schemas/PriceChangeSetHeader"
         nextCursor:
-          type: [string, "null"]
+          description: The next page's `cursor`; null on the last page.
+          oneOf:
+            - type: "null"
+            - type: string
+              minLength: 1
+              maxLength: 512
+              pattern: "^[A-Za-z0-9_-]+$"
     PublishPriceChangeSetResponse:
       type: object
       additionalProperties: false
@@ -1489,7 +1511,13 @@ components:
           items:
             $ref: "#/components/schemas/PreviewLine"
         nextCursor:
-          type: [string, "null"]
+          description: The next page's `cursor`; null on the last page.
+          oneOf:
+            - type: "null"
+            - type: string
+              minLength: 1
+              maxLength: 512
+              pattern: "^[A-Za-z0-9_-]+$"
     PreviewLine:
       type: object
       additionalProperties: false
@@ -1703,7 +1731,16 @@ components:
           schema:
             anyOf:
               - $ref: "#/components/schemas/RollbackBlocked"
-              - $ref: "#/components/schemas/Error"
+              - allOf:
+                  - $ref: "#/components/schemas/Error"
+                  - not:
+                      properties:
+                        error:
+                          properties:
+                            code:
+                              const: rollback_blocked
+                          required: [code]
+                      required: [error]
     ValidateUnprocessable:
       description: >
         422, `error.code` one of: `change_set_empty` (no items);

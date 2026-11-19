@@ -256,7 +256,12 @@ paths:
         (Q-8); a Zone still in use is `409 price_zone_in_use` (an active
         membership or price event, or a Change Set not yet published or
         cancelled with a line targeting it); an already retired Zone is `409
-        price_zone_retired`.
+        price_zone_retired`. Retirement takes the tenant's pricing publish
+        lock (spec 042 §8) and runs its in-use check under it; validation
+        re-checks every line's Zone, and a line targeting a retired Zone is
+        `invalid`. The database refuses any membership or price event into a
+        retired Zone, so a set authored or validated before the retirement
+        can never publish into it.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -310,8 +315,14 @@ paths:
         Stores whose Zone in this Book at `at` (default: now), as known at
         `as_of_revision` (default: head), is this Zone: explicit members and,
         for the default Zone, every Store with no explicit membership at that
-        instant (resolver step 4). Keyset paginated by Store id. Roles
-        `owner`, `tenant_admin`, `store_manager` (own Stores only).
+        instant (resolver step 4). Keyset paginated by Store id. The first
+        page fixes the evaluation: an omitted `at` resolves to the server's
+        current time and an omitted `as_of_revision` to the head (null when
+        the tenant has published none), and `nextCursor` carries both, so
+        every later page reads the same instant and revision. A continuation
+        that also passes `at` or `as_of_revision` must repeat the values the
+        cursor carries, else `400 validation_failed`. Roles `owner`,
+        `tenant_admin`, `store_manager` (own Stores only).
       parameters:
         - $ref: "#/components/parameters/At"
         - $ref: "#/components/parameters/AsOfRevision"
@@ -398,7 +409,10 @@ components:
       schema:
         type: boolean
     RetryAfterInProgress:
-      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      description: >
+        Seconds to wait before retrying a 425 with the same `Idempotency-Key`
+        and body. The shared `IdempotencyInterceptor` always sends it.
+      required: true
       schema:
         type: integer
         minimum: 1
@@ -444,7 +458,8 @@ components:
       schema:
         type: string
         format: date-time
-      description: The instant, RFC 3339 with an offset. Default the server's current time.
+        pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+      description: The instant, RFC 3339 with an offset (`Z` or `+hh:mm`). Default the server's current time.
     AsOfRevision:
       name: as_of_revision
       in: query
@@ -661,7 +676,13 @@ components:
           items:
             $ref: "#/components/schemas/PriceZoneStore"
         nextCursor:
-          type: [string, "null"]
+          description: The next page's `cursor`; null on the last page.
+          oneOf:
+            - type: "null"
+            - type: string
+              minLength: 1
+              maxLength: 512
+              pattern: "^[A-Za-z0-9_-]+$"
     PriceZoneStore:
       type: object
       additionalProperties: false
@@ -833,8 +854,12 @@ components:
             $ref: "#/components/schemas/Error"
     RevisionUnknown:
       description: >
-        422 `pricing_revision_unknown`: `as_of_revision` is above the tenant's
-        head revision (or the tenant has published none).
+        422 `pricing_revision_unknown`: an explicit `as_of_revision` is above
+        the tenant's head revision, or the tenant has published none. An
+        omitted `as_of_revision` is never 422: before the first revision it
+        reads the no-revision view (`asOfRevision: null`), where every Store
+        resolves to the default Zone by fallback and has no explicit
+        membership.
       content:
         application/json:
           schema:

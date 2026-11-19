@@ -140,14 +140,20 @@ describe("pricing authoring contracts — operations (RT-1151 PR-04)", () => {
     }
   });
 
-  it("declares exactly the planned operations", () => {
+  it("declares exactly the planned operations (every HTTP method entry, with or without an operationId)", () => {
+    const HTTP_METHODS = new Set(["get", "put", "post", "delete", "options", "head", "patch", "trace"]);
     for (const contract of ["price-structure", "price-change-sets"] as const) {
-      const declared = Object.values(docs[contract].paths ?? {})
-        .flatMap((item) => Object.values(item as Record<string, OperationObject>))
-        .map((o) => o?.operationId)
-        .filter((id): id is string => typeof id === "string")
+      const declared = Object.entries(docs[contract].paths ?? {})
+        .flatMap(([path, item]) =>
+          Object.entries(item as Record<string, OperationObject>)
+            .filter(([method]) => HTTP_METHODS.has(method))
+            .map(([method, o]) => `${method} ${path} ${String(o?.operationId)}`),
+        )
         .sort();
-      expect(declared).toEqual(OPERATIONS.filter((o) => o.contract === contract).map((o) => o.id).sort());
+      const planned = OPERATIONS.filter((o) => o.contract === contract)
+        .map((o) => `${o.method} ${o.path} ${o.id}`)
+        .sort();
+      expect(declared).toEqual(planned);
     }
   });
 
@@ -174,16 +180,33 @@ describe("price-change-sets — spec 042 rules", () => {
     expect(states).toEqual(["draft", "validated", "pending_approval", "approved", "published", "superseded", "rolled_back", "cancelled"]);
   });
 
-  it.each(WRITES)("$id takes its own request body", (op) => {
-    const requestBody = operation(op).requestBody as { content?: Record<string, { schema?: { $ref?: string } }> } | undefined;
+  it.each(WRITES)("$id takes its own, required request body", (op) => {
+    const requestBody = operation(op).requestBody as
+      | { required?: boolean; content?: Record<string, { schema?: { $ref?: string } }> }
+      | undefined;
+    expect(requestBody?.required).toBe(true);
     const body = requestBody?.content?.["application/json"]?.schema?.$ref;
     expect(body).toBe(`#/components/schemas/${REQUEST_BODIES[op.id]}`);
   });
 
-  it.each(VERSIONED_TRANSITIONS)("%s requires expectedVersion", (id) => {
+  /** A complete, valid request for each versioned transition. */
+  const VALID_TRANSITION_BODIES: Record<(typeof VERSIONED_TRANSITIONS)[number], Record<string, unknown>> = {
+    consoleUpdatePriceChangeSet: { expectedVersion: 2, title: "Weekend prices" },
+    consoleValidatePriceChangeSet: { expectedVersion: 2 },
+    consoleSubmitPriceChangeSet: { expectedVersion: 2, acknowledgedFindings: ["rounded_price"] },
+    consoleApprovePriceChangeSet: { expectedVersion: 2, previewHash: HASH, acknowledgedFindings: ["replaces"] },
+    consoleRejectPriceChangeSet: { expectedVersion: 2, reason: "Wrong Zone" },
+    consolePublishPriceChangeSet: { expectedVersion: 2 },
+    consoleCancelPriceChangeSet: { expectedVersion: 2 },
+  };
+
+  it.each(VERSIONED_TRANSITIONS)("%s requires a positive expectedVersion and nothing else is missing", (id) => {
     const v = validator("price-change-sets", REQUEST_BODIES[id]!);
-    expect(v({})).toBe(false);
-    expect(v({ expectedVersion: 0 })).toBe(false);
+    const valid = VALID_TRANSITION_BODIES[id];
+    expect(v(valid)).toBe(true);
+    const { expectedVersion: _omitted, ...withoutVersion } = valid;
+    expect(v(withoutVersion)).toBe(false);
+    expect(v({ ...valid, expectedVersion: 0 })).toBe(false);
   });
 
   it("approve and submit take explicit acknowledgements (spec 042 §5, spec 041 §6)", () => {
@@ -199,6 +222,8 @@ describe("price-change-sets — spec 042 rules", () => {
     const v = ajv.compile({ $ref: "price-change-sets#/components/responses/RollbackConflict/content/application~1json/schema" });
     expect(v({ error: { code: "rollback_blocked", message: "m" }, blockingRevisionNos: [419] })).toBe(true);
     expect(v({ error: { code: "change_set_invalid_state", message: "m" } })).toBe(true);
+    // rollback_blocked always carries its blocking revisions: the generic Error branch cannot carry it.
+    expect(v({ error: { code: "rollback_blocked", message: "m" } })).toBe(false);
   });
 
   it("lead time, acknowledgements and the Zone-retire race are documented", () => {
@@ -392,5 +417,63 @@ describe("price-structure — rules and fixtures", () => {
     };
     expect(v(row)).toBe(true);
     expect(v({ ...row, publishedInRevision: 0 })).toBe(false);
+  });
+});
+
+describe("pricing authoring contracts — review round 2 (RT-1151 PR-04)", () => {
+  function schemaOf(contract: Op["contract"], pointer: string): ValidateFunction {
+    return ajv.compile({ $ref: `${contract}#${pointer}` });
+  }
+
+  function opDescription(contract: Op["contract"], id: string): string {
+    const op = OPERATIONS.find((o) => o.contract === contract && o.id === id)!;
+    return String(operation(op).description ?? "");
+  }
+
+  it("DeltaPercent holds the largest change between two positive prices", () => {
+    const v = validator("price-change-sets", "DeltaPercent");
+    expect(v(`${"9".repeat(22)}.99`)).toBe(true);
+    expect(v("-100.00")).toBe(true);
+    expect(v(`${"9".repeat(23)}.00`)).toBe(false);
+  });
+
+  it("`at` is a strict RFC 3339 instant: a colonless offset is refused", () => {
+    const at = schemaOf("price-structure", "/components/parameters/At/schema");
+    expect(at("2026-11-01T00:00:00+02:00")).toBe(true);
+    expect(at("2026-11-01T00:00:00Z")).toBe(true);
+    expect(at("2026-11-01T00:00:00+0200")).toBe(false);
+  });
+
+  it("every nextCursor is a valid request cursor or null", () => {
+    const pointers: ReadonlyArray<[Op["contract"], string]> = [
+      ["price-structure", "/components/schemas/PriceZoneStorePage/properties/nextCursor"],
+      ["price-change-sets", "/components/schemas/PriceChangeSetPage/properties/nextCursor"],
+      ["price-change-sets", "/components/schemas/PriceChangeSetPreview/properties/nextCursor"],
+    ];
+    for (const [contract, pointer] of pointers) {
+      const v = schemaOf(contract, pointer);
+      expect(v(null)).toBe(true);
+      expect(v("abc_DEF-123")).toBe(true);
+      expect(v("abc=")).toBe(false);
+      expect(v("")).toBe(false);
+    }
+  });
+
+  it("the 425 Retry-After header is required (the interceptor always sends it)", () => {
+    for (const contract of ["price-structure", "price-change-sets"] as const) {
+      const header = (docs[contract] as unknown as { components: { headers: Record<string, { required?: boolean }> } }).components
+        .headers["RetryAfterInProgress"];
+      expect(header?.required).toBe(true);
+    }
+  });
+
+  it("documents the rules the review asked for", () => {
+    expect(opDescription("price-change-sets", "consoleUpdatePriceChangeSet")).toMatch(/rollback[\s\S]*cannot be replaced/);
+    expect(opDescription("price-change-sets", "consoleSubmitPriceChangeSet")).toMatch(/straight to `approved`[\s\S]*replaces/);
+    expect(opDescription("price-structure", "consoleRetirePriceZone")).toMatch(/publish\s+lock/);
+    expect(opDescription("price-structure", "consoleListPriceZoneStores")).toMatch(/`nextCursor` carries both/);
+    const responses = (docs["price-structure"] as unknown as { components: { responses: Record<string, { description: string }> } })
+      .components.responses;
+    expect(responses["RevisionUnknown"]!.description).toMatch(/omitted `as_of_revision` is never 422/);
   });
 });
