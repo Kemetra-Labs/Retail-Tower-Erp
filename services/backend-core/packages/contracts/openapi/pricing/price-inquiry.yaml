@@ -1,0 +1,942 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — Retail Pricing inquiry and "why this price" API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1151 (RT-282 PR-04, inquiry half). The read side of the Backend-Core
+    Retail Pricing domain: the price of a product in a Store at an instant, its
+    timeline, and "why this price". Design of record: spec 041
+    (`services/backend-core/specs/041-pricing-domain/spec.md` §4, §8;
+    decisions 495–505 of Confluence RETAIL 23855106), with OD-1..6 and Q-1..8
+    ratified for planning (RT-483 comment 12638). Execution plan:
+    `specs/041-pricing-domain/rt-1151-implementation-plan.md`.
+
+
+    **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
+    owner on RT-1151 (D1, comment 17783). Every operation carries
+    `x-runtime-status: contract-only`: the resolver and these endpoints ship
+    in RT-1484 (PR-08), which removes the markers. The authoring side (Price
+    Books, Zones, memberships and Change Sets) is
+    `pricing/price-change-sets.yaml` and `pricing/price-structure.yaml`.
+
+
+    **Authority.** Backend-Core Pricing is the only selling-price authority
+    (decisions 461–463, 506). ERPNext Price Lists are never read and are
+    never a fallback. These reads resolve **Pricing data only**: before a
+    tenant's cutover (RT-1485) the POS still sells from the legacy catalogue
+    price, and these reads say `unpriced` for anything Pricing does not
+    price. They never fall back to the legacy columns.
+
+
+    **Resolution (spec 041 §4).** A pure function of `(product, sellUnit,
+    store, instant, asOfRevision)` and the pricing data visible at
+    `asOfRevision` (published in a revision `<= asOfRevision` and not ended
+    by one). Precedence comes from scope alone: Store, then the Store's Price
+    Zone (its membership at the instant, else the Book's default Zone), then
+    the Price Book. Creation order and timestamps play no part. Two active
+    events of one key that overlap are a data defect returned as
+    `status: error`, never resolved by picking one (decisions 498–500, Q-7).
+    No price means not sellable (480, 506). A price that is not exact at its
+    currency's minor unit is `unpriced` (`not_representable`).
+
+
+    **Bitemporal.** `at` is the valid time (when the price applies; default:
+    now). `as_of_revision` is the knowledge time (what was published; default:
+    the tenant's head revision). "What price applied last Tuesday" is `at`
+    alone; "what price did the till believe" adds the revision the Store had
+    applied. Effective times of `store_local` events are interpreted in the
+    Store's IANA time zone (`stores.timezone`), with the Q-2 DST rule (a
+    non-existent local time → the first valid instant after it; a repeated
+    one → the earlier occurrence). Historical inquiry uses the Store's
+    current zone (Q-3, a recorded v1 limitation).
+
+
+    **Who.** The human `cookieAuth` session only (Console). `owner` and
+    `tenant_admin` read any Store of the tenant; `store_manager` reads only
+    the Stores in its `store_access`. A Store or product of another tenant,
+    outside the caller's scope or absent, and a role outside the list, are
+    the same non-disclosing `404` (§II, §XII). POS terminals never call these
+    operations: they receive prices on the pricing stream (RT-1486).
+
+
+    **Money (spec 041 §6).** Exact decimal strings (`numeric(19,4)` scale),
+    never floats. One currency per Price Book; nothing converts currency.
+    `taxPriceBasis` is declared by the Book only; Fiscal (RT-294) derives tax
+    (G3). Nothing here carries a tax amount.
+
+
+    **Provenance.** `PricingProvenance` is the discriminated union shared
+    with the sale line (`pos-sales/sales.yaml`, RT-282 PR-07) and the POS
+    read-down projection (RT-282 PR-06): `origin: pricing` after cutover,
+    `origin: legacy` from the pre-cutover legacy path. Contracts are
+    self-contained files, so each copy is kept identical by a contract test
+    (the sale-line copy and its test arrive with RT-282 PR-07).
+    A resolution in this API is always `origin: pricing`; its
+    `ResolvedPriceProvenance` carries every field of the `pricing` variant
+    plus the Book, Zone and interval.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: pricing-inquiry-console
+    description: Admin-Console price inquiry, timeline and "why this price" (RT-1151).
+
+paths:
+  /api/v1/pricing/stores/{storeId}/products/{productId}/price:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+      - $ref: "#/components/parameters/ProductId"
+    get:
+      summary: Resolve the price of a product in a Store at an instant.
+      operationId: consoleGetStoreProductPrice
+      tags: [pricing-inquiry-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The resolver and this route ship in
+        RT-1484 (RT-282 PR-08), which removes the marker.
+      description: >
+        Current (no `at`), future or historical (`at`) price, optionally as
+        known at `as_of_revision`. A future instant uses events already
+        published for it (decision 512). Roles `owner`, `tenant_admin`,
+        `store_manager` (own Stores).
+      parameters:
+        - $ref: "#/components/parameters/SellUnit"
+        - $ref: "#/components/parameters/At"
+        - $ref: "#/components/parameters/AsOfRevision"
+      responses:
+        "200":
+          description: The resolution (priced, unpriced or a reported data defect).
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceInquiry"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RevisionUnknown"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/stores/{storeId}/products/{productId}/timeline:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+      - $ref: "#/components/parameters/ProductId"
+    get:
+      summary: The price timeline of a product in a Store over a window.
+      operationId: consoleGetStoreProductPriceTimeline
+      tags: [pricing-inquiry-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-08), which removes the marker.
+      description: >
+        Ordered, contiguous, non-overlapping segments covering exactly
+        `[from, to)`, each with the resolution that holds through it, as known
+        at `as_of_revision` (decision 511). A gap with no price is an
+        `unpriced` segment. Adjacent instants with the same resolution are one
+        segment. The window is at most 366 days. Roles as
+        `consoleGetStoreProductPrice`.
+      parameters:
+        - $ref: "#/components/parameters/SellUnit"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/AsOfRevision"
+      responses:
+        "200":
+          description: The timeline.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceTimeline"
+        "400":
+          $ref: "#/components/responses/TimelineValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RevisionUnknown"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/stores/{storeId}/products/{productId}/explain:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+      - $ref: "#/components/parameters/ProductId"
+    get:
+      summary: Why this price — the resolution with its layer-by-layer trace.
+      operationId: consoleExplainStoreProductPrice
+      tags: [pricing-inquiry-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-08), which removes the marker.
+      description: >
+        The `consoleGetStoreProductPrice` resolution plus, for each layer
+        (Store, Zone, Book), whether it was `selected`, `shadowed` (a less
+        specific price the selected one overrides, so the operator sees what a
+        reset would leave, decisions 491, 699) or had nothing (`none`), and the
+        next change after the evaluated instant that is already published
+        (decisions 502–505). Backend-computed; the Console only renders it
+        (696, 704). Roles as `consoleGetStoreProductPrice`.
+      parameters:
+        - $ref: "#/components/parameters/SellUnit"
+        - $ref: "#/components/parameters/At"
+        - $ref: "#/components/parameters/AsOfRevision"
+      responses:
+        "200":
+          description: The explained resolution.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceExplanation"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RevisionUnknown"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only credential accepted here: a
+        machine bearer (`dashboard_api` included), a POS `device` token or an
+        `operatorAuthorization` envelope is 401.
+
+  headers:
+    NoStore:
+      description: Always `no-store`; prices change with every publish.
+      required: true
+      schema:
+        type: string
+        enum: [no-store]
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    StoreId:
+      name: storeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The Store id. A value that is not a UUID is 400 `validation_error`; a
+        Store of another tenant or outside the caller's scope is the
+        non-disclosing 404.
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The product id (`tenant_products.id`; "item" in spec 041). A value
+        that is not a UUID is 400 `validation_error`; a product of another
+        tenant or absent is the non-disclosing 404. A retired product still
+        resolves its history.
+    SellUnit:
+      name: sell_unit
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/SellUnit"
+      description: The Sell Unit of the price key. Default `each`, the only v1 value (OD-2).
+    At:
+      name: at
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+      description: >
+        The instant to resolve at, RFC 3339 with an offset. Default: the
+        server's current time.
+    AsOfRevision:
+      name: as_of_revision
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      description: >
+        Resolve with the pricing data as known at this tenant Pricing Revision.
+        Default: the tenant's head revision. A revision the tenant has not
+        published is 422 `pricing_revision_unknown`.
+    From:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+      description: Inclusive start of the window, RFC 3339 with an offset.
+    To:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date-time
+      description: >
+        Exclusive end of the window, RFC 3339 with an offset. Must be after
+        `from` and at most 366 days after it.
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    DecimalPrice:
+      type: string
+      pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: >
+        Exact-decimal non-negative price as a string (`numeric(19,4)`; never a
+        float). A `priced` result is always exact at its currency's minor unit.
+    CurrencyCode:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      description: ISO-4217 alphabetic code. Always the Price Book's currency.
+    SellUnit:
+      type: string
+      enum: [each]
+      default: each
+      description: The Sell Unit of the price key. v1 has only `each` (OD-2); RT-281 adds more.
+    PriceScope:
+      type: string
+      enum: [book, zone, store]
+      description: The scope of a price event; also the precedence layer (Store > Zone > Book).
+    PriceKind:
+      type: string
+      enum: [regular]
+      description: >
+        v1 has only `regular` (OD-1). `clearance`, `open` and `manual_override`
+        are reserved for later items and are additive.
+    TaxPriceBasis:
+      type: string
+      enum: [inclusive, exclusive]
+      description: Declared by the Price Book (decision 473). Fiscal derives tax (RT-294, G3).
+    RevisionNo:
+      type: integer
+      format: int64
+      minimum: 1
+      description: A tenant Pricing Revision number (monotonic per tenant, OD-3).
+
+    # ---------------------------------------------------------------------
+    # The shared provenance union (RT-282 PR-06 / PR-07). Keep identical to
+    # the copy PR-07 adds to pos-sales/sales.yaml; its contract test will
+    # compare them. Not referenced by an operation here on purpose.
+    # ---------------------------------------------------------------------
+    PricingProvenance:
+      x-shared-with: [pos-sales/sales.yaml, catalog/read-down.yaml]
+      description: >
+        What produced a selling price. Shared verbatim with the sale line
+        (`pos-sales/sales.yaml`) and the POS read-down projection. `pricing`:
+        a Backend-Core Pricing resolution; `pricingRevision` is the revision
+        the resolution was evaluated at (on a sale line: the Store revision the
+        till had applied, spec 043 G4-11). `legacy`: the pre-cutover legacy
+        catalogue path, which has no event or price kind; `catalogCursor` is
+        the read-down cursor the price was served under.
+      oneOf:
+        - $ref: "#/components/schemas/PricingProvenancePricing"
+        - $ref: "#/components/schemas/PricingProvenanceLegacy"
+      discriminator:
+        propertyName: origin
+        mapping:
+          pricing: "#/components/schemas/PricingProvenancePricing"
+          legacy: "#/components/schemas/PricingProvenanceLegacy"
+    PricingProvenancePricing:
+      type: object
+      additionalProperties: false
+      required: [origin, sourceScope, priceEventId, priceKind, pricingRevision]
+      properties:
+        origin:
+          type: string
+          const: pricing
+        sourceScope:
+          $ref: "#/components/schemas/PriceScope"
+        priceEventId:
+          $ref: "#/components/schemas/Uuid"
+        priceKind:
+          $ref: "#/components/schemas/PriceKind"
+        pricingRevision:
+          $ref: "#/components/schemas/RevisionNo"
+    PricingProvenanceLegacy:
+      type: object
+      additionalProperties: false
+      required: [origin, sourceScope, catalogCursor]
+      properties:
+        origin:
+          type: string
+          const: legacy
+        sourceScope:
+          type: string
+          enum: [legacy_tenant, legacy_store]
+          description: >
+            `legacy_tenant`: `tenant_products.default_price`. `legacy_store`:
+            `store_product_overrides.price`.
+        catalogCursor:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The opaque read-down catalogue cursor the price was served under.
+
+    ResolvedPriceProvenance:
+      type: object
+      additionalProperties: false
+      description: >
+        The provenance of a resolution in this API: every field of
+        `PricingProvenancePricing`, plus the Book, the Zone (when the Zone
+        layer was selected) and the selected event's interval as instants in
+        the Store's time zone.
+      required:
+        - origin
+        - sourceScope
+        - priceEventId
+        - priceKind
+        - pricingRevision
+        - priceBookId
+        - priceZoneId
+        - effectiveFrom
+        - effectiveTo
+      properties:
+        origin:
+          type: string
+          const: pricing
+        sourceScope:
+          $ref: "#/components/schemas/PriceScope"
+        priceEventId:
+          $ref: "#/components/schemas/Uuid"
+        priceKind:
+          $ref: "#/components/schemas/PriceKind"
+        pricingRevision:
+          $ref: "#/components/schemas/RevisionNo"
+        priceBookId:
+          $ref: "#/components/schemas/Uuid"
+        priceZoneId:
+          type: [string, "null"]
+          format: uuid
+          description: The Zone whose event was selected; null unless `sourceScope = zone`.
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveTo:
+          type: [string, "null"]
+          format: date-time
+          description: Exclusive end; null when open-ended.
+      if:
+        properties:
+          sourceScope:
+            const: zone
+      then:
+        properties:
+          priceZoneId:
+            type: string
+      else:
+        properties:
+          priceZoneId:
+            type: "null"
+
+    PriceResolution:
+      description: >
+        The result of resolving one price key (spec 041 §4.4), discriminated
+        by `status`.
+      oneOf:
+        - $ref: "#/components/schemas/PricedResolution"
+        - $ref: "#/components/schemas/UnpricedResolution"
+        - $ref: "#/components/schemas/ErrorResolution"
+      discriminator:
+        propertyName: status
+        mapping:
+          priced: "#/components/schemas/PricedResolution"
+          unpriced: "#/components/schemas/UnpricedResolution"
+          error: "#/components/schemas/ErrorResolution"
+    PricedResolution:
+      type: object
+      additionalProperties: false
+      required: [status, price, currencyCode, taxPriceBasis, sellUnit, provenance]
+      properties:
+        status:
+          type: string
+          const: priced
+        price:
+          $ref: "#/components/schemas/DecimalPrice"
+        currencyCode:
+          $ref: "#/components/schemas/CurrencyCode"
+        taxPriceBasis:
+          $ref: "#/components/schemas/TaxPriceBasis"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        provenance:
+          $ref: "#/components/schemas/ResolvedPriceProvenance"
+    UnpricedResolution:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      description: Not sellable at this instant (decisions 480, 506).
+      properties:
+        status:
+          type: string
+          const: unpriced
+        reason:
+          type: string
+          enum: [no_price, no_price_book, not_representable]
+          description: >
+            `no_price_book`: the tenant has no retail Price Book.
+            `no_price`: no event of any layer covers the instant.
+            `not_representable`: the selected price is not exact at the
+            currency's minor unit (defence in depth; authoring rejects it).
+    ErrorResolution:
+      type: object
+      additionalProperties: false
+      required: [status, reason]
+      description: >
+        A data-integrity defect, reported and never resolved (Q-7). It can only
+        occur if a database constraint was bypassed. Read-down omits such a
+        row and Pricing Health reports it. `overlap_violation` carries the
+        overlapping active event ids; `ambiguous_zone_membership` carries the
+        overlapping membership ids.
+      properties:
+        status:
+          type: string
+          const: error
+        reason:
+          type: string
+          enum: [overlap_violation, ambiguous_zone_membership]
+        eventIds:
+          type: array
+          minItems: 2
+          items:
+            $ref: "#/components/schemas/Uuid"
+        membershipIds:
+          type: array
+          minItems: 2
+          items:
+            $ref: "#/components/schemas/Uuid"
+      if:
+        properties:
+          reason:
+            const: overlap_violation
+      then:
+        required: [eventIds]
+        not:
+          required: [membershipIds]
+      else:
+        required: [membershipIds]
+        not:
+          required: [eventIds]
+
+    PriceInquiry:
+      type: object
+      additionalProperties: false
+      required: [storeId, productId, sellUnit, evaluatedAt, asOfRevision, storeTimeZone, result]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        productId:
+          $ref: "#/components/schemas/Uuid"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        evaluatedAt:
+          type: string
+          format: date-time
+          description: The instant resolved (`at`, or the server time).
+        asOfRevision:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+          description: The revision resolved against; null when the tenant has published none.
+        storeTimeZone:
+          type: string
+          minLength: 1
+          description: The Store's IANA time zone used for `store_local` events.
+        result:
+          $ref: "#/components/schemas/PriceResolution"
+
+    PriceTimeline:
+      type: object
+      additionalProperties: false
+      required: [storeId, productId, sellUnit, from, to, asOfRevision, storeTimeZone, segments]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        productId:
+          $ref: "#/components/schemas/Uuid"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        asOfRevision:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+        storeTimeZone:
+          type: string
+          minLength: 1
+        segments:
+          type: array
+          minItems: 1
+          description: >
+            Ordered by `from`. The first starts at the window's `from`, each
+            next one starts where the previous one ends, and the last ends at
+            the window's `to`.
+          items:
+            $ref: "#/components/schemas/PriceTimelineSegment"
+    PriceTimelineSegment:
+      type: object
+      additionalProperties: false
+      required: [from, to, result]
+      properties:
+        from:
+          type: string
+          format: date-time
+          description: Inclusive.
+        to:
+          type: string
+          format: date-time
+          description: Exclusive.
+        result:
+          $ref: "#/components/schemas/PriceResolution"
+
+    PriceExplanation:
+      type: object
+      additionalProperties: false
+      required: [storeId, productId, sellUnit, evaluatedAt, asOfRevision, storeTimeZone, result, layers, next]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        productId:
+          $ref: "#/components/schemas/Uuid"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        evaluatedAt:
+          type: string
+          format: date-time
+        asOfRevision:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+        storeTimeZone:
+          type: string
+          minLength: 1
+        result:
+          $ref: "#/components/schemas/PriceResolution"
+        layers:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: >
+            Always three entries, in precedence order `store`, `zone`, `book`.
+            On a `status: error` result the layer holding the defect is
+            `conflict` (with an ambiguous Zone membership, the `zone` layer,
+            `zoneMembership: ambiguous`), and the layers after it are `none`:
+            resolution stops at a defect.
+          prefixItems:
+            - $ref: "#/components/schemas/StoreLayerTrace"
+            - $ref: "#/components/schemas/ZoneLayerTrace"
+            - $ref: "#/components/schemas/BookLayerTrace"
+          items: false
+        next:
+          description: >
+            The next published change of the resolution after `evaluatedAt`,
+            as known at `asOfRevision`; null when none is published.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/PriceNextChange"
+    LayerOutcome:
+      type: string
+      enum: [selected, shadowed, none, conflict]
+      description: >
+        `selected`: this layer's event is the result. `shadowed`: a less
+        specific price the selected one overrides (what a reset would leave).
+        `none`: nothing at this layer, or not evaluated after a defect.
+        `conflict`: the defect of a `status: error` result is in this layer.
+    StoreLayerTrace:
+      type: object
+      additionalProperties: false
+      required: [scope, outcome]
+      properties:
+        scope:
+          type: string
+          const: store
+        outcome:
+          $ref: "#/components/schemas/LayerOutcome"
+        priceEventId:
+          $ref: "#/components/schemas/Uuid"
+        price:
+          $ref: "#/components/schemas/DecimalPrice"
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveTo:
+          type: [string, "null"]
+          format: date-time
+        publishedInRevision:
+          $ref: "#/components/schemas/RevisionNo"
+        changeSetId:
+          $ref: "#/components/schemas/Uuid"
+          description: The Change Set that published the event.
+      allOf:
+        - if:
+            properties:
+              outcome:
+                enum: [selected, shadowed]
+          then:
+            required: [priceEventId, price, effectiveFrom, effectiveTo, publishedInRevision, changeSetId]
+          else:
+            not:
+              anyOf:
+                - required: [priceEventId]
+                - required: [price]
+    ZoneLayerTrace:
+      type: object
+      additionalProperties: false
+      required: [scope, outcome, priceZoneId, zoneMembership]
+      properties:
+        scope:
+          type: string
+          const: zone
+        outcome:
+          $ref: "#/components/schemas/LayerOutcome"
+        priceZoneId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            The Zone the Store resolves to at the instant; null only when the
+            membership is `ambiguous`.
+        zoneMembership:
+          type: string
+          enum: [explicit, default, ambiguous]
+          description: >
+            `explicit`: the Store has one membership at the instant.
+            `default`: it has none and falls back to the Book's default Zone.
+            `ambiguous`: more than one (a data defect, `outcome: conflict`).
+        priceEventId:
+          $ref: "#/components/schemas/Uuid"
+        price:
+          $ref: "#/components/schemas/DecimalPrice"
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveTo:
+          type: [string, "null"]
+          format: date-time
+        publishedInRevision:
+          $ref: "#/components/schemas/RevisionNo"
+        changeSetId:
+          $ref: "#/components/schemas/Uuid"
+          description: The Change Set that published the event.
+      allOf:
+        - if:
+            properties:
+              outcome:
+                enum: [selected, shadowed]
+          then:
+            required: [priceEventId, price, effectiveFrom, effectiveTo, publishedInRevision, changeSetId]
+          else:
+            not:
+              anyOf:
+                - required: [priceEventId]
+                - required: [price]
+    BookLayerTrace:
+      type: object
+      additionalProperties: false
+      required: [scope, outcome]
+      properties:
+        scope:
+          type: string
+          const: book
+        outcome:
+          $ref: "#/components/schemas/LayerOutcome"
+        priceEventId:
+          $ref: "#/components/schemas/Uuid"
+        price:
+          $ref: "#/components/schemas/DecimalPrice"
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveTo:
+          type: [string, "null"]
+          format: date-time
+        publishedInRevision:
+          $ref: "#/components/schemas/RevisionNo"
+        changeSetId:
+          $ref: "#/components/schemas/Uuid"
+          description: The Change Set that published the event.
+      allOf:
+        - if:
+            properties:
+              outcome:
+                enum: [selected, shadowed]
+          then:
+            required: [priceEventId, price, effectiveFrom, effectiveTo, publishedInRevision, changeSetId]
+          else:
+            not:
+              anyOf:
+                - required: [priceEventId]
+                - required: [price]
+    PriceNextChange:
+      type: object
+      additionalProperties: false
+      required: [at, result]
+      properties:
+        at:
+          type: string
+          format: date-time
+        result:
+          $ref: "#/components/schemas/PriceResolution"
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+
+  responses:
+    ReadValidationFailure:
+      description: >
+        400 `validation_error`: a malformed path id, an unknown or malformed
+        query parameter (`sell_unit` other than `each`, an `at` without an
+        offset, an `as_of_revision` below 1). Checked before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TimelineValidationFailure:
+      description: >
+        400 `validation_error`: as `ReadValidationFailure`, plus a missing
+        `from` or `to`, `to` not after `from`, or a window longer than 366
+        days.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        401 `unauthorized`: no human dashboard session. A bearer-only request
+        (`dashboard_api` included) is refused (`SessionOnlyAdminGuard`).
+        Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 `not_found`, non-disclosing: identical for a Store or product of
+        another tenant, a Store outside the caller's store scope, an absent id
+        and a role outside the operation's list.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RevisionUnknown:
+      description: >
+        422 `pricing_revision_unknown`: `as_of_revision` is above the tenant's
+        head revision (or the tenant has published none).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error envelope
+        with a non-disclosing message; its `request_id` equals the
+        `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a
+        401. The console limit is server-configured and may not be enforced,
+        so a client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        500 `internal_error`: an unexpected server error, recorded server-side
+        under `request_id` and never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
