@@ -45,6 +45,7 @@ import { runLivenessProbe } from '../../../src/main/terminal-status/liveness-pro
 import { createBackendTransport } from '../../../src/main/http/transport.js';
 import { createTelemetryConfigClient } from '../../../src/main/observability/telemetry-config.js';
 import { createHeartbeatClient } from '../../../src/main/device-health/heartbeat-client.js';
+import { createUnknownItemCaptureClient } from '../../../src/main/unknown-items/capture-client.js';
 import {
   CAPTURE_TERMINAL_TAG,
   createTunnelRequestExecutor,
@@ -204,6 +205,11 @@ const BRANDING_MODULE = 'src/main/branding/branding-client.ts';
 const offerPackClient = (fetch: FetchLike): ReturnType<typeof createOfferPackClient> =>
   createOfferPackClient({ baseUrl: BASE_URL, fetch });
 const OFFER_PACK_MODULE = 'src/main/offers/offer-pack-client.ts';
+const unknownItemCaptureClient = (
+  fetch: FetchLike,
+): ReturnType<typeof createUnknownItemCaptureClient> =>
+  createUnknownItemCaptureClient({ baseUrl: BASE_URL, fetch });
+const UNKNOWN_ITEM_CAPTURE_MODULE = 'src/main/unknown-items/capture-client.ts';
 /**
  * RT-1231: the audit upload. Device auth is the body `device_token_attestation`
  * (fed the device sentinel); the optional operator-JWT header is never sent, so
@@ -341,6 +347,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   // RT-1312 Phase 1: the device heartbeat with the sale queue counts (device bearer, on the
   // shared transport).
   { module: HEARTBEAT_MODULE, fetchCallSites: 0, surface: heartbeatClient },
+  // RT-1490: the unknown-item capture (operator envelope, on the shared transport).
+  { module: UNKNOWN_ITEM_CAPTURE_MODULE, fetchCallSites: 0, surface: unknownItemCaptureClient },
 ];
 
 /** Modules that call `fetch` but not Backend-Core. Each needs a reason. */
@@ -610,6 +618,20 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     wiring:
       'bootstrap/branding.ts worker: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
     invoke: (fetch) => brandingClient(fetch).read(SENTINEL.device, null),
+  },
+  {
+    id: 'unknownItemCaptureClient.send',
+    module: UNKNOWN_ITEM_CAPTURE_MODULE,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/catalog/unknown-items',
+    wiring:
+      'bootstrap/unknown-item-capture.ts drain: `getEnvelope` = createSaleSyncTokenReader(operatorSessionManager, operatorEnvelopeHolder)',
+    invoke: (fetch) =>
+      unknownItemCaptureClient(fetch).send({
+        captureId: UUID,
+        barcode: '6221000000099',
+        envelope: SENTINEL['operator-envelope'],
+      }),
   },
   {
     id: 'offerPackClient.read',
