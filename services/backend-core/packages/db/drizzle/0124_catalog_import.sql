@@ -134,8 +134,10 @@ CREATE TABLE catalog_import_mapping_profiles (
   CONSTRAINT catalog_import_mapping_profiles_entries_keys
     CHECK (NOT jsonb_path_exists(entries, '$.keyvalue() ? (@.key == "" || @.key like_regex "^\\s|\\s$")')),
   CONSTRAINT catalog_import_mapping_profiles_entries_targets
+    -- strict: a lax path would unwrap an array value ([] or ["sku"]) and let it pass. silent: a non-object is
+    -- left to catalog_import_mapping_profiles_entries_object instead of raising a jsonpath error.
     CHECK (NOT jsonb_path_exists(entries,
-      '$.* ? (!(@.type() == "string" && @ like_regex "^(sku|barcode|plu|name|description|category|brand|tax_category|is_active|price|currency|ignore)$"))')),
+      'strict $.* ? (!(@.type() == "string" && @ like_regex "^(sku|barcode|plu|name|description|category|brand|tax_category|is_active|price|currency|ignore)$"))', '{}', true)),
   CONSTRAINT catalog_import_mapping_profiles_tenant_name_uk UNIQUE (tenant_id, name),
   -- Composite FK target: a batch names a profile of its own tenant.
   CONSTRAINT catalog_import_mapping_profiles_tenant_id_uk UNIQUE (tenant_id, id)
@@ -230,15 +232,19 @@ CREATE TABLE catalog_import_batches (
   CONSTRAINT catalog_import_batches_columns CHECK (
     jsonb_typeof(columns) = 'array' AND jsonb_array_length(columns) = column_count),
   -- ColumnMapping[]: each entry {columnNumber: integer 1..50, target: a canonical field or "ignore"}.
+  -- The strict element check: a lax path would unwrap a nested array ('[[]]') and let it pass. silent: a
+  -- non-array is refused by jsonb_typeof instead of raising a jsonpath error.
   CONSTRAINT catalog_import_batches_mapping CHECK (
     mapping IS NULL OR (
       jsonb_typeof(mapping) = 'array' AND jsonb_array_length(mapping) BETWEEN 1 AND 50
+      AND NOT jsonb_path_exists(mapping, 'strict $[*] ? (@.type() != "object")', '{}', true)
       AND NOT jsonb_path_exists(mapping, '$[*] ? (!(exists(@.columnNumber) && @.columnNumber.type() == "number"
             && @.columnNumber >= 1 && @.columnNumber <= 50 && @.columnNumber.floor() == @.columnNumber
             && @.target.type() == "string"
             && @.target like_regex "^(sku|barcode|plu|name|description|category|brand|tax_category|is_active|price|currency|ignore)$"))'))),
   CONSTRAINT catalog_import_batches_suggested_mapping CHECK (
     jsonb_typeof(suggested_mapping) = 'array' AND jsonb_array_length(suggested_mapping) <= 50
+    AND NOT jsonb_path_exists(suggested_mapping, 'strict $[*] ? (@.type() != "object")', '{}', true)
     AND NOT jsonb_path_exists(suggested_mapping, '$[*] ? (!(exists(@.columnNumber) && @.columnNumber.type() == "number"
           && @.columnNumber >= 1 && @.columnNumber <= 50 && @.columnNumber.floor() == @.columnNumber
           && @.target.type() == "string"

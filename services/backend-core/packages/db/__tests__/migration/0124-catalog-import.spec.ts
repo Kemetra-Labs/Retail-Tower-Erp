@@ -238,16 +238,29 @@ async function seedBaseline(): Promise<void> {
 // Lifecycle
 // -----------------------------------------------------------------------------
 
+/**
+ * True only when the error says no container runtime is reachable. A file
+ * error (a missing SQL fixture read by startPgEnv) or any other setup failure
+ * is never mistaken for missing Docker, so MIGRATION_TEST_ALLOW_SKIP cannot
+ * turn it into a silent skip.
+ */
+function isDockerUnavailable(err: unknown): boolean {
+  const e = err as { code?: unknown; syscall?: unknown; path?: unknown; message?: unknown };
+  if (typeof e?.path === "string" || (typeof e?.syscall === "string" && e.syscall !== "connect")) return false;
+  return /container runtime|docker/i.test(String(e?.message ?? err));
+}
+
 beforeAll(async () => {
+  // Read this migration's files first: a missing file fails here, never as "Docker unavailable".
+  upSql = readFileSync(UP_PATH, "utf8");
+  downSql = readFileSync(DOWN_PATH, "utf8");
   try {
     env = await startPgEnv();
   } catch (err: unknown) {
+    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] !== "1" || !isDockerUnavailable(err)) throw err;
     dockerSkipReason = String(err);
-    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] !== "1") throw err;
     return;
   }
-  upSql = readFileSync(UP_PATH, "utf8");
-  downSql = readFileSync(DOWN_PATH, "utf8");
   await applyMigrationsBefore(env, DRIZZLE_DIR, UP_NAME);
   const a = env.admin;
   await a.query(
@@ -522,6 +535,11 @@ describe("0124_catalog_import — batches", () => {
         '[{"columnNumber": 1, "target": "price_list"}]',
         '[{"target": "sku"}]',
         '[{"columnNumber": 1}]',
+        // Non-object elements, also when a lax path would unwrap them.
+        "[[]]",
+        '[[{"columnNumber": 1, "target": "sku"}]]',
+        "[1]",
+        '["sku"]',
       ];
       for (const value of bad) {
         expect([value, await sp(c, () => c.query(`UPDATE catalog_import_batches SET mapping = $2 WHERE id = $1`, [BATCH_A, value]))]).toEqual([
@@ -666,7 +684,7 @@ describe("0124_catalog_import — mapping profiles", () => {
           "23514",
         ]);
       }
-      for (const entries of [{}, { "": "sku" }, { " SKU": "sku" }, { "SKU ": "sku" }, { SKU: "price_list" }, { SKU: 1 }]) {
+      for (const entries of [{}, { "": "sku" }, { " SKU": "sku" }, { "SKU ": "sku" }, { SKU: "price_list" }, { SKU: 1 }, { SKU: [] }, { SKU: ["sku"] }, { SKU: { t: "sku" } }]) {
         const code = await sp(c, () => insertProfile(c, id("0a1f4"), TENANT_A, "Bad", entries));
         expect([entries, code]).toEqual([entries, "23514"]);
       }
@@ -726,13 +744,21 @@ describe("0124_catalog_import — isolation and production grants", () => {
         await insertRow(c, id("0a2f5"), TENANT_A, 2);
         await c.query(`UPDATE catalog_import_batches SET mapping = $2, version = version + 1 WHERE id = $1`, [id("0a2f5"), MAPPING]);
         await validate(c, id("0a2f5"));
-        await c.query(
+        const reviewed = await c.query(
           `UPDATE catalog_import_rows SET status = 'ready_create', outcome = '{}', resolution = 'create_new', resolved_by = $2,
                   resolved_at = now() WHERE batch_id = $1`,
           [id("0a2f5"), ACTOR],
         );
+        if (reviewed.rowCount !== 1) throw new Error(`review decision updated ${reviewed.rowCount} row(s)`);
         await publish(c, id("0a2f5"));
-        await c.query(`UPDATE catalog_import_rows SET product_id = $2 WHERE batch_id = $1`, [id("0a2f5"), PROD_A1]);
+        const provenance = await c.query(`UPDATE catalog_import_rows SET product_id = $2 WHERE batch_id = $1`, [id("0a2f5"), PROD_A1]);
+        if (provenance.rowCount !== 1) throw new Error(`provenance updated ${provenance.rowCount} row(s)`);
+        const saved = await c.query<{ resolution: string; product_id: string; state: string }>(
+          `SELECT r.resolution, r.product_id, b.state FROM catalog_import_rows r
+             JOIN catalog_import_batches b ON b.tenant_id = r.tenant_id AND b.id = r.batch_id WHERE r.batch_id = $1`,
+          [id("0a2f5")],
+        );
+        expect(saved.rows).toEqual([{ resolution: "create_new", product_id: PROD_A1, state: "published" }]);
         // The purge: rows of a closed batch go, the header records it.
         await c.query(`DELETE FROM catalog_import_rows WHERE batch_id = $1`, [BATCH_A]);
         await c.query(`UPDATE catalog_import_batches SET rows_purged_at = now() WHERE id = $1`, [BATCH_A]);
@@ -777,6 +803,10 @@ describe("0124_catalog_import — down migration", () => {
     expect(await runSqlFile(e, DOWN_PATH)).toBe("P0001");
     const owner = { role: "rt1503_refuse_owner", tables: OWNER_TABLES, functions: FUNCTIONS };
     await asMigrationOwner(e, owner, async () => {
+      expect(await runFileWithEmptyGuc(DOWN_PATH, owner.role)).toBe("P0001");
+      // A batch alone (no profile, no row) blocks it.
+      await clearImport();
+      expect(await committed((c) => insertBatch(c, BATCH_A, TENANT_A))).toBeNull();
       expect(await runFileWithEmptyGuc(DOWN_PATH, owner.role)).toBe("P0001");
       // A mapping profile alone still blocks it.
       await clearImport();

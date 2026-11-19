@@ -12,10 +12,19 @@
 -- deploy/apply-domain-grants.sh runs this in step 2 of every release
 -- (deploy/README.md), selected by the marker on the next line (RT-812):
 -- deploy: every-release
+-- Optionally also pass -v lookup_role=<AUTH_LOOKUP_DATABASE_URL role> to check
+-- that the lookup role holds no privilege of any kind on these tables (table or
+-- column level), so a release stops here instead of at API boot.
 --
 -- The script stops on the first error and exits non-zero (ON_ERROR_STOP), and
--- also exits non-zero if the verification below finds a missing grant or a
--- forbidden one, so deployment automation cannot accept a failed step.
+-- also exits non-zero if the verification below finds a missing grant, a
+-- forbidden one or a lookup-role privilege, so deployment automation cannot
+-- accept a failed step.
+--
+-- Every name is the public schema's: the checks and REVOKEs name public.<table>,
+-- and the GRANTs (which the RT-812 grant oracle reads unqualified) run under a
+-- search_path pinned to pg_catalog, public, pg_temp, so no other schema (and no
+-- temporary table) on the session's search_path can take their place.
 --
 -- Without these grants the API refuses to boot in production
 -- (DOMAIN_REQUIRED_GRANTS in apps/api/src/auth/database-pools.ts, RT-212). The
@@ -48,41 +57,44 @@
 
 BEGIN;
 
+-- The unqualified GRANTs below resolve in public only (pg_temp last, never first).
+SET LOCAL search_path = pg_catalog, public, pg_temp;
+
 -- A DELETE or TRUNCATE granted by hand earlier would survive the GRANTs below: clear the ones never allowed.
-REVOKE DELETE, TRUNCATE ON catalog_import_mapping_profiles, catalog_import_batches FROM :"domain_role";
-REVOKE TRUNCATE ON catalog_import_rows FROM :"domain_role";
+REVOKE DELETE, TRUNCATE ON public.catalog_import_mapping_profiles, public.catalog_import_batches FROM :"domain_role";
+REVOKE TRUNCATE ON public.catalog_import_rows FROM :"domain_role";
 GRANT SELECT, INSERT, UPDATE ON catalog_import_mapping_profiles, catalog_import_batches TO :"domain_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON catalog_import_rows TO :"domain_role";
 
 -- Verify the domain role: every row must read `t`.
 SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS granted
-  FROM (VALUES ('catalog_import_mapping_profiles', 'SELECT'),
-               ('catalog_import_mapping_profiles', 'INSERT'),
-               ('catalog_import_mapping_profiles', 'UPDATE'),
-               ('catalog_import_batches', 'SELECT'),
-               ('catalog_import_batches', 'INSERT'),
-               ('catalog_import_batches', 'UPDATE'),
-               ('catalog_import_rows', 'SELECT'),
-               ('catalog_import_rows', 'INSERT'),
-               ('catalog_import_rows', 'UPDATE'),
-               ('catalog_import_rows', 'DELETE')) AS t(tbl, priv);
+  FROM (VALUES ('public.catalog_import_mapping_profiles', 'SELECT'),
+               ('public.catalog_import_mapping_profiles', 'INSERT'),
+               ('public.catalog_import_mapping_profiles', 'UPDATE'),
+               ('public.catalog_import_batches', 'SELECT'),
+               ('public.catalog_import_batches', 'INSERT'),
+               ('public.catalog_import_batches', 'UPDATE'),
+               ('public.catalog_import_rows', 'SELECT'),
+               ('public.catalog_import_rows', 'INSERT'),
+               ('public.catalog_import_rows', 'UPDATE'),
+               ('public.catalog_import_rows', 'DELETE')) AS t(tbl, priv);
 
 SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
-          FROM (VALUES ('catalog_import_mapping_profiles', 'SELECT'),
-                       ('catalog_import_mapping_profiles', 'INSERT'),
-                       ('catalog_import_mapping_profiles', 'UPDATE'),
-                       ('catalog_import_batches', 'SELECT'),
-                       ('catalog_import_batches', 'INSERT'),
-                       ('catalog_import_batches', 'UPDATE'),
-                       ('catalog_import_rows', 'SELECT'),
-                       ('catalog_import_rows', 'INSERT'),
-                       ('catalog_import_rows', 'UPDATE'),
-                       ('catalog_import_rows', 'DELETE')) AS t(tbl, priv))
-       AND NOT has_table_privilege(:'domain_role', 'catalog_import_mapping_profiles', 'DELETE')
-       AND NOT has_table_privilege(:'domain_role', 'catalog_import_batches', 'DELETE')
-       AND NOT has_table_privilege(:'domain_role', 'catalog_import_mapping_profiles', 'TRUNCATE')
-       AND NOT has_table_privilege(:'domain_role', 'catalog_import_batches', 'TRUNCATE')
-       AND NOT has_table_privilege(:'domain_role', 'catalog_import_rows', 'TRUNCATE')
+          FROM (VALUES ('public.catalog_import_mapping_profiles', 'SELECT'),
+                       ('public.catalog_import_mapping_profiles', 'INSERT'),
+                       ('public.catalog_import_mapping_profiles', 'UPDATE'),
+                       ('public.catalog_import_batches', 'SELECT'),
+                       ('public.catalog_import_batches', 'INSERT'),
+                       ('public.catalog_import_batches', 'UPDATE'),
+                       ('public.catalog_import_rows', 'SELECT'),
+                       ('public.catalog_import_rows', 'INSERT'),
+                       ('public.catalog_import_rows', 'UPDATE'),
+                       ('public.catalog_import_rows', 'DELETE')) AS t(tbl, priv))
+       AND NOT has_table_privilege(:'domain_role', 'public.catalog_import_mapping_profiles', 'DELETE')
+       AND NOT has_table_privilege(:'domain_role', 'public.catalog_import_batches', 'DELETE')
+       AND NOT has_table_privilege(:'domain_role', 'public.catalog_import_mapping_profiles', 'TRUNCATE')
+       AND NOT has_table_privilege(:'domain_role', 'public.catalog_import_batches', 'TRUNCATE')
+       AND NOT has_table_privilege(:'domain_role', 'public.catalog_import_rows', 'TRUNCATE')
        AS domain_ok \gset
 
 \if :domain_ok
@@ -92,4 +104,30 @@ SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
   ROLLBACK;
   \echo 'FAILED: the domain role is missing a required grant or holds DELETE / TRUNCATE it must not (see the table above). Nothing was changed.'
   DO $$ BEGIN RAISE EXCEPTION 'catalog import domain grants incomplete'; END $$;
+\endif
+
+-- Optional: the lookup role must hold no privilege of any kind on these tables,
+-- table-level or on any column (a column SELECT on catalog_import_rows.cells
+-- would expose every tenant's staged rows: the role has BYPASSRLS).
+\if :{?lookup_role}
+  SELECT NOT bool_or(has_table_privilege(:'lookup_role', t.tbl, p.priv)) AS lookup_table_ok
+    FROM (VALUES ('public.catalog_import_mapping_profiles'), ('public.catalog_import_batches'),
+                 ('public.catalog_import_rows')) AS t(tbl)
+   CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'),
+                      ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) AS p(priv) \gset
+  SELECT NOT bool_or(has_any_column_privilege(:'lookup_role', t.tbl, p.priv)) AS lookup_column_ok
+    FROM (VALUES ('public.catalog_import_mapping_profiles'), ('public.catalog_import_batches'),
+                 ('public.catalog_import_rows')) AS t(tbl)
+   CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) AS p(priv) \gset
+  \if :lookup_table_ok
+    \if :lookup_column_ok
+      \echo 'OK: lookup role holds no privilege on the catalog import tables.'
+    \else
+      \echo 'FAILED: the lookup role holds a column privilege on a catalog import table.'
+      DO $$ BEGIN RAISE EXCEPTION 'lookup role holds a catalog import column privilege'; END $$;
+    \endif
+  \else
+    \echo 'FAILED: the lookup role holds a privilege on a catalog import table.'
+    DO $$ BEGIN RAISE EXCEPTION 'lookup role holds a catalog import privilege'; END $$;
+  \endif
 \endif

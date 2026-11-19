@@ -955,7 +955,13 @@ A script without the marker, such as the owner-gated
   grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup
   role must hold no privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0124
   creates three new, empty tables (no backfill, no change to any existing
-  table) and needs no maintenance window. Its down migration refuses while any
+  table) and needs no maintenance window. Its foreign keys take `SHARE ROW
+  EXCLUSIVE` on `tenants` and `tenant_products` until its single transaction
+  commits, so writes to those tables wait briefly; with `lock_timeout` 2s,
+  0124 fails (and changes nothing) if a conflicting writer holds a lock longer,
+  and `migrate up` is then simply re-run. Pass `-v lookup_role=<role>` to the
+  grants script to also check that the auth lookup role holds no table or
+  column privilege on the three tables. Its down migration refuses while any
   batch or mapping profile is stored. No runtime reads or writes the tables
   until RT-1505 / RT-1507.
 
