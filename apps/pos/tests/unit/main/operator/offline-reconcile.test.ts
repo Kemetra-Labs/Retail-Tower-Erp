@@ -357,6 +357,35 @@ describe('the sales gate', () => {
     expect(h.fake.reconcileCalls).toHaveLength(3);
   });
 
+  it('a drain polling every 5 s does not speed up a server that answers 5xx: one attempt per 60 s, gate open after the fifth', async () => {
+    const h = harness();
+    signInOffline(h.sessions);
+    h.fake.setReconcile({ kind: 'unavailable' });
+    await advance(0);
+    const polled: boolean[] = [];
+    for (let t = 5; t <= 240; t += 5) {
+      await advance(5_000);
+      polled.push(h.reconciler.isSaleHeld(FAKE_USER_ID));
+    }
+    expect(h.fake.reconcileCalls).toHaveLength(RECONCILE_GATE_MAX_SERVER_ERRORS);
+    // Held through the fourth answer (t = 180 s), open once the fifth lands (t = 240 s).
+    expect(polled.slice(0, -1).every(Boolean)).toBe(true);
+    expect(polled.at(-1)).toBe(false);
+  });
+
+  it('a drain polling while the till is unreachable DOES bring a reconnect forward', async () => {
+    const h = harness();
+    signInOffline(h.sessions);
+    h.fake.setReconcile(NO_CONNECTION);
+    await advance(0);
+    h.fake.setReconcile({ ...ADMITTED }); // the network is back
+    await advance(RECONCILE_NUDGE_MIN_MS);
+    h.reconciler.isSaleHeld(FAKE_USER_ID);
+    await advance(0);
+    expect(h.fake.reconcileCalls).toHaveLength(2);
+    expect(h.sessions.getCurrent()?.authority).toBe('online_confirmed');
+  });
+
   it('never runs two requests at once (single flight)', async () => {
     const h = harness();
     signInOffline(h.sessions);

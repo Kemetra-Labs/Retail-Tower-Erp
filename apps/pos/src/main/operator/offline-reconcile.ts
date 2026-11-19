@@ -106,7 +106,15 @@ interface Entry {
   gateOpen: boolean;
   server_errors: number;
   last_attempt_at_ms: number;
+  /** No attempt yet, or the last one found Backend-Core unreachable: a reconnect may be near. */
+  reconnect_possible: boolean;
 }
+
+/** Answers that mean Backend-Core could not be reached at all (nothing came back). */
+const UNREACHABLE_KINDS: ReadonlySet<CashierAdmissionResult['kind']> = new Set([
+  'no_connection',
+  'no_token',
+]);
 
 /** Answers that mean "Backend-Core is up but failing": they count toward the gate bound. */
 const SERVER_ERROR_KINDS: ReadonlySet<CashierAdmissionResult['kind']> = new Set([
@@ -150,6 +158,7 @@ export class OfflineReconciler {
       gateOpen: false,
       server_errors: 0,
       last_attempt_at_ms: Number.NEGATIVE_INFINITY,
+      reconnect_possible: true,
     };
     this.entry = entry;
     // A macrotask later, not inside the session's create(): sign-in finishes first.
@@ -185,8 +194,15 @@ export class OfflineReconciler {
     return this.isStopped() || entry.gateOpen ? null : entry;
   }
 
+  /**
+   * A nudge only brings a RECONNECT forward. After any answer from the server
+   * (5xx, 429, 401) the 60 s cadence stands: the held sales are skipped
+   * untouched, so the drain asks every tick and would otherwise speed the
+   * retries up (and reach the gate bound in a fraction of the time).
+   */
   private nudgeDue(entry: Entry): boolean {
-    return !entry.inFlight && this.nowMs() - entry.last_attempt_at_ms >= RECONCILE_NUDGE_MIN_MS;
+    if (entry.inFlight || !entry.reconnect_possible) return false;
+    return this.nowMs() - entry.last_attempt_at_ms >= RECONCILE_NUDGE_MIN_MS;
   }
 
   /** RT-198 shutdown latch: idempotent; clears the timer; nothing runs afterwards. */
@@ -243,6 +259,7 @@ export class OfflineReconciler {
       return;
     }
     this.log(result.kind);
+    entry.reconnect_possible = UNREACHABLE_KINDS.has(result.kind);
     this.apply(entry, result, requested_at_ms, who);
   }
 
