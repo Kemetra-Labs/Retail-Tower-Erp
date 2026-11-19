@@ -22,6 +22,19 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # RT-1471 (nightly full CI): the whole required job inventory runs once a night on the tip of main,
+  # and on demand for one owner-pinned SHA. Both events select everything (FULL_RUN_EVENT) and run on
+  # refs/heads/main only; the plan job enforces that and the expected_sha pin. Cairo time is UTC+2
+  # (UTC+3 during Egyptian DST). Schedule and the other nightlies: tools/project-graph/README.md.
+  schedule:
+    - cron: "41 23 * * *" # 23:41 UTC daily, on the default branch
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full 40-character SHA of the main commit to prove. The run fails in the plan job, before any
+          product job starts, if main has moved or the ref is not main.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -29,7 +42,9 @@ permissions:
 concurrency:
   # Per-workflow prefix so the product workflows never cancel each other on one ref; the
   # push-SHA suffix stops consecutive pushes to main from cancelling each other.
-  group: contracts-${{ github.ref }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  # RT-1471: every non-PR event (push, schedule, workflow_dispatch) gets its own group per event and SHA, so a
+  # nightly or manual run never cancels, or is cancelled by, the push run of the same commit.
+  group: contracts-${{ github.ref }}${{ github.event_name != 'pull_request' && format('-{0}-{1}', github.event_name, github.sha) || '' }}
   cancel-in-progress: true
 
 jobs:
