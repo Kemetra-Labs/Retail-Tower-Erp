@@ -1,0 +1,1980 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core Catalog — Console product import (CSV / XLSX)
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
+    Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
+    Preview → Publish** (Catalog decisions 416–423). Design of record:
+    `services/backend-core/specs/049-manual-product-import/spec.md` and its
+    `decision-record.md`; the owner accepted the recommended option of every
+    decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
+
+
+    **Posture.** `1.0.0-draft`, `[GATED]` contract-first. Every operation
+    carries `x-runtime-status: contract-only`: the batch tables ship in RT-1503
+    (S2) and the routes in RT-1505 (S4, upload / map / validate) and the S5
+    slice (review / preview / publish), which remove the markers. The Admin
+    Console repins to this file in RT-1506 (S6).
+
+
+    **Change Set: interim batch (spec 049 §9, OD-14 A).** The shared
+    domain-neutral `change_sets` primitive of spec 042 §9 (RT-1484) is not on
+    `main` when this contract is written, so an import batch is its own
+    interim lifecycle that uses spec 042's names, so a later slice can move
+    the batch header into `change_sets` (domain `catalog`) without changing
+    this wire: states `draft`, `validated`, `published`, `cancelled`, plus the
+    import-only terminal state `expired`; `pending_approval` and `approved`
+    are reserved for the OD-12 approval hook and never returned by V1. Every
+    call that changes a batch sends `expectedVersion` (a mismatch is
+    `409 version_conflict`), validation stores a `previewHash`, and publish
+    must present the `previewHash` the merchant saw. The interim publish is an
+    audited direct write, the posture O-1 approved for the single-product
+    console writes; no catalogue revision number is promised (decision 407).
+
+
+    **Authority.** Backend-Core parses, maps, validates and publishes; the
+    Console only renders server outcomes. The publish writes through the same
+    domain functions as `catalog/console-catalog.yaml` (same checks, same
+    audit actions, same `catalog_change_log` triggers into the POS delta).
+    No operation calls ERPNext, Frappe or the connector (decisions 282, 422).
+    **No price is ever written** (O-2, PD-2, OD-2 A): a mapped `price` /
+    `currency` column is recognised, never interpreted, and each row with a
+    price value gets the notice `price_not_imported`; a new product is
+    created unpriced and is not on any till until priced in Pricing
+    (`catalog/read-down.yaml`). Categories are never created (OD-3 A: a name
+    with no active category is the row error `category_not_found`); a brand
+    named in the file that no active brand of the tenant has is created in
+    the publish transaction and listed in the preview (OD-3 B). Store
+    overrides, store availability and store-scoped identifiers are not
+    imported (OD-4 A). The import never retires, deletes, un-retires or moves
+    anything (decisions 317, 394); `is_active = false` on an update takes a
+    product off every till, which the preview lists (OD-17 A).
+
+
+    **Auth and scope.** The human `cookieAuth` session only
+    (`SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`), roles
+    `owner` and `tenant_admin` (Product identity, decision 449). A
+    `store_manager`, a `store_staff`, a batch of another tenant and an
+    absent batch get the same non-disclosing `404`; there is no `403` except
+    `origin_rejected`. A platform admin with an organisation open acts as on
+    the other tenant writes (RT-1468). The tenant comes from the session,
+    never from the request (§II, §XII); every batch table is under FORCE RLS.
+    A cookie-authenticated write needs an allowed `Origin` (RT-430). Order of
+    checks on a write, each stopping the call: (1) session (401), `Origin`
+    (403 `origin_rejected`), role (404); (2) on the upload and the publish,
+    the `Idempotency-Key` format (400); (3) path, query and body (400
+    `validation_error`, or 413 on the upload); (4) the batch (404); (5) the
+    idempotent replay or conflict, then the operation's own rules (409 /
+    422); (6) the change and its audit row in one transaction.
+
+
+    **Upload body (spec 039 pattern, spec 049 §8.5).** The upload takes the
+    raw file bytes under any `Content-Type` (declared `*/*`, read as bytes);
+    no multipart parser. The route keeps the JSON body parsers off, passes the
+    guards on headers alone before reading the body, bounds concurrent
+    uploads, and refuses a body over 5 MiB with `413 file_too_large` while
+    reading it (RT-1284 / RT-1295). The type is decided from content only,
+    never from `Content-Type` or the file name: a ZIP signature
+    (`PK\x03\x04`) whose `[Content_Types].xml` declares the
+    `spreadsheetml.sheet.main+xml` workbook type is XLSX; a macro-enabled or
+    binary workbook type, any `vbaProject.bin` entry, and an OLE2 signature
+    (`.xls`) are `422 file_type_unsupported`. Any other bytes are read as CSV
+    and must be UTF-8 (BOM allowed) with no NUL byte, else
+    `422 encoding_not_utf8` (OD-8 A: save as "CSV UTF-8", or upload XLSX).
+    The original bytes are **not stored** (OD-6 A): the batch keeps the file
+    name, size, SHA-256, parser version, mapping and the parsed text of each
+    cell.
+
+
+    **Limits (OD-7 A).** File 5 MiB; 5,000 data rows; 50 columns; a header
+    row is required; a cell is at most 2,000 characters (and each field's own
+    rule, below). XLSX: `.xlsx` only, one sheet read (the first, or the one
+    named by `sheet`), at most 200 ZIP entries and 50 MiB uncompressed, both
+    checked before inflating. CSV: delimiter `,`, `;` or tab, detected unless
+    `delimiter` is given, and shown on the batch for confirmation; RFC 4180
+    quoting. Validate and publish are synchronous; their latency budget
+    (validate p95 ≤ 10 s, publish p95 ≤ 15 s at 5,000 rows) is measured in
+    S8.
+
+
+    **Field contract (spec 049 §5).** Each source column is mapped to one
+    canonical field or explicitly `ignore`d; no column is silently dropped
+    (decision 419). Each field appears at most once, except `barcode` (up to
+    5 columns). Create needs `name` and `tax_category` mapped. Identifier
+    cells (`sku`, `barcode`, `plu`) are text, never type-inferred, and are
+    never normalised (310, 313): no case folding and no digit-script
+    conversion. Every cell is first trimmed of leading and trailing
+    whitespace (Unicode `White_Space`, NBSP included, and U+200E, U+200F,
+    U+061C), counted as the notice `whitespace_trimmed` (OD-10 A). On an
+    update a blank cell leaves the field unchanged; nothing can be cleared
+    through import (OD-5 A). `is_active` takes `true`/`false`, `1`/`0`,
+    `yes`/`no` or `نعم`/`لا`, default `true` on create.
+
+
+    **Matching (spec 049 §7.1, decision 420, OD-1 A).** Per row, against the
+    tenant's ACTIVE tenant-wide identifiers, by (type, value), byte for byte:
+    first `sku` (the stable source key), then every `barcode` and `plu`.
+    Nothing else: never a name, never fuzzy or prefix. Store-scoped
+    identifiers are never match keys. Modes (decision 418), chosen at upload:
+    `create` (no match → create; a match is the error `already_exists`),
+    `update` (match → update; no match is the error `not_found`), `upsert`
+    (both). A matched row whose mapped values equal the current ones is
+    `unchanged`. Errors and review name the matched product (name and
+    identifiers) for tenant-wide identifiers (OD-11 A).
+
+
+    **Row statuses (decision 419).** Every row ends in exactly one of
+    `ready_create`, `ready_update`, `unchanged`, `needs_review`, `error`,
+    `excluded`, and the batch counts each. A batch is `publishable` when it is
+    `validated` and no row is `needs_review` or `error`. `excluded` exists
+    only as an explicit, audited review decision.
+
+
+    **Lifecycle (spec 049 §8.1).** Upload creates a `draft` batch (version
+    1). Setting the mapping or replacing the file returns it to `draft` and
+    increments `version`. Validate moves it to `validated` with a
+    `previewHash`. A review decision keeps it `validated`, increments
+    `version` and recomputes `previewHash`. Publish moves it to `published`;
+    cancel to `cancelled`; an open batch (`draft` or `validated`) not changed
+    for 7 days becomes `expired`. A tenant has at most one open batch: an
+    upload while one is open is `409 import_batch_open`, whose body names the
+    open batch. A change to a `published`, `cancelled` or `expired` batch is
+    `409 import_batch_closed`. Re-validation keeps a review decision only
+    while the row's candidates and review reason are unchanged.
+
+
+    **Stale validation and atomic publish (spec 049 §8.2, §8.3).**
+    Validation stores, per matched row, the product's `updatedAt`. Under a
+    per-tenant import publish lock, publish re-checks every matched product's
+    `updatedAt`, that every identifier to add is still free, that every
+    referenced category and brand is still active and that every brand to
+    create is still absent; then it writes conditionally inside one
+    transaction (each update passes `expectedUpdatedAt`; identifier adds and
+    brand creates rely on the unique indexes). Any difference, or a
+    `stale_write`, `alias_conflict`, `brand_name_conflict` or vanished
+    reference inside the transaction, rolls everything back and answers
+    `409 stale_validation`; the batch returns to `draft` (version + 1) and
+    must be re-validated. Every brand create, product create and update,
+    identifier add, audit row and the batch's `published` transition commit
+    together or not at all; nothing is half-published.
+
+
+    **Idempotency (spec 049 §8.4).** The upload and the publish require
+    `Idempotency-Key`. The upload's fingerprint is the key **plus the
+    SHA-256 of the file bytes** (not the shared interceptor's JSON-body
+    fingerprint, which a raw body does not have): the same key with the same
+    bytes replays the stored `201` with `Idempotent-Replayed: true`; the same
+    key with other bytes is `409 idempotency_key_conflict`. A file whose
+    SHA-256 equals a batch published in the last 30 days is accepted with
+    the batch warning `file_previously_published`, which names that batch.
+    The publish fingerprint is the key plus its body; a publish of an
+    already `published` batch with its `previewHash` returns the stored
+    result (`200`, `Idempotent-Replayed: true`) whatever the key, and with
+    another `previewHash` is `409 import_batch_closed`. A network failure on
+    publish is resolved by resending the same key and body, never by a new
+    upload. Mapping and review decisions are idempotent by
+    `expectedVersion`.
+
+
+    **Audit and provenance (decision 423, OD-13 A).** Batch events
+    `catalog.import.upload`, `.map`, `.validate`, `.review` (one per
+    decision), `.publish`, `.cancel` and `.expire` (the expiry job), each
+    with the batch id, version, counts and file hash. At publish, the
+    existing `catalog.product.create` / `catalog.product.update`,
+    identifier-add and `catalog.brand.create` actions, each carrying
+    `import_batch_id` and the source row number. A published row keeps its
+    `productId`. Retention (OD-6 A): rows of a published batch 13 months,
+    then the batch summary only; rows of a cancelled or expired batch 30
+    days. A refused call and a replay write no audit row.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id } }`
+    shape; `409 import_batch_open` adds `error.openBatchId`. The `425` body is
+    the shared idempotency interceptor's.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: catalog-import-console
+    description: Admin-Console product import from CSV / XLSX (RT-1502, spec 049).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/catalog/imports:
+    post:
+      summary: Upload a CSV or XLSX file and open a draft import batch.
+      operationId: consoleUploadCatalogImport
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-idempotency: required
+      x-audit-action: catalog.import.upload
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The raw-body route ships in
+        RT-1505 (S4) on the batch tables of RT-1503 (S2), which removes the
+        marker.
+      description: >
+        Parses the file (type from content), and creates a `draft` batch at
+        version 1 with its columns, a suggested mapping (header synonyms and
+        the tenant's saved mapping profiles) and the parsed rows. Roles
+        `owner` / `tenant_admin`. After the guards and the key format, the
+        order is: size (413 while reading), SHA-256, the idempotent replay or
+        `409 idempotency_key_conflict`, the open-batch rule
+        (`409 import_batch_open`), then the parse (422). Audited as
+        `catalog.import.upload`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ImportModeQuery"
+        - $ref: "#/components/parameters/FileNameQuery"
+        - $ref: "#/components/parameters/SheetQuery"
+        - $ref: "#/components/parameters/DelimiterQuery"
+      requestBody:
+        $ref: "#/components/requestBodies/ImportFile"
+      responses:
+        "201":
+          description: >
+            The new `draft` batch. A same-key, same-bytes retry replays this
+            `201` with `Idempotent-Replayed: true`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportBatch"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/UploadConflict"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "422":
+          $ref: "#/components/responses/FileRejected"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    get:
+      summary: Read one import batch.
+      operationId: consoleGetCatalogImport
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        The batch in any state, with its file facts, columns, mapping, counts
+        and `previewHash` when validated. Not audited per request.
+      responses:
+        "200":
+          description: The batch.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportBatch"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/file:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    put:
+      summary: Replace the file of an open batch (re-upload after fixing it).
+      operationId: consoleReplaceCatalogImportFile
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-audit-action: catalog.import.upload
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        Re-upload (spec 049 §8.1): replaces the parsed rows of an open
+        (`draft` or `validated`) batch with the new file, keeps the mode,
+        returns the batch to `draft` and increments `version`. The previous
+        mapping is kept for every column whose header is unchanged; any other
+        column is unmapped again. Review decisions are dropped. Same body,
+        limits and 413 / 422 file refusals as the upload. Idempotent by
+        `expected_version`. Audited as `catalog.import.upload`.
+      parameters:
+        - $ref: "#/components/parameters/ExpectedVersionQuery"
+        - $ref: "#/components/parameters/FileNameQuery"
+        - $ref: "#/components/parameters/SheetQuery"
+        - $ref: "#/components/parameters/DelimiterQuery"
+      requestBody:
+        $ref: "#/components/requestBodies/ImportFile"
+      responses:
+        "200":
+          description: The batch, back in `draft` at the next version.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportBatch"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/BatchConflict"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "422":
+          $ref: "#/components/responses/FileRejected"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/mapping:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    put:
+      summary: Set the column mapping of an open batch.
+      operationId: consoleSetCatalogImportMapping
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-audit-action: catalog.import.map
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        Maps every source column to one canonical field or `ignore`. Every
+        column of the batch must appear exactly once (none is dropped
+        silently, decision 419); a field at most once, `barcode` up to 5
+        times; mode `create` and `upsert` need `name` and `tax_category`
+        mapped. Returns the batch to `draft` and increments `version`. With
+        `saveProfileName`, the mapping (by header text) is also saved as the
+        tenant's mapping profile of that name, replacing one of the same name.
+        Audited as `catalog.import.map`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCatalogImportMappingRequest"
+      responses:
+        "200":
+          description: The batch, in `draft` at the next version.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportBatch"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/BatchConflict"
+        "422":
+          $ref: "#/components/responses/MappingRejected"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/validate:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    post:
+      summary: Validate and match every row of an open batch.
+      operationId: consoleValidateCatalogImport
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-audit-action: catalog.import.validate
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        Applies the mapping, the field rules and the matching to every row,
+        gives each row exactly one status, stores the counts, each matched
+        product's `updatedAt` and the `previewHash`, and moves the batch to
+        `validated` (version + 1). Allowed on a `draft` batch with a mapping,
+        and on a `validated` one (a re-check). Synchronous (OD-7 A). Audited
+        as `catalog.import.validate`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpectedVersionRequest"
+      responses:
+        "200":
+          description: The batch, `validated`, with its counts and `previewHash`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportBatch"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/BatchConflict"
+        "422":
+          $ref: "#/components/responses/MappingRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/rows:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    get:
+      summary: List the rows of a validated or published batch (keyset paginated).
+      operationId: consoleListCatalogImportRows
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        Rows in `rowNumber` order, optionally of one status, each with its
+        cells, outcome, issues and review decision. A `draft`, `cancelled` or
+        `expired` batch has no current outcomes: `409
+        import_batch_not_validated`. Not audited per request.
+      parameters:
+        - $ref: "#/components/parameters/RowStatusQuery"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of rows.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportRowPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/NotValidated"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/rows/{rowNumber}/resolution:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+      - $ref: "#/components/parameters/RowNumber"
+    put:
+      summary: Record the review decision for one row.
+      operationId: consoleResolveCatalogImportRow
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-audit-action: catalog.import.review
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in the spec
+        049 S5 slice (review, preview, publish), which removes the marker.
+      description: >
+        On a `validated` batch, for a row whose validated status is
+        `needs_review` or `error`. Actions (spec 049 §7.3): `create_new`,
+        `update_product` (a product among the row's candidates, or for
+        `possible_duplicate` the named product), `exclude`, or `clear` (undo
+        the decision). Per reason: for `sku_mismatch`, `update_product` keeps
+        the product's SKU and does not add the row's; for
+        `store_scoped_conflict`, `create_new` and `update_product` leave the
+        conflicting identifier out and list it as not added; `create_new` is
+        not offered while an identifier on the row is active on another
+        product. An `error` row takes only `exclude` and `clear`. The batch
+        stays `validated`, `version` + 1, and `previewHash` is recomputed.
+        Audited as `catalog.import.review` with the row number and action.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveCatalogImportRowRequest"
+      responses:
+        "200":
+          description: The row with its decision, and the batch's new version and hash.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportRowResolved"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/RowNotFound"
+        "409":
+          $ref: "#/components/responses/BatchConflict"
+        "422":
+          $ref: "#/components/responses/ResolutionRejected"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/preview:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    get:
+      summary: The impact preview of a validated batch.
+      operationId: consoleGetCatalogImportPreview
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in the spec
+        049 S5 slice, which removes the marker.
+      description: >
+        What publish would do, for exactly `previewHash`: brands to create,
+        products to create and update, identifiers to add, rows excluded and
+        unchanged, the products taken off the tills by `is_active = false`
+        (OD-17 A) and the new products that will have no price (spec 049 §6).
+        The field-level before → after of each row is on its row
+        (`consoleListCatalogImportRows`). Not audited per request.
+      responses:
+        "200":
+          description: The preview.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportPreview"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/NotValidated"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/publish:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    post:
+      summary: Publish a validated, publishable batch in one transaction.
+      operationId: consolePublishCatalogImport
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-idempotency: required
+      x-audit-action: catalog.import.publish
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in the spec
+        049 S5 slice, which removes the marker.
+      description: >
+        Under the per-tenant import publish lock: checks `expectedVersion`
+        and `previewHash` (`409 version_conflict` / `409 preview_changed`),
+        that no row is `needs_review` or `error` (`409
+        import_not_publishable`), re-checks the catalogue (`409
+        stale_validation`, batch back to `draft`), then writes every brand
+        create, product create and update, identifier add and audit row and
+        the `published` transition in one transaction. A publish of an
+        already `published` batch with its `previewHash` replays the stored
+        result. Audited as `catalog.import.publish`, plus the per-product and
+        per-identifier actions (OD-13 A).
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishCatalogImportRequest"
+      responses:
+        "200":
+          description: >
+            Published (or a replay of the stored result, with
+            `Idempotent-Replayed: true`).
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportPublishResult"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/PublishConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    post:
+      summary: Cancel an open batch.
+      operationId: consoleCancelCatalogImport
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-audit-action: catalog.import.cancel
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        Moves a `draft` or `validated` batch to `cancelled` (version + 1),
+        which frees the tenant's one open batch. Writes nothing to the
+        catalogue. Audited as `catalog.import.cancel`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExpectedVersionRequest"
+      responses:
+        "200":
+          description: The batch, `cancelled`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogImportBatch"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/BatchConflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/imports/{batchId}/error-report:
+    parameters:
+      - $ref: "#/components/parameters/BatchId"
+    get:
+      summary: Download the error report (CSV) of a validated batch.
+      operationId: consoleGetCatalogImportErrorReport
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        A UTF-8 CSV with a BOM, one line per `error` or `needs_review` row
+        in `rowNumber` order: `row_number`, `status`, `issues` (each issue's
+        code, field and message), then the row's source cells under their
+        original headers. The merchant reads it, fixes the source file and
+        re-uploads it (spec 049 §7.3). Every cell that starts with `=`, `+`,
+        `-`, `@`, a tab or a carriage return is written with a leading `'`
+        so a spreadsheet never evaluates it (CSV formula injection). Same
+        state rule as the row list. Not audited per request.
+      responses:
+        "200":
+          description: The report.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Content-Disposition:
+              $ref: "#/components/headers/ContentDispositionAttachment"
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/NotValidated"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/catalog/import-template:
+    get:
+      summary: Download the import template (CSV, Arabic or English headers).
+      operationId: consoleGetCatalogImportTemplate
+      tags: [catalog-import-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
+        (S4), which removes the marker.
+      description: >
+        A UTF-8 CSV with a BOM and one header line naming every canonical
+        field in the chosen language (each header is a synonym the
+        auto-mapping recognises), including `price` and `currency`, which
+        are recognised and not imported yet (spec 049 §6). No data rows. The
+        same for every tenant. Not audited per request.
+      parameters:
+        - $ref: "#/components/parameters/TemplateHeadersQuery"
+      responses:
+        "200":
+          description: The template.
+          headers:
+            Content-Disposition:
+              $ref: "#/components/headers/ContentDispositionAttachment"
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only credential accepted here: a
+        machine bearer (`dashboard_api` included), a POS `device` token or an
+        `operatorAuthorization` envelope is 401. `RolesGuard` +
+        `@Roles("owner", "tenant_admin")` gate every route (default deny →
+        404).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store`: the bodies carry tenant catalogue data and merchant file
+        contents.
+      schema:
+        type: string
+        const: no-store
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a replay of `consoleUploadCatalogImport` (same
+        key, same file bytes) or `consolePublishCatalogImport` (same key and
+        body, or an already `published` batch with its `previewHash`). Absent
+        otherwise.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
+    ContentDispositionAttachment:
+      description: "`attachment` with an ASCII `filename` and a UTF-8 `filename*` (RFC 6266)."
+      required: true
+      schema:
+        type: string
+
+  parameters:
+    BatchId:
+      name: batchId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The import batch id. Not a UUID → 400 `validation_error`; a batch of
+        another tenant or absent → the non-disclosing 404.
+    RowNumber:
+      name: rowNumber
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 2
+      description: >
+        The row's number in the source sheet, the header being row 1 (so it
+        matches what the merchant sees in the spreadsheet). A number with no
+        row in the batch → 404.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on `consoleUploadCatalogImport` and
+        `consolePublishCatalogImport`: 16 to 128 printable ASCII characters
+        with no whitespace, keyed on the verified actor and tenant. Upload
+        fingerprint: the key plus the file's SHA-256; publish fingerprint: the
+        key plus the body. Same fingerprint → replay with
+        `Idempotent-Replayed: true`; same key, other fingerprint → 409
+        `idempotency_key_conflict`; still processing → 425
+        `idempotency_in_progress`. Missing → 400 `idempotency_key_required`;
+        malformed → 400 `idempotency_key_malformed`.
+    ImportModeQuery:
+      name: mode
+      in: query
+      required: true
+      schema:
+        $ref: "#/components/schemas/ImportMode"
+      description: The batch's mode, fixed for the batch (decision 418).
+    FileNameQuery:
+      name: file_name
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: '^[^\u0000-\u001F\u007F/\\]+$'
+      description: >
+        The file's name as the merchant chose it, for display and audit only;
+        it never decides the type. No control character, `/` or `\`.
+    SheetQuery:
+      name: sheet
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 31
+      description: >
+        XLSX only: the name of the one sheet to read (default the first). A
+        name the workbook does not have → 422 `sheet_not_found`; given with a
+        CSV file → 400 `validation_error`.
+    DelimiterQuery:
+      name: delimiter
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/CsvDelimiter"
+      description: >
+        CSV only: the delimiter to use instead of detecting it (a re-upload
+        is how the merchant corrects a wrong detection, since the bytes are
+        not stored). Given with an XLSX file → 400 `validation_error`.
+    ExpectedVersionQuery:
+      name: expected_version
+      in: query
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+      description: >
+        The batch `version` the caller last read (the body of a re-upload is
+        the file, so the precondition is a query value). Not the current one
+        → 409 `version_conflict`.
+    RowStatusQuery:
+      name: status
+      in: query
+      required: false
+      schema:
+        $ref: "#/components/schemas/RowStatus"
+      description: Only rows of this status. Absent → every row.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`, bound to the
+        operation, the tenant, the batch, its `version` and `status`. A value
+        the server did not issue for that query, or one issued for an older
+        `version`, is 400 `validation_error`; restart from the first page.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+      description: Maximum rows per page. The server MAY return fewer.
+    TemplateHeadersQuery:
+      name: headers
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [ar, en]
+        default: ar
+      description: The language of the template's header line (Arabic first).
+
+  requestBodies:
+    ImportFile:
+      required: true
+      description: >
+        The raw file bytes, at most 5 MiB, under any `Content-Type` (read as
+        bytes). XLSX or UTF-8 CSV, decided from content only; the declared
+        content type and the file name are ignored, so there is no `415`.
+        The Admin Console sends `application/octet-stream`.
+      content:
+        # Raw binary: OAS 3.1 models an unencoded binary body by omitting the
+        # schema, so clients send the file bytes unchanged (spec 039 pattern).
+        "*/*": {}
+
+  schemas:
+    ImportMode:
+      type: string
+      enum: [create, update, upsert]
+      description: >
+        `create`: an unmatched row creates, a matched row is the error
+        `already_exists`. `update`: a matched row updates, an unmatched row
+        is the error `not_found`. `upsert`: both.
+    BatchState:
+      type: string
+      enum: [draft, validated, pending_approval, approved, published, cancelled, expired]
+      description: >
+        Spec 042 §3 names (spec 049 §8.1). V1 returns `draft`, `validated`,
+        `published`, `cancelled` and `expired` only; `pending_approval` and
+        `approved` are reserved for the OD-12 approval hook and never
+        returned by V1. Open = `draft` or `validated`.
+    RowStatus:
+      type: string
+      enum: [ready_create, ready_update, unchanged, needs_review, error, excluded]
+    CsvDelimiter:
+      type: string
+      enum: [comma, semicolon, tab]
+    FileKind:
+      type: string
+      enum: [csv, xlsx]
+    CanonicalField:
+      type: string
+      enum: [sku, barcode, plu, name, description, category, brand, tax_category, is_active, price, currency]
+      description: >
+        Spec 049 §5. `sku`, `barcode`, `plu`: tenant-wide identifiers (1 to
+        200 characters, no control character, byte-exact). `name` (1 to 500),
+        `description` (1 to 2000), `category` (exact name of an active
+        category), `brand` (exact name of an active brand, else created,
+        OD-3 B), `tax_category` (1 to 50), `is_active`. `price` and
+        `currency` are recognised and never written (OD-2 A).
+    MappingTarget:
+      description: A canonical field, or `ignore` (the column is confirmed as not imported).
+      anyOf:
+        - $ref: "#/components/schemas/CanonicalField"
+        - type: string
+          const: ignore
+    Version:
+      type: integer
+      minimum: 1
+      description: The batch version; every change increments it (spec 042 optimistic concurrency).
+    PreviewHash:
+      type: string
+      pattern: "^sha256:[0-9a-f]{64}$"
+      description: >
+        `sha256:` and the lowercase hex SHA-256 over the canonical JSON of
+        the ordered row outcomes, field diffs, identifier adds, review
+        decisions and the mode (spec 049 §8.2). Opaque to clients.
+    Sha256Hex:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+    IssueSeverity:
+      type: string
+      enum: [error, review, warning, notice]
+      description: >
+        `error` and `review` block publish until fixed in the file or
+        resolved; `warning` and `notice` never block.
+    RowIssueCode:
+      type: string
+      enum:
+        # errors
+        - required_field_missing
+        - value_invalid
+        - identifier_numeric_cell
+        - identifier_formula_cell
+        - identifier_non_ascii_digits
+        - identifier_invisible_char
+        - formula_without_value
+        - duplicate_in_file
+        - category_not_found
+        - product_retired
+        - already_exists
+        - not_found
+        # review reasons
+        - ambiguous
+        - no_identifier
+        - sku_mismatch
+        - store_scoped_conflict
+        - possible_duplicate
+        # warnings
+        - gtin_check_digit
+        - tax_category_unused
+        - store_scoped_same_product
+        - deactivates_product
+        # notices
+        - price_not_imported
+        - whitespace_trimmed
+        - formula_cached_value
+        - brand_created
+      description: >
+        Spec 049 §5–§7. Errors: `required_field_missing` (create needs
+        `name` and `tax_category`), `value_invalid` (a cell breaks its
+        field's rule; `field` names it), `identifier_numeric_cell` (an XLSX
+        identifier stored as a number: format the column as Text),
+        `identifier_formula_cell`, `identifier_non_ascii_digits` (Arabic-Indic
+        digits in a `barcode` or `plu`, OD-15 A), `identifier_invisible_char`
+        (a bidi mark or NBSP inside an identifier), `formula_without_value`
+        (a formula with no cached value), `duplicate_in_file` (two rows share
+        an identifier; both rows), `category_not_found` (OD-3 A),
+        `product_retired`, `already_exists` (mode `create`, matched),
+        `not_found` (mode `update`, unmatched). Review: `ambiguous` (the
+        row's identifiers resolve to two or more products), `no_identifier`
+        (create / upsert row with no identifier), `sku_mismatch`,
+        `store_scoped_conflict`, `possible_duplicate` (a create whose exact
+        name equals an active product's, with no identifier match; a hint,
+        never a match). Warnings: `gtin_check_digit` (OD-16 A),
+        `tax_category_unused` (a tax category the tenant never used),
+        `store_scoped_same_product`, `deactivates_product` (OD-17 A).
+        Notices: `price_not_imported` (OD-2 A), `whitespace_trimmed`
+        (OD-10 A), `formula_cached_value`, `brand_created` (OD-3 B).
+    ReviewReason:
+      type: string
+      enum: [ambiguous, no_identifier, sku_mismatch, store_scoped_conflict, possible_duplicate]
+    IdentifierType:
+      type: string
+      enum: [sku, barcode, plu]
+      description: The tenant-wide identifier types an import reads and adds.
+    IdentifierValue:
+      type: string
+      minLength: 1
+      maxLength: 200
+    ImportIdentifier:
+      type: object
+      additionalProperties: false
+      required: [type, value]
+      properties:
+        type:
+          $ref: "#/components/schemas/IdentifierType"
+        value:
+          $ref: "#/components/schemas/IdentifierValue"
+    ProductRef:
+      type: object
+      additionalProperties: false
+      required: [productId, name, identifiers]
+      description: >
+        A product of the session's tenant named in an outcome (OD-11 A): its
+        name and its ACTIVE tenant-wide identifiers.
+      properties:
+        productId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        identifiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportIdentifier"
+
+    ImportColumn:
+      type: object
+      additionalProperties: false
+      required: [columnNumber, header, samples]
+      properties:
+        columnNumber:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: 1-based position in the header row.
+        header:
+          type: string
+          maxLength: 2000
+          description: The header cell's text after trimming; may be empty.
+        samples:
+          type: array
+          maxItems: 3
+          description: Up to three non-blank values from the first data rows, for the mapping step.
+          items:
+            type: string
+    ColumnMapping:
+      type: object
+      additionalProperties: false
+      required: [columnNumber, target]
+      properties:
+        columnNumber:
+          type: integer
+          minimum: 1
+          maximum: 50
+        target:
+          $ref: "#/components/schemas/MappingTarget"
+    ImportFileFacts:
+      type: object
+      additionalProperties: false
+      required: [name, sizeBytes, sha256, kind, sheetName, csvDelimiter, dataRowCount, columnCount, parserVersion]
+      properties:
+        name:
+          type: [string, "null"]
+          description: The `file_name` given at upload, or `null`.
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 5242880
+        sha256:
+          $ref: "#/components/schemas/Sha256Hex"
+        kind:
+          $ref: "#/components/schemas/FileKind"
+        sheetName:
+          type: [string, "null"]
+          description: The sheet read (XLSX); `null` for CSV.
+        csvDelimiter:
+          description: The delimiter used (CSV); `null` for XLSX. Shown for confirmation.
+          oneOf:
+            - $ref: "#/components/schemas/CsvDelimiter"
+            - type: "null"
+        dataRowCount:
+          type: integer
+          minimum: 1
+          maximum: 5000
+        columnCount:
+          type: integer
+          minimum: 1
+          maximum: 50
+        parserVersion:
+          type: string
+          minLength: 1
+    StatusCounts:
+      type: object
+      additionalProperties: false
+      required: [ready_create, ready_update, unchanged, needs_review, error, excluded]
+      description: Rows per status; their sum is `file.dataRowCount` (no silent skip, decision 419).
+      properties:
+        ready_create:
+          type: integer
+          minimum: 0
+        ready_update:
+          type: integer
+          minimum: 0
+        unchanged:
+          type: integer
+          minimum: 0
+        needs_review:
+          type: integer
+          minimum: 0
+        error:
+          type: integer
+          minimum: 0
+        excluded:
+          type: integer
+          minimum: 0
+    BatchWarning:
+      type: object
+      additionalProperties: false
+      required: [code, publishedBatchId, publishedAt]
+      description: >
+        `file_previously_published`: a batch of this tenant published in the
+        last 30 days had the same file SHA-256 (spec 049 §8.4). Not a
+        refusal.
+      properties:
+        code:
+          type: string
+          const: file_previously_published
+        publishedBatchId:
+          type: string
+          format: uuid
+        publishedAt:
+          type: string
+          format: date-time
+    CatalogImportBatch:
+      type: object
+      additionalProperties: false
+      required:
+        - batchId
+        - state
+        - version
+        - mode
+        - file
+        - columns
+        - mapping
+        - suggestedMapping
+        - mappingProfileId
+        - counts
+        - previewHash
+        - publishable
+        - warnings
+        - createdAt
+        - updatedAt
+        - expiresAt
+        - publishedAt
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/BatchState"
+        version:
+          $ref: "#/components/schemas/Version"
+        mode:
+          $ref: "#/components/schemas/ImportMode"
+        file:
+          $ref: "#/components/schemas/ImportFileFacts"
+        columns:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ImportColumn"
+        mapping:
+          description: The mapping set by the merchant; `null` until set.
+          oneOf:
+            - type: array
+              minItems: 1
+              maxItems: 50
+              items:
+                $ref: "#/components/schemas/ColumnMapping"
+            - type: "null"
+        suggestedMapping:
+          type: array
+          maxItems: 50
+          description: >
+            Server suggestion from header synonyms (Arabic and English) and
+            the tenant's mapping profiles; columns it cannot place are
+            absent. A hint the merchant confirms with
+            `consoleSetCatalogImportMapping`; never applied by itself.
+          items:
+            $ref: "#/components/schemas/ColumnMapping"
+        mappingProfileId:
+          type: [string, "null"]
+          format: uuid
+          description: The mapping profile the suggestion came from, or `null`.
+        counts:
+          description: Rows per status once validated; `null` in `draft`, `cancelled` or `expired` without a validation.
+          oneOf:
+            - $ref: "#/components/schemas/StatusCounts"
+            - type: "null"
+        previewHash:
+          description: Set when `validated` or `published`; `null` otherwise.
+          oneOf:
+            - $ref: "#/components/schemas/PreviewHash"
+            - type: "null"
+        publishable:
+          type: boolean
+          description: "`validated` and no row is `needs_review` or `error`."
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/BatchWarning"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, "null"]
+          format: date-time
+          description: When an open batch expires (7 days after its last change); `null` once closed.
+        publishedAt:
+          type: [string, "null"]
+          format: date-time
+
+    RowIssue:
+      type: object
+      additionalProperties: false
+      required: [code, severity, field, columnNumber, message]
+      properties:
+        code:
+          $ref: "#/components/schemas/RowIssueCode"
+        severity:
+          $ref: "#/components/schemas/IssueSeverity"
+        field:
+          description: The canonical field concerned, or `null` for a row-level issue.
+          oneOf:
+            - $ref: "#/components/schemas/CanonicalField"
+            - type: "null"
+        columnNumber:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 50
+        message:
+          type: string
+          description: Human-readable explanation with the fix, in the session's language.
+        relatedProduct:
+          description: >
+            The product the issue names (`already_exists`, `product_retired`,
+            `sku_mismatch`, `possible_duplicate`), with its tenant-wide
+            identifiers only (OD-11 A); absent or `null` otherwise.
+          oneOf:
+            - $ref: "#/components/schemas/ProductRef"
+            - type: "null"
+        relatedRowNumber:
+          type: [integer, "null"]
+          minimum: 2
+          description: For `duplicate_in_file`, the other row.
+    FieldChange:
+      type: object
+      additionalProperties: false
+      required: [field, before, after]
+      description: One field's before → after on an update (category and brand by name).
+      properties:
+        field:
+          type: string
+          enum: [name, description, category, brand, tax_category, is_active]
+        before:
+          type: [string, "null"]
+        after:
+          type: [string, "null"]
+    RowOutcome:
+      type: object
+      additionalProperties: false
+      required: [match, matchedProduct, candidates, fieldChanges, identifierAdds, identifiersNotAdded, brandToCreate]
+      properties:
+        match:
+          type: string
+          enum: [no_match, match, ambiguous]
+        matchedProduct:
+          oneOf:
+            - $ref: "#/components/schemas/ProductRef"
+            - type: "null"
+        candidates:
+          type: array
+          description: For a review row, the products a decision may choose.
+          items:
+            $ref: "#/components/schemas/ProductRef"
+        fieldChanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldChange"
+        identifierAdds:
+          type: array
+          maxItems: 7
+          items:
+            $ref: "#/components/schemas/ImportIdentifier"
+        identifiersNotAdded:
+          type: array
+          description: Identifiers left out by a review decision (`sku_mismatch`, `store_scoped_conflict`).
+          items:
+            $ref: "#/components/schemas/ImportIdentifier"
+        brandToCreate:
+          type: [string, "null"]
+          description: The brand name this row would create (OD-3 B), or `null`.
+    RowResolutionAction:
+      type: string
+      enum: [create_new, update_product, exclude]
+    RowResolution:
+      type: object
+      additionalProperties: false
+      required: [action, productId, decidedAt]
+      description: >
+        A recorded review decision; the actor is in the audit trail, never on
+        the wire.
+      properties:
+        action:
+          $ref: "#/components/schemas/RowResolutionAction"
+        productId:
+          type: [string, "null"]
+          format: uuid
+          description: The chosen product for `update_product`; `null` otherwise.
+        decidedAt:
+          type: string
+          format: date-time
+    CatalogImportRow:
+      type: object
+      additionalProperties: false
+      required: [rowNumber, status, cells, outcome, issues, reviewReason, resolution, productId]
+      properties:
+        rowNumber:
+          type: integer
+          minimum: 2
+        status:
+          $ref: "#/components/schemas/RowStatus"
+        cells:
+          type: array
+          maxItems: 50
+          description: >
+            The parsed text of each source column, in column order, after the
+            trim; `null` for a blank cell. A price cell is kept as text for
+            provenance and never interpreted (spec 049 §6).
+          items:
+            type: [string, "null"]
+            maxLength: 2000
+        outcome:
+          $ref: "#/components/schemas/RowOutcome"
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/RowIssue"
+        reviewReason:
+          description: The review reason of a row validated as `needs_review`, kept after a decision.
+          oneOf:
+            - $ref: "#/components/schemas/ReviewReason"
+            - type: "null"
+        resolution:
+          oneOf:
+            - $ref: "#/components/schemas/RowResolution"
+            - type: "null"
+        productId:
+          type: [string, "null"]
+          format: uuid
+          description: After publish, the product the row created or updated (provenance, decision 423).
+    CatalogImportRowPage:
+      type: object
+      additionalProperties: false
+      required: [batchId, version, items, nextCursor]
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        version:
+          $ref: "#/components/schemas/Version"
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CatalogImportRow"
+        nextCursor:
+          type: [string, "null"]
+          description: The next page's cursor; only `null` ends the walk.
+    CatalogImportRowResolved:
+      type: object
+      additionalProperties: false
+      required: [row, version, previewHash, counts, publishable]
+      properties:
+        row:
+          $ref: "#/components/schemas/CatalogImportRow"
+        version:
+          $ref: "#/components/schemas/Version"
+        previewHash:
+          $ref: "#/components/schemas/PreviewHash"
+        counts:
+          $ref: "#/components/schemas/StatusCounts"
+        publishable:
+          type: boolean
+
+    DeactivatedProduct:
+      type: object
+      additionalProperties: false
+      required: [rowNumber, product]
+      properties:
+        rowNumber:
+          type: integer
+          minimum: 2
+        product:
+          $ref: "#/components/schemas/ProductRef"
+    CatalogImportPreview:
+      type: object
+      additionalProperties: false
+      required:
+        - batchId
+        - version
+        - previewHash
+        - mode
+        - publishable
+        - counts
+        - brandsToCreate
+        - productsToCreate
+        - productsToUpdate
+        - identifiersToAdd
+        - deactivations
+        - newProductsWithoutPrice
+        - rowsWithPriceNotImported
+      properties:
+        batchId:
+          type: string
+          format: uuid
+        version:
+          $ref: "#/components/schemas/Version"
+        previewHash:
+          $ref: "#/components/schemas/PreviewHash"
+        mode:
+          $ref: "#/components/schemas/ImportMode"
+        publishable:
+          type: boolean
+        counts:
+          $ref: "#/components/schemas/StatusCounts"
+        brandsToCreate:
+          type: array
+          description: Brand names publish creates (OD-3 B), each once.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 200
+        productsToCreate:
+          type: integer
+          minimum: 0
+        productsToUpdate:
+          type: integer
+          minimum: 0
+        identifiersToAdd:
+          type: integer
+          minimum: 0
+        deactivations:
+          type: array
+          description: Products an update takes off every till (`is_active` → false, OD-17 A).
+          items:
+            $ref: "#/components/schemas/DeactivatedProduct"
+        newProductsWithoutPrice:
+          type: integer
+          minimum: 0
+          description: >
+            Every created product: none has a price, so none reaches a till
+            until priced in Pricing (spec 049 §6, F-4).
+        rowsWithPriceNotImported:
+          type: integer
+          minimum: 0
+          description: Rows that carried a price value, not imported (`price_not_imported`).
+    PublishSummary:
+      type: object
+      additionalProperties: false
+      required: [brandsCreated, productsCreated, productsUpdated, identifiersAdded, productsDeactivated, rowsUnchanged, rowsExcluded]
+      properties:
+        brandsCreated:
+          type: integer
+          minimum: 0
+        productsCreated:
+          type: integer
+          minimum: 0
+        productsUpdated:
+          type: integer
+          minimum: 0
+        identifiersAdded:
+          type: integer
+          minimum: 0
+        productsDeactivated:
+          type: integer
+          minimum: 0
+        rowsUnchanged:
+          type: integer
+          minimum: 0
+        rowsExcluded:
+          type: integer
+          minimum: 0
+    CatalogImportPublishResult:
+      type: object
+      additionalProperties: false
+      required: [batch, summary]
+      properties:
+        batch:
+          $ref: "#/components/schemas/CatalogImportBatch"
+        summary:
+          $ref: "#/components/schemas/PublishSummary"
+
+    ExpectedVersionRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+    SetCatalogImportMappingRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, columns]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        columns:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Every column of the batch exactly once.
+          items:
+            $ref: "#/components/schemas/ColumnMapping"
+        saveProfileName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '^[^\u0000]*[^\s\u0000][^\u0000]*$'
+          description: Also save this mapping as the tenant's profile of this name (replacing it).
+    ResolveCatalogImportRowRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, action]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        action:
+          type: string
+          enum: [create_new, update_product, exclude, clear]
+        productId:
+          type: string
+          format: uuid
+          description: Required for, and only for, `update_product`.
+      if:
+        properties:
+          action:
+            const: update_product
+      then:
+        required: [productId]
+      else:
+        not:
+          required: [productId]
+    PublishCatalogImportRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, previewHash]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        previewHash:
+          $ref: "#/components/schemas/PreviewHash"
+
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+    UploadConflictError:
+      description: >
+        The upload's 409 body: the canonical envelope; when `error.code` is
+        `import_batch_open` it also carries `error.openBatchId`, the open
+        batch to resume or cancel. One schema (not a `oneOf` of overlapping
+        envelopes), so every valid body matches exactly once.
+      allOf:
+        - $ref: "#/components/schemas/Error"
+        - type: object
+          properties:
+            error:
+              type: object
+              properties:
+                code:
+                  type: string
+                  enum: [idempotency_key_conflict, import_batch_open]
+                openBatchId:
+                  type: string
+                  format: uuid
+              if:
+                properties:
+                  code:
+                    const: import_batch_open
+                required: [code]
+              then:
+                required: [openBatchId]
+              else:
+                not:
+                  required: [openBatchId]
+
+  responses:
+    ValidationFailure:
+      description: >
+        400 `validation_error`: a malformed path or query value, an unknown
+        or repeated query key, or a cursor the server did not issue for this
+        query. Checked after the guards and before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        400 on a write, `error.code` one of: `validation_error` (a malformed
+        path or query value, an unknown or repeated query key, a body that
+        does not match the request schema, an unknown or server-owned body
+        key such as a tenant id); on the upload and the publish
+        `idempotency_key_required` / `idempotency_key_malformed`. Nothing is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): no valid session cookie, whatever other
+        credential is sent. Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated write whose
+        `Origin` is missing or not allowed. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing: identical for a role outside `owner`
+        / `tenant_admin`, a batch of another tenant and an absent batch.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RowNotFound:
+      description: >
+        not_found (404), non-disclosing: as `NotFound`, and a `rowNumber`
+        with no row in the batch. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UploadConflict:
+      description: >
+        409, `error.code` one of: `idempotency_key_conflict` (the same
+        `Idempotency-Key` with other file bytes); `import_batch_open` (the
+        tenant already has an open batch; `error.openBatchId` names it).
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UploadConflictError"
+    BatchConflict:
+      description: >
+        409, `error.code` one of: `version_conflict` (`expectedVersion` is
+        not the batch's current `version`; reload); `import_batch_closed`
+        (the batch is `published`, `cancelled` or `expired`); on a review
+        decision `import_batch_not_validated` (the batch is `draft`).
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotValidated:
+      description: >
+        409 `import_batch_not_validated`: the batch has no current outcomes
+        (it is `draft`, `cancelled` or `expired`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PublishConflict:
+      description: >
+        409, `error.code` one of: `idempotency_key_conflict` (the same key
+        with another body); `version_conflict`; `import_batch_not_validated`
+        (`draft`); `import_batch_closed` (`cancelled`, `expired`, or
+        `published` with another `previewHash`); `preview_changed` (the
+        `previewHash` is not the batch's current one; re-read the preview);
+        `import_not_publishable` (a row is `needs_review` or `error`);
+        `stale_validation` (the catalogue changed since validation, or a
+        conditional write failed inside the transaction; the batch is back in
+        `draft` at the next version and nothing was published). Nothing is
+        written, except the `draft` transition of `stale_validation`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FileTooLarge:
+      description: "`file_too_large` (413): the body is over 5 MiB; refused while reading, before parsing."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FileRejected:
+      description: >
+        422, the file cannot be imported; `error.code` one of:
+        `file_type_unsupported` (`.xls`, `.xlsm`, `.xlsb`, a macro-enabled or
+        binary workbook, a `vbaProject.bin` entry, or a non-XLSX ZIP);
+        `encoding_not_utf8` (a CSV that is not UTF-8, or has a NUL byte:
+        save as "CSV UTF-8", or upload XLSX, OD-8 A); `file_unreadable` (a
+        corrupt workbook or a CSV quoting error); `xlsx_limits_exceeded`
+        (over 200 ZIP entries or 50 MiB uncompressed); `sheet_not_found`;
+        `header_missing` (no header row); `no_data_rows`; `too_many_rows`
+        (over 5,000 data rows); `too_many_columns` (over 50); `cell_too_long`
+        (a cell over 2,000 characters). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MappingRejected:
+      description: >
+        422 `mapping_invalid`: a column of the batch is missing or listed
+        twice, a `columnNumber` the batch does not have, a field mapped more
+        than once (`barcode` more than 5 times), or mode `create` / `upsert`
+        without `name` and `tax_category` mapped. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MappingRequired:
+      description: "422 `mapping_required`: the batch has no mapping yet; set it first. Nothing is written."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ResolutionRejected:
+      description: >
+        422 `resolution_not_allowed`: the action is not offered for this row
+        (its validated status is not `needs_review` or `error`, an `error`
+        row with an action other than `exclude` / `clear`, `create_new` while
+        an identifier on the row is active on another product, `clear` on a
+        row with no decision), or `productId` is not one of the row's
+        candidates. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first request with this
+        `Idempotency-Key` is still being processed. Retry after
+        `Retry-After` seconds with the same key and body.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401. The console limit is
+        server-configured and may not be enforced, so a client must handle a
+        429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
