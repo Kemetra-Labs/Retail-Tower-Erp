@@ -1748,21 +1748,35 @@ components:
             request_id:
               type: string
               format: uuid
-    ImportBatchOpenError:
-      description: "`409 import_batch_open`: the envelope plus the open batch's id, to resume or cancel it."
+    UploadConflictError:
+      description: >
+        The upload's 409 body: the canonical envelope; when `error.code` is
+        `import_batch_open` it also carries `error.openBatchId`, the open
+        batch to resume or cancel. One schema (not a `oneOf` of overlapping
+        envelopes), so every valid body matches exactly once.
       allOf:
         - $ref: "#/components/schemas/Error"
         - type: object
           properties:
             error:
               type: object
-              required: [code, openBatchId]
               properties:
                 code:
-                  const: import_batch_open
+                  type: string
+                  enum: [idempotency_key_conflict, import_batch_open]
                 openBatchId:
                   type: string
                   format: uuid
+              if:
+                properties:
+                  code:
+                    const: import_batch_open
+                required: [code]
+              then:
+                required: [openBatchId]
+              else:
+                not:
+                  required: [openBatchId]
 
   responses:
     ValidationFailure:
@@ -1827,9 +1841,7 @@ components:
       content:
         application/json:
           schema:
-            oneOf:
-              - $ref: "#/components/schemas/ImportBatchOpenError"
-              - $ref: "#/components/schemas/Error"
+            $ref: "#/components/schemas/UploadConflictError"
     BatchConflict:
       description: >
         409, `error.code` one of: `version_conflict` (`expectedVersion` is

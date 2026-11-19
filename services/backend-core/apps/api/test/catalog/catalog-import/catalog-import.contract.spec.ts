@@ -269,9 +269,15 @@ describe("catalog-import contract — upload (spec 049 §8.4, §8.5)", () => {
   it("the upload takes the mode, and refuses a second open batch naming the open one", () => {
     expect(paramsOf("post", BASE).find((p) => p.name === "mode")?.required).toBe(true);
     expect(responseDescription("post", BASE, "409")).toMatch(/import_batch_open/);
-    const v = validator("ImportBatchOpenError");
-    expect(v({ error: { code: "import_batch_open", message: "x", openBatchId: OTHER_BATCH } })).toBe(true);
+    // Validate against the documented 409 response schema itself, not only the named component (review on #717:
+    // a `oneOf` of overlapping envelopes rejected the very body it described).
+    const v = ajv.getSchema(`${CONTRACT_ID}#/components/responses/UploadConflict/content/application~1json/schema`);
+    if (!v) throw new Error("ajv cannot resolve the UploadConflict response schema");
+    expect(v({ error: { code: "import_batch_open", message: "x", request_id: BATCH_ID, openBatchId: OTHER_BATCH } })).toBe(true);
+    expect(v({ error: { code: "idempotency_key_conflict", message: "x", request_id: BATCH_ID } })).toBe(true);
     expect(v({ error: { code: "import_batch_open", message: "x" } })).toBe(false);
+    expect(v({ error: { code: "idempotency_key_conflict", message: "x", openBatchId: OTHER_BATCH } })).toBe(false);
+    expect(v({ error: { code: "version_conflict", message: "x" } })).toBe(false);
   });
 
   it("states the OD-7 A limits and refuses an oversize body with 413 file_too_large", () => {
