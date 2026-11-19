@@ -22,7 +22,7 @@ RT-1506, RT-1509, RT-1510 and RT-1508 (spec §12).
 | OD-11 | Name the matched product in errors and review | **A**: yes, tenant-wide only | S1 |
 | OD-12 | Approval before publish | **A**: none in V1; hook reserved | S5 |
 | OD-13 | Audit granularity | **A**: batch events plus per-product rows | S5 |
-| OD-14 | Change Set: interim batch vs wait for the primitive | **A**: interim, aligned to spec 042 | S2, S5 |
+| OD-14 | Change Set: interim batch vs wait for the primitive | **A**: interim, aligned to spec 042 (re-checked at S2 DoR: kept) | S2, S5 |
 | OD-15 | Arabic-Indic digits in barcode / PLU | **A**: error | S1 |
 | OD-16 | GTIN check digit | **A**: warning only | S1 |
 | OD-17 | `is_active = false` through import | **A**: allowed, stated in the preview | S1 |
@@ -181,6 +181,12 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 ## OD-14 — Change Set primitive
 
 **Accepted (2026-11-19, RT-1489 comment 17790):** **A**, interim batch aligned to spec 042; re-checked once when S1 and S2 reach Definition of Ready (use the RT-1484 primitive if it is on `main` by then).
+
+**Re-check result (2026-11-19, RT-1503 comment 17830):** **A stands; the interim import tables are kept.** The
+`change_sets` table on `main` (migrations 0121 and 0123, RT-1151) is the pricing primitive: `CHECK (domain IN
+('pricing'))`, no-delete triggers that conflict with the OD-6 purge, no `expired` state, 0123 content rules that need a
+`price_change_set_validations` row, and no runtime yet (RT-1484). Using it would change the pricing schema. Details in
+spec §9.1.
 
 - **A (recommended).** Build the interim batch now (spec §9, §10) with spec 042's state names, `version` /
   `409 version_conflict`, `previewHash` and publish-lock pattern, so it can move into `change_sets` (domain `catalog`)

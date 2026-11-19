@@ -45,34 +45,14 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
 import { tenantProducts } from "../catalog/tenant-products";
 import { xid8 } from "../offers/offer-versions";
 import { stores } from "../stores";
-import { tenants } from "../tenants";
-
-/** `tenant_id`, NOT NULL, FK to tenants (RESTRICT). */
-const tenantIdColumn = () =>
-  uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "restrict" });
-
-/** Who wrote a row, when, and under which request (every pricing table). */
-const pricingAuthorshipColumns = () => ({
-  createdByUserId: uuid("created_by_user_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  correlationId: uuid("correlation_id").notNull(),
-});
-
-/** The timeline row lifecycle shared by memberships and events. */
-const timelineColumns = () => ({
-  state: text("state").notNull().default("active"),
-  publishedInRevision: bigint("published_in_revision", { mode: "number" }).notNull(),
-  endedInRevision: bigint("ended_in_revision", { mode: "number" }),
-  carriedForward: boolean("carried_forward").notNull().default(false),
-});
+import { effectiveBoundsColumns, pricingAuthorshipColumns, tenantIdColumn, timelineColumns } from "./columns";
 
 export const changeSets = pgTable(
   "change_sets",
@@ -115,6 +95,10 @@ export const changeSets = pgTable(
     check("change_sets_kind", sql`${t.kind} IN ('standard', 'emergency', 'rollback', 'legacy_import')`),
     check("change_sets_version_positive", sql`${t.version} >= 1`),
     index("ix_change_sets_tenant_state").on(t.tenantId, t.domain, t.state),
+    // 0123: one live legacy import per tenant.
+    uniqueIndex("ux_change_sets_one_legacy_import")
+      .on(t.tenantId)
+      .where(sql`${t.kind} = 'legacy_import' AND ${t.state} <> 'cancelled'`),
   ],
 );
 
@@ -268,11 +252,7 @@ export const priceEvents = pgTable(
     priceKind: text("price_kind").notNull().default("regular"),
     price: numeric("price", { precision: 19, scale: 4 }).notNull(),
     currencyCode: char("currency_code", { length: 3 }).notNull(),
-    timeBasis: text("time_basis").notNull(),
-    effectiveFrom: timestamp("effective_from", { withTimezone: true }),
-    effectiveTo: timestamp("effective_to", { withTimezone: true }),
-    effectiveFromLocal: timestamp("effective_from_local", { withTimezone: false }),
-    effectiveToLocal: timestamp("effective_to_local", { withTimezone: false }),
+    ...effectiveBoundsColumns(),
     ...timelineColumns(),
     supersedesEventId: uuid("supersedes_event_id"),
     changeSetId: uuid("change_set_id").notNull(),

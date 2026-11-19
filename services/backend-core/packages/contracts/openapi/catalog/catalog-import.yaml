@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core Catalog — Console product import (CSV / XLSX)
-  version: "1.0.1-draft"
+  version: "1.0.2-draft"
   description: >
     Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
     Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
@@ -11,7 +11,7 @@ info:
     decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
 
 
-    **Posture.** `1.0.1-draft`, `[GATED]` contract-first. Every operation
+    **Posture.** `1.0.2-draft`, `[GATED]` contract-first. Every operation
     carries `x-runtime-status: contract-only`: the batch tables ship in RT-1503
     (S2) and the routes in RT-1505 (S4, upload / map / validate) and the S5
     slice (review / preview / publish), which remove the markers. The Admin
@@ -28,9 +28,25 @@ info:
     not to `version`; and the review decision → row status table.
 
 
-    **Change Set: interim batch (spec 049 §9, OD-14 A).** The shared
-    domain-neutral `change_sets` primitive of spec 042 §9 (RT-1484) is not on
-    `main` when this contract is written, so an import batch is its own
+    **1.0.2-draft (RT-1503 Definition of Ready, comments 17823 and 17830).**
+    Description text only, no new operation and no schema shape change: the
+    canonical query of the upload fingerprint is defined (decoded values,
+    byte-exact, no Unicode normalisation, absent distinct from any value);
+    the re-upload suggestion dedupe is defined (carried entries win, and the
+    suggestion for the other columns leaves out the fields they already
+    hold); the row-list cursor binds to the `status` query filter;
+    `mappingProfileId` after a re-upload is stated; and the OD-14 re-check
+    outcome is recorded below.
+
+
+    **Change Set: interim batch (spec 049 §9, OD-14 A).** The OD-14
+    re-check at RT-1503's Definition of Ready (comment 17830) keeps the
+    interim batch. The `change_sets` table of migrations 0121 and 0123
+    (RT-1151) is on `main` but is pricing-only: `domain` is checked to
+    `pricing`, rows cannot be deleted (which the OD-6 retention purge
+    needs), it has no `expired` state, its content rules need pricing
+    validation rows, and its runtime (RT-1484) is not built. So an import
+    batch is its own
     interim lifecycle that uses spec 042's names, so a later slice can move
     the batch header into `change_sets` (domain `catalog`) without changing
     this wire: states `draft`, `validated`, `published`, `cancelled`, plus the
@@ -180,7 +196,16 @@ info:
     interceptor's JSON-body fingerprint, which a raw body does not have): the
     same key with the same bytes and the same query replays the stored `201`
     with `Idempotent-Replayed: true`; the same key with other bytes, or with
-    any query value different, is `409 idempotency_key_conflict`. A file whose
+    any query value different, is `409 idempotency_key_conflict`. The
+    **canonical query** is the four parameters, each taken as its
+    percent-decoded value and compared byte for byte as UTF-8, with no
+    Unicode normalisation (an Arabic `file_name` sent in NFC and the same
+    name sent in NFD are different values), no trimming and no case
+    folding. An absent parameter is distinct from every value, and no
+    default is filled in before the comparison: an explicit `sheet` that
+    names the workbook's first sheet is distinct from an absent `sheet`,
+    and an explicit `delimiter` equal to the detected one is distinct from
+    an absent `delimiter`. A file whose
     SHA-256 equals a batch published in the last 30 days is accepted with
     the batch warning `file_previously_published`, which names that batch.
     The publish fingerprint is the key plus its body; a publish of an
@@ -349,7 +374,15 @@ paths:
         an empty header, or a header that appears more than once in either
         file, is never carried) is placed in `suggestedMapping` at the
         column's new `columnNumber`; the other columns get the upload's
-        suggestion. Nothing is applied by itself: validate requires a
+        suggestion. The carried entries come first, which means they take
+        priority: they are placed before any other suggestion is made, and
+        the suggestion for the remaining columns (header synonyms and the
+        tenant's mapping profiles) leaves out every field a carried entry
+        already holds, except `barcode`, which may still be suggested while
+        the carried and suggested `barcode` entries together stay at most 5.
+        A carried entry is never replaced by a synonym or profile
+        suggestion, and no canonical field is ever suggested twice (except
+        `barcode` up to 5; `ignore` is not a field). Nothing is applied by itself: validate requires a
         non-null mapping (`422 mapping_required`), so the merchant confirms
         the mapping again with `consoleSetCatalogImportMapping` and no column
         is silently skipped (decision 419). Review decisions are dropped.
@@ -965,8 +998,10 @@ components:
         `consolePublishCatalogImport`: 16 to 128 printable ASCII characters
         with no whitespace, keyed on the verified actor and tenant. Upload
         fingerprint: the key plus the file's SHA-256 plus the canonical query
-        (`mode`, `sheet`, `delimiter`, `file_name`; an absent one is
-        absent); publish fingerprint: the key plus the body. Same fingerprint → replay with
+        (`mode`, `sheet`, `delimiter`, `file_name`; each the decoded value
+        compared byte for byte, with no Unicode normalisation; an absent one
+        is distinct from any value, so an explicit `sheet` naming the
+        default first sheet is not the same as no `sheet`); publish fingerprint: the key plus the body. Same fingerprint → replay with
         `Idempotent-Replayed: true`; same key, other fingerprint → 409
         `idempotency_key_conflict`; still processing → 425
         `idempotency_in_progress`. Missing → 400 `idempotency_key_required`;
@@ -1042,7 +1077,12 @@ components:
       description: >
         Opaque keyset cursor from a prior page's `nextCursor`, bound to the
         operation, the tenant, the batch, its validation generation and
-        `status`. The validation generation changes only when validate runs
+        `status` query filter: the value of the request's `status`
+        parameter (absent is its own filter value), not any row's status, so
+        a row whose status changes through a review decision does not
+        invalidate the cursor, and the next page must repeat the same
+        `status` parameter (another value, or dropping it, is 400
+        `validation_error`). The validation generation changes only when validate runs
         (`consoleValidateCatalogImport`); a review decision increments
         `version` but keeps the generation, so a walk survives it. A value
         the server did not issue for that query, or one issued under an older
@@ -1404,7 +1444,10 @@ components:
             Server suggestion from header synonyms (Arabic and English) and
             the tenant's mapping profiles; after a re-upload, the previous
             mapping's entries whose header text is unchanged (exact match)
-            come first. Columns it cannot place are absent. A hint the
+            come first: they take priority, and the suggestion for the other
+            columns leaves out every field they already hold (`barcode` may
+            still appear, at most 5 entries in total). Columns it cannot
+            place are absent. A hint the
             merchant confirms with `consoleSetCatalogImportMapping`; never
             applied by itself.
           items:
@@ -1412,7 +1455,14 @@ components:
         mappingProfileId:
           type: [string, "null"]
           format: uuid
-          description: The mapping profile the suggestion came from, or `null`.
+          description: >
+            The tenant mapping profile that `suggestedMapping` drew on, or
+            `null` when no profile contributed. After a re-upload it names
+            the profile used for the columns that were not carried, or is
+            `null` when no profile contributed to them; the carried entries
+            come from the batch's previous mapping, never from a profile, so
+            it never names the profile of the previous file's suggestion only
+            because entries were carried.
         counts:
           description: Rows per status once validated; `null` in `draft`, `cancelled` or `expired` without a validation.
           oneOf:
