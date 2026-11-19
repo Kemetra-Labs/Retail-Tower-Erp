@@ -29,6 +29,7 @@
 import { HttpException, Injectable } from "@nestjs/common";
 import type { PoolClient } from "pg";
 
+import { isPostgresInputError } from "../../common/postgres-input-error";
 import { wasTenantMemberAt } from "../../memberships";
 import { captureSchema } from "../sales/dto/capture-sale-request.pipe";
 import { SaleNotFoundError } from "../sales/sale-errors";
@@ -55,8 +56,6 @@ type Attempt = Resolved | Refused;
 
 const ERROR_CODE_RE = /^[a-z][a-z0-9_]{0,63}$/;
 const SAVEPOINT = "quarantine_repair_capture";
-/** Postgres refusals of a body value (numeric overflow, a CHECK, a bad text form): a 400, as the global filter answers. */
-const BODY_VALUE_PG_CODES = new Set(["22003", "23514", "22P02"]);
 
 const REFUSE_VALIDATION: Refused = { kind: "refused", httpStatus: 400, errorCode: "validation_error" };
 
@@ -85,15 +84,17 @@ async function attemptCapture(client: PoolClient, input: RepairInput, item: Item
   const { operatorUserId, admissionCheckAt: _window, receipt, safetyRevision, safetySyncedAt, ...saleBody } = parsed.data;
   if (saleBody.sourceSystem !== item.source_system || saleBody.externalId !== item.external_id) return REFUSE_VALIDATION;
 
-  if (operatorUserId !== undefined) {
-    const member = { tenantId: input.tenantId, userId: operatorUserId };
-    if (!(await wasTenantMemberAt(client, member, new Date(saleBody.occurredAt)))) {
-      return { kind: "refused", httpStatus: null, errorCode: "repair_operator_unproven" };
-    }
-  }
-
+  // Under the savepoint from the start: a body value Postgres refuses (a date out of range, say) in the
+  // membership lookup or in the capture is a recorded 400 refusal, never a 500 that leaves the item as it was.
   await client.query(`SAVEPOINT ${SAVEPOINT}`);
   try {
+    if (operatorUserId !== undefined) {
+      const member = { tenantId: input.tenantId, userId: operatorUserId };
+      if (!(await wasTenantMemberAt(client, member, new Date(saleBody.occurredAt)))) {
+        await client.query(`RELEASE SAVEPOINT ${SAVEPOINT}`);
+        return { kind: "refused", httpStatus: null, errorCode: "repair_operator_unproven" };
+      }
+    }
     const captured = await captureSaleInTransaction(client, {
       tenantId: input.tenantId,
       storeId: item.store_id,
@@ -126,7 +127,8 @@ function refusalOf(err: unknown): Refused {
   if (mapped instanceof HttpException) {
     const status = mapped.getStatus();
     if (status >= 400 && status <= 499) return { kind: "refused", httpStatus: status, errorCode: codeOf(mapped) };
-  } else if (isBodyValuePgError(err)) {
+  } else if (isPostgresInputError(err)) {
+    // As the global filter answers it for the till: a 400.
     return REFUSE_VALIDATION;
   }
   throw err;
@@ -136,15 +138,6 @@ function codeOf(error: HttpException): string {
   const response = error.getResponse();
   const code = typeof response === "object" && response !== null ? (response as { code?: unknown }).code : undefined;
   return typeof code === "string" && ERROR_CODE_RE.test(code) ? code : "refused";
-}
-
-function isBodyValuePgError(err: unknown): boolean {
-  for (let e: unknown = err, depth = 0; typeof e === "object" && e !== null && depth < 4; depth += 1) {
-    const { code, cause } = e as { code?: unknown; cause?: unknown };
-    if (typeof code === "string" && BODY_VALUE_PG_CODES.has(code)) return true;
-    e = cause;
-  }
-  return false;
 }
 
 /** Write the attempt on the locked item: resolves it (and links the sale), or counts a refusal and keeps it `open`. */

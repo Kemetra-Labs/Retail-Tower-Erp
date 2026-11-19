@@ -138,6 +138,8 @@ const SEEDS: readonly Seed[] = [
   { n: 17, state: "written-off" }, // not open
   { n: 18 }, // two repairs at once
   { n: 19 }, // scope and request-shape cases: never repaired
+  { n: 20, body: captureBody(ext(20), { occurredAt: "0000-01-01T00:00:00.000Z" }) }, // a date Postgres refuses
+  { n: 21, body: captureBody(ext(21), { operatorUserId: USER_CASHIER, occurredAt: "0000-01-01T00:00:00.000Z" }) }, // the same, with a cashier
 ];
 const Q = (n: number): string => id(n);
 
@@ -476,6 +478,22 @@ describe("RT-1312 consoleRepairQuarantinedSale: the capture rules still refuse",
       lastRepair: { outcome: "refused", httpStatus: 400, errorCode: "validation_error" },
     });
     expect(await salesOf(env!.admin, ext(9))).toHaveLength(0);
+  });
+
+  it.each([
+    [20, 400, "validation_error"], // no cashier: the capture insert refuses the date
+    [21, null, "repair_operator_unproven"], // a cashier: nobody was a member in the year 0
+  ])("a body with a date out of range (item %i) is a recorded refusal, never a 500", async (n, httpStatus, errorCode) => {
+    if (skip()) return;
+    const salesBefore = await salesCount(env!.admin);
+    const res = await repair(Q(n), SES_OWNER_SPEC).expect(200);
+    expect(res.body).toMatchObject({
+      state: "open",
+      saleRef: null,
+      lastRepair: { outcome: "refused", httpStatus, errorCode },
+    });
+    expect(await salesCount(env!.admin)).toBe(salesBefore);
+    expect(await itemState(env!.admin, Q(n))).toMatchObject({ state: "open", repair_count: 1, last_repair_outcome: "refused" });
   });
 
   it("an already captured provenance with the same facts resolves the item as already-captured, with no second sale", async () => {

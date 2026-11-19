@@ -110,8 +110,9 @@ describe("SaleQuarantineRepairService", () => {
     expect(calls).toEqual(expect.arrayContaining(["SAVEPOINT quarantine_repair_capture", "RELEASE SAVEPOINT quarantine_repair_capture", "UPDATE sale_quarantine_items SET"]));
   });
 
-  it("a Postgres refusal of a body value (numeric overflow, here under a wrapper) is a 400 validation_error outcome", async () => {
-    capture.mockRejectedValue(Object.assign(new Error("wrapped"), { cause: { code: "22003" } }));
+  it("a Postgres refusal of a body value (a date out of range, here under a wrapper) is a 400 validation_error outcome", async () => {
+    // A node-postgres DatabaseError carries a severity; the shared classifier needs it (and walks `cause`).
+    capture.mockRejectedValue(Object.assign(new Error("wrapped"), { cause: { code: "22008", severity: "ERROR" } }));
     const { client, calls } = scripted(BODY);
     await serviceOver(item(), client).repair(input, REF);
     expect(calls).toContain("ROLLBACK TO SAVEPOINT");
