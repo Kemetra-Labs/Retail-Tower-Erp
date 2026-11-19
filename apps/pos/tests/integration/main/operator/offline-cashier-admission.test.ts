@@ -470,15 +470,30 @@ describe('RT-308 — admission from a valid sealed grant', () => {
     expect(w.creates).toEqual(['online', 'offline']);
   });
 
-  it('an offline session never heartbeats, never ends a server admission', async () => {
+  it('an offline session holds no admission, so it neither heartbeats nor ends one while the till stays offline', async () => {
     const w = track(wire());
     await grantThenGoOffline(w);
     await signIn(w);
-    const before = { posts: net.admissionPosts, ends: net.ends };
-    net.online = true; // even if the network came back, nothing is sent for it
-    await vi.advanceTimersByTimeAsync(TTL_S * 1000 * 2);
+    const before = { ends: net.ends };
+    await vi.advanceTimersByTimeAsync(TTL_S * 1000 * 2); // still offline: the reconcile retries, nothing lands
     await signOut(w);
-    expect({ posts: net.admissionPosts, ends: net.ends }).toEqual(before);
+    expect(net.ends).toBe(before.ends);
+    expect(w.sessions.getCurrent()).toBeNull();
+  });
+
+  it('RT-1312 F17 (P4): once the network is back the offline session reconciles, becomes online-confirmed and its admission is ended at sign-out', async () => {
+    const w = track(wire());
+    await grantThenGoOffline(w);
+    await signIn(w);
+    expect(w.sessions.getCurrent()?.authority).toBe('offline_grant');
+    const before = { posts: net.admissionPosts, ends: net.ends };
+    net.online = true;
+    await vi.advanceTimersByTimeAsync(60_000); // the reconcile cadence (D8)
+    expect(net.admissionPosts).toBe(before.posts + 1);
+    expect(w.sessions.getCurrent()?.authority).toBe('online_confirmed');
+    expect(w.sessions.getCurrent()?.admission_id).toBeDefined();
+    await signOut(w);
+    expect(net.ends).toBe(before.ends + 1);
   });
 
   it('a 5xx from Backend-Core counts as unreachable', async () => {

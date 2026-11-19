@@ -213,6 +213,14 @@ export interface SaleSyncEngineDeps {
    * (re-armed by a tick without a failure). Receives nothing.
    */
   onDependencyFailure?: () => void;
+  /**
+   * RT-1312 F17 (D2): true while the cashier's offline admission has not yet
+   * been reconciled with Backend-Core (`offline-reconcile.ts`). Asked per
+   * device-path sale; a held sale is skipped untouched (no POST, no state, no
+   * attempt, never dead-lettered) and drains on the first tick after the hold
+   * ends. Not wired → nothing is held.
+   */
+  isSaleHeldForReconcile?: (operatorUserId: string) => boolean;
   /** One ISO-8601 UTC stamp source (determinism in tests). */
   now: () => string;
   backoff: BackoffPolicy;
@@ -368,9 +376,20 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
    */
   function credentialFor(route: SaleRoute, held: HeldCredentials): SaleCredential | null {
     if (route.kind === 'device') {
-      return held.device ? { kind: 'device', operatorUserId: route.operatorUserId } : null;
+      // RT-1312 F17: a cashier whose offline admission is being reconciled waits for it.
+      const sendable = held.device && !heldForReconcile(route.operatorUserId);
+      return sendable ? { kind: 'device', operatorUserId: route.operatorUserId } : null;
     }
     return route.kind === 'envelope' && held.envelope ? { kind: 'envelope' } : null;
+  }
+
+  /** RT-1312 F17: a throwing predicate never holds a sale (the server still decides per sale). */
+  function heldForReconcile(operatorUserId: string): boolean {
+    try {
+      return deps.isSaleHeldForReconcile?.(operatorUserId) ?? false;
+    } catch {
+      return false;
+    }
   }
 
   /** Returns the POST outcome, or null when nothing was sent. */
