@@ -130,6 +130,11 @@ describe("containsNul (RT-1312 slice B: the NUL the jsonb column cannot store)",
     expect(containsNul({ a: "\\u0000", b: "\u0001", c: 0, d: null, e: true, f: [] })).toBe(false);
   });
 
+  it("does not overflow the stack on a wide array (about 130k elements fit the 256 kB route limit)", () => {
+    expect(containsNul({ lines: new Array<number>(400_000).fill(0) })).toBe(false);
+    expect(containsNul({ lines: [...new Array<string>(400_000).fill("x"), "a\u0000"] })).toBe(true);
+  });
+
   it("does not overflow the stack on a deeply nested body", () => {
     let deep: unknown = "end";
     for (let i = 0; i < 200_000; i += 1) deep = [deep];

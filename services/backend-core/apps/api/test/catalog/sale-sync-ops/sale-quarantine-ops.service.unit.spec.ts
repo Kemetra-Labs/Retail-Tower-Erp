@@ -3,9 +3,12 @@
  * database. `runWithTenantContext` is mocked to run its callback against a
  * scripted client, so this pins the in-process branches: the projection, the
  * list's parameters and paging, the store-scope predicate and the write-off's
- * 404 / 409 / success paths. The SQL itself (RLS, the column grants, the
- * state CHECKs, concurrency) is proven by
- * `sale-quarantine-ops.integration.spec.ts` against real Postgres.
+ * 404 / 409 / success paths. The SQL itself (RLS, the state CHECKs,
+ * concurrency) is proven by `sale-quarantine-ops.integration.spec.ts` against
+ * real Postgres. The column-level UPDATE grants are NOT exercised there (the
+ * test role has a table-wide UPDATE): the write-off's SET list (`state`,
+ * `resolved_at`, `write_off_note`) is checked against
+ * `SALE_QUARANTINE_UPDATABLE_COLUMNS` below instead.
  */
 let clientQuery: jest.Mock;
 jest.mock("@data-pulse-2/db", () => ({
@@ -13,6 +16,7 @@ jest.mock("@data-pulse-2/db", () => ({
     fn({ query: clientQuery }),
 }));
 
+import { SALE_QUARANTINE_UPDATABLE_COLUMNS } from "../../../src/auth/grants/sale-quarantine-items.grants";
 import {
   QuarantineNotFoundError,
   SaleQuarantineOpsService,
@@ -235,6 +239,11 @@ describe("SaleQuarantineOpsService.writeOff", () => {
     expect(writeSql).toMatch(/AND state = 'open'/);
     // Nothing but the mutable columns: never the body, the provenance or the scope.
     expect(writeSql).not.toMatch(/sale_body|body_purged_at|store_id =|source_system =/);
+    // Every column it sets is one the domain role may UPDATE (the 0093 column grants).
+    const set = /SET (.*?)\s+WHERE/s.exec(writeSql)![1]!;
+    const columns = set.split(",").map((assignment) => assignment.split("=")[0]!.trim());
+    expect(columns).toEqual(["state", "resolved_at", "write_off_note"]);
+    for (const column of columns) expect(SALE_QUARANTINE_UPDATABLE_COLUMNS).toContain(column);
     expect(writeParams).toEqual([TENANT, REF, "refunded in cash"]);
   });
 

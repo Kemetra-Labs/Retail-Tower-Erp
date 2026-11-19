@@ -11,7 +11,7 @@
 import "reflect-metadata";
 
 import { BadRequestException, ConflictException, NotFoundException, UnauthorizedException } from "@nestjs/common";
-import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
+import { GUARDS_METADATA, HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 
 import { AUDITABLE_KEY } from "../../../src/audit/auditable.decorator";
 import { DashboardAuthGuard } from "../../../src/auth/dashboard-auth.guard";
@@ -75,6 +75,10 @@ describe("SaleQuarantineOpsController wiring", () => {
     expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("list"))).toBe("expensiveRead");
     expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("get"))).toBe("cheapRead");
     expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("writeOff"))).toBe("write");
+  });
+
+  it("answers the write-off 200 as the contract documents (a bare POST would be 201)", () => {
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, handler("writeOff"))).toBe(200);
   });
 
   it("requires an Idempotency-Key on the write-off only", () => {

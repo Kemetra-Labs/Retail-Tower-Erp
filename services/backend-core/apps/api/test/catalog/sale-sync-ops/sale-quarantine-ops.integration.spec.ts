@@ -348,6 +348,13 @@ describe("RT-1312 consoleListQuarantinedSales", () => {
   it("is 401 without a session", async () => {
     if (skip()) return;
     await request(app!.getHttpServer()).get(BASE).expect(401);
+    await request(app!.getHttpServer()).get(one(Q_X1)).expect(401);
+    await request(app!.getHttpServer())
+      .post(writeOffPath(Q_X1))
+      .set("Idempotency-Key", "rt1312-no-session-key-0001")
+      .send({ note: "no session" })
+      .expect(401);
+    expect(await itemState(env!.admin, Q_X1)).toMatchObject({ state: "open" });
   });
 });
 
@@ -474,9 +481,8 @@ describe("RT-1312 consoleWriteOffQuarantinedSale", () => {
     if (skip()) return;
     const salesBefore = await salesCount(env!.admin);
     const auditBefore = audited.length;
-    const res = await writeOff(Q_X3, SES_OWNER_SPEC, { note: "refunded in cash outside Retail Tower" }).expect((r) =>
-      expect(r.status).toBeLessThan(300),
-    );
+    // 200 exactly, as the contract documents (a bare POST would answer 201).
+    const res = await writeOff(Q_X3, SES_OWNER_SPEC, { note: "refunded in cash outside Retail Tower" }).expect(200);
     conforms("QuarantinedSale", res.body);
     expect(res.body).toMatchObject({
       quarantineRef: Q_X3,
@@ -525,10 +531,10 @@ describe("RT-1312 consoleWriteOffQuarantinedSale", () => {
 
   it("an all-membership owner with an active store still writes off another store's item, as a tenant_admin may too", async () => {
     if (skip()) return;
-    await writeOff(Q_Y1, SES_OWNER_ALL_ACTIVE).expect((r) => expect(r.status).toBeLessThan(300));
+    await writeOff(Q_Y1, SES_OWNER_ALL_ACTIVE).expect(200);
     expect((await itemState(env!.admin, Q_Y1)).state).toBe("written-off");
     const admin = SPECIFIC_SESSIONS.find(([role]) => role === "tenant_admin")![1];
-    await writeOff(Q_X2, admin).expect((r) => expect(r.status).toBeLessThan(300));
+    await writeOff(Q_X2, admin).expect(200);
     expect((await itemState(env!.admin, Q_X2)).state).toBe("written-off");
   });
 

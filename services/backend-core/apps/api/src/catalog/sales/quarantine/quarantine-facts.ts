@@ -50,8 +50,9 @@ export function saleFactsDigest(body: Readonly<Record<string, unknown>>): string
  * Whether any string value or object key of `value` holds a NUL (U+0000).
  * Postgres refuses it in `jsonb` (22P05) and in `text` (22021), so such a body
  * can never be stored: the upload refuses it as a 400 before any write, and
- * the sale stays on the till (RT-1312 comment 16720). Iterative, so a deeply
- * nested body cannot overflow the stack.
+ * the sale stays on the till (RT-1312 comment 16720). Iterative and
+ * never spreading, so neither a deeply nested nor a wide body can overflow the
+ * stack.
  */
 export function containsNul(value: unknown): boolean {
   const pending: unknown[] = [value];
@@ -60,7 +61,8 @@ export function containsNul(value: unknown): boolean {
     if (typeof current === "string") {
       if (current.includes("\u0000")) return true;
     } else if (Array.isArray(current)) {
-      pending.push(...current);
+      // One by one: spreading a wide array onto the call stack overflows it.
+      for (const child of current) pending.push(child);
     } else if (typeof current === "object" && current !== null) {
       for (const [key, child] of Object.entries(current)) {
         if (key.includes("\u0000")) return true;

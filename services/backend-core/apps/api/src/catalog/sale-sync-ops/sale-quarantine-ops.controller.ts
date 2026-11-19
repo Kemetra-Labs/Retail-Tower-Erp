@@ -28,6 +28,8 @@ import {
   ConflictException,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
   Post,
@@ -117,6 +119,8 @@ export class SaleQuarantineOpsController {
 
   /** POST — close an open item without a sale (decision C3). */
   @Post(`${BASE}/:quarantineRef/write-off`)
+  // The contract documents 200 only; a bare Nest POST answers 201 (and an idempotent replay repeats the stored status).
+  @HttpCode(HttpStatus.OK)
   @UseGuards(RolesGuard)
   @Roles("owner", "tenant_admin")
   @Idempotent("required")
