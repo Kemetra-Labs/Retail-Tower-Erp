@@ -15,7 +15,7 @@
  */
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
-import { DetailGrid } from "@/components/DetailPanel";
+import { DetailGrid, HeaderStatus } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { DateTime, type T, useT } from "@/i18n";
@@ -204,7 +204,7 @@ function OpenHandling({
       <p className="content__sub">{t("saleQuarantine.handling.repairLater")}</p>
       <p className="content__sub">{t("saleQuarantine.writeOff.explain")}</p>
       <div>
-        <button ref={opener} type="button" className="btn-secondary" onClick={onWriteOff}>
+        <button ref={opener} type="button" className="btn-danger-quiet" onClick={onWriteOff}>
           {t("saleQuarantine.writeOff.action")}
         </button>
       </div>
@@ -283,9 +283,9 @@ function Loaded({
         titleRef={titleRef}
         title={t.rich("saleQuarantine.detail.title", { ref: <Machine value={item.externalId} /> })}
       >
-        <span className="sale-sync__chips">
+        <HeaderStatus label={t("saleQuarantine.field.state")}>
           <QuarantineStateBadge code={item.state} />
-        </span>
+        </HeaderStatus>
       </PageHeader>
       <StaleError error={readFailure} onRetry={onRetry} />
       {item.uploadConflictCount > 0 ? (
@@ -331,11 +331,15 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
       </div>
     );
   }
-  if (read.error) {
+  // A failed first read, or a re-read that says 404 (the item is gone or out of scope now): the
+  // earlier item is never kept on screen with an action beside it.
+  const failure =
+    read.error ?? (read.inlineError?.kind === "not-found" ? read.inlineError : undefined);
+  if (failure) {
     return (
       <div className="surface">
         <ReadError
-          error={read.error}
+          error={failure}
           failedKey="saleQuarantine.detail.loadFailed"
           notFoundKey="saleQuarantine.detail.notFound"
           onRetry={read.retry}

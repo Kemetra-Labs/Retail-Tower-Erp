@@ -180,6 +180,7 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
   (the failed trigger, the slug tried and the exact message) on the Jira issue and in the PR body. GitHub
   `required` and the local light checks never replace a preflight on their own (repo `CLAUDE.md` section 11,
   step 5): do not merge on the strength of GitHub CI alone without that recorded exception.
+  **The `circleci.exe` CLI does trigger it (RT-1312, 2026-11-19, runs #2310 and #2311, #2310 green):** `circleci pipeline run --project circleci/XUuruzngh1JYidtrRaWDLy/5VLFtkZC7SB3XYRpJiZZt4 --definition-id 60d3b1e0-e12c-443c-a1a8-a58c5c638894 --branch <pr-branch>-preflight --param remote_suite=admin --param remote_expected_sha=<40-char sha> --json` (the CLI is under `%LOCALAPPDATA%\Microsoft\WinGet\Packages\CircleCI.CLI_*`). Push the `-preflight` branch first and take the sha from `git ls-remote`; two suites on one commit need two branches (`-preflight`, `-preflight-e2e`), and the shared serial group queues the second behind the first. The CLI has no status command: read the result with the MCP `list_run_workflows`, `list_workflow_jobs` and `list_job_tests` (`all=true`, `filter=["classname=<path>"]`). Use this first; the exception above applies only if the CLI trigger fails too, and then record its exact message.
 
 ## Red checks from GitHub release downloads
 

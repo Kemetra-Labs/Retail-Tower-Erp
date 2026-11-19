@@ -435,6 +435,13 @@ describe("QuarantineDetail (RT-1312)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Close without recording" }));
     await within(dialog).findByText(/not found or is not available to you. Nothing changed./);
     await waitFor(() => expect(api.consoleGetQuarantinedSale).toHaveBeenCalledTimes(2));
+    // What the operator sees: the page is the not-found view, with no item and no action.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(
+      await screen.findByText("This item was not found or is not available to you."),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", OPEN_BUTTON)).toBeNull();
+    expect(screen.queryByRole("heading", { level: 1, name: /POS-CAI-0042/ })).toBeNull();
   });
 
   test("a failed re-read keeps the item on screen and says so, with a retry", async () => {
