@@ -9,8 +9,3 @@
 #
 # Example:
 #   RT-123 intentional: POST /api/v1/example added the new required request header 'X-Example'
-
-# RT-1514: the posting feed adopts the two transfer kinds (posting-feed.yaml 1.17.0-draft).
-RT-1514 consumer:connector intentional (owner-authorized in chat 2026-11-19, RT-1514: the feed adopts transfer_dispatch and transfer_receive as RT-1422 adopted inventory_count; the Connector accepts both, Backend-Core emits neither until RT-1513): in API GET /api/connector/v1/erpnext/postings added the new `transfer_dispatch` enum value to the `items/items/kind` response property for the response status `200` [response-property-enum-value-added].
-RT-1514 consumer:connector intentional (owner-authorized in chat 2026-11-19, RT-1514: the feed adopts transfer_dispatch and transfer_receive as RT-1422 adopted inventory_count; the Connector accepts both, Backend-Core emits neither until RT-1513): in API GET /api/connector/v1/erpnext/postings added the new `transfer_receive` enum value to the `items/items/kind` response property for the response status `200` [response-property-enum-value-added].
-RT-1514 consumer:connector intentional (owner-authorized in chat 2026-11-19, RT-1514: the feed adopts transfer_dispatch and transfer_receive as RT-1422 adopted inventory_count; the Connector accepts both, Backend-Core emits neither until RT-1513): in API GET /api/connector/v1/erpnext/postings removed `subschema #1, subschema #2` from the `items/items/` response property `allOf` list for the response status `200` [response-property-all-of-removed].
