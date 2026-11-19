@@ -1,18 +1,32 @@
 /**
- * 0123_price_change_set_items_lines (RT-1151, RT-282 PR-05): the Change Set
- * items and lines tables, their policies (2 SELECT + 2 INSERT + 1 UPDATE) and
- * their five functions (one is a trigger on change_sets, which also gains two columns).
+ * 0123_price_change_set_items_lines (RT-1151, RT-282 PR-05): the six Price
+ * Change Set content tables (item lists, items, validations, lines, preview
+ * lines, preview membership changes), their policies (6 SELECT + 6 INSERT + 1
+ * UPDATE) and their eleven functions (one backs a trigger on change_sets).
  */
 import { countFunctions, countPolicies, countTables, type MigrationEntry } from "../migration-probes";
 
-const TABLES = ["price_change_set_items", "price_change_set_lines"];
+const TABLES = [
+  "price_change_set_item_lists",
+  "price_change_set_items",
+  "price_change_set_validations",
+  "price_change_set_lines",
+  "price_change_set_preview_lines",
+  "price_change_set_preview_memberships",
+];
 
 const FUNCTIONS = [
-  "price_change_set_items_before_insert",
   "price_change_set_content_append_only",
+  "price_change_set_item_lists_before_insert",
+  "price_change_set_item_lists_complete",
+  "price_change_set_items_before_insert",
+  "price_change_set_validations_before_insert",
+  "price_change_set_validations_complete",
+  "price_change_set_validation_sealed",
   "price_change_set_lines_before_insert",
   "price_change_set_lines_guard",
-  "change_sets_content_versions",
+  "price_change_set_preview_before_insert",
+  "change_sets_content_rules",
 ];
 
 export const MIGRATION: MigrationEntry = {
@@ -23,7 +37,7 @@ export const MIGRATION: MigrationEntry = {
       await countPolicies(db, TABLES),
       await countFunctions(db, FUNCTIONS),
     ],
-    applied: ["2", "5", "5"],
+    applied: ["6", "13", "11"],
     rolledBack: ["0", "0", "0"],
   },
 };

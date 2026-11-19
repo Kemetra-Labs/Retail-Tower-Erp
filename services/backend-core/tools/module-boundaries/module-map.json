@@ -273,8 +273,12 @@
   "unownedTables": [
     "change_sets",
     "price_books",
+    "price_change_set_item_lists",
     "price_change_set_items",
     "price_change_set_lines",
+    "price_change_set_preview_lines",
+    "price_change_set_preview_memberships",
+    "price_change_set_validations",
     "price_events",
     "price_zone_memberships",
     "price_zones",

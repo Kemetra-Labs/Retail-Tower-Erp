@@ -22,12 +22,12 @@
 -- tables are FORCE ROW LEVEL SECURITY by tenant, so the grants give access only
 -- inside runWithTenantContext.
 --
--- SELECT and INSERT table-level on both tables. The only UPDATE is
--- column-level (the RT-1249 mechanism): price_change_set_lines.new_event_id,
--- which the 0123 guard lets the publishing transaction set once. No UPDATE on
--- price_change_set_items: it is insert-only (a trigger also refuses UPDATE for
--- every role). Never grant DELETE or TRUNCATE: there is no DELETE policy,
--- TRUNCATE is not subject to row security, and a set's content is kept.
+-- SELECT and INSERT table-level on all six tables. The only UPDATE is
+-- column-level (the RT-1249 mechanism): price_change_set_lines (new_event_id,
+-- result_ids), the publish record the 0123 guard lets the publishing
+-- transaction set once. Everything else is insert-only (a trigger also refuses
+-- UPDATE for every role). Never grant DELETE or TRUNCATE: there is no DELETE
+-- policy, TRUNCATE is not subject to row security, and a set's content is kept.
 --
 -- The auth lookup role must hold NO privilege on these tables
 -- (AUTH_LOOKUP_FORBIDDEN_GRANTS); it has BYPASSRLS, so any grant would expose
@@ -45,42 +45,71 @@
 
 BEGIN;
 
--- A table-level UPDATE would cover every column; clear it so only the column
--- below remains. SELECT and INSERT are untouched.
-REVOKE UPDATE ON price_change_set_items, price_change_set_lines FROM :"domain_role";
-GRANT SELECT, INSERT ON price_change_set_items, price_change_set_lines TO :"domain_role";
-GRANT UPDATE (new_event_id) ON price_change_set_lines TO :"domain_role";
+-- A table-level UPDATE would cover every column; clear it so only the columns
+-- below remain. SELECT and INSERT are untouched.
+REVOKE UPDATE ON price_change_set_item_lists, price_change_set_items, price_change_set_validations FROM :"domain_role";
+REVOKE UPDATE ON price_change_set_lines, price_change_set_preview_lines, price_change_set_preview_memberships FROM :"domain_role";
+GRANT SELECT, INSERT ON price_change_set_item_lists, price_change_set_items, price_change_set_validations TO :"domain_role";
+GRANT SELECT, INSERT ON price_change_set_lines, price_change_set_preview_lines, price_change_set_preview_memberships TO :"domain_role";
+GRANT UPDATE (new_event_id, result_ids) ON price_change_set_lines TO :"domain_role";
 
 -- Verify the domain role: every row must read `t`.
 SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS granted
-  FROM (VALUES ('price_change_set_items', 'SELECT'),
+  FROM (VALUES
+                ('price_change_set_item_lists', 'SELECT'),
+                ('price_change_set_item_lists', 'INSERT'),
+                ('price_change_set_items', 'SELECT'),
                 ('price_change_set_items', 'INSERT'),
+                ('price_change_set_validations', 'SELECT'),
+                ('price_change_set_validations', 'INSERT'),
                 ('price_change_set_lines', 'SELECT'),
-                ('price_change_set_lines', 'INSERT')) AS t(tbl, priv);
+                ('price_change_set_lines', 'INSERT'),
+                ('price_change_set_preview_lines', 'SELECT'),
+                ('price_change_set_preview_lines', 'INSERT'),
+                ('price_change_set_preview_memberships', 'SELECT'),
+                ('price_change_set_preview_memberships', 'INSERT')) AS t(tbl, priv);
 
-SELECT 'price_change_set_lines' AS tbl, 'new_event_id' AS col,
-       has_column_privilege(:'domain_role', 'price_change_set_lines', 'new_event_id', 'UPDATE') AS granted;
+SELECT c.col, has_column_privilege(:'domain_role', 'price_change_set_lines', c.col, 'UPDATE') AS granted
+  FROM (VALUES ('new_event_id'), ('result_ids')) AS c(col);
 
 -- No wider UPDATE: these columns must read `f`.
 SELECT c.tbl, c.col, has_column_privilege(:'domain_role', c.tbl, c.col, 'UPDATE') AS granted
-  FROM (VALUES ('price_change_set_items', 'item'),
-                ('price_change_set_items', 'change_set_version'),
+  FROM (VALUES
+                ('price_change_set_items', 'item'),
+                ('price_change_set_item_lists', 'item_count'),
+                ('price_change_set_validations', 'preview_hash'),
+                ('price_change_set_validations', 'summary'),
                 ('price_change_set_lines', 'new_price'),
                 ('price_change_set_lines', 'class'),
-                ('price_change_set_lines', 'replaced_ids')) AS c(tbl, col);
+                ('price_change_set_lines', 'replaced_ids'),
+                ('price_change_set_preview_lines', 'old_price')) AS c(tbl, col);
 
 SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
-          FROM (VALUES ('price_change_set_items', 'SELECT'),
+          FROM (VALUES
+                        ('price_change_set_item_lists', 'SELECT'),
+                        ('price_change_set_item_lists', 'INSERT'),
+                        ('price_change_set_items', 'SELECT'),
                         ('price_change_set_items', 'INSERT'),
+                        ('price_change_set_validations', 'SELECT'),
+                        ('price_change_set_validations', 'INSERT'),
                         ('price_change_set_lines', 'SELECT'),
-                        ('price_change_set_lines', 'INSERT')) AS t(tbl, priv))
+                        ('price_change_set_lines', 'INSERT'),
+                        ('price_change_set_preview_lines', 'SELECT'),
+                        ('price_change_set_preview_lines', 'INSERT'),
+                        ('price_change_set_preview_memberships', 'SELECT'),
+                        ('price_change_set_preview_memberships', 'INSERT')) AS t(tbl, priv))
        AND has_column_privilege(:'domain_role', 'price_change_set_lines', 'new_event_id', 'UPDATE')
+       AND has_column_privilege(:'domain_role', 'price_change_set_lines', 'result_ids', 'UPDATE')
        AND NOT (SELECT bool_or(has_column_privilege(:'domain_role', c.tbl, c.col, 'UPDATE'))
-                  FROM (VALUES ('price_change_set_items', 'item'),
-                                ('price_change_set_items', 'change_set_version'),
+                  FROM (VALUES
+                                ('price_change_set_items', 'item'),
+                                ('price_change_set_item_lists', 'item_count'),
+                                ('price_change_set_validations', 'preview_hash'),
+                                ('price_change_set_validations', 'summary'),
                                 ('price_change_set_lines', 'new_price'),
                                 ('price_change_set_lines', 'class'),
-                                ('price_change_set_lines', 'replaced_ids')) AS c(tbl, col))
+                                ('price_change_set_lines', 'replaced_ids'),
+                                ('price_change_set_preview_lines', 'old_price')) AS c(tbl, col))
        AS domain_ok \gset
 
 \if :domain_ok

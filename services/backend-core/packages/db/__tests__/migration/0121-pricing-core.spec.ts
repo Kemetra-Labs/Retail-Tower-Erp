@@ -80,10 +80,6 @@ const TABLES = [
   "price_zone_memberships",
   "price_events",
 ] as const;
-/** Columns a later migration adds to these tables (absent at 0121; the Drizzle schema declares them). */
-const LATER_COLUMNS: Record<string, readonly string[]> = {
-  change_sets: ["items_version", "lines_version"], // 0123
-};
 const UPDATABLE = new Set(["change_sets", "price_books", "price_zones", "price_zone_memberships", "price_events"]);
 const FUNCTIONS = [
   "pricing_append_only()",
@@ -387,7 +383,6 @@ describe("0121_pricing_core — shape", () => {
     for (const t of drizzle) {
       const name = getTableName(t);
       const declared = Object.values(getTableColumns(t) as Record<string, { name: string; notNull: boolean }>)
-        .filter((c) => !(LATER_COLUMNS[name] ?? []).includes(c.name))
         .map((c) => `${c.name}:${c.notNull ? "NO" : "YES"}`)
         .sort();
       const actual = await e.admin.query<{ c: string }>(

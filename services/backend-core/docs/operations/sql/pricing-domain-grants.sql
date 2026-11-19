@@ -1,5 +1,4 @@
--- Domain-role grants for the Retail Pricing tables (RT-1151, migration 0121;
--- change_sets.items_version / lines_version from migration 0123).
+-- Domain-role grants for the Retail Pricing tables (RT-1151, migration 0121).
 -- See docs/operations/database-roles.md.
 --
 -- Run ONCE per environment, AFTER `migrate up` has applied 0121 and BEFORE the
@@ -27,9 +26,8 @@
 -- (the RT-1249 mechanism), on the columns the Pricing runtime (RT-1484) may
 -- change; the 0121 guard triggers bound those changes further:
 --   change_sets             the lifecycle columns (title, reason, state,
---                           version, the validation binding, the revision,
---                           the transition actors, and the content versions
---                           items_version / lines_version from 0123);
+--                           version, the validation binding, the revision and
+--                           the transition actors);
 --   price_books             name;
 --   price_zones             name and the retirement (retired_at,
 --                           retired_by_user_id, retire_reason);
@@ -63,7 +61,7 @@ REVOKE UPDATE ON change_sets, price_books, price_zones, pricing_revisions FROM :
 REVOKE UPDATE ON pricing_revision_stores, price_zone_memberships, price_events FROM :"domain_role";
 GRANT SELECT, INSERT ON change_sets, price_books, price_zones, pricing_revisions TO :"domain_role";
 GRANT SELECT, INSERT ON pricing_revision_stores, price_zone_memberships, price_events TO :"domain_role";
-GRANT UPDATE (title, reason, state, version, validated_at_revision, preview_hash, target_store_set_hash, sensitive, sensitivity_reasons, revision_no, submitted_by_user_id, submitted_at, approved_by_user_id, approved_at, published_by_user_id, published_at, cancelled_by_user_id, cancelled_at, rejected_by_user_id, rejected_at, rejection_reason, items_version, lines_version) ON change_sets TO :"domain_role";
+GRANT UPDATE (title, reason, state, version, validated_at_revision, preview_hash, target_store_set_hash, sensitive, sensitivity_reasons, revision_no, submitted_by_user_id, submitted_at, approved_by_user_id, approved_at, published_by_user_id, published_at, cancelled_by_user_id, cancelled_at, rejected_by_user_id, rejected_at, rejection_reason) ON change_sets TO :"domain_role";
 GRANT UPDATE (name) ON price_books TO :"domain_role";
 GRANT UPDATE (name, retired_at, retired_by_user_id, retire_reason) ON price_zones TO :"domain_role";
 GRANT UPDATE (state, ended_in_revision) ON price_zone_memberships TO :"domain_role";
@@ -108,8 +106,6 @@ SELECT c.tbl, c.col, has_column_privilege(:'domain_role', c.tbl, c.col, 'UPDATE'
                 ('change_sets', 'rejected_by_user_id'),
                 ('change_sets', 'rejected_at'),
                 ('change_sets', 'rejection_reason'),
-                ('change_sets', 'items_version'),
-                ('change_sets', 'lines_version'),
                 ('price_books', 'name'),
                 ('price_zones', 'name'),
                 ('price_zones', 'retired_at'),
@@ -175,8 +171,6 @@ SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
                             ('change_sets', 'rejected_by_user_id'),
                             ('change_sets', 'rejected_at'),
                             ('change_sets', 'rejection_reason'),
-                            ('change_sets', 'items_version'),
-                            ('change_sets', 'lines_version'),
                             ('price_books', 'name'),
                             ('price_zones', 'name'),
                             ('price_zones', 'retired_at'),
