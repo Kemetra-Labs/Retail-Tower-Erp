@@ -132,6 +132,33 @@ const CaptureSaleLinePromotionSchema = z
   })
   .strict();
 
+/**
+ * RT-1151 (RT-282 PR-07; contract `PricingProvenance`, shared with
+ * `pricing/price-inquiry.yaml`): what priced the line on the till, stored
+ * verbatim in `sale_line_pricing_provenance` and never recomputed or checked
+ * against the price (owner D3, RT-1151 comment 17783). Only the shape is
+ * validated here (400). v1: `sourceScope` book / zone / store, `priceKind`
+ * regular (OD-1, OD-2).
+ */
+export const CaptureSaleLinePricingProvenanceSchema = z.discriminatedUnion("origin", [
+  z
+    .object({
+      origin: z.literal("pricing"),
+      sourceScope: z.enum(["book", "zone", "store"]),
+      priceEventId: z.string().uuid().transform((id) => id.toLowerCase()),
+      priceKind: z.literal("regular"),
+      pricingRevision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+  z
+    .object({
+      origin: z.literal("legacy"),
+      sourceScope: z.enum(["legacy_tenant", "legacy_store"]),
+      catalogCursor: z.string().min(1).max(128).refine(hasNoNul, NO_NUL_MESSAGE),
+    })
+    .strict(),
+]);
+
 export const CaptureSaleLineSchema = z
   .object({
     lineName: z.string().min(1).max(500).refine(hasNoNul, NO_NUL_MESSAGE),
@@ -149,6 +176,8 @@ export const CaptureSaleLineSchema = z
     tracking: CaptureSaleLineTrackingSchema.optional(),
     // RT-1337 (spec 048): an automatic offer's frozen fact; lineAmount is then the net after it. Hashed and stored.
     promotion: CaptureSaleLinePromotionSchema.optional(),
+    // RT-1151 (RT-282 PR-07): what priced the line on the till. Hashed and stored verbatim.
+    pricingProvenance: CaptureSaleLinePricingProvenanceSchema.optional(),
   })
   .strict();
 

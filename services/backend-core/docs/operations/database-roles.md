@@ -765,6 +765,21 @@ A script without the marker, such as the owner-gated
   `tenant_product_categories`; neither needs a maintenance window. The 0101
   down migration refuses while any offer or Offer Pack revision is stored.
 
+- **Migration `0122_sale_line_pricing_provenance` (RT-1151, RT-282 PR-07).** Run
+  [`sql/sale-line-pricing-provenance-domain-grants.sql`](sql/sale-line-pricing-provenance-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `sale_line_pricing_provenance`, where sale capture stores the pricing
+  provenance a till sends with a line. No `UPDATE`: the rows are frozen sale
+  facts, and a 0122 trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` for every
+  role. Never grant `DELETE` or `TRUNCATE`. Without the grants the API refuses
+  to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no
+  privilege on it (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0122 creates one new, empty
+  table (no backfill, no change to `sale_lines`; its FK takes a short lock on
+  `sale_lines` under `lock_timeout` 2s) and needs no maintenance window. Its
+  down migration refuses while any row is stored.
+
 - **Migration `0103_tracking_identity_birth` (RT-453).** Run
   [`sql/tracking-identity-birth-domain-grants.sql`](sql/tracking-identity-birth-domain-grants.sql)
   after `migrate up` and before the API and worker start, in the same step 2 of
