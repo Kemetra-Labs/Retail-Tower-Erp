@@ -1732,10 +1732,14 @@ describe("erpnext-connector/posting-feed.yaml — RT-1514 adopts the transfer ki
     expect(v(count)).toBe(true);
     expect(v({ ...count, transfer: dispatch().transfer })).toBe(false);
     expect(v({ ...count, receipt: receive().receipt })).toBe(false);
-    const sale = { ...dispatch(), kind: "sale_post", sale: { __placeholder: true } };
-    delete sale.transfer;
     // the sale body shape is validated elsewhere; here only the kind conditional matters
-    expect(v({ ...sale, transfer: dispatch().transfer })).toBe(false);
+    const saleWithTransfer: Record<string, any> = {
+      ...dispatch(),
+      kind: "sale_post",
+      sale: { __placeholder: true },
+    };
+    expect(saleWithTransfer["transfer"]).toBeDefined();
+    expect(v(saleWithTransfer)).toBe(false);
   });
 
   it("the externalId of a transfer item is its leg-level provenance key (888, 889) for its own kind", () => {
