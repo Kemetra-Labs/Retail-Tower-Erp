@@ -41,7 +41,7 @@ export async function readAfterStart(ctx: SurfaceContext, attemptId: string | nu
     usePaymentStore.getState().applyAttemptSnapshot(attempt);
     return;
   }
-  followEndedWithReason(ctx, attempt);
+  followEndedWithReason(ctx, attempt, null);
 }
 
 /**
@@ -106,7 +106,7 @@ export async function handleLineApplied(ctx: SurfaceContext): Promise<void> {
   // has moved past `started` is followed (settled → Completion), never
   // offered another commit.
   if (attempt.state !== 'started') {
-    followEndedWithReason(ctx, attempt);
+    followEndedWithReason(ctx, attempt, null);
     return;
   }
   usePaymentStore.getState().applyAttemptSnapshot(attempt);
@@ -246,7 +246,7 @@ async function reconcileAfterConfirm(
     ctx.setBridgeRefusalCopy(confirmRefusalCopy(reason, moneyStillDue(attempt)));
     return;
   }
-  followEndedWithReason(ctx, attempt);
+  followEndedWithReason(ctx, attempt, reason);
 }
 
 /** Retry the post-apply / post-start read that failed, through the same copy decision as before. */

@@ -18,8 +18,9 @@
  *      decimals / negatives / scientific notation at the keystroke
  *      level (Constitution §P9 / P-II).
  *
- * The refusal-copy enforcement (F-A4B-003) lives in a sibling test
- * file (VoucherEntry.refusal-copy.test.tsx).
+ * The refusal-copy tests (per-reason lines, RT-1331; F-A4B-003's single
+ * line is superseded) live in a sibling test file
+ * (VoucherEntry.refusal-copy.test.tsx).
  *
  * **Wave 5c — TDD RED.** Forward-references the component.
  */

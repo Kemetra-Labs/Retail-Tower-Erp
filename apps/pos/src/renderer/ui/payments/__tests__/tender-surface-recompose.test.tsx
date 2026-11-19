@@ -371,8 +371,8 @@ describe('NEGATIVE — rejected prototype behaviours are absent', () => {
     expect(document.querySelector('.method-grid--four')).toBeNull();
   });
 
-  it('N3: entering prototype demo code "VCH-100" in VoucherEntry produces NO client-side applied discount — bridge refusal is generic', async () => {
-    // Bridge returns a generic refusal (no reason enumerated).
+  it('N3: entering prototype demo code "VCH-100" in VoucherEntry produces NO client-side applied discount — the bridge refusal shows the unknown-code line', async () => {
+    // Bridge refuses the code (`voucher_not_found`); RT-1331 shows the unknown-code line for it.
     // We resolve the promise immediately using a deferred pattern so we can
     // flush all microtasks with act() synchronously.
     let resolveApply!: (v: { kind: string; reason: string }) => void;
@@ -408,9 +408,9 @@ describe('NEGATIVE — rejected prototype behaviours are absent', () => {
     });
     // NO client-side "applied" amount / discount should appear
     expect(document.querySelector('.voucher-applied')).toBeNull();
-    // Generic copy must be shown (not the specific refusal reason)
+    // The unknown-code line is shown (RT-1331), never the refusal reason itself
     const refused = screen.getByTestId('voucher-entry-refused');
-    expect(refused).toHaveTextContent('تعذّر استخدام هذه القسيمة حالياً.');
+    expect(refused).toHaveTextContent('رمز القسيمة غير معروف');
     // The structured reason string must NOT appear in the DOM
     expect(screen.queryByText('voucher_not_found')).toBeNull();
   });

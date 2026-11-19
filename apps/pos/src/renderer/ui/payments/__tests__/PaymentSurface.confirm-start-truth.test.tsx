@@ -212,6 +212,39 @@ describe('RT-340 — a refused or lost confirm follows main', () => {
     expect(refusalText()).not.toContain(TRY_AGAIN);
   });
 
+  // RT-1331 (owner decision 2026-11-19): V-A refused the redeem at settle. The cashier is told
+  // which voucher problem it was, and is never offered a retry that cannot succeed.
+  it('a settle V-A refused as expired says so, then that the payment ended, with no retry', async () => {
+    const h = makeHarness();
+    await pickCash(h);
+    h.confirm.mockResolvedValueOnce({ kind: 'refused', reason: 'voucher_expired' });
+    h.read.mockResolvedValue(ok(attempt('failed')));
+
+    await pressConfirm();
+
+    expect(usePaymentStore.getState().paymentSlice).toBeNull();
+    expect(refusalText()).toContain('منتهية الصلاحية');
+    expect(refusalText()).toContain('انتهت عملية الدفع هذه دون أن تكتمل');
+    expect(refusalText()).not.toContain(TRY_AGAIN);
+    expect(refusalText()).not.toContain('voucher_expired');
+  });
+
+  // Defensive path: main fails the attempt on a V-A redeem refusal, so a voucher reason with
+  // the attempt still open is not expected in production. If it ever happens (a failed
+  // compensation, a newer main), the cashier must still get the voucher fact, never a retry
+  // that cannot succeed.
+  it('a voucher refusal on an attempt main still holds open names the voucher, not «try again»', async () => {
+    const h = makeHarness();
+    await pickCash(h);
+    h.confirm.mockResolvedValueOnce({ kind: 'refused', reason: 'voucher_cancelled' });
+    h.read.mockResolvedValue(ok(attempt('started')));
+
+    await pressConfirm();
+
+    expect(refusalText()).toContain('ملغاة');
+    expect(refusalText()).not.toContain(TRY_AGAIN);
+  });
+
   // Codex P2 on #626: main refuses Back for a cart with any tender history, so
   // dropping an ended attempt that held tender must keep Back closed.
   it('an ended attempt with tender, dropped after a refused confirm, keeps Back closed', async () => {
@@ -431,6 +464,28 @@ describe('RT-340 — a refused or lost confirm follows main', () => {
 
     expect(usePaymentStore.getState().paymentSlice).toBeNull();
     expect(refusalText()).toContain('انتهت عملية الدفع هذه دون أن تكتمل');
+  });
+
+  // RT-1331: the refusal reason is kept while the read-back is retried, so the voucher fact
+  // is not lost when the first read fails and a later read finds the attempt ended.
+  it('a voucher refusal whose read-back failed still names the voucher on the read retry', async () => {
+    const h = makeHarness();
+    await pickCash(h);
+    h.confirm.mockResolvedValueOnce({ kind: 'refused', reason: 'voucher_expired' });
+    h.read.mockRejectedValue(new Error('ipc lost'));
+    await pressConfirm();
+
+    h.read.mockResolvedValue(ok(attempt('failed')));
+    await act(async () => {
+      screen.getByTestId('payment-surface-reread').click();
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(usePaymentStore.getState().paymentSlice).toBeNull();
+    expect(refusalText()).toContain('منتهية الصلاحية');
+    expect(refusalText()).toContain('انتهت عملية الدفع هذه دون أن تكتمل');
+    expect(refusalText()).not.toContain(TRY_AGAIN);
   });
 
   it('a lost confirm with a lost read offers the read retry, never the commit', async () => {

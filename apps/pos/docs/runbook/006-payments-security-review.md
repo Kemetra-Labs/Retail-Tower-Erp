@@ -141,7 +141,7 @@ Recorded in `specs/006-payments-tender/reviews/a4b-vouchers-bridge-brief.md`:
 |:--|:--|
 | **F-A4B-001** | Closed-set refusal mapping via `mapRefusalCode` in `refusal-mapping.ts`. No free-text refusal codes cross the bridge. |
 | **F-A4B-002** | No admin `Voucher*` schema imports in any 006 module. Grep-verified at audit time. |
-| **F-A4B-003** | All 8 voucher refusal reasons collapse to ONE generic renderer copy: `"This voucher cannot be used right now."` An attacker cannot enumerate voucher validity, balance, or holder existence by probing codes against the POS surface. |
+| **F-A4B-003** | **SUPERSEDED 2026-11-19 by an owner decision (chat, RT-1331).** It collapsed all 8 voucher refusal reasons into ONE generic renderer copy: `"This voucher cannot be used right now."` The cashier is now told which voucher problem stopped the apply (`voucher-refusal-copy.ts`). Kept from it: the reason code never reaches the DOM; a code from another organization reads like an unknown one; no refusal line states the voucher's value or the amount left to pay. Accepted residual risk: expired / cancelled / already-used / wrong-store lines confirm a code exists in this organization. Backend-Core's per-device limiter (RT-1112) bounds only failed lookups (about 10 per 15 minutes per device), gives the hit back on a found code, and fails open, so it does not bound status checks of codes someone already holds. The value is revealed by the forfeit prompt by design and bounded by the overpayment refusal for a code the cashier holds. See `docs/runbook/006-payments-tender.md`. |
 | **F-A4B-004** | Voucher token NEVER serialised into any bridge response, audit payload, log line, or Sentry breadcrumb. The audit-emitter's `PAYMENT_FORBIDDEN_KEYS` set + idempotency helper's `FORBIDDEN_HASH_KEYS` set provide the compile/runtime guards. |
 
 The complete redaction sweep is documented in `docs/runbook/006-payments-redaction-audit.md` (T301).
@@ -200,7 +200,7 @@ The bridge response shape `PaymentsForceFailResponse` is:
 | Outbox tampering | High | Append-only trigger (migration 0016) | `payment-action-outbox` direct-update tests |
 | Idempotency replay (double-charge) | High | Outbox `UNIQUE(action_id)` + payload-hash mismatch refusal | `idempotency-replay.identical.test.ts` + `idempotency-replay.payload-mismatch.test.ts` |
 | V-A authority unreachable → silent failure | Medium | `dependency_unavailable` refusal + deferred-reversal resolver | `deferred-reversal-resolver.test.ts` + `voucher-end-to-end.test.ts` resolver-hand-off |
-| Voucher enumeration via refusal copy | Medium | 8 reasons collapse to 1 copy (F-A4B-003) | `VoucherEntry.refusal-copy.test.tsx` |
+| Voucher enumeration via refusal copy | Medium (raised from the closed F-A4B-003 control by the 2026-11-19 owner decision) | Cross-tenant and unknown codes read the same; no value or amount in any refusal line; the reason code never reaches the DOM; Backend-Core limits failed lookups per device (RT-1112; fail-open, does not bound status checks of known codes); residual risk accepted by the owner | `voucher-refusal-copy.test.ts` + `VoucherEntry.refusal-copy.test.tsx` |
 
 ## Open items for reviewer
 
