@@ -38,13 +38,8 @@ export class PriceStructureConflictError extends Error {
   }
 }
 
-/** 422 `pricing_revision_unknown`: an explicit `as_of_revision` above the tenant's head (or none published). */
-export class PricingRevisionUnknownError extends Error {
-  constructor() {
-    super("pricing revision unknown");
-    this.name = "PricingRevisionUnknownError";
-  }
-}
+/** 422 `pricing_revision_unknown`, shared with price inquiry (`../pricing-revision`). */
+export { PricingRevisionUnknownError } from "../pricing-revision";
 
 /** A zone-stores cursor this operation did not issue, or a continuation that changes its `at` / revision → 400. */
 export class ZoneStoresCursorError extends InvalidCursorError {

@@ -5,3 +5,4 @@
  * `tools/module-boundaries` enforces this.
  */
 export { listActiveWarehouseRefsOfStore } from "./erpnext-warehouse-map/store-warehouse-refs";
+export { isTenantProduct } from "./product-lookups";

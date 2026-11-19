@@ -17,6 +17,15 @@ export async function isLiveStore(client: Queryable, tenantId: string, storeId: 
   return (r.rowCount ?? 0) > 0;
 }
 
+/** The IANA time zone (`stores.timezone`) of a live store of `tenantId`, or null when there is none. */
+export async function liveStoreTimezone(client: Queryable, tenantId: string, storeId: string): Promise<string | null> {
+  const r = await client.query<{ timezone: string }>(
+    `SELECT timezone FROM stores WHERE tenant_id = $1::uuid AND id = $2::uuid AND deleted_at IS NULL`,
+    [tenantId, storeId],
+  );
+  return r.rows[0]?.timezone ?? null;
+}
+
 /**
  * Up to `limit` live store ids of `tenantId`, ascending, strictly after `after` (keyset), limited
  * to `storeIds` when that is not null (an empty list reads nothing: fail closed).

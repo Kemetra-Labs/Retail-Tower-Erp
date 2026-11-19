@@ -13,9 +13,9 @@ info:
 
 
     **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
-    owner on RT-1151 (D1, comment 17783). Every operation carries
-    `x-runtime-status: contract-only`: the resolver and these endpoints ship
-    in RT-1484 (PR-08), which removes the markers. The authoring side (Price
+    owner on RT-1151 (D1, comment 17783). RT-1484 (RT-282 PR-08a/PR-08b)
+    ships the resolver and the runtime of every operation here, so none
+    carries `x-runtime-status`. The authoring side (Price
     Books, Zones, memberships and Change Sets) is
     `pricing/price-change-sets.yaml` and `pricing/price-structure.yaml`.
 
@@ -93,10 +93,6 @@ paths:
       tags: [pricing-inquiry-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The resolver and this route ship in
-        RT-1484 (RT-282 PR-08), which removes the marker.
       description: >
         Current (no `at`), future or historical (`at`) price, optionally as
         known at `as_of_revision`. A future instant uses events already
@@ -139,10 +135,6 @@ paths:
       tags: [pricing-inquiry-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-08), which removes the marker.
       description: >
         Ordered, contiguous, non-overlapping segments covering exactly
         `[from, to)`, each with the resolution that holds through it, as known
@@ -188,10 +180,6 @@ paths:
       tags: [pricing-inquiry-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-08), which removes the marker.
       description: >
         The `consoleGetStoreProductPrice` resolution plus, for each layer
         (Store, Zone, Book), whether it was `selected`, `shadowed` (a less

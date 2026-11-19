@@ -2,12 +2,13 @@
  * apps/api/test/pricing/price-inquiry.contract.spec.ts
  *
  * RT-1151 (RT-282 PR-04, inquiry half): the Retail Pricing inquiry contract,
- * `pricing/price-inquiry.yaml` 1.0.0-draft. `[GATED]` contract-first; every
- * operation is `x-runtime-status: contract-only` until RT-1484 (PR-08).
+ * `pricing/price-inquiry.yaml` 1.0.0-draft. `[GATED]` contract-first; RT-1484
+ * (RT-282 PR-08b) ships the runtime of all three operations, which lose their
+ * `x-runtime-status: contract-only` markers.
  *
  * Structural / load-only plus AJV fixtures; no app boot and no HTTP. Pins:
- *   1. The three operations at their paths, contract-only with a note, and no
- *      operationId collision with any other contract.
+ *   1. The three operations at their paths, implemented (no contract-only
+ *      marker, no note), and no operationId collision with any other contract.
  *   2. Auth: human `cookieAuth` only; scope never comes from a query field.
  *   3. Bitemporal parameters (`at`, `as_of_revision`) and the v1 Sell Unit.
  *   4. The shared `PricingProvenance` union (RT-282 PR-06/PR-07) and that
@@ -141,11 +142,11 @@ describe("price-inquiry contract — operations (RT-1151 PR-04)", () => {
     expect((doc as unknown as { info: { version: string } }).info.version).toBe("1.0.0-draft");
   });
 
-  it.each(OPERATIONS)("$id is a GET at its path, contract-only with a note", ({ id, path }) => {
+  it.each(OPERATIONS)("$id is a GET at its path, implemented (RT-1484 PR-08b): no marker, no note", ({ id, path }) => {
     const op = api.get(path);
     expect(op.operationId).toBe(id);
-    expect(op["x-runtime-status"]).toBe("contract-only");
-    expect(String(op["x-runtime-note"] ?? "")).toMatch(/RT-1484/);
+    expect(op["x-runtime-status"]).toBeUndefined();
+    expect(op["x-runtime-note"]).toBeUndefined();
     expect(otherOperationIds.has(id)).toBe(false);
   });
 

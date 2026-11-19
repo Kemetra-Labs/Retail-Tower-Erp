@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
+import { AsOfRevisionSchema, AtSchema } from "../pricing-query";
 
 const CodeSchema = z.string().regex(/^[A-Z0-9][A-Z0-9_-]{0,31}$/, "must be an upper-case code of 1 to 32 characters");
 // The DB counts characters (code points), Zod UTF-16 units: Zod is the stricter of the two.
@@ -37,29 +38,9 @@ export type RetirePriceZoneBody = z.infer<typeof RetirePriceZoneBodySchema>;
 /** A path id (bookId, zoneId, storeId): a UUID, any case; else 400 before any read. */
 export const PathIdSchema = z.string().uuid();
 
-const AT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|[+-](\d{2}):(\d{2}))$/;
+// The instant and revision rules are shared with price inquiry (RT-1484 PR-08b).
+export { isRfc3339Instant } from "../pricing-query";
 
-/** RFC 3339 with an offset, and a real calendar instant (Postgres refuses "02-31", JS rolls it over). */
-export function isRfc3339Instant(value: string): boolean {
-  const m = AT_PATTERN.exec(value);
-  if (!m) return false;
-  const [year, month, day, hour, minute, second] = [m[1], m[2], m[3], m[4], m[5], m[6]].map(Number) as [
-    number, number, number, number, number, number,
-  ];
-  const offsetOk = m[8] === "Z" || (Number(m[9]) <= 23 && Number(m[10]) <= 59);
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return (
-    year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth &&
-    hour <= 23 && minute <= 59 && second <= 59 && offsetOk
-  );
-}
-
-const AtSchema = z.string().refine(isRfc3339Instant, "must be an RFC 3339 date-time with an offset");
-// int64 >= 1, kept within the JS safe range so the response can carry it as a number.
-const AsOfRevisionSchema = z
-  .string()
-  .regex(/^[1-9]\d{0,14}$/, "must be a positive integer")
-  .transform((v) => Number(v));
 const CursorSchema = z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/);
 const PageSizeSchema = z
   .string()
