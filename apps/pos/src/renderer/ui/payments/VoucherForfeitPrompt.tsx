@@ -1,4 +1,4 @@
-import { useEffect, useRef, type JSX } from 'react';
+import { useEffect, useId, useRef, type JSX } from 'react';
 
 import { touchTarget } from '../tokens/touch.js';
 import { formatCheckoutMoney } from './format-checkout-money.js';
@@ -41,6 +41,12 @@ export function VoucherForfeitPrompt({
   onCancel,
 }: Readonly<VoucherForfeitPromptProps>): JSX.Element {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // Both actions are described by the consequence and the amount, so a screen-reader user
+  // hears what confirming forfeits (focus lands on cancel, which would otherwise be silent
+  // about it); the amount is a polite status so a changed amount is announced.
+  const copyId = useId();
+  const amountId = useId();
+  const described = `${copyId} ${amountId}`;
 
   // The safe option owns focus whenever the prompt is waiting on the cashier (UX-11): on
   // open, and again after a confirmed call that came back asking about a different amount.
@@ -58,10 +64,11 @@ export function VoucherForfeitPrompt({
       data-testid="voucher-entry-forfeit"
       aria-label="تأكيد إسقاط باقي القسيمة"
     >
-      <p>{FORFEIT_PROMPT_COPY}</p>
+      <p id={copyId}>{FORFEIT_PROMPT_COPY}</p>
       <p>
-        <span>الباقي الذي سيسقط: </span>
-        <bdi dir="ltr">{formatCheckoutMoney(forfeitedMinor)}</bdi>
+        <output id={amountId}>
+          الباقي الذي سيسقط: <bdi dir="ltr">{formatCheckoutMoney(forfeitedMinor)}</bdi>
+        </output>
       </p>
       <div className="voucher-entry__forfeit-actions">
         <button
@@ -70,6 +77,7 @@ export function VoucherForfeitPrompt({
           data-testid="voucher-entry-forfeit-cancel"
           style={{ minHeight: touchTarget.commit }}
           ref={cancelRef}
+          aria-describedby={described}
           disabled={busy}
           onClick={onCancel}
         >
@@ -80,6 +88,7 @@ export function VoucherForfeitPrompt({
           className="v5-btn v5-btn--primary v5-btn--commit"
           data-testid="voucher-entry-forfeit-confirm"
           style={{ minHeight: touchTarget.commit }}
+          aria-describedby={described}
           disabled={busy}
           onClick={onConfirm}
         >

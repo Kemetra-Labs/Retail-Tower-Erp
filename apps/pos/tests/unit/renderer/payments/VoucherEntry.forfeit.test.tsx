@@ -13,7 +13,7 @@
  * shown, not the wording.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
@@ -152,6 +152,59 @@ describe('RT-1331 — VoucherEntry forfeit confirmation', () => {
     await submit(user);
     await screen.findByTestId('voucher-entry-forfeit');
     expect(screen.getByTestId('voucher-entry-forfeit-cancel')).toHaveFocus();
+  });
+
+  describe.each([
+    ['code', 'voucher-entry-code-input', 'X'],
+    ['amount', 'voucher-entry-amount-input', '{Backspace}'],
+  ])('an answer that arrives after the %s was edited', (_field, inputTestId, keys) => {
+    it('is discarded: no prompt for input the cashier no longer sees, nothing confirmable', async () => {
+      const user = userEvent.setup();
+      let resolveAnswer: (r: TenderApplyResponse) => void = () => undefined;
+      const spy = vi.fn<BridgeFn>(
+        () =>
+          new Promise<TenderApplyResponse>((resolve) => {
+            resolveAnswer = resolve;
+          }),
+      );
+      render(
+        <VoucherEntry remainingBalanceMinor={5000} paymentAttemptId="pa-1" tenderApply={spy} />,
+      );
+      await submit(user);
+      // The request is in flight; the cashier edits the input, then the answer arrives.
+      await user.type(screen.getByTestId(inputTestId), keys);
+      resolveAnswer(REQUIRED_250);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('voucher-entry-applying')).not.toBeInTheDocument();
+      });
+      expect(screen.queryByTestId('voucher-entry-forfeit')).not.toBeInTheDocument();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('an answer for unchanged input still opens the prompt (the discard is only for edits)', async () => {
+    const user = userEvent.setup();
+    mount(REQUIRED_250);
+    await submit(user);
+    expect(await screen.findByTestId('voucher-entry-forfeit')).toBeInTheDocument();
+  });
+
+  it('links both actions to the consequence and the amount, and announces the amount politely', async () => {
+    const user = userEvent.setup();
+    mount(REQUIRED_250);
+    await submit(user);
+    const panel = await screen.findByTestId('voucher-entry-forfeit');
+    const amount = within(panel).getByRole('status');
+    expect(amount).toHaveTextContent('2.50');
+    for (const id of ['voucher-entry-forfeit-cancel', 'voucher-entry-forfeit-confirm']) {
+      const described = (screen.getByTestId(id).getAttribute('aria-describedby') ?? '')
+        .split(' ')
+        .map((ref) => document.getElementById(ref)?.textContent ?? '')
+        .join(' ');
+      expect(described).toContain('2.50');
+      expect(described).toContain('سيسقط الباقي');
+    }
   });
 
   it('a double click on confirm sends one acknowledged request', async () => {

@@ -110,6 +110,17 @@ export function VoucherEntry({
   // as secondary UX feedback.
   const submitLockRef = useRef<boolean>(false);
 
+  // RT-1331: bumped on every accepted edit of the code or the amount. A forfeit answer
+  // belongs to the input that was sent; if either input changed while the request was in
+  // flight, the answer is discarded (nothing was persisted for it), so a prompt is never
+  // restored for a code or amount the cashier no longer sees, and confirming can never
+  // acknowledge input other than what is on screen.
+  const inputRevisionRef = useRef<number>(0);
+  const noteInputEdited = (): void => {
+    inputRevisionRef.current += 1;
+    if (pendingForfeit !== null) setPendingForfeit(null);
+  };
+
   const amountAppliedMinor = useMemo(() => parseCurrencyToMinor(rawAmountInput), [rawAmountInput]);
 
   const codeIsWellFormed = voucherCode.length >= 3 && VOUCHER_CODE_PATTERN.test(voucherCode);
@@ -143,6 +154,7 @@ export function VoucherEntry({
       return;
     }
     submitLockRef.current = true;
+    const sentRevision = inputRevisionRef.current;
     setBridgeRefusal(false);
     setIsApplying(true);
     void (async (): Promise<void> => {
@@ -163,7 +175,9 @@ export function VoucherEntry({
         }
         const forfeitedMinor = usableForfeit(response);
         if (forfeitedMinor !== null) {
-          setPendingForfeit({ forfeitedMinor, amountMinor: amount, code });
+          if (sentRevision === inputRevisionRef.current) {
+            setPendingForfeit({ forfeitedMinor, amountMinor: amount, code });
+          }
           return;
         }
         // F-A4B-003: every refusal reason collapses to one generic copy.
@@ -239,7 +253,7 @@ export function VoucherEntry({
                   setVoucherCode(e.target.value.toUpperCase());
                   if (bridgeRefusal) setBridgeRefusal(false);
                   if (appliedOk) setAppliedOk(false);
-                  if (pendingForfeit !== null) setPendingForfeit(null);
+                  noteInputEdited();
                 }}
                 maxLength={64}
                 autoComplete="off"
@@ -278,7 +292,7 @@ export function VoucherEntry({
                 if (next === '' || /^\d*\.?\d{0,2}$/.test(next)) {
                   setRawAmountInput(next);
                   if (bridgeRefusal) setBridgeRefusal(false);
-                  if (pendingForfeit !== null) setPendingForfeit(null);
+                  noteInputEdited();
                 }
               }}
               inputMode="numeric"

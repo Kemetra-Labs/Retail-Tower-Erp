@@ -1237,7 +1237,7 @@ export interface TenderApplyRequest {
  * Nothing is persisted, audited or logged for it. The amount is the one owner-approved
  * exception to the voucher value staying off the wire (V-A contract, RT-1098 c16402).
  */
-export interface VoucherForfeitConfirmationRequired {
+interface VoucherForfeitConfirmationRequired {
   kind: 'forfeit_confirmation_required';
   forfeited_amount_minor: number;
 }
