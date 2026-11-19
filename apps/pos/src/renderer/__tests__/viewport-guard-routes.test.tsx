@@ -3,7 +3,12 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 import { AppRouter } from '../router';
-import { installViewport, resizeTo, settleTier } from '../v5/__tests__/__helpers__/viewport-bands';
+import {
+  installViewport,
+  resizeTo,
+  settleTier,
+  viewportSubscribed,
+} from '../v5/__tests__/__helpers__/viewport-bands';
 import type { OperatorBridgeAPI, PairingBridgeAPI } from '../../shared/bridge-api';
 import type { PairingStatus } from '../../shared/pairing-types';
 
@@ -151,6 +156,7 @@ describe('supported-viewport height floor outside the frame (RT-313)', () => {
     const { bridge } = bridgeWith({ kind: 'unpaired' });
     render(<AppRouter pairing={bridge} />);
     await waitFor(() => expect(screen.getByTestId('route-pairing')).toBeInTheDocument());
+    await viewportSubscribed();
 
     resizeTo(1280, 599);
     await settleTier();
@@ -168,6 +174,7 @@ describe('supported-viewport height floor outside the frame (RT-313)', () => {
     const { bridge } = bridgeWith(PAIRED);
     render(<AppRouter pairing={bridge} />);
     await waitFor(() => expect(screen.getByTestId('route-paired')).toBeInTheDocument());
+    await viewportSubscribed();
 
     resizeTo(1280, 599);
     await settleTier();
