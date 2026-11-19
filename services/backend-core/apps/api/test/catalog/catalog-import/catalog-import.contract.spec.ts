@@ -2,7 +2,7 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.0-draft. `[GATED]` contract-first; every
+ * `catalog/catalog-import.yaml` 1.0.1-draft. `[GATED]` contract-first; every
  * operation is `x-runtime-status: contract-only` until RT-1505 (S4) and the
  * S5 slice. Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
@@ -185,9 +185,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.0-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.1-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.0-draft");
+    expect(doc.info?.version).toBe("1.0.1-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -259,11 +259,21 @@ describe("catalog-import contract — upload (spec 049 §8.4, §8.5)", () => {
     }
   });
 
-  it("upload idempotency is the key plus the file SHA-256; other bytes are 409 idempotency_key_conflict", () => {
-    const key = doc.components!.parameters!["IdempotencyKey"]!;
-    expect(key.description).toMatch(/key plus the file's SHA-256/);
-    expect(info()).toMatch(/same\s+key with other bytes is `409 idempotency_key_conflict`/);
-    expect(responseDescription("post", BASE, "409")).toMatch(/idempotency_key_conflict/);
+  it("upload idempotency is the key, the file SHA-256 and the canonical query; any difference is 409 idempotency_key_conflict", () => {
+    const key = String(doc.components!.parameters!["IdempotencyKey"]!.description);
+    expect(key).toMatch(/key plus the file's SHA-256 plus the canonical query\s+\(`mode`, `sheet`, `delimiter`, `file_name`/);
+    expect(info()).toMatch(/SHA-256 of the file bytes plus the canonical query\*\* \(`mode`, `sheet`,\s+`delimiter`, `file_name`/);
+    expect(info()).toMatch(/same key with other bytes, or with\s+any query value different, is `409 idempotency_key_conflict`/);
+    const conflict = responseDescription("post", BASE, "409");
+    expect(conflict).toMatch(/idempotency_key_conflict/);
+    expect(conflict).toMatch(/other file bytes, or with any of `mode`,\s+`sheet`, `delimiter` or `file_name` different/);
+    expect(String(op("post", BASE).description)).toMatch(/canonical `mode`, `sheet`, `delimiter` and `file_name`/);
+    // The four fingerprinted query values are exactly the upload's query parameters.
+    const query = paramsOf("post", BASE)
+      .filter((p) => p.in === "query")
+      .map((p) => p.name)
+      .sort();
+    expect(query).toEqual(["delimiter", "file_name", "mode", "sheet"]);
   });
 
   it("the upload takes the mode, and refuses a second open batch naming the open one", () => {
@@ -402,6 +412,121 @@ describe("catalog-import contract — rows, codes and prices (spec 049 §5–§7
   it("never calls ERPNext and never creates a category (OD-3 A)", () => {
     expect(info()).toMatch(/No operation calls ERPNext, Frappe or the connector/);
     expect(info()).toMatch(/Categories are never created/);
+  });
+});
+
+describe("catalog-import contract — review follow-up to #717 (1.0.1-draft)", () => {
+  it("states the 1.0.1-draft corrections in the contract's own version note", () => {
+    expect(info()).toMatch(/\*\*1\.0\.1-draft \(RT-1502 review follow-up to PR #717\)\.\*\*/);
+  });
+
+  it("a re-upload clears the mapping and carries the kept columns only as a suggestion (decision 419)", () => {
+    const replace = String(op("put", `${BATCH}/file`).description);
+    expect(replace).toMatch(/`mapping` becomes `null`/);
+    expect(replace).toMatch(/header text is unchanged/);
+    expect(replace).toMatch(/placed in `suggestedMapping`/);
+    expect(replace).toMatch(/validate requires a\s+non-null mapping \(`422 mapping_required`\)/);
+    expect(replace).toMatch(/never the error report/);
+    expect(responseDescription("put", `${BATCH}/file`, "200")).toMatch(/`mapping`\s+`null`/);
+    const batch = api.schema("CatalogImportBatch")["properties"]!;
+    expect(String(batch["mapping"]!["description"])).toMatch(/`null` again after a re-upload/);
+    expect(String(batch["suggestedMapping"]!["description"])).toMatch(/after a re-upload, the previous\s+mapping's entries/);
+    expect(info()).toMatch(/A re-upload sets `mapping` to `null`/);
+  });
+
+  it("a draft batch right after a re-upload is valid with a null mapping and the kept suggestion", () => {
+    const v = validator("CatalogImportBatch");
+    expect(
+      v({
+        ...batchFixture(),
+        state: "draft",
+        version: 4,
+        mapping: null,
+        suggestedMapping: [
+          { columnNumber: 1, target: "barcode" },
+          { columnNumber: 2, target: "name" },
+        ],
+        counts: null,
+        previewHash: null,
+        publishable: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("validate requires a non-null mapping and re-applies the completeness rules (422 mapping_required / mapping_invalid)", () => {
+    const validate = String(op("post", `${BATCH}/validate`).description);
+    expect(validate).toMatch(/whose `mapping`\s+is not `null`/);
+    expect(validate).toMatch(/defence in depth/);
+    expect(validate).toMatch(/`422\s+mapping_invalid`/);
+    const rejected = responseDescription("post", `${BATCH}/validate`, "422");
+    expect(rejected).toContain("`mapping_required`");
+    expect(rejected).toContain("`mapping_invalid`");
+    expect(op("post", `${BATCH}/validate`).responses?.["422"]).toEqual({
+      $ref: "#/components/responses/ValidateMappingRejected",
+    });
+  });
+
+  it("the error report is read-only, never re-uploaded, and names the formula-guard prefix", () => {
+    const report = String(op("get", `${BATCH}/error-report`).description);
+    expect(report).toMatch(/read-only and is never re-uploaded/);
+    expect(report).toMatch(/fixes the \*\*source file\*\*/);
+    expect(report).toMatch(/formula-guard `'`/);
+    expect(report).toMatch(/does not match \(identifiers are byte-exact\)/);
+  });
+
+  it("binds the row-list cursor to the validation generation, not to the batch version", () => {
+    const cursor = String(doc.components!.parameters!["Cursor"]!.description);
+    expect(cursor).toMatch(/its validation generation and\s+`status`/);
+    expect(cursor).toMatch(/changes only when validate runs/);
+    expect(cursor).toMatch(/older\s+validation generation, is 400 `validation_error`/);
+    expect(cursor).not.toMatch(/its `version`/);
+    expect(String(op("get", `${BATCH}/rows`).description)).toMatch(/bound to the\s+validation generation/);
+    expect(String(op("put", `${BATCH}/rows/{rowNumber}/resolution`).description)).toMatch(
+      /validation generation is unchanged/,
+    );
+  });
+
+  it("states the review decision → row status table with the contract's own names", () => {
+    const actions = api.schema("ResolveCatalogImportRowRequest")["properties"]!["action"]!["enum"] as string[];
+    const statuses = api.schema("RowStatus")["enum"] as string[];
+    const table: ReadonlyArray<[string, string]> = [
+      ["create_new", "ready_create"],
+      ["update_product", "ready_update"],
+      ["exclude", "excluded"],
+    ];
+    const resolve = String(op("put", `${BATCH}/rows/{rowNumber}/resolution`).description);
+    const rowStatus = String(api.schema("RowStatus").description);
+    for (const [action, status] of table) {
+      expect(actions).toContain(action);
+      expect(statuses).toContain(status);
+      expect(resolve).toMatch(new RegExp(`\`${action}\` → \`${status}\``));
+      expect(rowStatus).toMatch(new RegExp(`\`${action}\` → \`${status}\``));
+    }
+    expect(actions).toContain("clear");
+    expect(resolve).toMatch(/`clear` →\s+the status validate gave it \(`needs_review` or `error`\)/);
+    expect(rowStatus).toMatch(/`clear` → back to the status\s+validate gave it/);
+  });
+
+  it("a resolved row carries its new status, the decision and the kept review reason", () => {
+    const v = validator("CatalogImportRow");
+    expect(
+      v({
+        ...rowFixture(),
+        status: "ready_update",
+        resolution: { action: "update_product", productId: PRODUCT, decidedAt: "2026-11-19T10:06:00Z" },
+      }),
+    ).toBe(true);
+    expect(
+      v({
+        ...rowFixture(),
+        status: "ready_create",
+        resolution: { action: "create_new", productId: null, decidedAt: "2026-11-19T10:06:00Z" },
+      }),
+    ).toBe(true);
+    // `clear` is a request action, never a recorded resolution.
+    expect(
+      v({ ...rowFixture(), resolution: { action: "clear", productId: null, decidedAt: "2026-11-19T10:06:00Z" } }),
+    ).toBe(false);
   });
 });
 

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core Catalog — Console product import (CSV / XLSX)
-  version: "1.0.0-draft"
+  version: "1.0.1-draft"
   description: >
     Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
     Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
@@ -11,11 +11,21 @@ info:
     decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
 
 
-    **Posture.** `1.0.0-draft`, `[GATED]` contract-first. Every operation
+    **Posture.** `1.0.1-draft`, `[GATED]` contract-first. Every operation
     carries `x-runtime-status: contract-only`: the batch tables ship in RT-1503
     (S2) and the routes in RT-1505 (S4, upload / map / validate) and the S5
     slice (review / preview / publish), which remove the markers. The Admin
     Console repins to this file in RT-1506 (S6).
+
+
+    **1.0.1-draft (RT-1502 review follow-up to PR #717).** Corrections only,
+    no new operation and no schema shape change: a re-upload clears
+    `mapping` and carries the kept columns into `suggestedMapping`, so the
+    merchant confirms the mapping again before validate; validate re-checks
+    the mapping (`422 mapping_invalid`); the upload fingerprint also covers
+    the query (`mode`, `sheet`, `delimiter`, `file_name`); the error report
+    is read-only; the row-list cursor is bound to the validation generation,
+    not to `version`; and the review decision → row status table.
 
 
     **Change Set: interim batch (spec 049 §9, OD-14 A).** The shared
@@ -133,8 +143,11 @@ info:
 
     **Lifecycle (spec 049 §8.1).** Upload creates a `draft` batch (version
     1). Setting the mapping or replacing the file returns it to `draft` and
-    increments `version`. Validate moves it to `validated` with a
-    `previewHash`. A review decision keeps it `validated`, increments
+    increments `version`. A re-upload sets `mapping` to `null` and offers
+    the kept columns in `suggestedMapping`, so the mapping is confirmed
+    again (no column is silently carried or skipped, decision 419).
+    Validate needs a non-null mapping and moves the batch to `validated`
+    with a `previewHash`. A review decision keeps it `validated`, increments
     `version` and recomputes `previewHash`. Publish moves it to `published`;
     cancel to `cancelled`; an open batch (`draft` or `validated`) not changed
     for 7 days becomes `expired`. A tenant has at most one open batch: an
@@ -162,10 +175,12 @@ info:
 
     **Idempotency (spec 049 §8.4).** The upload and the publish require
     `Idempotency-Key`. The upload's fingerprint is the key **plus the
-    SHA-256 of the file bytes** (not the shared interceptor's JSON-body
-    fingerprint, which a raw body does not have): the same key with the same
-    bytes replays the stored `201` with `Idempotent-Replayed: true`; the same
-    key with other bytes is `409 idempotency_key_conflict`. A file whose
+    SHA-256 of the file bytes plus the canonical query** (`mode`, `sheet`,
+    `delimiter`, `file_name`, an absent one counted as absent; not the shared
+    interceptor's JSON-body fingerprint, which a raw body does not have): the
+    same key with the same bytes and the same query replays the stored `201`
+    with `Idempotent-Replayed: true`; the same key with other bytes, or with
+    any query value different, is `409 idempotency_key_conflict`. A file whose
     SHA-256 equals a batch published in the last 30 days is accepted with
     the batch warning `file_previously_published`, which names that batch.
     The publish fingerprint is the key plus its body; a publish of an
@@ -224,7 +239,9 @@ paths:
         the tenant's saved mapping profiles) and the parsed rows. Roles
         `owner` / `tenant_admin`. After the guards and the key format, the
         order is: size (413 while reading), SHA-256, the idempotent replay or
-        `409 idempotency_key_conflict`, the open-batch rule
+        `409 idempotency_key_conflict` (fingerprint: the key, the file SHA-256
+        and the canonical `mode`, `sheet`, `delimiter` and `file_name`), the
+        open-batch rule
         (`409 import_batch_open`), then the parse (422). Audited as
         `catalog.import.upload`.
       parameters:
@@ -238,8 +255,9 @@ paths:
       responses:
         "201":
           description: >
-            The new `draft` batch. A same-key, same-bytes retry replays this
-            `201` with `Idempotent-Replayed: true`.
+            The new `draft` batch. A retry with the same key, the same bytes
+            and the same query replays this `201` with
+            `Idempotent-Replayed: true`.
           headers:
             Cache-Control:
               $ref: "#/components/headers/CacheControlNoStore"
@@ -324,11 +342,19 @@ paths:
       description: >
         Re-upload (spec 049 §8.1): replaces the parsed rows of an open
         (`draft` or `validated`) batch with the new file, keeps the mode,
-        returns the batch to `draft` and increments `version`. The previous
-        mapping is kept for every column whose header is unchanged; any other
-        column is unmapped again. Review decisions are dropped. Same body,
-        limits and 413 / 422 file refusals as the upload. Idempotent by
-        `expected_version`. Audited as `catalog.import.upload`.
+        returns the batch to `draft` and increments `version`. The new file
+        is the merchant's fixed source file, never the error report (which is
+        read-only). `mapping` becomes `null`: every entry of the previous
+        mapping whose header text is unchanged (exact text after the trim;
+        an empty header, or a header that appears more than once in either
+        file, is never carried) is placed in `suggestedMapping` at the
+        column's new `columnNumber`; the other columns get the upload's
+        suggestion. Nothing is applied by itself: validate requires a
+        non-null mapping (`422 mapping_required`), so the merchant confirms
+        the mapping again with `consoleSetCatalogImportMapping` and no column
+        is silently skipped (decision 419). Review decisions are dropped.
+        Same body, limits and 413 / 422 file refusals as the upload.
+        Idempotent by `expected_version`. Audited as `catalog.import.upload`.
       parameters:
         - $ref: "#/components/parameters/ExpectedVersionQuery"
         - $ref: "#/components/parameters/FileNameQuery"
@@ -338,7 +364,9 @@ paths:
         $ref: "#/components/requestBodies/ImportFile"
       responses:
         "200":
-          description: The batch, back in `draft` at the next version.
+          description: >
+            The batch, back in `draft` at the next version, with `mapping`
+            `null` and the kept columns in `suggestedMapping`.
           headers:
             Cache-Control:
               $ref: "#/components/headers/CacheControlNoStore"
@@ -439,9 +467,17 @@ paths:
         Applies the mapping, the field rules and the matching to every row,
         gives each row exactly one status, stores the counts, each matched
         product's `updatedAt` and the `previewHash`, and moves the batch to
-        `validated` (version + 1). Allowed on a `draft` batch with a mapping,
-        and on a `validated` one (a re-check). Synchronous (OD-7 A). Audited
-        as `catalog.import.validate`.
+        `validated` (version + 1). Allowed on a `draft` batch whose `mapping`
+        is not `null`, and on a `validated` one (a re-check); a `null`
+        mapping (a new upload, or after a re-upload) is `422
+        mapping_required`. As defence in depth, validate re-applies the
+        mapping completeness rules of `consoleSetCatalogImportMapping` to the
+        stored mapping and the batch's current columns (every column exactly
+        once, a field at most once, `barcode` at most 5 times, `name` and
+        `tax_category` for `create` / `upsert`); a failure is `422
+        mapping_invalid` and changes nothing. Each validate starts a new
+        validation generation, which the row-list cursor is bound to.
+        Synchronous (OD-7 A). Audited as `catalog.import.validate`.
       requestBody:
         required: true
         content:
@@ -469,7 +505,7 @@ paths:
         "409":
           $ref: "#/components/responses/BatchConflict"
         "422":
-          $ref: "#/components/responses/MappingRequired"
+          $ref: "#/components/responses/ValidateMappingRejected"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -492,7 +528,13 @@ paths:
         Rows in `rowNumber` order, optionally of one status, each with its
         cells, outcome, issues and review decision. A `draft`, `cancelled` or
         `expired` batch has no current outcomes: `409
-        import_batch_not_validated`. Not audited per request.
+        import_batch_not_validated`. The keyset walk is bound to the
+        validation generation (a new one only when validate runs), not to the
+        batch `version`: a review decision between two pages does not end
+        the walk. Each page shows the rows' current status and decision; the
+        keyset is `rowNumber`, so no row appears twice, and with `status` a
+        row is included by the status it has when its page is read. Not
+        audited per request.
       parameters:
         - $ref: "#/components/parameters/RowStatusQuery"
         - $ref: "#/components/parameters/Cursor"
@@ -545,8 +587,14 @@ paths:
         `store_scoped_conflict`, `create_new` and `update_product` leave the
         conflicting identifier out and list it as not added; `create_new` is
         not offered while an identifier on the row is active on another
-        product. An `error` row takes only `exclude` and `clear`. The batch
-        stays `validated`, `version` + 1, and `previewHash` is recomputed.
+        product. An `error` row takes only `exclude` and `clear`. The row's
+        `status` after the decision: `create_new` → `ready_create`;
+        `update_product` → `ready_update`; `exclude` → `excluded`; `clear` →
+        the status validate gave it (`needs_review` or `error`), with
+        `resolution` `null`. `reviewReason` and `issues` are kept. The batch
+        stays `validated`, `version` + 1, and `previewHash` and `counts` are
+        recomputed; the validation generation is unchanged, so a row-list
+        walk in progress continues.
         Audited as `catalog.import.review` with the row number and action.
       requestBody:
         required: true
@@ -755,11 +803,16 @@ paths:
         A UTF-8 CSV with a BOM, one line per `error` or `needs_review` row
         in `rowNumber` order: `row_number`, `status`, `issues` (each issue's
         code, field and message), then the row's source cells under their
-        original headers. The merchant reads it, fixes the source file and
-        re-uploads it (spec 049 §7.3). Every cell that starts with `=`, `+`,
-        `-`, `@`, a tab or a carriage return is written with a leading `'`
-        so a spreadsheet never evaluates it (CSV formula injection). Same
-        state rule as the row list. Not audited per request.
+        original headers. The report is read-only and is never re-uploaded:
+        the merchant reads it, fixes the **source file** and re-uploads that
+        (`consoleReplaceCatalogImportFile`, spec 049 §7.3). Every cell that
+        starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written
+        with a leading `'` so a spreadsheet never evaluates it (CSV formula
+        injection). That formula-guard `'` is part of the report's text, not
+        of the value: a value copied from the report into the source file
+        keeps the `'` and then does not match (identifiers are byte-exact)
+        or fails its field rule, one more reason the report is not an import
+        file. Same state rule as the row list. Not audited per request.
       responses:
         "200":
           description: The report.
@@ -859,7 +912,8 @@ components:
     IdempotentReplayed:
       description: >
         Present and `true` on a replay of `consoleUploadCatalogImport` (same
-        key, same file bytes) or `consolePublishCatalogImport` (same key and
+        key, same file bytes, same `mode`, `sheet`, `delimiter` and
+        `file_name`) or `consolePublishCatalogImport` (same key and
         body, or an already `published` batch with its `previewHash`). Absent
         otherwise.
       schema:
@@ -910,8 +964,9 @@ components:
         REQUIRED on `consoleUploadCatalogImport` and
         `consolePublishCatalogImport`: 16 to 128 printable ASCII characters
         with no whitespace, keyed on the verified actor and tenant. Upload
-        fingerprint: the key plus the file's SHA-256; publish fingerprint: the
-        key plus the body. Same fingerprint → replay with
+        fingerprint: the key plus the file's SHA-256 plus the canonical query
+        (`mode`, `sheet`, `delimiter`, `file_name`; an absent one is
+        absent); publish fingerprint: the key plus the body. Same fingerprint → replay with
         `Idempotent-Replayed: true`; same key, other fingerprint → 409
         `idempotency_key_conflict`; still processing → 425
         `idempotency_in_progress`. Missing → 400 `idempotency_key_required`;
@@ -986,9 +1041,13 @@ components:
         pattern: "^[A-Za-z0-9_-]+$"
       description: >
         Opaque keyset cursor from a prior page's `nextCursor`, bound to the
-        operation, the tenant, the batch, its `version` and `status`. A value
-        the server did not issue for that query, or one issued for an older
-        `version`, is 400 `validation_error`; restart from the first page.
+        operation, the tenant, the batch, its validation generation and
+        `status`. The validation generation changes only when validate runs
+        (`consoleValidateCatalogImport`); a review decision increments
+        `version` but keeps the generation, so a walk survives it. A value
+        the server did not issue for that query, or one issued under an older
+        validation generation, is 400 `validation_error`; restart from the
+        first page.
     Limit:
       name: limit
       in: query
@@ -1041,6 +1100,11 @@ components:
     RowStatus:
       type: string
       enum: [ready_create, ready_update, unchanged, needs_review, error, excluded]
+      description: >
+        Set by validate. A review decision then moves a `needs_review` or
+        `error` row: `create_new` → `ready_create`, `update_product` →
+        `ready_update`, `exclude` → `excluded`, `clear` → back to the status
+        validate gave it (`needs_review` or `error`).
     CsvDelimiter:
       type: string
       enum: [comma, semicolon, tab]
@@ -1322,7 +1386,10 @@ components:
           items:
             $ref: "#/components/schemas/ImportColumn"
         mapping:
-          description: The mapping set by the merchant; `null` until set.
+          description: >
+            The mapping set by the merchant; `null` until set, and `null`
+            again after a re-upload (`consoleReplaceCatalogImportFile`) until
+            the merchant confirms it.
           oneOf:
             - type: array
               minItems: 1
@@ -1335,9 +1402,11 @@ components:
           maxItems: 50
           description: >
             Server suggestion from header synonyms (Arabic and English) and
-            the tenant's mapping profiles; columns it cannot place are
-            absent. A hint the merchant confirms with
-            `consoleSetCatalogImportMapping`; never applied by itself.
+            the tenant's mapping profiles; after a re-upload, the previous
+            mapping's entries whose header text is unchanged (exact match)
+            come first. Columns it cannot place are absent. A hint the
+            merchant confirms with `consoleSetCatalogImportMapping`; never
+            applied by itself.
           items:
             $ref: "#/components/schemas/ColumnMapping"
         mappingProfileId:
@@ -1835,7 +1904,8 @@ components:
     UploadConflict:
       description: >
         409, `error.code` one of: `idempotency_key_conflict` (the same
-        `Idempotency-Key` with other file bytes); `import_batch_open` (the
+        `Idempotency-Key` with other file bytes, or with any of `mode`,
+        `sheet`, `delimiter` or `file_name` different); `import_batch_open` (the
         tenant already has an open batch; `error.openBatchId` names it).
         Nothing is written.
       content:
@@ -1909,8 +1979,14 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    MappingRequired:
-      description: "422 `mapping_required`: the batch has no mapping yet; set it first. Nothing is written."
+    ValidateMappingRejected:
+      description: >
+        422 on validate, `error.code` one of: `mapping_required` (the batch's
+        `mapping` is `null`: never set, or cleared by a re-upload; confirm it
+        with `consoleSetCatalogImportMapping` first); `mapping_invalid` (the
+        stored mapping fails the completeness rules of
+        `consoleSetCatalogImportMapping` against the batch's current columns;
+        defence in depth, set the mapping again). Nothing is written.
       content:
         application/json:
           schema:
