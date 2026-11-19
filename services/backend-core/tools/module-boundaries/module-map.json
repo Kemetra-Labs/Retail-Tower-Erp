@@ -271,6 +271,9 @@
     }
   },
   "unownedTables": [
+    "catalog_import_batches",
+    "catalog_import_mapping_profiles",
+    "catalog_import_rows",
     "change_sets",
     "price_books",
     "price_change_set_item_lists",
