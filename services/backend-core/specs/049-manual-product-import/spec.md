@@ -8,7 +8,7 @@
 | **Baseline** | `origin/main` @ `f30c5de34` (2026-11-19) |
 | **Decisions honoured** | Confluence RETAIL 23461894 (Catalog 276–460), especially 416–423 (imports), 301–319 (identifiers), 392–394 (lifecycle), 400–408 (Change Sets), 445–450 (Console, bulk actions). 83329059 (product acquisition, methods 1–3, §4, §7 "Direct/core", §8). 84050068 CR01, CR06, CR16. RT-281 O-1, O-2, O-5 (comment 14125). RT-827 PD-1..PD-9 (comment 15253) |
 | **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-17, each with options and a recommendation. **All accepted as recommended** by the owner on 2026-11-19 (RT-1489 comment 17790); the accepted value of each is in the decision record |
-| **Status** | ACCEPTED (owner decisions OD-1..OD-17, 2026-11-19). Plan merged in PR #711; slices S1–S9 created as RT issues (§12); the S1 contract is `catalog/catalog-import.yaml` (RT-1502) |
+| **Status** | ACCEPTED (owner decisions OD-1..OD-17, 2026-11-19). Plan merged in PR #711; slices S1–S9 created as RT issues (§12); the S1 contract is `catalog/catalog-import.yaml` (RT-1502). The OD-14 re-check at S2's Definition of Ready kept the interim tables (§9.1, RT-1503) |
 
 ## 1. Objective
 
@@ -237,7 +237,8 @@ The states are the spec 042 §3 names, so the batch can become a `catalog`-domai
   candidate set and reason are unchanged; otherwise the row returns to `needs_review`.
 - A **re-upload** (the fixed source file) keeps the mode, drops review decisions and sets the mapping to none: the
   previous mapping's entries whose header text is unchanged (exact text; an empty or repeated header is never carried)
-  become the **suggested** mapping, and the merchant confirms the mapping again before validation. Validation needs a
+  become the **suggested** mapping and take priority ("come first"): the suggestion for the remaining columns leaves
+  out every field a carried entry already holds, except `barcode` (at most 5 in total), and the merchant confirms the mapping again before validation. Validation needs a
   confirmed mapping and re-applies the mapping completeness rules (defence in depth), so no column is silently carried
   or skipped (419).
 - The review row list is keyset-paginated by row number, and its cursor is bound to the **validation generation** (a
@@ -278,7 +279,10 @@ diverge from the single-product rules.
   one fingerprint and a different file would replay the first batch. S1 / S4 define upload idempotency as key **plus the
   file's SHA-256 plus the canonical query** (`mode`, `sheet`, `delimiter`, `file_name`) as the fingerprint, so the same
   key with the same bytes and query replays the batch and the same key with other bytes or any other query value is
-  `409 idempotency_key_conflict`. The file's SHA-256 is also stored; uploading a file whose hash equals a batch published in the last 30 days is a warning that names that batch,
+  `409 idempotency_key_conflict`. The canonical query is the decoded parameter values compared byte for byte, with no
+  Unicode normalisation (an Arabic file name can arrive in NFC or NFD form); an absent parameter is distinct from any
+  value, so an explicit `sheet` naming the default first sheet differs from no `sheet` (contract 1.0.2-draft).
+  The file's SHA-256 is also stored; uploading a file whose hash equals a batch published in the last 30 days is a warning that names that batch,
   not a refusal.
 - **Publish**: `Idempotency-Key` plus the batch state. A publish of an already `published` batch with the same
   `previewHash` returns the stored result (`200`, replay); with a different `previewHash` it is `409`. A network failure
@@ -338,16 +342,71 @@ choice lands; S4 and S5 follow whatever S1 / S2 chose.
   O-1 approved for the single-product console writes. No catalogue revision number is promised in the interim (407 is
   not yet met by any catalogue write on `main`).
 
+### 9.1 Re-check outcome (S2 Definition of Ready, 2026-11-19): interim tables
+
+The re-check was made at RT-1503's Definition of Ready (RT-1503 comment 17830, W1 catalogue lead). Outcome: **stay on
+the interim import tables (OD-14 A)**. A `change_sets` table is on `main` (migration `0121_pricing_core.sql`, with
+items and lines in `0123_price_change_set_items_lines.sql`, RT-1151), but it is the pricing primitive, not a
+domain-neutral one:
+
+- `CONSTRAINT change_sets_domain CHECK (domain IN ('pricing'))`: a `catalog` domain would need a pricing schema change.
+- No-delete triggers (`change_sets_no_delete_row`, `change_sets_no_delete_truncate`): they conflict with the OD-6
+  retention purge of staged rows and of cancelled or expired batches.
+- No `expired` state in `change_sets_state` (§8.1 needs it as the import-only terminal state).
+- The 0123 content rules are commit-time constraint triggers that expect pricing rows (a
+  `price_change_set_validations` row for a validated set); an import batch has none.
+- Its runtime (RT-1484) is not built yet, so there is no primitive behaviour to reuse.
+
+Adopting it would therefore mean changing the pricing schema inside an import slice. The import keeps spec 042's state
+names (§8.1), `version` / `expectedVersion`, `previewHash` and the publish lock, so the later move into a
+domain-neutral `change_sets` stays a header move. S4 and S5 follow this choice.
+
 ## 10. Conceptual data model (for the S2 migration; not DDL)
 
-- `catalog_import_batches`: `id`, `tenant_id`, `state`, `version`, `mode`, `file_name`, `file_size`, `file_sha256`,
-  `file_kind` (`csv` | `xlsx`), `sheet_name`, `parser_version`, `mapping` (canonical field → column), `mapping_profile_id`,
-  `preview_hash`, `counts`, `created_by`, `created_at`, `updated_at`, `published_at`, `expires_at`. FORCE RLS.
+Interim tables (§9.1). Every table carries `tenant_id`, is under ENABLE + FORCE RLS with tenant policies for select,
+insert, update and delete (the retention purge deletes), and references its parent through a composite
+`(tenant_id, id)` foreign key. Column names are the S2 migration's; the wire names are the contract's
+(`catalog/catalog-import.yaml`).
+
+- `catalog_import_batches`:
+  - identity and lifecycle: `id`, `tenant_id`, `state` (§8.1 names, including the reserved `pending_approval` and
+    `approved`), `version` (bumped by every batch change, the `expectedVersion` precondition), `mode`;
+  - **`validation_generation`** (integer, starts at 0, bumped **only** by validate): the row-list cursor is bound to
+    it (§8.1). It must never fall back to `version`, which a review decision bumps and which would bring back the
+    paging bug fixed in contract 1.0.1-draft;
+  - file facts: `file_name`, `file_size`, `file_sha256`, `file_kind` (`csv` | `xlsx`), `sheet_name`, **`csv_delimiter`**
+    (`null` for XLSX), **`data_row_count`**, **`column_count`**, `parser_version`;
+  - **`columns`** (the header text and up to three sample values per column, as the contract's `columns` returns them;
+    the bytes are not stored, so the samples cannot be recomputed);
+  - `mapping` (canonical field → column, `null` until confirmed and again after a re-upload),
+    **`suggested_mapping`** (**stored**, not recomputed on read: it depends on the previous mapping at re-upload time and
+    on the profiles as they were then, so a read must return what the merchant was shown), `mapping_profile_id`;
+  - `preview_hash`, `counts`;
+  - **`publish_summary`** (**stored** at publish, `null` before): a publish replay returns it, and the replay must
+    outlive the idempotency-key TTL (§8.4);
+  - `created_by`, `created_at`, `updated_at`, `published_at`, `expires_at`.
 - `catalog_import_rows`: `batch_id`, `tenant_id`, `row_number`, `cells` (parsed text per source column), `status`,
   `outcome` (match result, candidate product ids, field diff, identifier adds), `issues` (`code`, `field`, `severity`
-  error | review | warning | notice), `resolution` (+ actor, time), `matched_updated_at`, `product_id` (after publish).
-  FORCE RLS.
-- `catalog_import_mapping_profiles`: per-tenant saved header → field maps. FORCE RLS.
+  error | review | warning | notice), **`review_reason`** (one of the §7.3 reasons, `null` unless validation sent the
+  row to review; kept when a decision changes the status, so `clear` and re-validation can compare it), `resolution`
+  (+ actor, time), `matched_updated_at`, `product_id` (after publish). Primary key `(tenant_id, batch_id, row_number)`,
+  which is also the keyset order of the review list; the rows reference their batch by `(tenant_id, batch_id)`.
+- `catalog_import_mapping_profiles`: `id`, `tenant_id`, `name` (1–100 characters, unique per tenant: saving under an
+  existing name replaces it, contract `saveProfileName`), `entries` (header text → canonical field or `ignore`, keyed by
+  the exact trimmed header text, as the re-upload carry is), `created_by`, `created_at`, `updated_by`, `updated_at`.
+- Indexes the rules need:
+  - **one open batch per tenant**: a partial unique index on `catalog_import_batches (tenant_id)` where `state` is one of
+    `draft`, `validated`, `pending_approval`, `approved` (the reserved approval states count as open, so OD-12 can be
+    added without a schema change); the upload's `409 import_batch_open` is this index's refusal;
+  - **previous-publish lookup**: an index on `(tenant_id, file_sha256, published_at)` for the 30-day
+    `file_previously_published` warning (§8.4).
+- Retention and expiry (OD-6, §8.1, §8.7). **S2 (RT-1503) owns the worker job**; no other slice does:
+  - an open `draft` or `validated` batch not changed for 7 days becomes `expired`, measured from its last change
+    (`expires_at = updated_at + 7 days`, moved on every change), with one `catalog.import.expire` audit row per batch;
+  - rows of a `cancelled` or `expired` batch are deleted 30 days after that transition;
+  - rows of a `published` batch are deleted 13 months after `published_at`; the batch header with its `counts` and
+    `publish_summary` stays as the summary.
+  - File bytes are never stored, so there is nothing else to purge.
 - Runtime grants in `grant-registry.ts` plus a `docs/operations/sql/*-domain-grants.sql` deploy step (gated-changes rule).
 
 ## 11. Admin Console flow (outline; control surface only, 445)
@@ -409,8 +468,9 @@ created**: OD-3 chose A for categories (RT-1489 comment 17790).
 - [x] Field contract, identifiers and collisions (§5, §7.1), modes (§7.2), validation and review queue (§7.3), preview,
   impact and atomic publish (§8.2–§8.3), Change Set interim (§9), idempotency, audit and limits (§8.4–§8.7), prices
   (§6), contract-first slices per surface (§12), with options and recommendations (decision-record.md).
-- [x] Slices named, none created.
+- [x] Slices named; created as RT issues only after the owner accepted OD-1..OD-17 (S1–S9 = RT-1502, RT-1503,
+  RT-1504, RT-1505, RT-1507, RT-1506, RT-1509, RT-1510, RT-1508; S10 not created, §12).
 - [x] 83329059 §8 points that touch import answered or listed for the owner (§11.1).
-- [ ] Reviewed and merged as docs (this PR).
+- [x] Reviewed and merged as docs (PR #711).
 - [x] Linked Confluence draft: RETAIL page 86343681 (unpublished draft under the Catalog page 23461894; the owner
   publishes it on approval).

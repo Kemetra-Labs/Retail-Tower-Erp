@@ -131,6 +131,7 @@ export const saleSync = {
     "عمليات بيع أوقف الخادم مزامنتها ولن يعيد محاولتها تلقائيًا في {tenant}، الأحدث أولًا. يُطلب الإصلاح من صفحة كل بيع على حدة.",
   "saleSync.list.note":
     "ظهور البيع هنا لا يعني فشل ترحيله إلى ERPNext، وغيابه عن القائمة لا يعني أنه رُحِّل.",
+  "saleSync.list.otherQueue": "مبيعات تعذّر إرسالها من الجهاز",
   "saleSync.list.scopePrompt": "اختر مؤسسة لعرض المبيعات التي تحتاج إلى إصلاح.",
   "saleSync.list.refresh": "تحديث",
   "saleSync.list.loadMore": "تحميل المزيد",

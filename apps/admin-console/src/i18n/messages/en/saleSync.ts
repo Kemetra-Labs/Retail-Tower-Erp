@@ -117,6 +117,7 @@ export const saleSync: MessagesOf<typeof ar> = {
     "Sales in {tenant} whose sync the server stopped and will not retry on its own, newest first. A repair is requested from each sale's page.",
   "saleSync.list.note":
     "A sale listed here is not an ERPNext posting failure, and a sale missing from the list is not proof it was posted.",
+  "saleSync.list.otherQueue": "Sales the till could not send",
   "saleSync.list.scopePrompt": "Select a tenant to view sales needing repair.",
   "saleSync.list.refresh": "Refresh",
   "saleSync.list.loadMore": "Load more",

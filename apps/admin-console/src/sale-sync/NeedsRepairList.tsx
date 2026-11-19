@@ -1,4 +1,3 @@
-import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 /**
  * RT-726 — Sales needing repair (`consoleListNeedsRepair`), for owner /
@@ -12,41 +11,21 @@ import { Banner } from "@/components/Banner";
  * in-scope stores and is a filter, not a scope change. An out-of-scope or
  * malformed store reads as not available (the API's non-disclosing 404).
  */
-import { BusyButton } from "@/components/BusyButton";
-import { TableScrollRegion } from "@/components/DataTableScroll";
-import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { SelectFilterBar } from "@/components/FilterBar";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
-import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { DateTime, type T, useT } from "@/i18n";
 import type { NeedsRepairItem } from "@/lib/sale-sync-ops-queries";
-import { type SaleScope, useSaleScope } from "@/sales/useSales";
-import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
-import { useSignOut } from "@/shell/useSignOut";
-import { useStoreList } from "@/stores/useStoreQueries";
+import type { SaleScope } from "@/sales/useSales";
 import { Link, useSearchParams } from "react-router";
-import { Machine, ReadError, StaleError } from "./parts";
-import { canUseSaleSyncOps, isStoreFilter } from "./saleSyncLogic";
+import { QueueAsOf, QueueTable } from "./QueueTable";
+import { SyncOpsGate } from "./SyncOpsGate";
+import { Machine } from "./parts";
+import { isStoreFilter } from "./saleSyncLogic";
+import { type FilterStore, useFilterStores } from "./useFilterStores";
 import { type NeedsRepairState, useNeedsRepairList } from "./useSaleSync";
 import "../shell/surface.css";
 import "./sale-sync.css";
-
-interface FilterStore {
-  id: string;
-  name?: string;
-}
-
-/** The caller's in-scope stores (the scope menu's own rule, RT-354). */
-function useFilterStores(tenantId: string | null): FilterStore[] {
-  const { context } = useActiveContextValue();
-  const { result } = useStoreList(tenantId);
-  const rows = result?.kind === "rows" ? result.rows : [];
-  const membership = context?.memberships?.find((m) => m.tenant_id === tenantId) as
-    | ScopeMembership
-    | undefined;
-  return scopeMenuStores(rows, membership, null).map((s) => ({ id: s.id, name: s.name }));
-}
 
 /** The queue's store filter, on the shared FilterBar (RT-960): Apply, Clear. */
 function StoreFilter({
@@ -127,78 +106,27 @@ function Rows({
   nameOf: (id: string) => string | undefined;
 }>): React.JSX.Element {
   const t = useT();
-  const columns = headers(t);
-  const caption = t("saleSync.list.caption");
-  if (list.isLoading) {
-    return (
-      <DataTableSkeleton
-        caption={caption}
-        columns={columns}
-        label={t("saleSync.list.loadingNoun")}
-      />
-    );
-  }
-  if (list.error) {
-    return (
-      <ReadError
-        error={list.error}
-        failedKey="saleSync.list.loadFailed"
-        notFoundKey="saleSync.list.storeNotFound"
-        onRetry={list.retry}
-      />
-    );
-  }
-  if (list.rows.length === 0 && !list.hasMore) {
-    return (
-      <>
-        <ListState
-          state="empty"
-          emptyMessage={t(filtered ? "saleSync.list.emptyStore" : "saleSync.list.empty")}
-        />
-        <p className="content__sub">{t("saleSync.list.emptyHint")}</p>
-      </>
-    );
-  }
   return (
-    <>
-      <TableScrollRegion>
-        {(captionId) => (
-          <table className="data-table data-table--strips">
-            <caption id={captionId} className="data-table__caption">
-              {caption}
-            </caption>
-            <thead>
-              <tr>
-                {columns.map((col) => (
-                  <th key={col.key} scope="col">
-                    {col.header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {list.rows.map((item) => (
-                <Row key={item.saleRef} item={item} storeName={nameOf(item.storeId)} />
-              ))}
-            </tbody>
-          </table>
-        )}
-      </TableScrollRegion>
-      {/* A failed continuation keeps the rows above and retries at the boundary. */}
-      <StaleError error={list.inlineError} onRetry={list.retry} />
-      {list.hasMore ? (
-        <div>
-          <BusyButton
-            type="button"
-            className="btn-secondary"
-            onClick={list.loadMore}
-            busy={list.isFetchingNextPage}
-          >
-            {t("saleSync.list.loadMore")}
-          </BusyButton>
-        </div>
-      ) : null}
-    </>
+    <QueueTable
+      list={list}
+      columns={headers(t)}
+      caption={t("saleSync.list.caption")}
+      loadingNoun={t("saleSync.list.loadingNoun")}
+      failedKey="saleSync.list.loadFailed"
+      notFoundKey="saleSync.list.storeNotFound"
+      loadMoreKey="saleSync.list.loadMore"
+      empty={
+        <>
+          <ListState
+            state="empty"
+            emptyMessage={t(filtered ? "saleSync.list.emptyStore" : "saleSync.list.empty")}
+          />
+          <p className="content__sub">{t("saleSync.list.emptyHint")}</p>
+        </>
+      }
+      rowKey={(item) => item.saleRef}
+      renderRow={(item) => <Row item={item} storeName={nameOf(item.storeId)} />}
+    />
   );
 }
 
@@ -235,6 +163,9 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
           {t.rich("saleSync.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         </p>
         <p className="sale-sync__note">{t("saleSync.list.note")}</p>
+        <p className="sale-sync__note">
+          <Link to="/quarantined-sales">{t("saleSync.list.otherQueue")}</Link>
+        </p>
       </div>
       <StoreFilter
         stores={stores}
@@ -248,29 +179,16 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
           // A malformed store filter is never sent: it reads as not available.
           <Banner variant="warning" message={t("saleSync.list.storeNotFound")} />
         )}
-        {list.asOf ? (
-          <p className="sale-sync__asof">
-            {t.rich("saleSync.list.asOf", {
-              time: <DateTime value={new Date(list.asOf).toISOString()} />,
-            })}
-          </p>
-        ) : null}
+        <QueueAsOf asOf={list.asOf} messageKey="saleSync.list.asOf" />
       </div>
     </div>
   );
 }
 
 export function NeedsRepairList(): React.JSX.Element {
-  const t = useT();
-  const scope = useSaleScope();
-  const signOut = useSignOut();
-  if (!canUseSaleSyncOps(scope.role)) return <NoAccess onSignOut={signOut} />;
-  if (!scope.tenantId) {
-    return (
-      <div className="surface">
-        <p className="content__sub">{t("saleSync.list.scopePrompt")}</p>
-      </div>
-    );
-  }
-  return <Content scope={scope} />;
+  return (
+    <SyncOpsGate promptKey="saleSync.list.scopePrompt">
+      {(scope) => <Content scope={scope} />}
+    </SyncOpsGate>
+  );
 }

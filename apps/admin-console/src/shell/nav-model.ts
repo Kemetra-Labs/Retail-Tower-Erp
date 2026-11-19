@@ -156,6 +156,13 @@ const TENANT_NAV: readonly GatedGroup[] = [
         icon: "sale",
         canRead: canUseSaleSyncOps,
       },
+      // RT-1312: sales a till could not send, a separate queue from the ERP sync one above.
+      {
+        label: "saleQuarantine.nav.label",
+        to: "/quarantined-sales",
+        icon: "sale",
+        canRead: canUseSaleSyncOps,
+      },
       {
         label: "productRecon.nav.label",
         to: "/product-reconciliation",

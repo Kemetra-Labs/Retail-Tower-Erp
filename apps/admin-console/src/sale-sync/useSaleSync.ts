@@ -79,14 +79,14 @@ function errorOf(error: unknown): SyncError | undefined {
   return error instanceof SyncFetchError ? error.detail : { kind: "generic" };
 }
 
-interface ApiResult<P> {
+export interface ApiResult<P> {
   status: number;
   data?: P;
   error?: unknown;
   retryAfter?: number;
 }
 
-function dataOrThrow<P>(res: ApiResult<P>): P {
+export function dataOrThrow<P>(res: ApiResult<P>): P {
   if (res.status >= 400 || !res.data) {
     throw new SyncFetchError({
       kind: readErrorKind(res.status),
@@ -108,7 +108,7 @@ export interface ReadState<T> {
 }
 
 /** A disabled query never loads, so `isLoading` needs no separate gate. */
-function readState<T>(result: UseQueryResult<T>): ReadState<T> {
+export function readState<T>(result: UseQueryResult<T>): ReadState<T> {
   const failure = errorOf(result.error);
   const has = result.data !== undefined;
   return {
@@ -145,8 +145,9 @@ export function useSaleAuditTimeline(target: SaleTarget): ReadState<SaleAuditTim
 
 // --- NEEDS_REPAIR queue ------------------------------------------------------------
 
-export interface NeedsRepairState {
-  rows: NeedsRepairItem[];
+/** One keyset-paged queue on screen: the rows loaded so far and the controls around them. */
+export interface PagedState<Item> {
+  rows: Item[];
   isLoading: boolean;
   error?: SyncError;
   /** A later page failed: the loaded rows stay, with a retry at the boundary. */
@@ -162,42 +163,43 @@ export interface NeedsRepairState {
   loadMore: () => void;
 }
 
-const FIRST_PAGE: string | undefined = undefined;
+export type NeedsRepairState = PagedState<NeedsRepairItem>;
+
+export const FIRST_PAGE: string | undefined = undefined;
 
 /** The list query: the store filter when one is set, and the cursor after page 1. */
 function pageQuery({ storeId }: QueueTarget, cursor: string | undefined): NeedsRepairQuery {
   return { ...(storeId ? { store_id: storeId } : {}), ...(cursor ? { cursor } : {}) };
 }
 
-type PagesState = Pick<NeedsRepairState, "rows" | "error" | "inlineError" | "asOf">;
-
-/** With a page on screen a failure is inline (the rows stay); with none it is the error view. */
-function pagesState(result: {
-  data?: { pages: NeedsRepairPage[] };
+interface InfiniteResult<Item> {
+  data?: { pages: { items: Item[] }[] };
   error: unknown;
   dataUpdatedAt: number;
-}): PagesState {
-  const pages = result.data?.pages ?? [];
-  const failure = errorOf(result.error);
-  if (pages.length === 0) return { rows: [], error: failure };
-  return { rows: pages.flatMap((p) => p.items), inlineError: failure, asOf: result.dataUpdatedAt };
+  isLoading: boolean;
+  hasNextPage: boolean;
+  isFetchNextPageError: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => Promise<unknown>;
+  refetch: () => Promise<unknown>;
 }
 
-export function useNeedsRepairList(target: QueueTarget): NeedsRepairState {
-  const result = useInfiniteQuery({
-    queryKey: saleSyncQueryKeys.needsRepair(target),
-    enabled: target.enabled && Boolean(target.scope.tenantId),
-    initialPageParam: FIRST_PAGE,
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      consoleListNeedsRepair(pageQuery(target, pageParam)).then(dataOrThrow<NeedsRepairPage>),
-    getNextPageParam: nextRepairCursor,
-    retry: false,
-  });
+/**
+ * A keyset-paged infinite query as a `PagedState`. With a page on screen a failure is inline (the
+ * rows stay); with none it is the error view. Shared by the NEEDS_REPAIR queue and the sale
+ * quarantine queue (RT-1312).
+ */
+export function pagedState<Item>(result: InfiniteResult<Item>): PagedState<Item> {
+  const pages = result.data?.pages ?? [];
+  const failure = errorOf(result.error);
   const loadMore = () => {
     if (result.hasNextPage && !result.isFetchingNextPage) void result.fetchNextPage();
   };
   return {
-    ...pagesState(result),
+    rows: pages.flatMap((p) => p.items),
+    error: pages.length === 0 ? failure : undefined,
+    inlineError: pages.length === 0 ? undefined : failure,
+    asOf: pages.length === 0 ? undefined : result.dataUpdatedAt,
     isLoading: result.isLoading,
     retry: () => (result.isFetchNextPageError ? loadMore() : void result.refetch()),
     refresh: () => void result.refetch(),
@@ -205,6 +207,20 @@ export function useNeedsRepairList(target: QueueTarget): NeedsRepairState {
     isFetchingNextPage: result.isFetchingNextPage,
     loadMore,
   };
+}
+
+export function useNeedsRepairList(target: QueueTarget): NeedsRepairState {
+  return pagedState(
+    useInfiniteQuery({
+      queryKey: saleSyncQueryKeys.needsRepair(target),
+      enabled: target.enabled && Boolean(target.scope.tenantId),
+      initialPageParam: FIRST_PAGE,
+      queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+        consoleListNeedsRepair(pageQuery(target, pageParam)).then(dataOrThrow<NeedsRepairPage>),
+      getNextPageParam: nextRepairCursor,
+      retry: false,
+    }),
+  );
 }
 
 // --- Repair (the one write) ---------------------------------------------------------

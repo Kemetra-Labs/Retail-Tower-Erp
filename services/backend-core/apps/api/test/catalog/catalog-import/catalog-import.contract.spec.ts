@@ -2,7 +2,7 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.1-draft. `[GATED]` contract-first; every
+ * `catalog/catalog-import.yaml` 1.0.2-draft. `[GATED]` contract-first; every
  * operation is `x-runtime-status: contract-only` until RT-1505 (S4) and the
  * S5 slice. Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
@@ -17,6 +17,9 @@
  *      `version_conflict`, `previewHash`, `stale_validation`.
  *   5. Row statuses, issue codes and the no-price rule (OD-2 A).
  *   6. AJV fixtures for the batch, rows, decisions, preview and publish.
+ *   7. RT-1503 (1.0.2-draft, comments 17823 / 17830): the canonical query,
+ *      the re-upload suggestion dedupe, the cursor's `status` query filter,
+ *      `mappingProfileId` after a re-upload and the OD-14 re-check outcome.
  */
 import "reflect-metadata";
 
@@ -185,9 +188,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.1-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.2-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.1-draft");
+    expect(doc.info?.version).toBe("1.0.2-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -350,8 +353,12 @@ describe("catalog-import contract — interim batch on spec 042 names (OD-14 A)"
     expect(api.schema("PreviewHash")["pattern"]).toBe("^sha256:[0-9a-f]{64}$");
   });
 
-  it("names the absence of the shared change_sets primitive and the one-transaction publish", () => {
-    expect(info()).toMatch(/is not on\s+`main`/);
+  it("records why the pricing change_sets table is not used (OD-14 re-check) and the one-transaction publish", () => {
+    expect(info()).toMatch(/OD-14\s+re-check at RT-1503's Definition of Ready \(comment 17830\) keeps the\s+interim batch/);
+    expect(info()).toMatch(/is on `main` but is pricing-only/);
+    expect(info()).toMatch(/rows cannot be deleted/);
+    expect(info()).toMatch(/it has no `expired` state/);
+    expect(info()).toMatch(/its runtime \(RT-1484\) is not built/);
     expect(info()).toMatch(/nothing is half-published/);
   });
 });
@@ -527,6 +534,49 @@ describe("catalog-import contract — review follow-up to #717 (1.0.1-draft)", (
     expect(
       v({ ...rowFixture(), resolution: { action: "clear", productId: null, decidedAt: "2026-11-19T10:06:00Z" } }),
     ).toBe(false);
+  });
+});
+
+describe("catalog-import contract — RT-1503 readiness text (1.0.2-draft)", () => {
+  it("states the 1.0.2-draft clarifications in the contract's own version note", () => {
+    expect(info()).toMatch(/\*\*1\.0\.2-draft \(RT-1503 Definition of Ready, comments 17823 and 17830\)\.\*\*/);
+    expect(info()).toMatch(/Description text only, no new operation and no schema shape change/);
+  });
+
+  it("defines the canonical query: decoded, byte-exact, no normalisation, absent distinct, no default filled in", () => {
+    expect(info()).toMatch(/\*\*canonical query\*\* is the four parameters, each taken as its\s+percent-decoded value and compared byte for byte as UTF-8/);
+    expect(info()).toMatch(/no\s+Unicode normalisation \(an Arabic `file_name` sent in NFC and the same\s+name sent in NFD are different values\)/);
+    expect(info()).toMatch(/An absent parameter is distinct from every value/);
+    expect(info()).toMatch(/an explicit `sheet` that\s+names the workbook's first sheet is distinct from an absent `sheet`/);
+    expect(info()).toMatch(/explicit `delimiter` equal to the detected one is distinct from\s+an absent `delimiter`/);
+    const key = String(doc.components!.parameters!["IdempotencyKey"]!.description);
+    expect(key).toMatch(/decoded value\s+compared byte for byte, with no Unicode normalisation/);
+    expect(key).toMatch(/explicit `sheet` naming the\s+default first sheet is not the same as no `sheet`/);
+  });
+
+  it("re-upload suggestion: carried entries take priority and their fields are not suggested again (barcode up to 5)", () => {
+    const replace = String(op("put", `${BATCH}/file`).description);
+    expect(replace).toMatch(/The carried entries come first, which means they take\s+priority/);
+    expect(replace).toMatch(/leaves out every field a carried entry\s+already holds, except `barcode`/);
+    expect(replace).toMatch(/carried and suggested `barcode` entries together stay at most 5/);
+    expect(replace).toMatch(/A carried entry is never replaced by a synonym or profile\s+suggestion/);
+    const batch = api.schema("CatalogImportBatch")["properties"]!;
+    const suggested = String(batch["suggestedMapping"]!["description"]);
+    expect(suggested).toMatch(/come first: they take priority/);
+    expect(suggested).toMatch(/leaves out every field they already hold \(`barcode` may\s+still appear, at most 5 entries in total\)/);
+  });
+
+  it("mappingProfileId after a re-upload names only the profile used for the columns not carried", () => {
+    const profile = String(api.schema("CatalogImportBatch")["properties"]!["mappingProfileId"]!["description"]);
+    expect(profile).toMatch(/`null` when no profile contributed/);
+    expect(profile).toMatch(/After a re-upload it names\s+the profile used for the columns that were not carried/);
+    expect(profile).toMatch(/carried entries\s+come from the batch's previous mapping, never from a profile/);
+  });
+
+  it("binds the cursor to the status query filter, not to a row's status", () => {
+    const cursor = String(doc.components!.parameters!["Cursor"]!.description);
+    expect(cursor).toMatch(/`status` query filter: the value of the request's `status`\s+parameter \(absent is its own filter value\), not any row's status/);
+    expect(cursor).toMatch(/next page must repeat the same\s+`status` parameter/);
   });
 });
 

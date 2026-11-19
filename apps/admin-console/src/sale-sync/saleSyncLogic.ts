@@ -21,9 +21,14 @@ export function canUseSaleSyncOps(role: string | null | undefined): boolean {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** A UUID path or query value. Anything else is never sent. */
+export function isUuid(value: string): boolean {
+  return UUID_PATTERN.test(value);
+}
+
 /** The `?store=` filter: "" (all stores) or a UUID. Anything else is never sent. */
 export function isStoreFilter(value: string): boolean {
-  return value === "" || UUID_PATTERN.test(value);
+  return value === "" || isUuid(value);
 }
 
 function keyOf(map: Record<string, MessageKey>, code: string, fallback: MessageKey): MessageKey {
