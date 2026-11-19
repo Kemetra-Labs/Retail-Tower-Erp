@@ -60,11 +60,13 @@ function Filters({
   onApply: (next: Applied) => void;
 }>): React.JSX.Element {
   const t = useT();
-  const [draft, setDraft] = useState<Applied>(applied);
+  // A state the contract does not list is never offered back: the select starts on the open queue.
+  const shown = { ...applied, state: isQuarantineStateFilter(applied.state) ? applied.state : "" };
+  const [draft, setDraft] = useState<Applied>(shown);
   const [synced, setSynced] = useState(applied);
   if (synced.store !== applied.store || synced.state !== applied.state) {
     setSynced(applied);
-    setDraft(applied);
+    setDraft(shown);
   }
   // A URL store the roster does not list stays selectable, so its 404 is visible.
   const listed =

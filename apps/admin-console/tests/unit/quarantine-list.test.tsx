@@ -204,10 +204,11 @@ describe("QuarantineList (RT-1312)", () => {
     expect(api.consoleListQuarantinedSales).not.toHaveBeenCalled();
   });
 
-  test("an unknown state filter is never sent", async () => {
+  test("an unknown state filter is never sent, and the select does not claim it is Open", async () => {
     renderList("/quarantined-sales?state=everything");
     expect(await screen.findByText("This state is not known.")).toBeDefined();
     expect(api.consoleListQuarantinedSales).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("State") as HTMLSelectElement).value).toBe("open");
   });
 
   test("an out-of-scope store is the API's non-disclosing 404", async () => {

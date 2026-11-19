@@ -152,8 +152,12 @@ export function useWriteOff(target: Omit<QuarantineTarget, "enabled">): WriteOff
     if (!keepsKey(next)) attempt.current.settle();
     if (next.kind === "written-off") {
       queryClient.setQueryData<QuarantinedSale>(quarantineQueryKeys.item(target), next.item);
-    } else if (next.kind === "conflict" || next.kind === "unconfirmed") {
-      // The item may no longer be open: read it again so the page shows the server's state.
+    } else if (
+      next.kind === "conflict" ||
+      next.kind === "unconfirmed" ||
+      next.kind === "not-found"
+    ) {
+      // The item may no longer be open or reachable: read it again so the page shows the server's state.
       void queryClient.invalidateQueries({ queryKey: quarantineQueryKeys.item(target) });
     }
     if (next.kind === "written-off" || next.kind === "conflict") {

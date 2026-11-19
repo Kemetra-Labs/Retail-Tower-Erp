@@ -144,6 +144,20 @@ describe("classifyWriteOff", () => {
     });
   });
 
+  test.each([413, 415, 422])(
+    "an unlisted definite %i is a refusal that changed nothing",
+    (status) => {
+      expect(classifyWriteOff(failure(status))).toMatchObject({
+        kind: "rejected",
+        messageKey: "saleQuarantine.writeOff.error.rejected",
+      });
+    },
+  );
+
+  test.each([408, 425])("a %i says the server did not finish, so it is unconfirmed", (status) => {
+    expect(classifyWriteOff(failure(status)).kind).toBe("unconfirmed");
+  });
+
   test.each([500, 502, 0])("a %i or a lost response is unconfirmed, never failed", (status) => {
     expect(classifyWriteOff({ status })).toMatchObject({
       kind: "unconfirmed",

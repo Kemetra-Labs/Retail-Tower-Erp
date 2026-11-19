@@ -99,8 +99,6 @@ export const saleQuarantine: MessagesOf<typeof ar> = {
   "saleQuarantine.field.writeOffNote": "Closing note",
   "saleQuarantine.value.notRecorded": "Not recorded",
   "saleQuarantine.value.openSale": "Open the sale",
-  "saleQuarantine.value.thisDevice": "The same device",
-  "saleQuarantine.value.none": "None",
   "saleQuarantine.lastRepair": "{at}: {outcome}",
   "saleQuarantine.lastRepair.captured": "A new sale was recorded",
   "saleQuarantine.lastRepair.alreadyCaptured": "Already recorded",

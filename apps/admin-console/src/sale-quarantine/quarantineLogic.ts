@@ -143,6 +143,16 @@ const UNCONFIRMED: RefusalView = {
 };
 
 /**
+ * A status the contract does not list: a definite 4xx is a refusal (nothing was applied); 408 and
+ * 425 say the server did not finish, and a 5xx, no response or a 200 without the item may have
+ * been applied.
+ */
+function fallbackView(status: number): RefusalView {
+  const definite = status >= 400 && status < 500 && status !== 408 && status !== 425;
+  return definite ? (REFUSALS["400"] as RefusalView) : UNCONFIRMED;
+}
+
+/**
  * Maps the server's answer to what the operator sees. Only a 200 with the item is a write-off; a
  * 5xx or a lost response is "unconfirmed" (the server may have acted), never "failed". Nothing
  * here retries.
@@ -163,7 +173,7 @@ export function classifyWriteOff(result: WriteOffResult): WriteOffOutcome {
   }
   const code = errorCodeOf(result.error);
   const view = REFUSALS[`${result.status}:${code}`] ?? REFUSALS[String(result.status)];
-  return { ...(view ?? UNCONFIRMED), requestId };
+  return { ...(view ?? fallbackView(result.status)), requestId };
 }
 
 /**

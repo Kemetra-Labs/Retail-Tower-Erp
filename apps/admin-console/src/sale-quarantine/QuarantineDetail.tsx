@@ -21,12 +21,13 @@ import { PageHeader } from "@/components/PageHeader";
 import { DateTime, type T, useT } from "@/i18n";
 import type { QuarantinedSale } from "@/lib/sale-quarantine-queries";
 import { SyncOpsGate } from "@/sale-sync/SyncOpsGate";
-import { Machine, ReadError } from "@/sale-sync/parts";
+import { Machine, ReadError, StaleError } from "@/sale-sync/parts";
 import { isUuid } from "@/sale-sync/saleSyncLogic";
+import type { SyncError } from "@/sale-sync/useSaleSync";
 import { Field, Section } from "@/sales/SaleDetailSections";
 import type { SaleScope } from "@/sales/useSales";
 import { useStoreOf } from "@/shift-closes/useShiftCloses";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { WriteOffDialog } from "./WriteOffDialog";
 import { QuarantineStateBadge, TillTotal } from "./parts";
@@ -223,9 +224,24 @@ function HandlingSection({
   const [writing, setWriting] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
   const known = quarantineStateView(item.state).badge !== "badge--danger";
+  const open = canWriteOff(item);
+
+  // The control that opened the dialog goes when the item stops being open (a write-off, a 409, or
+  // a re-read that found it closed): focus then moves to the page title, not to the body. The
+  // dialog owns focus while it is up, so this waits for it to close.
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (writing) return;
+    const active = document.activeElement;
+    if (wasOpen.current && !open && (active === null || active === document.body)) {
+      titleRef.current?.focus();
+    }
+    wasOpen.current = open;
+  }, [writing, open, titleRef]);
+
   return (
     <Section id="quarantine-handling" titleKey="saleQuarantine.section.handling" index={4}>
-      {canWriteOff(item) ? (
+      {open ? (
         <OpenHandling onWriteOff={() => setWriting(true)} opener={opener} />
       ) : (
         <p className="content__sub">
@@ -238,11 +254,7 @@ function HandlingSection({
           scope={scope}
           quarantineRef={item.quarantineRef}
           reference={item.externalId}
-          onClose={(finished) => {
-            setWriting(false);
-            // The control that opened the dialog is gone once the item is no longer open.
-            if (finished) titleRef.current?.focus();
-          }}
+          onClose={() => setWriting(false)}
         />
       ) : null}
     </Section>
@@ -252,7 +264,15 @@ function HandlingSection({
 function Loaded({
   item,
   scope,
-}: Readonly<{ item: QuarantinedSale; scope: SaleScope }>): React.JSX.Element {
+  readFailure,
+  onRetry,
+}: Readonly<{
+  item: QuarantinedSale;
+  scope: SaleScope;
+  /** A re-read failed while the earlier answer stays on screen. */
+  readFailure: SyncError | undefined;
+  onRetry: () => void;
+}>): React.JSX.Element {
   const t = useT();
   const { timeZone } = useStoreOf(item.storeId);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -263,8 +283,11 @@ function Loaded({
         titleRef={titleRef}
         title={t.rich("saleQuarantine.detail.title", { ref: <Machine value={item.externalId} /> })}
       >
-        <QuarantineStateBadge code={item.state} />
+        <span className="sale-sync__chips">
+          <QuarantineStateBadge code={item.state} />
+        </span>
       </PageHeader>
+      <StaleError error={readFailure} onRetry={onRetry} />
       {item.uploadConflictCount > 0 ? (
         <Banner
           variant="warning"
@@ -322,7 +345,9 @@ function Content({ scope }: Readonly<{ scope: SaleScope }>): React.JSX.Element {
     );
   }
   if (!read.data) return <div className="surface" />;
-  return <Loaded item={read.data} scope={scope} />;
+  return (
+    <Loaded item={read.data} scope={scope} readFailure={read.inlineError} onRetry={read.retry} />
+  );
 }
 
 export function QuarantineDetail(): React.JSX.Element {

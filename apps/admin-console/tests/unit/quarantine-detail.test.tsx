@@ -416,10 +416,65 @@ describe("QuarantineDetail (RT-1312)", () => {
       "The item was not closed; you can ask again in 30 seconds.",
     );
     act(() => reportRateLimited(30));
+    const held = within(dialog).getByRole("button", { name: /Close without recording/ });
+    expect((held as HTMLButtonElement).disabled).toBe(true);
+    // Once the wait is over the same note replays under the same key.
+    act(() => resetRateLimit());
+    fireEvent.click(within(dialog).getByRole("button", { name: /Close without recording/ }));
+    await waitFor(() => expect(api.consoleWriteOffQuarantinedSale).toHaveBeenCalledTimes(2));
+    const [first, second] = api.consoleWriteOffQuarantinedSale.mock.calls;
+    expect(second[2]).toBe(first[2]);
+  });
+
+  test("a 404 on the write-off reads the item again, so the page reaches its own 404", async () => {
+    api.consoleWriteOffQuarantinedSale.mockResolvedValue(failure(404, "not_found"));
+    renderDetail();
+    const dialog = await openDialog();
+    typeNote(dialog, "Refunded in cash");
+    api.consoleGetQuarantinedSale.mockResolvedValue(failure(404, "not_found"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close without recording" }));
+    await within(dialog).findByText(/not found or is not available to you. Nothing changed./);
+    await waitFor(() => expect(api.consoleGetQuarantinedSale).toHaveBeenCalledTimes(2));
+  });
+
+  test("a failed re-read keeps the item on screen and says so, with a retry", async () => {
+    api.consoleWriteOffQuarantinedSale.mockResolvedValue({ status: 503 });
+    renderDetail();
+    const dialog = await openDialog();
+    typeNote(dialog, "Refunded in cash");
+    api.consoleGetQuarantinedSale.mockResolvedValue(failure(500));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close without recording" }));
+    await within(dialog).findByText(/did not confirm the result/);
+    const stale = await screen.findByText(/could not be refreshed/);
     expect(
-      (within(dialog).getByRole("button", { name: /Close without recording/ }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+      within(stale.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Retry" }),
+    ).toBeDefined();
+    expect(screen.getByRole("heading", { level: 1, name: /POS-CAI-0042/ })).toBeDefined();
+  });
+
+  test("a 409 key conflict and a 403 origin refusal each say nothing changed", async () => {
+    api.consoleWriteOffQuarantinedSale
+      .mockResolvedValueOnce(failure(409, "idempotency_key_conflict"))
+      .mockResolvedValueOnce(failure(403, "origin_rejected"));
+    renderDetail();
+    const dialog = await openDialog();
+    typeNote(dialog, "Refunded in cash");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close without recording" }));
+    await within(dialog).findByText(/does not match an earlier request with the same key/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close without recording" }));
+    await within(dialog).findByText(/refused where this request came from, and nothing changed/);
+  });
+
+  test("when the write-off closes the item, focus lands on the page title, not the body", async () => {
+    api.consoleWriteOffQuarantinedSale.mockResolvedValue(ok(writtenOff()));
+    renderDetail();
+    const dialog = await openDialog();
+    typeNote(dialog, "Refunded in cash");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close without recording" }));
+    await within(dialog).findByText(/The item was closed without recording the sale/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
   });
 
   test("a second click while one is in flight sends nothing more", async () => {

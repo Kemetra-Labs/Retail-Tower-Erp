@@ -112,8 +112,6 @@ export const saleQuarantine = {
   "saleQuarantine.field.writeOffNote": "ملاحظة الإغلاق",
   "saleQuarantine.value.notRecorded": "غير مسجّل",
   "saleQuarantine.value.openSale": "فتح البيع",
-  "saleQuarantine.value.thisDevice": "الجهاز نفسه",
-  "saleQuarantine.value.none": "لا يوجد",
   "saleQuarantine.lastRepair": "{at}: {outcome}",
   "saleQuarantine.lastRepair.captured": "سُجّل بيع جديد",
   "saleQuarantine.lastRepair.alreadyCaptured": "كان مسجّلًا من قبل",

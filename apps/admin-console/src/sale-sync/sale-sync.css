@@ -7,6 +7,13 @@
   font-size: var(--text-machine);
 }
 
+/* RT-1312: the state chip in a page header sits inline, not as a full-width bar. */
+.sale-sync__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .sale-sync__subtitle {
   margin: 0;
   font: var(--weight-strong) var(--text-body) / var(--leading-title) var(--font-sans);
