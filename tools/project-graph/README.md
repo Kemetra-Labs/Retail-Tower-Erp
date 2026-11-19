@@ -21,7 +21,6 @@ The design comes from [RT-709 §A](https://rahmaqanater.atlassian.net/wiki/space
 | `pgraph/boundary.py` | B.1 layer-1 cross-product reference check (dependency-free `scan`), hardened by RT-873 |
 | `pgraph/gitio.py` | Git plumbing adapter (`diff --raw -z`, `ls-tree`, `cat-file --batch`); no checkout |
 | `pgraph/privileges.py` | R5 / T-A static check of the root workflows (and any `tools/ci-gate/*.staged` file) (`python -m pgraph privileges`) |
-| `pgraph/api_jest_select.py` | RT-949 Backend-Core API Jest **shadow** selector and report (`api-jest-select`, `api-jest-report`); advisory only |
 | `boundary-todo.yaml` | Boundary ratchet (one entry, RT-715). Entries may only be removed; a stale entry fails `boundary` |
 | `fixtures/` | P01–P19 (RT-709 A.6) and X01–X08 (new, see below) with hand-written expectations |
 | `tests/` | unittest suite, including the fixture runner and a real-tree acceptance check |
@@ -51,6 +50,7 @@ The graph decides which jobs **execute**, not only which results `required` coun
 **Plan-guard rule (static rule 5b).** `validate_graph(..., workflows=...)` checks the trusted root workflows. It fails the graph (`GRAPH_INVALID`, select all) on any of these:
 - `CI_JOB_UNGUARDED`: a graph job, or a job it needs transitively, does not need `plan` or lacks a guard on that key;
 - `CI_PLAN_MISSING`: the workflow has no unconditional `plan` job with a `jobs` output;
+- `CI_PLAN_NOT_SHARED`: its `plan` job does not run the shared composite action `.github/actions/pgraph-plan`, or has a `run:` step of its own (RT-1467 CI-05: the plan logic exists once);
 - `ALWAYS_JOB_GUARDED`: an always-run job has a guard.
 
 Only the canonical guard shape is accepted (see `guard_keys`), so `always() || ...` is rejected. `tests/test_real_tree.py` asserts the rule on the committed tree, and fixture X08 covers the negatives.
@@ -59,25 +59,13 @@ Only the canonical guard shape is accepted (see `guard_keys`), so `always() || .
 
 **Semantic edges.** Backend-Core `sales`, `money` and `posting-sync` also select `pos/static` and `pos/test`. Connector `posting-sync` also selects `bc/fast`.
 
-## API Jest impact selection, shadow only (RT-949 Phase 1)
+## `api_jest_fast` (graph data only)
 
-**Retired from CI by RT-1467 (2026-11-18).** RT-949 and RT-950 are Done, so `bc/db-integration`
-no longer runs the shadow steps or uploads the `api-jest-shadow` artifact. The selector module,
-its CLI commands and the `api_jest_fast` graph class below remain, unused by any workflow, until
-a follow-up removes them or a Phase 2 adopts them. The rest of this section describes the shadow
-as it ran.
-
-Design: RT-946 comment 14579; scope: RT-949 comment 14580. On every pull request `bc/db-integration` reports which API specs a fast mode **would** have run, then runs the whole suite with coverage exactly as before. Nothing is skipped, and the report cannot change the job, its coverage gate or `required` (every shadow step is `continue-on-error`).
-
-- **Fast class (graph data).** `graph.yaml` `products.backend-core.api_jest_fast` lists the globs a path must match, and the path must also be in no Backend-Core tier (untiered `high` only). Adding a tier shrinks the fast class without touching the selector. Validated by `graph.py` (`SCHEMA: ...api_jest_fast`, `TIER_GLOB_OUTSIDE_PRODUCT`).
-- **Anchor, never "the previous push".** The newest PR commit (up to 10) whose latest `bc/db-integration` is green under the gate's own rules (`aggregate._judge_job`: trusted producer, `backend-core.yml`, same event, latest attempt, no duplicate) **and whose run lists this PR** (a commit merged in from another branch may carry another PR's green run), or the merge-base on `main` (`push` run).
-- **Other products.** A path of POS, Admin or the Connector is ignored unless one of its tiers selects `bc/db-integration` (a semantic edge); then the answer is `full`.
-- **Time budget.** The job timeout is 30 minutes (25 + 5 for the shadow), and the selector step is capped at 3 minutes, so the shadow cannot push the unchanged API run past the timeout.
-- **Base side, conservative.** Base changes are read from `git merge-base(anchor, current base)` to the current base. The anchor's run merged with a `main` that already contained that commit, so this can only over-count. The Actions API's `pull_requests[].base.sha` is not used: it is empty once a PR closes, and nothing documents it as the base at trigger time. Cost, measured on PR #123's last push: the change since the anchor was one spec (fast-eligible), but `main` had moved under `apps/api/src/audit/` since the branch point, so the answer was `full`. Merging `main` into the branch moves the merge-base forward.
-- **`full` unless every check passes:** no fast class; no anchor, ambiguous checks or missing evidence; anchor or its base not an ancestor; a changed path that is deleted/renamed, a symlink/submodule, in any tier, outside the fast globs, or a shared class that selects all; a base move touching Backend-Core or a select-all class; no file left. Paths of other products and of no-job classes (`docs`) are ignored.
-- **Jest:** `jest --listTests --findRelatedTests <files>` with the selector's explicit list (not `--changedSince`, which diffs against the merge commit). The full run adds `--json --outputFile` only. The report counts `misses` = failing specs not selected, only in fast mode and only when the results file exists; `EMPTY_SELECTION` and `NO_RESULTS` are flagged, never reported as zero misses.
-- **Evidence:** step summary plus the `api-jest-shadow` artifact (30 days) feed RT-950. Accuracy counts only runs with at least one failing spec.
-- **Trust.** The job already runs PR code (the tests), so in Phase 1 the selector also runs from the checked-out tree, with a read-only token (`contents`, `actions`, `checks`). Phase 2 (owner-gated, needs RT-866) would run it in the plan job from the trusted base archive.
+The RT-949 Backend-Core API Jest shadow selector (module, `api-jest-select` and `api-jest-report`
+commands, shadow steps) was retired and removed by RT-1467. `graph.yaml`
+`products.backend-core.api_jest_fast` stays, validated by `graph.py` (`SCHEMA: ...api_jest_fast`,
+`TIER_GLOB_OUTSIDE_PRODUCT`): `.circleci/scripts/tia-risk-guard.cjs` copies its globs, and its test
+fails if they drift. A path is "fast" only if it matches these globs and is in no Backend-Core tier.
 
 ## Approval protocol (R1)
 
@@ -98,7 +86,7 @@ The fingerprint covers the base SHA, both graph hashes and every changed path/mo
 
 | Workflow | Triggers | Token permissions | Environment | Secrets |
 | --- | --- | --- | --- | --- |
-| `.github/workflows/project-graph-selftest.yml` | `pull_request`, `push` main | `contents: read` | none | none |
+| `.github/workflows/project-graph-selftest.yml` | `pull_request`, `push` main (only when `tools/project-graph/**`, `.github/**`, `.circleci/**` or `.depot/**` change) | `contents: read` | none | none |
 | `.github/workflows/gate.yml` | `pull_request_target`, `workflow_run` | `contents/pull-requests/checks/actions: read` | `ci-gate` (main-only) | none; `post` alone holds `checks: write` on its `GITHUB_TOKEN` |
 | Product CI (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`, `project-graph`) | `pull_request`, `push` main | `contents: read` | none | none |
 | Per-product releases (RT-717) | protected `main` / tags only | product-specific identity | per-product environment | never reachable from PR code |

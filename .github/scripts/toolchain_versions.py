@@ -17,6 +17,9 @@ The repo-root `.nvmrc` is the Node major. Every rule below compares against it o
       where X.Y is that file's version
   (e) every `.python-version` in the repository has the same content as the root one (RT-1296:
       one Python for the whole repository), and the root file exists
+  (f) the ERPNext bench pins (FRAPPE_REF, ERPNEXT_REF, BENCH_VERSION, the MariaDB image with its
+      digest) have one value across erpnext-connector.yml, connector-bench-nightly.yml and
+      finance-report-role-bench.yml; a missing workflow or a missing pin is a violation (RT-1467)
 
 Stdlib plus PyYAML (hash-pinned in tools/project-graph/requirements.txt, which boundary-check
 installs first); workflows are parsed, not pattern-matched. Every unclear case is a violation.
@@ -33,6 +36,17 @@ import yaml
 # Node major bundled by each Electron major (releases.electronjs.org `node` field). Add a row when
 # POS moves to a new Electron major; the guard fails until it is there.
 ELECTRON_NODE_MAJOR = {44: 24}
+
+# RT-1467 CI-12: the three workflows that build an ERPNext/Frappe bench must run the same validated
+# pair (RT-494): Frappe, ERPNext, bench CLI and the MariaDB image with its digest.
+FRAPPE_PIN_WORKFLOWS = (
+    ".github/workflows/erpnext-connector.yml",
+    ".github/workflows/connector-bench-nightly.yml",
+    ".github/workflows/finance-report-role-bench.yml",
+)
+FRAPPE_ENV_KEYS = ("FRAPPE_REF", "ERPNEXT_REF", "BENCH_VERSION")
+MARIADB_PIN = "mariadb image"
+FRAPPE_PINS = FRAPPE_ENV_KEYS + (MARIADB_PIN,)
 
 SKIP_DIRS = {".git", ".claude", "node_modules", ".venv", "venv", "dist", "build", "out", ".pnpm-store"}
 INLINE_KEYS = {"node-version", "python-version"}
@@ -215,12 +229,54 @@ def check_python_pins(repo, files):
     return problems
 
 
+def frappe_pins_in(data):
+    """{pin name: {values}} for every bench pin a parsed workflow sets anywhere (env at workflow, job
+    or step level, and the MariaDB service image)."""
+    found = {}
+    for mapping in mappings(data):
+        for key in FRAPPE_ENV_KEYS:
+            if key in mapping:
+                found.setdefault(key, set()).add(str(mapping[key]))
+        image = mapping.get("image")
+        if isinstance(image, str) and image.startswith("mariadb:"):
+            found.setdefault(MARIADB_PIN, set()).add(image)
+    return found
+
+
+def check_frappe_pins(repo):
+    """(f) the ERPNext bench pins agree across the workflows that build a bench (RT-1467 CI-12)."""
+    problems = []
+    by_pin = {pin: {} for pin in FRAPPE_PINS}            # pin -> {value: [workflow, ...]}
+    for name in FRAPPE_PIN_WORKFLOWS:
+        path = os.path.join(repo, name)
+        if not os.path.isfile(path):
+            problems.append(f"(f) {name}: missing, so its ERPNext bench pins cannot be compared")
+            continue
+        try:
+            found = frappe_pins_in(yaml.safe_load(read(path)))
+        except yaml.YAMLError as exc:
+            raise InputError(f"{name}: {exc}") from exc
+        for pin in FRAPPE_PINS:
+            values = found.get(pin, set())
+            if not values:
+                problems.append(f"(f) {name}: no {pin}")
+            elif len(values) > 1:
+                problems.append(f"(f) {name}: {pin} has several values {sorted(values)}")
+            else:
+                by_pin[pin].setdefault(next(iter(values)), []).append(name)
+    for pin, values in by_pin.items():
+        if len(values) > 1:
+            shown = "; ".join(f"{value!r} in {', '.join(names)}" for value, names in sorted(values.items()))
+            problems.append(f"(f) {pin} differs across the bench workflows: {shown}")
+    return problems
+
+
 def check(repo):
     major = node_major(repo)
     files = list(walk(repo))
     return (check_workflows(repo, files) + check_images(repo, files, major)
             + check_packages(repo, files, major) + check_python_projects(repo, files)
-            + check_python_pins(repo, files))
+            + check_python_pins(repo, files) + check_frappe_pins(repo))
 
 
 def main(argv=None):

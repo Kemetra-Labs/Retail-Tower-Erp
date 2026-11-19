@@ -1,6 +1,6 @@
 # Root CI for the project graph (RT-748 slice I-2). Defines the graph.yaml job key
-# `boundary-check` (static rule 5) by running the layer-1 boundary check that
-# project-graph-selftest.yml already runs as one of its steps, as its own job.
+# `boundary-check` (static rule 5) by running the layer-1 boundary check as its own job (the
+# advisory project-graph-selftest.yml no longer repeats it, RT-1467 CI-06).
 # The job `name:` is the graph key, so it is a literal with no expression. The workflow
 # `name:` must stay `project-graph` (listed in gate.yml `workflow_run`). PR-reachable: read-only
 # token, no credentials, no environment. Deliberately no `paths:` filter and no job `if:`:

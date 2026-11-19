@@ -27,6 +27,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(out["ambiguous"], [])
         self.assertGreater(out["product_paths"], 7000)
 
+    def test_the_retired_rt949_selector_is_gone(self):
+        """RT-1467: no workflow ran it after #692, so neither the module nor its commands remain.
+        (`api_jest_fast` stays in graph.yaml: .circleci/scripts/tia-risk-guard.cjs reads it.)"""
+        self.assertFalse((PG / "pgraph" / "api_jest_select.py").exists())
+        for command in ("api-jest-select", "api-jest-report"):
+            with self.subTest(command=command):
+                r = _cli(command, "--help")
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn("invalid choice", r.stderr)
+
     def test_classify_tree_fails_on_unknown_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(["git", "-C", tmp, "init", "-q"], check=True)
