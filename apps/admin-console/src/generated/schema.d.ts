@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 57a48adfe335c5dbb0e9a69bac3268860574be7c
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 7441b33d1f6b7f9f090c4a9963ecd6639c80e0c7
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -11445,7 +11445,7 @@ export namespace SaleSyncOpsSchema {
             put?: never;
             /**
              * Close a quarantined sale without a sale (written off, handled outside Retail Tower).
-             * @description Decision C3. Closes an `open` quarantine item for good, without a sale: no `sales` row, posting intent or stock effect is created. For a body that can never be captured (a `payload_divergence`, an operator whose tenant membership at `occurredAt` cannot be proven) and that is handled outside Retail Tower. `owner` and `tenant_admin` only (C1); the reason note is required and audited with the writer. The stored body is then kept under the normal audit retention (P3). An item that is not `open` is 409 `repair_conflict`, deterministic, no side effect. `Idempotency-Key` is REQUIRED (the existing IdempotencyInterceptor): an identical retry replays the stored answer; the same key with a different note is 409 `idempotency_key_conflict`.
+             * @description Decision C3. Closes an `open` quarantine item for good, without a sale: no `sales` row, posting intent or stock effect is created. For a body that can never be captured (a `payload_divergence`, an operator whose tenant membership at `occurredAt` cannot be proven) and that is handled outside Retail Tower. `owner` and `tenant_admin` only (C1); the reason note is required and stored on the item, and the write-off is audited with the writer (the audit metadata carries the quarantine ref, the store and the state, never the free-text note). The stored body is then kept under the normal audit retention (P3). An item that is not `open` is 409 `repair_conflict`, deterministic, no side effect. `Idempotency-Key` is REQUIRED (the existing IdempotencyInterceptor): an identical retry replays the stored answer; the same key with a different note is 409 `idempotency_key_conflict`.
              */
             post: operations["consoleWriteOffQuarantinedSale"];
             delete?: never;

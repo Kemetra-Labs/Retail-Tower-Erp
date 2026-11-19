@@ -100,6 +100,7 @@ State this in the PR body.
   generated Console client (`apps/admin-console/src/generated/schema.d.ts`, `@default 60`) changes
   only at the next repin. Update each stale hand-written copy or name the issue that owns it in the PR
   body; never leave one unowned.
+- **An Admin Console repin pulls in every contract change since the old PIN, not only yours (RT-1312).** Run `pnpm install --frozen-lockfile` first (a new worktree has no `node_modules`), then `pnpm generate:client --repin <full 40-character sha of a commit on main>` from `apps/admin-console`. Read the diff of `contracts/backend-core/PIN` before you commit: RT-1312's repin from `7ed49012` to `b7c47b037` also moved `inventory.yaml` and `ai-entitlements.openapi.yaml`, so name them in the commit message. Run `pnpm exec tsc --noEmit` before any UI work, and land the repin as its own commit (`[GATED: generated client pin]`), so a break there is not mixed with feature code. A new operation may sit in a file the PIN already lists (`sale-sync-ops.yaml` did), so the repin is enough and no new `file:` line is needed.
 
 ## Migrations (`services/backend-core/packages/db/drizzle/`)
 

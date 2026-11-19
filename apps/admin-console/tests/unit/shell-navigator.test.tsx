@@ -220,7 +220,11 @@ describe("what it offers", () => {
     type("cairo");
     expect(optionNames()).toEqual(["Cairo Festival City", "New Cairo Mall"]);
     type("sales");
-    expect(optionNames()).toEqual(["Sales", "Sales needing repair"]);
+    expect(optionNames()).toEqual([
+      "Sales",
+      "Sales needing repair",
+      "Sales the till could not send",
+    ]);
     type("zzz");
     expect(optionNames()).toEqual([]);
     expect(screen.getByText("No page or store matches “zzz”.")).toBeDefined();

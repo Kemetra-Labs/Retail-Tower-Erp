@@ -28,6 +28,7 @@ import { platform } from "./ar/platform";
 import { posPilot } from "./ar/posPilot";
 import { postingRepair } from "./ar/postingRepair";
 import { productRecon } from "./ar/productRecon";
+import { saleQuarantine } from "./ar/saleQuarantine";
 import { saleSync } from "./ar/saleSync";
 import { sales } from "./ar/sales";
 import { salesByStore } from "./ar/salesByStore";
@@ -62,6 +63,7 @@ export const AR_MODULES = {
   posPilot,
   sales,
   saleSync,
+  saleQuarantine,
   postingRepair,
   cashPolicy,
   inventory,
@@ -100,6 +102,7 @@ export const ar = {
   ...posPilot,
   ...sales,
   ...saleSync,
+  ...saleQuarantine,
   ...postingRepair,
   ...cashPolicy,
   ...inventory,
