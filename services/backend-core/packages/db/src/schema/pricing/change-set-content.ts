@@ -28,6 +28,7 @@ import {
   pgTable,
   primaryKey,
   text,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -60,6 +61,7 @@ export const priceChangeSetItems = pgTable(
       columns: [t.tenantId, t.changeSetId],
       foreignColumns: [changeSets.tenantId, changeSets.id],
     }).onDelete("restrict"),
+    check("price_change_set_items_version_positive", sql`${t.changeSetVersion} >= 1`),
     check("price_change_set_items_position", sql`${t.position} BETWEEN 1 AND 500`),
     check("price_change_set_items_op", sql`${t.op} IN ${CHANGE_OPS}`),
   ],
@@ -138,6 +140,7 @@ export const priceChangeSetLines = pgTable(
       columns: [t.tenantId, t.newEventId],
       foreignColumns: [priceEvents.tenantId, priceEvents.id],
     }).onDelete("restrict"),
+    check("price_change_set_lines_line_no", sql`${t.lineNo} BETWEEN 1 AND 50000`),
     check("price_change_set_lines_op", sql`${t.op} IN ${CHANGE_OPS}`),
     check("price_change_set_lines_scope", sql`${t.scope} IN ('book', 'zone', 'store')`),
     check("price_change_set_lines_time_basis", sql`${t.timeBasis} IN ('store_local', 'absolute')`),
@@ -151,5 +154,11 @@ export const priceChangeSetLines = pgTable(
     index("ix_price_change_set_lines_zone")
       .on(t.tenantId, t.priceZoneId)
       .where(sql`${t.priceZoneId} IS NOT NULL`),
+    index("ix_price_change_set_lines_store")
+      .on(t.tenantId, t.storeId)
+      .where(sql`${t.storeId} IS NOT NULL`),
+    uniqueIndex("uq_price_change_set_lines_new_event")
+      .on(t.tenantId, t.newEventId)
+      .where(sql`${t.newEventId} IS NOT NULL`),
   ],
 );

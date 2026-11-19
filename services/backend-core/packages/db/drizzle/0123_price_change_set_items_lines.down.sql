@@ -6,7 +6,7 @@
 -- indexes, triggers and policies) and their functions. A Change Set's authored
 -- items and its materialized lines (the per-line before/after record of a
 -- published set, spec 042 §10) would be lost, so the rollback REFUSES while
--- any item exists (every line references an item): back up, decide, and have a
+-- any item or line exists: back up, decide, and have a
 -- superuser remove the rows first, with the append-only triggers disabled
 -- (ALTER TABLE ... DISABLE TRIGGER USER, or session_replication_role = replica).
 --
@@ -46,9 +46,13 @@ BEGIN
     PERFORM set_config('app.current_tenant', t::text, true);
     EXECUTE 'SELECT count(*) FROM price_change_set_items WHERE tenant_id = $1' INTO n USING t;
     rows_found := rows_found + n;
+    IF to_regclass('price_change_set_lines') IS NOT NULL THEN
+      EXECUTE 'SELECT count(*) FROM price_change_set_lines WHERE tenant_id = $1' INTO n USING t;
+      rows_found := rows_found + n;
+    END IF;
   END LOOP;
   IF rows_found > 0 THEN
-    RAISE EXCEPTION '0123 down refused: % Change Set item row(s) exist; Change Set content would be lost', rows_found
+    RAISE EXCEPTION '0123 down refused: % Change Set item / line row(s) exist; Change Set content would be lost', rows_found
       USING HINT = 'Back up the Change Set content tables and remove the rows as a superuser first (spec 044 R3).';
   END IF;
 END
@@ -57,6 +61,8 @@ $$;
 DROP TABLE IF EXISTS price_change_set_lines;
 DROP TABLE IF EXISTS price_change_set_items;
 
+DROP TRIGGER IF EXISTS change_sets_redraft_bumps_version ON change_sets;
+DROP FUNCTION IF EXISTS change_sets_redraft_bumps_version();
 DROP FUNCTION IF EXISTS price_change_set_lines_guard();
 DROP FUNCTION IF EXISTS price_change_set_lines_before_insert();
 DROP FUNCTION IF EXISTS price_change_set_items_before_insert();

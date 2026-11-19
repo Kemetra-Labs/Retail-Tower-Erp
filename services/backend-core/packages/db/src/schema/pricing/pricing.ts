@@ -53,7 +53,6 @@ import { xid8 } from "../offers/offer-versions";
 import { stores } from "../stores";
 import { effectiveBoundsColumns, pricingAuthorshipColumns, tenantIdColumn, timelineColumns } from "./columns";
 
-
 export const changeSets = pgTable(
   "change_sets",
   {

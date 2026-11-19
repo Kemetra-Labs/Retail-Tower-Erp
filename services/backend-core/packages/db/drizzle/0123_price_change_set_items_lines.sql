@@ -13,7 +13,14 @@
 --     `PriceChangeItem`, `LineClass`, `PreviewLine`
 --   - packages/db/__tests__/migration/0123-price-change-set-items-lines.spec.ts
 --
--- Two new tables. No runtime reads or writes them until RT-1484 (PR-10).
+-- Two new tables, plus one trigger on 0121's change_sets (section 3: every
+-- return to draft increments the version). No runtime reads or writes them
+-- until RT-1484 (PR-10).
+--
+-- Concurrency: the item and line insert triggers lock the set's change_sets
+-- row FOR NO KEY UPDATE, so two writers of one set's content (two validates,
+-- or an edit and a validate) serialize on that row instead of deadlocking;
+-- the second then sees the version the first moved and is refused.
 --
 --   price_change_set_items   The items a Change Set's author wrote (spec 042
 --                            §4.2), one row per item per DRAFT VERSION: an edit
@@ -97,7 +104,7 @@ CREATE TABLE price_change_set_items (
     'set_price', 'adjust_amount', 'adjust_percent', 'end_price', 'reset_store_override', 'move_store_zone')),
   -- The authored item is an object whose `op` is the row's op.
   CONSTRAINT price_change_set_items_item_shape CHECK (
-    jsonb_typeof(item) = 'object' AND item ->> 'op' = op)
+    jsonb_typeof(item) = 'object' AND (item ->> 'op') IS NOT DISTINCT FROM op)
 );
 
 -- Items are written only while their set is a draft at exactly that version,
@@ -113,7 +120,7 @@ BEGIN
   SELECT cs.state, cs.version INTO v_state, v_version
     FROM public.change_sets cs
    WHERE cs.tenant_id = NEW.tenant_id AND cs.id = NEW.change_set_id
-     FOR SHARE;
+     FOR NO KEY UPDATE;
   IF v_state IS DISTINCT FROM 'draft' OR v_version IS DISTINCT FROM NEW.change_set_version THEN
     RAISE EXCEPTION 'price_change_set_items: change set % is % at version %, not a draft at version %',
       NEW.change_set_id, v_state, v_version, NEW.change_set_version
@@ -218,7 +225,7 @@ CREATE TABLE price_change_set_lines (
   CONSTRAINT price_change_set_lines_move CHECK (
     (op = 'move_store_zone' AND scope = 'store' AND price_zone_id IS NOT NULL AND product_id IS NULL
        AND sell_unit IS NULL AND time_basis = 'absolute' AND new_price IS NULL)
-    OR (op <> 'move_store_zone' AND product_id IS NOT NULL AND sell_unit IN ('each'))),
+    OR (op <> 'move_store_zone' AND product_id IS NOT NULL AND sell_unit IS NOT NULL AND sell_unit = 'each')),
   CONSTRAINT price_change_set_lines_reset_scope CHECK (op <> 'reset_store_override' OR scope = 'store'),
   CONSTRAINT price_change_set_lines_time_basis CHECK (time_basis IN ('store_local', 'absolute')),
   CONSTRAINT price_change_set_lines_bounds CHECK (
@@ -228,22 +235,32 @@ CREATE TABLE price_change_set_lines (
     OR (time_basis = 'store_local' AND effective_from_local IS NOT NULL
        AND effective_from IS NULL AND effective_to IS NULL
        AND (effective_to_local IS NULL OR effective_to_local > effective_from_local))),
-  -- A priced line has a concrete, non-negative price; an end, reset or move has none.
+  -- A priced line has a concrete, non-negative price, except an `invalid` one
+  -- (a helper result <= 0 or not representable, spec 042 §5), which may carry
+  -- none so validation can still record the finding; an end, reset or move
+  -- has none.
   CONSTRAINT price_change_set_lines_price CHECK (
     (op IN ('set_price', 'adjust_amount', 'adjust_percent') AND new_price IS NOT NULL AND new_price >= 0)
+    OR (op IN ('set_price', 'adjust_amount', 'adjust_percent') AND class = 'invalid' AND new_price IS NULL)
     OR (op IN ('end_price', 'reset_store_override', 'move_store_zone') AND new_price IS NULL)),
   CONSTRAINT price_change_set_lines_rounded_from CHECK (
     rounded_from IS NULL OR op IN ('adjust_amount', 'adjust_percent')),
   CONSTRAINT price_change_set_lines_class CHECK (class IN (
     'new', 'replaces', 'conflicts_pending', 'shadowed', 'invalidates_dependent', 'past_dated', 'invalid')),
   CONSTRAINT price_change_set_lines_new_event CHECK (
-    new_event_id IS NULL OR op IN ('set_price', 'adjust_amount', 'adjust_percent'))
+    new_event_id IS NULL OR (op IN ('set_price', 'adjust_amount', 'adjust_percent') AND new_price IS NOT NULL))
 );
 
 CREATE INDEX ix_price_change_set_lines_product
   ON price_change_set_lines (tenant_id, product_id) WHERE product_id IS NOT NULL;
 CREATE INDEX ix_price_change_set_lines_zone
   ON price_change_set_lines (tenant_id, price_zone_id) WHERE price_zone_id IS NOT NULL;
+-- The §3 intersection check reads a set's lines by Store.
+CREATE INDEX ix_price_change_set_lines_store
+  ON price_change_set_lines (tenant_id, store_id) WHERE store_id IS NOT NULL;
+-- An event is the result of exactly one line.
+CREATE UNIQUE INDEX uq_price_change_set_lines_new_event
+  ON price_change_set_lines (tenant_id, new_event_id) WHERE new_event_id IS NOT NULL;
 
 -- Lines are written only while their set is a draft at exactly that version
 -- (validation writes them, then moves the set to `validated`).
@@ -258,7 +275,7 @@ BEGIN
   SELECT cs.state, cs.version INTO v_state, v_version
     FROM public.change_sets cs
    WHERE cs.tenant_id = NEW.tenant_id AND cs.id = NEW.change_set_id
-     FOR SHARE;
+     FOR NO KEY UPDATE;
   IF v_state IS DISTINCT FROM 'draft' OR v_version IS DISTINCT FROM NEW.change_set_version THEN
     RAISE EXCEPTION 'price_change_set_lines: change set % is % at version %, not a draft at version %',
       NEW.change_set_id, v_state, v_version, NEW.change_set_version
@@ -280,8 +297,9 @@ END
 $$;
 
 -- The only change: new_event_id, NULL -> the event, once, by the transaction
--- that published the set (its revision was issued here) and only to an event
--- of this set published in that revision.
+-- that published the set (its revision was issued here), only on a line of the
+-- set's latest validation, and only to an event of this set published in that
+-- revision (the unique index makes each event one line's result).
 CREATE FUNCTION price_change_set_lines_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -292,6 +310,13 @@ BEGIN
   IF OLD.new_event_id IS NOT NULL OR NEW.new_event_id IS NULL
      OR (to_jsonb(NEW) - 'new_event_id') IS DISTINCT FROM (to_jsonb(OLD) - 'new_event_id') THEN
     RAISE EXCEPTION 'price_change_set_lines: a line is immutable; only new_event_id is set, once, at publish'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.change_set_version IS DISTINCT FROM (
+       SELECT max(l.change_set_version) FROM public.price_change_set_lines l
+        WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.change_set_id) THEN
+    RAISE EXCEPTION 'price_change_set_lines: only the lines of the set''s latest validation are published, not version %',
+      NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
   SELECT cs.revision_no INTO v_revision
@@ -321,7 +346,31 @@ CREATE TRIGGER price_change_set_lines_no_delete_truncate BEFORE TRUNCATE ON pric
   FOR EACH STATEMENT EXECUTE FUNCTION price_change_set_content_append_only();
 
 -- =============================================================================
--- 3. Row-level security
+-- 3. change_sets: every return to draft increments the version
+-- =============================================================================
+
+-- Items and lines are keyed by the set's version and written only while it is
+-- a draft at that version, keeping every earlier validation. So any move back
+-- into `draft` (an edit, a stale validation, a reject) must start a new
+-- version, or the next validation would collide with the kept lines.
+CREATE FUNCTION change_sets_redraft_bumps_version() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF NEW.state = 'draft' AND OLD.state <> 'draft' AND NEW.version <= OLD.version THEN
+    RAISE EXCEPTION 'change set %: a return to draft from % increments the version', OLD.id, OLD.state
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER change_sets_redraft_bumps_version BEFORE UPDATE OF state ON change_sets
+  FOR EACH ROW EXECUTE FUNCTION change_sets_redraft_bumps_version();
+
+-- =============================================================================
+-- 4. Row-level security
 -- =============================================================================
 
 DO $$

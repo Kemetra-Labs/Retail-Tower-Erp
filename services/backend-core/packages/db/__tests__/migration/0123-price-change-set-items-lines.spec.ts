@@ -11,14 +11,15 @@
  *   - lines: written only while the set is a draft at that version, from the
  *     set's latest items (also after a version bump with no item rewrite);
  *     the scope target, Zone-move, price, time-basis and class rules; no
- *     `new_event_id` at validation;
+ *     `new_event_id` at validation; an `invalid` helper line may carry no price;
+ *   - every return to draft increments the version (the 0123 change_sets trigger);
  *   - publish: `new_event_id` is set once, only by the transaction that
  *     published the set, only to an event that set published; nothing else
  *     on a line ever changes; lines are never deleted;
  *   - tenant isolation under FORCE RLS as the app role;
  *   - UP -> DOWN -> UP, also as a NOSUPERUSER migration owner under FORCE RLS
  *     with the session tenant GUC pre-set to '' (the empty-GUC cast case), and
- *     the down REFUSES while an item exists.
+ *     the down REFUSES while an item or a line exists.
  *
  * Docker policy: missing Docker is a HARD failure unless
  * MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it).
@@ -68,6 +69,7 @@ const FUNCTIONS = [
   "price_change_set_content_append_only()",
   "price_change_set_lines_before_insert()",
   "price_change_set_lines_guard()",
+  "change_sets_redraft_bumps_version()",
 ];
 
 let env: PgTestEnv | null = null;
@@ -394,6 +396,18 @@ describe("0123_price_change_set_items_lines — items", () => {
         "23514",
       );
       expect(await sp(c, () => insertItem(c, { cs: CS_DRAFT, version: 1, position: 3, op: "discount" }))).toBe("23514");
+      // The item must name its op, and must be an object.
+      expect(await sp(c, () => insertItem(c, { cs: CS_DRAFT, version: 1, position: 4, item: { price: "1" } }))).toBe("23514");
+      expect(
+        await sp(c, () =>
+          c.query(
+            `INSERT INTO price_change_set_items (tenant_id, change_set_id, change_set_version, position, op, item, created_by_user_id, correlation_id)
+             VALUES ($1, $2, 1, 5, 'set_price', '["set_price"]', $3, $4)`,
+            [TENANT_A, CS_DRAFT, ACTOR, CORR],
+          ),
+        ),
+      ).toBe("23514");
+      expect(await sp(c, () => insertItem(c, { cs: CS_DRAFT, version: 0, position: 6 }))).toBe("23514");
     });
   });
 
@@ -477,6 +491,11 @@ describe("0123_price_change_set_items_lines — lines", () => {
       expect(await line({ fromLocal: null })).toBe("23514");
       expect(await line({ toLocal: "2026-11-01T00:00:00" })).toBe("23514"); // ends before it starts
       expect(await line({ cls: "unchanged" })).toBe("23514");
+      expect(await line({ sellUnit: null })).toBe("23514"); // a priced line with no sell unit
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 50_001 }))).toBe("23514");
+      // A helper result <= 0 is recorded as an invalid line with no price (spec 042 §5), never as a priced one.
+      expect(await line({ op: "adjust_amount", price: null, cls: "invalid" })).toBeNull();
+      expect(await line({ op: "adjust_amount", price: null, cls: "new" })).toBe("23514");
       // The composite FKs pin every reference to the set's tenant and Book.
       expect(await line({ scope: "zone", zone: ZONE_B_DEFAULT })).toBe("23503");
       expect(await line({ product: PROD_B1 })).toBe("23503");
@@ -488,21 +507,35 @@ describe("0123_price_change_set_items_lines — lines", () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
       await insertItem(c, { cs: CS_DRAFT, version: 1, position: 1 });
+      // An earlier validation at version 1, then the one that is published, at version 2.
       await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
-      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2, scope: "zone", zone: ZONE_A_NORTH });
-      // Not yet published: no revision is this set's.
-      const setEvent = (lineNo: number, event: string): Promise<string | null> =>
+      await c.query(`UPDATE change_sets SET version = 2 WHERE id = $1`, [CS_DRAFT]);
+      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 1, itemVersion: 1 });
+      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 2, itemVersion: 1, scope: "zone", zone: ZONE_A_NORTH });
+      const setEventAt = (version: number, lineNo: number, event: string): Promise<string | null> =>
         sp(c, () =>
-          c.query(`UPDATE price_change_set_lines SET new_event_id = $3 WHERE change_set_id = $1 AND line_no = $2`, [CS_DRAFT, lineNo, event]),
+          c.query(
+            `UPDATE price_change_set_lines SET new_event_id = $4 WHERE change_set_id = $1 AND change_set_version = $2 AND line_no = $3`,
+            [CS_DRAFT, version, lineNo, event],
+          ),
         );
+      const setEvent = (lineNo: number, event: string): Promise<string | null> => setEventAt(2, lineNo, event);
+      // Not yet published: no revision is this set's.
       expect(await setEvent(1, EVENT_PUB)).toBe("23514");
       const event = id("0a402");
       // Another product: EVENT_PUB already holds PROD_A1's open-ended book interval.
       await publish(c, CS_DRAFT, 2, event, TENANT_A, BOOK_A, PROD_A2);
-      // Another set's event is refused; this set's event is accepted, once.
+      // Another set's event is refused; so is a line of the earlier validation.
       expect(await setEvent(1, EVENT_PUB)).toBe("23514");
+      expect(await setEventAt(1, 1, event)).toBe("23514");
+      // A statement that also matches the earlier validation's line is refused whole.
+      expect(
+        await sp(c, () => c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1 AND line_no = 1`, [CS_DRAFT, event])),
+      ).toBe("23514");
+      // This set's event on the latest line is accepted, once, and on one line only.
       expect(await setEvent(1, event)).toBeNull();
       expect(await setEvent(1, event)).toBe("23514");
+      expect(await setEvent(2, event)).toBe("23505");
       // Nothing else on a line ever changes, not even alongside new_event_id.
       expect(
         await sp(c, () =>
@@ -535,6 +568,30 @@ describe("0123_price_change_set_items_lines — lines", () => {
   });
 });
 
+describe("0123_price_change_set_items_lines — a return to draft starts a new version", () => {
+  it("refuses content on a validated set, and a return to draft that keeps the version", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await insertItem(c, { cs: CS_DRAFT, version: 1, position: 1 });
+      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+      await c.query(
+        `UPDATE change_sets SET state = 'validated', validated_at_revision = 1, preview_hash = $2, target_store_set_hash = $2,
+                sensitive = true WHERE id = $1`,
+        [CS_DRAFT, HASH],
+      );
+      expect(await sp(c, () => insertItem(c, { cs: CS_DRAFT, version: 1, position: 2 }))).toBe("23514");
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2 }))).toBe("23514");
+      // A reject (or an edit, or a stale validation) moves it back to draft only at a new version.
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET state = 'draft' WHERE id = $1`, [CS_DRAFT]))).toBe("23514");
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET state = 'draft', version = 2 WHERE id = $1`, [CS_DRAFT]))).toBeNull();
+      // The re-validation writes its lines at the new version; the first validation's are kept.
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 1, itemVersion: 1 }))).toBeNull();
+      const kept = await c.query(`SELECT change_set_version FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY 1`, [CS_DRAFT]);
+      expect(kept.rows).toEqual([{ change_set_version: 1 }, { change_set_version: 2 }]);
+    });
+  });
+});
+
 // -----------------------------------------------------------------------------
 // Tenant isolation
 // -----------------------------------------------------------------------------
@@ -562,6 +619,11 @@ describe("0123_price_change_set_items_lines — tenant isolation under FORCE RLS
     expect(await asApp(e, TENANT_B, (c) => errorCode(() => insertLine(c, { cs: CS_PUB, version: 2, lineNo: 9, itemVersion: 1 })))).toBe("23514");
     const deleted = await asApp(e, TENANT_A, (c) => c.query(`DELETE FROM price_change_set_lines`));
     expect(deleted.rowCount).toBe(0);
+    // Tenant B cannot see, so cannot update, tenant A's lines.
+    const updated = await asApp(e, TENANT_B, (c) =>
+      c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [CS_PUB, EVENT_PUB]),
+    );
+    expect(updated.rowCount).toBe(0);
   });
 
   it("writes a draft's items and lines as the app role under FORCE RLS", async () => {
@@ -584,7 +646,8 @@ describe("0123_price_change_set_items_lines — tenant isolation under FORCE RLS
 // -----------------------------------------------------------------------------
 
 describe("0123_price_change_set_items_lines — down migration", () => {
-  const OWNER_TABLES = [...TABLES, "tenants"];
+  // The down also drops the 0123 trigger on change_sets, so the owner owns it too.
+  const OWNER_TABLES = [...TABLES, "tenants", "change_sets"];
 
   async function runFileWithEmptyGuc(path: string, role: string): Promise<string | null> {
     const client = await guard().admin.connect();
