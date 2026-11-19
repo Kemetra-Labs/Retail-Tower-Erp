@@ -131,6 +131,7 @@ interface CandidateRow {
   readonly attempts: number;
 }
 
+/** The dead-letter branch of `LIST_SQL` always selects the category and the state's time. */
 function candidateOf(row: CandidateRow): QuarantineCandidate {
   return {
     saleId: row.sale_id,
@@ -140,8 +141,8 @@ function candidateOf(row: CandidateRow): QuarantineCandidate {
         ? { kind: 'held' }
         : {
             kind: 'dead_letter',
-            category: row.category ?? '',
-            tillRecordedAt: row.recorded_at ?? '',
+            category: row.category as string,
+            tillRecordedAt: row.recorded_at as string,
           },
   };
 }
@@ -156,7 +157,7 @@ export function bindQuarantineUploadStore(handle: DatabaseHandle): SaleQuarantin
   let countHeldStmt: GetStmt | null = null;
 
   const count = (stmt: GetStmt, ...params: unknown[]): number =>
-    (stmt.get(...params) as { n: number } | undefined)?.n ?? 0;
+    (stmt.get(...params) as { n: number }).n;
 
   return {
     listCandidates(scope: QuarantineScope, nowIso: string): QuarantineCandidate[] {

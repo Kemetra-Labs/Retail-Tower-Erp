@@ -36,7 +36,10 @@ import {
 import { readEngineCutoffs } from '../sales-sync/capture-cutover.js';
 import { saleHasLineDiscount } from '../sales-sync/discount-hold.js';
 import { NO_RESOLVED_ROLES, readResolvedRoles } from '../sales-sync/discount-role-resolutions.js';
-import { createSellingUserIdResolver } from '../sales-sync/selling-user-id.js';
+import {
+  createSellingUserIdResolver,
+  type SellingUserIdResolver,
+} from '../sales-sync/selling-user-id.js';
 import { bindSalesRepository } from '../sales/repositories/sales.repository.js';
 import { resolveApiBaseUrl } from './env.js';
 
@@ -58,6 +61,8 @@ interface SaleQuarantineUploadDeps {
   readonly mainLogger: Pick<Logger, 'info' | 'warn' | 'error'>;
   /** Test seam: the upload client. Defaults to the real one on `backendFetch`. */
   readonly client?: QuarantineUploadClient;
+  /** Test seam: the cashier resolver. Defaults to the real one on `db`. */
+  readonly sellingUsers?: SellingUserIdResolver;
 }
 
 /**
@@ -73,15 +78,17 @@ export function startSaleQuarantineUpload(
   let stopped = false;
   const salesRepo = bindSalesRepository(db);
   const cutoffs = readEngineCutoffs(db, mainLogger);
-  const sellingUsers = createSellingUserIdResolver({
-    db,
-    onUnresolved: ({ saleId, reason }) => {
-      mainLogger.warn({ sale_id: saleId, reason }, 'quarantine_upload:selling_user_unresolved');
-    },
-    onLookupFailed: () => {
-      mainLogger.warn({}, 'quarantine_upload:selling_user_lookup_failed');
-    },
-  });
+  const sellingUsers =
+    deps.sellingUsers ??
+    createSellingUserIdResolver({
+      db,
+      onUnresolved: ({ saleId, reason }) => {
+        mainLogger.warn({ sale_id: saleId, reason }, 'quarantine_upload:selling_user_unresolved');
+      },
+      onLookupFailed: () => {
+        mainLogger.warn({}, 'quarantine_upload:selling_user_lookup_failed');
+      },
+    });
 
   const uploader = createQuarantineUploader({
     store: deps.store,
