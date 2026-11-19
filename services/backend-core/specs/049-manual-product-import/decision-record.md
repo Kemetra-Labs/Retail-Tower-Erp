@@ -1,10 +1,13 @@
 # Spec 049 — Decision record (RT-1489)
 
-Owner decisions this plan needs before slice S1 can reach Definition of Ready. Each lists the options, a
-recommendation and what it changes. **Status of every item: OPEN, recommendation only.** Nothing here is ratified,
-and the recommendations do not change any numbered Catalog decision (276–460) or Pricing decision.
+Owner decisions this plan needed before slice S1 could reach Definition of Ready. Each lists the options, a
+recommendation and what it changes. **Status of every item: ACCEPTED as recommended.** The owner accepted every
+recommended option on 2026-11-19 ("Do all recommended"), recorded in RT-1489 comment 17790. The accepted values do not
+change any numbered Catalog decision (276–460) or Pricing decision. Consequence for the slices: OD-3 is A for
+categories, so slice S10 (category create) is not created; S1–S9 are RT-1502, RT-1503, RT-1504, RT-1505, RT-1507,
+RT-1506, RT-1509, RT-1510 and RT-1508 (spec §12).
 
-| OD | Question | Recommendation | Blocks |
+| OD | Question | Accepted (2026-11-19, = recommendation) | Blocks |
 |---|---|---|---|
 | OD-1 | Stable source key | **A**: SKU | S1 |
 | OD-2 | Price columns before Pricing exists | **A**: notice, product unpriced | S1 |
@@ -26,6 +29,8 @@ and the recommendations do not change any numbered Catalog decision (276–460) 
 
 ## OD-1 — Stable source key (decision 420)
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, SKU is the stable key; match order SKU, then barcode / PLU.
+
 420 says "stable source key first, then trusted exact identifiers". Spreadsheets from merchants rarely carry a system
 id; most carry a SKU or item code, and many carry only barcodes.
 
@@ -39,6 +44,8 @@ id; most carry a SKU or item code, and many carry only barcodes.
 
 ## OD-2 — Prices before RT-1484 / RT-1485
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, price columns recognised and never written; `price_not_imported` notice; new products created unpriced and absent from the tills.
+
 PD-2 (P-a) says a first price comes only through the Pricing change sets.
 
 - **A (recommended).** Price columns are recognised, never written; notice `price_not_imported` per row; the preview
@@ -48,6 +55,8 @@ PD-2 (P-a) says a first price comes only through the Pricing change sets.
 - **C.** Hold import until Pricing ships. Avoids unpriced products, delays onboarding of names and barcodes.
 
 ## OD-3 — Category or brand named in the file that does not exist
+
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A for categories** (row error `category_not_found`; S10 not created), **B for brands** (created in the publish transaction, listed in the preview, `catalog.brand.create` audit).
 
 Categories have no write API on `main`; brands do (`consoleCreateCatalogBrand`).
 
@@ -62,11 +71,15 @@ Owner note: if most first-time merchants bring categories, B for categories (S10
 
 ## OD-4 — Store overrides, store availability, store-scoped identifiers
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, excluded from V1.
+
 - **A (recommended).** Excluded from V1. One permission model (owner / tenant_admin, tenant-wide) per batch.
 - **B.** Per-store availability columns (`store:<code>:active`). Adds store scope checks per cell and the
   `store_manager` question (361); better as its own slice after V1.
 
 ## OD-5 — Blank cells, clearing, inline editing
+
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, blank on Update = unchanged; no clearing through import; no inline cell editing in the Console.
 
 - **A (recommended).** On Update a blank cell leaves the field unchanged; V1 cannot clear `description`, `category` or
   `brand` through import (use the product edit screen); the Console does not edit cell values (the file stays the
@@ -76,6 +89,8 @@ Owner note: if most first-time merchants bring categories, B for categories (S10
 
 ## OD-6 — Original file and retention
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, file bytes not stored (name, size, SHA-256, parser and mapping version, parsed cells); rows of a published batch 13 months, cancelled or expired 30 days.
+
 - **A (recommended).** Do not store the file bytes: keep name, size, SHA-256, parser and mapping version, and the parsed
   cell text per row. Keep rows of a published batch 13 months, then the batch summary only. Cancelled or expired batch
   rows: 30 days.
@@ -83,6 +98,8 @@ Owner note: if most first-time merchants bring categories, B for categories (S10
   forensics; up to 5 MiB per batch of possibly sensitive merchant data.
 
 ## OD-7 — Limits and synchronous processing
+
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, 5 MiB, 5,000 rows, 50 columns; synchronous validate and publish; latency budget measured in S8.
 
 - **A (recommended).** 5 MiB, 5,000 rows, 50 columns; validate and publish synchronous, one transaction at publish;
   latency budget measured in S8 (validate p95 ≤ 10 s, publish p95 ≤ 15 s). A merchant with more products splits the
@@ -93,6 +110,8 @@ Owner note: if most first-time merchants bring categories, B for categories (S10
 
 ## OD-8 — CSV encodings
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, UTF-8 only (BOM allowed); otherwise `encoding_not_utf8`.
+
 Excel's "CSV (Comma delimited)" on an Arabic Windows locale writes Windows-1256, not UTF-8.
 
 - **A (recommended).** UTF-8 only (BOM allowed); invalid UTF-8 → `encoding_not_utf8` with "save as CSV UTF-8, or upload
@@ -101,6 +120,8 @@ Excel's "CSV (Comma delimited)" on an Arabic Windows locale writes Windows-1256,
   needs a preview of decoded names.
 
 ## OD-9 — Parser libraries (gated dependency change, S3)
+
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, `csv-parse` + `read-excel-file`, subject to the S3 verification (dependency-review, licence, cell types, zip limits).
 
 npm registry, read 2026-11-19: `csv-parse` 7.0.3 (updated 2026-09), `read-excel-file` 9.3.17 (2026-11), `exceljs`
 4.4.0 (last version change 2024), `xlsx` (SheetJS) frozen on npm at 0.18.5, newer builds only from the vendor CDN.
@@ -116,6 +137,8 @@ npm registry, read 2026-11-19: `csv-parse` 7.0.3 (updated 2026-09), `read-excel-
 
 ## OD-10 — Whitespace trimming
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, trim every cell (Unicode `White_Space`, NBSP, U+200E, U+200F, U+061C) and report the count.
+
 The console writes store values as sent. Spreadsheet cells often carry stray spaces.
 
 - **A (recommended).** Trim leading and trailing whitespace (Unicode `White_Space`, NBSP included, plus the bidi marks
@@ -126,6 +149,8 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 
 ## OD-11 — Naming the matched product
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, name the matched product for tenant-wide identifiers only.
+
 `alias_conflict` on the single add never names the other product (FR-042). Import errors and review need it.
 
 - **A (recommended).** Name the matched product (name and identifiers) for **tenant-wide** identifiers only. Import is
@@ -135,6 +160,8 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 
 ## OD-12 — Approval before publish (404)
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, no approval step in V1; `pending_approval` / `approved` reserved as a hook.
+
 - **A (recommended).** No approval step in V1 beyond the role and the consequence-aware confirm. The batch keeps an
   approval hook (the reserved `pending_approval` / `approved` states between `validated` and `published`) so the RT-284 policy engine, or the shared primitive's approval hook, can
   require independent approval later.
@@ -143,6 +170,8 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 
 ## OD-13 — Audit granularity
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, batch events plus the per-product / per-identifier audit rows, each with `import_batch_id` and row number.
+
 - **A (recommended).** Batch-level events (upload, map, validate, each review decision, publish, cancel, expire) plus the
   existing per-product and per-identifier audit actions at publish, each carrying `import_batch_id` and row number.
   Consistent with "catalogue writes are audited per mutation" (console-catalog.yaml, O-6).
@@ -150,6 +179,8 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
   write about 40,000: one product write plus up to seven identifier adds per row), but the product's audit history would not show the change.
 
 ## OD-14 — Change Set primitive
+
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, interim batch aligned to spec 042; re-checked once when S1 and S2 reach Definition of Ready (use the RT-1484 primitive if it is on `main` by then).
 
 - **A (recommended).** Build the interim batch now (spec §9, §10) with spec 042's state names, `version` /
   `409 version_conflict`, `previewHash` and publish-lock pattern, so it can move into `change_sets` (domain `catalog`)
@@ -160,6 +191,8 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 
 ## OD-15 — Arabic-Indic digits in barcode / PLU
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, error `identifier_non_ascii_digits`.
+
 - **A (recommended).** Error `identifier_non_ascii_digits`: no scanner produces them, so such a value can never match a
   scan, and converting them would be identifier normalisation (310, 313).
 - **B.** Convert to ASCII digits with a notice. Convenient; it is a normalisation rule the Catalog decisions do not
@@ -168,11 +201,15 @@ The console writes store values as sent. Spreadsheet cells often carry stray spa
 
 ## OD-16 — GTIN check digit
 
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, warning only.
+
 - **A (recommended).** A digits-only barcode of length 8, 12, 13 or 14 with a wrong GS1 check digit is a **warning**
   (it may be a store-internal code that only looks like a GTIN).
 - **B.** Error. Stops typos, also stops legitimate internal codes.
 
 ## OD-17 — Deactivating products through import
+
+**Accepted (2026-11-19, RT-1489 comment 17790):** **A**, allowed; counted and listed in the preview and repeated in the publish confirm.
 
 `is_active = false` on Update takes a product off every till at the next delta (the read-down sellable projection needs
 the product active). It is the only way an import can remove something from sale.
