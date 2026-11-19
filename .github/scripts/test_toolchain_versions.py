@@ -226,6 +226,19 @@ class ToolchainVersionsTests(unittest.TestCase):
                    frappe_workflow().replace('  BENCH_VERSION: "5.31.0"\n', ""))
         self.assert_one("f", "finance-report-role-bench.yml: no BENCH_VERSION")
 
+    def test_f_an_unquoted_numeric_pin_is_a_violation(self):
+        """YAML types `5.30` as the float 5.3 and `5.31` as 5.31: the comparison would depend on quoting."""
+        for text in ("5.31", "5.30", "5"):
+            with self.subTest(value=text):
+                self.write(".github/workflows/connector-bench-nightly.yml",
+                           frappe_workflow().replace('BENCH_VERSION: "5.31.0"', f"BENCH_VERSION: {text}"))
+                self.assert_one("f", "connector-bench-nightly.yml: BENCH_VERSION must be a quoted string")
+
+    def test_f_quoted_and_unquoted_forms_of_a_string_pin_agree(self):
+        self.write(".github/workflows/connector-bench-nightly.yml",
+                   frappe_workflow().replace("FRAPPE_REF: v16.52.0", 'FRAPPE_REF: "v16.52.0"'))
+        self.assertEqual(self.problems(), [])
+
     def test_f_a_missing_pin_workflow_is_a_violation(self):
         os.remove(os.path.join(self.repo, ".github/workflows/connector-bench-nightly.yml"))
         self.assert_one("f", "connector-bench-nightly.yml: missing")

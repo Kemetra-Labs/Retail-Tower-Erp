@@ -230,16 +230,16 @@ def check_python_pins(repo, files):
 
 
 def frappe_pins_in(data):
-    """{pin name: {values}} for every bench pin a parsed workflow sets anywhere (env at workflow, job
-    or step level, and the MariaDB service image)."""
+    """{pin name: [raw values]} for every bench pin a parsed workflow sets anywhere (env at workflow,
+    job or step level, and the MariaDB service image). Values stay as YAML typed them."""
     found = {}
     for mapping in mappings(data):
         for key in FRAPPE_ENV_KEYS:
             if key in mapping:
-                found.setdefault(key, set()).add(str(mapping[key]))
+                found.setdefault(key, []).append(mapping[key])
         image = mapping.get("image")
         if isinstance(image, str) and image.startswith("mariadb:"):
-            found.setdefault(MARIADB_PIN, set()).add(image)
+            found.setdefault(MARIADB_PIN, []).append(image)
     return found
 
 
@@ -257,7 +257,12 @@ def check_frappe_pins(repo):
         except yaml.YAMLError as exc:
             raise InputError(f"{name}: {exc}") from exc
         for pin in FRAPPE_PINS:
-            values = found.get(pin, set())
+            raw = found.get(pin, [])
+            if any(not isinstance(v, str) for v in raw):
+                # `5.30` loads as the float 5.3 and `5.31` as 5.31: comparing str() of them would depend on quoting
+                problems.append(f"(f) {name}: {pin} must be a quoted string")
+                continue
+            values = set(raw)
             if not values:
                 problems.append(f"(f) {name}: no {pin}")
             elif len(values) > 1:
