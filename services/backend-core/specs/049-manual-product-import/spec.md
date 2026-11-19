@@ -7,8 +7,8 @@
 | **Primary repository** | `Kemetra-Labs/Retail-Tower-Erp`, `services/backend-core/` (the authority). Consumer: `apps/admin-console/` |
 | **Baseline** | `origin/main` @ `f30c5de34` (2026-11-19) |
 | **Decisions honoured** | Confluence RETAIL 23461894 (Catalog 276–460), especially 416–423 (imports), 301–319 (identifiers), 392–394 (lifecycle), 400–408 (Change Sets), 445–450 (Console, bulk actions). 83329059 (product acquisition, methods 1–3, §4, §7 "Direct/core", §8). 84050068 CR01, CR06, CR16. RT-281 O-1, O-2, O-5 (comment 14125). RT-827 PD-1..PD-9 (comment 15253) |
-| **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-17, each with options and a recommendation. **None is owner-approved yet** |
-| **Status** | DRAFT for owner review |
+| **Decision record** | [decision-record.md](decision-record.md): OD-1 to OD-17, each with options and a recommendation. **All accepted as recommended** by the owner on 2026-11-19 (RT-1489 comment 17790); the accepted value of each is in the decision record |
+| **Status** | ACCEPTED (owner decisions OD-1..OD-17, 2026-11-19). Plan merged in PR #711; slices S1–S9 created as RT issues (§12); the S1 contract is `catalog/catalog-import.yaml` (RT-1502) |
 
 ## 1. Objective
 
@@ -72,7 +72,9 @@ Safety: Backend-Core owns validation and publish (445, 446); Console is UI only;
 - Modes Create, Update, Upsert, chosen once per batch.
 - Column mapping with saved per-tenant mapping profiles (Arabic and English header synonyms).
 - Row validation, an in-batch review queue for ambiguous or doubtful rows, a preview with impact, and one atomic publish.
-- An error report file (CSV) the merchant downloads, fixes and re-uploads.
+- An error report file (CSV) the merchant downloads and reads. The report is read-only and is never re-uploaded: the
+  merchant fixes the **source file** and re-uploads that. Cells the report guards against formula injection carry a
+  leading `'`, so a value copied from the report would not match (identifiers are byte-exact).
 - Audit and provenance for every batch, every decision and every product change.
 
 ### 4.2 Not in V1 (seam kept)
@@ -195,8 +197,8 @@ Every row ends in exactly one status, and the batch counts each:
 
 `ready_create` · `ready_update` · `unchanged` · `needs_review` · `error` · `excluded`
 
-- `error` rows are fixed in the file and re-uploaded (a new batch version, §8.3). V1 has no inline cell editing in the
-  Console, so the file stays the provenance (OD-5 note).
+- `error` rows are fixed in the source file and re-uploaded (a new batch version, §8.1). V1 has no inline cell editing
+  in the Console, so the file stays the provenance (OD-5 note).
 - `needs_review` reasons: `ambiguous`, `no_identifier`, `sku_mismatch`, `store_scoped_conflict`, `possible_duplicate`
   (a Create row whose exact `name` equals an
   active product's name and that has no identifier match). Name equality is a **hint for a human**, never a match.
@@ -207,6 +209,9 @@ Every row ends in exactly one status, and the batch counts each:
   "Create new" is not offered when an identifier on the row is active on another product.
 - `excluded` exists only as an explicit, audited decision. **Publish is refused while any row is `needs_review` or
   `error`.** The merchant either fixes the file or excludes those rows explicitly.
+- A decision sets the row's status (contract action names): `create_new` → `ready_create`, `update_product` →
+  `ready_update`, `exclude` → `excluded`, and `clear` (undo) → back to the status validation gave it (`needs_review` or
+  `error`). An `error` row takes only `exclude` and `clear`.
 
 ## 8. Flow, lifecycle, idempotency, limits
 
@@ -230,6 +235,13 @@ The states are the spec 042 §3 names, so the batch can become a `catalog`-domai
 - A review decision changes one row's resolution, keeps the batch `validated`, increments `version` and recomputes the
   `previewHash`. Re-validation (after a mapping change or a stale re-check) keeps a resolution only while the row's
   candidate set and reason are unchanged; otherwise the row returns to `needs_review`.
+- A **re-upload** (the fixed source file) keeps the mode, drops review decisions and sets the mapping to none: the
+  previous mapping's entries whose header text is unchanged (exact text; an empty or repeated header is never carried)
+  become the **suggested** mapping, and the merchant confirms the mapping again before validation. Validation needs a
+  confirmed mapping and re-applies the mapping completeness rules (defence in depth), so no column is silently carried
+  or skipped (419).
+- The review row list is keyset-paginated by row number, and its cursor is bound to the **validation generation** (a
+  new one only when validation runs), not to `version`, so recording a review decision does not invalidate the paging.
 - One **open** batch per tenant at a time (a second upload while one is open is `409 import_batch_open`, with the open
   batch's id), which keeps the preview honest and the publish lock simple. Cancel is explicit.
 - Every call that changes the batch sends `expectedVersion`; a mismatch is `409 version_conflict` (spec 042 code).
@@ -264,8 +276,9 @@ diverge from the single-product rules.
 - **Upload**: `Idempotency-Key`, but **not** through the existing interceptor as is: it fingerprints
   `canonicalJson(req.body)`, and a raw-body route has no parsed body (F-9), so every file sent under one key would share
   one fingerprint and a different file would replay the first batch. S1 / S4 define upload idempotency as key **plus the
-  file's SHA-256** (the fingerprint), so the same key with the same bytes replays the batch and the same key with other
-  bytes is `409 idempotency_key_conflict`. The file's SHA-256 is also stored; uploading a file whose hash equals a batch published in the last 30 days is a warning that names that batch,
+  file's SHA-256 plus the canonical query** (`mode`, `sheet`, `delimiter`, `file_name`) as the fingerprint, so the same
+  key with the same bytes and query replays the batch and the same key with other bytes or any other query value is
+  `409 idempotency_key_conflict`. The file's SHA-256 is also stored; uploading a file whose hash equals a batch published in the last 30 days is a warning that names that batch,
   not a refusal.
 - **Publish**: `Idempotency-Key` plus the batch state. A publish of an already `published` batch with the same
   `previewHash` returns the stored result (`200`, replay); with a different `previewHash` it is `409`. A network failure
@@ -371,22 +384,25 @@ reuse needs its own W2 Planning item and grants no purchasing write here.
 | Arabic PDF / image success criterion; when manual entry stays the only path | Not touched (method 4 excluded). CSV / XLSX and manual entry stay available regardless (83329059 §2 "permanent path") |
 | Which supplier interfaces are allowed | Not touched (method 5 excluded) |
 
-## 12. Proposed implementation slices (NOT created; each needs its own Definition of Ready)
+## 12. Implementation slices (each needs its own Definition of Ready)
 
-Contract-first order. Each slice is one bounded issue; the gated kinds are named for the PR title.
+Contract-first order. Each slice is one bounded issue; the gated kinds are named for the PR title. After the owner
+accepted OD-1..OD-17 ("Do all recommended", 2026-11-19), S1–S9 were created as RT issues: **S1 = RT-1502, S2 = RT-1503,
+S3 = RT-1504, S4 = RT-1505, S5 = RT-1507, S6 = RT-1506, S7 = RT-1509, S8 = RT-1510, S9 = RT-1508**. S10 is **not
+created**: OD-3 chose A for categories (RT-1489 comment 17790).
 
 | # | Slice | Work Mode | Surface | Gated | Depends on |
 |---|---|---|---|---|---|
-| S1 | **Import contract**: new `packages/contracts/openapi/catalog/catalog-import.yaml` — upload (raw body; key + file-hash idempotency, §8.4), get batch, set mapping, validate, list rows (keyset), review decision, preview, publish, cancel, template download, error-report download; error codes of §5–§8; rate-limit classes | Implementation (contract) | `services/backend-core/packages/contracts/` | `[GATED: contract]` | Owner decisions on this record; §9 primitive check |
-| S2 | **Import schema**: the §10 tables, FORCE RLS, grants, domain-grants SQL, retention job hook | Implementation | `packages/db/drizzle/`, `apps/api/src/auth/grant-registry.ts` | `[GATED: migration]` | S1; §9 primitive check |
-| S3 | **Parser dependencies**: CSV and XLSX parsers in Backend-Core (OD-9), with `dependency-review` clean | Implementation | `services/backend-core/package.json`, `pnpm-lock.yaml` | `[GATED: deps/lockfile]` | OD-9 |
-| S4 | **Upload, parse, map, validate** runtime: raw-body route with pre-auth and concurrency bound, magic bytes, XLSX bomb guards, mapping profiles, row validation, matching (§7.1), statuses | Implementation | `apps/api/src/catalog/catalog-import/`, raw-body route on the `tenant-branding/logo-body.ts` pattern, `apps/api/src/common/json-body-limits.ts` (route-scoped limit note) | none beyond S1–S3 | S1, S2, S3 |
-| S5 | **Review, preview, publish** runtime: review decisions, `previewHash`, publish lock, stale re-check, conditional writes (§8.2), brand creates (OD-3), one-transaction publish through the console-catalog domain functions, audit, idempotency | Implementation | `apps/api/src/catalog/catalog-import/`, `console-catalog.write.service.ts` (extract shared functions, no wire change) | none beyond S1–S2 | S4 |
-| S6 | **Console client repin** to the S1 contract on `main` | Implementation | `apps/admin-console/` generated client and PIN | `[GATED: contract]` pin follow-up | S1 merged |
-| S7 | **Console import workspace** (§11), Arabic / English copy, Playwright + axe, keyboard walk, forced colours; owner screen review first (Advisory G1 / G2) | Implementation | `apps/admin-console/src/catalog-import/`, reusing the raw-body upload of `src/branding/LogoUploadField.tsx` / `tenant-branding-queries.ts` (extract, not copy) | none | S5 (runtime), S6 |
-| S8 | **Verification**: 5,000-row Arabic XLSX and CSV, leading-zero and numeric-cell barcodes, `.xlsm` / bomb refusal, RLS isolation between two tenants, publish atomicity under injected failure, stale validation, idempotent replay, POS delta picks up published products and omits unpriced ones, latency budget | Verification | lab or CircleCI `api` / `admin-e2e` | none | S5, S7 |
-| S9 | **Prices through Pricing** (Planning amendment, then Implementation): price columns produce one draft Price Change Set per batch | Planning → Implementation | spec 049 amendment; Pricing module | `[GATED: contract]` likely | RT-1484, RT-1485 Done |
-| S10 | **Category create** (only if OD-3 chooses B): a governed category write and its use from import | Planning → Implementation | console-catalog contract | `[GATED: contract]` | OD-3 |
+| S1 (RT-1502) | **Import contract**: new `packages/contracts/openapi/catalog/catalog-import.yaml` — upload (raw body; key + file-hash idempotency, §8.4), get batch, set mapping, validate, list rows (keyset), review decision, preview, publish, cancel, template download, error-report download; error codes of §5–§8; rate-limit classes | Implementation (contract) | `services/backend-core/packages/contracts/` | `[GATED: contract]` | Owner decisions on this record; §9 primitive check |
+| S2 (RT-1503) | **Import schema**: the §10 tables, FORCE RLS, grants, domain-grants SQL, retention job hook | Implementation | `packages/db/drizzle/`, `apps/api/src/auth/grant-registry.ts` | `[GATED: migration]` | S1; §9 primitive check |
+| S3 (RT-1504) | **Parser dependencies**: CSV and XLSX parsers in Backend-Core (OD-9), with `dependency-review` clean | Implementation | `services/backend-core/package.json`, `pnpm-lock.yaml` | `[GATED: deps/lockfile]` | OD-9 |
+| S4 (RT-1505) | **Upload, parse, map, validate** runtime: raw-body route with pre-auth and concurrency bound, magic bytes, XLSX bomb guards, mapping profiles, row validation, matching (§7.1), statuses | Implementation | `apps/api/src/catalog/catalog-import/`, raw-body route on the `tenant-branding/logo-body.ts` pattern, `apps/api/src/common/json-body-limits.ts` (route-scoped limit note) | none beyond S1–S3 | S1, S2, S3 |
+| S5 (RT-1507) | **Review, preview, publish** runtime: review decisions, `previewHash`, publish lock, stale re-check, conditional writes (§8.2), brand creates (OD-3), one-transaction publish through the console-catalog domain functions, audit, idempotency | Implementation | `apps/api/src/catalog/catalog-import/`, `console-catalog.write.service.ts` (extract shared functions, no wire change) | none beyond S1–S2 | S4 |
+| S6 (RT-1506) | **Console client repin** to the S1 contract on `main` | Implementation | `apps/admin-console/` generated client and PIN | `[GATED: contract]` pin follow-up | S1 merged |
+| S7 (RT-1509) | **Console import workspace** (§11), Arabic / English copy, Playwright + axe, keyboard walk, forced colours; owner screen review first (Advisory G1 / G2) | Implementation | `apps/admin-console/src/catalog-import/`, reusing the raw-body upload of `src/branding/LogoUploadField.tsx` / `tenant-branding-queries.ts` (extract, not copy) | none | S5 (runtime), S6 |
+| S8 (RT-1510) | **Verification**: 5,000-row Arabic XLSX and CSV, leading-zero and numeric-cell barcodes, `.xlsm` / bomb refusal, RLS isolation between two tenants, publish atomicity under injected failure, stale validation, idempotent replay, POS delta picks up published products and omits unpriced ones, latency budget | Verification | lab or CircleCI `api` / `admin-e2e` | none | S5, S7 |
+| S9 (RT-1508) | **Prices through Pricing** (Planning amendment, then Implementation): price columns produce one draft Price Change Set per batch | Planning → Implementation | spec 049 amendment; Pricing module | `[GATED: contract]` likely | RT-1484, RT-1485 Done |
+| S10 (not created) | **Category create** (only if OD-3 chooses B): a governed category write and its use from import | Planning → Implementation | console-catalog contract | `[GATED: contract]` | OD-3 |
 
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 

@@ -305,4 +305,35 @@ describe('RT-225 — resetCashierClaimRefused', () => {
     expect(nn(repo.read('sale-1')).updated_at).toBe(NOW);
     db.close();
   });
+
+  it('RT-1312 Phase 3(c): skips a sale already uploaded to the Backend-Core quarantine', () => {
+    // The Console now owns that sale's repair (decision P4): re-sending it from the
+    // till would race the repair and could double-capture it. Only an UPLOADED row
+    // is skipped; a pending or refused upload row leaves the till's own reset alone.
+    const db = freshSalesSyncDb();
+    for (const id of ['uploaded', 'refused', 'pending', 'never']) queue(db, id);
+    const repo = createSaleSyncStateRepo(handleFor(db));
+    for (const id of ['uploaded', 'refused', 'pending', 'never']) refuse(repo, id);
+    const at = '2026-06-08T08:00:00.000Z';
+    for (const [id, state] of [
+      ['uploaded', 'uploaded'],
+      ['refused', 'refused'],
+      ['pending', 'pending'],
+    ] as const) {
+      db.run(
+        `INSERT INTO sale_quarantine_upload
+           (sale_id, tenant_id, branch_id, state, next_attempt_at, created_at, updated_at)
+         VALUES (?, 'tenant-1', 'branch-1', ?, ?, ?, ?)`,
+        [id, state, at, at, at],
+      );
+    }
+
+    expect(repo.resetCashierClaimRefused(SCOPE, NOW)).toBe(3);
+
+    expect(nn(repo.read('uploaded')).sync_status).toBe('dead_letter');
+    for (const id of ['refused', 'pending', 'never']) {
+      expect(nn(repo.read(id)).sync_status).toBe('pending');
+    }
+    db.close();
+  });
 });

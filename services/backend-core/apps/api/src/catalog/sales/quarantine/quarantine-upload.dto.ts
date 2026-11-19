@@ -11,6 +11,9 @@
  */
 import { z } from "zod";
 
+import { NO_NUL_MESSAGE } from "../../../common/text-validation";
+import { containsNul } from "./quarantine-facts";
+
 const QUARANTINE_REASON_KINDS = [
   "refused",
   "payload_divergence",
@@ -71,6 +74,8 @@ export const QuarantineSaleUploadSchema = z
   .strict()
   .superRefine((upload, ctx) => {
     const issue = (message: string): void => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    // The jsonb and text columns refuse NUL, so it is a 400 here, never a database error.
+    if (containsNul(upload)) issue(NO_NUL_MESSAGE);
     if (upload.reason.kind === "held_previous_pairing" && (upload.previousTerminalId ?? null) === null) {
       issue("a held sale names its earlier pairing");
     }

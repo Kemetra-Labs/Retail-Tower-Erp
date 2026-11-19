@@ -527,8 +527,11 @@ components:
         400 `validation_error`: a malformed or unknown body key, a field out
         of bounds, a `reason` that breaks its rules, a held sale without
         `previousTerminalId`, a `previousTerminalId` that is not a device of
-        this tenant and store, or a `saleBody` that is not a JSON object or whose
-        `sourceSystem` / `externalId` differ from the upload's.
+        this tenant and store, a `saleBody` that is not a JSON object or whose
+        `sourceSystem` / `externalId` differ from the upload's, or a NUL (U+0000) character
+        anywhere in the upload (in `sourceSystem`, `externalId` or any string or key of
+        `saleBody`): the store cannot hold it, so the body can never be quarantined and
+        the sale stays on the till (it keeps counting as dead-letter, as today).
         Deterministic; nothing is stored. One body for every cause
         (non-disclosing). Terminal for the till.
       content:
