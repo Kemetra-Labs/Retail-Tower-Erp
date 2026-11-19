@@ -40,6 +40,7 @@ import {
 const HAPPY_RESPONSE = {
   kind: 'validated' as const,
   applied_amount_minor: 1_500,
+  forfeited_amount_minor: 250,
   intent_expires_at: '2026-06-01T10:05:00.000Z',
   redemption_intent_token: 'opaque-intent-token-AAA',
 };
@@ -51,6 +52,18 @@ const VALIDATE_INPUT = {
   remaining_balance_minor: 2_000,
   operatorUserId: FAKE_OPERATOR_USER_ID,
 };
+
+/** The client's answer when Data-Pulse-2 replies `response` (a transport failure if an Error). */
+function answerTo(response: Response | Error, logger = makeLogger()) {
+  const { fetchImpl } = captureFetch(response);
+  return validateVoucher(VALIDATE_INPUT, {
+    baseUrl: BASE_URL,
+    fetch: fetchImpl,
+    logger,
+    idempotencyKey: FAKE_IDEMPOTENCY_KEY,
+    getDeviceToken: fakeDeviceToken,
+  });
+}
 
 describe('validateVoucher — happy path', () => {
   it('POSTs to /api/pos/v1/vouchers/validate with Idempotency-Key header and exact body', async () => {
@@ -76,8 +89,40 @@ describe('validateVoucher — happy path', () => {
     expect(result).toEqual({
       kind: 'validated',
       applied_amount_minor: 1_500,
+      forfeited_amount_minor: 250,
       intent_expires_at: '2026-06-01T10:05:00.000Z',
       redemption_intent_token: 'opaque-intent-token-AAA',
+    });
+  });
+});
+
+describe('validateVoucher — RT-1331 forfeited_amount_minor fails closed', () => {
+  // A 200 without a usable forfeit must NOT be read as "no forfeit": that would skip the
+  // cashier's confirmation without anyone noticing. It is a malformed success body.
+  const WITHOUT_FORFEIT: Record<string, unknown> = Object.fromEntries(
+    Object.entries(HAPPY_RESPONSE).filter(([key]) => key !== 'forfeited_amount_minor'),
+  );
+  const BAD_BODIES: readonly [string, Record<string, unknown>][] = [
+    ['missing', WITHOUT_FORFEIT],
+    ['negative', { ...HAPPY_RESPONSE, forfeited_amount_minor: -1 }],
+    ['fractional', { ...HAPPY_RESPONSE, forfeited_amount_minor: 2.5 }],
+    ['a string', { ...HAPPY_RESPONSE, forfeited_amount_minor: '250' }],
+    ['unsafe', { ...HAPPY_RESPONSE, forfeited_amount_minor: Number.MAX_SAFE_INTEGER + 1 }],
+    ['null', { ...HAPPY_RESPONSE, forfeited_amount_minor: null }],
+  ];
+
+  it.each(BAD_BODIES)(
+    'a 200 whose forfeited_amount_minor is %s is authority_unreachable',
+    async (_name, body) => {
+      expect(await answerTo(jsonResponse(body, 200))).toEqual({ kind: 'authority_unreachable' });
+    },
+  );
+
+  it('a zero forfeit is valid (the voucher is used in full)', async () => {
+    const zero = { ...HAPPY_RESPONSE, forfeited_amount_minor: 0 };
+    expect(await answerTo(jsonResponse(zero, 200))).toMatchObject({
+      kind: 'validated',
+      forfeited_amount_minor: 0,
     });
   });
 });
@@ -138,14 +183,7 @@ describe('validateVoucher — closed-set refusal mapping', () => {
   });
 
   it('400 with no parsable JSON body → validation_failure refusal', async () => {
-    const { fetchImpl } = captureFetch(new Response('not-json', { status: 400 }));
-    const result = await validateVoucher(VALIDATE_INPUT, {
-      baseUrl: BASE_URL,
-      fetch: fetchImpl,
-      logger: makeLogger(),
-      idempotencyKey: FAKE_IDEMPOTENCY_KEY,
-      getDeviceToken: fakeDeviceToken,
-    });
+    const result = await answerTo(new Response('not-json', { status: 400 }));
     expect(result).toEqual({ kind: 'refused', reason: 'validation_failure' });
   });
 });
@@ -167,26 +205,11 @@ describe('validateVoucher — transport-tier outcomes', () => {
       response: () => new Response('garbage', { status: 200 }),
     },
   ])('$name', async ({ response }) => {
-    const { fetchImpl } = captureFetch(response());
-    const result = await validateVoucher(VALIDATE_INPUT, {
-      baseUrl: BASE_URL,
-      fetch: fetchImpl,
-      logger: makeLogger(),
-      idempotencyKey: FAKE_IDEMPOTENCY_KEY,
-      getDeviceToken: fakeDeviceToken,
-    });
-    expect(result).toEqual({ kind: 'authority_unreachable' });
+    expect(await answerTo(response())).toEqual({ kind: 'authority_unreachable' });
   });
 
   it('200 with body missing kind discriminator → { kind: "authority_unreachable" }', async () => {
-    const { fetchImpl } = captureFetch(jsonResponse({ some: 'other shape' }, 200));
-    const result = await validateVoucher(VALIDATE_INPUT, {
-      baseUrl: BASE_URL,
-      fetch: fetchImpl,
-      logger: makeLogger(),
-      idempotencyKey: FAKE_IDEMPOTENCY_KEY,
-      getDeviceToken: fakeDeviceToken,
-    });
+    const result = await answerTo(jsonResponse({ some: 'other shape' }, 200));
     expect(result).toEqual({ kind: 'authority_unreachable' });
   });
 });

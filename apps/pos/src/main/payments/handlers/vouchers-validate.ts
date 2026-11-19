@@ -39,7 +39,7 @@ import type {
   ValidateVoucherOutcome,
 } from '../voucher-authority-client/validate.js';
 
-import { applyVoucherForRequest } from './apply-voucher-line.js';
+import { applyVoucherForRequest, type ApplyVoucherLineOutcome } from './apply-voucher-line.js';
 import { priorLineOutcome } from './prior-line-outcome.js';
 
 export interface VouchersValidateHandlerDeps {
@@ -164,14 +164,26 @@ export function createVouchersValidateHandler(
       { validateVoucher, tenderLineFsm, auditEmitter },
     );
 
-    if (outcome.kind === 'refused') {
-      return { kind: 'refused', reason: outcome.reason };
-    }
-    return {
-      kind: 'ok',
-      tender_line_id: outcome.tender_line_id,
-      applied_amount_minor: outcome.applied_amount_minor,
-      applied_at: outcome.applied_at,
-    };
+    return responseFor(outcome);
+  };
+}
+
+/**
+ * The bridge answer for what the shared voucher helper decided. A forfeit confirmation
+ * passes through as is (RT-1331): no line and no audit were written, the caller shows
+ * the amount and asks again.
+ */
+function responseFor(outcome: ApplyVoucherLineOutcome): VouchersValidateResponse {
+  if (outcome.kind === 'refused') {
+    return { kind: 'refused', reason: outcome.reason };
+  }
+  if (outcome.kind === 'forfeit_confirmation_required') {
+    return outcome;
+  }
+  return {
+    kind: 'ok',
+    tender_line_id: outcome.tender_line_id,
+    applied_amount_minor: outcome.applied_amount_minor,
+    applied_at: outcome.applied_at,
   };
 }
