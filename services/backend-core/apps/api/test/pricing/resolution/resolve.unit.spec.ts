@@ -420,6 +420,14 @@ describe("resolvePrice — the result shape matches price-inquiry.yaml", () => {
     );
   });
 
+  it("throws RangeError for a bad Store zone or instant whatever rows are present", () => {
+    for (const d of [data(), data({ book: null }), data({ events: [bookEvent()] })]) {
+      expect(() => resolve(d, NOW, HEAD, store({ timezone: "Africa/Nowhere" }))).toThrow(RangeError);
+      expect(() => resolve(d, NOW, HEAD, store({ timezone: "EET" }))).toThrow(RangeError);
+      expect(() => resolve(d, new Date(Number.NaN))).toThrow(RangeError);
+    }
+  });
+
   it("does not mutate its inputs", () => {
     const d = data({ events: [bookEvent(), storeEvent()], memberships: [membership(ZONE_A)] });
     const snapshot = JSON.stringify(d);

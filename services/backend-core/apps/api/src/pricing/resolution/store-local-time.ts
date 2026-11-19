@@ -53,16 +53,22 @@ function offsetAt(instantMs: number, zone: string): number {
   const fields: Record<string, string> = {};
   for (const part of formatterFor(zone).formatToParts(new Date(instantMs))) fields[part.type] = part.value;
   const year = Number(fields["year"]) * (fields["era"] === "BC" ? -1 : 1);
-  const asUtc = Date.UTC(
-    year,
-    Number(fields["month"]) - 1,
-    Number(fields["day"]),
-    Number(fields["hour"]),
-    Number(fields["minute"]),
-    Number(fields["second"]),
-  );
+  // Not Date.UTC: it reads years 0-99 as 1900-1999.
+  const local = new Date(0);
+  local.setUTCFullYear(year, Number(fields["month"]) - 1, Number(fields["day"]));
+  local.setUTCHours(Number(fields["hour"]), Number(fields["minute"]), Number(fields["second"]), 0);
+  const asUtc = local.getTime();
   // Intl has whole-second precision: compare against the instant's whole second.
   return asUtc - Math.floor(instantMs / 1000) * 1000;
+}
+
+/**
+ * Throws RangeError unless `zone` is a canonical IANA name the runtime knows.
+ * The resolver calls it first, so a bad Store zone fails the same way whatever
+ * pricing rows are present.
+ */
+export function assertTimeZone(zone: string): void {
+  formatterFor(zone);
 }
 
 function assertValid(date: Date): number {

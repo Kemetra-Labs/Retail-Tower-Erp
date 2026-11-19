@@ -22,7 +22,7 @@
  *      `unpriced(not_representable)`.
  */
 import { compareCodeUnits } from "../../common/compare-code-units";
-import { formatInstantInZone, localWallClockToInstant } from "./store-local-time";
+import { assertTimeZone, formatInstantInZone, localWallClockToInstant } from "./store-local-time";
 import { representablePrice } from "./representable-price";
 import type {
   PriceResolution,
@@ -132,9 +132,34 @@ function priced(
   };
 }
 
+interface CandidateKey {
+  readonly productId: string;
+  readonly sellUnit: string;
+  readonly store: ResolutionStore;
+  readonly bookId: string;
+  readonly instantMs: number;
+  readonly asOfRevision: number;
+}
+
+/** Step 2: the event as a candidate (in a one-element list), or an empty list. */
+function candidateOf(event: ResolutionPriceEvent, key: CandidateKey): Candidate[] {
+  const matches =
+    event.tenantId === key.store.tenantId &&
+    event.priceBookId === key.bookId &&
+    event.productId === key.productId &&
+    event.sellUnit === key.sellUnit &&
+    event.priceKind === "regular" &&
+    visibleAt(event, key.asOfRevision);
+  if (!matches) return [];
+  const interval = eventInterval(event, key.store.timezone);
+  return interval !== null && contains(interval, key.instantMs) ? [{ event, interval }] : [];
+}
+
 /**
  * Resolve the regular price of `productId` in `sellUnit` at `store` and
- * `instant`, as known at `asOfRevision` (spec 041 §4).
+ * `instant`, as known at `asOfRevision` (spec 041 §4). Throws RangeError
+ * for a Store zone that is not a known canonical IANA name, or an invalid
+ * instant; every data condition is a `PriceResolution`.
  */
 export function resolvePrice(
   productId: string,
@@ -144,25 +169,15 @@ export function resolvePrice(
   asOfRevision: number,
   data: ResolutionData,
 ): PriceResolution {
+  // Inputs, not data: a bad zone or instant is the caller's defect, so it
+  // throws whatever rows are present instead of depending on them.
+  assertTimeZone(store.timezone);
+  if (Number.isNaN(instant.getTime())) throw new RangeError("Invalid instant");
   const book = data.book;
   if (book === null || book.tenantId !== store.tenantId) return { status: "unpriced", reason: "no_price_book" };
   const instantMs = instant.getTime();
-
-  const candidates: Candidate[] = [];
-  for (const event of data.events) {
-    if (
-      event.tenantId !== store.tenantId ||
-      event.priceBookId !== book.id ||
-      event.productId !== productId ||
-      event.sellUnit !== sellUnit ||
-      event.priceKind !== "regular" ||
-      !visibleAt(event, asOfRevision)
-    ) {
-      continue;
-    }
-    const interval = eventInterval(event, store.timezone);
-    if (interval !== null && contains(interval, instantMs)) candidates.push({ event, interval });
-  }
+  const key = { productId, sellUnit, store, bookId: book.id, instantMs, asOfRevision };
+  const candidates = data.events.flatMap((event) => candidateOf(event, key));
 
   const layers: ReadonlyArray<() => LayerOutcome> = [
     () => pickOne(candidates.filter((c) => c.event.scope === "store" && c.event.storeId === store.id)),

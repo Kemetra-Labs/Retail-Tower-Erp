@@ -84,6 +84,10 @@ describe("localWallClockToInstant", () => {
     expect(() => localWallClockToInstant(wall("2026-11-01T00:00:00"), "Africa/Nowhere")).toThrow(RangeError);
   });
 
+  it("keeps years below 100 (Date.UTC would read them as 19xx)", () => {
+    expect(instant(localWallClockToInstant(wall("0099-01-01T00:00:00"), "UTC"))).toBe("0099-01-01T00:00:00.000Z");
+  });
+
   it("rejects an invalid date", () => {
     expect(() => localWallClockToInstant(new Date(Number.NaN), "UTC")).toThrow(RangeError);
   });
@@ -100,6 +104,11 @@ describe("formatInstantInZone", () => {
   it("uses Z for UTC and keeps milliseconds when present", () => {
     expect(formatInstantInZone(new Date("2026-11-01T00:00:00Z"), "UTC")).toBe("2026-11-01T00:00:00Z");
     expect(formatInstantInZone(new Date("2026-11-01T00:00:00.250Z"), "UTC")).toBe("2026-11-01T00:00:00.250Z");
+  });
+
+  it("keeps years below 100", () => {
+    expect(formatInstantInZone(new Date("0099-01-01T00:00:00Z"), "UTC")).toBe("0099-01-01T00:00:00Z");
+    expect(formatInstantInZone(new Date("0050-06-15T00:00:00Z"), "Asia/Tokyo")).toMatch(/^0050-06-15T/);
   });
 
   it("falls back to UTC for a historical offset that is not a whole minute", () => {
